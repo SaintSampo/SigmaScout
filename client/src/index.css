@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0f172a; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+}
+
+@layer utilities {
+  .gradient-red  { background: linear-gradient(90deg, #7f1d1d 0%, #991b1b 100%); }
+  .gradient-blue { background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 100%); }
+  .badge { @apply text-xs font-semibold px-2 py-0.5 rounded-full; }
+}

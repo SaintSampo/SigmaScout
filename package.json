@@ -1,0 +1,12 @@
+{
+  "name": "sigmascout",
+  "version": "1.0.0",
+  "description": "SigmaScout FRC prediction platform — root workspace",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
