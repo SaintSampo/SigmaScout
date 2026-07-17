@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node -e ' *)",
-      "Bash(dir \"c:\\\\Users\\\\Jacob\\\\Documents\\\\GitHub\\\\SigmaScout\\\\server\\\\cache\")"
+      "Bash(dir \"c:\\\\Users\\\\Jacob\\\\Documents\\\\GitHub\\\\SigmaScout\\\\server\\\\cache\")",
+      "Bash(node --env-file=.env ./_rp.mts)"
     ]
   }
 }

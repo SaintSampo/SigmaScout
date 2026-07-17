@@ -1,0 +1,52 @@
+name: Build & deploy to GitHub Pages
+
+# Deploys via the Actions-based Pages source (not a branch), so generated data
+# artifacts never get committed and the git history stays clean.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # Later: a `schedule:` trigger here can refresh FRC data every ~30 min by
+  # running `npm run pipeline` before the build. (GitHub cron can be delayed and
+  # auto-disables after 60 days of repo inactivity — fine for this use.)
+  # schedule:
+  #   - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish; queue at most one more.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # When data collection is wired up, uncomment to refresh artifacts:
+      # - run: npm run pipeline
+      #   env:
+      #     FIRST_API_KEY: ${{ secrets.FIRST_API_KEY }}
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
