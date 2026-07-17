@@ -290,6 +290,8 @@ export interface EventData {
   elimMatches: MatchRecord[];
   alliances: AllianceSelection[];
   rankings: RankingRow[];
+  /** Walk-forward prediction accuracy across the whole season (%), for context. */
+  seasonAccuracy: number;
 }
 
 /** One row in the events directory. */

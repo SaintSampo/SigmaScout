@@ -266,8 +266,21 @@ async function main() {
     `  wrote ${index.length} team files + index + ${events.length} events for ${season}.`,
   );
 
+  // Season-wide walk-forward prediction accuracy (winner called correctly),
+  // shown on event pages for context.
+  let correct = 0;
+  let total = 0;
+  for (const r of records) {
+    if (r.redActual === undefined || r.blueActual === undefined) continue;
+    if (r.redActual === r.blueActual) continue;
+    if (r.prediction.redWinProb > 0.5 === r.redActual > r.blueActual) correct++;
+    total++;
+  }
+  const seasonAccuracy = total ? (correct / total) * 100 : 0;
+  console.log(`  season prediction accuracy: ${seasonAccuracy.toFixed(1)}% (${correct}/${total})`);
+
   // Per-event pages: reuse this fit's match predictions + ratings.
-  await buildEventFiles(season, records, state, events, names, DATA_DIR);
+  await buildEventFiles(season, records, state, events, names, DATA_DIR, seasonAccuracy);
 }
 
 main().catch((e) => {

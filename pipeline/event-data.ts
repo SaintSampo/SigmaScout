@@ -49,6 +49,7 @@ export async function buildEventFiles(
   events: EventInfo[],
   names: Map<number, string>,
   dataDir: string,
+  seasonAccuracy: number,
 ): Promise<void> {
   const stateByTeam = new Map(state.teams.map((t) => [t.team, t]));
   const eventByKey = new Map(events.map((e) => [e.key, e]));
@@ -121,6 +122,7 @@ export async function buildEventFiles(
       elimMatches,
       alliances: extra.alliances,
       rankings: extra.rankings,
+      seasonAccuracy,
     };
     const full = resolve(dataDir, `events/${season}/${ek}.json`);
     await mkdir(dirname(full), { recursive: true });

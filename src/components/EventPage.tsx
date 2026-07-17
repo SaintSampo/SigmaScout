@@ -92,18 +92,22 @@ export function EventPage({ season, data, rpModel }: Props) {
       )}
       {tab === "sim" && <Simulation data={data} season={season} rpModel={rpModel} nameOf={nameOf} />}
 
-      <EventAccuracy data={data} />
+      <EventAccuracy data={data} season={season} />
     </div>
   );
 }
 
-function EventAccuracy({ data }: { data: EventData }) {
+function EventAccuracy({ data, season }: { data: EventData; season: number }) {
   const acc = predictionAccuracy([...data.qualMatches, ...data.elimMatches]);
-  if (acc.total === 0) return null;
   return (
     <p className="pred-accuracy">
-      Model correctly predicted <strong>{acc.pct.toFixed(0)}%</strong> of this event's
-      matches ({acc.correct}/{acc.total})
+      {acc.total > 0 && (
+        <>
+          Model correctly predicted <strong>{acc.pct.toFixed(0)}%</strong> of this
+          event's matches ({acc.correct}/{acc.total}) ·{" "}
+        </>
+      )}
+      <strong>{data.seasonAccuracy.toFixed(0)}%</strong> across the {season} season
     </p>
   );
 }
