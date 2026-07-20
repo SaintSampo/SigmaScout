@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import type { SeasonModelView } from "../core/inference";
 import { AllianceSelect } from "./AllianceSelect";
+import { formatProbability } from "../lib/format";
 
 interface Props {
   view: SeasonModelView;
 }
 
-const pct = (p: number) => `${(p * 100).toFixed(1)}%`;
+const pct = formatProbability;
 const num = (n: number) => n.toFixed(1);
 
 /** Live, client-side match prediction from shipped model state. */

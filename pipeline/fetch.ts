@@ -90,6 +90,11 @@ interface TbaMatch {
 }
 
 const teamNum = (key: string) => Number(key.replace("frc", ""));
+// Standard single-robot key, e.g. "frc254". Offseason multi-robot entries like
+// "frc254B"/"frc498E" are a different robot and don't fit the integer-team model,
+// so matches containing them are excluded.
+const isStandardTeam = (key: string) => /^frc\d+$/.test(key);
+const allStandard = (keys: string[]) => keys.every(isStandardTeam);
 
 interface TbaEvent {
   key: string;
@@ -141,7 +146,13 @@ export interface ScheduleEntry {
 export async function fetchEventSchedule(eventKey: string): Promise<ScheduleEntry[]> {
   const matches = await tbaGet<TbaMatch[]>(`/event/${eventKey}/matches`);
   return matches
-    .filter((m) => m.alliances.red.team_keys.length === 3 && m.alliances.blue.team_keys.length === 3)
+    .filter(
+      (m) =>
+        m.alliances.red.team_keys.length === 3 &&
+        m.alliances.blue.team_keys.length === 3 &&
+        allStandard(m.alliances.red.team_keys) &&
+        allStandard(m.alliances.blue.team_keys),
+    )
     .map((m) => ({
       key: m.key,
       compLevel: m.comp_level,
@@ -195,7 +206,7 @@ export async function fetchEventAlliances(
   if (!data) return [];
   return data.map((a, i) => ({
     number: i + 1,
-    picks: a.picks.map(teamNum),
+    picks: a.picks.filter(isStandardTeam).map(teamNum),
   }));
 }
 
@@ -358,6 +369,56 @@ export async function fetchSeasonMatches(
   return matches;
 }
 
+/** Map one raw TBA match to an ObservedMatch, or null if it should be skipped
+ *  (unplayed, or an offseason B-team / multi-robot entry). */
+function toObserved(
+  season: Season,
+  m: TbaMatch,
+  decompose: Decomposer,
+  bonusFlags: (bd: Record<string, number | boolean>) => boolean[],
+): ObservedMatch | null {
+  if (!m.score_breakdown) return null;
+  if (!allStandard(m.alliances.red.team_keys) || !allStandard(m.alliances.blue.team_keys))
+    return null;
+  return {
+    season,
+    eventKey: m.event_key,
+    key: m.key,
+    compLevel: m.comp_level,
+    matchNumber: m.match_number,
+    setNumber: m.set_number,
+    playedAt: playedAtIso(m),
+    redTeams: m.alliances.red.team_keys.map(teamNum),
+    blueTeams: m.alliances.blue.team_keys.map(teamNum),
+    redByComponent: decompose(m.score_breakdown.red),
+    blueByComponent: decompose(m.score_breakdown.blue),
+    redScore: m.alliances.red.score,
+    blueScore: m.alliances.blue.score,
+    redRp: num(m.score_breakdown.red.rp),
+    blueRp: num(m.score_breakdown.blue.rp),
+    redBonuses: bonusFlags(m.score_breakdown.red),
+    blueBonuses: bonusFlags(m.score_breakdown.blue),
+  };
+}
+
+/** Fetch + decompose the played matches for a SINGLE event (incremental updates). */
+export async function fetchEventObservedMatches(
+  season: Season,
+  eventKey: string,
+): Promise<ObservedMatch[]> {
+  const decomposer = DECOMPOSERS[season];
+  if (!decomposer) throw new Error(`No decomposer defined for season ${season} yet.`);
+  const bonusFlags = bonusFlagsFor(season);
+  const raw = await tbaGet<TbaMatch[]>(`/event/${eventKey}/matches`);
+  const out: ObservedMatch[] = [];
+  for (const m of raw) {
+    const obs = toObserved(season, m, decomposer.fn, bonusFlags);
+    if (obs) out.push(obs);
+  }
+  out.sort((a, b) => a.playedAt.localeCompare(b.playedAt));
+  return out;
+}
+
 async function fetchSeasonMatchesFromNetwork(season: Season): Promise<ObservedMatch[]> {
   const decomposer = DECOMPOSERS[season];
   if (!decomposer) throw new Error(`No decomposer defined for season ${season} yet.`);
@@ -377,26 +438,8 @@ async function fetchSeasonMatchesFromNetwork(season: Season): Promise<ObservedMa
     );
     for (const matches of results) {
       for (const m of matches) {
-        if (!m.score_breakdown) continue; // unplayed
-        out.push({
-          season,
-          eventKey: m.event_key,
-          key: m.key,
-          compLevel: m.comp_level,
-          matchNumber: m.match_number,
-          setNumber: m.set_number,
-          playedAt: playedAtIso(m),
-          redTeams: m.alliances.red.team_keys.map(teamNum),
-          blueTeams: m.alliances.blue.team_keys.map(teamNum),
-          redByComponent: decomposer.fn(m.score_breakdown.red),
-          blueByComponent: decomposer.fn(m.score_breakdown.blue),
-          redScore: m.alliances.red.score,
-          blueScore: m.alliances.blue.score,
-          redRp: num(m.score_breakdown.red.rp),
-          blueRp: num(m.score_breakdown.blue.rp),
-          redBonuses: bonusFlags(m.score_breakdown.red),
-          blueBonuses: bonusFlags(m.score_breakdown.blue),
-        });
+        const obs = toObserved(season, m, decomposer.fn, bonusFlags);
+        if (obs) out.push(obs);
       }
     }
     done += batch.length;

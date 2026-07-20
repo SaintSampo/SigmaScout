@@ -50,6 +50,9 @@ export async function buildEventFiles(
   names: Map<number, string>,
   dataDir: string,
   seasonAccuracy: number,
+  /** When given, only these events are re-emitted (and the events index is left
+   *  alone) — used by the incremental updater for live events. */
+  onlyEvents?: string[],
 ): Promise<void> {
   const stateByTeam = new Map(state.teams.map((t) => [t.team, t]));
   const eventByKey = new Map(events.map((e) => [e.key, e]));
@@ -59,9 +62,10 @@ export async function buildEventFiles(
   // Played match records, keyed by match key.
   const recordByKey = new Map(records.map((r) => [r.key, r]));
 
-  // Every event that has played matches (this covers live offseason events like IRI).
-  const eventKeys = [...new Set(records.map((r) => r.event))];
-  console.log(`  fetching schedule + rankings + alliances for ${eventKeys.length} events…`);
+  // Every event that has played matches (this covers live offseason events like
+  // IRI) — or just the requested subset when updating incrementally.
+  const eventKeys = onlyEvents ?? [...new Set(records.map((r) => r.event))];
+  console.log(`  fetching schedule + rankings + alliances for ${eventKeys.length} event(s)…`);
 
   const extras = await mapLimit(eventKeys, 8, async (ek) => ({
     ek,
@@ -138,6 +142,12 @@ export async function buildEventFiles(
         startDate: info.startDate,
       });
     }
+  }
+
+  // A partial (incremental) run must not rewrite the directory from a subset.
+  if (onlyEvents) {
+    console.log(`  wrote ${eventKeys.length} event file(s).`);
+    return;
   }
 
   index.sort(

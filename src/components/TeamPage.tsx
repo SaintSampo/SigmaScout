@@ -2,12 +2,13 @@ import { useMemo } from "react";
 import type { MatchRecord, TeamKey, TeamSeasonData } from "../core/types";
 import { href } from "../lib/router";
 import { predictionAccuracy } from "../lib/metrics";
+import { formatProbability } from "../lib/format";
 
 interface Props {
   data: TeamSeasonData;
 }
 
-const pct = (p: number) => `${Math.round(p * 100)}%`;
+const pct = formatProbability;
 const compLabel = (m: MatchRecord) =>
   `${m.compLevel.toUpperCase()}${m.compLevel === "qm" ? "" : `${m.setNumber}-`}${m.matchNumber}`;
 

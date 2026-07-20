@@ -10,6 +10,7 @@ import { simulateEvent } from "../core/simulate";
 import { href } from "../lib/router";
 import { predictionAccuracy } from "../lib/metrics";
 import { strengthOfSchedule } from "../lib/sos";
+import { formatProbability } from "../lib/format";
 
 interface Props {
   season: number;
@@ -295,6 +296,12 @@ function MatchList({
           {matches.map((m) => {
             const redWon = m.played && (m.redActual ?? 0) > (m.blueActual ?? 0);
             const blueWon = m.played && (m.blueActual ?? 0) > (m.redActual ?? 0);
+            const tie = m.played && m.redActual === m.blueActual;
+            // Did the pre-match prediction call the winner?
+            const correct =
+              m.played && !tie
+                ? m.prediction.redWinProb > 0.5 === redWon
+                : null;
             return (
               <tr key={m.key}>
                 <td className="muted-cell">{label(m)}</td>
@@ -316,7 +323,7 @@ function MatchList({
                 </td>
                 <td>
                   <span className="predwin">
-                    {Math.round(m.prediction.redWinProb * 100)}%
+                    {formatProbability(m.prediction.redWinProb)}
                   </span>
                   <span className="predscore">
                     {m.prediction.redScore.toFixed(0)}–{m.prediction.blueScore.toFixed(0)}
@@ -324,8 +331,15 @@ function MatchList({
                 </td>
                 <td>
                   {m.played ? (
-                    <span className="score">
-                      {m.redActual}–{m.blueActual}
+                    <span className="result">
+                      <span className="score">
+                        {m.redActual}–{m.blueActual}
+                      </span>
+                      {correct !== null && (
+                        <span className={correct ? "tick ok" : "tick bad"}>
+                          {correct ? "✓" : "✗"}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="muted">upcoming</span>
@@ -509,7 +523,7 @@ function Simulation({
                 <td className="muted-cell">
                   {r.p5Rank}–{r.p95Rank}
                 </td>
-                <td>{(r.pRank1 * 100).toFixed(0)}%</td>
+                <td>{formatProbability(r.pRank1)}</td>
                 <td>
                   <OddsBar p={r.pTop8} />
                 </td>
@@ -527,7 +541,7 @@ function OddsBar({ p }: { p: number }) {
   return (
     <span className="odds">
       <span className="odds-fill" style={{ width: `${Math.round(p * 100)}%` }} />
-      <span className="odds-label">{(p * 100).toFixed(0)}%</span>
+      <span className="odds-label">{formatProbability(p)}</span>
     </span>
   );
 }

@@ -13,7 +13,8 @@
     "eval": "tsx pipeline/evaluate.ts",
     "eval:carry": "tsx pipeline/evaluate-carryover.ts",
     "site": "tsx pipeline/site-data.ts",
-    "rp": "tsx pipeline/build-rp.ts"
+    "rp": "tsx pipeline/build-rp.ts",
+    "update": "tsx pipeline/incremental.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
