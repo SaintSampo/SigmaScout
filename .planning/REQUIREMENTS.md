@@ -1,0 +1,110 @@
+# Requirements: SigmaScout
+
+**Defined:** 2026-08-12
+**Core Value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
+
+## v1 Requirements
+
+Requirements for initial release. Each maps to roadmap phases.
+
+### Evaluation Harness
+
+- [ ] **EVAL-01**: Harness replays any 2022–2026 season walk-forward, with every prediction made strictly before that match's outcome is folded into the model (predict-before-update), for every algorithm
+- [ ] **EVAL-02**: Harness reports Brier score and winner accuracy per algorithm per season
+- [ ] **EVAL-03**: Harness produces calibration curves per algorithm (predicted probability vs observed frequency)
+- [ ] **EVAL-04**: Hyperparameter tuning uses an explicit tune/holdout season split; headline accuracy claims come from holdout seasons only
+- [ ] **EVAL-05**: Harness results are published as a versioned artifact — the Compare page displays the same numbers the offline harness produced
+
+### Data Pipeline
+
+- [ ] **DATA-01**: Pipeline ingests TBA API v3 teams, events, and matches for 2022–2026 using ETag conditional requests
+- [ ] **DATA-02**: Pipeline correctly handles TBA data quirks: surrogate matches, match replays, missing score breakdowns, and offseason events (excluded or flagged, never silently ingested)
+- [ ] **DATA-03**: Full-season precompute runs offline and publishes compact, versioned artifacts that the site reads — no server-side or client-side recomputation per request
+- [ ] **DATA-04**: During active events, new match results are reflected on the site within ~1–3 minutes via an incremental update path
+- [ ] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits
+
+### Algorithms
+
+- [ ] **ALGO-01**: OPR is computed per team per season as a no-variance baseline
+- [ ] **ALGO-02**: EPA is reimplemented from TBA data and runs walk-forward at any point in a season
+- [ ] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
+- [ ] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
+- [ ] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
+- [ ] **ALGO-06**: Algorithm versions are first-class in the data model: the site can display metrics and predictions from any past algorithm version unchanged
+- [ ] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
+- [ ] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
+
+### Teams
+
+- [ ] **TEAM-01**: User can view all teams for the selected year ranked by the selected algorithm's metric, with columns: team number, name, rank, metric(s), record, win rate
+- [ ] **TEAM-02**: User can open a team page showing team name, robot image for that year, and a link to the team's TBA page
+- [ ] **TEAM-03**: Team page shows current season stats: record, win rate, and metrics
+- [ ] **TEAM-04**: Team page shows a section per attended/upcoming event; finished events show metrics as captured at the moment the event ended
+- [ ] **TEAM-05**: Each event section lists that team's matches with both alliances' teams, predicted winner, confidence, predicted scores, predicted RP ± variance, actual scores, and actual RP
+- [ ] **TEAM-06**: Team page has a second tab plotting the team's metrics over the season with matches on the x-axis, including a variance band for Sigma metrics
+
+### Events
+
+- [ ] **EVNT-01**: User can view all events for the selected year, sortable/filterable by week, country, state, and district
+- [ ] **EVNT-02**: Event Insights tab ranks the event's teams with the same columns as the Teams page
+- [ ] **EVNT-03**: Event Breakdown tab shows score-component breakdowns for the event's teams
+- [ ] **EVNT-04**: Event Quals tab lists qualification matches with predictions vs actuals
+- [ ] **EVNT-05**: Event Alliances tab shows each alliance's combined metrics
+- [ ] **EVNT-06**: Event Elims tab lists elimination matches with predictions vs actuals
+- [ ] **EVNT-07**: Simulation tab: user picks a start match; the remaining qual matches are simulated 1000× using predicted winners, confidence, and RP ± variance, producing a predicted rank distribution per team
+
+### Compare
+
+- [ ] **COMP-01**: User can view a table of prediction accuracy (winner accuracy and Brier score) for each algorithm, per year
+
+### Navigation & UI
+
+- [ ] **NAV-01**: Top ribbon navigates to Teams, Events, and Compare
+- [ ] **NAV-02**: Prominent global dropdowns select the prediction algorithm and the year, re-slicing every page
+- [ ] **NAV-03**: Search bar finds teams and events
+- [ ] **NAV-04**: All pages are usable on mobile and desktop
+- [ ] **NAV-05**: URLs are deep-linkable: year, algorithm, and current team/event view are encoded in the shareable URL
+- [ ] **NAV-06**: Pages render from precomputed artifacts with fast load as the top priority — no season statistics are recomputed in the browser
+
+## v2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Enhancements
+
+- **ENH-01**: "Last updated X ago" freshness indicator, added once the live pipeline is proven during a real event
+- **ENH-02**: Side-by-side UI comparison of Sigma algorithm versions (data model already supports it)
+- **ENH-03**: Sigma2+ iterations, viewable and comparable alongside Sigma1
+- **ENH-04**: Seasons before 2022
+
+## Out of Scope
+
+Explicitly excluded. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Client-side / per-request season recomputation | Statbotics' known weak point and a logged prior failure; precompute-everything is a core architectural decision |
+| User accounts / favorites / personalization | No connection to core value; deep-linkable URLs cover sharing/bookmarking without auth surface |
+| Scouting data collection (pit/match scouting forms) | Different product category; would double scope and dilute the predictor focus |
+| Interactive team map | Browsing novelty, off core value; geography served by event filters |
+| In-match live telemetry / sub-minute tickers | TBA provides no sub-match data; beyond freshness target and free-tier budget |
+| User-definable custom rating models | Massive validation surface; conflicts with versioned, harness-tuned algorithm design |
+| Paid infrastructure | Cloudflare free tiers only — hobby project economics |
+| Porting pre-v3 code, models, or tuned values | Clean-slate mandate (REBUILD_SPEC.md); only the failure log carries over |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| (populated by roadmap) | | |
+
+**Coverage:**
+- v1 requirements: 34 total
+- Mapped to phases: 0
+- Unmapped: 34 ⚠️
+
+---
+*Requirements defined: 2026-08-12*
+*Last updated: 2026-08-12 after initial definition*
