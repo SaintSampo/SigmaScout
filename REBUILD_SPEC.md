@@ -1,25 +1,35 @@
 # SigmaScout Rebuild Spec (v3)
 
-Input document for `/gsd-new-project`. The current repo contents are the v2
-proof of concept — the algorithm works (beats Statbotics EPA on winner
-accuracy) but the site has too much technical debt. Tear it down and rebuild.
+Input document for `/gsd-new-project`.
+
+## Clean slate — read this first
+
+This is a **from-scratch rebuild**. Previous implementations of SigmaScout
+exist in this repo's git history (tagged `v2-poc`) but they are **not** to be
+consulted, ported, or used as a starting point — not the code, not the model,
+not its tuned parameter values. Design every part of v3 on its own merits. If
+independent reasoning arrives at conclusions similar to a past version, that
+is fine; inheriting them is not. The only thing carried forward is the failure
+log at the bottom of this document.
 
 ## Vision
 
 The absolute best FRC match-predicting website possible. Feel and information
 density comparable to statbotics.io, but faster: pages must load fast, and
 when new match data is available the site should update as fast as possible.
-Statbotics recalculates a team's whole EPA in the browser on page load — we
-precompute instead and ship compact static data (this is the one thing v2 got
-right; keep the pipeline → static JSON → Cloudflare Pages architecture).
+Statbotics recalculates a team's whole EPA in the browser on page load — do
+not do that. Precompute everything possible and ship compact data to the
+browser.
 
 ## Stack and constraints
 
 - React + Vite + Tailwind CSS. Mobile and desktop.
 - Hosted on Cloudflare Pages.
-- Live updating (v2 has an incremental updater in `pipeline/incremental.ts`;
-  v3 needs live updates surfaced in the UI).
-- Most modern web features. Compact and efficient. Top priority: page load speed.
+- Live updating: when new match results land, the site reflects them as fast
+  as possible.
+- Most modern web features. Compact and efficient. Top priority: page load
+  speed.
+- Match data source: The Blue Alliance API v3.
 
 ## App structure
 
@@ -35,24 +45,12 @@ Each algorithm produces "metrics" (e.g. OPR, EPA, Sigma ratings). OPR and EPA
 have no variance. All Sigma-family metrics model variance and display as
 `X ± Y` where Y is 1 standard deviation.
 
-There will be multiple iterations of the Sigma algorithm and the site must
-support viewing and comparing past versions side by side:
-
-- **Sigma0** — the v2 algorithm, kept as a frozen baseline. Per-team,
-  per-component Kalman filter over alliance score observations
-  (`pipeline/kalman.ts`), walk-forward (predict-before-update), with
-  cross-season carryover priors. Frozen hyperparameters (from
-  `pipeline/season-fit.ts`):
-  - `ALPHA = 0.01` — process noise Q = ALPHA × measurement noise R, per component
-  - `KAPPA = 0` — adaptive-gain strength (off)
-  - `RHO = 0.6` — cross-season carryover strength
-  - `eventGapInflation = 3.0` — extra variance kick at event boundaries
-  - `adaptDecay = 0.7` — EWMA decay for the drift tracker
-  - Prior mean/variance and measurement noise estimated per season from data
-    (`pipeline/priors.ts`)
-- **Sigma1** — first v3 iteration. Same model family, but hyperparameters are
-  **tuned and adjusted automatically** (auto-tuning harness), starting from
-  the Sigma0 values above.
+- **Sigma1** — the first Sigma algorithm of this rebuild: a Kalman-filter
+  approach with hyperparameters that are **tuned and adjusted automatically**
+  (an auto-tuning harness, not hand-picked constants).
+- There will be multiple future iterations (Sigma2, Sigma3, …). The site must
+  support viewing and comparing past algorithm versions side by side, so
+  algorithm versioning is a first-class concept in the data model.
 
 ### Teams page
 
@@ -91,14 +89,28 @@ Tabs: **Insights**, **Breakdown**, **Quals matches**, **Alliances**,
 
 Table of prediction accuracy per algorithm, per year.
 
-## Lessons carried forward (v1 + v2 retrospectives)
+## What didn't work before (failure log)
 
-- Evaluation first: Brier-scored, walk-forward backtests with a Statbotics
-  comparison must exist before model iteration ("measurably better than
-  Statbotics").
-- Predict-before-update sequencing everywhere; never leak the outcome.
-- Precompute; never recompute a season per page load.
-- Don't build unidentifiable models (v1's 4D EPA/defense/time model collapsed
-  because its only observable was allianceScore/3).
-- TBA API v3 with ETag caching worked well; keep it.
-- Keep README and docs in sync with the shipped model; write tests.
+These are the failures from prior attempts. They are constraints on v3, not
+designs to copy.
+
+- **No evaluation harness.** Model iteration happened with no Brier-scored
+  backtests and no head-to-head comparison against Statbotics. v3's goal is to
+  be *measurably* better than Statbotics — the measuring stick (walk-forward
+  backtests, proper scoring rules, Statbotics comparison) must exist before
+  model work begins, and it is also what automatic hyperparameter tuning
+  needs as its objective.
+- **Unidentifiable model.** A 4D per-team model (offense/defense/time
+  allocation) collapsed because its only observable was the alliance score —
+  the parameters could not be separately identified. Never give a model more
+  latent structure than its observations can pin down.
+- **Outcome leakage risk.** Prediction accuracy is only honest if every
+  prediction is made strictly before the outcome is folded in
+  (predict-before-update, walk-forward everywhere).
+- **Recompute-per-request architecture.** Recomputing a whole season's
+  statistics on page load (or per server request) made everything slow.
+- **Documentation drift and zero tests.** The README described a model that
+  had been deleted; nothing was tested. Docs must track the shipped model;
+  tests are not optional.
+- **Repo hygiene.** node_modules and cache directories were committed early
+  on; keep generated artifacts out of git deliberately.
