@@ -17,8 +17,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Data Pipeline
 
-- [ ] **DATA-01**: Pipeline ingests TBA API v3 teams, events, and matches for 2022–2026 using ETag conditional requests
-- [ ] **DATA-02**: Pipeline correctly handles TBA data quirks: surrogate matches, match replays, missing score breakdowns, and offseason events (excluded or flagged, never silently ingested)
+- [x] **DATA-01**: Pipeline ingests TBA API v3 teams, events, and matches for 2022–2026 using ETag conditional requests
+- [x] **DATA-02**: Pipeline correctly handles TBA data quirks: surrogate matches, match replays, missing score breakdowns, and offseason events (excluded or flagged, never silently ingested)
 - [ ] **DATA-03**: Full-season precompute runs offline and publishes compact, versioned artifacts that the site reads — no server-side or client-side recomputation per request
 - [ ] **DATA-04**: During active events, new match results are reflected on the site within ~1–3 minutes via an incremental update path
 - [ ] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits
@@ -103,8 +103,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-03 | Phase 1 | Pending |
 | EVAL-04 | Phase 1 | Pending |
 | EVAL-05 | Phase 8 | Pending |
-| DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 1 | Pending |
+| DATA-01 | Phase 1 | Complete |
+| DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 4 | Pending |
 | DATA-04 | Phase 4 | Pending |
 | DATA-05 | Phase 4 | Pending |
@@ -138,6 +138,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NAV-06 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 38 total (corrected from 34 during roadmap creation — original count miscounted the ALGO and EVNT sections)
 - Mapped to phases: 38
 - Unmapped: 0 ✓

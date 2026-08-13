@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 1
-current_phase_name: Data Foundation & Evaluation Harness
+current_phase: 01
+current_phase_name: data-foundation-evaluation-harness
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-08-13T03:32:33.268Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-13T04:04:04.936Z"
 last_activity: 2026-08-12
-last_activity_desc: Roadmap created, 38 v1 requirements mapped across 8 phases
+last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 1 — Data Foundation & Evaluation Harness
+**Current focus:** Phase 01 — data-foundation-evaluation-harness
 
 ## Current Position
 
-Phase: 1 of 8 (Data Foundation & Evaluation Harness)
-Plan: 0 of TBD in current phase
+Phase: 01 (data-foundation-evaluation-harness) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-08-12 — Roadmap created, 38 v1 requirements mapped across 8 phases
+Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 22min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -66,6 +71,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Predict-before-update is enforced structurally (shared pure-function core), verified by a test that outcome leakage fails rather than returns data.
 - [Roadmap]: No standalone polish phase — mobile, deep links, and load performance are success criteria inside the page-building phases.
 - [Roadmap]: EVAL-05 lands in Phase 8 with the Compare page, so "site numbers equal harness numbers" is verifiable end-to-end rather than on paper.
+- [Phase ?]: Renamed pre-existing .env key TBA_AUTH_KEY -> TBA_API_KEY to match every downstream Phase 1 plan's env var contract
+- [Phase ?]: TBA's computed per-match RP field is named 'rp' (not the 2016/2017-era 'tba_rpEarned') in all sampled 2022-2026 seasons -- Plan 03 can normalize RP as a direct field read
+- [Phase ?]: Statbotics /v3/year/{year} endpoint consistently 500s -- D-04's reference row will use a dated manual constant instead of a live fetch
 
 ### Pending Todos
 
@@ -92,6 +100,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T02:34:03.782Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-data-foundation-evaluation-harness/01-CONTEXT.md
+Last session: 2026-08-13T04:04:04.925Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
