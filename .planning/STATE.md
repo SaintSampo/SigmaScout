@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: data-foundation-evaluation-harness
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-08-13T04:04:04.936Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-08-13T04:19:10.946Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (data-foundation-evaluation-harness) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [██░░░░░░░░] 17%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 22min | 3 tasks | 9 files |
+| Phase 01 P02 | 15min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Renamed pre-existing .env key TBA_AUTH_KEY -> TBA_API_KEY to match every downstream Phase 1 plan's env var contract
 - [Phase ?]: TBA's computed per-match RP field is named 'rp' (not the 2016/2017-era 'tba_rpEarned') in all sampled 2022-2026 seasons -- Plan 03 can normalize RP as a direct field read
 - [Phase ?]: Statbotics /v3/year/{year} endpoint consistently 500s -- D-04's reference row will use a dated manual constant instead of a live fetch
+- [Phase ?]: Diff-on-upsert replay detection lives in packages/corpus/db.ts (not normalize.ts) since only the corpus layer sees a match's previously-stored score-bearing fields — TBA exposes no replay flag (RESEARCH.md Pitfall 1); the detector must compare against prior corpus state, which normalize.ts cannot see
+- [Phase ?]: packages/corpus/schema.sql scoped to events/matches/http_cache only (no teams table) for this tracer, matching the plan's explicit must_haves.artifacts list — RESEARCH.md's broader sketch included a teams table, but the plan's narrower explicit list is authoritative; can be added later without migration pain
 
 ### Pending Todos
 
@@ -100,6 +103,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T04:04:04.925Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-08-13T04:19:10.935Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
