@@ -10,9 +10,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Evaluation Harness
 
 - [ ] **EVAL-01**: Harness replays any 2022–2026 season walk-forward, with every prediction made strictly before that match's outcome is folded into the model (predict-before-update), for every algorithm
-- [ ] **EVAL-02**: Harness reports Brier score and winner accuracy per algorithm per season
-- [ ] **EVAL-03**: Harness produces calibration curves per algorithm (predicted probability vs observed frequency)
-- [ ] **EVAL-04**: Hyperparameter tuning uses an explicit tune/holdout season split; headline accuracy claims come from holdout seasons only
+- [x] **EVAL-02**: Harness reports Brier score and winner accuracy per algorithm per season
+- [x] **EVAL-03**: Harness produces calibration curves per algorithm (predicted probability vs observed frequency)
+- [x] **EVAL-04**: Hyperparameter tuning uses an explicit tune/holdout season split; headline accuracy claims come from holdout seasons only
 - [ ] **EVAL-05**: Harness results are published as a versioned artifact — the Compare page displays the same numbers the offline harness produced
 
 ### Data Pipeline
@@ -99,9 +99,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | EVAL-01 | Phase 1 | Pending |
-| EVAL-02 | Phase 1 | Pending |
-| EVAL-03 | Phase 1 | Pending |
-| EVAL-04 | Phase 1 | Pending |
+| EVAL-02 | Phase 1 | Complete |
+| EVAL-03 | Phase 1 | Complete |
+| EVAL-04 | Phase 1 | Complete |
 | EVAL-05 | Phase 8 | Pending |
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
