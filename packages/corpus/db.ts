@@ -4,10 +4,12 @@
  * replay detector (RESEARCH.md Pitfall 1): TBA exposes no "this match was
  * replayed" field, so a match already carrying a winner whose score-bearing
  * fields change on a later upsert is flagged `replayed = true` (D-08) while
- * only the final result is kept.
+ * only the final result is kept. `selectExistingMatch` exposes the
+ * previously-stored row standalone (Plan 03 Task 3's pure `detectReplay` in
+ * packages/ingest/normalize.ts reads it before every write).
  */
 import Database from "better-sqlite3";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
@@ -17,12 +19,76 @@ export type Corpus = InstanceType<typeof Database>;
 
 const SCHEMA_PATH = fileURLToPath(new URL("./schema.sql", import.meta.url));
 
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but we lack permission to signal it —
+    // still alive. Any other error (typically ESRCH) means it's gone.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Single-writer lock (T-01-08): a `<path>.lock` file records the owning
+ * PID. A second concurrent `openCorpus` on the same file fails fast with a
+ * readable message instead of interleaving writes into a half-built
+ * corpus. A lock file left behind by a crashed process (owning PID no
+ * longer alive) is treated as stale and reclaimed automatically, so an
+ * interrupted run can always be resumed.
+ */
+function acquireWriteLock(lockPath: string): void {
+  if (existsSync(lockPath)) {
+    const ownerPid = Number(readFileSync(lockPath, "utf8").trim());
+    if (Number.isFinite(ownerPid) && isProcessAlive(ownerPid)) {
+      throw new Error(
+        `Corpus is already open for writing by process ${ownerPid} (lock file: ${lockPath}). ` +
+          `Wait for it to finish, or delete the lock file if you are certain that process is gone.`
+      );
+    }
+    // Stale lock from a process that no longer exists — reclaim it.
+  }
+  writeFileSync(lockPath, String(process.pid), "utf8");
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
+  const lockPath = `${path}.lock`;
+  acquireWriteLock(lockPath);
+
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
+
+  const originalClose = db.close.bind(db);
+  db.close = function close(this: Corpus) {
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // Lock file already gone — nothing to clean up.
+    }
+    return originalClose();
+  } as Corpus["close"];
+
   return db;
+}
+
+export interface CorpusTeam {
+  teamKey: string;
+  teamNumber: number;
+  nickname: string | null;
+}
+
+export function upsertTeam(db: Corpus, team: CorpusTeam): void {
+  db.prepare(
+    `INSERT INTO teams (team_key, team_number, nickname)
+     VALUES (@teamKey, @teamNumber, @nickname)
+     ON CONFLICT(team_key) DO UPDATE SET
+       team_number = excluded.team_number,
+       nickname = excluded.nickname`
+  ).run({ teamKey: team.teamKey, teamNumber: team.teamNumber, nickname: team.nickname });
 }
 
 export function upsertEvent(db: Corpus, event: CorpusEvent): void {
@@ -43,41 +109,74 @@ export function upsertEvent(db: Corpus, event: CorpusEvent): void {
   });
 }
 
-interface ExistingScoreRow {
+export interface ExistingMatchScore {
+  winner: "red" | "blue" | "tie" | null;
+  redScore: number | null;
+  blueScore: number | null;
+  scoreBreakdownRaw: string | null;
+  replayed: boolean;
+  replayDetectedAt: string | null;
+}
+
+interface ExistingMatchScoreRow {
   winner: string | null;
   red_score: number | null;
   blue_score: number | null;
+  score_breakdown_raw: string | null;
   replayed: number;
+  replay_detected_at: string | null;
+}
+
+/** The currently-stored score-bearing fields for a match key, or undefined if never ingested. Task 3's replay detector reads this before every upsert. */
+export function selectExistingMatch(db: Corpus, matchKey: string): ExistingMatchScore | undefined {
+  const row = db
+    .prepare(
+      `SELECT winner, red_score, blue_score, score_breakdown_raw, replayed, replay_detected_at
+       FROM matches WHERE match_key = ?`
+    )
+    .get(matchKey) as ExistingMatchScoreRow | undefined;
+  if (row === undefined) return undefined;
+  return {
+    winner: row.winner as "red" | "blue" | "tie" | null,
+    redScore: row.red_score,
+    blueScore: row.blue_score,
+    scoreBreakdownRaw: row.score_breakdown_raw,
+    replayed: row.replayed === 1,
+    replayDetectedAt: row.replay_detected_at,
+  };
 }
 
 export function upsertMatch(db: Corpus, match: CorpusMatch): void {
-  const existing = db
-    .prepare(`SELECT winner, red_score, blue_score, replayed FROM matches WHERE match_key = ?`)
-    .get(match.matchKey) as ExistingScoreRow | undefined;
+  const existing = selectExistingMatch(db, match.matchKey);
 
   // A match already had a scored result AND the new upsert changes its
   // score-bearing fields while itself producing a scored result: this is
   // TBA silently overwriting a completed match's score, i.e. a replay.
-  const isReplay =
+  // Sticky: once flagged, a later unrelated upsert doesn't clear it.
+  const isNewReplay =
     existing !== undefined &&
     existing.winner !== null &&
     match.winner !== null &&
     (existing.winner !== match.winner ||
-      existing.red_score !== match.redScore ||
-      existing.blue_score !== match.blueScore);
-  const replayed = isReplay || existing?.replayed === 1;
+      existing.redScore !== match.redScore ||
+      existing.blueScore !== match.blueScore ||
+      existing.scoreBreakdownRaw !== match.scoreBreakdownRaw);
+  const replayed = isNewReplay || existing?.replayed === true;
+  const replayDetectedAt = isNewReplay
+    ? new Date().toISOString()
+    : (existing?.replayDetectedAt ?? null);
 
   db.prepare(
     `INSERT INTO matches (
        match_key, event_key, comp_level, match_number, set_number, sort_time,
        red_teams, blue_teams, red_surrogates, blue_surrogates, red_dqs, blue_dqs,
        winner, red_score, blue_score, red_rp_earned, blue_rp_earned,
-       has_score_breakdown, score_breakdown_raw, replayed
+       has_score_breakdown, score_breakdown_raw, replayed, replay_detected_at
      ) VALUES (
        @matchKey, @eventKey, @compLevel, @matchNumber, @setNumber, @sortTime,
        @redTeams, @blueTeams, @redSurrogates, @blueSurrogates, @redDqs, @blueDqs,
        @winner, @redScore, @blueScore, @redRpEarned, @blueRpEarned,
-       @hasScoreBreakdown, @scoreBreakdownRaw, @replayed
+       @hasScoreBreakdown, @scoreBreakdownRaw, @replayed, @replayDetectedAt
      )
      ON CONFLICT(match_key) DO UPDATE SET
        comp_level = excluded.comp_level,
@@ -97,7 +196,8 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
        blue_rp_earned = excluded.blue_rp_earned,
        has_score_breakdown = excluded.has_score_breakdown,
        score_breakdown_raw = excluded.score_breakdown_raw,
-       replayed = excluded.replayed`
+       replayed = excluded.replayed,
+       replay_detected_at = excluded.replay_detected_at`
   ).run({
     matchKey: match.matchKey,
     eventKey: match.eventKey,
@@ -119,6 +219,7 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
     hasScoreBreakdown: match.hasScoreBreakdown ? 1 : 0,
     scoreBreakdownRaw: match.scoreBreakdownRaw,
     replayed: replayed ? 1 : 0,
+    replayDetectedAt,
   });
 }
 
@@ -140,18 +241,66 @@ interface MatchRow {
   has_score_breakdown: number;
 }
 
-/** Only rows with a recorded winner (played matches) are returned — the walk-forward harness replays completed matches. */
-export function selectMatchesChronological(db: Corpus, eventKey: string): MatchResult[] {
+export interface ChronologicalQueryOptions {
+  /** Restrict to a single event. */
+  eventKey?: string;
+  /** Restrict to a single season. */
+  year?: number;
+  /** Drop matches belonging to an event flagged is_offseason (D-06's default for anything feeding ratings or scoring). */
+  excludeOffseason?: boolean;
+}
+
+/**
+ * Only rows with a recorded winner (played matches) are returned — the
+ * walk-forward harness replays completed matches.
+ *
+ * Sorting by `sort_time` alone is ambiguous: matches at concurrent events
+ * genuinely share timestamps, and TBA's `actual_time` is absent for some
+ * historical/offseason matches, so the fallback chain in normalize.ts
+ * produces collisions by construction. Ties are broken deterministically on
+ * event_key, then comp-level play order (qm, ef, qf, sf, f), then
+ * set_number, then match_number, making the chronological read a total
+ * order rather than an ambiguous one.
+ */
+export function selectMatchesChronological(
+  db: Corpus,
+  options: ChronologicalQueryOptions = {}
+): MatchResult[] {
+  const clauses: string[] = ["m.winner IS NOT NULL"];
+  const params: Record<string, string | number> = {};
+
+  if (options.eventKey !== undefined) {
+    clauses.push("m.event_key = @eventKey");
+    params["eventKey"] = options.eventKey;
+  }
+  if (options.year !== undefined) {
+    clauses.push("e.year = @year");
+    params["year"] = options.year;
+  }
+  if (options.excludeOffseason === true) {
+    clauses.push("e.is_offseason = 0");
+  }
+
   const rows = db
     .prepare(
-      `SELECT match_key, event_key, comp_level, match_number, set_number,
-              red_teams, blue_teams, red_surrogates, blue_surrogates,
-              winner, red_score, blue_score, red_rp_earned, blue_rp_earned, has_score_breakdown
-       FROM matches
-       WHERE event_key = ? AND winner IS NOT NULL
-       ORDER BY sort_time ASC`
+      `SELECT m.match_key, m.event_key, m.comp_level, m.match_number, m.set_number,
+              m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
+              m.winner, m.red_score, m.blue_score, m.red_rp_earned, m.blue_rp_earned,
+              m.has_score_breakdown
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY
+         m.sort_time ASC,
+         m.event_key ASC,
+         CASE m.comp_level
+           WHEN 'qm' THEN 0 WHEN 'ef' THEN 1 WHEN 'qf' THEN 2 WHEN 'sf' THEN 3 WHEN 'f' THEN 4
+           ELSE 5
+         END ASC,
+         m.set_number ASC,
+         m.match_number ASC`
     )
-    .all(eventKey) as MatchRow[];
+    .all(params) as MatchRow[];
 
   return rows.map((row) => ({
     matchKey: row.match_key,
@@ -184,4 +333,76 @@ export function writeEtag(db: Corpus, url: string, etag: string): void {
     `INSERT INTO http_cache (url, etag, fetched_at) VALUES (@url, @etag, @fetchedAt)
      ON CONFLICT(url) DO UPDATE SET etag = excluded.etag, fetched_at = excluded.fetched_at`
   ).run({ url, etag, fetchedAt: new Date().toISOString() });
+}
+
+export interface IngestRunRecord {
+  runId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  seasonStart: number;
+  seasonEnd: number;
+  requestCount: number;
+  cacheHitCount: number;
+  completed: boolean;
+}
+
+/**
+ * Upserts an ingest run's provenance row (T-01-06). Called once to start a
+ * run (completed: false, finishedAt: null), then again as progress is made
+ * and once more to mark completion — each call is durable immediately, so
+ * an interrupted process leaves an accurate, identifiable partial record
+ * rather than an all-or-nothing write.
+ */
+export function recordIngestRun(db: Corpus, run: IngestRunRecord): void {
+  db.prepare(
+    `INSERT INTO ingest_runs (
+       run_id, started_at, finished_at, season_start, season_end,
+       request_count, cache_hit_count, completed
+     ) VALUES (
+       @runId, @startedAt, @finishedAt, @seasonStart, @seasonEnd,
+       @requestCount, @cacheHitCount, @completed
+     )
+     ON CONFLICT(run_id) DO UPDATE SET
+       finished_at = excluded.finished_at,
+       request_count = excluded.request_count,
+       cache_hit_count = excluded.cache_hit_count,
+       completed = excluded.completed`
+  ).run({
+    runId: run.runId,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    seasonStart: run.seasonStart,
+    seasonEnd: run.seasonEnd,
+    requestCount: run.requestCount,
+    cacheHitCount: run.cacheHitCount,
+    completed: run.completed ? 1 : 0,
+  });
+}
+
+interface IngestRunRow {
+  run_id: string;
+  started_at: string;
+  finished_at: string | null;
+  season_start: number;
+  season_end: number;
+  request_count: number;
+  cache_hit_count: number;
+  completed: number;
+}
+
+/** Runs previously started but never marked complete — evidence of an interrupted process (T-01-06). */
+export function findIncompleteIngestRuns(db: Corpus): IngestRunRecord[] {
+  const rows = db
+    .prepare(`SELECT * FROM ingest_runs WHERE completed = 0 ORDER BY started_at ASC`)
+    .all() as IngestRunRow[];
+  return rows.map((row) => ({
+    runId: row.run_id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    seasonStart: row.season_start,
+    seasonEnd: row.season_end,
+    requestCount: row.request_count,
+    cacheHitCount: row.cache_hit_count,
+    completed: row.completed === 1,
+  }));
 }

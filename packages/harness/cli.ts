@@ -97,7 +97,7 @@ async function main(): Promise<void> {
       if (matchesFetch.etag) writeEtag(db, matchesUrl, matchesFetch.etag);
     }
 
-    const matches = selectMatchesChronological(db, eventKey);
+    const matches = selectMatchesChronological(db, { eventKey });
     if (matches.length === 0) {
       throw new Error(`No completed matches found in corpus for event ${eventKey}`);
     }

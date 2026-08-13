@@ -1,7 +1,12 @@
 -- SQLite corpus schema (D-05, DATA-02). Follows RESEARCH.md's "SQLite
--- corpus schema sketch", scoped to what Plan 02's tracer needs (events,
--- matches, http_cache — no teams table yet). Applied idempotently by
--- packages/corpus/db.ts's openCorpus().
+-- corpus schema sketch". Applied idempotently by packages/corpus/db.ts's
+-- openCorpus().
+
+CREATE TABLE IF NOT EXISTS teams (
+  team_key TEXT PRIMARY KEY,        -- e.g. "frc254"
+  team_number INTEGER NOT NULL,
+  nickname TEXT
+);
 
 CREATE TABLE IF NOT EXISTS events (
   event_key TEXT PRIMARY KEY,       -- e.g. "2024casj"
@@ -31,7 +36,8 @@ CREATE TABLE IF NOT EXISTS matches (
   blue_rp_earned INTEGER,
   has_score_breakdown INTEGER NOT NULL,  -- 0 if TBA omitted it (never coerce to 0-value fields)
   score_breakdown_raw TEXT,         -- exact TBA JSON, verbatim (D-05)
-  replayed INTEGER NOT NULL DEFAULT 0    -- synthesized flag (Pitfall 1 — TBA has no such field)
+  replayed INTEGER NOT NULL DEFAULT 0,   -- synthesized flag (Pitfall 1 — TBA has no such field)
+  replay_detected_at TEXT           -- ISO timestamp of the upsert that first detected the replay, NULL until then
 );
 
 CREATE INDEX IF NOT EXISTS idx_matches_sort_time ON matches(sort_time);
@@ -41,4 +47,18 @@ CREATE TABLE IF NOT EXISTS http_cache (
   url TEXT PRIMARY KEY,
   etag TEXT NOT NULL,
   fetched_at TEXT NOT NULL
+);
+
+-- Provenance for a single ingestion run (DATA-01/DATA-02): makes request
+-- volume against a third-party service measurable, and makes an
+-- interrupted run identifiable on the next start (completed = 0).
+CREATE TABLE IF NOT EXISTS ingest_runs (
+  run_id TEXT PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  season_start INTEGER NOT NULL,
+  season_end INTEGER NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  cache_hit_count INTEGER NOT NULL DEFAULT 0,  -- 304 responses
+  completed INTEGER NOT NULL DEFAULT 0
 );
