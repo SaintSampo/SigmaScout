@@ -362,6 +362,68 @@ describe("opr — surrogate appearances leave the surrogate's rating untouched",
   });
 });
 
+describe("opr.update — incremental solve matches solveRidgeOpr's from-scratch batch solve", () => {
+  it("produces ratings numerically equivalent to solving the accumulated observations from scratch (proves update()'s O(n^2) incremental Sherman-Morrison/RLS path is exact, not an approximation — see opr.ts's performance-note comment)", () => {
+    let state: OprState = opr.initState([]);
+    const matches: MatchResult[] = [
+      match({
+        matchKey: "2024a_qm1",
+        eventKey: "2024a",
+        redTeams: ["T1", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redScore: 40,
+        blueScore: 30,
+      }),
+      match({
+        matchKey: "2024a_qm2",
+        eventKey: "2024a",
+        redTeams: ["T1", "T4", "T7"],
+        blueTeams: ["T2", "T5", "T8"],
+        redScore: 55,
+        blueScore: 20,
+      }),
+      match({
+        matchKey: "2024b_qm1",
+        eventKey: "2024b",
+        redTeams: ["T9", "T10", "T3"],
+        blueTeams: ["T1", "T6", "T11"],
+        redScore: 45,
+        blueScore: 35,
+      }),
+      match({
+        matchKey: "2024b_qm2",
+        eventKey: "2024b",
+        redTeams: ["T2", "T9", "T12"],
+        redSurrogates: ["T9"],
+        blueTeams: ["T7", "T10", "T13"],
+        redScore: 60,
+        blueScore: 40,
+      }),
+      match({
+        matchKey: "2024c_qm1",
+        eventKey: "2024c",
+        redTeams: ["T14", "T15", "T16"],
+        blueTeams: ["T1", "T2", "T3"],
+        redScore: 25,
+        blueScore: 50,
+      }),
+    ];
+
+    for (const m of matches) {
+      state = opr.update(state, m);
+    }
+
+    const teamIndex = buildTeamIndex(state.observations);
+    const batchRatings = solveRidgeOpr(state.observations, teamIndex);
+
+    expect(state.ratings.size).toBe(batchRatings.size);
+    expect(state.ratings.size).toBeGreaterThan(0);
+    for (const [team, incrementalRating] of state.ratings) {
+      expect(incrementalRating).toBeCloseTo(batchRatings.get(team)!, 6);
+    }
+  });
+});
+
 describe("opr — disqualification policy (Open Question 3): opposite of surrogates", () => {
   it("a disqualified team's rating is updated from the match it was disqualified in — MatchResult carries no dq field, so a dq'd participant is indistinguishable from any other and keeps its column", () => {
     let state: OprState = opr.initState([]);
