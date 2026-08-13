@@ -69,11 +69,21 @@ export interface OprState {
  * accounted for — see `allianceObservation` — via a subtracted offset, not
  * simply discarded).
  *
- * Disqualified teams are deliberately NOT filtered here — see the
- * disqualification-policy comment on `allianceObservation`. `MatchResult`
- * carries no dq field at all, by design, so a disqualified team is
- * indistinguishable from any other participant to this function and keeps
- * its column exactly like a normal player.
+ * Disqualification policy (Open Question 3, RESEARCH.md — no locked
+ * decision covers this; deliberately the OPPOSITE policy from surrogates,
+ * see `allianceObservation` for the fuller reasoning): a disqualified team
+ * physically played the match and physically contributed to the alliance's
+ * score. A disqualification is a ranking-and-record ruling, not a
+ * statement that the robot was absent, and OPR models score contribution —
+ * so removing a disqualified team's column would misattribute its real
+ * contribution to its teammates. Disqualified teams are therefore
+ * deliberately NOT filtered here: `MatchResult` carries no dq field at all,
+ * by design, so a disqualified team is indistinguishable from any other
+ * participant to this function and keeps its column, with its rating
+ * updated, exactly like a normal player. Plan 03 stores
+ * `red_dqs`/`blue_dqs` in the corpus regardless, so reversing this call
+ * later is a one-line addition to this function's signature, not a data
+ * problem.
  */
 export function ratingEligibleTeams(
   teams: readonly string[],

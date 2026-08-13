@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 import {
   OPR_LOGISTIC_SCALE,
   OPR_RIDGE_LAMBDA,
+  allianceObservation,
   opr,
+  ratingEligibleTeams,
   solveRidgeOpr,
   type OprObservation,
   type OprState,
@@ -269,5 +271,118 @@ describe("opr — predict determinism and non-mutation", () => {
     expect(prediction.redScore).toBe(0);
     expect(prediction.blueScore).toBe(0);
     expect(prediction.pRedWin).toBe(0.5);
+  });
+});
+
+describe("ratingEligibleTeams / allianceObservation — D-07 surrogate handling", () => {
+  it("excludes the surrogate's column while keeping its non-surrogate teammates", () => {
+    expect(ratingEligibleTeams(["T1", "T2", "SURR"], ["SURR"])).toEqual(["T1", "T2"]);
+  });
+
+  it("computes the non-surrogate teammates' observed target as the alliance score minus the surrogate's current rating", () => {
+    const ratings = new Map([["SURR", 20]]);
+    const observation = allianceObservation(["T1", "T2", "SURR"], ["SURR"], 90, ratings, 15);
+    expect(observation.teams).toEqual(["T1", "T2"]);
+    expect(observation.allianceScore).toBe(90 - 20);
+  });
+
+  it("uses the league-mean per-team share as the offset for a surrogate with no prior rating, and does not throw", () => {
+    const ratings = new Map<string, number>();
+    expect(() => allianceObservation(["T1", "T2", "SURR"], ["SURR"], 90, ratings, 12)).not.toThrow();
+    const observation = allianceObservation(["T1", "T2", "SURR"], ["SURR"], 90, ratings, 12);
+    expect(observation.allianceScore).toBe(90 - 12);
+  });
+});
+
+describe("opr — surrogate appearances leave the surrogate's rating untouched", () => {
+  it("a team appearing as a surrogate in a later match has its rating unchanged by that match", () => {
+    let state: OprState = opr.initState([]);
+    // Match 1: T1 is a normal participant, earns a real rating.
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["T1", "P1", "P2"],
+        blueTeams: ["P3", "P4", "P5"],
+        redScore: 30,
+        blueScore: 27,
+      })
+    );
+    const ratingAfterMatch1 = state.ratings.get("T1");
+    expect(ratingAfterMatch1).toBeDefined();
+
+    // Match 2: T1 appears again, but only as a surrogate on a completely
+    // disjoint roster (no shared teams with match 1), so its rating should
+    // come out identical (its column is untouched by this new observation).
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventb_qm1",
+        eventKey: "2024eventb",
+        redTeams: ["T1", "P6", "P7"],
+        redSurrogates: ["T1"],
+        blueTeams: ["P8", "P9", "P10"],
+        redScore: 33,
+        blueScore: 29,
+      })
+    );
+
+    expect(state.ratings.get("T1")).toBeCloseTo(ratingAfterMatch1!, 6);
+  });
+
+  it("a team appearing normally in one match and as a surrogate in another accumulates exactly one observation, from the normal appearance", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["T1", "P1", "P2"],
+        blueTeams: ["P3", "P4", "P5"],
+        redScore: 30,
+        blueScore: 27,
+      })
+    );
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventb_qm1",
+        eventKey: "2024eventb",
+        redTeams: ["T1", "P6", "P7"],
+        redSurrogates: ["T1"],
+        blueTeams: ["P8", "P9", "P10"],
+        redScore: 33,
+        blueScore: 29,
+      })
+    );
+
+    const observationsForT1 = state.observations.filter((o) => o.teams.includes("T1"));
+    expect(observationsForT1.length).toBe(1);
+  });
+});
+
+describe("opr — disqualification policy (Open Question 3): opposite of surrogates", () => {
+  it("a disqualified team's rating is updated from the match it was disqualified in — MatchResult carries no dq field, so a dq'd participant is indistinguishable from any other and keeps its column", () => {
+    let state: OprState = opr.initState([]);
+    // "DQd" here means: the team physically played and appears in redTeams
+    // like any other participant — there is no dq flag on MatchResult to
+    // exclude it with (see allianceObservation's disqualification-policy
+    // comment). This proves the column is kept and the rating updates.
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["DQD_TEAM", "P1", "P2"],
+        blueTeams: ["P3", "P4", "P5"],
+        redScore: 30,
+        blueScore: 27,
+      })
+    );
+
+    expect(state.ratings.has("DQD_TEAM")).toBe(true);
+    const observationsForDq = state.observations.filter((o) => o.teams.includes("DQD_TEAM"));
+    expect(observationsForDq.length).toBe(1);
   });
 });
