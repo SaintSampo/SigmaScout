@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: data-foundation-evaluation-harness
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-08-13T04:51:25.612Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-08-13T05:04:11.481Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 01 (data-foundation-evaluation-harness) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P01 | 22min | 3 tasks | 9 files |
 | Phase 01 P02 | 15min | 2 tasks | 14 files |
 | Phase 01 P03 | 23min | 3 tasks | 11 files |
+| Phase 01 P04 | 12min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase ?]: detectReplay lives in normalize.ts as a pure sticky diff over score-bearing fields; db.ts's upsertMatch is the sole caller (reads the prior row via selectExistingMatch first) so no caller can bypass the check
 - [Phase ?]: teams-list pagination (fetchAllTeams) is deliberately un-conditional — a 304's bodyless response can't signal the terminal empty page, and teams-list is cheap relative to the match-payload volume ETag caching is meant to bound
 - [Phase ?]: Local dev corpus (data/corpus.sqlite, gitignored) predated this plan's new tables/columns and was deleted and rebuilt rather than migrated -- disposable by design, no ALTER-based migration path exists yet
+- [Phase ?]: D-07's surrogate-slot question resolved: a surrogate's column is excluded from OPR's design matrix, its current rating (or league-mean per-team share if ) is subtracted from its alliance's target score, and non-surrogate teammates keep a correctly-scaled observation
+- [Phase ?]: Disqualification policy (Open Question 3, no locked decision): opposite of surrogates -- a dq'd team's column and rating update are kept, since MatchResult carries no dq field and OPR models physical score contribution, not ranking rulings
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T04:51:25.601Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-08-13T05:04:03.162Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None

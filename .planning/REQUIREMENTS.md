@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Algorithms
 
-- [ ] **ALGO-01**: OPR is computed per team per season as a no-variance baseline
+- [x] **ALGO-01**: OPR is computed per team per season as a no-variance baseline
 - [ ] **ALGO-02**: EPA is reimplemented from TBA data and runs walk-forward at any point in a season
 - [ ] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
 - [ ] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
@@ -108,7 +108,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DATA-03 | Phase 4 | Pending |
 | DATA-04 | Phase 4 | Pending |
 | DATA-05 | Phase 4 | Pending |
-| ALGO-01 | Phase 1 | Pending |
+| ALGO-01 | Phase 1 | Complete |
 | ALGO-02 | Phase 2 | Pending |
 | ALGO-03 | Phase 2 | Pending |
 | ALGO-04 | Phase 3 | Pending |
