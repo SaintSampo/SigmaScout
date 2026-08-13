@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: data-foundation-evaluation-harness
-status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-08-13T16:16:30.988Z"
+status: verifying
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-08-13T19:23:29.848Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 01 (data-foundation-evaluation-harness) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-12 — Phase 01 execution started
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [████████░░] 83%
 | Phase 01 P03 | 23min | 3 tasks | 11 files |
 | Phase 01 P04 | 12min | 2 tasks | 4 files |
 | Phase 01 P05 | 40min | 3 tasks | 12 files |
+| Phase 01 P06 | 3h04m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Disqualification policy (Open Question 3, no locked decision): opposite of surrogates -- a dq'd team's column and rating update are kept, since MatchResult carries no dq field and OPR models physical score contribution, not ranking rulings
 - [Phase ?]: cli.ts rewired to score.ts/artifact.ts/statbotics.ts/report.ts's new module boundaries (blocking fix, single-event scope preserved for Plan 06 to widen) — Task 1/3's required export changes broke cli.ts's typecheck; fixing it matches exactly what Plan 06's read_first already expects to find
 - [Phase ?]: Statbotics fallback per-season accuracy constants are unverified best-available estimates, logged as an open stub in WINDOWS.md — Statbotics /v3/year/{year} reproducibly 500s (reconfirmed live 2026-08-13) and their blog renders numbers client-side from the same broken API — no way to source verified values from this offline pipeline
+- [Phase ?]: Fixed O(n^3)-per-match OPR solve (Plan 04) to O(n^2) incremental Sherman-Morrison/RLS after benchmarking real corpus scale (~3,700 teams/season) showed the original approach would need ~16 CPU-days/season — Task 2's own acceptance criteria required the real pnpm harness --seasons 2022-2026 command to complete; the fix is mathematically exact, proven by a new equivalence test against the untouched solveRidgeOpr
+- [Phase ?]: reports/ (harness default --out) added to .gitignore — Generated artifact was untracked-but-not-ignored, against the failure log's keep-generated-artifacts-out-of-git rule
 
 ### Pending Todos
 
@@ -113,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T16:16:30.977Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-08-13T19:23:29.834Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None

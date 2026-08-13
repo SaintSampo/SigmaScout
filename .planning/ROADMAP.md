@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A test proves outcome leakage is structurally impossible: any attempt to read a match's result before predicting it fails rather than returning data.
   5. The harness emits a calibration curve (predicted probability vs observed frequency) per algorithm per season, and reports headline accuracy only from seasons declared as holdout.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -56,7 +56,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-06-PLAN.md — Season-spanning walk-forward run across 2022–2026 and the published report
+- [x] 01-06-PLAN.md — Season-spanning walk-forward run across 2022–2026 and the published report
 
 ### Phase 2: Prediction Models — EPA & Sigma1
 
@@ -170,7 +170,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data Foundation & Evaluation Harness | 5/6 | In Progress|  |
+| 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
 | 2. Prediction Models — EPA & Sigma1 | 0/TBD | Not started | - |
 | 3. Tuning, Ranking Points & Versioning | 0/TBD | Not started | - |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
