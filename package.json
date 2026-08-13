@@ -1,0 +1,27 @@
+{
+  "name": "sigmascout",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify:native": "tsx scripts/verify-native-module.ts",
+    "recon:tba": "tsx scripts/recon-tba-fields.ts",
+    "ingest": "tsx packages/ingest/cli.ts",
+    "harness": "tsx packages/harness/cli.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "^24.0.0",
+    "ml-matrix": "6.15.0",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}
