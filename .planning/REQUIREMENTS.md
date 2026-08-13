@@ -98,13 +98,50 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmap) | | |
+| EVAL-01 | Phase 1 | Pending |
+| EVAL-02 | Phase 1 | Pending |
+| EVAL-03 | Phase 1 | Pending |
+| EVAL-04 | Phase 1 | Pending |
+| EVAL-05 | Phase 8 | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DATA-03 | Phase 4 | Pending |
+| DATA-04 | Phase 4 | Pending |
+| DATA-05 | Phase 4 | Pending |
+| ALGO-01 | Phase 1 | Pending |
+| ALGO-02 | Phase 2 | Pending |
+| ALGO-03 | Phase 2 | Pending |
+| ALGO-04 | Phase 3 | Pending |
+| ALGO-05 | Phase 3 | Pending |
+| ALGO-06 | Phase 3 | Pending |
+| ALGO-07 | Phase 2 | Pending |
+| ALGO-08 | Phase 3 | Pending |
+| TEAM-01 | Phase 5 | Pending |
+| TEAM-02 | Phase 6 | Pending |
+| TEAM-03 | Phase 6 | Pending |
+| TEAM-04 | Phase 6 | Pending |
+| TEAM-05 | Phase 6 | Pending |
+| TEAM-06 | Phase 6 | Pending |
+| EVNT-01 | Phase 5 | Pending |
+| EVNT-02 | Phase 7 | Pending |
+| EVNT-03 | Phase 7 | Pending |
+| EVNT-04 | Phase 7 | Pending |
+| EVNT-05 | Phase 7 | Pending |
+| EVNT-06 | Phase 7 | Pending |
+| EVNT-07 | Phase 8 | Pending |
+| COMP-01 | Phase 8 | Pending |
+| NAV-01 | Phase 5 | Pending |
+| NAV-02 | Phase 5 | Pending |
+| NAV-03 | Phase 5 | Pending |
+| NAV-04 | Phase 5 | Pending |
+| NAV-05 | Phase 5 | Pending |
+| NAV-06 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 34 total
-- Mapped to phases: 0
-- Unmapped: 34 ⚠️
+- v1 requirements: 38 total (corrected from 34 during roadmap creation — original count miscounted the ALGO and EVNT sections)
+- Mapped to phases: 38
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-12*
-*Last updated: 2026-08-12 after initial definition*
+*Last updated: 2026-08-12 after roadmap creation (traceability populated, coverage count corrected)*
