@@ -14,7 +14,6 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { AlgorithmModule } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
-import { scoreSet, type ScoredPrediction } from "../core/scoring/brier.js";
 import {
   openCorpus,
   readEtag,
@@ -26,9 +25,11 @@ import {
 import { tbaMatchListSchema, tbaEventSchema } from "../ingest/schemas.js";
 import { normalizeEvent, normalizeMatch } from "../ingest/normalize.js";
 import { tbaFetch } from "../ingest/tbaClient.js";
-import type { HarnessArtifact, PredictionArtifactRecord } from "./report.js";
-import { renderHtmlReport, writeArtifact } from "./report.js";
+import { buildArtifact, writeArtifact } from "./artifact.js";
+import { renderHtmlReport } from "./report.js";
 import { WalkForwardSimulator } from "./replay.js";
+import { aggregateScores, type HarnessPredictionInput } from "./score.js";
+import { statboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
 // (incompatible) state types S; each entry is internally type-safe.
@@ -102,54 +103,47 @@ async function main(): Promise<void> {
       throw new Error(`No completed matches found in corpus for event ${eventKey}`);
     }
 
+    const eventRowForOffseason = db
+      .prepare("SELECT is_offseason FROM events WHERE event_key = ?")
+      .get(eventKey) as { is_offseason: number } | undefined;
+    const isOffseason = eventRowForOffseason?.is_offseason === 1;
+
+    // The tracer/single-event CLI derives season from the event key's leading
+    // 4 digits (TBA's own convention, e.g. "2024casj"). Plan 06 widens this
+    // CLI to a --seasons range fed by packages/harness/replay.ts's
+    // buildSeasonStream; this single-event path only ever sees one season.
+    const season = Number.parseInt(eventKey.slice(0, 4), 10);
+    if (!Number.isInteger(season)) {
+      throw new Error(`Could not derive a season from event key ${eventKey} (expected a leading 4-digit year)`);
+    }
+
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
     const simulator = new WalkForwardSimulator(matches);
     const records = simulator.run(algorithm, teams);
 
-    const scored: ScoredPrediction[] = records.map((r) => ({
-      pRedWin: r.prediction.pRedWin,
-      actualWinner: r.match.winner,
-    }));
-    const scoreResult = scoreSet(scored);
-    if (scoreResult.brierScore === null || scoreResult.winnerAccuracy === null) {
-      // matches.length === 0 is already rejected above, so brierScore can only be
-      // null here if winnerAccuracy is also null for the same reason (every
-      // prediction was a tie or an exact-0.5 no-call) — fail loud rather than
-      // writing a fabricated zero into the artifact.
-      throw new Error(
-        `Unable to compute an aggregate score for ${eventKey}: every prediction was excluded ` +
-          `(tie or no-call) — no scorable winner-accuracy population.`
-      );
-    }
-
-    const predictions: PredictionArtifactRecord[] = records.map((r) => ({
+    const predictions: HarnessPredictionInput[] = records.map((r) => ({
       matchKey: r.match.matchKey,
+      season,
       compLevel: r.match.compLevel,
-      matchNumber: r.match.matchNumber,
-      setNumber: r.match.setNumber,
       pRedWin: r.prediction.pRedWin,
-      predictedWinner: r.prediction.winner,
       actualWinner: r.match.winner,
-      redScorePredicted: r.prediction.redScore,
-      blueScorePredicted: r.prediction.blueScore,
-      redScoreActual: r.match.redScore,
-      blueScoreActual: r.match.blueScore,
+      isOffseason,
+      isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
     }));
 
-    const artifact: HarnessArtifact = {
-      schemaVersion: 1,
+    const slices = aggregateScores(predictions);
+    const statboticsRef = await statboticsReference(season, {
+      cachePath: join("data", "statbotics-cache.json"),
+    });
+
+    const artifact = buildArtifact({
       algorithmId: algorithm.id,
       algorithmVersion: algorithm.version,
-      eventKey,
-      generatedAt: new Date().toISOString(),
-      predictions,
-      aggregate: {
-        brierScore: scoreResult.brierScore,
-        winnerAccuracy: scoreResult.winnerAccuracy,
-        n: scoreResult.count,
-      },
-    };
+      corpusIdentity: CORPUS_PATH,
+      slices,
+      statboticsReferences: [statboticsRef],
+    });
 
     const artifactPath = writeArtifact(outDir, artifact, apiKey);
 
