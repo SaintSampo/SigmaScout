@@ -1,0 +1,273 @@
+/**
+ * Synthetic-fixture tests for the season-pooled, ridge-regularized OPR
+ * baseline (RESEARCH.md Pattern 4, Pitfall 2). Every fixture here has a
+ * known answer or a provable structural property, so a failure points at
+ * the math, not at the corpus.
+ */
+import { describe, expect, it } from "vitest";
+import {
+  OPR_LOGISTIC_SCALE,
+  OPR_RIDGE_LAMBDA,
+  opr,
+  solveRidgeOpr,
+  type OprObservation,
+  type OprState,
+} from "./opr.js";
+import type { MatchResult, UpcomingMatch } from "./types.js";
+
+function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
+  return {
+    eventKey: overrides.matchKey.split("_")[0] ?? "2024test",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 1,
+    redTeams: [],
+    blueTeams: [],
+    redSurrogates: [],
+    blueSurrogates: [],
+    winner: "red",
+    redScore: 0,
+    blueScore: 0,
+    redRpEarned: null,
+    blueRpEarned: null,
+    hasScoreBreakdown: false,
+    ...overrides,
+  };
+}
+
+function buildTeamIndex(observations: readonly OprObservation[]): Map<string, number> {
+  const index = new Map<string, number>();
+  for (const obs of observations) {
+    for (const team of obs.teams) {
+      if (!index.has(team)) index.set(team, index.size);
+    }
+  }
+  return index;
+}
+
+describe("OPR_RIDGE_LAMBDA / OPR_LOGISTIC_SCALE", () => {
+  it("are exported positive constants", () => {
+    expect(OPR_RIDGE_LAMBDA).toBeGreaterThan(0);
+    expect(OPR_LOGISTIC_SCALE).toBeGreaterThan(0);
+  });
+});
+
+describe("solveRidgeOpr — synthetic strength recovery", () => {
+  it("recovers known synthetic team strengths within a documented tolerance", () => {
+    const strengths: Record<string, number> = {
+      T1: 20,
+      T2: 25,
+      T3: 15,
+      T4: 10,
+      T5: 30,
+      T6: 5,
+    };
+    const teams = Object.keys(strengths);
+    // Every 3-team combination scored as an exact sum of the true strengths
+    // (no noise) — enough independent, overlapping rows that ridge bias
+    // becomes small relative to the signal.
+    const alliances: string[][] = [
+      ["T1", "T2", "T3"],
+      ["T1", "T4", "T5"],
+      ["T2", "T4", "T6"],
+      ["T3", "T5", "T6"],
+      ["T1", "T3", "T6"],
+      ["T2", "T3", "T5"],
+      ["T1", "T2", "T6"],
+      ["T4", "T5", "T6"],
+      ["T1", "T4", "T6"],
+      ["T2", "T5", "T6"],
+      ["T1", "T3", "T5"],
+      ["T2", "T3", "T4"],
+    ];
+    const observations: OprObservation[] = alliances.map((allianceTeams) => ({
+      teams: allianceTeams,
+      allianceScore: allianceTeams.reduce((sum, t) => sum + strengths[t]!, 0),
+    }));
+    const teamIndex = buildTeamIndex(observations);
+    const ratings = solveRidgeOpr(observations, teamIndex);
+
+    for (const team of teams) {
+      expect(ratings.get(team)).toBeDefined();
+      // Documented tolerance: within 3 points of true strength (ridge bias
+      // at lambda=3 over 12 well-overlapping observations is small but
+      // non-zero by construction).
+      expect(Math.abs(ratings.get(team)! - strengths[team]!)).toBeLessThan(3);
+    }
+  });
+});
+
+describe("opr — cold start / under-determined regime", () => {
+  it("returns a finite rating for every team in a two-match, many-team system with more teams than independent observations", () => {
+    // 2 matches, 4 alliance observations, 12 unique teams that never repeat
+    // across alliances — massively rank-deficient without the ridge term.
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm2", redTeams: ["A7", "A8", "A9"], blueTeams: ["A10", "A11", "A12"], redScore: 40, blueScore: 35 })
+    );
+
+    const allTeams = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12"];
+    expect(state.ratings.size).toBe(12);
+    for (const team of allTeams) {
+      const rating = state.ratings.get(team);
+      expect(rating).toBeDefined();
+      expect(Number.isFinite(rating)).toBe(true);
+    }
+  });
+
+  it("keeps every rating between zero and the observed mean alliance score, demonstrating shrinkage toward the mean rather than divergence", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm2", redTeams: ["A7", "A8", "A9"], blueTeams: ["A10", "A11", "A12"], redScore: 40, blueScore: 35 })
+    );
+
+    const observedMean = (30 + 25 + 40 + 35) / 4;
+    for (const rating of state.ratings.values()) {
+      expect(rating).toBeGreaterThanOrEqual(0);
+      expect(rating).toBeLessThanOrEqual(observedMean);
+    }
+  });
+});
+
+describe("opr — season-scope pooling across events", () => {
+  it("gives a team that has played at two different events both events' observations in its rating as of a match at the second event", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["T1", "P1", "P2"],
+        blueTeams: ["P3", "P4", "P5"],
+        redScore: 30,
+        blueScore: 27,
+      })
+    );
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventb_qm1",
+        eventKey: "2024eventb",
+        redTeams: ["T1", "P6", "P7"],
+        blueTeams: ["P8", "P9", "P10"],
+        redScore: 33,
+        blueScore: 29,
+      })
+    );
+
+    const observationsForT1 = state.observations.filter((o) => o.teams.includes("T1"));
+    expect(observationsForT1.length).toBe(2);
+  });
+});
+
+describe("opr — update purity", () => {
+  it("returns a new state and leaves the input state structurally unchanged", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+    const beforeObservations = state.observations;
+    const beforeRatings = state.ratings;
+    const beforeObservationsSnapshot = JSON.stringify(state.observations);
+    const beforeRatingsSnapshot = JSON.stringify([...state.ratings.entries()]);
+
+    const nextState = opr.update(
+      state,
+      match({ matchKey: "2024test_qm2", redTeams: ["A7", "A8", "A9"], blueTeams: ["A10", "A11", "A12"], redScore: 20, blueScore: 22 })
+    );
+
+    // The input state's own properties still reference the exact same
+    // arrays/map — update() never mutated it in place.
+    expect(state.observations).toBe(beforeObservations);
+    expect(state.ratings).toBe(beforeRatings);
+    expect(JSON.stringify(state.observations)).toBe(beforeObservationsSnapshot);
+    expect(JSON.stringify([...state.ratings.entries()])).toBe(beforeRatingsSnapshot);
+
+    // The returned state is a genuinely different object.
+    expect(nextState).not.toBe(state);
+    expect(nextState.observations).not.toBe(state.observations);
+  });
+});
+
+describe("opr — predict determinism and non-mutation", () => {
+  it("returns equal predictions for the same state and match, and does not alter the state", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm2",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 2,
+      redTeams: ["A1", "A4", "A7"],
+      blueTeams: ["A2", "A5", "A8"],
+      redSurrogates: [],
+      blueSurrogates: [],
+    };
+    const beforeRatings = state.ratings;
+    const beforeObservations = state.observations;
+
+    const p1 = opr.predict(state, upcoming);
+    const p2 = opr.predict(state, upcoming);
+
+    expect(p1).toEqual(p2);
+    expect(state.ratings).toBe(beforeRatings);
+    expect(state.observations).toBe(beforeObservations);
+  });
+
+  it("returns a red-win probability strictly inside the open interval (0, 1) for any finite score pair", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 200, blueScore: 5 })
+    );
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm2",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 2,
+      redTeams: ["A1"],
+      blueTeams: ["A6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+    };
+    const prediction = opr.predict(state, upcoming);
+    expect(prediction.pRedWin).toBeGreaterThan(0);
+    expect(prediction.pRedWin).toBeLessThan(1);
+  });
+
+  it("gives a red-win probability of exactly 0.5 when the predicted score margin is zero", () => {
+    const state: OprState = opr.initState([]);
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm1",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 1,
+      redTeams: ["A1", "A2", "A3"],
+      blueTeams: ["A4", "A5", "A6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+    };
+    // No ratings yet — both alliances predict to 0, margin is exactly 0.
+    const prediction = opr.predict(state, upcoming);
+    expect(prediction.redScore).toBe(0);
+    expect(prediction.blueScore).toBe(0);
+    expect(prediction.pRedWin).toBe(0.5);
+  });
+});

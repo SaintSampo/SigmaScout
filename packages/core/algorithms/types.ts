@@ -19,10 +19,10 @@ export interface UpcomingMatch {
   compLevel: CompLevel;
   setNumber: number;
   matchNumber: number;
-  redTeams: string[];
-  blueTeams: string[];
-  redSurrogates: string[];
-  blueSurrogates: string[];
+  readonly redTeams: readonly string[];
+  readonly blueTeams: readonly string[];
+  readonly redSurrogates: readonly string[];
+  readonly blueSurrogates: readonly string[];
 }
 
 /** A completed match — the only place outcome fields exist. */
