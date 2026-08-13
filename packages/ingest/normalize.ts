@@ -12,9 +12,12 @@
  * - `sortTime` follows RESEARCH.md Pattern 3's fallback chain:
  *   actual_time, then predicted_time, then time, then a deterministic
  *   composite of event start date + comp-level play order + match number.
- * - The `replayed` flag (Pitfall 1 — TBA exposes no such field) is NOT set
- *   here; it is derived by `packages/corpus/db.ts`'s diff-on-upsert, which
- *   is the only place that can see the previously-stored row.
+ * - The `replayed` flag (Pitfall 1 — TBA exposes no such field) is computed
+ *   by `detectReplay` below, a pure diff over score-bearing fields. It is
+ *   invoked by `packages/corpus/db.ts`'s `upsertMatch`, the only place that
+ *   can see the previously-stored row — wiring it there (not leaving it to
+ *   each call site) means a caller cannot bypass the check by upserting
+ *   directly.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
@@ -122,4 +125,65 @@ export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusM
     hasScoreBreakdown,
     scoreBreakdownRaw: hasScoreBreakdown ? JSON.stringify(match.score_breakdown) : null,
   };
+}
+
+/** The score-bearing fields of a previously-stored match row — the shape `detectReplay` diffs against. */
+export interface ExistingMatchScoreFields {
+  winner: "red" | "blue" | "tie" | null;
+  redScore: number | null;
+  blueScore: number | null;
+  scoreBreakdownRaw: string | null;
+  replayed: boolean;
+  replayDetectedAt: string | null;
+}
+
+/** The score-bearing fields of an incoming (about to be upserted) match. */
+export interface IncomingMatchScoreFields {
+  winner: "red" | "blue" | "tie" | null;
+  redScore: number | null;
+  blueScore: number | null;
+  scoreBreakdownRaw: string | null;
+}
+
+export interface ReplayDetectionResult {
+  replayed: boolean;
+  replayDetectedAt: string | null;
+}
+
+/**
+ * TBA exposes no "this match was replayed" field (RESEARCH.md Pitfall 1),
+ * so D-08's flag is synthesized here by diffing an incoming upsert against
+ * the row already stored for that match key.
+ *
+ * A replay is detected only when the *previously stored* row was already
+ * complete (had a winner) AND the incoming winner/scores/raw breakdown
+ * differ from it. First-time scoring of a previously-incomplete match is
+ * never a replay. Once detected, the flag and its timestamp are sticky: a
+ * later unrelated upsert that doesn't itself change anything leaves both
+ * unchanged rather than clearing them.
+ */
+export function detectReplay(
+  existing: ExistingMatchScoreFields | undefined,
+  incoming: IncomingMatchScoreFields,
+  now: string
+): ReplayDetectionResult {
+  if (existing === undefined) {
+    return { replayed: false, replayDetectedAt: null };
+  }
+
+  const wasComplete = existing.winner !== null;
+  const scoreBearingFieldsChanged =
+    existing.winner !== incoming.winner ||
+    existing.redScore !== incoming.redScore ||
+    existing.blueScore !== incoming.blueScore ||
+    existing.scoreBreakdownRaw !== incoming.scoreBreakdownRaw;
+
+  const isNewReplay = wasComplete && incoming.winner !== null && scoreBearingFieldsChanged;
+  if (isNewReplay) {
+    return { replayed: true, replayDetectedAt: now };
+  }
+
+  // Sticky: this upsert didn't itself trigger a new replay, so carry
+  // forward whatever was already recorded (false/null if none ever was).
+  return { replayed: existing.replayed, replayDetectedAt: existing.replayDetectedAt };
 }

@@ -6,6 +6,23 @@
  */
 import { z } from "zod";
 
+/** `GET /status` — datafeed health, checked once at the start of a backfill run (Plan 03 Task 3). */
+export const tbaStatusSchema = z.object({
+  current_season: z.number(),
+  max_season: z.number(),
+  is_datafeed_down: z.boolean(),
+});
+export type TbaStatus = z.infer<typeof tbaStatusSchema>;
+
+/** `GET /team/{key}` and elements of `GET /teams/{year}/{page}`. */
+export const tbaTeamSchema = z.object({
+  key: z.string(),
+  team_number: z.number(),
+  nickname: z.string().nullable(),
+});
+export type TbaTeam = z.infer<typeof tbaTeamSchema>;
+export const tbaTeamListSchema = z.array(tbaTeamSchema);
+
 export const tbaEventSchema = z.object({
   key: z.string(),
   year: z.number(),
@@ -13,6 +30,9 @@ export const tbaEventSchema = z.object({
   start_date: z.string(),
 });
 export type TbaEvent = z.infer<typeof tbaEventSchema>;
+
+/** `GET /events/{year}` — bulk event list for a season. */
+export const tbaEventListSchema = z.array(tbaEventSchema);
 
 const tbaAllianceSchema = z.object({
   team_keys: z.array(z.string()),

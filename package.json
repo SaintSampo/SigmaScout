@@ -9,7 +9,7 @@
     "test": "vitest run",
     "verify:native": "tsx scripts/verify-native-module.ts",
     "recon:tba": "tsx --env-file=.env scripts/recon-tba-fields.ts",
-    "ingest": "tsx packages/ingest/cli.ts",
+    "ingest": "tsx --env-file=.env packages/ingest/cli.ts",
     "harness": "tsx --env-file=.env packages/harness/cli.ts"
   },
   "dependencies": {

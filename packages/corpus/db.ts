@@ -1,19 +1,26 @@
 /**
  * better-sqlite3 wrapper with typed queries (DATA-01/DATA-02). Applies
- * schema.sql idempotently, enables WAL, and implements the diff-on-upsert
+ * schema.sql idempotently, enables WAL, and wires the diff-on-upsert
  * replay detector (RESEARCH.md Pitfall 1): TBA exposes no "this match was
  * replayed" field, so a match already carrying a winner whose score-bearing
  * fields change on a later upsert is flagged `replayed = true` (D-08) while
- * only the final result is kept. `selectExistingMatch` exposes the
- * previously-stored row standalone (Plan 03 Task 3's pure `detectReplay` in
- * packages/ingest/normalize.ts reads it before every write).
+ * only the final result is kept. The diff itself (`detectReplay`) is a pure
+ * function in packages/ingest/normalize.ts; this module is the only place
+ * that can see the previously-stored row, so it reads that row and calls
+ * the pure detector before every write — a caller cannot bypass the check
+ * by upserting directly.
  */
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
-import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
+import {
+  detectReplay,
+  type CorpusEvent,
+  type CorpusMatch,
+  type ExistingMatchScoreFields,
+} from "../ingest/normalize.js";
 
 export type Corpus = InstanceType<typeof Database>;
 
@@ -109,14 +116,7 @@ export function upsertEvent(db: Corpus, event: CorpusEvent): void {
   });
 }
 
-export interface ExistingMatchScore {
-  winner: "red" | "blue" | "tie" | null;
-  redScore: number | null;
-  blueScore: number | null;
-  scoreBreakdownRaw: string | null;
-  replayed: boolean;
-  replayDetectedAt: string | null;
-}
+export type ExistingMatchScore = ExistingMatchScoreFields;
 
 interface ExistingMatchScoreRow {
   winner: string | null;
@@ -148,23 +148,16 @@ export function selectExistingMatch(db: Corpus, matchKey: string): ExistingMatch
 
 export function upsertMatch(db: Corpus, match: CorpusMatch): void {
   const existing = selectExistingMatch(db, match.matchKey);
-
-  // A match already had a scored result AND the new upsert changes its
-  // score-bearing fields while itself producing a scored result: this is
-  // TBA silently overwriting a completed match's score, i.e. a replay.
-  // Sticky: once flagged, a later unrelated upsert doesn't clear it.
-  const isNewReplay =
-    existing !== undefined &&
-    existing.winner !== null &&
-    match.winner !== null &&
-    (existing.winner !== match.winner ||
-      existing.redScore !== match.redScore ||
-      existing.blueScore !== match.blueScore ||
-      existing.scoreBreakdownRaw !== match.scoreBreakdownRaw);
-  const replayed = isNewReplay || existing?.replayed === true;
-  const replayDetectedAt = isNewReplay
-    ? new Date().toISOString()
-    : (existing?.replayDetectedAt ?? null);
+  const { replayed, replayDetectedAt } = detectReplay(
+    existing,
+    {
+      winner: match.winner,
+      redScore: match.redScore,
+      blueScore: match.blueScore,
+      scoreBreakdownRaw: match.scoreBreakdownRaw,
+    },
+    new Date().toISOString()
+  );
 
   db.prepare(
     `INSERT INTO matches (
