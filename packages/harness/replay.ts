@@ -8,6 +8,7 @@
  * ARCHITECTURE.md Pattern 1).
  */
 import type { AlgorithmModule, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import { selectMatchesChronological, type Corpus } from "../corpus/db.js";
 
 /**
  * Properties that exist on `MatchResult` but not `UpcomingMatch` — the
@@ -40,6 +41,47 @@ export interface PredictionRecord {
   prediction: Prediction;
 }
 
+/** Options for `buildSeasonStream`. */
+export interface SeasonStreamOptions {
+  /**
+   * Include matches from events flagged `is_offseason` (default: excluded,
+   * per D-06). Scoring (`aggregateScores`) always excludes offseason
+   * matches regardless of this flag — this only controls whether they are
+   * REPLAYED (fed through the algorithm's `predict`/`update`) at all.
+   * Phase 4 needs an offseason event replayable for its live-freshness
+   * test, so the capability must exist even though scoring never uses it
+   * by default.
+   */
+  includeOffseason?: boolean;
+}
+
+/**
+ * Builds the single chronological match list for a whole season, across
+ * every event in it, not one event at a time. Delegates ordering entirely
+ * to `selectMatchesChronological` (packages/corpus/db.ts) rather than
+ * re-sorting in memory, so exactly one definition of chronological order
+ * exists in the system: the same total order (sort_time, then event_key,
+ * then comp-level play order, then set_number, then match_number) Plan 03
+ * proved and this replay never has the chance to silently diverge from.
+ *
+ * This is what makes cross-event interleaving correct: two events running
+ * concurrently in real time contribute matches to a single merged stream
+ * ordered by when they were actually played, not grouped by event —
+ * replaying one event to completion before starting the next would let a
+ * team's rating reflect a concurrent event that had not finished yet in
+ * real time, a subtle form of the leakage this phase exists to eliminate.
+ */
+export function buildSeasonStream(
+  corpus: Corpus,
+  season: number,
+  options: SeasonStreamOptions = {}
+): MatchResult[] {
+  return selectMatchesChronological(corpus, {
+    year: season,
+    excludeOffseason: !options.includeOffseason,
+  });
+}
+
 export class WalkForwardSimulator {
   readonly #matches: readonly MatchResult[];
 
@@ -52,6 +94,13 @@ export class WalkForwardSimulator {
    * `predict` with a leak-proof wrapper, records the prediction, and only
    * then calls `update` with the real result. Nothing may reorder those
    * two calls, and the underlying array is never handed to algorithm code.
+   *
+   * Works identically whether `chronologicalMatches` is a single event's
+   * list or a whole season's `buildSeasonStream` output: `initState` is
+   * called exactly once, right here, and every match in the supplied list
+   * shares that one algorithm state through to the end of the run —
+   * season-scope pooling is a property of calling this once over the
+   * whole season's stream, not something this method needs to know about.
    */
   run<S>(algorithm: AlgorithmModule<S>, teams: readonly string[]): PredictionRecord[] {
     let state = algorithm.initState([...teams]);

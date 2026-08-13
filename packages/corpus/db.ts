@@ -82,6 +82,20 @@ export function openCorpus(path: string): Corpus {
   return db;
 }
 
+/**
+ * Opens the corpus for read-only access (T-01-13): no write lock is
+ * acquired (multiple readers, including one running alongside an open
+ * writer under WAL, are safe) and the schema is not (re-)applied — the
+ * corpus must already exist (`fileMustExist: true` gives a clear error
+ * rather than silently creating an empty file). A write attempted through
+ * this handle fails at the SQLite layer itself (`better-sqlite3`'s
+ * `readonly` mode), turning "the harness only reads the corpus it scores"
+ * from a convention into a runtime guarantee.
+ */
+export function openCorpusReadOnly(path: string): Corpus {
+  return new Database(path, { readonly: true, fileMustExist: true });
+}
+
 export interface CorpusTeam {
   teamKey: string;
   teamNumber: number;
