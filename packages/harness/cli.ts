@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { AlgorithmModule } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
-import { brierScore, winnerAccuracy } from "../core/scoring/brier.js";
+import { scoreSet, type ScoredPrediction } from "../core/scoring/brier.js";
 import {
   openCorpus,
   readEtag,
@@ -107,10 +107,21 @@ async function main(): Promise<void> {
     const simulator = new WalkForwardSimulator(matches);
     const records = simulator.run(algorithm, teams);
 
-    const scored = records.map((r) => ({
+    const scored: ScoredPrediction[] = records.map((r) => ({
       pRedWin: r.prediction.pRedWin,
-      redWon: r.match.winner === "red",
+      actualWinner: r.match.winner,
     }));
+    const scoreResult = scoreSet(scored);
+    if (scoreResult.brierScore === null || scoreResult.winnerAccuracy === null) {
+      // matches.length === 0 is already rejected above, so brierScore can only be
+      // null here if winnerAccuracy is also null for the same reason (every
+      // prediction was a tie or an exact-0.5 no-call) — fail loud rather than
+      // writing a fabricated zero into the artifact.
+      throw new Error(
+        `Unable to compute an aggregate score for ${eventKey}: every prediction was excluded ` +
+          `(tie or no-call) — no scorable winner-accuracy population.`
+      );
+    }
 
     const predictions: PredictionArtifactRecord[] = records.map((r) => ({
       matchKey: r.match.matchKey,
@@ -134,9 +145,9 @@ async function main(): Promise<void> {
       generatedAt: new Date().toISOString(),
       predictions,
       aggregate: {
-        brierScore: brierScore(scored),
-        winnerAccuracy: winnerAccuracy(scored),
-        n: scored.length,
+        brierScore: scoreResult.brierScore,
+        winnerAccuracy: scoreResult.winnerAccuracy,
+        n: scoreResult.count,
       },
     };
 
