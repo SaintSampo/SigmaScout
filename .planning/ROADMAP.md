@@ -33,7 +33,15 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Running the harness on any 2022–2026 season reports OPR's Brier score and winner accuracy, with every prediction produced strictly before that match's result is folded into the model.
   4. A test proves outcome leakage is structurally impossible: any attempt to read a match's result before predicting it fails rather than returning data.
   5. The harness emits a calibration curve (predicted probability vs observed frequency) per algorithm per season, and reports headline accuracy only from seasons declared as holdout.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Toolchain foundation, package-legitimacy gate, and TBA/Statbotics field reconnaissance
+- [ ] 01-02-PLAN.md — Tracer: one event end-to-end from TBA through corpus, walk-forward OPR, and both artifacts
+- [ ] 01-03-PLAN.md — Full 2022–2026 corpus ingestion with explicit surrogate, replay, breakdown and offseason flags
+- [ ] 01-04-PLAN.md — Season-pooled ridge OPR baseline plus surrogate and disqualification rating policy
+- [ ] 01-05-PLAN.md — Scoring, calibration curves, tune/holdout split, versioned JSON artifact and HTML report
+- [ ] 01-06-PLAN.md — Season-spanning walk-forward run across 2022–2026 and the published report
 
 ### Phase 2: Prediction Models — EPA & Sigma1
 **Goal**: Three algorithms produce match-level predictions on the same corpus, with Sigma1 carrying honest uncertainty
@@ -126,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data Foundation & Evaluation Harness | 0/TBD | Not started | - |
+| 1. Data Foundation & Evaluation Harness | 0/6 | Planned | - |
 | 2. Prediction Models — EPA & Sigma1 | 0/TBD | Not started | - |
 | 3. Tuning, Ranking Points & Versioning | 0/TBD | Not started | - |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
