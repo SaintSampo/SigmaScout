@@ -14,14 +14,13 @@ Predictions that are *measurably* better than Statbotics — proven by walk-forw
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Evaluation harness: walk-forward (predict-before-update) backtests over 2022–2026 with Brier score and winner accuracy, comparing all algorithms head-to-head — *Validated in Phase 2: Prediction Models — EPA & Sigma1.* One run scores OPR, EPA, and Sigma1's three link modes across all five seasons into a single comparable table (75 slices, 84,739 matches, 423,695 prediction records).
 
 ### Active
 
-- [ ] Evaluation harness: walk-forward (predict-before-update) backtests over 2022–2026 with Brier score and winner accuracy, comparing all algorithms head-to-head
 - [ ] Data pipeline: fetch from The Blue Alliance API v3, precompute all site data, refresh within ~1–3 minutes during active events
-- [ ] Sigma1 algorithm: Kalman-filter family, variance-carrying metrics, hyperparameters tuned automatically (offline optimizer against backtest score + validated online within-season adaptation)
-- [ ] Baseline algorithms: OPR and reimplemented EPA, selectable in the UI and scored in the harness
+- [ ] Sigma1 algorithm: Kalman-filter family, variance-carrying metrics, hyperparameters tuned automatically (offline optimizer against backtest score + validated online within-season adaptation) — *Phase 2 delivered the Kalman core and variance-carrying metrics (`X ± Y` from each team's own residual history, backed by a committed identifiability check). Automatic hyperparameter tuning remains for Phase 3.*
+- [ ] Baseline algorithms: OPR and reimplemented EPA, selectable in the UI and scored in the harness — *Phase 2 delivered both scored in the harness. UI selectability awaits the frontend phase.*
 - [ ] Algorithm versioning as a first-class concept: past Sigma versions remain viewable and comparable
 - [ ] Teams page: ranked table (number, name, rank, metrics, record, win rate) with search
 - [ ] Team page: robot image, TBA link, season stats, per-event sections with match-level predictions (winner, confidence, scores, RP ± variance) vs actuals, metric-history plot
@@ -61,11 +60,11 @@ Predictions that are *measurably* better than Statbotics — proven by walk-forw
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Freshness target ~1–3 min via scheduled TBA polling | Fast enough to feel live during events without webhook/server complexity | — Pending |
-| v1 covers seasons 2022–2026 | Modern era, rich score breakdowns, enough backtest history without ballooning scope | — Pending |
-| v1 algorithms: Sigma1 + OPR + reimplemented EPA | Compare page needs real baselines; reimplemented EPA works walk-forward and substantiates the Statbotics comparison | — Pending |
+| v1 covers seasons 2022–2026 | Modern era, rich score breakdowns, enough backtest history without ballooning scope | ✓ Held (Phase 2) — all five seasons have reconciled component maps and are scored end-to-end |
+| v1 algorithms: Sigma1 + OPR + reimplemented EPA | Compare page needs real baselines; reimplemented EPA works walk-forward and substantiates the Statbotics comparison | ✓ Held (Phase 2) — all three run on one shared walk-forward stream; UI selection still pending |
 | RP prediction + simulation for all covered seasons | Headline features; per-season RP rules accepted as v1 scope | — Pending |
 | Sigma1 tuning: offline optimizer + online within-season adaptation ("Both") | Online-only hides hand-picked meta-parameters and is unfalsifiable; the harness validates the adaptation itself | — Pending |
-| EPA reimplemented, not pulled from Statbotics API | Walk-forward at any time point, self-contained pipeline; drift risk mitigated by spot-checks | — Pending |
+| EPA reimplemented, not pulled from Statbotics API | Walk-forward at any time point, self-contained pipeline; drift risk mitigated by spot-checks | ⚠ Partially held (Phase 2) — reimplementation works walk-forward at every boundary, but the spot-check mitigation is **blocked**: `api.statbotics.io/v3/year/{year}` reproducibly 500s (D-14, WINDOWS entries 1–2). EPA correctness currently rests on synthetic-fixture tests and walk-forward structural proofs instead |
 | Clean-slate rebuild; only the failure log carries over | Prior tech debt; independent re-derivation allowed, inheritance not | — Pending |
 
 ## Evolution
@@ -86,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-12 after initialization*
+*Last updated: 2026-08-14 after Phase 2 (Prediction Models — EPA & Sigma1) completion*
