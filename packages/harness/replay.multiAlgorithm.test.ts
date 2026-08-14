@@ -147,4 +147,34 @@ describe("WalkForwardSimulator.runAll — D-22 shared-stream guarantee", () => {
     const simulator = new WalkForwardSimulator(matches);
     expect(() => simulator.runAll([leakyAlgorithm], [])).toThrow(/Outcome leakage/);
   });
+
+  it("D-28: onMatchComplete fires once per (match, algorithm), strictly after that algorithm's update for that match", () => {
+    const sharedLog: string[] = [];
+    const algorithmA = makeInstrumentedAlgorithm("a", sharedLog);
+    const algorithmB = makeInstrumentedAlgorithm("b", sharedLog);
+    const simulator = new WalkForwardSimulator(matches);
+    const onMatchCompleteCalls: string[] = [];
+
+    simulator.runAll([algorithmA, algorithmB], [], undefined, (match, algorithmId) => {
+      onMatchCompleteCalls.push(`onMatchComplete:${algorithmId}:${match.matchKey}`);
+      sharedLog.push(`onMatchComplete:${algorithmId}:${match.matchKey}`);
+    });
+
+    // Exactly one call per (match, algorithm) — matches.length * 2 algorithms.
+    expect(onMatchCompleteCalls).toHaveLength(matches.length * 2);
+
+    // In the shared log, every onMatchComplete entry for a given
+    // (match, algorithm) pair appears immediately after that pair's own
+    // "update" entry — never before, never interleaved with another
+    // algorithm's update for the same match. This is what makes a snapshot
+    // mean "state including this match" rather than "state before it."
+    for (const match of matches) {
+      for (const id of ["a", "b"]) {
+        const updateIndex = sharedLog.indexOf(`update:${id}:${match.matchKey}`);
+        const onCompleteIndex = sharedLog.indexOf(`onMatchComplete:${id}:${match.matchKey}`);
+        expect(updateIndex).toBeGreaterThanOrEqual(0);
+        expect(onCompleteIndex).toBe(updateIndex + 1);
+      }
+    }
+  });
 });
