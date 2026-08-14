@@ -236,9 +236,18 @@ function sumComponentsAcrossTeam(
 
 /**
  * Same alliance-level sum `predict()` shows a caller, but as plain
- * `ParsedComponents` numbers rather than `ComponentPrediction` records —
- * the shape `distributeResidual` (D-05) needs for "this alliance's own
- * predicted component vector."
+ * `ParsedComponents` numbers rather than `ComponentPrediction` records.
+ *
+ * WR-03 (code review, phase 02) correction: this is NOT "exactly the
+ * vector `predict()` would have shown for this alliance" (the prior
+ * comment's claim, disproven by CR-01). It is a straight per-team sum
+ * across EVERY registered component, including this alliance's own
+ * `FOULS_COMMITTED_COMPONENT` figure, with no cross-alliance adjustment.
+ * `predict()`, by contrast, EXCLUDES that figure from an alliance's own
+ * total and adds the OPPONENT's instead (D-04) — the two are not
+ * interchangeable. A caller that needs `predict()`'s cross-attributed
+ * total (the D-05 fallback path below) must apply that adjustment itself;
+ * see `fallbackObserved`.
  */
 function predictedComponentTotals(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -250,6 +259,71 @@ function predictedComponentTotals(
     result[name] = componentPrediction.mean;
   }
   return result;
+}
+
+/**
+ * CR-01 fix: this alliance's own currently-predicted total for
+ * `FOULS_COMMITTED_COMPONENT`, carried forward UNCHANGED as the "observed"
+ * value for a D-05 fallback match — never derived from `result.*Score`.
+ * Mirrors, per team, exactly the cold-start fallback `applyComponentUpdate`
+ * uses internally (`currentComponents[component] ?? coldStart`), so
+ * feeding this value back in as the observation makes
+ * `twoStageEwma(mean, mean, percent, 1) === mean`: a genuine no-op for a
+ * component this project has no way to observe without a real breakdown
+ * (D-04: it is derived from the OPPONENT's raw `foulPoints` field, equally
+ * absent here) — never a silent drop, never a coerced zero (RESEARCH.md
+ * Anti-Patterns). It also stays populated even for a team whose very first
+ * match is a fallback match, satisfying D-05's "no component left
+ * undefined" invariant (`breakdown.test.ts`).
+ */
+function foulsCommittedCarryForward(
+  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
+  teams: readonly string[],
+  componentCount: number
+): number {
+  const coldStart = componentColdStartValue(componentCount);
+  let total = 0;
+  for (const team of teams) {
+    total += teamComponents.get(team)?.[FOULS_COMMITTED_COMPONENT] ?? coldStart;
+  }
+  return total;
+}
+
+/**
+ * CR-01 (code review, phase 02): builds the fallback-imputed observation
+ * for one alliance when a match has no `score_breakdown`, mirroring
+ * `predict()`'s own cross-alliance foul attribution rather than summing
+ * every registered component (including this alliance's own
+ * `foulsCommitted`) straight from `result.*Score`. Two invariants
+ * enforced, per the review:
+ *
+ *   1. None of this alliance's own actual score is ever folded into its
+ *      own `FOULS_COMMITTED_COMPONENT` slot — `opponentFoulsMean` is
+ *      subtracted from `observedAllianceScore` BEFORE the split, and the
+ *      split itself only ever runs over `offensiveComponents` (every
+ *      registered component EXCEPT `FOULS_COMMITTED_COMPONENT`).
+ *   2. The opponent's currently-predicted foul contribution to this
+ *      alliance's actual score (`opponentFoulsMean`, D-04) is netted out
+ *      before that split, so it is never misattributed into this
+ *      alliance's own offensive components.
+ */
+function fallbackObserved(
+  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
+  teams: readonly string[],
+  observedAllianceScore: number,
+  opponentFoulsMean: number,
+  offensiveComponents: readonly string[],
+  componentCount: number
+): ParsedComponents {
+  const offensive = distributeResidual(
+    observedAllianceScore - opponentFoulsMean,
+    predictedComponentTotals(teamComponents, teams),
+    offensiveComponents
+  );
+  return {
+    ...offensive,
+    [FOULS_COMMITTED_COMPONENT]: foulsCommittedCarryForward(teamComponents, teams, componentCount),
+  };
 }
 
 function predict(state: EpaState, match: UpcomingMatch): Prediction {
@@ -358,15 +432,24 @@ function update(state: EpaState, result: MatchResult): EpaState {
   const blueParsed = parseBreakdown(season, result.scoreBreakdownRaw, "blue");
 
   // D-05 fallback: a match with no score_breakdown (parseBreakdown
-  // returns null) still updates state — the residual is distributed across
-  // this alliance's own components in proportion to their current
-  // predicted shares, using exactly the vector `predict()` would have
-  // shown for this alliance. Never a silent drop, never a coerced zero
-  // (RESEARCH.md Anti-Patterns).
+  // returns null) still updates state. CR-01 fix: the residual is
+  // distributed across this alliance's own OFFENSIVE components only
+  // (never FOULS_COMMITTED_COMPONENT — see fallbackObserved), against the
+  // alliance's own actual score net of the OPPONENT's currently-predicted
+  // foul contribution — mirroring predict()'s own cross-alliance
+  // attribution, rather than the flat, uncorrected sum this fallback used
+  // to feed distributeResidual pre-fix. Never a silent drop, never a
+  // coerced zero (RESEARCH.md Anti-Patterns).
+  const nonFoulsComponents = seasonMap.components.filter((name) => name !== FOULS_COMMITTED_COMPONENT);
+  const blueFoulsMean = predictedComponentTotals(state.teamComponents, blueTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
+  const redFoulsMean = predictedComponentTotals(state.teamComponents, redTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
+
   const redObserved =
-    redParsed ?? distributeResidual(result.redScore, predictedComponentTotals(state.teamComponents, redTeams), seasonMap.components);
+    redParsed ??
+    fallbackObserved(state.teamComponents, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentCount);
   const blueObserved =
-    blueParsed ?? distributeResidual(result.blueScore, predictedComponentTotals(state.teamComponents, blueTeams), seasonMap.components);
+    blueParsed ??
+    fallbackObserved(state.teamComponents, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentCount);
 
   const afterRed = applyComponentUpdate(state.teamComponents, state.teamMatchCounts, redTeams, redObserved, componentCount);
   const afterBlue = applyComponentUpdate(

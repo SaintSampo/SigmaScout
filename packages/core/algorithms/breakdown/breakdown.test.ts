@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "./fallback.js";
 import { epa } from "../epa.js";
 import { breakdown2024 } from "./2024.js";
+import { FOULS_COMMITTED_COMPONENT } from "./index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 
 describe("distributeResidual (D-05)", () => {
@@ -133,17 +134,32 @@ describe("epa.update — D-05 fallback fixture replay", () => {
     });
     const afterFallback = epa.update(afterReal, fallbackMatch);
 
-    // Every red-alliance component moves after the fallback match — the OLD
-    // tracer behavior (fallbackSkipped += 1, no applyComponentUpdate call at
-    // all) would have left every one of these values byte-identical to
-    // `afterReal`'s, purely because the match lacked a breakdown. D-05
-    // forbids that: even components not touched by `realMatch`'s explicit
-    // overrides receive a fallback observation now.
+    // Every red-alliance OFFENSIVE component moves after the fallback match
+    // — the OLD tracer behavior (fallbackSkipped += 1, no
+    // applyComponentUpdate call at all) would have left every one of these
+    // values byte-identical to `afterReal`'s, purely because the match
+    // lacked a breakdown. D-05 forbids that: even components not touched by
+    // `realMatch`'s explicit overrides receive a fallback observation now.
+    // FOULS_COMMITTED_COMPONENT is deliberately excluded from this
+    // assertion (CR-01, code review phase 02): that component represents
+    // points RED's fouls would cost BLUE, not anything about how many
+    // points red itself scored, so a fallback match — which has no way to
+    // observe it at all (it is derived from the OPPONENT's raw foulPoints
+    // field, equally absent) — must never move it via a share of red's own
+    // score. See the dedicated "CR-01" describe block below for the
+    // regression fixture that pins this.
     for (const componentName of breakdown2024.components) {
+      if (componentName === FOULS_COMMITTED_COMPONENT) continue;
       const before = afterReal.teamComponents.get("frc1")![componentName]!;
       const after = afterFallback.teamComponents.get("frc1")![componentName]!;
       expect(after, `component "${componentName}" did not move after the fallback match`).not.toBeCloseTo(before, 10);
     }
+    // foulsCommitted is carried forward UNCHANGED (CR-01's chosen policy —
+    // see epa.ts's foulsCommittedCarryForward doc comment).
+    expect(afterFallback.teamComponents.get("frc1")![FOULS_COMMITTED_COMPONENT]).toBeCloseTo(
+      afterReal.teamComponents.get("frc1")![FOULS_COMMITTED_COMPONENT]!,
+      10
+    );
     expect(afterFallback.teamMatchCounts.get("frc1")).toBe(2);
   });
 

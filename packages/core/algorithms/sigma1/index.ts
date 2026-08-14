@@ -252,7 +252,23 @@ function componentGains(teammates: readonly TeamComponentBelief[], measurementNo
   return teammates.map((t) => t.variance / pooled);
 }
 
-/** Same alliance-level sum `predict()` reports, but as plain `ParsedComponents` numbers — the shape `distributeResidual` (D-05) needs for "this alliance's own predicted component vector." */
+/**
+ * Same alliance-level sum `predict()` reports, but as plain
+ * `ParsedComponents` numbers.
+ *
+ * WR-03 (code review, phase 02) correction: this is NOT "this alliance's
+ * own predicted component vector" in the sense of matching `predict()`'s
+ * own reported score (the prior comment's claim, disproven by CR-01). It
+ * is a straight per-team sum across EVERY entry in `componentOrder`,
+ * including this alliance's own `FOULS_COMMITTED_COMPONENT` figure — a
+ * team with no belief for a component yet (never observed, not even
+ * cold-start-seeded) contributes exactly 0, NOT the league/cold-start
+ * fallback `coldStartTeamState` would assign it. `predict()`, by contrast,
+ * EXCLUDES `FOULS_COMMITTED_COMPONENT` from an alliance's own total and
+ * adds the OPPONENT's instead (D-04). A caller that needs `predict()`'s
+ * cross-attributed total (the D-05 fallback path below) must apply that
+ * adjustment itself; see `fallbackObserved`.
+ */
 function predictedComponentTotals(
   state: Sigma1State,
   teams: readonly string[],
@@ -267,6 +283,88 @@ function predictedComponentTotals(
     result[name] = total;
   }
   return result;
+}
+
+/**
+ * CR-01 fix: this alliance's own currently-predicted total for
+ * `FOULS_COMMITTED_COMPONENT`, carried forward UNCHANGED as the "observed"
+ * value for a D-05 fallback match — never derived from `result.*Score`.
+ * Mirrors, per team, exactly the cold-start seed `coldStartTeamState`
+ * assigns internally (the live league-average share, or the fixed
+ * constant before any league data exists), so that feeding this value
+ * back in as the alliance-sum observation gives `updateAllianceSum` an
+ * innovation of exactly zero for any team already known to the state: the
+ * belief MEAN is left unchanged, and only ordinary process noise (already
+ * applied earlier in `applyAllianceUpdate`, D-07) continues to widen its
+ * variance over time — a genuine "no observation happened for this
+ * component" outcome, not a fabricated match. (Both alliances' fallback
+ * observations are computed from the SAME pre-update `state` snapshot,
+ * mirroring how `predict()` computes both alliances' scores from one
+ * snapshot — for a team appearing in the state for the very first time in
+ * this exact match, the innovation can be off by the tiny drift the OTHER
+ * alliance's own within-match league-mean fold introduces, an existing
+ * property of this function's sequential red-then-blue fold order that
+ * applies identically to every component, not something this fix
+ * introduces, and never derived from score data either way.)
+ *
+ * Posterior VARIANCE still shrinks somewhat even at zero innovation
+ * (standard Kalman gain behavior, `updateAllianceSum`'s own doc comment) —
+ * a documented, bounded approximation rather than a literal freeze of this
+ * one component's belief, accepted because `FALLBACK_NOISE_MULTIPLIER`
+ * already inflates the measurement noise for every component in a
+ * fallback match, this one included.
+ *
+ * `FOULS_COMMITTED_COMPONENT` itself is genuinely unobservable from a
+ * fallback match (D-04: it is derived from the OPPONENT's raw
+ * `foulPoints` field, equally absent here) — rather than synthesizing a
+ * value from the residual or coercing it to 0 (RESEARCH.md
+ * Anti-Patterns), this is the least-arbitrary available substitute.
+ */
+function foulsCommittedCarryForward(state: Sigma1State, teams: readonly string[], componentOrder: readonly string[]): number {
+  const coldStartMean = componentColdStartTotal(componentOrder.length);
+  let total = 0;
+  for (const team of teams) {
+    const existingMean = state.teams.get(team)?.beliefs[FOULS_COMMITTED_COMPONENT]?.mean;
+    total += existingMean ?? leagueMeanFor(state.league, FOULS_COMMITTED_COMPONENT, coldStartMean);
+  }
+  return total;
+}
+
+/**
+ * CR-01 (code review, phase 02): builds the fallback-imputed observation
+ * for one alliance when a match has no `score_breakdown`, mirroring
+ * `predict()`'s own cross-alliance foul attribution rather than summing
+ * every registered component (including this alliance's own
+ * `foulsCommitted`) straight from `result.*Score`. Two invariants
+ * enforced, per the review:
+ *
+ *   1. None of this alliance's own actual score is ever folded into its
+ *      own `FOULS_COMMITTED_COMPONENT` slot — `opponentFoulsMean` is
+ *      subtracted from `observedAllianceScore` BEFORE the split, and the
+ *      split itself only ever runs over `offensiveComponents` (every
+ *      component in `componentOrder` EXCEPT `FOULS_COMMITTED_COMPONENT`).
+ *   2. The opponent's currently-predicted foul contribution to this
+ *      alliance's actual score (`opponentFoulsMean`, D-04) is netted out
+ *      before that split, so it is never misattributed into this
+ *      alliance's own offensive components.
+ */
+function fallbackObserved(
+  state: Sigma1State,
+  teams: readonly string[],
+  observedAllianceScore: number,
+  opponentFoulsMean: number,
+  offensiveComponents: readonly string[],
+  componentOrder: readonly string[]
+): ParsedComponents {
+  const offensive = distributeResidual(
+    observedAllianceScore - opponentFoulsMean,
+    predictedComponentTotals(state, teams, componentOrder),
+    offensiveComponents
+  );
+  return {
+    ...offensive,
+    [FOULS_COMMITTED_COMPONENT]: foulsCommittedCarryForward(state, teams, componentOrder),
+  };
 }
 
 /** T-02-01's second gate (see `update`'s call site): throws loudly rather than letting a non-finite component value silently reach `updateAllianceSum`. */
@@ -494,10 +592,20 @@ function update(state: Sigma1State, result: MatchResult): Sigma1State {
   const usedFallback = redParsed === null;
   const measurementNoiseMultiplier = usedFallback ? FALLBACK_NOISE_MULTIPLIER : 1;
 
+  // CR-01 fix: the residual is distributed across this alliance's own
+  // OFFENSIVE components only (never FOULS_COMMITTED_COMPONENT — see
+  // fallbackObserved), against the alliance's own actual score net of the
+  // OPPONENT's currently-predicted foul contribution — mirroring
+  // predict()'s own cross-alliance attribution, rather than the flat,
+  // uncorrected sum this fallback used to feed distributeResidual pre-fix.
+  const nonFoulsComponents = componentOrder.filter((name) => name !== FOULS_COMMITTED_COMPONENT);
+  const blueFoulsMean = predictedComponentTotals(state, blueTeams, componentOrder)[FOULS_COMMITTED_COMPONENT] ?? 0;
+  const redFoulsMean = predictedComponentTotals(state, redTeams, componentOrder)[FOULS_COMMITTED_COMPONENT] ?? 0;
+
   const redObserved =
-    redParsed ?? distributeResidual(result.redScore, predictedComponentTotals(state, redTeams, componentOrder), seasonMap.components);
+    redParsed ?? fallbackObserved(state, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentOrder);
   const blueObserved =
-    blueParsed ?? distributeResidual(result.blueScore, predictedComponentTotals(state, blueTeams, componentOrder), seasonMap.components);
+    blueParsed ?? fallbackObserved(state, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentOrder);
 
   // T-02-01 (threat register, second gate): the per-season Zod parse
   // boundary (breakdown/*.ts) is the FIRST finite-value gate, but a value
