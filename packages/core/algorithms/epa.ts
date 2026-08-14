@@ -39,6 +39,7 @@
  */
 import { ratingEligibleTeams } from "./opr.js";
 import { parseBreakdown, componentMapForSeason, type ParsedComponents } from "./breakdown/index.js";
+import { distributeResidual } from "./breakdown/fallback.js";
 import {
   emptyExpandingStats,
   foldObservation,
@@ -167,10 +168,12 @@ function componentColdStartValue(componentCount: number): number {
  * counter (increments on EVERY match — D-08), an expanding-window alliance
  * score SD (Pitfall EPA-1), the season this state belongs to (derived
  * lazily from the first match's `eventKey`, since `initState` receives no
- * season parameter), and a running count of matches skipped via the D-05
- * fallback path (plan 02-02 implements the fallback itself; this plan only
- * counts the gap so that later work has a counter to zero out and a test
- * to flip).
+ * season parameter), and `fallbackSkipped` — a permanently-zero invariant
+ * (asserted by test) left over from plan 02-01's tracer, which deliberately
+ * skipped the component update for a breakdown-less match. Plan 02-02's
+ * D-05 fallback (`distributeResidual`, below) means no match is skipped
+ * anymore; the counter is kept only so a future regression that reopens
+ * that gap fails loudly instead of silently.
  */
 export interface EpaState {
   readonly season: number | null;
@@ -220,6 +223,24 @@ function sumComponentsAcrossTeam(
   const result: Record<string, ComponentPrediction> = {};
   for (const [name, value] of Object.entries(totals)) {
     result[name] = { mean: value };
+  }
+  return result;
+}
+
+/**
+ * Same alliance-level sum `predict()` shows a caller, but as plain
+ * `ParsedComponents` numbers rather than `ComponentPrediction` records —
+ * the shape `distributeResidual` (D-05) needs for "this alliance's own
+ * predicted component vector."
+ */
+function predictedComponentTotals(
+  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
+  teams: readonly string[]
+): ParsedComponents {
+  const summed = sumComponentsAcrossTeam(teamComponents, teams);
+  const result: ParsedComponents = Object.create(null) as ParsedComponents;
+  for (const [name, componentPrediction] of Object.entries(summed)) {
+    result[name] = componentPrediction.mean;
   }
   return result;
 }
@@ -309,42 +330,46 @@ function update(state: EpaState, result: MatchResult): EpaState {
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
 
+  const seasonMap = componentMapForSeason(season);
+  const componentCount = seasonMap.components.length;
+
   const redParsed = parseBreakdown(season, result.scoreBreakdownRaw, "red");
   const blueParsed = parseBreakdown(season, result.scoreBreakdownRaw, "blue");
 
-  let teamComponents = state.teamComponents;
-  let teamMatchCounts = state.teamMatchCounts;
-  let fallbackSkipped = state.fallbackSkipped;
+  // D-05 fallback: a match with no score_breakdown (parseBreakdown
+  // returns null) still updates state — the residual is distributed across
+  // this alliance's own components in proportion to their current
+  // predicted shares, using exactly the vector `predict()` would have
+  // shown for this alliance. Never a silent drop, never a coerced zero
+  // (RESEARCH.md Anti-Patterns).
+  const redObserved =
+    redParsed ?? distributeResidual(result.redScore, predictedComponentTotals(state.teamComponents, redTeams), seasonMap.components);
+  const blueObserved =
+    blueParsed ?? distributeResidual(result.blueScore, predictedComponentTotals(state.teamComponents, blueTeams), seasonMap.components);
 
-  if (redParsed === null || blueParsed === null) {
-    // D-05 fallback path (implemented in plan 02-02): this plan's tracer
-    // deliberately skips the component-level state update for a match
-    // with no score_breakdown, rather than silently coercing it to zeros
-    // (RESEARCH.md Anti-Patterns). Recorded, not swallowed, so plan
-    // 02-02's proportional-residual fallback has a counter to zero out and
-    // a regression test to flip.
-    fallbackSkipped += 1;
-  } else {
-    const componentCount = componentMapForSeason(season).components.length;
-    const afterRed = applyComponentUpdate(teamComponents, teamMatchCounts, redTeams, redParsed, componentCount);
-    const afterBlue = applyComponentUpdate(
-      afterRed.teamComponents,
-      afterRed.teamMatchCounts,
-      blueTeams,
-      blueParsed,
-      componentCount
-    );
-    teamComponents = afterBlue.teamComponents;
-    teamMatchCounts = afterBlue.teamMatchCounts;
-  }
+  const afterRed = applyComponentUpdate(state.teamComponents, state.teamMatchCounts, redTeams, redObserved, componentCount);
+  const afterBlue = applyComponentUpdate(
+    afterRed.teamComponents,
+    afterRed.teamMatchCounts,
+    blueTeams,
+    blueObserved,
+    componentCount
+  );
 
-  // Fold both alliances' observed totals into the expanding-window SD
-  // regardless of whether the breakdown fallback fired above — the score
-  // itself is always known, even when its breakdown is not (Pitfall EPA-1:
-  // this must only ever incorporate matches already replayed).
+  // Fold both alliances' observed totals into the expanding-window SD — the
+  // score itself is always known, even when its breakdown is not (Pitfall
+  // EPA-1: this must only ever incorporate matches already replayed).
   const allianceScoreStats = foldObservation(foldObservation(state.allianceScoreStats, result.redScore), result.blueScore);
 
-  return { season, teamComponents, teamMatchCounts, allianceScoreStats, fallbackSkipped };
+  return {
+    season,
+    teamComponents: afterBlue.teamComponents,
+    teamMatchCounts: afterBlue.teamMatchCounts,
+    allianceScoreStats,
+    // Permanently zero (see EpaState's doc comment) — no code path below
+    // this line increments it anymore.
+    fallbackSkipped: state.fallbackSkipped,
+  };
 }
 
 /** D-27: per team, one entry per learned component plus `TOTAL_METRIC_KEY` (the component sum). No `spread` — EPA carries a mean only, exactly as Statbotics' `EPARating`. */
