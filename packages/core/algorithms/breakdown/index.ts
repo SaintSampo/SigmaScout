@@ -25,7 +25,31 @@ export type ParsedComponents = Record<string, number>;
 export interface SeasonComponentMap {
   readonly components: readonly string[];
   parse(rawBreakdownJson: unknown, side: "red" | "blue"): ParsedComponents;
+  /**
+   * Raw TBA field names this season carries but never emits as a rating
+   * component (e.g. 2022-2025's `foulCount`/`techFoulCount` count fields,
+   * 2026's renamed `majorFoulCount`/`minorFoulCount`) — recorded for plan
+   * 02-06's identifiability report, not read by any algorithm's update
+   * path. Optional: 2024's map (plan 02-01) predates this convention.
+   */
+  readonly diagnosticKeys?: readonly string[];
 }
+
+/**
+ * Canonical component name for a per-team "fouls committed" observation
+ * (D-04): the points this alliance's fouls cost the OPPONENT, derived from
+ * the opposing alliance's own `foulPoints` field. Every season module
+ * spells this name through the constant, never as a bare string literal.
+ */
+export const FOULS_COMMITTED_COMPONENT = "foulsCommitted";
+
+/**
+ * Canonical component name for TBA's `adjustPoints` field (present, with
+ * that exact key, in every season 2022-2026 sampled this phase). Every
+ * season module spells this name through the constant, never as a bare
+ * string literal.
+ */
+export const ADJUST_COMPONENT = "adjust";
 
 /**
  * PROJECT INTENT (D-19): once the models are proven, the corpus is
@@ -36,12 +60,15 @@ export interface SeasonComponentMap {
  */
 export const COLD_START_SEASON = 2022;
 
-// Registered seasons. Only 2024 is registered by this plan; 2022/2023/2025/2026
-// land in plan 02-02 as additional entries here — adding them is data entry,
-// not a refactor of this dispatch function (D-19).
+// Registered seasons (D-19: adding one is data entry — a new import plus a
+// new record entry — never a branch in this dispatch function).
+import { breakdown2022 } from "./2022.js";
+import { breakdown2023 } from "./2023.js";
 import { breakdown2024 } from "./2024.js";
 
 const SEASON_COMPONENT_MAPS: Readonly<Record<number, SeasonComponentMap>> = {
+  2022: breakdown2022,
+  2023: breakdown2023,
   2024: breakdown2024,
 };
 
