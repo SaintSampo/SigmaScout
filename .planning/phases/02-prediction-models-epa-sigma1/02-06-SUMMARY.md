@@ -132,7 +132,7 @@ Also landed just before this plan, outside any task but required to close a WIND
 
 ## Full 2022-2026 head-to-head (combined view — quals + elims)
 
-Produced by `reports/full-v2/artifact.json` (schemaVersion 2, gitignored). Reported as measurements; no hyperparameter was changed in response to any of these numbers, including the 2025-2026 holdout seasons (T-02-16).
+**Regenerated 2026-08-14 after the CR-01/WR-01 code review fixes** (see "Post-CR-01/WR-01 Regeneration" section below for what changed and whether it moved these numbers). Produced by `reports/full-v2/artifact.json` (schemaVersion 2, gitignored). Reported as measurements; no hyperparameter was changed in response to any of these numbers, including the 2025-2026 holdout seasons (T-02-16).
 
 | Season | Algorithm | Brier | Winner accuracy | Scored matches |
 |---|---|---|---|---|
@@ -147,15 +147,15 @@ Produced by `reports/full-v2/artifact.json` (schemaVersion 2, gitignored). Repor
 | 2023 | sigma1-seasonsd | 0.1811 | 0.7299 | 16,290 |
 | 2023 | sigma1-normalcdf | 0.1913 | 0.7299 | 16,290 |
 | 2024 | opr | 0.1687 | 0.7501 | 16,958 |
-| 2024 | epa | 0.2160 | 0.6993 | 16,958 |
+| 2024 | epa | 0.2160 | 0.6991 | 16,958 |
 | 2024 | sigma1 | 0.1821 | 0.7212 | 16,958 |
 | 2024 | sigma1-seasonsd | 0.1953 | 0.7212 | 16,958 |
 | 2024 | sigma1-normalcdf | 0.1869 | 0.7212 | 16,958 |
 | **2025 (holdout)** | opr | 0.1675 | 0.7618 | 17,815 |
 | **2025 (holdout)** | epa | 0.1932 | 0.7290 | 17,815 |
-| **2025 (holdout)** | sigma1 | 0.1662 | 0.7540 | 17,815 |
-| **2025 (holdout)** | sigma1-seasonsd | 0.1700 | 0.7540 | 17,815 |
-| **2025 (holdout)** | sigma1-normalcdf | 0.1796 | 0.7540 | 17,815 |
+| **2025 (holdout)** | sigma1 | 0.1662 | 0.7539 | 17,815 |
+| **2025 (holdout)** | sigma1-seasonsd | 0.1700 | 0.7539 | 17,815 |
+| **2025 (holdout)** | sigma1-normalcdf | 0.1796 | 0.7539 | 17,815 |
 | **2026 (holdout)** | opr | 0.1773 | 0.7825 | 18,337 |
 | **2026 (holdout)** | epa | 0.1742 | 0.7454 | 18,337 |
 | **2026 (holdout)** | sigma1 | 0.1554 | 0.7819 | 18,337 |
@@ -163,6 +163,34 @@ Produced by `reports/full-v2/artifact.json` (schemaVersion 2, gitignored). Repor
 | **2026 (holdout)** | sigma1-normalcdf | 0.1689 | 0.7819 | 18,337 |
 
 OPR's per-season combined Brier/accuracy is within 0.005 of Phase 1's measured baseline for all five seasons (2022 0.1523/0.7743, 2023 0.1706/0.7502, 2024 0.1687/0.7501, 2025 0.1675/0.7618, 2026 0.1773/0.7825) — no regression. **This table is a comparison, not a verdict:** nothing here is a superiority claim (that is Phase 3's question, from holdout seasons only, per D-21's raw-numbers-only convention).
+
+## Post-CR-01/WR-01 Regeneration (2026-08-14)
+
+A code review of this phase (`02-REVIEW.md`) found a real, provable bug (CR-01, critical) in the D-05 "no `score_breakdown`" fallback path of **both** `epa.ts` and `sigma1/index.ts`: the fallback fed a fraction of an alliance's own actual score into that alliance's own `foulsCommitted` component, and never netted the opponent's predicted foul contribution out of the alliance's own score before splitting it across offensive components — a cross-alliance misattribution affecting roughly 1,500 of ~104,000 matches (the corpus's `has_score_breakdown=0` population). A related warning (WR-01) found `epa.ts` had no finite-value gate on its D-05 fallback observations, unlike `sigma1/index.ts`'s existing one.
+
+Both were fixed (`dc6b841b`, `c5975de6`), with new regression fixtures (`a6fedb9c`) verified to fail against the pre-fix source before landing. The table above is from a full `pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-seasonsd,sigma1-normalcdf --metric-history --measure-update-cost --out reports/full-v2` re-run after both fixes landed (`reports/full-v2/artifact.json` `runTimestamp: 2026-08-14T21:09:37.541Z`) — not asserted from the prior run's cached output.
+
+**Did the fix move the results?** Compared value-by-value against the pre-fix table (same command, same corpus, same seed, `runTimestamp: 2026-08-14T10:17:24.419Z`):
+
+- **Every Brier score is unchanged at 4-decimal precision**, for every algorithm in every season, including the two OPR/EPA/Sigma1-1/2/3 combinations that exercise the fallback path most.
+- **Winner accuracy moved by 0.0001-0.0002 in exactly two places**: 2024 `epa` (0.6993 -> 0.6991, ~3-4 matches out of 16,958 flipped a razor-thin near-50% call) and all three 2025 Sigma1 variants (0.7540 -> 0.7539, ~1-2 matches out of 17,815 — identical across all three link modes because they share the same `update()`/state-transition path, D-12's own documented property).
+- **No other season/algorithm cell moved at all.**
+
+This is the expected honest result, not a coincidence: the bug is scoped to `has_score_breakdown=0` matches only (~1.5% of the corpus), and within those matches it only ever touched the `foulsCommitted` component's value and a small proportional reallocation among a team's OTHER offensive components — never the total predicted score's sign in the overwhelming majority of cases, since `foulsCommitted` is a small fraction of most alliances' totals. **The corrected attribution did not move these results materially.** A handful of individual match calls near the win-probability decision boundary did flip, which is exactly the kind of small, real, honestly-reported effect a genuine (if narrow) bug should produce — not zero, not large, and not tuned to look like either.
+
+**Per-match update cost:** re-measured in the same run (n=4,216 sampled updates each):
+
+| Algorithm | Mean (μs) | p99 (μs) | Under 10ms budget at p99? |
+|---|---|---|---|
+| sigma1 | 1,315.83 | 2,615.80 | Yes, comfortably |
+| sigma1-seasonsd | 1,090.51 | 2,351.70 | Yes, comfortably |
+| sigma1-normalcdf | 1,067.31 | 2,402.10 | Yes, comfortably |
+| epa | 2,246.02 | **30,138.00** | **No — p99 exceeds the 10 ms budget** |
+| opr | 130,822.61 | 330,469.20 | No — far over, as before; not Phase 4's live-update candidate |
+
+Every algorithm's timing is 10-30% higher than the original 02-06 run's measurement (e.g. OPR's mean rose from 115,836.97μs to 130,822.61μs) — including OPR, whose code path this session's fixes never touched. This uniform shift across every algorithm (not just EPA/Sigma1, whose `update()` the fix actually changed) points to this session's background CPU load (this same terminal ran several hours of concurrent polling/monitoring commands during the harness run) as the cause, not a regression introduced by CR-01/WR-01. The qualitative conclusions from the original run are unchanged: Sigma1 (all three link modes) is comfortably under the 10ms budget even at p99; EPA's p99 exceeds it, plausibly a GC-pause artifact of this offline harness process rather than representative of a fresh Worker invocation (as originally noted) — a Phase-4-scoped re-measurement in a quiet environment remains the right way to get a clean number, not this run.
+
+**Identifiability check (SC-3):** NOT re-run. `packages/harness/identifiability.ts` imports `parseBreakdown`/`componentMapForSeason` directly and never imports `epa.ts`, `sigma1/index.ts`, or `distributeResidual` — its design matrix and every reported figure are built purely from real, parsed `score_breakdown` data, never through either algorithm's `update()`/D-05 fallback path that CR-01/WR-01 touched. Its inputs are unaffected by these fixes; re-running it would have been a ~several-minute no-op. See `docs/models/sigma1-identifiability.md`'s own note recording this same reasoning.
 
 ## Measured per-match update cost (n=4,216 sampled updates each, full 2022-2026 range)
 
