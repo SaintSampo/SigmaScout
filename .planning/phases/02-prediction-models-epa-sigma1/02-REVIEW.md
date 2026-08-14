@@ -54,6 +54,12 @@ findings:
   warning: 3
   info: 1
   total: 5
+resolution:
+  resolved: 4
+  open: 1
+  open_ids: [IN-01]
+  resolved_at: 2026-08-14
+  note: CR-01, WR-01, WR-02, WR-03 resolved post-review; only info-level IN-01 remains. See Resolution Summary.
 status: issues_found
 ---
 
