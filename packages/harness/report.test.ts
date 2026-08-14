@@ -181,6 +181,49 @@ describe("renderHtmlReport", () => {
   });
 });
 
+describe("renderHtmlReport — D-20 per-algorithm sections", () => {
+  const epaSlice2025Combined: ScoreSlice = {
+    ...slice2025Combined,
+    algorithmId: "epa",
+    brierScore: 0.201,
+    winnerAccuracy: 0.701,
+  };
+
+  function buildTwoAlgorithmArtifact(): HarnessArtifact {
+    const candidate: HarnessArtifact = {
+      schemaVersion: 2,
+      provenance: {
+        corpusIdentity: "data/corpus.sqlite",
+        runTimestamp: "2026-08-13T00:00:00.000Z",
+        seasonsCovered: [2024, 2025],
+      },
+      algorithms: [
+        { id: "opr", version: "1.0.0" },
+        { id: "epa", version: "1.0.0" },
+      ],
+      slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined],
+      statboticsReferences: [],
+    };
+    return HarnessArtifactSchema.parse(candidate);
+  }
+
+  it("renders one section per algorithm in artifact.algorithms, each headed by that algorithm's id and version", () => {
+    const html = renderHtmlReport(buildTwoAlgorithmArtifact());
+    expect((html.match(/class="algorithm-section"/g) ?? []).length).toBe(2);
+    expect(html).toContain("opr v1.0.0");
+    expect(html).toContain("epa v1.0.0");
+  });
+
+  it("feeds each algorithm's section only its own slices (filtered by algorithmId), never another algorithm's figures", () => {
+    const html = renderHtmlReport(buildTwoAlgorithmArtifact());
+    // opr's holdout Brier (0.132) and epa's holdout Brier (0.201) must both
+    // appear exactly once each — proving the sections are filtered, not
+    // both rendering the same combined slice list.
+    expect((html.match(/0\.1320/g) ?? []).length).toBe(1);
+    expect((html.match(/0\.2010/g) ?? []).length).toBe(1);
+  });
+});
+
 describe("escapeHtml", () => {
   it("escapes all five HTML-significant characters", () => {
     expect(escapeHtml(`<>&"'`)).toBe("&lt;&gt;&amp;&quot;&#39;");

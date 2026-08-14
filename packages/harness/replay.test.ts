@@ -35,7 +35,7 @@ describe("toLeakProofUpcoming", () => {
   const wrapped = toLeakProofUpcoming(match) as unknown as Record<string, unknown>;
   const raw = match as unknown as Record<string, unknown>;
 
-  it.each(["winner", "redScore", "blueScore", "redRpEarned", "blueRpEarned"] as const)(
+  it.each(["winner", "redScore", "blueScore", "redRpEarned", "blueRpEarned", "scoreBreakdownRaw"] as const)(
     "throws when reading outcome field %s, naming the match key",
     (field) => {
       expect(() => wrapped[field]).toThrow(/Outcome leakage/);

@@ -191,3 +191,65 @@ describe("aggregateScores", () => {
     expect(roundTripped).toEqual(slices);
   });
 });
+
+describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
+  // 2 algorithms x 2 seasons x 3 views = 12 slices, one shared match stream
+  // scored by both algorithms (D-22) — grouping must key by
+  // (algorithmId, season, compLevelView), never conflating two algorithms'
+  // figures into one slice.
+  const ALGORITHM_IDS = ["opr", "epa"] as const;
+  const SEASONS = [2024, 2025] as const;
+
+  function multiAlgorithmPredictions(): HarnessPredictionInput[] {
+    const predictions: HarnessPredictionInput[] = [];
+    for (const algorithmId of ALGORITHM_IDS) {
+      for (const season of SEASONS) {
+        predictions.push({
+          matchKey: `${season}test_qm1`,
+          season,
+          compLevel: "qm",
+          algorithmId,
+          // Deliberately different pRedWin per algorithm so a bug that
+          // conflated algorithms would produce a detectably wrong Brier.
+          pRedWin: algorithmId === "opr" ? 0.9 : 0.1,
+          predictedRedScore: 60,
+          predictedBlueScore: 40,
+          actualWinner: "red",
+          isOffseason: false,
+          isSurrogateAffected: false,
+        });
+      }
+    }
+    return predictions;
+  }
+
+  it("produces one slice per (algorithmId, season, compLevelView) — N algorithms x M seasons x 3 views", () => {
+    const multiSlices = aggregateScores(multiAlgorithmPredictions());
+    expect(multiSlices).toHaveLength(ALGORITHM_IDS.length * SEASONS.length * 3);
+
+    for (const algorithmId of ALGORITHM_IDS) {
+      for (const season of SEASONS) {
+        const forCombo = multiSlices.filter((s) => s.algorithmId === algorithmId && s.season === season);
+        expect(forCombo).toHaveLength(3);
+        expect(new Set(forCombo.map((s) => s.compLevelView))).toEqual(
+          new Set(["qualification", "elimination", "combined"])
+        );
+      }
+    }
+  });
+
+  it("keeps each algorithm's metrics independent — one algorithm's slice is never influenced by another's predictions for the same match", () => {
+    const multiSlices = aggregateScores(multiAlgorithmPredictions());
+    const oprSlice = multiSlices.find((s) => s.algorithmId === "opr" && s.season === 2024 && s.compLevelView === "combined")!;
+    const epaSlice = multiSlices.find((s) => s.algorithmId === "epa" && s.season === 2024 && s.compLevelView === "combined")!;
+
+    // opr predicted 0.9 for the actual red winner (near-perfect), epa
+    // predicted 0.1 (near-perfectly wrong) — their Brier scores must differ
+    // and neither may be an average of the two.
+    expect(oprSlice.brierScore).not.toBeNull();
+    expect(epaSlice.brierScore).not.toBeNull();
+    expect(oprSlice.brierScore).toBeCloseTo((1 - 0.9) ** 2, 10);
+    expect(epaSlice.brierScore).toBeCloseTo((1 - 0.1) ** 2, 10);
+    expect(oprSlice.brierScore).not.toBeCloseTo(epaSlice.brierScore!, 5);
+  });
+});
