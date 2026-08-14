@@ -60,6 +60,17 @@ export const ADJUST_COMPONENT = "adjust";
  */
 export const COLD_START_SEASON = 2022;
 
+/**
+ * D-19: the one comparison point for "is this season the corpus's
+ * cold-start season" — every other module (carryover, the harness season
+ * loop) calls this rather than re-deriving `season === COLD_START_SEASON`
+ * itself, so extending the corpus back to 2016 (PROJECT INTENT above) is a
+ * one-constant edit, never a grep-and-replace across call sites.
+ */
+export function isColdStartSeason(season: number): boolean {
+  return season === COLD_START_SEASON;
+}
+
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).
 import { breakdown2022 } from "./2022.js";

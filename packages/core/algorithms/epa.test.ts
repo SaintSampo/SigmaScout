@@ -8,7 +8,13 @@ import { epa, epaPercentFunc, EPA_K, EPA_FALLBACK_SCORE_SD, type EpaState } from
 import { opr } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
+import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
+
+/** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
+function emptyPriorSeasonRatings(): EpaCarryoverPriorRatings {
+  return { lastSeason: new Map(), yearBefore: new Map() };
+}
 
 function upcoming(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch {
   return {
@@ -93,6 +99,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
     };
 
     const result = matchResult({
@@ -118,6 +125,7 @@ describe("epa.update — D-08 elimination divergence", () => {
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
     };
 
     const qualResult = matchResult({
@@ -190,6 +198,7 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
       ]),
       allianceScoreStats: stats,
       fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
     };
 
     const prediction = epa.predict(
@@ -223,6 +232,7 @@ describe("epa — contract shape", () => {
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
     };
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["autoLeave"]).toEqual({ value: 10 });

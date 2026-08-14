@@ -29,13 +29,16 @@
  *     unverified per-robot fields), so a component's alliance total is
  *     divided evenly across its rating-eligible teammates — Statbotics has
  *     no direct analog here since its own component extraction differs.
- *   - Cold start: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY` are kept
- *     as Statbotics-parity constants (used by D-16's season-carryover
- *     conversion in a later plan), but this plan's intra-season cold start
- *     (no prior season to carry from at all) cannot live-convert them into
- *     "this season's point units" without a season scale that does not yet
- *     exist (the same Pitfall EPA-1 concern). See `EPA_INIT_COMPONENT_TOTAL`
- *     below for the documented, fixed-constant seed used instead.
+ *   - Cold start: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY` are
+ *     Statbotics-parity constants owned by `carryover.ts` (D-16, imported
+ *     back here), but this module's INTRA-season cold start (a team's
+ *     first-ever match, nothing to carry from at all) cannot live-convert
+ *     them into "this season's point units" without a season scale that
+ *     does not yet exist (the same Pitfall EPA-1 concern). See
+ *     `EPA_INIT_COMPONENT_TOTAL` below for the documented, fixed-constant
+ *     seed used instead. Cross-SEASON carry (a team WITH prior-season
+ *     history) is `carrySeason` below, backed by `carryover.ts`'s
+ *     `epaCarryover`.
  */
 import { ratingEligibleTeams } from "./opr.js";
 import { parseBreakdown, componentMapForSeason, type ParsedComponents } from "./breakdown/index.js";
@@ -52,44 +55,26 @@ import {
   type ComponentPrediction,
   type MatchResult,
   type Prediction,
+  type SeasonBoundary,
   type TeamMetrics,
   type UpcomingMatch,
 } from "./types.js";
+import {
+  EPA_INIT_PENALTY,
+  EPA_NORM_MEAN,
+  EPA_NORM_SD,
+  epaCarryover,
+  type EpaCarryoverPriorRatings,
+} from "./carryover.js";
 
-/**
- * Statbotics' normalized-rating-scale mean (`NORM_MEAN` in
- * `constants.py`). Not a point value — see the cold-start note above for
- * why this plan cannot live-convert it into this season's point units.
- * Retained for D-16's season-carryover conversion (a later plan).
- */
-export const EPA_NORM_MEAN = 1500;
-
-/** Statbotics' normalized-rating-scale standard deviation (`NORM_SD`). Same caveat as `EPA_NORM_MEAN`. */
-export const EPA_NORM_SD = 250;
-
-/**
- * How far below `EPA_NORM_MEAN`, in units of `EPA_NORM_SD`, a rookie team
- * starts (Statbotics' `INIT_PENALTY`). A positive penalty reflects that an
- * unobserved team should start slightly below the league mean rather than
- * exactly at it — an unobserved team is not evidence of average ability,
- * it is an absence of evidence.
- */
-export const EPA_INIT_PENALTY = 0.2;
-
-/**
- * D-16 (a later plan): the weight given to a team's immediately-prior
- * season's normalized rating when carrying across a season boundary
- * (Statbotics' `YEAR_ONE_WEIGHT`). Unused by this plan — EPA's
- * `carrySeason` is not implemented here (see file header, D-16).
- */
-export const EPA_YEAR_ONE_WEIGHT = 0.7;
-
-/**
- * D-16 (a later plan): how far a carried-over rating reverts toward the
- * rookie baseline at a season boundary (Statbotics' `MEAN_REVERSION`).
- * Unused by this plan for the same reason as `EPA_YEAR_ONE_WEIGHT`.
- */
-export const EPA_MEAN_REVERSION = 0.4;
+// EPA_NORM_MEAN/EPA_NORM_SD/EPA_INIT_PENALTY/EPA_MEAN_REVERSION are owned by
+// carryover.ts (D-16) — imported here rather than redeclared, and
+// re-exported below so this module's existing doc comments (and anything
+// that historically imported the Statbotics-parity constants from here)
+// keep working. See carryover.ts's file header for why that module owns
+// them and not this one (avoiding a circular import at module-init time).
+export { EPA_NORM_MEAN, EPA_NORM_SD, EPA_INIT_PENALTY };
+export { EPA_MEAN_REVERSION } from "./carryover.js";
 
 /**
  * The win-probability logistic's base-10 exponent coefficient (Statbotics'
@@ -173,7 +158,11 @@ function componentColdStartValue(componentCount: number): number {
  * skipped the component update for a breakdown-less match. Plan 02-02's
  * D-05 fallback (`distributeResidual`, below) means no match is skipped
  * anymore; the counter is kept only so a future regression that reopens
- * that gap fails loudly instead of silently.
+ * that gap fails loudly instead of silently. `priorSeasonRatings` (D-16):
+ * normalized-scale ratings carried INTO `season` from the two seasons
+ * before it, updated by `carrySeason` at each boundary — empty maps at the
+ * cold-start season and for any team with no rating in a given prior
+ * season (see `carryover.ts`).
  */
 export interface EpaState {
   readonly season: number | null;
@@ -181,7 +170,13 @@ export interface EpaState {
   readonly teamMatchCounts: ReadonlyMap<string, number>;
   readonly allianceScoreStats: ExpandingStats;
   readonly fallbackSkipped: number;
+  readonly priorSeasonRatings: EpaCarryoverPriorRatings;
 }
+
+const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = {
+  lastSeason: new Map(),
+  yearBefore: new Map(),
+};
 
 function deriveSeasonFromEventKey(eventKey: string): number {
   const season = Number.parseInt(eventKey.slice(0, 4), 10);
@@ -204,6 +199,7 @@ function initState(teams: string[]): EpaState {
     teamMatchCounts,
     allianceScoreStats: emptyExpandingStats(),
     fallbackSkipped: 0,
+    priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
   };
 }
 
@@ -369,6 +365,9 @@ function update(state: EpaState, result: MatchResult): EpaState {
     // Permanently zero (see EpaState's doc comment) — no code path below
     // this line increments it anymore.
     fallbackSkipped: state.fallbackSkipped,
+    // Untouched by an ordinary match update — only carrySeason (D-16)
+    // moves this forward, at a season boundary.
+    priorSeasonRatings: state.priorSeasonRatings,
   };
 }
 
@@ -391,8 +390,61 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
   return result;
 }
 
-// carrySeason (D-16) is deliberately NOT implemented in this plan — plan
-// 02-03 adds it, using EPA_YEAR_ONE_WEIGHT/EPA_MEAN_REVERSION above.
+/**
+ * D-16/D-19: carries every team's rating across a season boundary using
+ * `carryover.ts`'s `epaCarryover` — this function's only job is reshaping
+ * `EpaState`'s fields into and out of that pure calculation.
+ *
+ * `boundary.isColdStart === true` is a no-op: the cold-start season has no
+ * `fromSeason` state to carry from, by definition (D-18), so `state` is
+ * returned unchanged (the caller — the harness season loop — is not
+ * expected to call this for the cold-start season at all, but this makes
+ * the contract safe to call defensively regardless).
+ *
+ * `allianceScoreStats` is carried forward UNCHANGED (not reset) rather
+ * than re-seeded empty: RESEARCH.md's Pitfall EPA-1 fix specifies seeding
+ * the expanding-window score SD "from the prior season's final value at
+ * season start" — this is that seed, applied at the one place a season
+ * boundary is already being handled, so the harness season loop (plan
+ * 02-03 Task 2) needs no second boundary hook for it.
+ */
+function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
+  if (boundary.isColdStart) return state;
+
+  const teamTotals = new Map<string, number>();
+  for (const [team, components] of state.teamComponents) {
+    let total = 0;
+    for (const value of Object.values(components)) total += value;
+    teamTotals.set(team, total);
+  }
+
+  const carryResult = epaCarryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings });
+
+  const toSeasonComponents = componentMapForSeason(boundary.toSeason).components;
+  const teamComponents = new Map<string, Readonly<Record<string, number>>>();
+  const teamMatchCounts = new Map<string, number>();
+
+  for (const [team, carriedTotal] of carryResult.teamPointTotals) {
+    const share = toSeasonComponents.length > 0 ? carriedTotal / toSeasonComponents.length : 0;
+    const record: Record<string, number> = {};
+    for (const name of toSeasonComponents) record[name] = share;
+    teamComponents.set(team, record);
+    // A new season resets each team's match counter — the percent_func's
+    // fast early learning rate applies fresh, exactly as it does for any
+    // genuinely new team (D-08's counter semantics are per-season).
+    teamMatchCounts.set(team, 0);
+  }
+
+  return {
+    season: boundary.toSeason,
+    teamComponents,
+    teamMatchCounts,
+    allianceScoreStats: state.allianceScoreStats,
+    fallbackSkipped: 0,
+    priorSeasonRatings: carryResult.priorSeasonRatings,
+  };
+}
+
 export const epa: AlgorithmModule<EpaState> = {
   id: "epa",
   version: "1.0.0",
@@ -400,4 +452,5 @@ export const epa: AlgorithmModule<EpaState> = {
   predict,
   update,
   teamMetrics,
+  carrySeason,
 };
