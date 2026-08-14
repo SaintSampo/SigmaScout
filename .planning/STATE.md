@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: prediction-models-epa-sigma1
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-08-14T06:33:24.685Z"
+stopped_at: Completed 02-06-PLAN.md (checkpoint gaps closed, approved)
+last_updated: "2026-08-14T17:10:12.805Z"
 last_activity: 2026-08-13
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 02 (prediction-models-epa-sigma1) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-08-13 — Phase 02 execution resumed (wave continue)
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [█████████░] 92%
 | Phase 02 P03 | 80min | 3 tasks | 17 files |
 | Phase 02 P04 | 40min | 3 tasks | 10 files |
 | Phase 02 P05 | 95min | 3 tasks | 6 files |
+| Phase 02 P06 | 3h10m (+ gap closure) | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase ?]: redComponents/blueComponents required on PersistedPredictionRecord but validly {} for OPR (no components in its Prediction type) -- D-24's full-vector shape is a schema capability, not a per-algorithm mandate
 - [Phase ?]: replay.ts needed zero code changes for D-28 -- 02-01's onMatchComplete hook already fired after update() with post-update state; only test coverage was missing
 - [Phase ?]: cli.ts ALGORITHMS registry now carries 5 entries (opr, epa, sigma1, sigma1-seasonsd, sigma1-normalcdf) -- D-12's three link modes scored side by side in one real 2024 run, verified: identical predicted scores, distinct win probabilities
+- [Phase ?]: Gap 1 (02-06 checkpoint): identifiability.ts now ships a committed, deterministic connected-components pass; re-running it corrected the write-up's island count (2022: 7 not 4; 2024: 3 not 2) rather than the script being tuned to match the prior prose
+- [Phase ?]: Gap 2 (02-06 checkpoint): EPA's event-boundary invariance is now a verified test (epa.test.ts), closing the one named ALGO-02 coverage gap the checkpoint identified
 
 ### Pending Todos
 
@@ -136,6 +139,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T06:33:24.672Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-08-14T17:10:12.788Z
+Stopped at: Completed 02-06-PLAN.md (checkpoint gaps closed, approved)
 Resume file: None
