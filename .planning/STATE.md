@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: prediction-models-epa-sigma1
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-08-14T00:35:43.380Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-14T02:57:06.650Z"
 last_activity: 2026-08-13
-last_activity_desc: Phase 02 execution started
+last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 6
+  completed_plans: 8
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 02 (prediction-models-epa-sigma1) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 02
-Last activity: 2026-08-13 — Phase 02 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-08-13 — Phase 02 execution resumed (wave continue)
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [██████████] 100%
 | Phase 01 P04 | 12min | 2 tasks | 4 files |
 | Phase 01 P05 | 40min | 3 tasks | 12 files |
 | Phase 01 P06 | 3h04m | 2 tasks | 7 files |
+| Phase 02 P02 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Statbotics fallback per-season accuracy constants are unverified best-available estimates, logged as an open stub in WINDOWS.md — Statbotics /v3/year/{year} reproducibly 500s (reconfirmed live 2026-08-13) and their blog renders numbers client-side from the same broken API — no way to source verified values from this offline pipeline
 - [Phase ?]: Fixed O(n^3)-per-match OPR solve (Plan 04) to O(n^2) incremental Sherman-Morrison/RLS after benchmarking real corpus scale (~3,700 teams/season) showed the original approach would need ~16 CPU-days/season — Task 2's own acceptance criteria required the real pnpm harness --seasons 2022-2026 command to complete; the fix is mathematically exact, proven by a new equivalence test against the untouched solveRidgeOpr
 - [Phase ?]: reports/ (harness default --out) added to .gitignore — Generated artifact was untracked-but-not-ignored, against the failure log's keep-generated-artifacts-out-of-git rule
+- [Phase ?]: Offseason events excluded from breakdown-map reconciliation samples — self-reported score_breakdown for offseason events is not guaranteed to match the official schema (found live: missing adjustPoints entirely); matches selectMatchesChronological's existing excludeOffseason discipline
+- [Phase ?]: ALGO-03 (Sigma1) deliberately NOT marked complete in REQUIREMENTS.md despite appearing in plan 02-02's frontmatter requirements list — no Sigma1 code exists yet; only ALGO-02 reflects what plan 02-02 actually shipped
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-13T23:36:25.728Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md
+Last session: 2026-08-14T02:57:06.637Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None
