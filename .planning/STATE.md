@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: prediction-models-epa-sigma1
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-08-14T04:22:07.993Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-08-14T05:18:57.375Z"
 last_activity: 2026-08-13
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 02 (prediction-models-epa-sigma1) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-08-13 — Phase 02 execution resumed (wave continue)
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 75%
 | Phase 01 P06 | 3h04m | 2 tasks | 7 files |
 | Phase 02 P02 | 25min | 3 tasks | 9 files |
 | Phase 02 P03 | 80min | 3 tasks | 17 files |
+| Phase 02 P04 | 40min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,10 @@ Recent decisions affecting current work:
 - [Phase ?]: The head-to-head table replaces (not duplicates) the per-algorithm score table -- one home per Brier/accuracy figure, never two groupings that could drift
 - [Phase ?]: SC-2 (Statbotics per-team numeric tolerance) recorded blocked-on-external-dependency per D-14 -- api.statbotics.io reproducibly 500s, re-confirmed live 2026-08-14; EPA correctness rests on synthetic-fixture tests and walk-forward structural proofs instead
 - [Phase ?]: Fixed a pre-existing (02-02) circular import between breakdown/index.ts and every season file, discovered running the real pnpm harness command Task 2 required -- extracted shared constants into new breakdown/constants.ts leaf module
+- [Phase ?]: D-04's opposing-alliance foulsCommitted attribution implemented explicitly in Sigma1's predict() -- each side's own foulsCommitted entry represents points ITS fouls cost the OPPONENT
+- [Phase ?]: Sigma1 cold-start mean/consistency seed from a live league-wide running ExpandingStats per component rather than a fixed placeholder constant alone
+- [Phase ?]: Sigma1's carrySeason reuses carryover.ts's epaCarryover unchanged -- posterior variance re-inflates to the cold-start prior at a season boundary, consistency carries forward decayed by SIGMA1_CONSISTENCY_CARRY_DECAY (D-17)
+- [Phase ?]: T-02-01's second finite-value gate added in sigma1/index.ts update() -- a value surviving the per-season Zod parse boundary can still be produced non-finite by distributeResidual's degenerate branch
 
 ### Pending Todos
 
@@ -114,6 +119,7 @@ None yet.
 - Cloudflare free-tier 10 ms Worker CPU is the load-bearing constraint; Sigma1's per-match update cost must be measured early (Phase 2) so Phase 4's incremental path is feasible.
 - Per-season RP rules for 2022–2026 must be verified against official game manuals in Phase 3 — generic parsing will not work.
 - REQUIREMENTS.md originally stated 34 v1 requirements; the actual count is 38. Corrected in the traceability section.
+- epa.ts's predict() may attribute foulsCommitted to the wrong side's score (sums a team's own learned foulsCommitted into its own score rather than the opponent's) -- unverified impact, logged to WINDOWS.md entry 3, not fixed by plan 02-04
 
 ## Deferred Items
 
@@ -125,6 +131,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T04:22:07.980Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-08-14T05:18:57.361Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
