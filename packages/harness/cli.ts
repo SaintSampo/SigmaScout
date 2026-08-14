@@ -21,11 +21,21 @@
  * `--cold-start-season` overrides which season is treated as having
  * nothing to carry from (defaults to `COLD_START_SEASON`), so extending
  * the corpus back to 2016 is a flag, not an edit.
+ *
+ * `--measure-update-cost` (plan 02-06 Task 2): wraps every algorithm's
+ * `update` with a sampled high-resolution timer before the run starts and
+ * prints each algorithm's mean/p99 per-match update cost in microseconds
+ * once the run completes — see `withUpdateTiming` below. RESEARCH.md's
+ * ~100-150-scalar-op estimate for Sigma1's per-match update must be
+ * MEASURED against the real corpus, not assumed (coverage D6, 02-04's own
+ * carry-forward note); this flag is that measurement, opt-in so an ordinary
+ * scoring run pays zero timing overhead.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
+import { performance } from "node:perf_hooks";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -117,6 +127,70 @@ function resolveAlgorithms(spec: string | undefined): AlgorithmModule<any>[] {
     algorithms.push(algorithm);
   }
   return algorithms;
+}
+
+/**
+ * Plan 02-06 Task 2: every `UPDATE_TIMING_SAMPLE_INTERVAL`-th call to a
+ * given algorithm's `update` is timed via `performance.now()` (Node's
+ * high-resolution clock); every other call pays only one integer
+ * comparison. 20 was chosen so a multi-hour, multi-season run collects
+ * thousands of samples per algorithm (enough for a stable p99) without
+ * paying the clock's own overhead on every single match.
+ */
+const UPDATE_TIMING_SAMPLE_INTERVAL = 20;
+
+interface UpdateTimingCollector {
+  readonly samplesByAlgorithm: Map<string, number[]>;
+}
+
+function createUpdateTimingCollector(): UpdateTimingCollector {
+  return { samplesByAlgorithm: new Map() };
+}
+
+/**
+ * Returns a NEW `AlgorithmModule` whose `update` is wrapped with the
+ * sampled timer above; `predict`/`teamMetrics`/`carrySeason`/`initState`
+ * are passed through unchanged. Never mutates `algorithm` — the shared
+ * `ALGORITHMS` registry instances stay untouched for every other CLI
+ * invocation that doesn't pass `--measure-update-cost`.
+ */
+function withUpdateTiming<S>(algorithm: AlgorithmModule<S>, collector: UpdateTimingCollector): AlgorithmModule<S> {
+  let callCount = 0;
+  return {
+    ...algorithm,
+    update(state: S, result: MatchResult): S {
+      callCount++;
+      if (callCount % UPDATE_TIMING_SAMPLE_INTERVAL !== 0) {
+        return algorithm.update(state, result);
+      }
+      const start = performance.now();
+      const next = algorithm.update(state, result);
+      const durationMicros = (performance.now() - start) * 1000;
+      const samples = collector.samplesByAlgorithm.get(algorithm.id) ?? [];
+      samples.push(durationMicros);
+      collector.samplesByAlgorithm.set(algorithm.id, samples);
+      return next;
+    },
+  };
+}
+
+function percentile(sortedAscending: readonly number[], p: number): number {
+  if (sortedAscending.length === 0) return 0;
+  const idx = Math.min(sortedAscending.length - 1, Math.max(0, Math.ceil((p / 100) * sortedAscending.length) - 1));
+  return sortedAscending[idx]!;
+}
+
+/** Prints each timed algorithm's mean/p99 per-match update cost in microseconds — the number this plan's SUMMARY quotes, measured rather than estimated. */
+function reportUpdateTiming(collector: UpdateTimingCollector): void {
+  for (const [algorithmId, samples] of collector.samplesByAlgorithm) {
+    if (samples.length === 0) continue;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const mean = sorted.reduce((sum, v) => sum + v, 0) / sorted.length;
+    const p99 = percentile(sorted, 99);
+    console.log(
+      `Update timing [${algorithmId}]: n=${sorted.length} sampled updates, mean=${mean.toFixed(2)}us, p99=${p99.toFixed(2)}us`
+    );
+  }
 }
 
 /** Parses `--seasons "2022-2026"` into an inclusive array of season years. */
@@ -556,6 +630,7 @@ async function main(): Promise<void> {
       "cold-start-season": { type: "string" },
       "predictions-out": { type: "string" },
       "metric-history": { type: "boolean" },
+      "measure-update-cost": { type: "boolean" },
     },
   });
 
@@ -571,14 +646,25 @@ async function main(): Promise<void> {
   // ~6-teams-x-matches-per-algorithm row cost.
   const writeMetricHistory = values["metric-history"] === true;
 
+  // Plan 02-06 Task 2: opt-in per-match update timing — wraps every
+  // resolved algorithm's `update` (not just Sigma1's) so the run produces a
+  // real side-by-side comparison, at zero cost when the flag is absent.
+  const measureUpdateCost = values["measure-update-cost"] === true;
+  const updateTimingCollector = measureUpdateCost ? createUpdateTimingCollector() : undefined;
+  const timedAlgorithms = updateTimingCollector
+    ? algorithms.map((algorithm) => withUpdateTiming(algorithm, updateTimingCollector))
+    : algorithms;
+
   if (values.event) {
-    await runEventMode(values.event, algorithms, outDir);
+    await runEventMode(values.event, timedAlgorithms, outDir);
   } else if (values.seasons || values.season) {
     const seasons = values.seasons ? parseSeasonsRange(values.seasons) : [parseSingleSeason(values.season!)];
-    await runSeasonsMode(seasons, algorithms, outDir, includeOffseason, coldStartSeason, predictionsOutDir, writeMetricHistory);
+    await runSeasonsMode(seasons, timedAlgorithms, outDir, includeOffseason, coldStartSeason, predictionsOutDir, writeMetricHistory);
   } else {
     throw new Error("One of --event, --season, or --seasons is required");
   }
+
+  if (updateTimingCollector) reportUpdateTiming(updateTimingCollector);
 }
 
 // Guard: only auto-run `main()` when this file is the process entry point
