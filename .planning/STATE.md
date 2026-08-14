@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: prediction-models-epa-sigma1
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-08-14T05:18:57.375Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-08-14T06:33:24.685Z"
 last_activity: 2026-08-13
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 02 (prediction-models-epa-sigma1) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-08-13 — Phase 02 execution resumed (wave continue)
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 83%
 | Phase 02 P02 | 25min | 3 tasks | 9 files |
 | Phase 02 P03 | 80min | 3 tasks | 17 files |
 | Phase 02 P04 | 40min | 3 tasks | 10 files |
+| Phase 02 P05 | 95min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Sigma1 cold-start mean/consistency seed from a live league-wide running ExpandingStats per component rather than a fixed placeholder constant alone
 - [Phase ?]: Sigma1's carrySeason reuses carryover.ts's epaCarryover unchanged -- posterior variance re-inflates to the cold-start prior at a season boundary, consistency carries forward decayed by SIGMA1_CONSISTENCY_CARRY_DECAY (D-17)
 - [Phase ?]: T-02-01's second finite-value gate added in sigma1/index.ts update() -- a value surviving the per-season Zod parse boundary can still be produced non-finite by distributeResidual's degenerate branch
+- [Phase ?]: Prediction/metric-history sidecars open with fs 'w' (truncate) not 'a' (append) -- a fresh replay produces a fresh sidecar per season, never a mix of two runs' lines
+- [Phase ?]: redComponents/blueComponents required on PersistedPredictionRecord but validly {} for OPR (no components in its Prediction type) -- D-24's full-vector shape is a schema capability, not a per-algorithm mandate
+- [Phase ?]: replay.ts needed zero code changes for D-28 -- 02-01's onMatchComplete hook already fired after update() with post-update state; only test coverage was missing
+- [Phase ?]: cli.ts ALGORITHMS registry now carries 5 entries (opr, epa, sigma1, sigma1-seasonsd, sigma1-normalcdf) -- D-12's three link modes scored side by side in one real 2024 run, verified: identical predicted scores, distinct win probabilities
 
 ### Pending Todos
 
@@ -131,6 +136,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T05:18:57.361Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-08-14T06:33:24.672Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None

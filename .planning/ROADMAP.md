@@ -70,7 +70,7 @@ Plans:
   3. Sigma1 reports every team metric as a mean and variance renderable as `X ± Y` (1 standard deviation), backed by a documented identifiability check for the state dimensions it estimates.
   4. Every match in the corpus has a predicted winner, a win probability, and predicted alliance scores for each algorithm; Sigma1's predictions additionally carry variance.
 
-**Plans**: 4/6 plans executed
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -88,7 +88,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-05-PLAN.md — Per-match prediction JSONL and team metric-history sidecars, Sigma1 registered in the harness
+- [x] 02-05-PLAN.md — Per-match prediction JSONL and team metric-history sidecars, Sigma1 registered in the harness
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -193,7 +193,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
-| 2. Prediction Models — EPA & Sigma1 | 4/6 | In Progress|  |
+| 2. Prediction Models — EPA & Sigma1 | 5/6 | In Progress|  |
 | 3. Tuning, Ranking Points & Versioning | 0/TBD | Not started | - |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
