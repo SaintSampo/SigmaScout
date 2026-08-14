@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { epa, epaPercentFunc, EPA_K, EPA_FALLBACK_SCORE_SD, type EpaState } from "./epa.js";
 import { opr } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
+import { FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
@@ -212,6 +213,41 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
     const scale = sd / (-EPA_K * Math.LN10);
     const expectedPRedWin = 1 / (1 + Math.exp(-margin / scale));
     expect(prediction.pRedWin).toBeCloseTo(expectedPRedWin, 10);
+  });
+});
+
+describe("epa.predict — D-04 foulsCommitted attributed to the opposing alliance", () => {
+  it("an alliance's own learned foulsCommitted component adds to the OPPONENT's predicted score, not its own", () => {
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map<string, Record<string, number>>([
+        ["R1", { comp: 30, [FOULS_COMMITTED_COMPONENT]: 5 }],
+        ["B1", { comp: 10 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["R1", 0],
+        ["B1", 0],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+    };
+
+    const prediction = epa.predict(
+      state,
+      upcoming({ redTeams: ["R1"], blueTeams: ["B1"], redSurrogates: [], blueSurrogates: [] })
+    );
+
+    // Red's own foulsCommitted (5) must NOT inflate red's own predicted
+    // score — pre-fix, the old summation put it here instead.
+    expect(prediction.redScore).toBe(30);
+    // It must instead land in blue's predicted score (D-04: the receiving
+    // alliance's predicted score, not the fouling alliance's own).
+    expect(prediction.blueScore).toBe(15);
+    // The returned component records themselves are unchanged — only the
+    // scalar score summation changes (matches sigma1's D-04 handling).
+    expect(prediction.redComponents![FOULS_COMMITTED_COMPONENT]).toEqual({ mean: 5 });
+    expect(prediction.blueComponents![FOULS_COMMITTED_COMPONENT]).toBeUndefined();
   });
 });
 

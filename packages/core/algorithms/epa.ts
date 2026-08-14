@@ -13,6 +13,12 @@
  * Deliberate divergences from Statbotics (every one documented at its use
  * site below, per D-13's "every deliberate divergence must be documented"
  * requirement):
+ *   - D-04: `predict()`'s alliance score excludes its OWN
+ *     `FOULS_COMMITTED_COMPONENT` mean and instead adds the OPPOSING
+ *     alliance's `FOULS_COMMITTED_COMPONENT` mean — mirrors
+ *     `sigma1/index.ts`'s `allianceOffensiveTotal`/`predict` handling of the
+ *     same component (see that file's D-04 comment). WINDOWS.md entry 3
+ *     tracked this as a bug before this fix; see the use site below.
  *   - D-08: elimination matches are learned from normally — full weight
  *     (Statbotics: `ELIM_WEIGHT = 1/3`), and the per-team match counter
  *     increments on every match including elims (Statbotics: does not).
@@ -41,7 +47,12 @@
  *     `epaCarryover`.
  */
 import { ratingEligibleTeams } from "./opr.js";
-import { parseBreakdown, componentMapForSeason, type ParsedComponents } from "./breakdown/index.js";
+import {
+  parseBreakdown,
+  componentMapForSeason,
+  FOULS_COMMITTED_COMPONENT,
+  type ParsedComponents,
+} from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import {
   emptyExpandingStats,
@@ -248,8 +259,22 @@ function predict(state: EpaState, match: UpcomingMatch): Prediction {
   const redComponents = sumComponentsAcrossTeam(state.teamComponents, redTeams);
   const blueComponents = sumComponentsAcrossTeam(state.teamComponents, blueTeams);
 
-  const redScore = Object.values(redComponents).reduce((sum, c) => sum + c.mean, 0);
-  const blueScore = Object.values(blueComponents).reduce((sum, c) => sum + c.mean, 0);
+  // D-04: an alliance's own FOULS_COMMITTED_COMPONENT mean represents
+  // points ITS fouls would cost the OPPONENT (breakdown/2024.ts's parse()
+  // derives it from the OPPOSING side's raw foulPoints), so it is excluded
+  // from this alliance's own offensive total and added to the opponent's
+  // predicted score instead — mirrors sigma1/index.ts's
+  // `allianceOffensiveTotal` + `predict` handling of the same component.
+  const redOffensiveTotal = Object.entries(redComponents).reduce(
+    (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
+    0
+  );
+  const blueOffensiveTotal = Object.entries(blueComponents).reduce(
+    (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
+    0
+  );
+  const redScore = redOffensiveTotal + (blueComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
+  const blueScore = blueOffensiveTotal + (redComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
 
   // Pitfall EPA-1: the expanding-window SD only ever reflects matches
   // already replayed (folded in `update`), never a season-batch constant.
