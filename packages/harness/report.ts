@@ -48,9 +48,33 @@ function fmtPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** One `<tr>` per score slice (already filtered to one algorithm's slices — see `renderAlgorithmSection`): season, view, tune/holdout label, both metrics, and every exclusion/tie/no-call count adjacent to the score it qualifies — never in a footnote. */
-function renderScoreTable(slices: readonly ScoreSlice[]): string {
-  const rows = slices
+/** Fixed display order for `CompLevelView` — used only to GROUP/SORT rows, never to compute a value (D-21). */
+const VIEW_SORT_ORDER: Record<CompLevelView, number> = { qualification: 0, elimination: 1, combined: 2 };
+
+/**
+ * D-20/D-21/SC-1: the one comparable table this phase's success criterion
+ * asks for — one `<tr>` per (algorithmId, season, compLevelView) across
+ * EVERY algorithm in the artifact, not filtered to one algorithm's slices.
+ * Rows are grouped SEASON-first (then view, then algorithm alphabetically),
+ * so a reader scanning down a season sees every algorithm's number
+ * adjacent — the opposite grouping from an algorithm-first section, which
+ * is why this table is separate from (and not nested inside)
+ * `renderAlgorithmSection`.
+ *
+ * Every cell is a raw value read straight off `slice` — this function
+ * computes no delta, no "beats by" figure, and no significance test (D-21).
+ * A comparison figure computed here would be a second place a comparison
+ * could be wrong; the artifact holds the raw numbers, and exactly one
+ * consumer (a human reading this table) decides what they mean.
+ */
+export function renderHeadToHeadTable(artifact: HarnessArtifact): string {
+  const rows = [...artifact.slices]
+    .sort((a, b) => {
+      if (a.season !== b.season) return a.season - b.season;
+      const viewDelta = VIEW_SORT_ORDER[a.compLevelView] - VIEW_SORT_ORDER[b.compLevelView];
+      if (viewDelta !== 0) return viewDelta;
+      return a.algorithmId.localeCompare(b.algorithmId);
+    })
     .map((slice) => {
       const excludedTotal =
         slice.exclusionCounts.offseason + slice.exclusionCounts.surrogateAffected + slice.exclusionCounts.missingResult;
@@ -59,6 +83,7 @@ function renderScoreTable(slices: readonly ScoreSlice[]): string {
         ? `<span class="badge badge-headline">Holdout — headline-eligible</span>`
         : `<span class="badge badge-tune">Tune</span>`;
       return `      <tr class="${rowClass}">
+        <td>${escapeHtml(slice.algorithmId)}</td>
         <td>${escapeHtml(String(slice.season))}</td>
         <td>${escapeHtml(VIEW_LABELS[slice.compLevelView])}</td>
         <td>${labelBadge} <span class="season-label-text">(${escapeHtml(SEASON_LABEL_TEXT[slice.seasonLabel])})</span></td>
@@ -73,11 +98,11 @@ function renderScoreTable(slices: readonly ScoreSlice[]): string {
     })
     .join("\n");
 
-  return `  <table class="score-table">
-    <caption>Score table — one row per season per view. Holdout rows (2025–2026) are the only headline-eligible figures per D-09; tune rows (2022–2024) are shown for transparency but must never be presented as a headline claim.</caption>
+  return `  <table class="head-to-head-table">
+    <caption>Head-to-head — every algorithm's raw score, one row per (algorithm, season, view), grouped by season so the same season's algorithms sit adjacent for direct comparison. Holdout rows (2025–2026) are the only headline-eligible figures per D-09; tune rows (2022–2024) are shown for transparency but must never be presented as a headline claim. No deltas or significance figures are computed here (D-21) — read the numbers side by side yourself.</caption>
     <thead>
       <tr>
-        <th>Season</th><th>View</th><th>Label</th><th>Brier score</th><th>Winner accuracy</th>
+        <th>Algorithm</th><th>Season</th><th>View</th><th>Label</th><th>Brier score</th><th>Winner accuracy</th>
         <th>Scored</th><th>Ties</th><th>No-calls</th><th>Excluded</th><th>Candidates</th>
       </tr>
     </thead>
@@ -116,6 +141,21 @@ function renderStatboticsTable(references: readonly HarnessArtifact["statboticsR
 ${rows}
     </tbody>
   </table>`;
+}
+
+/**
+ * D-15: makes the Statbotics reference row's unverified status visually
+ * loud, not just present in the Provenance column. OPR already reports
+ * 0.75-0.78 winner accuracy against this row's dated 0.70-0.71 constant —
+ * without this caveat travelling with it, that comparison reads as a
+ * clean win over a number nobody has verified. Placed immediately under
+ * the (also loudly-marked) "Statbotics reference" heading, before the
+ * table itself.
+ */
+export function renderStatboticsCaveat(): string {
+  return `  <div class="statbotics-caveat">
+    <strong>UNVERIFIED.</strong> These figures are dated manual constants inherited from Phase 1 (see the Provenance column below — any row reading "Dated fallback constant" is this stub), not individually verified against Statbotics' own published per-season numbers. Statbotics' API (<code>api.statbotics.io/v3/year/{year}</code>) reproducibly returns HTTP 500 (confirmed live 2026-08-13, D-14), so this report has no live reference to check them against. Read every comparison against our own numbers with that caveat attached.
+  </div>`;
 }
 
 const BAR_CHART_WIDTH = 640;
@@ -236,6 +276,8 @@ const REPORT_STYLE = `
   h2 { font-size: 1.15rem; margin-top: 2rem; }
   h3 { font-size: 1rem; margin-top: 1.5rem; }
   .algorithm-section { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #ddd; }
+  .head-to-head-table { margin-bottom: 1.5rem; }
+  .head-to-head-table th { background: #e3eefc; }
   .meta { color: #555; font-size: 0.9rem; }
   table { border-collapse: collapse; width: 100%; margin-top: 0.75rem; font-size: 0.85rem; }
   caption { text-align: left; font-size: 0.85rem; color: #444; margin-bottom: 0.4rem; caption-side: top; }
@@ -243,6 +285,8 @@ const REPORT_STYLE = `
   th { background: #f0f0f0; }
   tr.holdout-row { background: #eef7ee; font-weight: 600; }
   tr.tune-row { background: #fff; }
+  .statbotics-caveat { background: #fff3cd; border: 1px solid #e6c200; border-radius: 4px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; font-size: 0.85rem; color: #664d03; }
+  .statbotics-caveat code { background: #fff9e6; padding: 0 0.2rem; }
   .badge { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
   .badge-headline { background: #2e7d32; color: #fff; }
   .badge-tune { background: #999; color: #fff; }
@@ -266,18 +310,17 @@ const REPORT_STYLE = `
 `;
 
 /**
- * Renders one score-table/bars/calibration section for a single algorithm's
- * slices (D-20's `algorithms[]`, minimum viable grouping only — the loud
- * D-15 caveat and the head-to-head comparison layout land in plan 02-03).
+ * Renders one bars/calibration section for a single algorithm's slices
+ * (D-20's `algorithms[]`). The raw score TABLE lives ONLY in
+ * `renderHeadToHeadTable` (SC-1's "one comparable table") — not duplicated
+ * here — since a reader must never see the same Brier/accuracy figure
+ * printed twice at two different groupings that could silently drift.
  */
 function renderAlgorithmSection(algorithm: HarnessArtifact["algorithms"][number], slices: readonly ScoreSlice[]): string {
   const id = escapeHtml(algorithm.id);
   const version = escapeHtml(algorithm.version);
   return `  <section class="algorithm-section">
   <h2>${id} v${version}</h2>
-
-  <h3>Score table</h3>
-${renderScoreTable(slices)}
 
   <h3>Winner accuracy by season</h3>
 ${renderScoreBarsSvg(slices)}
@@ -290,8 +333,10 @@ ${renderCalibrationSection(slices)}
 /**
  * Renders one self-contained HTML string from a validated `HarnessArtifact`
  * — no corpus access, no recomputation. Identical input always produces
- * identical output. D-20: one section per algorithm in `artifact.algorithms`,
- * each fed only its own `slices` (filtered by `algorithmId`).
+ * identical output. D-20/SC-1: the head-to-head table (every algorithm's
+ * raw numbers, one comparable table) renders once, ahead of the
+ * per-algorithm bar/calibration sections; each per-algorithm section is fed
+ * only its own `slices` (filtered by `algorithmId`).
  */
 export function renderHtmlReport(artifact: HarnessArtifact): string {
   const { provenance, algorithms, slices, statboticsReferences } = artifact;
@@ -321,9 +366,13 @@ export function renderHtmlReport(artifact: HarnessArtifact): string {
     Seasons: ${seasonsCovered}
   </p>
 
+  <h2>Head-to-head</h2>
+${renderHeadToHeadTable(artifact)}
+
 ${algorithmSections}
 
-  <h2>Statbotics reference</h2>
+  <h2>UNVERIFIED — Statbotics reference</h2>
+${renderStatboticsCaveat()}
 ${renderStatboticsTable(statboticsReferences)}
 </body>
 </html>

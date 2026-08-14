@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HarnessArtifactSchema, type HarnessArtifact } from "./artifact.js";
 import { calibrationBins } from "../core/scoring/calibration.js";
-import { escapeHtml, renderHtmlReport } from "./report.js";
+import { escapeHtml, renderHeadToHeadTable, renderHtmlReport, renderStatboticsCaveat } from "./report.js";
 import type { ScoreSlice } from "./score.js";
 
 // A populated combined-view slice for the holdout season 2025, with a
@@ -214,13 +214,160 @@ describe("renderHtmlReport — D-20 per-algorithm sections", () => {
     expect(html).toContain("epa v1.0.0");
   });
 
-  it("feeds each algorithm's section only its own slices (filtered by algorithmId), never another algorithm's figures", () => {
+  it("feeds each algorithm's bar/calibration section only its own slices (filtered by algorithmId), never another algorithm's figures", () => {
     const html = renderHtmlReport(buildTwoAlgorithmArtifact());
-    // opr's holdout Brier (0.132) and epa's holdout Brier (0.201) must both
-    // appear exactly once each — proving the sections are filtered, not
-    // both rendering the same combined slice list.
+    // opr's holdout Brier (0.132) and epa's holdout Brier (0.201) each
+    // appear exactly once in the report — in the head-to-head table, the
+    // one place the raw score table now lives (see the "renderHeadToHeadTable"
+    // describe block below). Neither figure is duplicated into a
+    // per-algorithm score table anymore (that would be a second place the
+    // same number could silently drift from the artifact).
     expect((html.match(/0\.1320/g) ?? []).length).toBe(1);
     expect((html.match(/0\.2010/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", () => {
+  const epaSlice2025Combined: ScoreSlice = {
+    ...slice2025Combined,
+    algorithmId: "epa",
+    brierScore: 0.201,
+    winnerAccuracy: 0.701,
+  };
+  const sigma1Slice2025Combined: ScoreSlice = {
+    ...slice2025Combined,
+    algorithmId: "sigma1",
+    brierScore: 0.119,
+    winnerAccuracy: 0.83,
+  };
+
+  function buildThreeAlgorithmArtifact(): HarnessArtifact {
+    const candidate: HarnessArtifact = {
+      schemaVersion: 2,
+      provenance: {
+        corpusIdentity: "data/corpus.sqlite",
+        runTimestamp: "2026-08-13T00:00:00.000Z",
+        seasonsCovered: [2024, 2025],
+      },
+      algorithms: [
+        { id: "opr", version: "1.0.0" },
+        { id: "epa", version: "1.0.0" },
+        { id: "sigma1", version: "1.0.0" },
+      ],
+      slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined, sigma1Slice2025Combined],
+      statboticsReferences: [],
+    };
+    return HarnessArtifactSchema.parse(candidate);
+  }
+
+  it("produces a table containing all three algorithm ids and one row per (algorithm, season, view)", () => {
+    const artifact = buildThreeAlgorithmArtifact();
+    const html = renderHeadToHeadTable(artifact);
+
+    expect(html).toContain(">opr<");
+    expect(html).toContain(">epa<");
+    expect(html).toContain(">sigma1<");
+
+    const rowCount = (html.match(/<tr class="(?:holdout|tune)-row">/g) ?? []).length;
+    expect(rowCount).toBe(artifact.slices.length);
+  });
+
+  it("groups rows by season (then view, then algorithm) so a reader scanning one season sees every algorithm adjacent", () => {
+    // A dedicated fixture with exactly one slice per algorithm, all in the
+    // same (season, view) — no other row's algorithm text can appear
+    // earlier and confuse an indexOf-based ordering check.
+    const artifact: HarnessArtifact = HarnessArtifactSchema.parse({
+      schemaVersion: 2,
+      provenance: { corpusIdentity: "data/corpus.sqlite", runTimestamp: "2026-08-13T00:00:00.000Z", seasonsCovered: [2025] },
+      algorithms: [
+        { id: "sigma1", version: "1.0.0" },
+        { id: "opr", version: "1.0.0" },
+        { id: "epa", version: "1.0.0" },
+      ],
+      slices: [
+        { ...slice2025Combined, algorithmId: "sigma1", brierScore: 0.119, winnerAccuracy: 0.83 },
+        { ...slice2025Combined, algorithmId: "opr" },
+        { ...slice2025Combined, algorithmId: "epa", brierScore: 0.201, winnerAccuracy: 0.701 },
+      ],
+      statboticsReferences: [],
+    });
+
+    const html = renderHeadToHeadTable(artifact);
+    // Alphabetical algorithm order within the shared (season, view) group: epa, opr, sigma1.
+    const epaIdx = html.indexOf(">epa<");
+    const oprIdx = html.indexOf(">opr<");
+    const sigma1Idx = html.indexOf(">sigma1<");
+    expect(oprIdx).toBeGreaterThan(epaIdx);
+    expect(sigma1Idx).toBeGreaterThan(oprIdx);
+  });
+
+  it("computes no arithmetic difference between two algorithms' Brier scores — raw numbers only (D-21)", () => {
+    const twoAlgorithmArtifact: HarnessArtifact = HarnessArtifactSchema.parse({
+      schemaVersion: 2,
+      provenance: {
+        corpusIdentity: "data/corpus.sqlite",
+        runTimestamp: "2026-08-13T00:00:00.000Z",
+        seasonsCovered: [2025],
+      },
+      algorithms: [
+        { id: "opr", version: "1.0.0" },
+        { id: "epa", version: "1.0.0" },
+      ],
+      slices: [slice2025Combined, epaSlice2025Combined],
+      statboticsReferences: [],
+    });
+    const html = renderHeadToHeadTable(twoAlgorithmArtifact);
+    // 0.132 - 0.201 = -0.069 (and its absolute/rounded variants) must never
+    // appear — this function must never compute a delta between rows.
+    expect(html).not.toContain("0.069");
+    expect(html).not.toContain("-0.069");
+    // Sanity: both raw scores DO appear (the table isn't just empty).
+    expect(html).toContain("0.1320");
+    expect(html).toContain("0.2010");
+  });
+
+  it("renders correctly for a one-algorithm artifact", () => {
+    const oneAlgorithmArtifact: HarnessArtifact = HarnessArtifactSchema.parse({
+      schemaVersion: 2,
+      provenance: {
+        corpusIdentity: "data/corpus.sqlite",
+        runTimestamp: "2026-08-13T00:00:00.000Z",
+        seasonsCovered: [2024],
+      },
+      algorithms: [{ id: "opr", version: "1.0.0" }],
+      slices: [slice2024Qual],
+      statboticsReferences: [],
+    });
+    const html = renderHeadToHeadTable(oneAlgorithmArtifact);
+    expect(html).toContain(">opr<");
+    expect((html.match(/<tr class="(?:holdout|tune)-row">/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("renderStatboticsCaveat — D-15 loud unverified marker", () => {
+  it("states UNVERIFIED and names the HTTP 500 evidence", () => {
+    const html = renderStatboticsCaveat();
+    expect(html).toContain("UNVERIFIED");
+    expect(html).toContain("HTTP 500");
+    expect(html).toContain("statbotics-caveat");
+  });
+
+  it("is attached in renderHtmlReport, adjacent to the Statbotics reference table, with the fetched field's value surfaced per row", () => {
+    const html = renderHtmlReport(buildFixtureArtifact());
+    // Search from the <h2> heading forward — earlier occurrences of these
+    // class names in the <style> block's CSS rules must not be confused
+    // with the actual body elements they style.
+    const headingIdx = html.indexOf("<h2>UNVERIFIED — Statbotics reference</h2>");
+    const caveatIdx = html.indexOf('class="statbotics-caveat"', headingIdx);
+    const tableIdx = html.indexOf('class="statbotics-table"', caveatIdx);
+    expect(html).toContain("UNVERIFIED");
+    expect(headingIdx).toBeGreaterThan(-1);
+    expect(caveatIdx).toBeGreaterThan(headingIdx);
+    expect(tableIdx).toBeGreaterThan(caveatIdx);
+    // fetched:true/false is surfaced as a visible column value, not only as
+    // provenance text buried elsewhere.
+    expect(html).toContain("Live fetch");
+    expect(html).toContain("Dated fallback constant");
   });
 });
 
