@@ -251,6 +251,71 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
   });
 });
 
+describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13)", () => {
+  it("produces identical resulting state for a team's second match whether it shares the first match's eventKey or falls in a different event of the same season", () => {
+    // EPA has no event-boundary-sensitive code at all (unlike Sigma1's
+    // 02-04 process-noise bump on an event change) — this is deliberate
+    // fidelity to Statbotics (D-13), but nothing proved it until now. This
+    // test pins the invariant: `update()`'s only use of `eventKey` is
+    // deriving `season` on a team's very first-ever match (`epa.ts`'s
+    // `deriveSeasonFromEventKey`); every later call ignores it entirely.
+    // If EPA ever gained event-boundary-sensitive behavior (a streak
+    // reset, a within-season event-change decay bump, anything keyed off
+    // "did this match's eventKey change"), this test would start failing
+    // the moment `secondMatchSameEvent`/`secondMatchDifferentEvent`
+    // diverged from each other.
+    const initial: EpaState = {
+      season: null,
+      teamComponents: new Map([["frc1", {}]]),
+      teamMatchCounts: new Map([["frc1", 0]]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+    };
+
+    const firstMatch = matchResult({
+      matchKey: "2024test_qm1",
+      eventKey: "2024test",
+      redTeams: ["frc1", "surr1", "surr2"],
+      redSurrogates: ["surr1", "surr2"],
+      blueTeams: ["s1", "s2", "s3"],
+      blueSurrogates: ["s1", "s2", "s3"],
+      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 30 }),
+    });
+    const afterFirst = epa.update(initial, firstMatch);
+
+    // Same match count (1 -> 2) and identical observation on both branches
+    // — the ONLY thing that differs is whether the second match's
+    // `eventKey` matches the first match's.
+    const secondMatchSameEvent = matchResult({
+      matchKey: "2024test_qm2",
+      eventKey: "2024test",
+      redTeams: ["frc1", "surr1", "surr2"],
+      redSurrogates: ["surr1", "surr2"],
+      blueTeams: ["s1", "s2", "s3"],
+      blueSurrogates: ["s1", "s2", "s3"],
+      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 45 }),
+    });
+    const secondMatchDifferentEvent = matchResult({
+      matchKey: "2024other_qm2",
+      eventKey: "2024other",
+      redTeams: ["frc1", "surr1", "surr2"],
+      redSurrogates: ["surr1", "surr2"],
+      blueTeams: ["s1", "s2", "s3"],
+      blueSurrogates: ["s1", "s2", "s3"],
+      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 45 }),
+    });
+
+    const afterSameEvent = epa.update(afterFirst, secondMatchSameEvent);
+    const afterDifferentEvent = epa.update(afterFirst, secondMatchDifferentEvent);
+
+    expect(afterSameEvent.teamComponents.get("frc1")).toEqual(afterDifferentEvent.teamComponents.get("frc1"));
+    expect(afterSameEvent.teamMatchCounts.get("frc1")).toBe(afterDifferentEvent.teamMatchCounts.get("frc1"));
+    expect(afterSameEvent.allianceScoreStats).toEqual(afterDifferentEvent.allianceScoreStats);
+    expect(afterSameEvent.season).toBe(afterDifferentEvent.season);
+  });
+});
+
 describe("epa — contract shape", () => {
   it("exports an AlgorithmModule with id 'epa' and every required member", () => {
     expect(epa.id).toBe("epa");
