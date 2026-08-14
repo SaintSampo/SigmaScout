@@ -26,9 +26,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import type { AlgorithmModule, SeasonBoundary } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { sigma1, sigma1NormalCdf, sigma1SeasonSd } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
   openCorpus,
@@ -44,14 +45,36 @@ import { tbaMatchListSchema, tbaEventSchema } from "../ingest/schemas.js";
 import { normalizeEvent, normalizeMatch } from "../ingest/normalize.js";
 import { tbaFetch } from "../ingest/tbaClient.js";
 import { buildArtifact, writeArtifact } from "./artifact.js";
+import {
+  closeMetricHistoryWriter,
+  openMetricHistoryWriter,
+  writeMetricHistoryRows,
+  type MetricHistoryRow,
+  type MetricHistoryWriterHandle,
+} from "./metricHistory.js";
+import {
+  closePredictionsWriter,
+  openPredictionsWriter,
+  writePredictionLine,
+  type PredictionsWriterHandle,
+} from "./predictions.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
-// (incompatible) state types S; each entry is internally type-safe.
-const ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa };
+// (incompatible) state types S; each entry is internally type-safe. D-12's
+// three Sigma1 link modes share one update path (sigma1/index.ts's
+// makeSigma1) but are registered as three distinct entries so one harness
+// run scores all three side by side (plan 02-05).
+const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
+  opr,
+  epa,
+  sigma1,
+  "sigma1-seasonsd": sigma1SeasonSd,
+  "sigma1-normalcdf": sigma1NormalCdf,
+};
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
@@ -134,6 +157,12 @@ interface SeasonRunResult {
   finalStates: ReadonlyMap<string, unknown>;
 }
 
+/** Plan 02-05: the two optional sidecar writers a season replay can stream into — both open for the duration of exactly one season, opened/closed by the caller (`runSeasons`) at each season boundary. */
+interface SeasonSidecarWriters {
+  predictionsWriter?: PredictionsWriterHandle;
+  metricHistoryWriter?: MetricHistoryWriterHandle;
+}
+
 /**
  * Replays one season (every event in it, cross-event interleaved) through
  * every supplied `algorithms` over one shared stream (D-22) and returns
@@ -147,13 +176,23 @@ interface SeasonRunResult {
  * this algorithm carried state into the season or started cold (D-16: a
  * silent regression to per-season resets must be visible in the run log,
  * not just in the numbers).
+ *
+ * Plan 02-05 (D-23/D-24/D-25/D-28): when `sidecars.predictionsWriter` is
+ * supplied, every `MultiAlgorithmPredictionRecord` this season's replay
+ * produces is appended as one JSONL line, in the exact order `runAll`
+ * returned them (contiguous per match, stable algorithm order — D-25).
+ * When `sidecars.metricHistoryWriter` is supplied, `runAll`'s existing
+ * `onMatchComplete` hook (02-01, unused until this plan) snapshots the six
+ * involved teams' `teamMetrics` after every (match, algorithm) — inside the
+ * loop already running, no second pass over the corpus.
  */
 async function runSeason(
   db: Corpus,
   season: number,
   algorithms: readonly AlgorithmModule<any>[],
   includeOffseason: boolean,
-  initialStates?: ReadonlyMap<string, unknown>
+  initialStates?: ReadonlyMap<string, unknown>,
+  sidecars?: SeasonSidecarWriters
 ): Promise<SeasonRunResult> {
   const stream = buildSeasonStream(db, season, { includeOffseason });
 
@@ -166,8 +205,58 @@ async function runSeason(
   );
 
   const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+  const algorithmById = new Map(algorithms.map((a) => [a.id, a]));
+  // D-28: this match's position in the season's own chronological stream —
+  // the same total order every algorithm replays, not a per-team counter.
+  const matchIndexByKey = new Map(stream.map((m, i) => [m.matchKey, i]));
+
+  const metricHistoryWriter = sidecars?.metricHistoryWriter;
+  const onMatchComplete = metricHistoryWriter
+    ? (match: MatchResult, algorithmId: string, state: unknown): void => {
+        const algorithm = algorithmById.get(algorithmId);
+        if (!algorithm) return;
+        const involvedTeams = [...match.redTeams, ...match.blueTeams];
+        const metrics = algorithm.teamMetrics(state, involvedTeams);
+        const rows: MetricHistoryRow[] = involvedTeams.map((teamKey) => ({
+          matchKey: match.matchKey,
+          season,
+          eventKey: match.eventKey,
+          algorithmId,
+          teamKey,
+          matchIndex: matchIndexByKey.get(match.matchKey) ?? 0,
+          metrics: metrics[teamKey] ?? {},
+        }));
+        writeMetricHistoryRows(metricHistoryWriter, rows);
+      }
+    : undefined;
+
   const simulator = new WalkForwardSimulator(stream);
-  const records = simulator.runAll(algorithms, teams, initialStates);
+  const records = simulator.runAll(algorithms, teams, initialStates, onMatchComplete);
+
+  const predictionsWriter = sidecars?.predictionsWriter;
+  if (predictionsWriter) {
+    for (const r of records) {
+      const algorithm = algorithmById.get(r.algorithmId);
+      writePredictionLine(predictionsWriter, {
+        matchKey: r.match.matchKey,
+        season,
+        eventKey: r.match.eventKey,
+        compLevel: r.match.compLevel,
+        algorithmId: r.algorithmId,
+        algorithmVersion: algorithm?.version ?? "unknown",
+        predictedWinner: r.prediction.winner,
+        pRedWin: r.prediction.pRedWin,
+        predictedRedScore: r.prediction.redScore,
+        predictedBlueScore: r.prediction.blueScore,
+        redComponents: r.prediction.redComponents ?? {},
+        blueComponents: r.prediction.blueComponents ?? {},
+        variance: r.prediction.variance,
+        actualWinner: r.match.winner,
+        actualRedScore: r.match.redScore,
+        actualBlueScore: r.match.blueScore,
+      });
+    }
+  }
 
   const predictions: HarnessPredictionInput[] = records.map((r) => ({
     matchKey: r.match.matchKey,
@@ -217,17 +306,33 @@ async function runSeason(
  * assembled multi-run pipeline), is also left out of `initialStates` for
  * that boundary — there is nothing to carry, so it starts that season
  * cold rather than the run throwing.
+ *
+ * Plan 02-05: `sidecarConfig`, when supplied, opens one `predictionsWriter`
+ * and/or `metricHistoryWriter` PER SEASON — a fresh file per season boundary
+ * — passes them to `runSeason`, and closes both before moving to the next
+ * season, so a season's sidecar file is complete the moment that season's
+ * loop iteration ends rather than staying open across the whole range.
  */
 // Exported for `cli.season-carry.test.ts`'s T-02-08 regression: a
 // 2022-2023 run's 2022 predictions must be byte-identical to a
 // 2022-only run's, proving carrySeason cannot leak a later season's
 // information backward into an earlier one's predictions.
+export interface RunSeasonsSidecarConfig {
+  /** When set, a `predictions-{season}.jsonl` writer is opened in this directory for every season. */
+  predictionsOutDir?: string;
+  /** When set, a `metrics-{season}.jsonl` writer is opened in this directory for every season. */
+  metricHistoryOutDir?: string;
+  /** Forwarded to both writers' secret-scrub check; `undefined` on a path with no secret in scope. */
+  secretToScrub?: string;
+}
+
 export async function runSeasons(
   db: Corpus,
   seasons: readonly number[],
   algorithms: readonly AlgorithmModule<any>[],
   includeOffseason: boolean,
-  coldStartSeason: number
+  coldStartSeason: number,
+  sidecarConfig?: RunSeasonsSidecarConfig
 ): Promise<HarnessPredictionInput[]> {
   const all: HarnessPredictionInput[] = [];
   let liveStates = new Map<string, unknown>();
@@ -253,7 +358,21 @@ export async function runSeasons(
       initialStates = carried;
     }
 
-    const { predictions, finalStates } = await runSeason(db, season, algorithms, includeOffseason, initialStates);
+    const predictionsWriter = sidecarConfig?.predictionsOutDir
+      ? openPredictionsWriter(sidecarConfig.predictionsOutDir, season, sidecarConfig.secretToScrub)
+      : undefined;
+    const metricHistoryWriter = sidecarConfig?.metricHistoryOutDir
+      ? openMetricHistoryWriter(sidecarConfig.metricHistoryOutDir, season, sidecarConfig.secretToScrub)
+      : undefined;
+
+    const { predictions, finalStates } = await runSeason(db, season, algorithms, includeOffseason, initialStates, {
+      predictionsWriter,
+      metricHistoryWriter,
+    });
+
+    if (predictionsWriter) closePredictionsWriter(predictionsWriter);
+    if (metricHistoryWriter) closeMetricHistoryWriter(metricHistoryWriter);
+
     all.push(...predictions);
     liveStates = new Map(finalStates);
   }
@@ -266,17 +385,30 @@ export async function runSeasons(
  * replays every requested season cross-event-interleaved for every
  * supplied algorithm (D-22), and writes one combined artifact and report
  * covering the whole range and every algorithm (D-20).
+ *
+ * Plan 02-05 (D-23): `predictionsOutDir` (defaults to `outDir` — the
+ * sidecar is part of what a run produces) and `writeMetricHistory` (default
+ * off, `--metric-history`) wire the two per-season sidecar writers through
+ * `runSeasons`. Both are passed `secretToScrub: undefined` — this path
+ * reads the corpus read-only and never has the TBA API key in scope (no
+ * network calls happen here), so there is no secret to scrub against.
  */
 async function runSeasonsMode(
   seasons: readonly number[],
   algorithms: readonly AlgorithmModule<any>[],
   outDir: string,
   includeOffseason: boolean,
-  coldStartSeason: number
+  coldStartSeason: number,
+  predictionsOutDir: string,
+  writeMetricHistory: boolean
 ): Promise<void> {
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    const predictions = await runSeasons(db, seasons, algorithms, includeOffseason, coldStartSeason);
+    const predictions = await runSeasons(db, seasons, algorithms, includeOffseason, coldStartSeason, {
+      predictionsOutDir,
+      metricHistoryOutDir: writeMetricHistory ? outDir : undefined,
+      secretToScrub: undefined,
+    });
     const slices = aggregateScores(predictions);
 
     const statboticsReferences: StatboticsReference[] = [];
@@ -422,6 +554,8 @@ async function main(): Promise<void> {
       out: { type: "string" },
       "include-offseason": { type: "boolean" },
       "cold-start-season": { type: "string" },
+      "predictions-out": { type: "string" },
+      "metric-history": { type: "boolean" },
     },
   });
 
@@ -429,12 +563,19 @@ async function main(): Promise<void> {
   const outDir = values.out ?? DEFAULT_OUT_DIR;
   const includeOffseason = values["include-offseason"] === true;
   const coldStartSeason = parseColdStartSeason(values["cold-start-season"]);
+  // D-23: the prediction sidecar is part of what a run produces, so it
+  // defaults to living beside artifact.json rather than requiring an
+  // explicit opt-in flag every time.
+  const predictionsOutDir = values["predictions-out"] ?? outDir;
+  // D-28: off by default — a run that only wants scores should not pay the
+  // ~6-teams-x-matches-per-algorithm row cost.
+  const writeMetricHistory = values["metric-history"] === true;
 
   if (values.event) {
     await runEventMode(values.event, algorithms, outDir);
   } else if (values.seasons || values.season) {
     const seasons = values.seasons ? parseSeasonsRange(values.seasons) : [parseSingleSeason(values.season!)];
-    await runSeasonsMode(seasons, algorithms, outDir, includeOffseason, coldStartSeason);
+    await runSeasonsMode(seasons, algorithms, outDir, includeOffseason, coldStartSeason, predictionsOutDir, writeMetricHistory);
   } else {
     throw new Error("One of --event, --season, or --seasons is required");
   }
