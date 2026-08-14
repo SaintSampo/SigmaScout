@@ -14,7 +14,7 @@ SigmaScout gets built measurement-first. Before any model exists, a normalized 2
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Data Foundation & Evaluation Harness** - Normalized TBA corpus plus walk-forward backtesting with an OPR baseline
-- [ ] **Phase 2: Prediction Models — EPA & Sigma1** - Reimplemented EPA and the Sigma1 Kalman filter, scored head-to-head
+- [x] **Phase 2: Prediction Models — EPA & Sigma1** - Reimplemented EPA and the Sigma1 Kalman filter, scored head-to-head (completed 2026-08-14)
 - [ ] **Phase 3: Tuning, Ranking Points & Versioning** - Offline optimizer, online adaptation, per-season RP prediction, versioned algorithms
 - [ ] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers
 - [ ] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings
@@ -193,7 +193,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
-| 2. Prediction Models — EPA & Sigma1 | 6/6 | In Progress|  |
+| 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 0/TBD | Not started | - |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
