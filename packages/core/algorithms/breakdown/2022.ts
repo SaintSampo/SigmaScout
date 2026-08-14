@@ -20,8 +20,8 @@
  * (reconciliation.test.ts).
  */
 import { z } from "zod";
-import type { ParsedComponents, SeasonComponentMap } from "./index.js";
-import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./index.js";
+import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
+import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads.

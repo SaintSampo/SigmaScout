@@ -123,23 +123,34 @@ export class WalkForwardSimulator {
 
   /**
    * D-22: drives EVERY supplied algorithm over one shared chronological
-   * stream — `initState` once per algorithm, then a single outer loop over
-   * `this.#matches`; for each match, an inner loop over algorithms calling
-   * `predict(state, toLeakProofUpcoming(result))`, then `update`. Exactly
-   * one `toLeakProofUpcoming(result)` value is built per match and shared
-   * across the inner algorithm loop, so every algorithm provably receives
-   * the identical object for that match — any score difference is the
-   * algorithm, not the data. `onMatchComplete`, when supplied, is invoked
-   * immediately after each algorithm's `update` — the seam plan 02-05 uses
-   * for D-28's per-match metric-history snapshots; unused by this plan.
+   * stream — `initState` once per algorithm (or, when `initialStates`
+   * supplies an entry for an algorithm's id, that carried-in state instead
+   * — plan 02-03's season-boundary threading, D-16), then a single outer
+   * loop over `this.#matches`; for each match, an inner loop over
+   * algorithms calling `predict(state, toLeakProofUpcoming(result))`, then
+   * `update`. Exactly one `toLeakProofUpcoming(result)` value is built per
+   * match and shared across the inner algorithm loop, so every algorithm
+   * provably receives the identical object for that match — any score
+   * difference is the algorithm, not the data. `onMatchComplete`, when
+   * supplied, is invoked immediately after each algorithm's `update` — the
+   * seam plan 02-05 uses for D-28's per-match metric-history snapshots;
+   * unused by this plan.
+   *
+   * The returned array also carries a `finalStates` property (each
+   * algorithm's state after the last replayed match) — an intersection
+   * type rather than a wrapper object, so every existing caller that treats
+   * the return value as a plain `MultiAlgorithmPredictionRecord[]` keeps
+   * working unchanged; only a caller that needs to THREAD state across a
+   * season boundary (plan 02-03's `runSeasons`) reads `.finalStates`.
    */
   runAll(
     algorithms: readonly AlgorithmModule<any>[],
     teams: readonly string[],
+    initialStates?: ReadonlyMap<string, unknown>,
     onMatchComplete?: (match: MatchResult, algorithmId: string, state: unknown) => void
-  ): MultiAlgorithmPredictionRecord[] {
+  ): MultiAlgorithmPredictionRecord[] & { finalStates: ReadonlyMap<string, unknown> } {
     const states = new Map<string, unknown>(
-      algorithms.map((algorithm) => [algorithm.id, algorithm.initState([...teams])])
+      algorithms.map((algorithm) => [algorithm.id, initialStates?.get(algorithm.id) ?? algorithm.initState([...teams])])
     );
     const records: MultiAlgorithmPredictionRecord[] = [];
 
@@ -155,6 +166,6 @@ export class WalkForwardSimulator {
       }
     }
 
-    return records;
+    return Object.assign(records, { finalStates: states });
   }
 }

@@ -14,7 +14,7 @@
  * discipline of a documented fallback over a silent zero.
  */
 import { z } from "zod";
-import type { ParsedComponents, SeasonComponentMap } from "./index.js";
+import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads.

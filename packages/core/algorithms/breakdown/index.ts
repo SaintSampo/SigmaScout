@@ -4,72 +4,25 @@
  * file — never a branch here. `COLD_START_SEASON` is the one place the
  * corpus's cold-start season is named; no other module may hardcode it
  * (D-19: it becomes 2016 once the corpus is extended back that far).
+ *
+ * Shared types/constants (`ParsedComponents`, `SeasonComponentMap`,
+ * `FOULS_COMMITTED_COMPONENT`, `ADJUST_COMPONENT`, `COLD_START_SEASON`,
+ * `isColdStartSeason`) live in `./constants.js`, a dependency-free leaf
+ * module, and are re-exported here for every existing import site. This
+ * module (the dispatch table) imports every season file, and every season
+ * file imports the shared constants from `constants.js` — never from this
+ * file — so the dependency graph stays acyclic (see `constants.ts`'s file
+ * header for the circular-import bug this split fixes).
  */
-
-/**
- * One season's parsed component values, keyed by canonical component name.
- * Every value finite (T-02-01) — a per-season `SeasonComponentMap.parse`
- * must throw rather than emit a non-finite value.
- */
-export type ParsedComponents = Record<string, number>;
-
-/**
- * The interface a per-season module implements: the canonical component
- * names it emits, and a pure parser from the raw TBA `score_breakdown`
- * object (shape `{ red: {...}, blue: {...} }`) to one alliance's
- * `ParsedComponents`. Some components (e.g. 2024's `foulsCommitted`, D-04)
- * are legitimately cross-alliance — `parse` receives the whole raw object,
- * not just `side`'s half, so a per-season map can read the opposing
- * alliance's fields when the canonical component's definition requires it.
- */
-export interface SeasonComponentMap {
-  readonly components: readonly string[];
-  parse(rawBreakdownJson: unknown, side: "red" | "blue"): ParsedComponents;
-  /**
-   * Raw TBA field names this season carries but never emits as a rating
-   * component (e.g. 2022-2025's `foulCount`/`techFoulCount` count fields,
-   * 2026's renamed `majorFoulCount`/`minorFoulCount`) — recorded for plan
-   * 02-06's identifiability report, not read by any algorithm's update
-   * path. Optional: 2024's map (plan 02-01) predates this convention.
-   */
-  readonly diagnosticKeys?: readonly string[];
-}
-
-/**
- * Canonical component name for a per-team "fouls committed" observation
- * (D-04): the points this alliance's fouls cost the OPPONENT, derived from
- * the opposing alliance's own `foulPoints` field. Every season module
- * spells this name through the constant, never as a bare string literal.
- */
-export const FOULS_COMMITTED_COMPONENT = "foulsCommitted";
-
-/**
- * Canonical component name for TBA's `adjustPoints` field (present, with
- * that exact key, in every season 2022-2026 sampled this phase). Every
- * season module spells this name through the constant, never as a bare
- * string literal.
- */
-export const ADJUST_COMPONENT = "adjust";
-
-/**
- * PROJECT INTENT (D-19): once the models are proven, the corpus is
- * recomputed starting from 2016 and 2016 becomes the cold-start season
- * instead of 2022. This constant is the one place that parameter lives —
- * no other module under `packages/core/algorithms` may hardcode 2022 as a
- * cold-start sentinel.
- */
-export const COLD_START_SEASON = 2022;
-
-/**
- * D-19: the one comparison point for "is this season the corpus's
- * cold-start season" — every other module (carryover, the harness season
- * loop) calls this rather than re-deriving `season === COLD_START_SEASON`
- * itself, so extending the corpus back to 2016 (PROJECT INTENT above) is a
- * one-constant edit, never a grep-and-replace across call sites.
- */
-export function isColdStartSeason(season: number): boolean {
-  return season === COLD_START_SEASON;
-}
+export {
+  ADJUST_COMPONENT,
+  COLD_START_SEASON,
+  FOULS_COMMITTED_COMPONENT,
+  isColdStartSeason,
+  type ParsedComponents,
+  type SeasonComponentMap,
+} from "./constants.js";
+import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
 
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).

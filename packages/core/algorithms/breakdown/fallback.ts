@@ -12,7 +12,7 @@
  * relative to ~104,000 played matches across 2022-2026, but exactly the
  * population a silent drop would hide in.
  */
-import type { ParsedComponents } from "./index.js";
+import type { ParsedComponents } from "./constants.js";
 
 /**
  * The per-component split below is IMPUTED from the alliance's own current
