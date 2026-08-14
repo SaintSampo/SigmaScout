@@ -70,7 +70,7 @@ Plans:
   3. Sigma1 reports every team metric as a mean and variance renderable as `X ± Y` (1 standard deviation), backed by a documented identifiability check for the state dimensions it estimates.
   4. Every match in the corpus has a predicted winner, a win probability, and predicted alliance scores for each algorithm; Sigma1's predictions additionally carry variance.
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -83,7 +83,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — EPA cross-season carryover, parameterized cold start, and the head-to-head report table
+- [x] 02-03-PLAN.md — EPA cross-season carryover, parameterized cold start, and the head-to-head report table
 - [ ] 02-04-PLAN.md — Sigma1: Kalman core, covariance, consistency shrinkage, and three win-probability link modes
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -193,7 +193,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
-| 2. Prediction Models — EPA & Sigma1 | 2/6 | In Progress|  |
+| 2. Prediction Models — EPA & Sigma1 | 3/6 | In Progress|  |
 | 3. Tuning, Ranking Points & Versioning | 0/TBD | Not started | - |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |

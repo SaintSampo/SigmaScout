@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: prediction-models-epa-sigma1
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-08-14T02:57:06.650Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-08-14T04:22:07.993Z"
 last_activity: 2026-08-13
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 02 (prediction-models-epa-sigma1) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-13 — Phase 02 execution resumed (wave continue)
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [███████░░░] 67%
 | Phase 01 P05 | 40min | 3 tasks | 12 files |
 | Phase 01 P06 | 3h04m | 2 tasks | 7 files |
 | Phase 02 P02 | 25min | 3 tasks | 9 files |
+| Phase 02 P03 | 80min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,11 @@ Recent decisions affecting current work:
 - [Phase ?]: reports/ (harness default --out) added to .gitignore — Generated artifact was untracked-but-not-ignored, against the failure log's keep-generated-artifacts-out-of-git rule
 - [Phase ?]: Offseason events excluded from breakdown-map reconciliation samples — self-reported score_breakdown for offseason events is not guaranteed to match the official schema (found live: missing adjustPoints entirely); matches selectMatchesChronological's existing excludeOffseason discipline
 - [Phase ?]: ALGO-03 (Sigma1) deliberately NOT marked complete in REQUIREMENTS.md despite appearing in plan 02-02's frontmatter requirements list — no Sigma1 code exists yet; only ALGO-02 reflects what plan 02-02 actually shipped
+- [Phase ?]: carryover.ts owns EPA_NORM_MEAN/EPA_NORM_SD/EPA_INIT_PENALTY/EPA_MEAN_REVERSION (moved from epa.ts) -- the only acyclic import direction since epa.carrySeason needs carryover.ts's epaCarryover
+- [Phase ?]: epaCarryover sources the normalized<->points conversion scale from the outgoing season's own per-team point-total mean/sd, since the incoming season has no observations yet at a boundary -- documented approximation
+- [Phase ?]: The head-to-head table replaces (not duplicates) the per-algorithm score table -- one home per Brier/accuracy figure, never two groupings that could drift
+- [Phase ?]: SC-2 (Statbotics per-team numeric tolerance) recorded blocked-on-external-dependency per D-14 -- api.statbotics.io reproducibly 500s, re-confirmed live 2026-08-14; EPA correctness rests on synthetic-fixture tests and walk-forward structural proofs instead
+- [Phase ?]: Fixed a pre-existing (02-02) circular import between breakdown/index.ts and every season file, discovered running the real pnpm harness command Task 2 required -- extracted shared constants into new breakdown/constants.ts leaf module
 
 ### Pending Todos
 
@@ -119,6 +125,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T02:57:06.637Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-08-14T04:22:07.980Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
