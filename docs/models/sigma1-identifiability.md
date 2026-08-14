@@ -42,22 +42,30 @@ Stated and justified in `identifiability.ts`'s header, applied by the script its
 
 | Season | Design matrix | Rank | Condition number | Full column rank |
 |---|---|---|---|---|
-| 2022 | 3,520 x 775 | 767 | 7.08 | **No** — 8 teams disconnected |
+| 2022 | 3,520 x 775 | 767 | 7.08 | **No** — nullity 8 (see corrected island breakdown below) |
 | 2023 | 4,152 x 845 | 845 | 4.52 | Yes |
-| 2024 | 4,380 x 891 | 888 | 9.07 | **No** — 3 teams disconnected |
+| 2024 | 4,380 x 891 | 888 | 9.07 | **No** — nullity 3 (see corrected island breakdown below) |
 | 2025 | 4,502 x 986 | 986 | 5.19 | Yes |
 | 2026 | 4,058 x 781 | 781 | 4.46 | Yes |
 
 Every season's condition number is small (single digits) — the alliance-participation graph, where connected, is extremely well-conditioned; this is not a marginal pass anywhere. The interesting finding is the rank deficiency in 2022 and 2024, addressed next.
 
-### The 2022/2024 rank deficiency is a sample-connectivity artifact, not a corpus-wide identifiability failure
+### The 2022/2024 rank deficiency, reproducibly attributed
 
-Tracing the disconnected components (a follow-on union-find pass over the same seeded sample, run for this write-up, not shipped as part of `identifiability.ts`) shows the disconnected teams are **not scattered noise** — they are entire regional/international event clusters whose sampled events never shared an alliance with the rest of the 25-event sample:
+**Correction (02-06 checkpoint follow-up, gap 1):** the island attribution below was originally produced by an ad-hoc, uncommitted union-find pass run once for this write-up and never shipped. That pass reported 2022 as 4 components (sizes 679, 48, 30, 18) and 2024 as 2 components (sizes 860, 31). `identifiability.ts` now ships that pass itself (`computeConnectedComponents`, run automatically whenever a season's design matrix is not full column rank, emitted into `reports/identifiability.json`'s `connectedComponents` field) — and re-running it against the same seeded sample produces a **different, more granular** result. Per this project's own honesty discipline: the committed script is authoritative and the prose below is corrected to match it, not the reverse.
 
-- **2022:** 4 connected components (sizes 679, 48, 30, 18). The three small islands are exactly `2022on410` (an Ontario district event, 18 teams), `2022qcmo2`+`2022qcmo3` (two Quebec district events, connected to each other but not the rest, 30 teams), and `2022tuis` (a Tunisia event, 48 teams).
-- **2024:** 2 connected components (sizes 860, 31). The one island is `2024isde1` (an Israel district event, 31 teams).
+The connectivity model — worth stating precisely, since it explains the discrepancy: two teams are unioned only if they were **alliance partners** (shared a row — i.e., shared a `red`/`blue` side in some match), never merely opponents in the same match and never merely attendees of the same event. This is the exact connectivity the design matrix's own rank already measures (each row is a 1 in every teammate's column), so it is the correct model — but it is also finer-grained than "same event," which is what the original uncommitted pass appears to have approximated: an event can itself be internally disconnected if its alliance combinations never overlap.
 
-This is exactly what regional/international FRC district structure predicts: within a season, an Israel or Ontario/Quebec district event's teams mostly play only each other until a connecting event (a district championship, or Einstein/Worlds) brings regions together — and this 25-event sample, drawn uniformly at random across the WHOLE season, has a real chance of missing every one of a small region's connecting events. **A team inside one of these islands is fully identifiable RELATIVE TO its own island** (the island's own sub-block of the design matrix is itself well-conditioned — these are small, densely-played regional event sets) — what is NOT established by this sample is that an Ontario team's rating is on the same absolute scale as a team from the 679-team main component. A full-season run (every event, not a 25-event sample) would almost certainly connect these islands via the events this sample happened not to draw (district championships, Worlds/Einstein) — but this script does not run at that scale (see Section 2), so that claim is not made here as a verified fact. **This is recorded as a known limitation of the current check's sample size, not resolved by widening the sample until the seasons pass** — inflating the sample post hoc to make 2022/2024 look identifiable would be exactly the kind of result-shopping this project's methodology forbids (the plan's own prohibition: no choice may be made on the basis of a figure and then have the figure re-run until it looks better).
+Reproduce with `pnpm identifiability --seasons 2022-2026 --identifiability-out reports/identifiability.json`:
+
+- **2022:** 7 connected components (sizes 670, 48, 30, 18, 3, 3, 3), not 4. The three largest islands match the original finding — `2022tuis` (a Tunisia event, 48 teams), `2022qcmo2`+`2022qcmo3` (two Quebec district events, connected to each other but not the rest, 30 teams), `2022on410` (an Ontario district event, 18 teams) — plus three additional 3-team islands the ad-hoc pass missed: two distinct alliance trios at `2022micmp` that only ever played as each other's teammates within that event's tiny (8-match) recorded bracket and never partnered with anyone else in the sample, and one alliance trio at `2022wayak` whose team numbers (in the 9980s) are consistent with a placeholder/bye alliance that appears in exactly one quarterfinal pairing and never partners with any other team in the sample.
+- **2024:** 3 connected components (sizes 857, 31, 3), not 2. `2024isde1` (an Israel district event, 31 teams) is unchanged. The new find is a 3-team island at `2024oncmp`: this event has only 2 recorded matches in the corpus (both finals), and one alliance trio in them never partners with anyone else in the sample, while its opponents' partial overlap across the two matches connects them into the main component instead.
+
+**These are two structurally different findings, and the write-up says so honestly rather than flattening them into one story:**
+1. The large islands (`2022tuis`, `2022qcmo2`/`2022qcmo3`, `2022on410`, `2024isde1`) match regional/international FRC district structure — within a season, an Israel or Ontario/Quebec district event's teams mostly play only each other until a connecting event (a district championship, or Einstein/Worlds) brings regions together, and this 25-event sample, drawn uniformly at random across the WHOLE season, has a real chance of missing every one of a small region's connecting events. **A team inside one of these islands is fully identifiable RELATIVE TO its own island** (the island's own sub-block of the design matrix is itself well-conditioned) — what is NOT established by this sample is that an Ontario team's rating is on the same absolute scale as a team from the main component. A full-season run would almost certainly connect these islands via events this sample happened not to draw, but this script does not run at that scale (see Section 2), so that is not asserted as a verified fact here.
+2. The small 3-team islands (`2022micmp` x2, `2022wayak`, `2024oncmp`) are a **different mechanism entirely — a sparse-recording artifact, not district structure.** Each traces to an event with very few matches recorded in the corpus at all (`2022micmp`: 8 matches total; `2024oncmp`: 2 matches total) or to a team combination (`2022wayak`'s trio) that plausibly represents a bye/placeholder alliance rather than a genuinely competing team. These teams are not "identifiable within their own regional cluster" the way the large islands are — they have essentially no alliance-partnership signal in this sample at all, connected or otherwise. This is recorded plainly as a distinct, smaller-scale limitation, not folded into the district-structure narrative it does not belong to.
+
+**Neither finding is resolved by widening the sample until the seasons pass** — inflating the sample post hoc to make 2022/2024 look identifiable would be exactly the kind of result-shopping this project's methodology forbids (the plan's own prohibition: no choice may be made on the basis of a figure and then have the figure re-run until it looks better). Both are recorded as known limitations of the current check's sample size and the corpus's per-event match completeness, not resolved here.
 
 ### Per-component verdicts
 
@@ -65,7 +73,7 @@ Every component in 2022 and 2024 inherits a `fail` verdict from the design-level
 
 | Season | Component | Verdict | Non-zero fraction | Teams w/ 5+ obs | Reason (beyond design-level rank, if any) |
 |---|---|---|---|---|---|
-| 2022 | all 6 | fail | 0.1%-98.1% | 0-767 | design-level: 8 teams disconnected (see above) |
+| 2022 | all 6 | fail | 0.1%-98.1% | 0-767 | design-level: rank 767 < 775 columns, nullity 8 — 7 connected components, see corrected island breakdown above |
 | 2023 | `autoMobility` | pass | 91.2% | 835 | — |
 | 2023 | `autoGamePiece` | pass | 93.2% | 841 | — |
 | 2023 | `autoChargeStation` | pass | 69.5% | 758 | — |
@@ -75,7 +83,7 @@ Every component in 2022 and 2024 inherits a `fail` verdict from the design-level
 | 2023 | `endGamePark` | pass | 60.0% | 796 | — |
 | 2023 | `adjust` | **fail** | 0.1% | 0 | below the 5% non-zero floor |
 | 2023 | `foulsCommitted` | pass | 46.7% | 647 | — |
-| 2024 | all 13 | fail | 0.0%-97.7% | 0-885 | design-level: 3 teams disconnected (see above); `autoAmpNote`/`adjust` additionally below the 5% floor even setting rank aside |
+| 2024 | all 13 | fail | 0.0%-97.7% | 0-885 | design-level: rank 888 < 891 columns, nullity 3 — 3 connected components, see corrected island breakdown above; `autoAmpNote`/`adjust` additionally below the 5% floor even setting rank aside |
 | 2025 | `autoMobility` | pass | 99.9% | 986 | — |
 | 2025 | `autoCoral` | pass | 78.0% | 905 | — |
 | 2025 | `teleopCoral` | pass | 98.6% | 986 | — |

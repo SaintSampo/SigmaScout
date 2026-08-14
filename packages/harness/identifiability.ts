@@ -144,6 +144,7 @@ function seededShuffle<T>(items: readonly T[], seed: number): T[] {
 
 interface AllianceRow {
   readonly matchKey: string;
+  readonly eventKey: string;
   readonly teams: readonly string[];
   readonly components: Readonly<Record<string, number>>;
 }
@@ -266,8 +267,10 @@ function sampleSeason(db: Corpus, season: number): SampleResult {
 
     // An all-surrogate alliance contributes no observation — matches
     // opr.ts's/sigma1's own no-op treatment of the same case.
-    if (redTeams.length > 0) rows.push({ matchKey: row.match_key, teams: redTeams, components: redParsed });
-    if (blueTeams.length > 0) rows.push({ matchKey: row.match_key, teams: blueTeams, components: blueParsed });
+    if (redTeams.length > 0)
+      rows.push({ matchKey: row.match_key, eventKey: row.event_key, teams: redTeams, components: redParsed });
+    if (blueTeams.length > 0)
+      rows.push({ matchKey: row.match_key, eventKey: row.event_key, teams: blueTeams, components: blueParsed });
   }
 
   return {
@@ -341,6 +344,101 @@ function computeDesignMatrix(rows: readonly AllianceRow[]): DesignMatrixResult {
     smallestNonNegligibleSingularValue,
     conditionNumber,
     fullColumnRank: rank === teamColumnCount,
+  };
+}
+
+interface ConnectedComponentInfo {
+  readonly componentIndex: number;
+  readonly teamCount: number;
+  readonly eventKeys: readonly string[];
+}
+
+interface ConnectedComponentsResult {
+  readonly componentCount: number;
+  /** Sorted descending by `teamCount` — index 0 is the primary (largest) component. */
+  readonly components: readonly ConnectedComponentInfo[];
+}
+
+/**
+ * Gap 1 (02-06 checkpoint follow-up): when a season's design matrix is not
+ * full column rank, `evaluateComponent`'s `reasons` already says the
+ * participation graph is disconnected — but not WHICH events form the
+ * disconnected islands. This is the union-find pass that answers that,
+ * shipped in the script itself rather than left as an ad-hoc, uncommitted
+ * pass, so the attribution in `sigma1-identifiability.md` is reproducible
+ * by re-running `pnpm identifiability`, not merely asserted.
+ *
+ * Connectivity model: every `AllianceRow` is a hyperedge over the 2-3
+ * rating-eligible teams that shared that alliance — union all teams in a
+ * row together. This is the same connectivity `computeDesignMatrix`'s rank
+ * deficiency already detects (a rank-deficient alliance-participation
+ * design matrix means this graph has more than one component; the design
+ * matrix's rank equals `teamColumnCount - componentCount + 1` for a
+ * connected-clique-per-row incidence structure like this one — the
+ * standard OPR-style system matrix result), computed independently here via
+ * plain union-find rather than re-derived from the SVD, so the two checks
+ * corroborate each other rather than one being a restatement of the other.
+ *
+ * Deterministic: driven entirely by `rows`, which is itself the fixed,
+ * seeded sample `sampleSeason` already produced — no additional randomness
+ * is introduced here, so the same corpus + the same `SAMPLE_SEED` always
+ * yields the same component structure.
+ */
+function computeConnectedComponents(rows: readonly AllianceRow[]): ConnectedComponentsResult {
+  const teamIndex = new Map<string, number>();
+  for (const row of rows) {
+    for (const team of row.teams) {
+      if (!teamIndex.has(team)) teamIndex.set(team, teamIndex.size);
+    }
+  }
+  const n = teamIndex.size;
+  if (n === 0) return { componentCount: 0, components: [] };
+
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(x: number): number {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]!]!;
+      x = parent[x]!;
+    }
+    return x;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  for (const row of rows) {
+    if (row.teams.length === 0) continue;
+    const first = teamIndex.get(row.teams[0]!)!;
+    for (let i = 1; i < row.teams.length; i++) {
+      union(first, teamIndex.get(row.teams[i]!)!);
+    }
+  }
+
+  const rootToTeamCount = new Map<number, number>();
+  for (const team of teamIndex.keys()) {
+    const root = find(teamIndex.get(team)!);
+    rootToTeamCount.set(root, (rootToTeamCount.get(root) ?? 0) + 1);
+  }
+
+  const rootToEvents = new Map<number, Set<string>>();
+  for (const row of rows) {
+    if (row.teams.length === 0) continue;
+    const root = find(teamIndex.get(row.teams[0]!)!);
+    if (!rootToEvents.has(root)) rootToEvents.set(root, new Set());
+    rootToEvents.get(root)!.add(row.eventKey);
+  }
+
+  const unsorted = [...rootToTeamCount.entries()].map(([root, teamCount]) => ({
+    teamCount,
+    eventKeys: [...(rootToEvents.get(root) ?? new Set<string>())].sort(),
+  }));
+  unsorted.sort((a, b) => b.teamCount - a.teamCount);
+
+  return {
+    componentCount: unsorted.length,
+    components: unsorted.map((c, i) => ({ componentIndex: i, teamCount: c.teamCount, eventKeys: c.eventKeys })),
   };
 }
 
@@ -446,6 +544,23 @@ async function main(): Promise<void> {
           `rank ${design.rank}, condition number ${fmtCondition(design.conditionNumber)}`
       );
 
+      // Gap 1: attribute WHICH events form the disconnected islands, not
+      // just that the graph is disconnected — see computeConnectedComponents's
+      // header for why this reuses the design matrix's own connectivity.
+      let connectedComponents: ConnectedComponentsResult | null = null;
+      if (!design.fullColumnRank) {
+        connectedComponents = computeConnectedComponents(sample.rows);
+        console.log(
+          `  [${season}] participation graph disconnected: ${connectedComponents.componentCount} components ` +
+            `(sizes ${connectedComponents.components.map((c) => c.teamCount).join(", ")})`
+        );
+        for (const component of connectedComponents.components.slice(1)) {
+          console.log(
+            `    component #${component.componentIndex} — ${component.teamCount} teams, events: ${component.eventKeys.join(", ")}`
+          );
+        }
+      }
+
       const components: Record<string, ComponentVerdict> = {};
       for (const component of seasonMap.components) {
         const verdict = evaluateComponent(component, sample.rows, design);
@@ -482,6 +597,20 @@ async function main(): Promise<void> {
           conditionNumber: Number.isFinite(design.conditionNumber) ? design.conditionNumber : null,
           fullColumnRank: design.fullColumnRank,
         },
+        // Gap 1: only emitted when the graph is actually disconnected — a
+        // fully-connected season has nothing to attribute (componentCount
+        // would trivially be 1).
+        connectedComponents:
+          connectedComponents === null
+            ? null
+            : {
+                componentCount: connectedComponents.componentCount,
+                components: connectedComponents.components.map((c) => ({
+                  componentIndex: c.componentIndex,
+                  teamCount: c.teamCount,
+                  eventKeys: c.eventKeys,
+                })),
+              },
         foulDiagnostics: {
           fieldNames: sample.foulDiagnostics.fieldNames,
           matchesWithBreakdown: sample.foulDiagnostics.matchesWithBreakdown,
