@@ -33,6 +33,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     redRpEarned: null,
     blueRpEarned: null,
     hasScoreBreakdown: false,
+    scoreBreakdownRaw: null,
     ...overrides,
   };
 }

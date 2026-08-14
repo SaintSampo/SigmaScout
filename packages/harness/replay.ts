@@ -21,6 +21,7 @@ const OUTCOME_KEYS = new Set<string>([
   "redRpEarned",
   "blueRpEarned",
   "hasScoreBreakdown",
+  "scoreBreakdownRaw",
 ]);
 
 export function toLeakProofUpcoming(result: MatchResult): UpcomingMatch {
@@ -38,6 +39,13 @@ export function toLeakProofUpcoming(result: MatchResult): UpcomingMatch {
 
 export interface PredictionRecord {
   match: MatchResult;
+  prediction: Prediction;
+}
+
+/** D-22: one (match, algorithm) prediction from a multi-algorithm shared-stream run. */
+export interface MultiAlgorithmPredictionRecord {
+  match: MatchResult;
+  algorithmId: string;
   prediction: Prediction;
 }
 
@@ -111,5 +119,42 @@ export class WalkForwardSimulator {
       state = algorithm.update(state, result);
     }
     return predictions;
+  }
+
+  /**
+   * D-22: drives EVERY supplied algorithm over one shared chronological
+   * stream — `initState` once per algorithm, then a single outer loop over
+   * `this.#matches`; for each match, an inner loop over algorithms calling
+   * `predict(state, toLeakProofUpcoming(result))`, then `update`. Exactly
+   * one `toLeakProofUpcoming(result)` value is built per match and shared
+   * across the inner algorithm loop, so every algorithm provably receives
+   * the identical object for that match — any score difference is the
+   * algorithm, not the data. `onMatchComplete`, when supplied, is invoked
+   * immediately after each algorithm's `update` — the seam plan 02-05 uses
+   * for D-28's per-match metric-history snapshots; unused by this plan.
+   */
+  runAll(
+    algorithms: readonly AlgorithmModule<any>[],
+    teams: readonly string[],
+    onMatchComplete?: (match: MatchResult, algorithmId: string, state: unknown) => void
+  ): MultiAlgorithmPredictionRecord[] {
+    const states = new Map<string, unknown>(
+      algorithms.map((algorithm) => [algorithm.id, algorithm.initState([...teams])])
+    );
+    const records: MultiAlgorithmPredictionRecord[] = [];
+
+    for (const result of this.#matches) {
+      const upcoming = toLeakProofUpcoming(result);
+      for (const algorithm of algorithms) {
+        const state = states.get(algorithm.id);
+        const prediction = algorithm.predict(state, upcoming);
+        records.push({ match: result, algorithmId: algorithm.id, prediction });
+        const nextState = algorithm.update(state, result);
+        states.set(algorithm.id, nextState);
+        onMatchComplete?.(result, algorithm.id, nextState);
+      }
+    }
+
+    return records;
   }
 }

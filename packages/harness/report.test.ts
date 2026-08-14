@@ -16,6 +16,7 @@ const populatedBins2025 = calibrationBins(
 );
 
 const slice2024Qual: ScoreSlice = {
+  algorithmId: "opr",
   season: 2024,
   seasonLabel: "tune",
   headlineEligible: false,
@@ -34,6 +35,7 @@ const slice2024Qual: ScoreSlice = {
 // cover: null metrics, a nonzero candidate count (all excluded), never a
 // fabricated 0.
 const slice2024Elim: ScoreSlice = {
+  algorithmId: "opr",
   season: 2024,
   seasonLabel: "tune",
   headlineEligible: false,
@@ -49,6 +51,7 @@ const slice2024Elim: ScoreSlice = {
 };
 
 const slice2025Combined: ScoreSlice = {
+  algorithmId: "opr",
   season: 2025,
   seasonLabel: "holdout",
   headlineEligible: true,
@@ -65,15 +68,14 @@ const slice2025Combined: ScoreSlice = {
 
 function buildFixtureArtifact(overrides?: Partial<HarnessArtifact["provenance"]>): HarnessArtifact {
   const candidate: HarnessArtifact = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     provenance: {
-      algorithmId: "opr",
-      algorithmVersion: "1.0.0",
       corpusIdentity: "data/corpus.sqlite",
       runTimestamp: "2026-08-13T00:00:00.000Z",
       seasonsCovered: [2024, 2025],
       ...overrides,
     },
+    algorithms: [{ id: "opr", version: "1.0.0" }],
     slices: [slice2024Qual, slice2024Elim, slice2025Combined],
     statboticsReferences: [
       {

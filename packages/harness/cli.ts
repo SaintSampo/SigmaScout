@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { AlgorithmModule } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
+import { epa } from "../core/algorithms/epa.js";
 import {
   openCorpus,
   openCorpusReadOnly,
@@ -41,7 +42,7 @@ import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
 // (incompatible) state types S; each entry is internally type-safe.
-const ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr };
+const ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa };
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
@@ -55,13 +56,35 @@ function tbaApiKey(): string {
   return key;
 }
 
-function resolveAlgorithm(algorithmName: string | undefined): AlgorithmModule<any> {
-  if (!algorithmName) throw new Error("--algorithm is required");
-  const algorithm = ALGORITHMS[algorithmName];
-  if (!algorithm) {
-    throw new Error(`Unknown algorithm: ${algorithmName} (known: ${Object.keys(ALGORITHMS).join(", ")})`);
+/**
+ * D-22: `--algorithm` now accepts a comma-separated list ("opr,epa"),
+ * driving many algorithms over one shared stream in a single run. Keeps
+ * the exact "Unknown algorithm" error-message shape the single-algorithm
+ * resolver used, and rejects a duplicate name rather than silently
+ * de-duplicating it.
+ */
+function resolveAlgorithms(spec: string | undefined): AlgorithmModule<any>[] {
+  if (!spec) throw new Error("--algorithm is required");
+  const names = spec
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  if (names.length === 0) throw new Error("--algorithm is required");
+
+  const seen = new Set<string>();
+  const algorithms: AlgorithmModule<any>[] = [];
+  for (const name of names) {
+    if (seen.has(name)) {
+      throw new Error(`--algorithm lists "${name}" more than once`);
+    }
+    seen.add(name);
+    const algorithm = ALGORITHMS[name];
+    if (!algorithm) {
+      throw new Error(`Unknown algorithm: ${name} (known: ${Object.keys(ALGORITHMS).join(", ")})`);
+    }
+    algorithms.push(algorithm);
   }
-  return algorithm;
+  return algorithms;
 }
 
 /** Parses `--seasons "2022-2026"` into an inclusive array of season years. */
@@ -98,15 +121,16 @@ async function writeReport(outDir: string, artifact: Parameters<typeof renderHtm
 
 /**
  * Replays one season (every event in it, cross-event interleaved) through
- * `algorithm` and returns its predictions tagged for scoring. Prints a
+ * every supplied `algorithms` over one shared stream (D-22) and returns
+ * predictions tagged for scoring, one per (match, algorithm). Prints a
  * progress line carrying both the replayed match count and the excluded
- * count so a season that silently scored far fewer matches than expected
- * is visible while the run happens, not after.
+ * count PER algorithm so a season that silently scored far fewer matches
+ * than expected is visible while the run happens, not after.
  */
 async function runSeason(
   db: Corpus,
   season: number,
-  algorithm: AlgorithmModule<any>,
+  algorithms: readonly AlgorithmModule<any>[],
   includeOffseason: boolean
 ): Promise<HarnessPredictionInput[]> {
   const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -121,22 +145,28 @@ async function runSeason(
 
   const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
   const simulator = new WalkForwardSimulator(stream);
-  const records = simulator.run(algorithm, teams);
+  const records = simulator.runAll(algorithms, teams);
 
   const predictions: HarnessPredictionInput[] = records.map((r) => ({
     matchKey: r.match.matchKey,
     season,
     compLevel: r.match.compLevel,
+    algorithmId: r.algorithmId,
     pRedWin: r.prediction.pRedWin,
+    predictedRedScore: r.prediction.redScore,
+    predictedBlueScore: r.prediction.blueScore,
     actualWinner: r.match.winner,
     isOffseason: offseasonEventKeys.has(r.match.eventKey),
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
   }));
 
-  const excludedCount = predictions.filter((p) => p.isOffseason || p.isSurrogateAffected).length;
-  console.log(
-    `Season ${season}: ${predictions.length} matches replayed, ${predictions.length - excludedCount} scorable, ${excludedCount} excluded`
-  );
+  for (const algorithm of algorithms) {
+    const algorithmPredictions = predictions.filter((p) => p.algorithmId === algorithm.id);
+    const excludedCount = algorithmPredictions.filter((p) => p.isOffseason || p.isSurrogateAffected).length;
+    console.log(
+      `Season ${season} [${algorithm.id}]: ${algorithmPredictions.length} matches replayed, ${algorithmPredictions.length - excludedCount} scorable, ${excludedCount} excluded`
+    );
+  }
 
   return predictions;
 }
@@ -144,12 +174,12 @@ async function runSeason(
 async function runSeasons(
   db: Corpus,
   seasons: readonly number[],
-  algorithm: AlgorithmModule<any>,
+  algorithms: readonly AlgorithmModule<any>[],
   includeOffseason: boolean
 ): Promise<HarnessPredictionInput[]> {
   const all: HarnessPredictionInput[] = [];
   for (const season of seasons) {
-    const predictions = await runSeason(db, season, algorithm, includeOffseason);
+    const predictions = await runSeason(db, season, algorithms, includeOffseason);
     all.push(...predictions);
   }
   return all;
@@ -158,18 +188,19 @@ async function runSeasons(
 /**
  * The season/multi-season path: reads the already-ingested corpus
  * read-only (T-01-13 — a scoring run cannot mutate the data it scores),
- * replays every requested season cross-event-interleaved, and writes one
- * combined artifact and report covering the whole range.
+ * replays every requested season cross-event-interleaved for every
+ * supplied algorithm (D-22), and writes one combined artifact and report
+ * covering the whole range and every algorithm (D-20).
  */
 async function runSeasonsMode(
   seasons: readonly number[],
-  algorithm: AlgorithmModule<any>,
+  algorithms: readonly AlgorithmModule<any>[],
   outDir: string,
   includeOffseason: boolean
 ): Promise<void> {
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    const predictions = await runSeasons(db, seasons, algorithm, includeOffseason);
+    const predictions = await runSeasons(db, seasons, algorithms, includeOffseason);
     const slices = aggregateScores(predictions);
 
     const statboticsReferences: StatboticsReference[] = [];
@@ -178,8 +209,7 @@ async function runSeasonsMode(
     }
 
     const artifact = buildArtifact({
-      algorithmId: algorithm.id,
-      algorithmVersion: algorithm.version,
+      algorithms: algorithms.map((a) => ({ id: a.id, version: a.version })),
       corpusIdentity: CORPUS_PATH,
       slices,
       statboticsReferences,
@@ -194,13 +224,14 @@ async function runSeasonsMode(
 }
 
 /**
- * The legacy single-event path (unchanged from the tracer/Plan 05 scope):
- * fetches one event from TBA, normalizes and upserts it into the corpus,
- * then replays and scores just that event. Kept for quick single-event
- * smoke tests; --season/--seasons is the path Phase 1's full backtest
- * uses.
+ * The legacy single-event path (unchanged from the tracer/Plan 05 scope,
+ * extended for D-22 to drive several algorithms over the one event's
+ * shared stream): fetches one event from TBA, normalizes and upserts it
+ * into the corpus, then replays and scores just that event. Kept for quick
+ * single-event smoke tests; --season/--seasons is the path Phase 1's full
+ * backtest uses.
  */
-async function runEventMode(eventKey: string, algorithm: AlgorithmModule<any>, outDir: string): Promise<void> {
+async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModule<any>[], outDir: string): Promise<void> {
   const apiKey = tbaApiKey();
   const db = openCorpus(CORPUS_PATH);
 
@@ -253,13 +284,16 @@ async function runEventMode(eventKey: string, algorithm: AlgorithmModule<any>, o
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
     const simulator = new WalkForwardSimulator(matches);
-    const records = simulator.run(algorithm, teams);
+    const records = simulator.runAll(algorithms, teams);
 
     const predictions: HarnessPredictionInput[] = records.map((r) => ({
       matchKey: r.match.matchKey,
       season,
       compLevel: r.match.compLevel,
+      algorithmId: r.algorithmId,
       pRedWin: r.prediction.pRedWin,
+      predictedRedScore: r.prediction.redScore,
+      predictedBlueScore: r.prediction.blueScore,
       actualWinner: r.match.winner,
       isOffseason,
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
@@ -269,8 +303,7 @@ async function runEventMode(eventKey: string, algorithm: AlgorithmModule<any>, o
     const statboticsRef = await statboticsReference(season, { cachePath: STATBOTICS_CACHE_PATH });
 
     const artifact = buildArtifact({
-      algorithmId: algorithm.id,
-      algorithmVersion: algorithm.version,
+      algorithms: algorithms.map((a) => ({ id: a.id, version: a.version })),
       corpusIdentity: CORPUS_PATH,
       slices,
       statboticsReferences: [statboticsRef],
@@ -305,15 +338,15 @@ async function main(): Promise<void> {
     },
   });
 
-  const algorithm = resolveAlgorithm(values.algorithm);
+  const algorithms = resolveAlgorithms(values.algorithm);
   const outDir = values.out ?? DEFAULT_OUT_DIR;
   const includeOffseason = values["include-offseason"] === true;
 
   if (values.event) {
-    await runEventMode(values.event, algorithm, outDir);
+    await runEventMode(values.event, algorithms, outDir);
   } else if (values.seasons || values.season) {
     const seasons = values.seasons ? parseSeasonsRange(values.seasons) : [parseSingleSeason(values.season!)];
-    await runSeasonsMode(seasons, algorithm, outDir, includeOffseason);
+    await runSeasonsMode(seasons, algorithms, outDir, includeOffseason);
   } else {
     throw new Error("One of --event, --season, or --seasons is required");
   }

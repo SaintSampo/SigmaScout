@@ -53,18 +53,31 @@ export interface ExclusionCounts {
  * One prediction record as fed into aggregation. `actualWinner: null` means
  * no result is available yet (should not normally reach the harness, but
  * the exclusion accounting must not silently drop it if it does).
+ *
+ * D-24 additions: `algorithmId` identifies which algorithm produced this
+ * prediction (D-20/D-22 — one harness run scores many algorithms over the
+ * same match stream, so every prediction must be attributable back to its
+ * algorithm). `predictedRedScore`/`predictedBlueScore` are the predicted
+ * scores, kept rather than discarded after prediction — this is what lets
+ * a later sidecar (plan 02-05's `predictions.ts`) and this plan's own
+ * head-to-head report show more than just win probability.
  */
 export interface HarnessPredictionInput {
   matchKey: string;
   season: number;
   compLevel: CompLevel;
+  algorithmId: string;
   pRedWin: number;
+  predictedRedScore: number;
+  predictedBlueScore: number;
   actualWinner: MatchOutcome | null;
   isOffseason: boolean;
   isSurrogateAffected: boolean;
 }
 
 export interface ScoreSlice {
+  /** D-20/D-21: identifies which algorithm this slice's metrics belong to. */
+  algorithmId: string;
   season: number;
   seasonLabel: SeasonLabel;
   /** Only holdout-season slices are headline-eligible — this is D-09's discipline made structural. */
@@ -85,59 +98,69 @@ export interface ScoreSlice {
 const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, missingResult: 0 };
 
 /**
- * Produces one slice per season per competition-level view (D-11: quals-only,
- * elims-only, and combined). Per D-06 offseason matches are excluded by
- * default and counted as such; D-07-affected predictions and missing
- * results are excluded the same explicit way. Every exclusion is counted,
- * never silently dropped.
+ * Produces one slice per algorithm per season per competition-level view
+ * (D-11: quals-only, elims-only, and combined; D-20/D-22: grouped by
+ * `algorithmId` first, so one harness run scoring many algorithms over the
+ * same shared stream still produces per-algorithm slices rather than
+ * conflating them). Per D-06 offseason matches are excluded by default and
+ * counted as such; D-07-affected predictions and missing results are
+ * excluded the same explicit way. Every exclusion is counted, never
+ * silently dropped.
  */
 export function aggregateScores(
   predictions: readonly HarnessPredictionInput[],
   binCount?: number
 ): ScoreSlice[] {
+  const algorithmIds = Array.from(new Set(predictions.map((p) => p.algorithmId))).sort();
   const seasons = Array.from(new Set(predictions.map((p) => p.season))).sort((a, b) => a - b);
   const slices: ScoreSlice[] = [];
 
-  for (const season of seasons) {
-    const seasonPredictions = predictions.filter((p) => p.season === season);
-    const label = seasonSplit(season);
+  for (const algorithmId of algorithmIds) {
+    const algorithmPredictions = predictions.filter((p) => p.algorithmId === algorithmId);
 
-    for (const view of COMP_LEVEL_VIEWS) {
-      const candidates = seasonPredictions.filter((p) => matchesView(p.compLevel, view));
-      const exclusionCounts: ExclusionCounts = { ...EMPTY_EXCLUSIONS };
-      const scorable: ScoredPrediction[] = [];
+    for (const season of seasons) {
+      const seasonPredictions = algorithmPredictions.filter((p) => p.season === season);
+      if (seasonPredictions.length === 0) continue;
+      const label = seasonSplit(season);
 
-      for (const candidate of candidates) {
-        if (candidate.isOffseason) {
-          exclusionCounts.offseason += 1;
-          continue;
+      for (const view of COMP_LEVEL_VIEWS) {
+        const candidates = seasonPredictions.filter((p) => matchesView(p.compLevel, view));
+        const exclusionCounts: ExclusionCounts = { ...EMPTY_EXCLUSIONS };
+        const scorable: ScoredPrediction[] = [];
+
+        for (const candidate of candidates) {
+          if (candidate.isOffseason) {
+            exclusionCounts.offseason += 1;
+            continue;
+          }
+          if (candidate.isSurrogateAffected) {
+            exclusionCounts.surrogateAffected += 1;
+            continue;
+          }
+          if (candidate.actualWinner === null) {
+            exclusionCounts.missingResult += 1;
+            continue;
+          }
+          scorable.push({ pRedWin: candidate.pRedWin, actualWinner: candidate.actualWinner });
         }
-        if (candidate.isSurrogateAffected) {
-          exclusionCounts.surrogateAffected += 1;
-          continue;
-        }
-        if (candidate.actualWinner === null) {
-          exclusionCounts.missingResult += 1;
-          continue;
-        }
-        scorable.push({ pRedWin: candidate.pRedWin, actualWinner: candidate.actualWinner });
+
+        const result = scoreSet(scorable);
+        slices.push({
+          algorithmId,
+          season,
+          seasonLabel: label,
+          headlineEligible: label === "holdout",
+          compLevelView: view,
+          brierScore: result.brierScore,
+          winnerAccuracy: result.winnerAccuracy,
+          scoredCount: result.count,
+          tieCount: result.tieCount,
+          noCallCount: result.noCallCount,
+          exclusionCounts,
+          candidateCount: candidates.length,
+          calibrationBins: calibrationBins(scorable, binCount),
+        });
       }
-
-      const result = scoreSet(scorable);
-      slices.push({
-        season,
-        seasonLabel: label,
-        headlineEligible: label === "holdout",
-        compLevelView: view,
-        brierScore: result.brierScore,
-        winnerAccuracy: result.winnerAccuracy,
-        scoredCount: result.count,
-        tieCount: result.tieCount,
-        noCallCount: result.noCallCount,
-        exclusionCounts,
-        candidateCount: candidates.length,
-        calibrationBins: calibrationBins(scorable, binCount),
-      });
     }
   }
 

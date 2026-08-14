@@ -167,6 +167,7 @@ function makeInstrumentedAlgorithm(): { algorithm: AlgorithmModule<{ log: string
       state.log.push(`update:${result.matchKey}`);
       return state;
     },
+    teamMetrics: () => ({}),
   };
   return { algorithm, log };
 }
@@ -216,6 +217,7 @@ describe("buildSeasonStream + WalkForwardSimulator — cross-event state carryov
         }
         return next;
       },
+      teamMetrics: () => ({}),
     };
 
     const simulator = new WalkForwardSimulator(stream);

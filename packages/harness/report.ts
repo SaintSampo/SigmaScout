@@ -48,7 +48,7 @@ function fmtPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** One `<tr>` per score slice: season, view, tune/holdout label, both metrics, and every exclusion/tie/no-call count adjacent to the score it qualifies — never in a footnote. */
+/** One `<tr>` per score slice (already filtered to one algorithm's slices — see `renderAlgorithmSection`): season, view, tune/holdout label, both metrics, and every exclusion/tie/no-call count adjacent to the score it qualifies — never in a footnote. */
 function renderScoreTable(slices: readonly ScoreSlice[]): string {
   const rows = slices
     .map((slice) => {
@@ -234,6 +234,8 @@ const REPORT_STYLE = `
   body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; background: #fff; }
   h1 { font-size: 1.5rem; margin-bottom: 0.2rem; }
   h2 { font-size: 1.15rem; margin-top: 2rem; }
+  h3 { font-size: 1rem; margin-top: 1.5rem; }
+  .algorithm-section { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #ddd; }
   .meta { color: #555; font-size: 0.9rem; }
   table { border-collapse: collapse; width: 100%; margin-top: 0.75rem; font-size: 0.85rem; }
   caption { text-align: left; font-size: 0.85rem; color: #444; margin-bottom: 0.4rem; caption-side: top; }
@@ -264,46 +266,65 @@ const REPORT_STYLE = `
 `;
 
 /**
+ * Renders one score-table/bars/calibration section for a single algorithm's
+ * slices (D-20's `algorithms[]`, minimum viable grouping only — the loud
+ * D-15 caveat and the head-to-head comparison layout land in plan 02-03).
+ */
+function renderAlgorithmSection(algorithm: HarnessArtifact["algorithms"][number], slices: readonly ScoreSlice[]): string {
+  const id = escapeHtml(algorithm.id);
+  const version = escapeHtml(algorithm.version);
+  return `  <section class="algorithm-section">
+  <h2>${id} v${version}</h2>
+
+  <h3>Score table</h3>
+${renderScoreTable(slices)}
+
+  <h3>Winner accuracy by season</h3>
+${renderScoreBarsSvg(slices)}
+
+  <h3>Calibration</h3>
+${renderCalibrationSection(slices)}
+  </section>`;
+}
+
+/**
  * Renders one self-contained HTML string from a validated `HarnessArtifact`
  * — no corpus access, no recomputation. Identical input always produces
- * identical output.
+ * identical output. D-20: one section per algorithm in `artifact.algorithms`,
+ * each fed only its own `slices` (filtered by `algorithmId`).
  */
 export function renderHtmlReport(artifact: HarnessArtifact): string {
-  const { provenance, slices, statboticsReferences } = artifact;
-  const algorithmId = escapeHtml(provenance.algorithmId);
-  const algorithmVersion = escapeHtml(provenance.algorithmVersion);
+  const { provenance, algorithms, slices, statboticsReferences } = artifact;
   const corpusIdentity = escapeHtml(provenance.corpusIdentity);
   const runTimestamp = escapeHtml(provenance.runTimestamp);
   const seasonsCovered = escapeHtml(provenance.seasonsCovered.join(", "));
+  const algorithmIdsLabel = escapeHtml(algorithms.map((a) => `${a.id} v${a.version}`).join(", "));
+
+  const algorithmSections = algorithms
+    .map((algorithm) => renderAlgorithmSection(algorithm, slices.filter((s) => s.algorithmId === algorithm.id)))
+    .join("\n");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>SigmaScout Harness Report — ${algorithmId} v${algorithmVersion}</title>
+<title>SigmaScout Harness Report — ${algorithmIdsLabel}</title>
 <style>${REPORT_STYLE}</style>
 </head>
 <body>
   <h1>SigmaScout Harness Report</h1>
   <p class="meta">
-    Algorithm: <strong>${algorithmId}</strong> v${algorithmVersion} &middot;
+    Algorithms: <strong>${algorithmIdsLabel}</strong> &middot;
     Corpus: ${corpusIdentity} &middot;
     Generated: ${runTimestamp} &middot;
     Schema v${artifact.schemaVersion} &middot;
     Seasons: ${seasonsCovered}
   </p>
 
-  <h2>Score table</h2>
-${renderScoreTable(slices)}
+${algorithmSections}
 
   <h2>Statbotics reference</h2>
 ${renderStatboticsTable(statboticsReferences)}
-
-  <h2>Winner accuracy by season</h2>
-${renderScoreBarsSvg(slices)}
-
-  <h2>Calibration</h2>
-${renderCalibrationSection(slices)}
 </body>
 </html>
 `;

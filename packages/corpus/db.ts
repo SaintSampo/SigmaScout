@@ -246,6 +246,7 @@ interface MatchRow {
   red_rp_earned: number | null;
   blue_rp_earned: number | null;
   has_score_breakdown: number;
+  score_breakdown_raw: string | null;
 }
 
 export interface ChronologicalQueryOptions {
@@ -293,7 +294,7 @@ export function selectMatchesChronological(
       `SELECT m.match_key, m.event_key, m.comp_level, m.match_number, m.set_number,
               m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
               m.winner, m.red_score, m.blue_score, m.red_rp_earned, m.blue_rp_earned,
-              m.has_score_breakdown
+              m.has_score_breakdown, m.score_breakdown_raw
        FROM matches m
        JOIN events e ON e.event_key = m.event_key
        WHERE ${clauses.join(" AND ")}
@@ -325,6 +326,7 @@ export function selectMatchesChronological(
     redRpEarned: row.red_rp_earned,
     blueRpEarned: row.blue_rp_earned,
     hasScoreBreakdown: row.has_score_breakdown === 1,
+    scoreBreakdownRaw: row.score_breakdown_raw,
   }));
 }
 

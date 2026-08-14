@@ -25,6 +25,7 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     redRpEarned: 2,
     blueRpEarned: 0,
     hasScoreBreakdown: true,
+    scoreBreakdownRaw: '{"red":{}}',
     ...overrides,
   };
 }
@@ -71,6 +72,7 @@ describe("WalkForwardSimulator", () => {
         state.log.push(`update:${result.matchKey}`);
         return state;
       },
+      teamMetrics: () => ({}),
     };
     return { algorithm, log };
   }
@@ -104,6 +106,7 @@ describe("WalkForwardSimulator", () => {
         return { winner, pRedWin: 1, redScore: 0, blueScore: 0 };
       },
       update: (state) => state,
+      teamMetrics: () => ({}),
     };
 
     const simulator = new WalkForwardSimulator(matches);

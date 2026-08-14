@@ -23,7 +23,7 @@
  * both policies.
  */
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
-import type { AlgorithmModule, MatchResult, Prediction, UpcomingMatch } from "./types.js";
+import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
 
 /**
  * Ridge penalty added to the normal equations (M^T M + λI). λ=3 is small
@@ -453,5 +453,21 @@ export const opr: AlgorithmModule<OprState> = {
 
     const observations = [...state.observations, redObservation, blueObservation];
     return { observations, ratings: afterBlue.ratings, incrementalSolve: afterBlue.solve };
+  },
+
+  /**
+   * D-27: OPR is the no-variance baseline — one unnamed value per team
+   * (`TOTAL_METRIC_KEY`), no `spread`. When `teams` is omitted, every team
+   * with a rating is returned.
+   */
+  teamMetrics(state: OprState, teams?: readonly string[]): TeamMetrics {
+    const requestedTeams = teams ?? [...state.ratings.keys()];
+    const result: TeamMetrics = {};
+    for (const team of requestedTeams) {
+      const rating = state.ratings.get(team);
+      if (rating === undefined) continue;
+      result[team] = { [TOTAL_METRIC_KEY]: { value: rating } };
+    }
+    return result;
   },
 };

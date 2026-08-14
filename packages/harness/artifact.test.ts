@@ -11,8 +11,11 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     matchKey: "2024test_qm1",
     season: 2024,
     compLevel: "qm",
+    algorithmId: "opr",
     // An irrational-looking probability so an unrounded-storage assertion is meaningful.
     pRedWin: 1 / 3,
+    predictedRedScore: 40,
+    predictedBlueScore: 60,
     actualWinner: "red",
     isOffseason: false,
     isSurrogateAffected: false,
@@ -21,7 +24,10 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     matchKey: "2024test_qm2",
     season: 2024,
     compLevel: "qm",
+    algorithmId: "opr",
     pRedWin: 0.6,
+    predictedRedScore: 55,
+    predictedBlueScore: 45,
     actualWinner: "blue",
     isOffseason: false,
     isSurrogateAffected: false,
@@ -30,7 +36,10 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     matchKey: "2025test_qm1",
     season: 2025,
     compLevel: "qm",
+    algorithmId: "opr",
     pRedWin: 0.8,
+    predictedRedScore: 65,
+    predictedBlueScore: 35,
     actualWinner: "red",
     isOffseason: false,
     isSurrogateAffected: false,
@@ -56,8 +65,7 @@ async function buildFixtureArtifact(): Promise<HarnessArtifact> {
     [2024, 2025].map((season) => statboticsReference(season, { fetchImpl: () => Promise.reject(new Error("no network in tests")) }))
   );
   return buildArtifact({
-    algorithmId: "opr",
-    algorithmVersion: "1.0.0",
+    algorithms: [{ id: "opr", version: "1.0.0" }],
     corpusIdentity: "test-corpus",
     runTimestamp: "2026-08-13T00:00:00.000Z",
     slices,
@@ -88,9 +96,18 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("exports ARTIFACT_SCHEMA_VERSION and the builder references it rather than a literal", async () => {
-    expect(ARTIFACT_SCHEMA_VERSION).toBe(1);
+    expect(ARTIFACT_SCHEMA_VERSION).toBe(2);
     const artifact = await buildFixtureArtifact();
     expect(artifact.schemaVersion).toBe(ARTIFACT_SCHEMA_VERSION);
+  });
+
+  it("carries algorithms[] (D-20) and tags every slice with a non-empty algorithmId", async () => {
+    const artifact = await buildFixtureArtifact();
+    expect(artifact.algorithms).toEqual([{ id: "opr", version: "1.0.0" }]);
+    for (const slice of artifact.slices) {
+      expect(typeof slice.algorithmId).toBe("string");
+      expect(slice.algorithmId.length).toBeGreaterThan(0);
+    }
   });
 
   it("carries season, competition-level view, tune-or-holdout label, headline eligibility, both metrics, scored count, exclusion counts, and calibration bins on every slice", async () => {
@@ -128,8 +145,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
     expect(String(qualSlice2024.brierScore).replace("0.", "").length).toBeGreaterThan(4);
 
     const artifact = await buildArtifact({
-      algorithmId: "opr",
-      algorithmVersion: "1.0.0",
+      algorithms: [{ id: "opr", version: "1.0.0" }],
       corpusIdentity: "test-corpus",
       slices,
       statboticsReferences: [],
@@ -138,11 +154,10 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
     expect(artifactSlice.brierScore).toBe(expectedBrier);
   });
 
-  it("carries seasonsCovered derived from the slices, and a corpus/run provenance block", async () => {
+  it("carries seasonsCovered derived from the slices, a corpus/run provenance block, and the algorithms[] array (D-20)", async () => {
     const artifact = await buildFixtureArtifact();
     expect(artifact.provenance.seasonsCovered).toEqual([2024, 2025]);
-    expect(artifact.provenance.algorithmId).toBe("opr");
-    expect(artifact.provenance.algorithmVersion).toBe("1.0.0");
+    expect(artifact.algorithms).toEqual([{ id: "opr", version: "1.0.0" }]);
     expect(artifact.provenance.corpusIdentity).toBe("test-corpus");
     expect(artifact.provenance.runTimestamp).toBe("2026-08-13T00:00:00.000Z");
   });
