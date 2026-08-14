@@ -21,12 +21,11 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const SAMPLE_SIZE = 2000;
 const RECONCILIATION_TOLERANCE = 1e-6;
 /**
- * Seasons registered in `breakdown/index.ts` at this point in the plan.
- * Task 1 registers 2022/2023 (2024 already registered by plan 02-01); Task
- * 2 extends this list to 2025/2026 as those season modules land (D-19:
- * additive, no dispatch branching).
+ * All five seasons registered in `breakdown/index.ts` (D-19: additive, no
+ * dispatch branching). 2024 was registered by plan 02-01; 2022/2023 by this
+ * plan's Task 1; 2025/2026 by Task 2.
  */
-const REGISTERED_SEASONS = [2022, 2023, 2024] as const;
+const REGISTERED_SEASONS = [2022, 2023, 2024, 2025, 2026] as const;
 
 interface SampledBreakdownRow {
   match_key: string;
@@ -87,7 +86,9 @@ describe.each(REGISTERED_SEASONS)("season %i component map reconciliation (D-01,
   });
 
   it.each(["red", "blue"] as const)(
-    `%s alliance: sum(offensive components) + foulsCommitted(opponent) === totalPoints`,
+    `%s alliance: sum(offensive components) + foulsCommitted(opponent) === totalPoints${
+      year === 2026 ? " (2026 hubScore nesting)" : ""
+    }`,
     (side) => {
       const map = componentMapForSeason(year);
       const opponentSide = side === "red" ? "blue" : "red";
@@ -182,5 +183,17 @@ describe("malformed breakdown handling (T-02-01)", () => {
     };
     const malformed = { red: side, blue: side };
     expect(() => breakdown2023.parse(malformed, "red")).toThrow();
+  });
+});
+
+describe("2026: structurally different shape must not silently parse under another season's map", () => {
+  it("throws when a real 2026 breakdown is parsed with componentMapForSeason(2025), rather than reading undefined for every field", () => {
+    if (!CORPUS_AVAILABLE) return;
+    const rows = sampleBreakdowns(2026, 1);
+    const row = rows[0];
+    if (!row) return;
+    const rawJson: unknown = JSON.parse(row.score_breakdown_raw);
+    const map2025 = componentMapForSeason(2025);
+    expect(() => map2025.parse(rawJson, "red")).toThrow();
   });
 });

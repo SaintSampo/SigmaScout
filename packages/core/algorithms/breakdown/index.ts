@@ -65,11 +65,15 @@ export const COLD_START_SEASON = 2022;
 import { breakdown2022 } from "./2022.js";
 import { breakdown2023 } from "./2023.js";
 import { breakdown2024 } from "./2024.js";
+import { breakdown2025 } from "./2025.js";
+import { breakdown2026 } from "./2026.js";
 
 const SEASON_COMPONENT_MAPS: Readonly<Record<number, SeasonComponentMap>> = {
   2022: breakdown2022,
   2023: breakdown2023,
   2024: breakdown2024,
+  2025: breakdown2025,
+  2026: breakdown2026,
 };
 
 /**
