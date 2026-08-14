@@ -16,6 +16,7 @@
  */
 export {
   ADJUST_COMPONENT,
+  assertFiniteComponents,
   COLD_START_SEASON,
   FOULS_COMMITTED_COMPONENT,
   isColdStartSeason,

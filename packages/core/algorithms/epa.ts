@@ -50,6 +50,7 @@ import { ratingEligibleTeams } from "./opr.js";
 import {
   parseBreakdown,
   componentMapForSeason,
+  assertFiniteComponents,
   FOULS_COMMITTED_COMPONENT,
   type ParsedComponents,
 } from "./breakdown/index.js";
@@ -450,6 +451,15 @@ function update(state: EpaState, result: MatchResult): EpaState {
   const blueObserved =
     blueParsed ??
     fallbackObserved(state.teamComponents, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentCount);
+
+  // WR-01 (code review, phase 02): throw loudly rather than let a
+  // non-finite value (surviving the Zod parse boundary, or produced by
+  // distributeResidual's degenerate branch off a non-finite
+  // result.redScore/blueScore) silently poison this team's EWMA state for
+  // the rest of the season — mirrors sigma1/index.ts's identical second
+  // gate (T-02-01) for the same scenario.
+  assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
+  assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
   const afterRed = applyComponentUpdate(state.teamComponents, state.teamMatchCounts, redTeams, redObserved, componentCount);
   const afterBlue = applyComponentUpdate(

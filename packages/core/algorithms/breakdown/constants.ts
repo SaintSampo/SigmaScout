@@ -81,3 +81,29 @@ export const COLD_START_SEASON = 2022;
 export function isColdStartSeason(season: number): boolean {
   return season === COLD_START_SEASON;
 }
+
+/**
+ * WR-01 (code review, phase 02): throws loudly rather than letting a
+ * non-finite component value silently reach a Kalman/EWMA update. The
+ * per-season Zod parse boundary (each season's `parse()`) is the FIRST
+ * finite-value gate, but a value that survives parsing can still be
+ * produced by `fallback.ts`'s `distributeResidual` degenerate branch — e.g.
+ * a non-finite `result.redScore`/`blueScore` from an upstream corpus
+ * anomaly — and bypass that first gate entirely. Both `epa.ts` and
+ * `sigma1/index.ts` call this immediately before folding an observed
+ * component vector into their own state, so a single non-finite value
+ * throws here instead of silently propagating NaN/Infinity through every
+ * subsequent update for the rest of a team's season (RESEARCH.md
+ * Anti-Patterns: "never a silent drop... throwing is preferred over
+ * emitting a plausible-looking wrong number"). Hoisted here (a
+ * dependency-free leaf both algorithm modules already import from,
+ * transitively via `index.ts`) rather than duplicated in each module, so
+ * the two copies cannot drift.
+ */
+export function assertFiniteComponents(observed: ParsedComponents, context: string): void {
+  for (const [name, value] of Object.entries(observed)) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`non-finite value ${value} for component "${name}" (${context}) — refusing to fold into algorithm state`);
+    }
+  }
+}

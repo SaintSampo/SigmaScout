@@ -36,6 +36,7 @@ import {
   FOULS_COMMITTED_COMPONENT,
   parseBreakdown,
   componentMapForSeason,
+  assertFiniteComponents,
   type ParsedComponents,
 } from "../breakdown/index.js";
 import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
@@ -365,15 +366,6 @@ function fallbackObserved(
     ...offensive,
     [FOULS_COMMITTED_COMPONENT]: foulsCommittedCarryForward(state, teams, componentOrder),
   };
-}
-
-/** T-02-01's second gate (see `update`'s call site): throws loudly rather than letting a non-finite component value silently reach `updateAllianceSum`. */
-function assertFiniteComponents(observed: ParsedComponents, context: string): void {
-  for (const [name, value] of Object.entries(observed)) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`sigma1: non-finite value ${value} for component "${name}" (${context}) — refusing to fold into Kalman state`);
-    }
-  }
 }
 
 interface AllianceUpdateResult {
