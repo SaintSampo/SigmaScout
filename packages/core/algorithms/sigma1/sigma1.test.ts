@@ -13,6 +13,8 @@ import {
   type Sigma1State,
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
+import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
+import { FOULS_COMMITTED_COMPONENT } from "../breakdown/index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
@@ -503,6 +505,110 @@ describe("T-02-01 — non-finite observed component values throw rather than fol
       scoreBreakdownRaw: null,
     });
     expect(() => sigma1.update(state, brokenMatch)).toThrow(/non-finite/);
+  });
+});
+
+describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
+  it("a NON-uniform predicted vector with a nonzero prior foulsCommitted mean: foulsCommitted's belief mean is carried forward unchanged, and the opponent's predicted foul contribution is netted out before the offensive split", () => {
+    // Unlike rawBreakdown2024Uniform (deliberately uniform, so it
+    // coincidentally matches distributeResidual's cold-start uniform
+    // branch and cannot expose non-uniform misattribution), R1's predicted
+    // shares here are deliberately non-uniform (40 vs 10) with a nonzero
+    // prior foulsCommitted mean (8) — the exact shape CR-01 names as
+    // untested. A custom 3-component componentOrder keeps the hand math
+    // tractable while still exercising the real fallback code path.
+    const componentOrder = ["autoLeave", "teleopSpeakerNote", FOULS_COMMITTED_COMPONENT];
+    const state: Sigma1State = {
+      season: 2024,
+      componentOrder,
+      teams: new Map([
+        [
+          "R1",
+          {
+            beliefs: {
+              autoLeave: { mean: 40, variance: 4 },
+              teleopSpeakerNote: { mean: 10, variance: 4 },
+              [FOULS_COMMITTED_COMPONENT]: { mean: 8, variance: 4 },
+            },
+            covariance: [
+              [4, 0, 0],
+              [0, 4, 0],
+              [0, 0, 4],
+            ],
+            consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
+            matchCount: 5,
+            lastEventKey: "2024test",
+          },
+        ],
+        [
+          "B1",
+          {
+            beliefs: {
+              autoLeave: { mean: 5, variance: 4 },
+              teleopSpeakerNote: { mean: 0, variance: 4 },
+              [FOULS_COMMITTED_COMPONENT]: { mean: 4, variance: 4 },
+            },
+            covariance: [
+              [4, 0, 0],
+              [0, 4, 0],
+              [0, 0, 4],
+            ],
+            consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
+            matchCount: 5,
+            lastEventKey: "2024test",
+          },
+        ],
+      ]),
+      league: { componentMean: {}, componentConsistency: {} },
+      allianceScoreStats: emptyExpandingStats(),
+      priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+    };
+
+    const fallbackMatch = match({
+      matchKey: "2024test_qm1",
+      eventKey: "2024test",
+      redTeams: ["R1"],
+      blueTeams: ["B1"],
+      redScore: 100,
+      blueScore: 50,
+      hasScoreBreakdown: false,
+      scoreBreakdownRaw: null,
+    });
+
+    const next = sigma1.update(state, fallbackMatch);
+
+    // Invariant 1 (CR-01): none of red's own actual score lands in red's
+    // own foulsCommitted belief — the Kalman MEAN is left exactly
+    // unchanged (the "carry forward" policy's zero-innovation design),
+    // even though process noise (D-07, within-event) still widened its
+    // variance and the Kalman gain still shrinks it somewhat (documented,
+    // bounded approximation — see foulsCommittedCarryForward's doc
+    // comment).
+    expect(next.teams.get("R1")!.beliefs[FOULS_COMMITTED_COMPONENT]!.mean).toBeCloseTo(8, 10);
+    expect(next.teams.get("B1")!.beliefs[FOULS_COMMITTED_COMPONENT]!.mean).toBeCloseTo(4, 10);
+
+    // Invariant 2 (CR-01): blue's currently-predicted foulsCommitted mean
+    // (4) is netted out of result.redScore (100 -> 96) BEFORE the split
+    // across red's own non-fouls components, in proportion to their
+    // predicted shares (40:10 of a 50 total) — hand-derived via the same
+    // Kalman gain formula updateAllianceSum uses (single-teammate
+    // alliance, so gain = P / (P + R) with the process-noise-inflated
+    // prior variance and FALLBACK_NOISE_MULTIPLIER-inflated measurement
+    // noise).
+    const priorVariance = 4 + 0.5; // D-07 within-event process noise bump
+    const measurementNoise = 2 * FALLBACK_NOISE_MULTIPLIER;
+    const gain = priorVariance / (priorVariance + measurementNoise);
+    const expectedAutoLeaveInnovation = 96 * (40 / 50) - 40;
+    const expectedTeleopInnovation = 96 * (10 / 50) - 10;
+    expect(next.teams.get("R1")!.beliefs["autoLeave"]!.mean).toBeCloseTo(40 + gain * expectedAutoLeaveInnovation, 9);
+    expect(next.teams.get("R1")!.beliefs["teleopSpeakerNote"]!.mean).toBeCloseTo(10 + gain * expectedTeleopInnovation, 9);
+
+    // Mirror invariant on blue: red's currently-predicted foulsCommitted
+    // mean (8) is netted out of result.blueScore (50 -> 42) before blue's
+    // own split; blue's only nonzero predicted offensive component
+    // (autoLeave) absorbs the entire net residual.
+    const expectedBlueAutoLeaveInnovation = 42 - 5;
+    expect(next.teams.get("B1")!.beliefs["autoLeave"]!.mean).toBeCloseTo(5 + gain * expectedBlueAutoLeaveInnovation, 9);
   });
 });
 

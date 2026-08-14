@@ -342,6 +342,83 @@ describe("epa — contract shape", () => {
   });
 });
 
+describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
+  it("a NON-uniform predicted vector with a nonzero prior foulsCommitted mean: foulsCommitted is carried forward unchanged, and the opponent's predicted foul contribution is netted out before the offensive split", () => {
+    // R1's predicted shares are deliberately non-uniform (40 vs 10) and its
+    // prior foulsCommitted mean (8) is nonzero — unlike sigma1.test.ts's
+    // rawBreakdown2024Uniform fixture, this is constructed so CR-01's bug
+    // (feeding a share of red's own score into foulsCommitted, and never
+    // netting blue's predicted foul contribution out of red's own score
+    // before the split) cannot hide behind distributeResidual's uniform
+    // cold-start branch.
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map<string, Record<string, number>>([
+        ["R1", { autoLeave: 40, teleopSpeakerNote: 10, [FOULS_COMMITTED_COMPONENT]: 8 }],
+        ["B1", { autoLeave: 5, [FOULS_COMMITTED_COMPONENT]: 4 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["R1", 0],
+        ["B1", 0],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+    };
+
+    const fallbackMatch = matchResult({
+      redTeams: ["R1"],
+      redSurrogates: [],
+      blueTeams: ["B1"],
+      blueSurrogates: [],
+      redScore: 100,
+      blueScore: 50,
+      hasScoreBreakdown: false,
+      scoreBreakdownRaw: null,
+    });
+
+    const next = epa.update(state, fallbackMatch);
+
+    // Invariant 1 (CR-01): none of red's own actual score lands in red's
+    // own foulsCommitted slot — it is carried forward EXACTLY unchanged
+    // (never a coerced zero, never a synthesized share of red's score).
+    expect(next.teamComponents.get("R1")!["foulsCommitted"]).toBeCloseTo(8, 10);
+    expect(next.teamComponents.get("B1")!["foulsCommitted"]).toBeCloseTo(4, 10);
+
+    // Invariant 2 (CR-01): blue's currently-predicted foulsCommitted mean
+    // (4 — points blue's fouls would cost red) is netted out of
+    // result.redScore (100 -> 96) BEFORE the split across red's own
+    // non-fouls components, in proportion to their predicted shares
+    // (40:10 of a 50 total) — NOT the pre-fix formula, which would have
+    // split the full, un-netted 100 across all 13 components including
+    // foulsCommitted (giving autoLeave = 100*40/58 ~= 68.97, not 52.27).
+    const expectedAutoLeave = (2 / 3) * 40 + (1 / 3) * (96 * (40 / 50));
+    const expectedTeleopSpeakerNote = (2 / 3) * 10 + (1 / 3) * (96 * (10 / 50));
+    expect(next.teamComponents.get("R1")!["autoLeave"]).toBeCloseTo(expectedAutoLeave, 9);
+    expect(next.teamComponents.get("R1")!["teleopSpeakerNote"]).toBeCloseTo(expectedTeleopSpeakerNote, 9);
+
+    // Mirror invariant on blue: red's currently-predicted foulsCommitted
+    // mean (8) is netted out of result.blueScore (50 -> 42) before blue's
+    // own split (blue's only-nonzero predicted offensive component is
+    // autoLeave, so it absorbs the entire net residual).
+    const expectedBlueAutoLeave = (2 / 3) * 5 + (1 / 3) * 42;
+    expect(next.teamComponents.get("B1")!["autoLeave"]).toBeCloseTo(expectedBlueAutoLeave, 9);
+  });
+});
+
+describe("epa.update — WR-01 finite-value gate (code review phase 02)", () => {
+  it("throws when result.redScore is non-finite, rather than silently folding NaN into a team's EWMA state for the rest of the season", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const brokenMatch = matchResult({
+      redScore: Number.NaN,
+      blueScore: 80,
+      hasScoreBreakdown: false,
+      scoreBreakdownRaw: null,
+    });
+    expect(() => epa.update(state, brokenMatch)).toThrow(/non-finite/);
+  });
+});
+
 describe("breakdown2024.parse — Assumption A1 per-robot field guard", () => {
   it("never emits a component key ending in Robot1, Robot2, or Robot3", () => {
     const raw = JSON.parse(breakdown2024Json({ autoLeavePoints: 12 }, { autoLeavePoints: 6 }));
