@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-08-15T07:03:44.109Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-08-15T07:21:19.830Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [████████░░] 83%
 | Phase 03 P01 | 70min | 3 tasks | 14 files |
 | Phase 03 P02 | 100min | 3 tasks | 9 files |
 | Phase 03 P03 | 115min | 3 tasks | 32 files |
+| Phase 03 P04 | 55min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 2023 sustainabilityBonus/2024 melodyBonus/2025 coralBonus+autoBonus predicted at their conservative (less-likely-to-achieve) branch -- their real condition gates on alliance-level signals (coopertition flags, per-robot leave state) D-09's tracked RpThresholdVariable lists never captured; understates, never overstates, flagged for human review
 - [Phase ?]: opr.ts/epa.ts version strings changed to 2.0.0+baseline/1.0.0+baseline (Rule 1 fix) -- buildArtifact's new strict D-13 shape check would otherwise throw on every real non-Sigma1 harness run
 - [Phase ?]: ALGO-08 marked complete by plan 03-03 (not deferred to 03-06, whose actual scope is CI reproducibility/holdout head-to-head/SC-3, unrelated to RP) -- this is the literal predict()-wiring plan 03-01/03-02 named as 03-03's job
+- [Phase ?]: adaptation.ts (D-05/D-07): innovation-driven per-team process-noise scaling, one bounded scalar factor per team, cold-starts at exactly 1.0 (assume correctly specified), returns exactly 1 when disabled or below adaptationMinObservations -- provably inert-when-off (byte-identical prediction streams, digest.test.ts reproduces the committed version bitwise unchanged)
+- [Phase ?]: sigma1-adapt registered in cli.ts's ALGORITHMS (6 entries total, not the 7 plan 03-04's acceptance criteria literally stated -- the plan's action text only asked for one new entry; corrected the write-up rather than force-adding an unrequested sigma1Defaults registration)
+- [Phase ?]: ALGO-05 intentionally NOT marked complete by plan 03-04 -- it also appears in 03-05's and 03-06's requirements lists; this plan ships the adaptation mechanism and the on/off registry pair only, not the best-vs-best comparison or verdict ALGO-05 describes (matches ALGO-04/ALGO-06/ALGO-08 precedent)
 
 ### Pending Todos
 
@@ -154,6 +158,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T07:03:44.091Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-08-15T07:21:19.815Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
