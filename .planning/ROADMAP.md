@@ -110,11 +110,25 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 03-01-PLAN.md — Tracer: parameterized Sigma1 tuned, promoted, and reproduced end to end; carryover split (D-04)
 - [ ] 03-02-PLAN.md — Per-season RP rule modules with event-tier thresholds and corpus-wide reconciliation (D-12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03-03-PLAN.md — RP threshold-variable state, correlated joint pmf, schema evolution (D-09/D-10/D-11)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 03-04-PLAN.md — Innovation-driven online adaptation and the on/off registry pair (D-05/D-07/D-08)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 03-05-PLAN.md — Sensitivity screen, joint search over survivors, two equal-budget runs, promotion (D-03/D-06/D-14)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 03-06-PLAN.md — CI reproducibility gate, holdout head-to-head, SC-3 verdict and adaptation finding (D-02/D-15)
 
 ### Phase 4: Publish & Live Update Pipeline
