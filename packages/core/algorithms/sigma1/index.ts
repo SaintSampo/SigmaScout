@@ -52,12 +52,13 @@ import {
   type TeamMetrics,
   type UpcomingMatch,
 } from "../types.js";
-import { epaCarryover, type EpaCarryoverPriorRatings } from "../carryover.js";
+import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, teamTotalVariance } from "./covariance.js";
 import { foldConsistency, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "./params.js";
+import { sigma1Carryover } from "./carryover.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";
@@ -677,19 +678,18 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
 }
 
 /**
- * D-16/D-17/D-19: carries every team's rating across a season boundary,
- * reusing `carryover.ts`'s `epaCarryover` unchanged (the same reference
- * shape EPA's own `carrySeason` builds on — Sigma1 needs no second
- * bespoke carry design). Component MEANS carry via the blend; posterior
- * variance re-inflates to the cold-start prior (a year of layoff is a
- * bigger regime change than an event boundary, D-07's own reasoning
- * applied one level up) rather than carrying the outgoing season's
- * converged, and therefore small, `P` forward. The consistency estimate
- * ALSO carries (D-17), decayed by `SIGMA1_CONSISTENCY_CARRY_DECAY`.
+ * D-16/D-17/D-19/D-04: carries every team's rating across a season boundary
+ * via `sigma1/carryover.ts`'s `sigma1Carryover` — Sigma1's OWN tunable copy
+ * of the same reference shape EPA's `carrySeason` builds on (`epaCarryover`,
+ * frozen), so tuning `params.carryMeanReversion`/`carryLastYearWeight`/
+ * `carryPriorYearWeight` moves Sigma1's carried ratings without moving
+ * EPA's (D-04). Component MEANS carry via the blend; posterior variance
+ * re-inflates to the cold-start prior (a year of layoff is a bigger regime
+ * change than an event boundary, D-07's own reasoning applied one level
+ * up) rather than carrying the outgoing season's converged, and therefore
+ * small, `P` forward. The consistency estimate ALSO carries (D-17), decayed
+ * by `params.consistencyCarryDecay`.
  */
-// `params` is threaded now (Task 1); Task 3 (D-04's carryover split) converts
-// this function's `epaCarryover` call to Sigma1's own tunable
-// `sigma1Carryover(input, params)` — no signature change needed then.
 function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma1Params): Sigma1State {
   if (boundary.isColdStart) return state;
 
@@ -700,7 +700,7 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     teamTotals.set(team, total);
   }
 
-  const carryResult = epaCarryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings });
+  const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, params);
   const toComponentOrder = componentMapForSeason(boundary.toSeason).components;
   const nextTeams = new Map<string, Sigma1TeamState>();
 

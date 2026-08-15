@@ -41,6 +41,20 @@
  * time (`EPA_ROOKIE_BASELINE` below dereferences `EPA_NORM_MEAN` at the
  * top level, before a circularly-imported `epa.ts` would have finished
  * initializing its own top-level constants).
+ *
+ * D-04 (Phase 3): `EPA_MEAN_REVERSION`/`EPA_CARRY_LAST_YEAR_WEIGHT`/
+ * `EPA_CARRY_PRIOR_YEAR_WEIGHT` are FROZEN at Statbotics' own published
+ * values — they are the baseline SC-3's "beats EPA" claim is measured
+ * against, and "beats EPA" has to mean "beats what Statbotics actually
+ * ships." Sigma1's OWN tunable copy of this carry math lives in
+ * `sigma1/carryover.ts` (`sigma1Carryover`), which imports
+ * `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/`EPA_ROOKIE_BASELINE`/
+ * `populationMeanSd`/`normalizedFromPoints`/`normalizedToSeasonUnits` from
+ * THIS module unchanged, but substitutes its OWN tunable parameter set's
+ * fields for the three frozen constants above. Nothing in THIS module may
+ * be made to read Sigma1's parameter set, ever — that would dissolve the
+ * frozen-EPA-baseline guarantee D-04 exists to protect, silently, the
+ * moment a future edit "unifies" the two carry paths.
  */
 
 /**
@@ -150,8 +164,14 @@ export function normalizedToSeasonUnits(normalized: number, seasonScoreMean: num
   return Math.max(0, points);
 }
 
-/** Population mean/sd (matches `expandingStats.ts`'s population convention, not sample). */
-function populationMeanSd(values: readonly number[]): { mean: number; sd: number } {
+/**
+ * Population mean/sd (matches `expandingStats.ts`'s population convention,
+ * not sample). Exported (pure widening, no behaviour change) so
+ * `sigma1/carryover.ts` can reuse this exact scale-conversion math rather
+ * than re-deriving it — two copies of a scale conversion is exactly the
+ * drift this project's failure log (REBUILD_SPEC.md) warns about.
+ */
+export function populationMeanSd(values: readonly number[]): { mean: number; sd: number } {
   if (values.length === 0) return { mean: 0, sd: 0 };
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
   if (values.length < 2) return { mean, sd: 0 };
@@ -159,8 +179,13 @@ function populationMeanSd(values: readonly number[]): { mean: number; sd: number
   return { mean, sd: Math.sqrt(variance) };
 }
 
-/** The inverse of `normalizedToSeasonUnits`: converts a season's own observed point total into a normalized rating, using that same season's team-total mean/sd. */
-function normalizedFromPoints(points: number, seasonScoreMean: number, seasonScoreSd: number): number {
+/**
+ * The inverse of `normalizedToSeasonUnits`: converts a season's own
+ * observed point total into a normalized rating, using that same season's
+ * team-total mean/sd. Exported (pure widening) for the same reason as
+ * `populationMeanSd` above.
+ */
+export function normalizedFromPoints(points: number, seasonScoreMean: number, seasonScoreSd: number): number {
   const zScore = seasonScoreSd > 0 ? (points - seasonScoreMean) / seasonScoreSd : 0;
   return EPA_NORM_MEAN + zScore * EPA_NORM_SD;
 }
