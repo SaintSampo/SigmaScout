@@ -53,19 +53,33 @@ import {
   type UpcomingMatch,
 } from "../types.js";
 import { epaCarryover, type EpaCarryoverPriorRatings } from "../carryover.js";
-import {
-  SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY,
-  SIGMA1_PROCESS_NOISE_WITHIN_EVENT,
-  applyProcessNoise,
-  updateAllianceSum,
-  type TeamComponentBelief,
-} from "./kalman.js";
+import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, teamTotalVariance } from "./covariance.js";
 import { foldConsistency, shrinkConsistency, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
 import { winProbability, SIGMA1_LINK_C, type WinProbMode } from "./linkFunctions.js";
+import {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
+  SIGMA1_COLD_START_CONSISTENCY_VARIANCE,
+  SIGMA1_COLD_START_TEAM_TOTAL,
+  SIGMA1_CONSISTENCY_CARRY_DECAY,
+  SIGMA1_FALLBACK_SCORE_SD,
+  type Sigma1Params,
+} from "./params.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";
+export {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
+  SIGMA1_COLD_START_CONSISTENCY_VARIANCE,
+  SIGMA1_COLD_START_TEAM_TOTAL,
+  SIGMA1_CONSISTENCY_CARRY_DECAY,
+  SIGMA1_FALLBACK_SCORE_SD,
+  SIGMA1_PARAM_KEYS,
+  Sigma1ParamsSchema,
+  type Sigma1Params,
+} from "./params.js";
 export {
   SIGMA1_COV_EWMA_ALPHA,
   SIGMA1_COV_SHRINKAGE,
@@ -88,43 +102,6 @@ export {
   applyProcessNoise,
   updateAllianceSum,
 } from "./kalman.js";
-
-/**
- * A cold-start team's typical total contribution to an alliance's score, in
- * point units (mirrors `epa.ts`'s `EPA_INIT_TYPICAL_TEAM_SHARE` reasoning
- * exactly — a flat, documented placeholder scaled down to a defensible
- * per-component seed, corrected within a handful of matches by the Kalman
- * gain once real observations arrive). Used only when the LEAGUE's own
- * running mean for a component has no data yet (`Sigma1League.componentMean`
- * below) — once any team anywhere has been observed, new cold-start teams
- * seed from that live league average instead of this fixed constant.
- * Phase 3 hyperparameter, default unverified.
- */
-const SIGMA1_COLD_START_TEAM_TOTAL = 20;
-
-/**
- * Fallback consistency VARIANCE (points^2) for a component the league has
- * never observed a residual for yet — the same role `EPA_FALLBACK_SCORE_SD`
- * plays for EPA's win-probability scale, applied here to Sigma1's own
- * measurement-noise/spread estimate instead. Phase 3 hyperparameter,
- * default unverified.
- */
-const SIGMA1_COLD_START_CONSISTENCY_VARIANCE = 25;
-
-/** Fallback alliance-score SD before at least 2 alliance-score observations exist this season (mirrors `epa.ts`'s `EPA_FALLBACK_SCORE_SD`). Phase 3 hyperparameter, default unverified. */
-const SIGMA1_FALLBACK_SCORE_SD = 25;
-
-/**
- * D-17: how far a carried-over consistency estimate decays at a season
- * boundary before the empirical-Bayes shrinkage (D-11) even applies — since
- * `carrySeason` also resets `matchCount` to 0, `shrinkConsistency` will
- * fully weight the league prior immediately after a carry regardless of
- * this value; what this constant controls is how quickly the CARRIED value
- * stops mattering as the new season's own observations accumulate.
- * Phase 3's tuner is explicitly allowed to shrink this to 0 if the carried
- * consistency signal turns out not to be real (D-17's own wording).
- */
-export const SIGMA1_CONSISTENCY_CARRY_DECAY = 0.5;
 
 function componentColdStartTotal(componentCount: number): number {
   return componentCount > 0 ? SIGMA1_COLD_START_TEAM_TOTAL / componentCount : 0;
@@ -221,15 +198,15 @@ function coldStartTeamState(componentOrder: readonly string[], league: Sigma1Lea
   };
 }
 
-function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string): Sigma1TeamState {
+function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, params: Sigma1Params): Sigma1TeamState {
   // A team with no prior observation (lastEventKey === null) is treated as
   // "within event" — it was just cold-start-seeded this instant, so there
   // is nothing to have drifted since a nonexistent last observation, and
   // an event-boundary bump would inflate a belief for no reason.
   const q =
     teamState.lastEventKey === null || teamState.lastEventKey === eventKey
-      ? SIGMA1_PROCESS_NOISE_WITHIN_EVENT
-      : SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY;
+      ? params.processNoiseWithinEvent
+      : params.processNoiseEventBoundary;
   const beliefs: Record<string, TeamComponentBelief> = {};
   for (const [name, belief] of Object.entries(teamState.beliefs)) {
     beliefs[name] = applyProcessNoise(belief, q);
@@ -388,7 +365,8 @@ function applyAllianceUpdate(
   allianceTeams: readonly string[],
   observed: ParsedComponents,
   measurementNoiseMultiplier: number,
-  eventKey: string
+  eventKey: string,
+  params: Sigma1Params
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
     // Every team on this alliance was a surrogate — nothing to attribute,
@@ -401,7 +379,10 @@ function applyAllianceUpdate(
   const workingTeams = new Map<string, Sigma1TeamState>();
   for (const team of allianceTeams) {
     const existing = teams.get(team);
-    workingTeams.set(team, existing ? applyTeamProcessNoise(existing, eventKey) : coldStartTeamState(componentOrder, league));
+    workingTeams.set(
+      team,
+      existing ? applyTeamProcessNoise(existing, eventKey, params) : coldStartTeamState(componentOrder, league)
+    );
   }
 
   const nextBeliefsByTeam = new Map<string, Record<string, TeamComponentBelief>>();
@@ -517,7 +498,9 @@ function allianceCovariances(state: Sigma1State, teams: readonly string[]): numb
   return teams.map((team) => state.teams.get(team)?.covariance ?? []);
 }
 
-function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode): Prediction {
+// `params` is threaded now (Task 1) so Task 2 only converts this function's
+// internal bare-constant reads to `params.*` fields — no signature change.
+function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode, params: Sigma1Params): Prediction {
   const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
   const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
 
@@ -565,7 +548,7 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   };
 }
 
-function update(state: Sigma1State, result: MatchResult): Sigma1State {
+function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): Sigma1State {
   const season = state.season ?? deriveSeasonFromEventKey(result.eventKey);
   const seasonMap = componentMapForSeason(season);
   const componentOrder = state.componentOrder.length > 0 ? state.componentOrder : seasonMap.components;
@@ -610,8 +593,26 @@ function update(state: Sigma1State, result: MatchResult): Sigma1State {
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
-  const afterRed = applyAllianceUpdate(state.teams, state.league, componentOrder, redTeams, redObserved, measurementNoiseMultiplier, result.eventKey);
-  const afterBlue = applyAllianceUpdate(afterRed.teams, afterRed.league, componentOrder, blueTeams, blueObserved, measurementNoiseMultiplier, result.eventKey);
+  const afterRed = applyAllianceUpdate(
+    state.teams,
+    state.league,
+    componentOrder,
+    redTeams,
+    redObserved,
+    measurementNoiseMultiplier,
+    result.eventKey,
+    params
+  );
+  const afterBlue = applyAllianceUpdate(
+    afterRed.teams,
+    afterRed.league,
+    componentOrder,
+    blueTeams,
+    blueObserved,
+    measurementNoiseMultiplier,
+    result.eventKey,
+    params
+  );
 
   // Pitfall EPA-1's fix, reused here: fold both alliances' observed totals
   // into the expanding-window SD — the score itself is always known, even
@@ -640,7 +641,10 @@ function update(state: Sigma1State, result: MatchResult): Sigma1State {
  * league-prior-dominated value, visible as such via a `matchCount` of 0
  * rather than hidden behind a plausible-looking number.
  */
-function teamMetrics(state: Sigma1State, teams?: readonly string[]): TeamMetrics {
+// `params` is threaded now (Task 1); Task 2 converts this function's
+// internal bare-constant reads (`SIGMA1_COLD_START_CONSISTENCY_VARIANCE`,
+// `SIGMA1_MIN_CONSISTENCY_VARIANCE`) to `params.*` fields — no signature change.
+function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, params: Sigma1Params): TeamMetrics {
   const requestedTeams = teams ?? [...state.teams.keys()];
   const result: TeamMetrics = {};
   for (const team of requestedTeams) {
@@ -678,7 +682,10 @@ function teamMetrics(state: Sigma1State, teams?: readonly string[]): TeamMetrics
  * converged, and therefore small, `P` forward. The consistency estimate
  * ALSO carries (D-17), decayed by `SIGMA1_CONSISTENCY_CARRY_DECAY`.
  */
-function carrySeason(state: Sigma1State, boundary: SeasonBoundary): Sigma1State {
+// `params` is threaded now (Task 1); Task 3 (D-04's carryover split) converts
+// this function's `epaCarryover` call to Sigma1's own tunable
+// `sigma1Carryover(input, params)` — no signature change needed then.
+function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma1Params): Sigma1State {
   if (boundary.isColdStart) return state;
 
   const teamTotals = new Map<string, number>();
@@ -728,31 +735,53 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary): Sigma1State 
 export interface Sigma1Options {
   readonly id: string;
   readonly linkMode: WinProbMode;
+  /** D-13: the tunable parameter set this module reads instead of Phase-2's bare module constants. Defaults to `DEFAULT_SIGMA1_PARAMS` (the Phase-2-reproducing values) when omitted — every pre-Phase-3 `makeSigma1({ id, linkMode })` call site keeps compiling and behaving identically. */
+  readonly params?: Sigma1Params;
+  /** D-13: the named half of the `{codeVersion}+{paramSetName}` version identity (`version` below). Defaults to `"defaults"` — an explicit, honest label for the untuned baseline rather than an empty string. */
+  readonly paramSetName?: string;
 }
 
 /**
- * Builds one Sigma1 `AlgorithmModule` for a given D-12 win-probability
- * mode. `update`/`teamMetrics`/`carrySeason` are identical across every
- * mode — only `predict`'s probability step differs — so running all three
- * prebuilt modules in one harness pass costs three times a cheap update in
- * exchange for D-12's side-by-side comparison table without a second
- * replay pass (documented tradeoff, not an oversight).
+ * Builds one Sigma1 `AlgorithmModule` for a given D-12 win-probability mode
+ * and D-13 parameter set. `update`/`teamMetrics`/`carrySeason` are identical
+ * across every link mode — only `predict`'s probability step differs — so
+ * running all three prebuilt link-mode modules in one harness pass costs
+ * three times a cheap update in exchange for D-12's side-by-side comparison
+ * table without a second replay pass (documented tradeoff, not an
+ * oversight). `params` resolves once here (`options.params ??
+ * DEFAULT_SIGMA1_PARAMS`) and is closed over by every bound function below —
+ * never re-resolved per match.
  */
 export function makeSigma1(options: Sigma1Options): AlgorithmModule<Sigma1State> {
+  const params = options.params ?? DEFAULT_SIGMA1_PARAMS;
   return {
     id: options.id,
-    version: "1.0.0",
+    // D-13: a version is a code version paired with a named, committed
+    // parameter set — never a hardcoded literal. `sigma1Defaults` below
+    // (paramSetName "defaults") reproduces this exact string for the
+    // untuned baseline; `promote.ts` produces the tuned equivalents.
+    version: `${SIGMA1_CODE_VERSION}+${options.paramSetName ?? "defaults"}`,
     initState,
-    predict: (state, match) => predict(state, match, options.linkMode),
-    update,
-    teamMetrics,
-    carrySeason,
+    predict: (state, match) => predict(state, match, options.linkMode, params),
+    update: (state, result) => update(state, result, params),
+    teamMetrics: (state, teams) => teamMetrics(state, teams, params),
+    carrySeason: (state, boundary) => carrySeason(state, boundary, params),
   };
 }
 
-/** D-12's nested default: logistic on `margin / (c * sqrt(predictiveVariance))`. */
+/** D-12's nested default: logistic on `margin / (c * sqrt(predictiveVariance))`. Untagged `paramSetName` — resolves to `version: "{SIGMA1_CODE_VERSION}+defaults"`. */
 export const sigma1 = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
 /** D-12 mode 1: Statbotics-parity logistic on `margin / seasonScoreSd`. */
 export const sigma1SeasonSd = makeSigma1({ id: "sigma1-seasonsd", linkMode: "season-sd" });
 /** D-12 mode 3: deferred idea, shipped as a working flag flip (RESEARCH.md Deferred Ideas). */
 export const sigma1NormalCdf = makeSigma1({ id: "sigma1-normalcdf", linkMode: "normal-cdf" });
+/**
+ * The honest, untuned baseline (Claude's Discretion, naming) — identical to
+ * `sigma1` in every respect except an explicit `paramSetName: "defaults"`
+ * rather than relying on `makeSigma1`'s own default fallback, so a harness
+ * run can register both `sigma1` (implicit defaults) and `sigma1Defaults`
+ * (explicit defaults) side by side once `promote.ts` starts registering
+ * tuned variants under the `sigma1` id — this row is what isolates what
+ * tuning actually bought.
+ */
+export const sigma1Defaults = makeSigma1({ id: "sigma1-defaults", linkMode: "predictive-variance", paramSetName: "defaults" });

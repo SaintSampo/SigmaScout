@@ -11,7 +11,9 @@
     "recon:tba": "tsx --env-file=.env scripts/recon-tba-fields.ts",
     "ingest": "tsx --env-file=.env packages/ingest/cli.ts",
     "harness": "tsx --env-file=.env packages/harness/cli.ts",
-    "identifiability": "tsx packages/harness/identifiability.ts"
+    "identifiability": "tsx packages/harness/identifiability.ts",
+    "tune": "tsx packages/harness/tune.ts",
+    "promote": "tsx packages/harness/promote.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
