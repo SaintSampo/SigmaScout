@@ -325,6 +325,11 @@ async function runSeason(
         redComponents: r.prediction.redComponents ?? {},
         blueComponents: r.prediction.blueComponents ?? {},
         variance: r.prediction.variance,
+        // D-10 (plan 03-03): present only for an algorithm that modeled RP
+        // (Sigma1) — `writePredictionLine`'s schema treats `undefined` as
+        // "omit entirely", never coercing to an empty array.
+        redRpPmf: r.prediction.redRpPmf ? [...r.prediction.redRpPmf] : undefined,
+        blueRpPmf: r.prediction.blueRpPmf ? [...r.prediction.blueRpPmf] : undefined,
         actualWinner: r.match.winner,
         actualRedScore: r.match.redScore,
         actualBlueScore: r.match.blueScore,

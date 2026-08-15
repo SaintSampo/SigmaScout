@@ -565,7 +565,14 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
 
 export const epa: AlgorithmModule<EpaState> = {
   id: "epa",
-  version: "1.0.0",
+  // D-13 (plan 03-03, Rule 1 fix): `buildArtifact` (packages/harness/artifact.ts)
+  // now REQUIRES every algorithm's `version` to carry the
+  // `{codeVersion}+{paramSetName}` shape, throwing otherwise — a real
+  // `pnpm harness --algorithm epa` run would break at artifact-build time
+  // without this. EPA has no separate tuned parameter set (D-04: frozen at
+  // Statbotics' own published constants, never searched), so "baseline" is
+  // the honest, single named set.
+  version: "1.0.0+baseline",
   initState,
   predict,
   update,

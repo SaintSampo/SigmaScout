@@ -75,7 +75,7 @@ function buildFixtureArtifact(overrides?: Partial<HarnessArtifact["provenance"]>
       seasonsCovered: [2024, 2025],
       ...overrides,
     },
-    algorithms: [{ id: "opr", version: "1.0.0" }],
+    algorithms: [{ id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" }],
     slices: [slice2024Qual, slice2024Elim, slice2025Combined],
     statboticsReferences: [
       {
@@ -198,8 +198,8 @@ describe("renderHtmlReport — D-20 per-algorithm sections", () => {
         seasonsCovered: [2024, 2025],
       },
       algorithms: [
-        { id: "opr", version: "1.0.0" },
-        { id: "epa", version: "1.0.0" },
+        { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
       slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined],
       statboticsReferences: [],
@@ -250,9 +250,9 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
         seasonsCovered: [2024, 2025],
       },
       algorithms: [
-        { id: "opr", version: "1.0.0" },
-        { id: "epa", version: "1.0.0" },
-        { id: "sigma1", version: "1.0.0" },
+        { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "sigma1", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
       slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined, sigma1Slice2025Combined],
       statboticsReferences: [],
@@ -280,9 +280,9 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
       schemaVersion: 2,
       provenance: { corpusIdentity: "data/corpus.sqlite", runTimestamp: "2026-08-13T00:00:00.000Z", seasonsCovered: [2025] },
       algorithms: [
-        { id: "sigma1", version: "1.0.0" },
-        { id: "opr", version: "1.0.0" },
-        { id: "epa", version: "1.0.0" },
+        { id: "sigma1", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
       slices: [
         { ...slice2025Combined, algorithmId: "sigma1", brierScore: 0.119, winnerAccuracy: 0.83 },
@@ -310,8 +310,8 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
         seasonsCovered: [2025],
       },
       algorithms: [
-        { id: "opr", version: "1.0.0" },
-        { id: "epa", version: "1.0.0" },
+        { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
       slices: [slice2025Combined, epaSlice2025Combined],
       statboticsReferences: [],
@@ -334,7 +334,7 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
         runTimestamp: "2026-08-13T00:00:00.000Z",
         seasonsCovered: [2024],
       },
-      algorithms: [{ id: "opr", version: "1.0.0" }],
+      algorithms: [{ id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" }],
       slices: [slice2024Qual],
       statboticsReferences: [],
     });

@@ -27,8 +27,8 @@ import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
-/** Bumped whenever this file's on-disk shape changes in a way a consumer (Phase 6's metric-history plot, Phase 7's Breakdown tab) must know about. */
-export const PREDICTIONS_SCHEMA_VERSION = 1;
+/** Bumped whenever this file's on-disk shape changes in a way a consumer (Phase 6's metric-history plot, Phase 7's Breakdown tab) must know about. Plan 03-03 (v1 -> v2): adds `redRpPmf`/`blueRpPmf` (D-10). */
+export const PREDICTIONS_SCHEMA_VERSION = 2;
 
 /**
  * D-24: one component's predicted contribution to an alliance's score.
@@ -42,26 +42,55 @@ const ComponentPredictionSchema = z.object({
   variance: z.number().optional(),
 });
 
-export const PredictionRecordSchema = z.object({
-  matchKey: z.string().min(1),
-  season: z.number().int(),
-  eventKey: z.string().min(1),
-  compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
-  algorithmId: z.string().min(1),
-  algorithmVersion: z.string().min(1),
-  predictedWinner: z.enum(["red", "blue"]),
-  pRedWin: z.number(),
-  predictedRedScore: z.number(),
-  predictedBlueScore: z.number(),
-  /** D-24: full component vectors, not a totals-only summary — present for every algorithm, empty `{}` for one (like OPR) that does not decompose its prediction. */
-  redComponents: z.record(z.string(), ComponentPredictionSchema),
-  blueComponents: z.record(z.string(), ComponentPredictionSchema),
-  /** Alliance-total predictive variance (D-10). Present only for algorithms that model it (Sigma1) — omitted entirely, never `0`, for OPR/EPA. */
-  variance: z.number().optional(),
-  actualWinner: z.enum(["red", "blue", "tie"]),
-  actualRedScore: z.number(),
-  actualBlueScore: z.number(),
-});
+/**
+ * D-10: a discrete pmf, present only when an algorithm's `Prediction`
+ * carried one (never an empty array standing in for "not modeled"). The
+ * schema is the executable spec: a malformed distribution (empty, or not
+ * summing to 1) must fail on WRITE, not be discovered by a chart in Phase 6
+ * — see the `.refine()` calls on `PredictionRecordSchema` below.
+ */
+const RP_PMF_SUM_TOLERANCE = 1e-9;
+
+function isValidPmf(pmf: readonly number[] | undefined): boolean {
+  if (pmf === undefined) return true; // omitted entirely — valid, means "not modeled"
+  if (pmf.length === 0) return false; // an empty array is never a valid distribution
+  const sum = pmf.reduce((total, value) => total + value, 0);
+  return Math.abs(sum - 1) <= RP_PMF_SUM_TOLERANCE;
+}
+
+export const PredictionRecordSchema = z
+  .object({
+    matchKey: z.string().min(1),
+    season: z.number().int(),
+    eventKey: z.string().min(1),
+    compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
+    algorithmId: z.string().min(1),
+    algorithmVersion: z.string().min(1),
+    predictedWinner: z.enum(["red", "blue"]),
+    pRedWin: z.number(),
+    predictedRedScore: z.number(),
+    predictedBlueScore: z.number(),
+    /** D-24: full component vectors, not a totals-only summary — present for every algorithm, empty `{}` for one (like OPR) that does not decompose its prediction. */
+    redComponents: z.record(z.string(), ComponentPredictionSchema),
+    blueComponents: z.record(z.string(), ComponentPredictionSchema),
+    /** Alliance-total predictive variance (D-10). Present only for algorithms that model it (Sigma1) — omitted entirely, never `0`, for OPR/EPA. */
+    variance: z.number().optional(),
+    /** D-10: index `i` is `P(RP = i)`. Optional — omitted entirely (never an empty array) for an algorithm that does not model RP. Validated non-empty and summing to 1 within 1e-9 by this schema's `.refine()` below. */
+    redRpPmf: z.array(z.number()).optional(),
+    /** D-10: the blue alliance's counterpart to `redRpPmf`. */
+    blueRpPmf: z.array(z.number()).optional(),
+    actualWinner: z.enum(["red", "blue", "tie"]),
+    actualRedScore: z.number(),
+    actualBlueScore: z.number(),
+  })
+  .refine((record) => isValidPmf(record.redRpPmf), {
+    message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["redRpPmf"],
+  })
+  .refine((record) => isValidPmf(record.blueRpPmf), {
+    message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["blueRpPmf"],
+  });
 
 /** The persisted, on-disk shape — distinct from `replay.ts`'s in-memory `PredictionRecord` (see file header). */
 export type PersistedPredictionRecord = z.infer<typeof PredictionRecordSchema>;

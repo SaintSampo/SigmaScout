@@ -65,7 +65,8 @@ async function buildFixtureArtifact(): Promise<HarnessArtifact> {
     [2024, 2025].map((season) => statboticsReference(season, { fetchImpl: () => Promise.reject(new Error("no network in tests")) }))
   );
   return buildArtifact({
-    algorithms: [{ id: "opr", version: "1.0.0" }],
+    // D-13 (plan 03-03): buildArtifact requires the "{codeVersion}+{paramSetName}" shape.
+    algorithms: [{ id: "opr", version: "1.0.0+baseline" }],
     corpusIdentity: "test-corpus",
     runTimestamp: "2026-08-13T00:00:00.000Z",
     slices,
@@ -96,18 +97,52 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("exports ARTIFACT_SCHEMA_VERSION and the builder references it rather than a literal", async () => {
-    expect(ARTIFACT_SCHEMA_VERSION).toBe(2);
+    expect(ARTIFACT_SCHEMA_VERSION).toBe(3);
     const artifact = await buildFixtureArtifact();
     expect(artifact.schemaVersion).toBe(ARTIFACT_SCHEMA_VERSION);
   });
 
   it("carries algorithms[] (D-20) and tags every slice with a non-empty algorithmId", async () => {
     const artifact = await buildFixtureArtifact();
-    expect(artifact.algorithms).toEqual([{ id: "opr", version: "1.0.0" }]);
+    expect(artifact.algorithms).toEqual([
+      { id: "opr", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
+    ]);
     for (const slice of artifact.slices) {
       expect(typeof slice.algorithmId).toBe("string");
       expect(slice.algorithmId.length).toBeGreaterThan(0);
     }
+  });
+
+  it("D-13/plan 03-03: derives codeVersion/paramSetName by splitting version on the first '+'", async () => {
+    const slices = aggregateScores(FIXTURE_PREDICTIONS);
+    const artifact = await buildArtifact({
+      algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08" }],
+      corpusIdentity: "test-corpus",
+      slices,
+      statboticsReferences: [],
+    });
+    expect(artifact.algorithms).toEqual([
+      { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+    ]);
+  });
+
+  it("D-13/plan 03-03: throws when an algorithm's version carries no '+' (a module that has not adopted the identity scheme)", async () => {
+    const slices = aggregateScores(FIXTURE_PREDICTIONS);
+    expect(() =>
+      buildArtifact({
+        algorithms: [{ id: "legacy", version: "1.0.0" }],
+        corpusIdentity: "test-corpus",
+        slices,
+        statboticsReferences: [],
+      })
+    ).toThrow(/does not carry D-13/);
+  });
+
+  it("v3 schema rejects an algorithm descriptor missing codeVersion/paramSetName", async () => {
+    const artifact = await buildFixtureArtifact();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const broken = { ...artifact, algorithms: [{ id: "opr", version: "1.0.0+baseline" }] } as any;
+    expect(() => HarnessArtifactSchema.parse(broken)).toThrow();
   });
 
   it("carries season, competition-level view, tune-or-holdout label, headline eligibility, both metrics, scored count, exclusion counts, and calibration bins on every slice", async () => {
@@ -145,7 +180,8 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
     expect(String(qualSlice2024.brierScore).replace("0.", "").length).toBeGreaterThan(4);
 
     const artifact = await buildArtifact({
-      algorithms: [{ id: "opr", version: "1.0.0" }],
+      // D-13 (plan 03-03): buildArtifact requires the "{codeVersion}+{paramSetName}" shape.
+    algorithms: [{ id: "opr", version: "1.0.0+baseline" }],
       corpusIdentity: "test-corpus",
       slices,
       statboticsReferences: [],
@@ -157,7 +193,9 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   it("carries seasonsCovered derived from the slices, a corpus/run provenance block, and the algorithms[] array (D-20)", async () => {
     const artifact = await buildFixtureArtifact();
     expect(artifact.provenance.seasonsCovered).toEqual([2024, 2025]);
-    expect(artifact.algorithms).toEqual([{ id: "opr", version: "1.0.0" }]);
+    expect(artifact.algorithms).toEqual([
+      { id: "opr", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
+    ]);
     expect(artifact.provenance.corpusIdentity).toBe("test-corpus");
     expect(artifact.provenance.runTimestamp).toBe("2026-08-13T00:00:00.000Z");
   });

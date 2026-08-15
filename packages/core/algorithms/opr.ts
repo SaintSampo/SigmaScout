@@ -409,7 +409,13 @@ function logisticWinProbability(scoreMargin: number, scale: number = OPR_LOGISTI
 
 export const opr: AlgorithmModule<OprState> = {
   id: "opr",
-  version: "2.0.0",
+  // D-13 (plan 03-03, Rule 1 fix): `buildArtifact` (packages/harness/artifact.ts)
+  // now REQUIRES every algorithm's `version` to carry the
+  // `{codeVersion}+{paramSetName}` shape, throwing otherwise — a real
+  // `pnpm harness --algorithm opr` run would break at artifact-build time
+  // without this. OPR has no separate tuned parameter set (D-04: frozen,
+  // not searched), so "baseline" is the honest, single named set.
+  version: "2.0.0+baseline",
 
   initState(): OprState {
     return { observations: [], ratings: new Map(), incrementalSolve: emptyIncrementalSolve() };

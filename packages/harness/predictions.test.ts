@@ -52,8 +52,8 @@ function makeRecord(overrides: Partial<PersistedPredictionRecord> = {}): Persist
 }
 
 describe("PREDICTIONS_SCHEMA_VERSION", () => {
-  it("is 1", () => {
-    expect(PREDICTIONS_SCHEMA_VERSION).toBe(1);
+  it("is 2 (plan 03-03: redRpPmf/blueRpPmf)", () => {
+    expect(PREDICTIONS_SCHEMA_VERSION).toBe(2);
   });
 });
 
@@ -162,6 +162,44 @@ describe("openPredictionsWriter / writePredictionLine / closePredictionsWriter",
     expect(lines).toHaveLength(records.length);
     const roundTripped = lines.map((line) => PredictionRecordSchema.parse(JSON.parse(line)));
     expect(roundTripped).toEqual(records);
+  });
+
+  it("a record with a valid RP pmf (non-empty, sums to 1) round-trips (plan 03-03, D-10)", () => {
+    const outDir = makeTempDir();
+    const handle = openPredictionsWriter(outDir, 2024);
+    writePredictionLine(
+      handle,
+      makeRecord({ algorithmId: "sigma1", redRpPmf: [0.1, 0.2, 0.3, 0.4], blueRpPmf: [0.5, 0.5] })
+    );
+    closePredictionsWriter(handle);
+
+    const line = readFileSync(join(outDir, "predictions-2024.jsonl"), "utf8").trim();
+    const parsed = PredictionRecordSchema.parse(JSON.parse(line));
+    expect(parsed.redRpPmf).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(parsed.blueRpPmf).toEqual([0.5, 0.5]);
+  });
+
+  it("a pmf that does not sum to 1 is rejected", () => {
+    const outDir = makeTempDir();
+    const handle = openPredictionsWriter(outDir, 2024);
+    expect(() => writePredictionLine(handle, makeRecord({ redRpPmf: [0.1, 0.2, 0.3] }))).toThrow();
+    closePredictionsWriter(handle);
+  });
+
+  it("an empty pmf array is rejected — never a valid distribution", () => {
+    const outDir = makeTempDir();
+    const handle = openPredictionsWriter(outDir, 2024);
+    expect(() => writePredictionLine(handle, makeRecord({ redRpPmf: [] }))).toThrow();
+    closePredictionsWriter(handle);
+  });
+
+  it("a record with no RP fields at all is still valid (OPR/EPA, which do not model RP)", () => {
+    const outDir = makeTempDir();
+    const handle = openPredictionsWriter(outDir, 2024);
+    expect(() => writePredictionLine(handle, makeRecord({ algorithmId: "opr" }))).not.toThrow();
+    closePredictionsWriter(handle);
+    const line = readFileSync(join(outDir, "predictions-2024.jsonl"), "utf8").trim();
+    expect(line.includes("RpPmf")).toBe(false);
   });
 
   it("fails schema validation for a malformed record and writes nothing for it", () => {

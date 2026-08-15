@@ -25,8 +25,8 @@ import { z } from "zod";
 import type { ScoreSlice } from "./score.js";
 import type { StatboticsReference } from "./statbotics.js";
 
-/** Bumped whenever the artifact's shape changes in a way a consumer (Phase 8's Compare page) must know about. */
-export const ARTIFACT_SCHEMA_VERSION = 2;
+/** Bumped whenever the artifact's shape changes in a way a consumer (Phase 8's Compare page) must know about. Plan 03-03 (v2 -> v3): `AlgorithmDescriptorSchema` gains D-13's `codeVersion`/`paramSetName` identity halves. */
+export const ARTIFACT_SCHEMA_VERSION = 3;
 
 const CalibrationBinSchema = z.object({
   binStart: z.number(),
@@ -77,10 +77,22 @@ const ProvenanceSchema = z.object({
   seasonsCovered: z.array(z.number().int()),
 });
 
-/** D-20: one entry per algorithm run in this artifact — id and version, nothing computed from another algorithm's results. */
+/**
+ * D-20/D-13 (plan 03-03, artifact schema v3): one entry per algorithm run
+ * in this artifact — id and version, nothing computed from another
+ * algorithm's results. `version` remains the composed
+ * `{codeVersion}+{paramSetName}` string so an existing reader that only
+ * knows `{id, version}` keeps working; `codeVersion`/`paramSetName` are the
+ * SAME identity split into its two halves as separate REQUIRED fields, so
+ * Phase 5's algorithm-version dropdown and Phase 8's Compare page can key
+ * on them without string-splitting a format they would then silently
+ * depend on.
+ */
 const AlgorithmDescriptorSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
+  codeVersion: z.string().min(1),
+  paramSetName: z.string().min(1),
 });
 
 export const HarnessArtifactSchema = z.object({
@@ -95,13 +107,37 @@ export const HarnessArtifactSchema = z.object({
 export type HarnessArtifact = z.infer<typeof HarnessArtifactSchema>;
 
 export interface BuildArtifactParams {
-  /** D-20: every algorithm scored in this run. */
+  /** D-20: every algorithm scored in this run. `version` is split into `codeVersion`/`paramSetName` below (D-13). */
   algorithms: readonly { id: string; version: string }[];
   corpusIdentity: string;
   /** Defaults to `new Date().toISOString()` — overridable for deterministic tests. */
   runTimestamp?: string;
   slices: readonly ScoreSlice[];
   statboticsReferences: readonly StatboticsReference[];
+}
+
+/**
+ * D-13/plan 03-03: splits a module's own `version` string
+ * (`{codeVersion}+{paramSetName}`) into its two halves on the FIRST `+`.
+ * Throws if the string does not carry that shape — a module that has not
+ * adopted D-13's identity scheme must fail loudly at artifact-build time
+ * rather than produce a descriptor with an invented `paramSetName` (T-03-11).
+ */
+function splitAlgorithmVersion(id: string, version: string): { codeVersion: string; paramSetName: string } {
+  const separatorIndex = version.indexOf("+");
+  if (separatorIndex === -1) {
+    throw new Error(
+      `buildArtifact: algorithm "${id}"'s version "${version}" does not carry D-13's "{codeVersion}+{paramSetName}" shape (no "+" found)`
+    );
+  }
+  const codeVersion = version.slice(0, separatorIndex);
+  const paramSetName = version.slice(separatorIndex + 1);
+  if (codeVersion.length === 0 || paramSetName.length === 0) {
+    throw new Error(
+      `buildArtifact: algorithm "${id}"'s version "${version}" has an empty codeVersion or paramSetName half`
+    );
+  }
+  return { codeVersion, paramSetName };
 }
 
 /**
@@ -119,7 +155,11 @@ export function buildArtifact(params: BuildArtifactParams): HarnessArtifact {
       runTimestamp: params.runTimestamp ?? new Date().toISOString(),
       seasonsCovered,
     },
-    algorithms: params.algorithms,
+    algorithms: params.algorithms.map((algorithm) => ({
+      id: algorithm.id,
+      version: algorithm.version,
+      ...splitAlgorithmVersion(algorithm.id, algorithm.version),
+    })),
     slices: params.slices,
     statboticsReferences: params.statboticsReferences,
   };
