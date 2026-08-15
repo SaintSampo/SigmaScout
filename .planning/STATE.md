@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3
-current_phase_name: Tuning, Ranking Points & Versioning
+current_phase: 03
+current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-08-15T02:16:45.740Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-08-15T03:34:19.673Z"
 last_activity: 2026-08-14
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
+last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 18
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 02 — prediction-models-epa-sigma1
+**Current focus:** Phase 03 — tuning-ranking-points-versioning
 
 ## Current Position
 
-Phase: 3 — Tuning, Ranking Points & Versioning
-Plan: Not started
+Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-08-14 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 72%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [██████████] 100%
 | Phase 02 P04 | 40min | 3 tasks | 10 files |
 | Phase 02 P05 | 95min | 3 tasks | 6 files |
 | Phase 02 P06 | 3h10m (+ gap closure) | 3 tasks | 6 files |
+| Phase 03 P01 | 70min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [Phase ?]: cli.ts ALGORITHMS registry now carries 5 entries (opr, epa, sigma1, sigma1-seasonsd, sigma1-normalcdf) -- D-12's three link modes scored side by side in one real 2024 run, verified: identical predicted scores, distinct win probabilities
 - [Phase ?]: Gap 1 (02-06 checkpoint): identifiability.ts now ships a committed, deterministic connected-components pass; re-running it corrected the write-up's island count (2022: 7 not 4; 2024: 3 not 2) rather than the script being tuned to match the prior prose
 - [Phase ?]: Gap 2 (02-06 checkpoint): EPA's event-boundary invariance is now a verified test (epa.test.ts), closing the one named ALGO-02 coverage gap the checkpoint identified
+- [Phase ?]: Circular-import fix (Rule 3): moved four Sigma1 params.ts-sourced constants (SIGMA1_COLD_START_TEAM_TOTAL/CONSISTENCY_VARIANCE, SIGMA1_FALLBACK_SCORE_SD, SIGMA1_CONSISTENCY_CARRY_DECAY) into params.ts itself rather than sigma1/index.ts as drafted -- the literal plan instruction created a genuine ESM load-time TDZ crash (index.ts and params.ts would each dereference the other's binding at module-top-level-eval time)
+- [Phase ?]: tune.ts does not import cli.ts's runSeasons (the plan's stated key_link) -- that function has no event-bounding parameter, and the plan's own --events flag requires one; tune.ts mirrors runSeasons's orchestration locally while reusing the actual leak-proof buildSeasonStream/WalkForwardSimulator primitives unchanged
+- [Phase ?]: ALGO-04/ALGO-06 intentionally NOT marked complete in REQUIREMENTS.md by plan 03-01 -- both IDs also appear in 03-05's and 03-06's requirements lists; this plan ships tuning/versioning infrastructure (one knob searched, one test version promoted), not the full sensitivity screen/joint search or final integration those requirements describe. Matches the ALGO-03 precedent from plan 02-02
 
 ### Pending Todos
 
@@ -139,6 +143,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-14T23:51:58.190Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-tuning-ranking-points-versioning/03-CONTEXT.md
+Last session: 2026-08-15T03:34:19.654Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
