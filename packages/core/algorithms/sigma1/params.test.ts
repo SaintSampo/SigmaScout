@@ -37,6 +37,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueRpEarned: null,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    eventType: 0,
     ...overrides,
   };
 }
@@ -90,6 +91,7 @@ function toUpcoming(m: MatchResult): UpcomingMatch {
     blueTeams: m.blueTeams,
     redSurrogates: m.redSurrogates,
     blueSurrogates: m.blueSurrogates,
+    eventType: m.eventType,
   };
 }
 
@@ -170,6 +172,7 @@ function combinedObservables(params: Sigma1Params): unknown {
     blueTeams: ["T3", "T5", "T6"],
     redSurrogates: [],
     blueSurrogates: [],
+    eventType: 0,
   };
   predictions.push(algorithm.predict(state, eventBFollowUp));
 
@@ -197,6 +200,7 @@ function combinedObservables(params: Sigma1Params): unknown {
       blueTeams: ["T3", "T5", "T6"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     })
   );
 
@@ -375,6 +379,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
       blueTeams: ["T2"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
 
     const defaultAlgorithm = makeSigma1({ id: "fallback-sd-default", linkMode: "season-sd", params: DEFAULT_SIGMA1_PARAMS });

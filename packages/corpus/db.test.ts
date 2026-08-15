@@ -111,6 +111,16 @@ describe("selectMatchesChronological — total order under sort_time ties", () =
   });
 });
 
+describe("selectMatchesChronological — eventType round trip (plan 03-03 Task 1)", () => {
+  it("carries the event_type its event row was upserted with", () => {
+    upsertEvent(db, event({ eventKey: "2024casj", eventType: 3 }));
+    upsertMatch(db, match({ matchKey: "2024casj_qm1", eventKey: "2024casj" }));
+
+    const [row] = selectMatchesChronological(db, { eventKey: "2024casj" });
+    expect(row?.eventType).toBe(3);
+  });
+});
+
 describe("upsertMatch — idempotency", () => {
   it("upserting the same match twice leaves exactly one row", () => {
     upsertEvent(db, event());

@@ -34,6 +34,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueRpEarned: null,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    eventType: 0,
     ...overrides,
   };
 }
@@ -220,6 +221,7 @@ describe("opr — predict determinism and non-mutation", () => {
       blueTeams: ["A2", "A5", "A8"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     const beforeRatings = state.ratings;
     const beforeObservations = state.observations;
@@ -248,6 +250,7 @@ describe("opr — predict determinism and non-mutation", () => {
       blueTeams: ["A6"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     const prediction = opr.predict(state, upcoming);
     expect(prediction.pRedWin).toBeGreaterThan(0);
@@ -266,6 +269,7 @@ describe("opr — predict determinism and non-mutation", () => {
       blueTeams: ["A4", "A5", "A6"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     // No ratings yet — both alliances predict to 0, margin is exactly 0.
     const prediction = opr.predict(state, upcoming);

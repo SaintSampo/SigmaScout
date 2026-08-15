@@ -23,6 +23,21 @@ export interface UpcomingMatch {
   readonly blueTeams: readonly string[];
   readonly redSurrogates: readonly string[];
   readonly blueSurrogates: readonly string[];
+  /**
+   * TBA's `event_type` enum value for this match's event (0=Regional,
+   * 1=District, 2=District Championship, 3=Championship Division,
+   * 4=Championship Finals, 5=District Championship Division,
+   * 99=Offseason, 100=Preseason — see
+   * `packages/core/algorithms/sigma1/rp/constants.ts`'s `EVENT_TYPE_TIERS`
+   * for the RP-relevant tier mapping). REQUIRED, not optional: an optional
+   * field with a silent default is the failure mode this plan exists to
+   * prevent (plan 03-03 Task 1 — RESEARCH.md Open Question 2). NOT
+   * outcome-bearing — an event's type is fixed when the event is
+   * scheduled, long before any match is played — so it is deliberately NOT
+   * added to `packages/harness/replay.ts`'s `OUTCOME_KEYS`, in explicit
+   * contrast to `scoreBreakdownRaw`'s note below.
+   */
+  eventType: number;
 }
 
 /** A completed match — the only place outcome fields exist. */
@@ -64,6 +79,21 @@ export interface Prediction {
   /** D-24: full component vectors, present only for algorithms that decompose scores (EPA, Sigma1). */
   redComponents?: Record<string, ComponentPrediction>;
   blueComponents?: Record<string, ComponentPrediction>;
+  /**
+   * D-10: the full discrete ranking-point pmf, `P(RP = i)` at index `i`,
+   * for `i` in `0..maxRp` (that season's `RpRuleModule.maxRp`). Sums to 1
+   * within 1e-9. Optional — omitted entirely (never an empty array
+   * standing in for "this algorithm does not model RP"), following the
+   * existing optional-field convention above (`variance`, `redComponents`).
+   * Mean and standard deviation are DERIVED from this array at read time
+   * (`packages/core/algorithms/sigma1/rp/distribution.ts`'s `pmfMean`/
+   * `pmfStandardDeviation`) and never stored alongside it — one
+   * representation of one fact (D-10, mirrors D-21's raw-numbers-only
+   * artifact rule).
+   */
+  redRpPmf?: readonly number[];
+  /** D-10: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
+  blueRpPmf?: readonly number[];
 }
 
 /** D-27: one team's named metric — a value with an optional consistency/uncertainty spread. */

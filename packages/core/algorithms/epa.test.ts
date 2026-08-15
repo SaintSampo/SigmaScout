@@ -28,6 +28,7 @@ function upcoming(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch {
     blueTeams: ["frc4", "frc5", "frc6"],
     redSurrogates: [],
     blueSurrogates: [],
+    eventType: 0,
     ...overrides,
   };
 }

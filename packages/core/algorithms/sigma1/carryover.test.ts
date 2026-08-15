@@ -111,6 +111,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueRpEarned: null,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    eventType: 0,
     ...overrides,
   };
 }
@@ -162,6 +163,7 @@ function toUpcoming(m: MatchResult): UpcomingMatch {
     blueTeams: m.blueTeams,
     redSurrogates: m.redSurrogates,
     blueSurrogates: m.blueSurrogates,
+    eventType: m.eventType,
   };
 }
 

@@ -26,6 +26,7 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     blueRpEarned: 0,
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
+    eventType: 0,
     ...overrides,
   };
 }
@@ -43,12 +44,34 @@ describe("toLeakProofUpcoming", () => {
     }
   );
 
-  it.each(["matchKey", "compLevel", "redTeams", "blueTeams"] as const)(
+  it.each(["matchKey", "compLevel", "redTeams", "blueTeams", "eventType"] as const)(
     "returns the real value for non-outcome field %s",
     (field) => {
       expect(wrapped[field]).toEqual(raw[field]);
     }
   );
+});
+
+describe("eventType — non-outcome-bearing (plan 03-03 Task 1)", () => {
+  it("a predict() call can read match.eventType through toLeakProofUpcoming without throwing", () => {
+    const match = makeMatch({ eventType: 3 });
+    let observedEventType: number | undefined;
+    const algorithm: AlgorithmModule<null> = {
+      id: "eventtype-reader-fake",
+      version: "0.0.0",
+      initState: () => null,
+      predict: (_state, upcoming) => {
+        observedEventType = upcoming.eventType;
+        return { winner: "red", pRedWin: 0.5, redScore: 0, blueScore: 0 };
+      },
+      update: (state) => state,
+      teamMetrics: () => ({}),
+    };
+
+    const simulator = new WalkForwardSimulator([match]);
+    expect(() => simulator.run(algorithm, [])).not.toThrow();
+    expect(observedEventType).toBe(3);
+  });
 });
 
 describe("WalkForwardSimulator", () => {

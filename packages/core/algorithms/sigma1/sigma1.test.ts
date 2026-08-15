@@ -34,6 +34,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueRpEarned: null,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    eventType: 0,
     ...overrides,
   };
 }
@@ -115,6 +116,7 @@ describe("sigma1.predict — shape", () => {
       blueTeams: ["T2", "T5", "T8"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     const prediction = sigma1.predict(state, upcoming);
 
@@ -149,6 +151,7 @@ describe("sigma1.predict — shape", () => {
       blueTeams: ["A4", "A5", "A6"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     const prediction = sigma1.predict(state, upcoming);
     expect(prediction.redScore).toBe(0);
@@ -300,6 +303,7 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
       blueTeams: ["B1", "B2", "B3"],
       redSurrogates: ["S1", "S2", "S3"],
       blueSurrogates: [],
+      eventType: 0,
     };
 
     expect(() => sigma1.predict(state, upcoming)).not.toThrow();
@@ -410,6 +414,7 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
       blueTeams: ["T2", "T5", "T8"],
       redSurrogates: [],
       blueSurrogates: [],
+      eventType: 0,
     };
     const p1 = sigma1.predict(s1, upcoming);
     const p2 = sigma1SeasonSd.predict(s2, upcoming);
@@ -479,6 +484,7 @@ describe("determinism — replaying the same fixture twice", () => {
           blueTeams: m.blueTeams,
           redSurrogates: m.redSurrogates,
           blueSurrogates: m.blueSurrogates,
+          eventType: m.eventType,
         };
         predictions.push(sigma1.predict(state, upcoming));
         state = sigma1.update(state, m);
