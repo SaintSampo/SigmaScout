@@ -354,6 +354,82 @@ describe("fields observable only through teamMetrics (D-27's display contract)",
   });
 });
 
+/**
+ * A longer same-alliance sequence (T1/T2/T3 vs T4/T5/T6, one event) with a
+ * deliberately SWINGING per-component value — large, small, large again —
+ * so each team crosses `adaptationMinObservations` (3) with a genuinely
+ * non-unit mean squared normalized innovation, giving `adaptationFactor`
+ * room to diverge from exactly 1 once adaptation is enabled. Six matches:
+ * long enough for that divergence to feed back into a LATER match's Kalman
+ * gain (not just a single process-noise bump `predict()` alone would show —
+ * `applyProcessNoise` only ever changes `belief.variance`, never
+ * `belief.mean` directly; the mean only diverges once a later
+ * `updateAllianceSum` reads that different variance as part of its own gain).
+ */
+function swingingSequence(): MatchResult[] {
+  const values = [10, 10, 80, 5, 80, 5];
+  return values.map((value, i) =>
+    match({
+      matchKey: `2024eventa_qm${i + 1}`,
+      eventKey: "2024eventa",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 13 * value,
+      blueScore: 13 * value,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(value),
+    })
+  );
+}
+
+function swingingObservables(params: Sigma1Params): unknown {
+  const algorithm = makeSigma1({ id: "sigma1-adapt-identity-test", linkMode: "predictive-variance", params });
+  let state: Sigma1State = algorithm.initState([]);
+  const predictions: unknown[] = [];
+  for (const m of swingingSequence()) {
+    predictions.push(algorithm.predict(state, toUpcoming(m)));
+    state = algorithm.update(state, m);
+  }
+  return predictions;
+}
+
+describe("adaptation-off is bitwise identical to the pre-adaptation module (D-08, plan 03-04 Task 2)", () => {
+  // Every OTHER adaptation field perturbed to an extreme value alongside
+  // `adaptationEnabled: false` — proving `adaptationFactor`'s disabled
+  // branch is checked BEFORE any of these fields is ever read, not merely
+  // that the defaults happen to be inert.
+  const EXTREME_OFF_PARAMS: Sigma1Params = {
+    ...DEFAULT_SIGMA1_PARAMS,
+    adaptationEnabled: false,
+    adaptationEwmaAlpha: 0.999,
+    adaptationExponent: 10,
+    adaptationMinFactor: 0.0001,
+    adaptationMaxFactor: 10000,
+    adaptationMinObservations: 0,
+  };
+
+  it("DEFAULT_SIGMA1_PARAMS and an adaptation-off params object with every other adaptation field perturbed produce byte-identical prediction streams", () => {
+    const defaultRun = swingingObservables(DEFAULT_SIGMA1_PARAMS);
+    const offRun = swingingObservables(EXTREME_OFF_PARAMS);
+    expect(JSON.stringify(offRun)).toBe(JSON.stringify(defaultRun));
+  });
+
+  it("adaptationEnabled: true produces a stream that DIFFERS from the off stream for at least one match — the mechanism is wired, not decorative", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true };
+    const onRun = swingingObservables(onParams);
+    const offRun = swingingObservables(DEFAULT_SIGMA1_PARAMS);
+    expect(JSON.stringify(onRun)).not.toBe(JSON.stringify(offRun));
+  });
+
+  it("both the on and off streams are individually reproducible — running each twice gives byte-identical output", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true };
+    expect(JSON.stringify(swingingObservables(onParams))).toBe(JSON.stringify(swingingObservables(onParams)));
+    expect(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))).toBe(
+      JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))
+    );
+  });
+});
+
 describe("fallbackScoreSd — predict-only, but unreachable via a normal replay", () => {
   it("changes season-sd mode's win probability when allianceScoreStats has fewer than 2 folded observations", () => {
     // Architecturally unreachable through a normal predict-then-update

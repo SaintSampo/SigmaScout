@@ -39,7 +39,7 @@ import { performance } from "node:perf_hooks";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { sigma1, sigma1NormalCdf, sigma1SeasonSd } from "../core/algorithms/sigma1/index.js";
+import { sigma1, sigma1Adaptive, sigma1NormalCdf, sigma1SeasonSd } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
   openCorpus,
@@ -77,13 +77,18 @@ import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 // (incompatible) state types S; each entry is internally type-safe. D-12's
 // three Sigma1 link modes share one update path (sigma1/index.ts's
 // makeSigma1) but are registered as three distinct entries so one harness
-// run scores all three side by side (plan 02-05).
+// run scores all three side by side (plan 02-05). D-05/D-06 (plan 03-04
+// Task 2): `sigma1-adapt` is the SAME shape applied to the adaptation-on/off
+// question — `pnpm harness --algorithm sigma1,sigma1-adapt` scores both
+// variants in one pass over one shared match stream, so any difference is
+// the adaptation and nothing else (plan 03-05 runs the real comparison).
 const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
   sigma1,
   "sigma1-seasonsd": sigma1SeasonSd,
   "sigma1-normalcdf": sigma1NormalCdf,
+  "sigma1-adapt": sigma1Adaptive,
 };
 
 const CORPUS_PATH = "data/corpus.sqlite";

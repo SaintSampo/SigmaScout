@@ -1050,3 +1050,21 @@ export const sigma1NormalCdf = makeSigma1({ id: "sigma1-normalcdf", linkMode: "n
  * tuning actually bought.
  */
 export const sigma1Defaults = makeSigma1({ id: "sigma1-defaults", linkMode: "predictive-variance", paramSetName: "defaults" });
+/**
+ * D-05/D-06/D-08 (plan 03-04 Task 2): the adaptation-ON counterpart to
+ * `sigma1`/`sigma1Defaults`, registered under the `sigma1-adapt` harness id
+ * so `pnpm harness --algorithm sigma1,sigma1-adapt` scores both variants in
+ * ONE pass over one shared match stream — the same objects, the same order,
+ * so any difference between the two is the adaptation and nothing else.
+ * `paramSetName: "defaults-adapt"` keeps its version identity distinct from
+ * the off variant's `"defaults"` (D-13). The default `sigma1` module itself
+ * is UNCHANGED — `adaptationEnabled: false` — D-08: the code stays in the
+ * tree behind its flag, and the default promoted version has adaptation off
+ * until a measurement (plan 03-05's best-vs-best search) says otherwise.
+ */
+export const sigma1Adaptive = makeSigma1({
+  id: "sigma1-adapt",
+  linkMode: "predictive-variance",
+  paramSetName: "defaults-adapt",
+  params: { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true },
+});
