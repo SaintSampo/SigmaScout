@@ -16,6 +16,7 @@ import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import { FOULS_COMMITTED_COMPONENT } from "../breakdown/index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
+import { emptyInnovationStats } from "./adaptation.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -244,6 +245,7 @@ describe("teamMetrics — honest-variance check", () => {
             consistency: { autoLeave: 2 },
             matchCount: 20,
             lastEventKey: "2024test",
+            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -257,6 +259,7 @@ describe("teamMetrics — honest-variance check", () => {
             consistency: { autoLeave: 40 },
             matchCount: 20,
             lastEventKey: "2024test",
+            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -574,6 +577,7 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
+            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -595,6 +599,7 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
+            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],

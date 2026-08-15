@@ -20,7 +20,13 @@
     "carryLastYearWeight": 0.7,
     "carryPriorYearWeight": 0.3,
     "rpMonteCarloSeed": 42,
-    "rpMonteCarloDraws": 2000
+    "rpMonteCarloDraws": 2000,
+    "adaptationEnabled": false,
+    "adaptationEwmaAlpha": 0.2,
+    "adaptationExponent": 0.5,
+    "adaptationMinFactor": 0.25,
+    "adaptationMaxFactor": 4,
+    "adaptationMinObservations": 3
   },
   "provenance": {
     "searchArtifact": "reports/tune-tracer.json",

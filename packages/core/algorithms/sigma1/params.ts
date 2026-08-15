@@ -136,6 +136,29 @@ export interface Sigma1Params {
   readonly rpMonteCarloSeed: number;
   /** D-16/D-11: the number of Monte Carlo draws the RP joint model takes (plan 03-03) — versioned alongside the seed for the same reason. */
   readonly rpMonteCarloDraws: number;
+  /**
+   * D-05/D-08 (plan 03-04, `./adaptation.js`): whether within-season
+   * innovation-driven per-team process-noise adaptation is active. Default
+   * `false` — D-08: the default promoted version ships adaptation OFF
+   * unless the measurement (plan 03-05's best-vs-best search) says
+   * otherwise, so `false` is the honest default from the first commit
+   * rather than something flipped back later. This is a MODE, not a
+   * numeric knob, and is therefore deliberately EXCLUDED from the
+   * sensitivity screen's one-at-a-time sweep — plan 03-05 searches it as
+   * two independent optimizer runs per D-06, never as a dimension inside
+   * one run.
+   */
+  readonly adaptationEnabled: boolean;
+  /** D-05 (plan 03-04): EWMA rate for `./adaptation.js`'s `foldInnovation` squared-normalized-innovation fold — matches `consistencyEwmaAlpha`'s reasoning: one off match must not swing the factor. Phase 3 hyperparameter, default unverified. */
+  readonly adaptationEwmaAlpha: number;
+  /** D-05 (plan 03-04): exponent applied to a team's mean squared normalized innovation before clamping (`./adaptation.js`'s `adaptationFactor`) — 0.5 scales the factor with the ratio of observed to expected innovation STANDARD deviation rather than variance, a gentler default than the raw variance ratio. Phase 3 hyperparameter, default unverified. */
+  readonly adaptationExponent: number;
+  /** T-03-06 (plan 03-04): lower clamp bound for `./adaptation.js`'s `adaptationFactor`. An unbounded adaptive filter can destabilize — an over-large factor inflates `P`, which inflates the Kalman gain, which produces a larger innovation next match, which inflates the factor again — the clamp is the documented stability bound, not decoration. Phase 3 hyperparameter, default unverified. */
+  readonly adaptationMinFactor: number;
+  /** T-03-06 (plan 03-04): upper clamp bound for `./adaptation.js`'s `adaptationFactor`. Phase 3 hyperparameter, default unverified. */
+  readonly adaptationMaxFactor: number;
+  /** D-05 (plan 03-04): below this many folded observations, `./adaptation.js`'s `adaptationFactor` returns exactly 1 — a team's first match cannot tell you its regime is changing. Phase 3 hyperparameter, default unverified. */
+  readonly adaptationMinObservations: number;
 }
 
 /**
@@ -166,6 +189,12 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   carryPriorYearWeight: EPA_CARRY_PRIOR_YEAR_WEIGHT,
   rpMonteCarloSeed: 42,
   rpMonteCarloDraws: 2000,
+  adaptationEnabled: false,
+  adaptationEwmaAlpha: 0.2,
+  adaptationExponent: 0.5,
+  adaptationMinFactor: 0.25,
+  adaptationMaxFactor: 4.0,
+  adaptationMinObservations: 3,
 };
 
 /**
@@ -195,6 +224,12 @@ export const Sigma1ParamsSchema = z.strictObject({
   carryPriorYearWeight: z.number().finite(),
   rpMonteCarloSeed: z.number().finite(),
   rpMonteCarloDraws: z.number().finite(),
+  adaptationEnabled: z.boolean(),
+  adaptationEwmaAlpha: z.number().finite(),
+  adaptationExponent: z.number().finite(),
+  adaptationMinFactor: z.number().finite(),
+  adaptationMaxFactor: z.number().finite(),
+  adaptationMinObservations: z.number().finite(),
 }) satisfies z.ZodType<Sigma1Params>;
 
 /**

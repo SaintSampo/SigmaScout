@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { makeSigma1, type Sigma1State } from "./index.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_PARAM_KEYS, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
+import { emptyInnovationStats } from "./adaptation.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE, SIGMA1_SHRINKAGE_PRIOR_MATCHES } from "./consistency.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
@@ -384,6 +385,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               consistency: { autoLeave: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
+              innovationStats: emptyInnovationStats(),
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],
@@ -397,6 +399,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               consistency: { autoLeave: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
+              innovationStats: emptyInnovationStats(),
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],
