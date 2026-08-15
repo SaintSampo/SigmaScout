@@ -59,6 +59,16 @@ import { foldConsistency, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "./params.js";
 import { sigma1Carryover } from "./carryover.js";
+import { rpRuleModuleForSeason } from "./rp/rules.js";
+import type { RpParsedResult, RpRuleModule } from "./rp/constants.js";
+import {
+  emptyRpTeamState,
+  foldRpObservation,
+  predictAllianceRpMoments,
+  type RpLeague,
+  type RpTeamState,
+} from "./rp/state.js";
+import { rpPmfForMatch } from "./rp/distribution.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";
@@ -100,8 +110,16 @@ function componentColdStartTotal(componentCount: number, params: Sigma1Params): 
   return componentCount > 0 ? params.coldStartTeamTotal / componentCount : 0;
 }
 
-/** One team's full Sigma1 state: Kalman beliefs, cross-component covariance, and the D-09/D-11 consistency estimate, per component. */
-export interface Sigma1TeamState {
+/**
+ * One team's full Sigma1 state: Kalman beliefs, cross-component covariance,
+ * and the D-09/D-11 consistency estimate, per component. Extends
+ * `rp/state.ts`'s `RpTeamState` (adds `rpBeliefs`/`rpCovariance`/
+ * `rpCrossCovariance`, D-09's parallel threshold-variable state) — kept
+ * structurally SEPARATE members, never merged into `covariance` above; see
+ * `rp/state.ts`'s file header for why that separation is provable rather
+ * than merely asserted.
+ */
+export interface Sigma1TeamState extends RpTeamState {
   readonly beliefs: Readonly<Record<string, TeamComponentBelief>>;
   /** D-03's per-team cross-component covariance matrix Sigma, indexed by `Sigma1State.componentOrder`. */
   readonly covariance: number[][];
@@ -112,8 +130,13 @@ export interface Sigma1TeamState {
   readonly lastEventKey: string | null;
 }
 
-/** League-wide running aggregates feeding D-11's shrinkage prior and every cold-start team's baseline (Claude's Discretion, RESEARCH.md). */
-export interface Sigma1League {
+/**
+ * League-wide running aggregates feeding D-11's shrinkage prior and every
+ * cold-start team's baseline (Claude's Discretion, RESEARCH.md). Extends
+ * `rp/state.ts`'s `RpLeague` — `rpVariableMean` is D-09's third record,
+ * alongside the two score-side aggregates below.
+ */
+export interface Sigma1League extends RpLeague {
   /** Per-component expanding stats over every rating-eligible team's OWN observed per-match share — `.mean` is the live league-average component share, the cold-start baseline once populated. */
   readonly componentMean: Readonly<Record<string, ExpandingStats>>;
   /** Per-component expanding stats over every team's own squared gain-weighted residual — `.mean` is a running league-average consistency VARIANCE, D-11's shrinkage target. */
@@ -130,6 +153,16 @@ export interface Sigma1State {
   readonly allianceScoreStats: ExpandingStats;
   /** D-16/D-17: normalized-scale ratings carried into `season` from the two seasons before it, reusing `carryover.ts`'s EPA-shaped carry (see `carrySeason` below). */
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
+  /**
+   * Plan 03-03: how many matches' RP threshold-variable fold was SKIPPED
+   * because `result.scoreBreakdownRaw` was `null` (the same `usedFallback`
+   * population the score side already imputes via `fallbackObserved` —
+   * measured at 0.00%-0.12% across 2022-2026, RESEARCH.md). A cumulative
+   * counter across the algorithm's whole lifetime, never reset by
+   * `carrySeason` (mirrors `allianceScoreStats`'s own "carry forward
+   * unchanged" choice) — makes the skip observable rather than silent.
+   */
+  readonly rpSkippedMatchCount: number;
 }
 
 const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = { lastSeason: new Map(), yearBefore: new Map() };
@@ -139,9 +172,10 @@ function initState(): Sigma1State {
     season: null,
     componentOrder: [],
     teams: new Map(),
-    league: { componentMean: {}, componentConsistency: {} },
+    league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
     allianceScoreStats: emptyExpandingStats(),
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
+    rpSkippedMatchCount: 0,
   };
 }
 
@@ -172,7 +206,12 @@ function leagueConsistencyFor(league: Sigma1League, component: string, fallback:
  * which `shrinkConsistency` (`teamMetrics`) will fully weight at
  * `matchCount === 0` regardless.
  */
-function coldStartTeamState(componentOrder: readonly string[], league: Sigma1League, params: Sigma1Params): Sigma1TeamState {
+function coldStartTeamState(
+  componentOrder: readonly string[],
+  league: Sigma1League,
+  params: Sigma1Params,
+  rpVariableCount: number
+): Sigma1TeamState {
   const coldStartMean = componentColdStartTotal(componentOrder.length, params);
   const beliefs: Record<string, TeamComponentBelief> = {};
   const consistency: Record<string, number> = {};
@@ -188,6 +227,12 @@ function coldStartTeamState(componentOrder: readonly string[], league: Sigma1Lea
     consistency,
     matchCount: 0,
     lastEventKey: null,
+    // D-09: a brand-new team's RP state starts fully empty (never carries
+    // score-side data into it) — `foldRpObservation` (rp/state.ts) cold-starts
+    // individual threshold-variable beliefs lazily the first time each is
+    // actually folded, mirroring this function's own per-component loop
+    // above but on the RP fold's own first touch, not here.
+    ...emptyRpTeamState(rpVariableCount, componentOrder.length),
   };
 }
 
@@ -347,6 +392,15 @@ function fallbackObserved(
 interface AllianceUpdateResult {
   readonly teams: ReadonlyMap<string, Sigma1TeamState>;
   readonly league: Sigma1League;
+  /**
+   * Plan 03-03: this alliance's per-team, gain-weighted SCORE-component
+   * residual vector (length `componentOrder.length`, ordered by
+   * `componentOrder`) — the same value already computed below for
+   * `covariance.ts`'s own fold, now also exposed so `update()` can thread
+   * it into `rp/state.ts`'s `foldRpObservation` for D-11's cross-covariance,
+   * without recomputing it.
+   */
+  readonly residualsByTeam: ReadonlyMap<string, readonly number[]>;
 }
 
 /**
@@ -365,14 +419,15 @@ function applyAllianceUpdate(
   observed: ParsedComponents,
   measurementNoiseMultiplier: number,
   eventKey: string,
-  params: Sigma1Params
+  params: Sigma1Params,
+  rpVariableCount: number
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
     // Every team on this alliance was a surrogate — nothing to attribute,
     // a genuine no-op (mirrors opr.ts's/epa.ts's own empty-observation
     // handling, and kalman.ts's updateAllianceSum for an empty teammates
     // array).
-    return { teams, league };
+    return { teams, league, residualsByTeam: new Map() };
   }
 
   const workingTeams = new Map<string, Sigma1TeamState>();
@@ -380,7 +435,9 @@ function applyAllianceUpdate(
     const existing = teams.get(team);
     workingTeams.set(
       team,
-      existing ? applyTeamProcessNoise(existing, eventKey, params) : coldStartTeamState(componentOrder, league, params)
+      existing
+        ? applyTeamProcessNoise(existing, eventKey, params)
+        : coldStartTeamState(componentOrder, league, params, rpVariableCount)
     );
   }
 
@@ -447,6 +504,11 @@ function applyAllianceUpdate(
       );
     });
     nextTeams.set(team, {
+      // `...working` first so this alliance-update pass never touches RP
+      // fields (`rpBeliefs`/`rpCovariance`/`rpCrossCovariance`, D-09) —
+      // those are threaded through unchanged here and updated separately by
+      // `update()`'s own `foldRpObservation` call.
+      ...working,
       beliefs: nextBeliefsByTeam.get(team)!,
       covariance: ewmaCovariance(working.covariance, residualVector, params.covEwmaAlpha, params.covShrinkage),
       consistency: nextConsistency,
@@ -457,7 +519,11 @@ function applyAllianceUpdate(
 
   return {
     teams: nextTeams,
-    league: { componentMean: nextComponentMean, componentConsistency: nextComponentConsistency },
+    // `...league` first so `rpVariableMean` (D-09's third `Sigma1League`
+    // record) passes through unchanged — this function has no opinion on
+    // RP data.
+    league: { ...league, componentMean: nextComponentMean, componentConsistency: nextComponentConsistency },
+    residualsByTeam,
   };
 }
 
@@ -535,6 +601,31 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const seasonScoreSd = standardDeviation(state.allianceScoreStats, params.fallbackScoreSd);
   const pRedWin = winProbability(linkMode, margin, seasonScoreSd, variance, params.linkC);
 
+  // Plan 03-03 (D-09/D-10/D-11): the RP pmf is computed from values ALREADY
+  // produced above (redScore/blueScore, and each alliance's OWN posterior +
+  // covariance sum — never the combined `variance` above, which sums BOTH
+  // alliances together for the win-probability denominator) — nothing in
+  // the score/variance/win-probability computation above may change or be
+  // recomputed here, and nothing below can retroactively change it either.
+  // That independence is asserted by `params.test.ts`'s/`distribution.
+  // test.ts`'s dedicated "0 draws === 2000 draws" equality test, not just
+  // claimed.
+  const season = state.season ?? deriveSeasonFromEventKey(match.eventKey);
+  const ruleModule = rpRuleModuleForSeason(season);
+  const redScoreVarianceOwn = redPosteriorSum + redCovarianceTotal;
+  const blueScoreVarianceOwn = bluePosteriorSum + blueCovarianceTotal;
+  const redRpMoments = predictAllianceRpMoments(state.teams, redTeams, ruleModule, redScore, redScoreVarianceOwn);
+  const blueRpMoments = predictAllianceRpMoments(state.teams, blueTeams, ruleModule, blueScore, blueScoreVarianceOwn);
+  const rpResult = rpPmfForMatch({
+    red: redRpMoments,
+    blue: blueRpMoments,
+    ruleModule,
+    eventType: match.eventType,
+    matchKey: match.matchKey,
+    compLevel: match.compLevel,
+    params,
+  });
+
   return {
     // margin === 0 gives pRedWin exactly 0.5 through every link mode's own
     // documented boundary handling (linkFunctions.ts), and ">= 0.5"
@@ -546,6 +637,12 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
     variance,
     redComponents,
     blueComponents,
+    // D-10: omitted entirely (never an empty array) when
+    // `rpPmfForMatch` returns `[]` — `params.rpMonteCarloDraws === 0`
+    // (plan 03-05's search fast path) — matching `types.ts`'s documented
+    // "omitted entirely, never an empty array" optional-field convention.
+    ...(rpResult.redPmf.length > 0 ? { redRpPmf: rpResult.redPmf } : {}),
+    ...(rpResult.bluePmf.length > 0 ? { blueRpPmf: rpResult.bluePmf } : {}),
   };
 }
 
@@ -596,6 +693,13 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
+  // Plan 03-03: this season's RP rule module + threshold-variable count,
+  // resolved once and threaded to both alliances' score-side fold (for
+  // cold-starting a brand-new team's RP state at the right size) and to the
+  // RP fold itself below.
+  const ruleModule = rpRuleModuleForSeason(season);
+  const rpVariableCount = ruleModule.thresholdVariables.length;
+
   const afterRed = applyAllianceUpdate(
     state.teams,
     state.league,
@@ -604,7 +708,8 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     redObserved,
     measurementNoiseMultiplier,
     result.eventKey,
-    params
+    params,
+    rpVariableCount
   );
   const afterBlue = applyAllianceUpdate(
     afterRed.teams,
@@ -614,7 +719,8 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     blueObserved,
     measurementNoiseMultiplier,
     result.eventKey,
-    params
+    params,
+    rpVariableCount
   );
 
   // Pitfall EPA-1's fix, reused here: fold both alliances' observed totals
@@ -622,13 +728,76 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   // when its breakdown is not.
   const allianceScoreStats = foldObservation(foldObservation(state.allianceScoreStats, result.redScore), result.blueScore);
 
+  // D-09: the RP threshold-variable fold, kept SEPARATE from the score-side
+  // fold above — never touches `afterBlue.teams`' score fields, never
+  // recomputes anything the score side already produced. Skipped entirely
+  // (never a coerced zero) for the same `usedFallback` population the
+  // score side already imputes via `fallbackObserved` (RESEARCH.md Pitfall
+  // 4) — a match with no `score_breakdown` has no raw RP fields to parse
+  // either.
+  let rpTeamUpdates: ReadonlyMap<string, RpTeamState> = new Map();
+  let rpLeague: RpLeague = state.league;
+  let rpSkippedMatchCount = state.rpSkippedMatchCount;
+
+  if (usedFallback) {
+    rpSkippedMatchCount += 1;
+  } else {
+    const rawJson: unknown = JSON.parse(result.scoreBreakdownRaw!);
+    const redRpParsed: RpParsedResult = ruleModule.parse(rawJson, "red", result.eventType);
+    const blueRpParsed: RpParsedResult = ruleModule.parse(rawJson, "blue", result.eventType);
+
+    const redRpFold = foldRpObservation({
+      // `state.teams` (PRE-this-match) — the same snapshot the score side's
+      // OWN `applyTeamProcessNoise`/`coldStartTeamState` read `lastEventKey`
+      // from, before either alliance's score fold updates it to this
+      // match's `eventKey`.
+      teams: state.teams,
+      league: rpLeague,
+      ruleModule,
+      allianceTeams: redTeams,
+      observedThresholdVariables: redRpParsed.thresholdVariables,
+      scoreResidualsByTeam: afterRed.residualsByTeam,
+      componentCount: componentOrder.length,
+      eventKey: result.eventKey,
+      params,
+    });
+    const blueRpFold = foldRpObservation({
+      teams: state.teams,
+      league: redRpFold.league,
+      ruleModule,
+      allianceTeams: blueTeams,
+      observedThresholdVariables: blueRpParsed.thresholdVariables,
+      scoreResidualsByTeam: afterBlue.residualsByTeam,
+      componentCount: componentOrder.length,
+      eventKey: result.eventKey,
+      params,
+    });
+
+    const merged = new Map(redRpFold.teams);
+    for (const [team, rpState] of blueRpFold.teams) merged.set(team, rpState);
+    rpTeamUpdates = merged;
+    rpLeague = blueRpFold.league;
+  }
+
+  const finalTeams = new Map(afterBlue.teams);
+  for (const [team, rpState] of rpTeamUpdates) {
+    const existing = finalTeams.get(team);
+    if (existing) finalTeams.set(team, { ...existing, ...rpState });
+  }
+
   return {
     season,
     componentOrder,
-    teams: afterBlue.teams,
-    league: afterBlue.league,
+    teams: finalTeams,
+    // `...afterBlue.league` carries componentMean/componentConsistency;
+    // `rpVariableMean` comes from the RP fold above (or, when skipped,
+    // stays whatever `state.league.rpVariableMean` already was, since
+    // `rpLeague` was initialized from `state.league` and never reassigned
+    // in that branch).
+    league: { ...afterBlue.league, rpVariableMean: rpLeague.rpVariableMean },
     allianceScoreStats,
     priorSeasonRatings: state.priorSeasonRatings,
+    rpSkippedMatchCount,
   };
 }
 
@@ -702,6 +871,11 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
 
   const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, params);
   const toComponentOrder = componentMapForSeason(boundary.toSeason).components;
+  // D-09: threshold variables are season-specific (2022's cargo count has
+  // no 2023 analog) — RP state does NOT carry across a season boundary,
+  // unlike the score-component beliefs blended below. Every team resets to
+  // `emptyRpTeamState`, sized for the INCOMING season's variable count.
+  const toRpVariableCount = rpRuleModuleForSeason(boundary.toSeason).thresholdVariables.length;
   const nextTeams = new Map<string, Sigma1TeamState>();
 
   for (const [team, carriedTotal] of carryResult.teamPointTotals) {
@@ -721,6 +895,7 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       consistency,
       matchCount: 0,
       lastEventKey: null,
+      ...emptyRpTeamState(toRpVariableCount, toComponentOrder.length),
     });
   }
 
@@ -730,10 +905,19 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     teams: nextTeams,
     // League priors are retained rather than reset — a reasonable starting
     // point for the new season, the same "carry forward unchanged" choice
-    // epa.ts's own carrySeason makes for allianceScoreStats below.
+    // epa.ts's own carrySeason makes for allianceScoreStats below. This
+    // includes `rpVariableMean` (D-09): its keys are the OUTGOING season's
+    // threshold-variable names, which the incoming season's differently-named
+    // variables simply won't match — harmless stale data, the identical
+    // precedent `componentMean`/`componentConsistency` already establish for
+    // season-specific component names.
     league: state.league,
     allianceScoreStats: state.allianceScoreStats,
     priorSeasonRatings: carryResult.priorSeasonRatings,
+    // Plan 03-03: a cumulative counter across the algorithm's whole
+    // lifetime — never reset at a season boundary (see `Sigma1State`'s own
+    // doc comment).
+    rpSkippedMatchCount: state.rpSkippedMatchCount,
   };
 }
 

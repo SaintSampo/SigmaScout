@@ -31,7 +31,7 @@
  * Table 6-5 (plan's human-check step).
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
 
 const HubScoreSchema = z.object({
@@ -112,5 +112,23 @@ export const rp2026: RpRuleModule = {
       tieRp: 1,
       totalRp,
     };
+  },
+
+  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
+    const tier = eventTierFor(eventType);
+    const hubTotalCount = values.hubTotalCount ?? 0;
+    const totalTowerPoints = values.totalTowerPoints ?? 0;
+
+    const energized = hubTotalCount >= ENERGIZED_THRESHOLD[tier];
+    const supercharged = hubTotalCount >= SUPERCHARGED_THRESHOLD[tier];
+    const traversal = totalTowerPoints >= TRAVERSAL_THRESHOLD[tier];
+
+    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+    bonusFlags.energized = energized;
+    bonusFlags.supercharged = supercharged;
+    bonusFlags.traversal = traversal;
+
+    return { bonusFlags, totalRp: Number(energized) + Number(supercharged) + Number(traversal) };
   },
 };

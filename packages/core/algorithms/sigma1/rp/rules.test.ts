@@ -62,6 +62,73 @@ describe("winRp per season (Pitfall 2)", () => {
   });
 });
 
+describe("predictThresholds (plan 03-03) — evaluates bonuses from tracked threshold-variable values alone", () => {
+  it("2022: reproduces cargoBonus/hangarBonus at a base-tier match clearing both", () => {
+    const module = rpRuleModuleForSeason(2022);
+    const result = module.predictThresholds({ matchCargoTotal: 25, autoCargoTotal: 2, endgamePoints: 20 }, 0);
+    expect(result.bonusFlags.cargoBonus).toBe(true);
+    expect(result.bonusFlags.hangarBonus).toBe(true);
+    expect(result.totalRp).toBe(2);
+  });
+
+  it("2022: a clearly-below-threshold match clears neither bonus", () => {
+    const module = rpRuleModuleForSeason(2022);
+    const result = module.predictThresholds({ matchCargoTotal: 1, autoCargoTotal: 0, endgamePoints: 0 }, 0);
+    expect(result.bonusFlags.cargoBonus).toBe(false);
+    expect(result.bonusFlags.hangarBonus).toBe(false);
+    expect(result.totalRp).toBe(0);
+  });
+
+  it("2023: sustainabilityBonus evaluates at the stricter non-coop threshold (conservative-gate convention)", () => {
+    const module = rpRuleModuleForSeason(2023);
+    // 4 links (20 linkPoints) clears the coop threshold (4) but not the non-coop threshold (5) at base tier.
+    const result = module.predictThresholds({ totalChargeStationPoints: 0, linkPoints: 20 }, 0);
+    expect(result.bonusFlags.sustainabilityBonus).toBe(false);
+  });
+
+  it("2024: ensembleBonus is fully computable and melodyBonus uses the non-coop threshold", () => {
+    const module = rpRuleModuleForSeason(2024);
+    const result = module.predictThresholds(
+      { noteCount: 16, endGameTotalStagePoints: 10, onStageRobotCount: 2 },
+      0
+    );
+    // 16 notes clears the coop threshold (15) but not the non-coop threshold (18) at base tier.
+    expect(result.bonusFlags.melodyBonus).toBe(false);
+    expect(result.bonusFlags.ensembleBonus).toBe(true);
+  });
+
+  it("2025: autoBonus is always false (no threshold-variable-only fallback exists), bargeBonus is fully computable", () => {
+    const module = rpRuleModuleForSeason(2025);
+    const result = module.predictThresholds(
+      { trough: 10, botRow: 10, midRow: 10, topRow: 10, endGameBargePoints: 20 },
+      0
+    );
+    expect(result.bonusFlags.autoBonus).toBe(false);
+    expect(result.bonusFlags.bargeBonus).toBe(true);
+    expect(result.bonusFlags.coralBonus).toBe(true);
+  });
+
+  it("2026: every bonus fully computable from tracked variables", () => {
+    const module = rpRuleModuleForSeason(2026);
+    const result = module.predictThresholds({ hubTotalCount: 150, totalTowerPoints: 60 }, 0);
+    expect(result.bonusFlags.energized).toBe(true);
+    expect(result.bonusFlags.supercharged).toBe(false);
+    expect(result.bonusFlags.traversal).toBe(true);
+    expect(result.totalRp).toBe(2);
+  });
+
+  it("every season: totalRp equals the count of true bonusFlags", () => {
+    for (const season of RP_REGISTERED_SEASONS) {
+      const module = RP_RULE_MODULES[season]!;
+      const values: Record<string, number> = {};
+      for (const v of module.thresholdVariables) values[v.name] = 0;
+      const result = module.predictThresholds(values, 0);
+      const trueCount = Object.values(result.bonusFlags).filter(Boolean).length;
+      expect(result.totalRp).toBe(trueCount);
+    }
+  });
+});
+
 describe("eventTierFor", () => {
   it("maps 0, 1, 100 to base", () => {
     expect(eventTierFor(0)).toBe("base");

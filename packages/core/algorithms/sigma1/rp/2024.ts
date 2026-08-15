@@ -49,7 +49,7 @@
  * prohibition on widening tolerances to force a fit.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
 
 const ON_STAGE_STATES = new Set(["StageLeft", "StageRight", "CenterStage"]);
@@ -158,5 +158,32 @@ export const rp2024: RpRuleModule = {
       tieRp: 1,
       totalRp,
     };
+  },
+
+  /**
+   * `ensembleBonus` is fully computable from `endGameTotalStagePoints` and
+   * `onStageRobotCount` alone. `melodyBonus`'s real condition also gates on
+   * `own.coopertitionBonusAchieved` (untracked, not a threshold variable) —
+   * evaluated here assuming coopertition is NOT achieved, i.e. the stricter
+   * `MELODY_BONUS_THRESHOLD_NON_COOP` table, per
+   * `RpRuleModule.predictThresholds`'s documented conservative-gate
+   * convention.
+   */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
+    const tier = eventTierFor(eventType);
+    const noteCount = values.noteCount ?? 0;
+    const endGameTotalStagePoints = values.endGameTotalStagePoints ?? 0;
+    const onStageRobotCount = values.onStageRobotCount ?? 0;
+
+    const melodyBonus = noteCount >= MELODY_BONUS_THRESHOLD_NON_COOP[tier];
+    const ensembleBonus =
+      endGameTotalStagePoints >= ENSEMBLE_BONUS_STAGE_POINTS_THRESHOLD[tier] &&
+      onStageRobotCount >= ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD[tier];
+
+    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+    bonusFlags.melodyBonus = melodyBonus;
+    bonusFlags.ensembleBonus = ensembleBonus;
+
+    return { bonusFlags, totalRp: Number(melodyBonus) + Number(ensembleBonus) };
   },
 };

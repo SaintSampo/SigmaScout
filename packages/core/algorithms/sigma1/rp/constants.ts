@@ -128,6 +128,12 @@ export interface RpParsedResult {
  * what sizes the pmf array in plan 03-03 — asserted equal in
  * `rules.test.ts` rather than trusted from a hand-maintained literal.
  */
+/** What `RpRuleModule.predictThresholds` returns — the bonus-only counterpart of `RpParsedResult` (no `thresholdVariables`/`recordedBonusFlags`/`winRp`/`tieRp` echo, since the caller already supplied the values and has no TBA-recorded flag to compare against a PREDICTED match). */
+export interface RpThresholdPrediction {
+  readonly bonusFlags: Record<string, boolean>;
+  readonly totalRp: number;
+}
+
 export interface RpRuleModule {
   readonly season: number;
   readonly thresholdVariables: readonly RpThresholdVariable[];
@@ -136,6 +142,32 @@ export interface RpRuleModule {
   readonly winRp: number;
   readonly tieRp: number;
   parse(rawBreakdownJson: unknown, side: "red" | "blue", eventType: number): RpParsedResult;
+  /**
+   * Plan 03-03 (D-09/D-11): evaluates every named bonus at `eventType`'s
+   * tier from ONLY the threshold-variable values a caller supplies —
+   * `values` keyed by `RpThresholdVariable.name`, the shape the Monte Carlo
+   * joint draw in `rp/distribution.ts` produces (it draws SAMPLES of the
+   * tracked threshold variables, never a full raw `score_breakdown`, so it
+   * cannot call `parse` above).
+   *
+   * KNOWN, NAMED MODELING SIMPLIFICATION (documented once here, not
+   * per-season, and cited by every module that needs it): a bonus whose
+   * REAL achievement condition (see `parse`) also depends on an
+   * alliance-level gating signal that is NOT itself a tracked threshold
+   * variable — 2023's/2024's/2025's own-or-both-alliance coopertition
+   * flags, 2025's per-robot auto-leave state and `autoCoralCount` — is
+   * evaluated at its LESS-likely-to-achieve branch (coopertition assumed
+   * NOT met; 2025's `autoBonus`, which has no threshold-variable-only
+   * fallback at all, is always `false`). This UNDERSTATES that bonus's
+   * predicted probability, never overstates it — a deliberate, honest,
+   * conservative choice over silently guessing a gate is met, following
+   * this project's "measured tolerance over a forced fit" precedent
+   * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`). A future plan that
+   * extends `RpThresholdVariable` to track these gating signals as their
+   * own Kalman-estimated propensity can close this gap without changing
+   * this method's shape.
+   */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction;
   /**
    * Raw TBA field names this season's breakdown carries but this module
    * never reads for an achievement computation (e.g. 2024's own shipped

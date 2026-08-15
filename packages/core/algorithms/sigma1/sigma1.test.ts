@@ -68,6 +68,29 @@ function rawBreakdown2024Uniform(perComponentValue: number): string {
     // objects on both alliances keeps both alliances' foulsCommitted equal
     // to perComponentValue too.
     foulPoints: perComponentValue,
+    // Plan 03-03: rp/2024.ts's OWN Zod schema (a DIFFERENT required-field
+    // set than breakdown/2024.ts's, since sigma1/index.ts's update() now
+    // also parses this same raw JSON through the season's RP rule module)
+    // requires these fields too — breakdown/2024.ts's schema silently
+    // strips them (default "strip" mode), so adding them here cannot
+    // affect any SCORE-side assertion this file makes; placeholder values
+    // since no test in this file exercises RP behavior.
+    autoAmpNoteCount: 0,
+    autoSpeakerNoteCount: 0,
+    teleopAmpNoteCount: 0,
+    teleopSpeakerNoteCount: 0,
+    teleopSpeakerNoteAmplifiedCount: 0,
+    endGameTotalStagePoints: 0,
+    endGameRobot1: "None",
+    endGameRobot2: "None",
+    endGameRobot3: "None",
+    coopertitionBonusAchieved: false,
+    melodyBonusAchieved: false,
+    ensembleBonusAchieved: false,
+    melodyBonusThresholdCoop: 0,
+    melodyBonusThresholdNonCoop: 0,
+    ensembleBonusStagePointsThreshold: 0,
+    ensembleBonusOnStageRobotsThreshold: 0,
   };
   return JSON.stringify({ red: side, blue: side });
 }
@@ -221,6 +244,9 @@ describe("teamMetrics — honest-variance check", () => {
             consistency: { autoLeave: 2 },
             matchCount: 20,
             lastEventKey: "2024test",
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
           },
         ],
         [
@@ -231,12 +257,16 @@ describe("teamMetrics — honest-variance check", () => {
             consistency: { autoLeave: 40 },
             matchCount: 20,
             lastEventKey: "2024test",
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
           },
         ],
       ]),
-      league: { componentMean: {}, componentConsistency: {} },
+      league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSkippedMatchCount: 0,
     };
 
     const metrics = sigma1.teamMetrics(state);
@@ -544,6 +574,9 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
           },
         ],
         [
@@ -562,12 +595,16 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
           },
         ],
       ]),
-      league: { componentMean: {}, componentConsistency: {} },
+      league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSkippedMatchCount: 0,
     };
 
     const fallbackMatch = match({

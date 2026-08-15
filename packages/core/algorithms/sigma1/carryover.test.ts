@@ -131,6 +131,24 @@ function rawBreakdown2024Uniform(perComponentValue: number): string {
     endGameSpotLightBonusPoints: perComponentValue,
     adjustPoints: perComponentValue,
     foulPoints: perComponentValue,
+    // Plan 03-03: rp/2024.ts's OWN Zod schema requires these fields too —
+    // placeholder values, no test in this file exercises RP behavior.
+    autoAmpNoteCount: 0,
+    autoSpeakerNoteCount: 0,
+    teleopAmpNoteCount: 0,
+    teleopSpeakerNoteCount: 0,
+    teleopSpeakerNoteAmplifiedCount: 0,
+    endGameTotalStagePoints: 0,
+    endGameRobot1: "None",
+    endGameRobot2: "None",
+    endGameRobot3: "None",
+    coopertitionBonusAchieved: false,
+    melodyBonusAchieved: false,
+    ensembleBonusAchieved: false,
+    melodyBonusThresholdCoop: 0,
+    melodyBonusThresholdNonCoop: 0,
+    ensembleBonusStagePointsThreshold: 0,
+    ensembleBonusOnStageRobotsThreshold: 0,
   };
   return JSON.stringify({ red: side, blue: side });
 }
@@ -144,6 +162,18 @@ function rawBreakdown2025Uniform(perComponentValue: number): string {
     endGameBargePoints: perComponentValue,
     adjustPoints: perComponentValue,
     foulPoints: perComponentValue,
+    // Plan 03-03: rp/2025.ts's OWN Zod schema requires these fields too —
+    // placeholder values, no test in this file exercises RP behavior.
+    autoLineRobot1: "None",
+    autoLineRobot2: "None",
+    autoLineRobot3: "None",
+    autoCoralCount: 0,
+    autoReef: { trough: 0, tba_botRowCount: 0, tba_midRowCount: 0, tba_topRowCount: 0 },
+    teleopReef: { trough: 0, tba_botRowCount: 0, tba_midRowCount: 0, tba_topRowCount: 0 },
+    coopertitionCriteriaMet: false,
+    autoBonusAchieved: false,
+    coralBonusAchieved: false,
+    bargeBonusAchieved: false,
   };
   return JSON.stringify({ red: side, blue: side });
 }

@@ -26,7 +26,7 @@
  * rule.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
 
 /**
@@ -113,5 +113,24 @@ export const rp2022: RpRuleModule = {
       tieRp: 1,
       totalRp,
     };
+  },
+
+  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
+    const tier = eventTierFor(eventType);
+    const matchCargoTotal = values.matchCargoTotal ?? 0;
+    const autoCargoTotal = values.autoCargoTotal ?? 0;
+    const endgamePoints = values.endgamePoints ?? 0;
+
+    const quintetAchieved = autoCargoTotal >= QUINTET_AUTO_CARGO_THRESHOLD[tier];
+    const cargoThreshold = quintetAchieved ? CARGO_BONUS_THRESHOLD_QUINTET[tier] : CARGO_BONUS_THRESHOLD_NON_QUINTET[tier];
+    const cargoBonus = matchCargoTotal >= cargoThreshold;
+    const hangarBonus = endgamePoints >= HANGAR_BONUS_THRESHOLD[tier];
+
+    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+    bonusFlags.cargoBonus = cargoBonus;
+    bonusFlags.hangarBonus = hangarBonus;
+
+    return { bonusFlags, totalRp: Number(cargoBonus) + Number(hangarBonus) };
   },
 };

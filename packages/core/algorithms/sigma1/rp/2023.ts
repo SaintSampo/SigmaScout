@@ -27,7 +27,7 @@
  * check produced 0/27116), so `parse` reads both sides of the raw object.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
 
 const SideSchema = z.object({
@@ -108,5 +108,30 @@ export const rp2023: RpRuleModule = {
       tieRp: 1,
       totalRp,
     };
+  },
+
+  /**
+   * `activationBonus` is fully computable from `totalChargeStationPoints`
+   * alone. `sustainabilityBonus`'s real condition also gates on BOTH
+   * alliances' `coopertitionCriteriaMet` (untracked, not a threshold
+   * variable) — evaluated here assuming coopertition is NOT met, i.e. the
+   * stricter `SUSTAINABILITY_THRESHOLD_NON_COOP` table, per
+   * `RpRuleModule.predictThresholds`'s documented conservative-gate
+   * convention (understates, never overstates, this bonus's probability).
+   */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
+    const tier = eventTierFor(eventType);
+    const totalChargeStationPoints = values.totalChargeStationPoints ?? 0;
+    const linkPoints = values.linkPoints ?? 0;
+
+    const activationBonus = totalChargeStationPoints >= ACTIVATION_BONUS_THRESHOLD[tier];
+    const links = linkPoints / 5;
+    const sustainabilityBonus = links >= SUSTAINABILITY_THRESHOLD_NON_COOP[tier];
+
+    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+    bonusFlags.activationBonus = activationBonus;
+    bonusFlags.sustainabilityBonus = sustainabilityBonus;
+
+    return { bonusFlags, totalRp: Number(activationBonus) + Number(sustainabilityBonus) };
   },
 };

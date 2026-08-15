@@ -54,7 +54,7 @@
  * human-check step).
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
 
 const ReefSchema = z.object({
@@ -164,5 +164,39 @@ export const rp2025: RpRuleModule = {
       tieRp: 1,
       totalRp,
     };
+  },
+
+  /**
+   * `bargeBonus` is fully computable from `endGameBargePoints` alone.
+   * `coralBonus`'s real condition also gates on `own.coopertitionCriteriaMet`
+   * (untracked) — evaluated here at the STRICT (non-coop, all-4-levels)
+   * path, per `RpRuleModule.predictThresholds`'s conservative-gate
+   * convention. `autoBonus` depends ENTIRELY on fields this season tracks
+   * no Kalman state for at all (`autoLineRobot1/2/3`'s per-robot leave
+   * flags, `autoCoralCount`) — there is no threshold-variable-only fallback
+   * for it, so it is always `false` here, the single, honestly-documented
+   * exception to "evaluate what the tracked variables allow": this is not a
+   * silently wrong prediction, it is the stated limit of what a count-unit
+   * Kalman state (D-09) can represent for a per-robot binary condition.
+   */
+  predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
+    const tier = eventTierFor(eventType);
+    const trough = values.trough ?? 0;
+    const botRow = values.botRow ?? 0;
+    const midRow = values.midRow ?? 0;
+    const topRow = values.topRow ?? 0;
+    const endGameBargePoints = values.endGameBargePoints ?? 0;
+
+    const autoBonus = false;
+    const levels = [trough, botRow, midRow, topRow];
+    const coralBonus = levels.every((v) => v >= CORAL_LEVEL_THRESHOLD_STRICT[tier]);
+    const bargeBonus = endGameBargePoints >= BARGE_BONUS_THRESHOLD[tier];
+
+    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+    bonusFlags.autoBonus = autoBonus;
+    bonusFlags.coralBonus = coralBonus;
+    bonusFlags.bargeBonus = bargeBonus;
+
+    return { bonusFlags, totalRp: Number(autoBonus) + Number(coralBonus) + Number(bargeBonus) };
   },
 };
