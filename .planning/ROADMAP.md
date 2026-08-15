@@ -107,7 +107,15 @@ Plans:
   4. Every match has predicted ranking points with variance for both alliances, using the correct RP rules for its season, verified against the official 2022–2026 game manuals.
   5. Re-running any past algorithm version reproduces that version's metrics and predictions unchanged.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Tracer: parameterized Sigma1 tuned, promoted, and reproduced end to end; carryover split (D-04)
+- [ ] 03-02-PLAN.md — Per-season RP rule modules with event-tier thresholds and corpus-wide reconciliation (D-12)
+- [ ] 03-03-PLAN.md — RP threshold-variable state, correlated joint pmf, schema evolution (D-09/D-10/D-11)
+- [ ] 03-04-PLAN.md — Innovation-driven online adaptation and the on/off registry pair (D-05/D-07/D-08)
+- [ ] 03-05-PLAN.md — Sensitivity screen, joint search over survivors, two equal-budget runs, promotion (D-03/D-06/D-14)
+- [ ] 03-06-PLAN.md — CI reproducibility gate, holdout head-to-head, SC-3 verdict and adaptation finding (D-02/D-15)
 
 ### Phase 4: Publish & Live Update Pipeline
 
