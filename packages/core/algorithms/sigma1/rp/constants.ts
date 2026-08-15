@@ -98,6 +98,20 @@ export type RpTieredThreshold = Readonly<Record<EventTier, number>>;
  * reconciliation test's exact-boundary assertion and per-tier bracket
  * report can read the raw scalar a bonus flag was computed from, not just
  * the boolean result.
+ *
+ * `winRp`/`tieRp` echo the season's own constants (`RpRuleModule.winRp`/
+ * `.tieRp`) for call-site convenience — they are NOT gated on whether this
+ * alliance actually won or tied. `totalRp` is the achieved BONUS RP only
+ * (the count of true recomputed `bonusFlags`) — it deliberately does NOT
+ * include a win/tie/loss component, because `parse` has no outcome input
+ * and must not derive one from a score inside the raw breakdown (the same
+ * "a rule that silently works only for finished matches is the failure
+ * mode this whole plan exists to prevent" reasoning `2024.ts` documents for
+ * its own shipped-threshold fields). The full summed RP a caller compares
+ * against `red_rp_earned`/`blue_rp_earned` is
+ * `(won ? winRp : tied ? tieRp : 0) + totalRp`, computed by the CALLER
+ * (`reconciliation.test.ts`) from the match's own known winner — never by
+ * `parse` itself.
  */
 export interface RpParsedResult {
   readonly thresholdVariables: Record<string, number>;
