@@ -80,7 +80,11 @@ function shrinkTowardDiagonal(matrix: readonly (readonly number[])[], shrinkage:
 /**
  * Folds one residual vector's outer product into `prior` via an EWMA
  * (`(1 - alpha) * prior + alpha * outer(residual, residual)`), then applies
- * `SIGMA1_COV_SHRINKAGE`'s diagonal shrinkage for numerical stability.
+ * `shrinkage`'s diagonal shrinkage for numerical stability. Both trailing
+ * arguments default to this module's own `SIGMA1_COV_EWMA_ALPHA`/
+ * `SIGMA1_COV_SHRINKAGE` so every pre-Phase-3 call site keeps compiling and
+ * behaving identically; `sigma1/index.ts` (Phase 3) passes
+ * `params.covEwmaAlpha`/`params.covShrinkage` explicitly instead.
  * `residual` must be ordered consistently with `prior`'s row/column
  * indices (the season's canonical component order) across every call for a
  * given team — `sigma1/index.ts` owns that ordering discipline.
@@ -88,7 +92,8 @@ function shrinkTowardDiagonal(matrix: readonly (readonly number[])[], shrinkage:
 export function ewmaCovariance(
   prior: readonly (readonly number[])[],
   residual: readonly number[],
-  alpha: number = SIGMA1_COV_EWMA_ALPHA
+  alpha: number = SIGMA1_COV_EWMA_ALPHA,
+  shrinkage: number = SIGMA1_COV_SHRINKAGE
 ): number[][] {
   const n = residual.length;
   const folded: number[][] = Array.from({ length: n }, (_, i) =>
@@ -98,5 +103,5 @@ export function ewmaCovariance(
       return (1 - alpha) * priorValue + alpha * outer;
     })
   );
-  return shrinkTowardDiagonal(folded, SIGMA1_COV_SHRINKAGE);
+  return shrinkTowardDiagonal(folded, shrinkage);
 }

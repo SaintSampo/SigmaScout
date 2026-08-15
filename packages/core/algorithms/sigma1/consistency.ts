@@ -82,18 +82,24 @@ export function foldConsistency(prior: number, residual: number, alpha: number =
 
 /**
  * D-11's empirical-Bayes blend: `w = matchCount / (matchCount +
- * SIGMA1_SHRINKAGE_PRIOR_MATCHES)`, `spread = w * observed + (1 - w) *
- * leagueMean`, floored at `SIGMA1_MIN_CONSISTENCY_VARIANCE`. All arguments
- * and the return value are VARIANCES (squared units) — `sigma1/index.ts`
- * takes the square root only when populating a displayed `TeamMetric.spread`.
+ * priorMatches)`, `spread = w * observed + (1 - w) * leagueMean`, floored at
+ * `minVariance`. Both trailing arguments default to this module's own
+ * `SIGMA1_SHRINKAGE_PRIOR_MATCHES`/`SIGMA1_MIN_CONSISTENCY_VARIANCE` so
+ * every pre-Phase-3 call site keeps compiling and behaving identically;
+ * `sigma1/index.ts`'s `teamMetrics` (Phase 3) passes
+ * `params.shrinkagePriorMatches`/`params.minConsistencyVariance` explicitly
+ * instead. All arguments and the return value are VARIANCES (squared
+ * units) — `sigma1/index.ts` takes the square root only when populating a
+ * displayed `TeamMetric.spread`.
  */
 export function shrinkConsistency(
   observed: number,
   matchCount: number,
   leagueMean: number,
-  priorMatches: number = SIGMA1_SHRINKAGE_PRIOR_MATCHES
+  priorMatches: number = SIGMA1_SHRINKAGE_PRIOR_MATCHES,
+  minVariance: number = SIGMA1_MIN_CONSISTENCY_VARIANCE
 ): number {
   const weight = matchCount / (matchCount + priorMatches);
   const blended = weight * observed + (1 - weight) * leagueMean;
-  return Math.max(SIGMA1_MIN_CONSISTENCY_VARIANCE, blended);
+  return Math.max(minVariance, blended);
 }

@@ -55,17 +55,9 @@ import {
 import { epaCarryover, type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, teamTotalVariance } from "./covariance.js";
-import { foldConsistency, shrinkConsistency, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
-import { winProbability, SIGMA1_LINK_C, type WinProbMode } from "./linkFunctions.js";
-import {
-  DEFAULT_SIGMA1_PARAMS,
-  SIGMA1_CODE_VERSION,
-  SIGMA1_COLD_START_CONSISTENCY_VARIANCE,
-  SIGMA1_COLD_START_TEAM_TOTAL,
-  SIGMA1_CONSISTENCY_CARRY_DECAY,
-  SIGMA1_FALLBACK_SCORE_SD,
-  type Sigma1Params,
-} from "./params.js";
+import { foldConsistency, shrinkConsistency } from "./consistency.js";
+import { winProbability, type WinProbMode } from "./linkFunctions.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "./params.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";
@@ -103,8 +95,8 @@ export {
   updateAllianceSum,
 } from "./kalman.js";
 
-function componentColdStartTotal(componentCount: number): number {
-  return componentCount > 0 ? SIGMA1_COLD_START_TEAM_TOTAL / componentCount : 0;
+function componentColdStartTotal(componentCount: number, params: Sigma1Params): number {
+  return componentCount > 0 ? params.coldStartTeamTotal / componentCount : 0;
 }
 
 /** One team's full Sigma1 state: Kalman beliefs, cross-component covariance, and the D-09/D-11 consistency estimate, per component. */
@@ -179,13 +171,13 @@ function leagueConsistencyFor(league: Sigma1League, component: string, fallback:
  * which `shrinkConsistency` (`teamMetrics`) will fully weight at
  * `matchCount === 0` regardless.
  */
-function coldStartTeamState(componentOrder: readonly string[], league: Sigma1League): Sigma1TeamState {
-  const coldStartMean = componentColdStartTotal(componentOrder.length);
+function coldStartTeamState(componentOrder: readonly string[], league: Sigma1League, params: Sigma1Params): Sigma1TeamState {
+  const coldStartMean = componentColdStartTotal(componentOrder.length, params);
   const beliefs: Record<string, TeamComponentBelief> = {};
   const consistency: Record<string, number> = {};
   for (const name of componentOrder) {
     const mean = leagueMeanFor(league, name, coldStartMean);
-    const variance = leagueConsistencyFor(league, name, SIGMA1_COLD_START_CONSISTENCY_VARIANCE);
+    const variance = leagueConsistencyFor(league, name, params.coldStartConsistencyVariance);
     beliefs[name] = { mean, variance };
     consistency[name] = variance;
   }
@@ -298,8 +290,13 @@ function predictedComponentTotals(
  * value from the residual or coercing it to 0 (RESEARCH.md
  * Anti-Patterns), this is the least-arbitrary available substitute.
  */
-function foulsCommittedCarryForward(state: Sigma1State, teams: readonly string[], componentOrder: readonly string[]): number {
-  const coldStartMean = componentColdStartTotal(componentOrder.length);
+function foulsCommittedCarryForward(
+  state: Sigma1State,
+  teams: readonly string[],
+  componentOrder: readonly string[],
+  params: Sigma1Params
+): number {
+  const coldStartMean = componentColdStartTotal(componentOrder.length, params);
   let total = 0;
   for (const team of teams) {
     const existingMean = state.teams.get(team)?.beliefs[FOULS_COMMITTED_COMPONENT]?.mean;
@@ -332,7 +329,8 @@ function fallbackObserved(
   observedAllianceScore: number,
   opponentFoulsMean: number,
   offensiveComponents: readonly string[],
-  componentOrder: readonly string[]
+  componentOrder: readonly string[],
+  params: Sigma1Params
 ): ParsedComponents {
   const offensive = distributeResidual(
     observedAllianceScore - opponentFoulsMean,
@@ -341,7 +339,7 @@ function fallbackObserved(
   );
   return {
     ...offensive,
-    [FOULS_COMMITTED_COMPONENT]: foulsCommittedCarryForward(state, teams, componentOrder),
+    [FOULS_COMMITTED_COMPONENT]: foulsCommittedCarryForward(state, teams, componentOrder, params),
   };
 }
 
@@ -381,7 +379,7 @@ function applyAllianceUpdate(
     const existing = teams.get(team);
     workingTeams.set(
       team,
-      existing ? applyTeamProcessNoise(existing, eventKey, params) : coldStartTeamState(componentOrder, league)
+      existing ? applyTeamProcessNoise(existing, eventKey, params) : coldStartTeamState(componentOrder, league, params)
     );
   }
 
@@ -408,7 +406,7 @@ function applyAllianceUpdate(
     // doc comment names this as Sigma1's job to consume).
     const measurementNoise =
       allianceTeams.reduce(
-        (sum, team) => sum + (workingTeams.get(team)!.consistency[name] ?? SIGMA1_COLD_START_CONSISTENCY_VARIANCE),
+        (sum, team) => sum + (workingTeams.get(team)!.consistency[name] ?? params.coldStartConsistencyVariance),
         0
       ) * measurementNoiseMultiplier;
 
@@ -441,11 +439,15 @@ function applyAllianceUpdate(
     const residualVector = residualsByTeam.get(team)!;
     const nextConsistency: Record<string, number> = { ...working.consistency };
     componentOrder.forEach((name, i) => {
-      nextConsistency[name] = foldConsistency(nextConsistency[name] ?? SIGMA1_COLD_START_CONSISTENCY_VARIANCE, residualVector[i]!);
+      nextConsistency[name] = foldConsistency(
+        nextConsistency[name] ?? params.coldStartConsistencyVariance,
+        residualVector[i]!,
+        params.consistencyEwmaAlpha
+      );
     });
     nextTeams.set(team, {
       beliefs: nextBeliefsByTeam.get(team)!,
-      covariance: ewmaCovariance(working.covariance, residualVector),
+      covariance: ewmaCovariance(working.covariance, residualVector, params.covEwmaAlpha, params.covShrinkage),
       consistency: nextConsistency,
       matchCount: working.matchCount + 1,
       lastEventKey: eventKey,
@@ -498,8 +500,6 @@ function allianceCovariances(state: Sigma1State, teams: readonly string[]): numb
   return teams.map((team) => state.teams.get(team)?.covariance ?? []);
 }
 
-// `params` is threaded now (Task 1) so Task 2 only converts this function's
-// internal bare-constant reads to `params.*` fields — no signature change.
 function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode, params: Sigma1Params): Prediction {
   const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
   const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
@@ -531,8 +531,8 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const variance = redPosteriorSum + bluePosteriorSum + redCovarianceTotal + blueCovarianceTotal;
 
   const margin = redScore - blueScore;
-  const seasonScoreSd = standardDeviation(state.allianceScoreStats, SIGMA1_FALLBACK_SCORE_SD);
-  const pRedWin = winProbability(linkMode, margin, seasonScoreSd, variance, SIGMA1_LINK_C);
+  const seasonScoreSd = standardDeviation(state.allianceScoreStats, params.fallbackScoreSd);
+  const pRedWin = winProbability(linkMode, margin, seasonScoreSd, variance, params.linkC);
 
   return {
     // margin === 0 gives pRedWin exactly 0.5 through every link mode's own
@@ -578,9 +578,11 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   const redFoulsMean = predictedComponentTotals(state, redTeams, componentOrder)[FOULS_COMMITTED_COMPONENT] ?? 0;
 
   const redObserved =
-    redParsed ?? fallbackObserved(state, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentOrder);
+    redParsed ??
+    fallbackObserved(state, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentOrder, params);
   const blueObserved =
-    blueParsed ?? fallbackObserved(state, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentOrder);
+    blueParsed ??
+    fallbackObserved(state, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentOrder, params);
 
   // T-02-01 (threat register, second gate): the per-season Zod parse
   // boundary (breakdown/*.ts) is the FIRST finite-value gate, but a value
@@ -641,9 +643,6 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  * league-prior-dominated value, visible as such via a `matchCount` of 0
  * rather than hidden behind a plausible-looking number.
  */
-// `params` is threaded now (Task 1); Task 2 converts this function's
-// internal bare-constant reads (`SIGMA1_COLD_START_CONSISTENCY_VARIANCE`,
-// `SIGMA1_MIN_CONSISTENCY_VARIANCE`) to `params.*` fields — no signature change.
 function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, params: Sigma1Params): TeamMetrics {
   const requestedTeams = teams ?? [...state.teams.keys()];
   const result: TeamMetrics = {};
@@ -658,13 +657,19 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
       const value = belief?.mean ?? 0;
       total += value;
 
-      const observedConsistency = teamState.consistency[name] ?? SIGMA1_COLD_START_CONSISTENCY_VARIANCE;
-      const leagueConsistency = leagueConsistencyFor(state.league, name, SIGMA1_COLD_START_CONSISTENCY_VARIANCE);
-      const shrunkVariance = shrinkConsistency(observedConsistency, teamState.matchCount, leagueConsistency);
+      const observedConsistency = teamState.consistency[name] ?? params.coldStartConsistencyVariance;
+      const leagueConsistency = leagueConsistencyFor(state.league, name, params.coldStartConsistencyVariance);
+      const shrunkVariance = shrinkConsistency(
+        observedConsistency,
+        teamState.matchCount,
+        leagueConsistency,
+        params.shrinkagePriorMatches,
+        params.minConsistencyVariance
+      );
       perTeam[name] = { value, spread: Math.sqrt(shrunkVariance) };
     }
 
-    const totalVariance = Math.max(SIGMA1_MIN_CONSISTENCY_VARIANCE, teamTotalVariance(teamState.covariance));
+    const totalVariance = Math.max(params.minConsistencyVariance, teamTotalVariance(teamState.covariance));
     perTeam[TOTAL_METRIC_KEY] = { value: total, spread: Math.sqrt(totalVariance) };
     result[team] = perTeam;
   }
@@ -705,10 +710,10 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     const beliefs: Record<string, TeamComponentBelief> = {};
     const consistency: Record<string, number> = {};
     for (const name of toComponentOrder) {
-      const coldStartVariance = leagueConsistencyFor(state.league, name, SIGMA1_COLD_START_CONSISTENCY_VARIANCE);
+      const coldStartVariance = leagueConsistencyFor(state.league, name, params.coldStartConsistencyVariance);
       beliefs[name] = { mean: share, variance: coldStartVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
-      consistency[name] = carriedObserved * SIGMA1_CONSISTENCY_CARRY_DECAY;
+      consistency[name] = carriedObserved * params.consistencyCarryDecay;
     }
     nextTeams.set(team, {
       beliefs,
