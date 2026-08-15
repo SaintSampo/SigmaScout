@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-08-15T04:37:43.204Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-08-15T07:03:44.109Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 18
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [████████░░] 78%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [████████░░] 78%
 | Phase 02 P06 | 3h10m (+ gap closure) | 3 tasks | 6 files |
 | Phase 03 P01 | 70min | 3 tasks | 14 files |
 | Phase 03 P02 | 100min | 3 tasks | 9 files |
+| Phase 03 P03 | 115min | 3 tasks | 32 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,11 @@ Recent decisions affecting current work:
 - [Phase ?]: 2025 Coral Bonus championship-tier threshold corpus-converged to 7 and 2026 Energized/Supercharged District-Championship/Championship thresholds corpus-converged to exact clean boundaries -- both flagged for the plan's required human-check against the official manuals
 - [Phase ?]: Reconciliation found 3 additional named tolerances beyond 2022's Cargo Bonus (2024 Ensemble ~7%, 2025 Auto/Coral/Barge Bonus 2-5%) -- documented and flagged per D-12's honesty precedent rather than chased or hidden
 - [Phase ?]: ALGO-08 intentionally NOT marked complete in REQUIREMENTS.md by plan 03-02 -- it also appears in 03-03's and 03-06's requirements lists; this plan ships RP rule modules + reconciliation proof, not the predict()-wiring 03-03 delivers
+- [Phase ?]: eventType widened onto UpcomingMatch (required, not optional) and deliberately NOT added to replay.ts's OUTCOME_KEYS -- it is knowable before a match is played
+- [Phase ?]: RpRuleModule extended with predictThresholds (rp/constants.ts + all 5 season modules) -- parse() requires a full raw score_breakdown and cannot evaluate bonuses from Monte-Carlo-drawn threshold-variable values alone
+- [Phase ?]: 2023 sustainabilityBonus/2024 melodyBonus/2025 coralBonus+autoBonus predicted at their conservative (less-likely-to-achieve) branch -- their real condition gates on alliance-level signals (coopertition flags, per-robot leave state) D-09's tracked RpThresholdVariable lists never captured; understates, never overstates, flagged for human review
+- [Phase ?]: opr.ts/epa.ts version strings changed to 2.0.0+baseline/1.0.0+baseline (Rule 1 fix) -- buildArtifact's new strict D-13 shape check would otherwise throw on every real non-Sigma1 harness run
+- [Phase ?]: ALGO-08 marked complete by plan 03-03 (not deferred to 03-06, whose actual scope is CI reproducibility/holdout head-to-head/SC-3, unrelated to RP) -- this is the literal predict()-wiring plan 03-01/03-02 named as 03-03's job
 
 ### Pending Todos
 
@@ -148,6 +154,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T04:36:59.251Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-08-15T07:03:44.091Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
