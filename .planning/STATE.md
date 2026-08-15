@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-08-15T03:34:19.673Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-08-15T04:37:43.204Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [███████░░░] 72%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [███████░░░] 72%
 | Phase 02 P05 | 95min | 3 tasks | 6 files |
 | Phase 02 P06 | 3h10m (+ gap closure) | 3 tasks | 6 files |
 | Phase 03 P01 | 70min | 3 tasks | 14 files |
+| Phase 03 P02 | 100min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Circular-import fix (Rule 3): moved four Sigma1 params.ts-sourced constants (SIGMA1_COLD_START_TEAM_TOTAL/CONSISTENCY_VARIANCE, SIGMA1_FALLBACK_SCORE_SD, SIGMA1_CONSISTENCY_CARRY_DECAY) into params.ts itself rather than sigma1/index.ts as drafted -- the literal plan instruction created a genuine ESM load-time TDZ crash (index.ts and params.ts would each dereference the other's binding at module-top-level-eval time)
 - [Phase ?]: tune.ts does not import cli.ts's runSeasons (the plan's stated key_link) -- that function has no event-bounding parameter, and the plan's own --events flag requires one; tune.ts mirrors runSeasons's orchestration locally while reusing the actual leak-proof buildSeasonStream/WalkForwardSimulator primitives unchanged
 - [Phase ?]: ALGO-04/ALGO-06 intentionally NOT marked complete in REQUIREMENTS.md by plan 03-01 -- both IDs also appear in 03-05's and 03-06's requirements lists; this plan ships tuning/versioning infrastructure (one knob searched, one test version promoted), not the full sensitivity screen/joint search or final integration those requirements describe. Matches the ALGO-03 precedent from plan 02-02
+- [Phase ?]: RpParsedResult.totalRp is bonus-only RP; win/tie/loss RP is a caller decision, since parse() has no outcome input and must not derive one from a score
+- [Phase ?]: 2025 Coral Bonus championship-tier threshold corpus-converged to 7 and 2026 Energized/Supercharged District-Championship/Championship thresholds corpus-converged to exact clean boundaries -- both flagged for the plan's required human-check against the official manuals
+- [Phase ?]: Reconciliation found 3 additional named tolerances beyond 2022's Cargo Bonus (2024 Ensemble ~7%, 2025 Auto/Coral/Barge Bonus 2-5%) -- documented and flagged per D-12's honesty precedent rather than chased or hidden
+- [Phase ?]: ALGO-08 intentionally NOT marked complete in REQUIREMENTS.md by plan 03-02 -- it also appears in 03-03's and 03-06's requirements lists; this plan ships RP rule modules + reconciliation proof, not the predict()-wiring 03-03 delivers
 
 ### Pending Todos
 
@@ -143,6 +148,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T03:34:19.654Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-08-15T04:36:59.251Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
