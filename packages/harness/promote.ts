@@ -19,7 +19,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
-import { SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -40,6 +40,26 @@ const ProvenanceSchema = z.object({
   promotedAt: z.string().min(1),
   objective: z.number(),
   tuneSeasons: z.array(z.number().int()),
+  /**
+   * D-14 (plan 03-05 Task 3): the full provenance a JOINT-stage promotion
+   * carries — "which search produced this, on which corpus, scoring what"
+   * answerable from the file alone. All OPTIONAL so the pre-existing
+   * tracer-stage promotion (03-01's `sigma1@2.0.0+tracer-check.json`, which
+   * never ran the screen or the joint search and therefore has no seed,
+   * survivor list, or LOSO summary to report) keeps validating unchanged —
+   * every field below IS populated for a joint-stage promotion.
+   */
+  searchArtifactSha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  objectiveDefinition: z.string().min(1).optional(),
+  evaluationCount: z.number().int().nonnegative().optional(),
+  seed: z.number().int().optional(),
+  screenArtifact: z.string().min(1).optional(),
+  survivors: z.array(z.string()).optional(),
+  losoSummary: z.unknown().optional(),
+  adaptationMode: z.enum(["on", "off"]).optional(),
 });
 
 const DigestSchema = z.object({
@@ -129,10 +149,23 @@ interface TuneSearchCandidate {
   readonly objective: number;
 }
 
+/**
+ * Wide enough to describe either `tune.ts` output shape (`--stage tracer`
+ * or `--stage screen`/`--stage joint`) — every joint-specific field is
+ * optional so this interface (and the provenance built from it) degrades
+ * gracefully for a non-joint search artifact.
+ */
 interface TuneSearchOutput {
+  readonly stage?: string;
   readonly seasons: readonly number[];
   readonly winnerIndex: number;
   readonly candidates: readonly TuneSearchCandidate[];
+  readonly evals?: number;
+  readonly seed?: number;
+  readonly survivorsPath?: string;
+  readonly survivors?: readonly string[];
+  readonly loso?: unknown;
+  readonly adaptation?: "on" | "off";
 }
 
 async function main(): Promise<void> {
@@ -143,18 +176,36 @@ async function main(): Promise<void> {
       id: { type: "string" },
       "slice-season": { type: "string" },
       "slice-events": { type: "string" },
+      adaptation: { type: "string" },
+      "code-version": { type: "string" },
     },
   });
 
-  const fromPath = values.from;
-  if (!fromPath) throw new Error("--from is required (e.g. --from reports/tune-tracer.json)");
+  // D-14 (plan 03-05 Task 3): `--adaptation on|off` names WHICH of the two
+  // equal-budget joint searches to promote FROM by defaulting `--from` to
+  // its matching log — `--from` still wins if given explicitly, so a
+  // non-joint (e.g. tracer) artifact can still be promoted without ever
+  // naming `--adaptation`.
+  const adaptationSpec = values.adaptation;
+  if (adaptationSpec !== undefined && adaptationSpec !== "on" && adaptationSpec !== "off") {
+    throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
+  }
+  const fromPath = values.from ?? (adaptationSpec !== undefined ? join("reports", `tune-joint-${adaptationSpec}.json`) : undefined);
+  if (!fromPath) throw new Error("--from is required (e.g. --from reports/tune-tracer.json), or pass --adaptation on|off");
   const paramSetName = values.name;
   if (!paramSetName) throw new Error("--name is required (the paramSetName half of D-13's {codeVersion}+{paramSetName} identity)");
   const id = values.id ?? "sigma1";
+  const codeVersion = values["code-version"] ?? SIGMA1_CODE_VERSION;
   const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : COLD_START_SEASON;
   const sliceEvents = values["slice-events"] !== undefined ? parseSliceEvents(values["slice-events"]) : 3;
 
-  const searchOutput = JSON.parse(readFileSync(fromPath, "utf8")) as TuneSearchOutput;
+  const searchArtifactRaw = readFileSync(fromPath, "utf8");
+  // D-14/T-03-15: the search artifact's own content hash, recorded in
+  // provenance so the promoted file names exactly the bytes it was derived
+  // from — a hand-edited search log between the search and the promotion
+  // produces a hash mismatch rather than a silent substitution.
+  const searchArtifactSha256 = createHash("sha256").update(searchArtifactRaw).digest("hex");
+  const searchOutput = JSON.parse(searchArtifactRaw) as TuneSearchOutput;
   const winnerCandidate = searchOutput.candidates.find((c) => c.index === searchOutput.winnerIndex);
   if (!winnerCandidate) {
     throw new Error(`promote: ${fromPath} has no candidate at winnerIndex ${searchOutput.winnerIndex}`);
@@ -163,7 +214,15 @@ async function main(): Promise<void> {
   // T-03-08's mitigation: an unknown key, a missing key, or a NaN/Infinity
   // value in the search output's winning parameter set throws here, before
   // it can ever reach a committed version file.
-  const params: Sigma1Params = Sigma1ParamsSchema.parse(winnerCandidate.params);
+  const searchedParams: Sigma1Params = Sigma1ParamsSchema.parse(winnerCandidate.params);
+  // Task 3's own instruction: the search fixes `rpMonteCarloDraws: 0` for
+  // speed (plan 03-03 proved this never moves `pRedWin`/predicted scores),
+  // but the PROMOTED, SHIPPED parameter set must restore the versioned draw
+  // count — shipping a version whose `params` says "0 draws" would describe
+  // a configuration that was never actually run in production. Re-validated
+  // below (`Sigma1ParamsSchema.parse` runs again inside `PromotedVersionSchema`)
+  // so the file that is actually written is the one that was actually checked.
+  const params: Sigma1Params = { ...searchedParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   let sliceEventKeys: string[];
@@ -208,11 +267,11 @@ async function main(): Promise<void> {
     ? [{ season: sliceSeason, brierScore: combinedSlice.brierScore, winnerAccuracy: combinedSlice.winnerAccuracy }]
     : [];
 
-  const version = `${SIGMA1_CODE_VERSION}+${paramSetName}`;
+  const version = `${codeVersion}+${paramSetName}`;
 
   const candidate: PromotedVersion = {
     id,
-    codeVersion: SIGMA1_CODE_VERSION,
+    codeVersion,
     paramSetName,
     version,
     params,
@@ -222,6 +281,19 @@ async function main(): Promise<void> {
       promotedAt: new Date().toISOString(),
       objective: winnerCandidate.objective,
       tuneSeasons: [...searchOutput.seasons],
+      // D-14 (plan 03-05 Task 3): the full joint-stage provenance -- every
+      // field below is populated whenever the search artifact actually
+      // carries it (a `--stage joint` log always does; a bare tracer log
+      // does not, and these simply stay undefined for that case, matching
+      // `ProvenanceSchema`'s own optional fields).
+      searchArtifactSha256,
+      objectiveDefinition: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+      evaluationCount: searchOutput.evals ?? searchOutput.candidates.length,
+      seed: searchOutput.seed,
+      screenArtifact: searchOutput.survivorsPath,
+      survivors: searchOutput.survivors ? [...searchOutput.survivors] : undefined,
+      losoSummary: searchOutput.loso,
+      adaptationMode: searchOutput.adaptation,
     },
     digest: {
       sliceSeason,
