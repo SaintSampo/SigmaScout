@@ -31,7 +31,7 @@
  * carry-forward note); this flag is that measurement, opt-in so an ordinary
  * scoring run pays zero timing overhead.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -39,7 +39,16 @@ import { performance } from "node:perf_hooks";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { sigma1, sigma1Adaptive, sigma1NormalCdf, sigma1SeasonSd } from "../core/algorithms/sigma1/index.js";
+import {
+  sigma1,
+  sigma1Adaptive,
+  sigma1Defaults,
+  sigma1NormalCdf,
+  sigma1SeasonSd,
+  makeSigma1,
+  DEFAULT_SIGMA1_PARAMS,
+  Sigma1ParamsSchema,
+} from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
   openCorpus,
@@ -68,6 +77,7 @@ import {
   writePredictionLine,
   type PredictionsWriterHandle,
 } from "./predictions.js";
+import { PromotedVersionSchema } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -81,11 +91,16 @@ import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 // Task 2): `sigma1-adapt` is the SAME shape applied to the adaptation-on/off
 // question — `pnpm harness --algorithm sigma1,sigma1-adapt` scores both
 // variants in one pass over one shared match stream, so any difference is
-// the adaptation and nothing else (plan 03-05 runs the real comparison).
+// the adaptation and nothing else. `sigma1-defaults` (plan 03-06) is the
+// Phase-2-reproducing untuned baseline, registered explicitly so a run can
+// show `sigma1` (the currently-promoted, potentially tuned version, see
+// `applyPromotedOverrides` below) alongside it — this is what makes "what
+// did tuning buy" legible in one artifact rather than implied.
 const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
   sigma1,
+  "sigma1-defaults": sigma1Defaults,
   "sigma1-seasonsd": sigma1SeasonSd,
   "sigma1-normalcdf": sigma1NormalCdf,
   "sigma1-adapt": sigma1Adaptive,
@@ -93,6 +108,79 @@ const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
+/**
+ * D-13/D-14 (plan 03-06): once a version is promoted, `--algorithm sigma1`
+ * should mean THAT shipped version, not the Phase-2-reproducing defaults
+ * `ALGORITHMS.sigma1` above still is — `sigma1-defaults` above is what keeps
+ * the untuned baseline available for comparison. Read LAZILY, inside
+ * `applyPromotedOverrides` (called only from `main()`, at CLI-entry time,
+ * never at this module's top-level import) — `data/algorithm-versions/*.json`
+ * IS committed (`.gitignore`'s `data/*` + negation), so this file always
+ * exists once promoted, but resolving it eagerly at import time would still
+ * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
+ * imports this file only for `runSeasons` and never invokes `main()`.
+ */
+const PROMOTED_SIGMA1_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
+/**
+ * D-06/D-08/ALGO-05 (plan 03-06): the adaptation-ON joint search's own
+ * winning candidate — "each search's own best configuration," not a bare
+ * defaults-plus-flag module. `reports/` is gitignored (D-14: a search
+ * evaluation is an experiment, not a version), so this file is NOT always
+ * present — `applyPromotedOverrides` falls back to the existing
+ * `sigma1Adaptive` (defaults + `adaptationEnabled: true`) when it is
+ * absent, exactly the pre-existing behavior for every invocation that
+ * predates this override.
+ */
+const ON_SEARCH_ARTIFACT_PATH = join("reports", "tune-joint-on.json");
+
+interface TuneSearchCandidateForOverride {
+  readonly index: number;
+  readonly params: unknown;
+}
+interface TuneSearchOutputForOverride {
+  readonly winnerIndex: number;
+  readonly candidates: readonly TuneSearchCandidateForOverride[];
+}
+
+/** Builds a Sigma1 module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
+function loadPromotedSigma1(id: string, versionPath: string): AlgorithmModule<any> | undefined {
+  if (!existsSync(versionPath)) return undefined;
+  const raw: unknown = JSON.parse(readFileSync(versionPath, "utf8"));
+  const promoted = PromotedVersionSchema.parse(raw);
+  return makeSigma1({ id, linkMode: "predictive-variance", params: promoted.params, paramSetName: promoted.paramSetName });
+}
+
+/** Builds a Sigma1 module from a `tune.ts --stage joint` search artifact's own winning candidate — restoring `rpMonteCarloDraws` to the versioned default the same way `promote.ts` does for a promoted winner (the search fixes it to 0 for speed). `undefined` if the artifact does not exist. */
+function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
+  if (!existsSync(searchArtifactPath)) return undefined;
+  const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
+  const output = raw as TuneSearchOutputForOverride;
+  const winner = output.candidates.find((c) => c.index === output.winnerIndex);
+  if (!winner) return undefined;
+  const searchedParams = Sigma1ParamsSchema.parse(winner.params);
+  const params = { ...searchedParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
+  return makeSigma1({ id, linkMode: "predictive-variance", params, paramSetName });
+}
+
+/**
+ * Plan 03-06: swaps the static `sigma1`/`sigma1-adapt` registry entries for
+ * the currently-promoted version / the on-search's own winner when their
+ * source files are present, leaving every other algorithm (and either of
+ * these two when their file is absent) exactly as `resolveAlgorithms`
+ * returned it. Applied once in `main()`, never inside the static
+ * `ALGORITHMS` registry itself (see the file-presence comments above).
+ */
+function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
+  return algorithms.map((algorithm) => {
+    if (algorithm.id === "sigma1") {
+      return loadPromotedSigma1("sigma1", PROMOTED_SIGMA1_VERSION_PATH) ?? algorithm;
+    }
+    if (algorithm.id === "sigma1-adapt") {
+      return loadSearchWinnerSigma1("sigma1-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner") ?? algorithm;
+    }
+    return algorithm;
+  });
+}
 const DEFAULT_OUT_DIR = "reports";
 
 function tbaApiKey(): string {
@@ -644,7 +732,12 @@ async function main(): Promise<void> {
     },
   });
 
-  const algorithms = resolveAlgorithms(values.algorithm);
+  // Plan 03-06: swaps in the currently-promoted `sigma1` version and the
+  // adaptation-on search's own winner for `sigma1-adapt`, when their source
+  // files exist — see `applyPromotedOverrides`'s own doc comment. A no-op
+  // for every other algorithm id and for either of these two when its
+  // source file is absent.
+  const algorithms = applyPromotedOverrides(resolveAlgorithms(values.algorithm));
   const outDir = values.out ?? DEFAULT_OUT_DIR;
   const includeOffseason = values["include-offseason"] === true;
   const coldStartSeason = parseColdStartSeason(values["cold-start-season"]);
