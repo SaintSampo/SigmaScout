@@ -6,13 +6,17 @@
  * main()`, an entry-point guard so importing this module never has the side
  * effect of running a real corpus replay.
  *
- * Two stages so far (a third, `joint`, lands in this same plan's Task 2):
+ * Three stages:
  *   - `tracer` (plan 03-01): the original one-knob, three-candidate proof
  *     that the pipeline works end to end. Unchanged by this plan.
  *   - `screen` (plan 03-05 Task 1, D-03a): a one-at-a-time sensitivity
  *     sweep over every `searchSpace.ts`-registered hyperparameter, every
  *     other parameter held at its default, answering "which knobs are
  *     actually live" — published as `docs/models/sigma1-sensitivity-screen.md`.
+ *   - `joint` (plan 03-05 Task 2, D-01/D-06): a seeded random + coordinate-
+ *     descent search over the screen's survivors only, minimizing
+ *     tune-season Brier, run twice (once per `--adaptation on|off`) at
+ *     IDENTICAL budgets for D-06's best-vs-best comparison.
  *
  * Holdout blindness is STRUCTURAL, not conventional (Claude's Discretion,
  * recommended by CONTEXT.md), enforced by THREE independent gates, because
@@ -50,7 +54,7 @@
  * for a Monte Carlo draw the objective never reads.
  */
 import { dirname, join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
@@ -59,7 +63,7 @@ import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-import { aggregateScores, HOLDOUT_SEASONS, seasonSplit, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { aggregateScores, HOLDOUT_SEASONS, seasonSplit, TUNE_SEASONS, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import {
   SEARCHABLE_PARAM_KEYS,
   SIGMA1_SEARCH_SPACE,
@@ -536,6 +540,317 @@ async function runScreenStage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Stage: joint (plan 03-05 Task 2, D-01/D-06/D-14)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Deterministic PRNG (Mulberry32), same construction as `identifiability.ts`'s/`rp/distribution.ts`'s own `mulberry32` (cited there to the same source) — same seed always produces the same candidate sequence. */
+function mulberry32(seed: number): () => number {
+  let t = seed;
+  return () => {
+    t += 0x6d2b79f5;
+    let t2 = Math.imul(t ^ (t >>> 15), t | 1);
+    t2 ^= t2 + Math.imul(t2 ^ (t2 >>> 7), t2 | 61);
+    return ((t2 ^ (t2 >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Uniform sampling on a bound's own declared scale — uniform in LOG space for `"log"`-scaled parameters (Task 2's own instruction), so the search does not spend most of its budget in the top decade of a wide multiplicative range. */
+function sampleOnScale(bound: { min: number; max: number; scale: "linear" | "log" }, rng: () => number): number {
+  const u = rng();
+  return bound.scale === "log" ? bound.min * Math.pow(bound.max / bound.min, u) : bound.min + u * (bound.max - bound.min);
+}
+
+const MAX_RESAMPLE_ATTEMPTS = 1000;
+
+/** Builds one randomly-sampled candidate over `survivors`, rejecting and resampling invalid draws (T-03-06/D-04's cross-parameter constraints); every non-survivor stays at its exact default. */
+function buildRandomCandidate(
+  survivors: readonly SearchableParamKey[],
+  rng: () => number,
+  adaptationEnabled: boolean
+): { params: Sigma1Params; rejected: number } {
+  let rejected = 0;
+  for (let attempt = 0; attempt < MAX_RESAMPLE_ATTEMPTS; attempt++) {
+    const overrides: Partial<Sigma1Params> = {};
+    for (const key of survivors) {
+      (overrides as Record<string, number>)[key] = sampleOnScale(SIGMA1_SEARCH_SPACE[key], rng);
+    }
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, ...overrides, adaptationEnabled, rpMonteCarloDraws: 0 };
+    if (isValidParamSet(params)) return { params, rejected };
+    rejected++;
+  }
+  throw new Error(`tune: could not sample a valid candidate over survivors [${survivors.join(", ")}] after ${MAX_RESAMPLE_ATTEMPTS} attempts`);
+}
+
+/** A moderate, documented local step for the coordinate-descent refinement pass — a quarter of the bound's own full multiplicative (log) or additive (linear) span, clamped back into `[min, max]`. Not itself a modeling hyperparameter, so it is never searched. */
+function neighborValues(bound: { min: number; max: number; scale: "linear" | "log" }, current: number): number[] {
+  const clamp = (v: number) => Math.min(bound.max, Math.max(bound.min, v));
+  if (bound.scale === "log") {
+    const factor = Math.pow(bound.max / bound.min, 0.25);
+    return [clamp(current / factor), clamp(current * factor)];
+  }
+  const step = (bound.max - bound.min) * 0.1;
+  return [clamp(current - step), clamp(current + step)];
+}
+
+interface LosoFold {
+  readonly heldOutSeason: number;
+  readonly trainingSeasons: readonly number[];
+  readonly losoWinnerIndex: number;
+  readonly losoWinnerHeldOutBrier: number | null;
+  readonly losoWinnerHeldOutAccuracy: number | null;
+  readonly matchesPooledWinner: boolean;
+}
+
+/**
+ * The overfitting guard (Claude's Discretion, resolved: leave-one-season-out
+ * over the tune seasons). Costs NO new replays — every candidate's
+ * per-season score is already in hand from the pooled evaluation above; LOSO
+ * only re-slices that already-computed data. Requires exactly the three
+ * TUNE_SEASONS to be meaningful; any other `--seasons` request records an
+ * explicit skip rather than fabricating folds over a season set that was
+ * never asked to support them. Never touches 2025/2026 — LOSO happens
+ * entirely inside 2022-2024.
+ */
+function computeLoso(
+  seasons: readonly number[],
+  results: readonly EvaluatedCandidate[],
+  pooledWinnerIndex: number
+): { skipped: string } | { folds: LosoFold[]; pooledWinnerPerSeasonBrierSpread: number | null } {
+  const tuneSeasonsSorted: number[] = [...TUNE_SEASONS].sort((a, b) => a - b);
+  const requestedSorted = [...seasons].sort((a, b) => a - b);
+  if (requestedSorted.length !== tuneSeasonsSorted.length || requestedSorted.some((s, i) => s !== tuneSeasonsSorted[i])) {
+    return {
+      skipped: `LOSO requires exactly the three tune seasons (${tuneSeasonsSorted.join(", ")}); this run used [${seasons.join(", ")}]`,
+    };
+  }
+
+  const folds: LosoFold[] = tuneSeasonsSorted.map((heldOutSeason) => {
+    const trainingSeasons = tuneSeasonsSorted.filter((s) => s !== heldOutSeason);
+    const foldObjectives = results.map((r) => {
+      const values = r.perSeason
+        .filter((p) => trainingSeasons.includes(p.season))
+        .map((p) => p.brierScore)
+        .filter((v): v is number => v !== null);
+      return values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : Number.POSITIVE_INFINITY;
+    });
+    let losoWinnerIndex = 0;
+    for (let i = 1; i < foldObjectives.length; i++) {
+      if (foldObjectives[i]! < foldObjectives[losoWinnerIndex]!) losoWinnerIndex = i;
+    }
+    const heldOutEntry = results[losoWinnerIndex]!.perSeason.find((p) => p.season === heldOutSeason) ?? null;
+    return {
+      heldOutSeason,
+      trainingSeasons,
+      losoWinnerIndex,
+      losoWinnerHeldOutBrier: heldOutEntry?.brierScore ?? null,
+      losoWinnerHeldOutAccuracy: heldOutEntry?.winnerAccuracy ?? null,
+      matchesPooledWinner: losoWinnerIndex === pooledWinnerIndex,
+    };
+  });
+
+  const pooledWinnerBriers = results[pooledWinnerIndex]!.perSeason.map((p) => p.brierScore).filter((v): v is number => v !== null);
+  const pooledWinnerPerSeasonBrierSpread = pooledWinnerBriers.length > 0 ? Math.max(...pooledWinnerBriers) - Math.min(...pooledWinnerBriers) : null;
+
+  return { folds, pooledWinnerPerSeasonBrierSpread };
+}
+
+export type JointPlanMode = "empty" | "singleton" | "random";
+
+export interface JointPlan {
+  readonly mode: JointPlanMode;
+  /** Non-null only for `mode === "empty"` (ALGO-04's empty edge). */
+  readonly skipped: string | null;
+  readonly candidates: readonly { id: string; params: Sigma1Params }[];
+  /** Rejected-and-resampled invalid draws during candidate GENERATION (before any evaluation) — always 0 outside `mode === "random"`. */
+  readonly rejectedCandidates: number;
+}
+
+/**
+ * The joint search's candidate-GENERATION logic, entirely pure (no corpus,
+ * no I/O) — exported so `tune.test.ts` can exercise the empty/singleton/
+ * random branching and the random phase's reproducibility/validity
+ * guarantees directly, without a real replay. Handles ALGO-04's empty and
+ * singleton survivor edges (Task 2's own required behaviour):
+ *
+ *   - 0 survivors: skip the search, the defaults ARE the winner (`mode:
+ *     "empty"`, one candidate, `skipped` set).
+ *   - 1 survivor: a one-dimensional sweep (`mode: "singleton"`) rather than
+ *     a degenerate random search over a single axis — reuses
+ *     `screenGridFor`, which already always includes the default among its
+ *     points.
+ *   - 2+ survivors: `mode: "random"` — candidate 0 is always the exact
+ *     default parameter set (so the search can never report a "winner"
+ *     that never beat doing nothing), followed by `evalsCount - 1`
+ *     seeded-random draws, each rejected and resampled against
+ *     `isValidParamSet` until valid.
+ */
+export function planJointCandidates(
+  survivors: readonly SearchableParamKey[],
+  evalsCount: number,
+  seed: number,
+  adaptationEnabled: boolean
+): JointPlan {
+  const defaultCandidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled, rpMonteCarloDraws: 0 };
+
+  if (survivors.length === 0) {
+    return {
+      mode: "empty",
+      skipped: "no survivors",
+      candidates: [{ id: "cand-0", params: defaultCandidateParams }],
+      rejectedCandidates: 0,
+    };
+  }
+
+  if (survivors.length === 1) {
+    const key = survivors[0]!;
+    const gridPoints = Math.max(3, Math.min(evalsCount, 9));
+    const values = screenGridFor(key, gridPoints);
+    const candidates = values.map((value, i) => ({
+      id: `cand-${i}`,
+      params: { ...DEFAULT_SIGMA1_PARAMS, [key]: value, adaptationEnabled, rpMonteCarloDraws: 0 } as Sigma1Params,
+    }));
+    return { mode: "singleton", skipped: null, candidates, rejectedCandidates: 0 };
+  }
+
+  const rng = mulberry32(seed);
+  const candidates: { id: string; params: Sigma1Params }[] = [{ id: "cand-0", params: defaultCandidateParams }];
+  let rejectedCandidates = 0;
+  for (let i = 1; i < evalsCount; i++) {
+    const { params, rejected } = buildRandomCandidate(survivors, rng, adaptationEnabled);
+    rejectedCandidates += rejected;
+    candidates.push({ id: `cand-${i}`, params });
+  }
+  return { mode: "random", skipped: null, candidates, rejectedCandidates };
+}
+
+interface ScreenArtifact {
+  readonly survivors: readonly string[];
+}
+
+function loadSurvivors(path: string): SearchableParamKey[] {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as ScreenArtifact;
+  const searchableSet = new Set<string>(SEARCHABLE_PARAM_KEYS);
+  const survivors: SearchableParamKey[] = [];
+  for (const key of raw.survivors) {
+    if (!searchableSet.has(key)) {
+      throw new Error(`tune: survivors file ${path} names "${key}", which is not a SEARCHABLE_PARAM_KEYS member`);
+    }
+    survivors.push(key as SearchableParamKey);
+  }
+  return survivors;
+}
+
+async function runJointStage(
+  seasonsSpec: string,
+  eventsLimit: number | undefined,
+  evalsCount: number,
+  seed: number,
+  batchSize: number,
+  survivorsPath: string,
+  adaptationSpec: string,
+  outPath: string
+): Promise<void> {
+  const seasons = parseSeasonsList(seasonsSpec);
+  assertSeasonsAreTuneOnly(seasons);
+
+  if (adaptationSpec !== "on" && adaptationSpec !== "off") {
+    throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
+  }
+  const adaptationEnabled = adaptationSpec === "on";
+
+  const survivors = loadSurvivors(survivorsPath);
+
+  const plan = planJointCandidates(survivors, evalsCount, seed, adaptationEnabled);
+  let rejectedCandidates = plan.rejectedCandidates;
+  const skipped = plan.skipped;
+
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  try {
+    let results: EvaluatedCandidate[] = await evaluateAll(
+      db,
+      seasons,
+      eventsLimit,
+      plan.candidates,
+      plan.mode === "empty" ? 1 : batchSize
+    );
+
+    if (plan.mode === "random") {
+      // Coordinate-descent refinement pass (extra, beyond `evalsCount`):
+      // one axis at a time, in survivor order, moving to a neighbor only on
+      // a STRICT improvement -- see `neighborValues`'s own doc comment for
+      // the step formula.
+      const { winnerIndex: randomPhaseWinnerIndex } = determineWinner(results);
+      let anchor = results[randomPhaseWinnerIndex]!;
+      let nextIndex = results.length;
+
+      for (const key of survivors) {
+        const bound = SIGMA1_SEARCH_SPACE[key];
+        const currentValue = (anchor.params as unknown as Record<string, number>)[key]!;
+        const neighborCandidates = neighborValues(bound, currentValue)
+          .filter((v) => v !== currentValue)
+          .map((value) => ({ id: `refine-${nextIndex++}`, params: { ...anchor.params, [key]: value } as Sigma1Params }))
+          .filter((c) => isValidParamSet(c.params));
+        rejectedCandidates += neighborValues(bound, currentValue).filter((v) => v !== currentValue).length - neighborCandidates.length;
+        if (neighborCandidates.length === 0) continue;
+
+        const evaluatedNeighbors = await evaluateCandidateBatch(db, seasons, eventsLimit, neighborCandidates);
+        results.push(...evaluatedNeighbors);
+
+        for (const candidate of evaluatedNeighbors) {
+          if (candidate.objective < anchor.objective) anchor = candidate;
+        }
+      }
+    }
+
+    const { winnerIndex, ties } = determineWinner(results);
+    const winner = results[winnerIndex]!;
+
+    const atBound: Record<string, boolean> = {};
+    for (const key of survivors) {
+      const bound = SIGMA1_SEARCH_SPACE[key];
+      const value = (winner.params as unknown as Record<string, number>)[key]!;
+      atBound[key] = value === bound.min || value === bound.max;
+    }
+
+    const loso = computeLoso(seasons, results, winnerIndex);
+
+    for (const result of results) {
+      const index = results.indexOf(result);
+      console.log(`Candidate ${index} (${result.id}): objective=${result.objective.toFixed(6)}${index === winnerIndex ? " <- winner" : ""}`);
+    }
+
+    const output = {
+      generatedAt: new Date().toISOString(),
+      stage: "joint",
+      adaptation: adaptationSpec,
+      seasons,
+      eventsLimit: eventsLimit ?? null,
+      corpusIdentity: CORPUS_PATH,
+      objective: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+      evals: evalsCount,
+      seed,
+      batch: batchSize,
+      survivorsPath,
+      survivors,
+      skipped,
+      rejectedCandidates,
+      tieBreak: ties.length > 0 ? "objective tied across multiple candidates — lowest candidate index wins" : null,
+      ties,
+      winnerIndex,
+      atBound,
+      loso,
+      candidates: results.map((result, index) => ({ index, ...result, winner: index === winnerIndex })),
+    };
+
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, JSON.stringify(output, null, 2), "utf8");
+    console.log(`Wrote ${outPath}`);
+  } finally {
+    db.close();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -548,6 +863,10 @@ async function main(): Promise<void> {
       out: { type: "string" },
       values: { type: "string" },
       batch: { type: "string" },
+      evals: { type: "string" },
+      seed: { type: "string" },
+      survivors: { type: "string" },
+      adaptation: { type: "string" },
     },
   });
 
@@ -564,8 +883,17 @@ async function main(): Promise<void> {
     const batchSize = values.batch !== undefined ? parsePositiveInt("--batch", values.batch) : 8;
     const outPath = values.out ?? join("reports", "sensitivity-screen.json");
     await runScreenStage(seasonsSpec, eventsLimit, valueCount, batchSize, outPath);
+  } else if (stage === "joint") {
+    const seasonsSpec = values.seasons ?? "2022,2023,2024";
+    const evalsCount = values.evals !== undefined ? parsePositiveInt("--evals", values.evals) : 60;
+    const seed = values.seed !== undefined ? parsePositiveInt("--seed", values.seed) : 42;
+    const batchSize = values.batch !== undefined ? parsePositiveInt("--batch", values.batch) : 8;
+    const survivorsPath = values.survivors ?? join("reports", "sensitivity-screen.json");
+    const adaptationSpec = values.adaptation ?? "off";
+    const outPath = values.out ?? join("reports", `tune-joint-${adaptationSpec}.json`);
+    await runJointStage(seasonsSpec, eventsLimit, evalsCount, seed, batchSize, survivorsPath, adaptationSpec, outPath);
   } else {
-    throw new Error(`tune: unknown --stage "${stage}" (expected "tracer" or "screen" -- "joint" lands in plan 03-05 Task 2)`);
+    throw new Error(`tune: unknown --stage "${stage}" (expected "tracer", "screen", or "joint")`);
   }
 }
 
