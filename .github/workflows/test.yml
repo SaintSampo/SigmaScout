@@ -1,0 +1,69 @@
+name: Test
+
+# D-15's CI gate: the reproducibility test (and every other test) is a gate
+# only if CI actually exists to run it in. Triggers on push to ANY branch
+# plus every pull request, deliberately not restricted to `main` — a gate
+# that only runs on `main` lets a regression through review, which is where
+# it is cheapest to catch. No secret is referenced anywhere in this
+# workflow: every test in this suite either runs fully offline (against the
+# committed `packages/harness/fixtures/digest-slice.json` fixture, or a
+# synthetic in-memory fixture) or skips explicitly with a named reason — see
+# the RUN/SKIP inventory at the bottom of this file.
+on:
+  push:
+  pull_request:
+
+# Read-only: no deployment step lives here (that's deploy.yml's job), so
+# this workflow never needs `pages:`/`id-token:` — the narrowest permission
+# that satisfies `actions/checkout`.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the pnpm version straight from package.json's own
+      # "packageManager" field ("pnpm@11.21.0") — pnpm/action-setup@v4
+      # auto-detects that field when no `version:` input is given, so a
+      # future pnpm bump in package.json cannot silently drift from what CI
+      # installs.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Separate steps (never `pnpm typecheck && pnpm test` chained in one
+      # run) so a failure names exactly which gate broke in the Actions UI.
+      - run: pnpm typecheck
+      - run: pnpm test
+
+# ── What is expected to RUN here, and what is expected to SKIP ──
+#
+# RUN: packages/harness/digest.test.ts (D-15/SC-5) — every committed
+# data/algorithm-versions/*.json version is re-run on its own recorded slice
+# and must reproduce its committed prediction-stream digest and headline
+# metrics bitwise. data/corpus.sqlite (351MB, gitignored) never exists on
+# this runner, so this test replays from the committed
+# packages/harness/fixtures/digest-slice.json fixture instead — this is the
+# one gate this workflow exists to make real; if it skips here, something
+# is wrong (a missing fixture or a missing version file), not a healthy
+# no-op.
+#
+# SKIP (healthy, expected — each prints an explicit "skipped: ... not
+# found" message rather than a silent pass): the corpus-backed tests that
+# genuinely cannot run without the full local corpus —
+#   - packages/core/algorithms/breakdown/reconciliation.test.ts (D-01/D-02's
+#     corpus-wide score-component reconciliation, sampled from the real
+#     corpus)
+#   - any other suite gated the same way (an `existsSync("data/corpus.sqlite")`
+#     check before its `describe`/`it` block).
+# A skip with no message would be indistinguishable from a suite that
+# quietly stopped running — the discipline this workflow relies on is that
+# every corpus-gated skip names itself.

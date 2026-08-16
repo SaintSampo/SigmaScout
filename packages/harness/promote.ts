@@ -324,6 +324,11 @@ async function main(): Promise<void> {
   console.log(`Wrote ${outPath}`);
   console.log(`  digest: ${predictionStreamSha256}`);
   console.log(`  slice: season ${sliceSeason}, ${sliceEventKeys.length} events, ${records.length} matches`);
+  // T-03-17: a promotion whose slice differs from the last one extracted
+  // leaves digest.test.ts's committed fixture stale until this command is
+  // re-run — print it explicitly so that can never happen silently.
+  console.log(`  If this version's slice is new or changed, refresh the CI fixture:`);
+  console.log(`    pnpm tsx packages/harness/fixtures/extract-digest-slice.ts --version ${outPath}`);
 }
 
 // Guard: only auto-run `main()` when this file is the process entry point —
