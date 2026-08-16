@@ -113,18 +113,34 @@ export function pmfStandardDeviation(pmf: readonly number[]): number {
 }
 
 /**
- * Small diagonal ridge added to the joint covariance matrix's diagonal,
- * once, if Cholesky decomposition finds it not positive definite — the
- * same numerical-stability instinct `covariance.ts`'s `SIGMA1_COV_SHRINKAGE`
+ * Escalating diagonal ridges tried, in order, if Cholesky decomposition
+ * finds the raw joint covariance matrix not positive definite — the same
+ * numerical-stability instinct `covariance.ts`'s `SIGMA1_COV_SHRINKAGE`
  * documents (a rank-deficient early-season residual history, or a
  * degenerate all-surrogate alliance with genuinely zero variance in every
- * dimension, is a legitimate, expected state, not a bug). A
- * numerical-stability constant, not a modeling hyperparameter: unlike
- * `Sigma1Params`'s tunable fields, this is never searched by `tune.ts`,
- * and its magnitude (far smaller than any real FRC count/point variance)
- * cannot materially move a well-conditioned match's draws.
+ * dimension, is a legitimate, expected state, not a bug).
+ *
+ * [Rule 1 fix, plan 03-05] The original single 1e-6 retry (matching
+ * `covariance.ts`'s own ridge magnitude) is kept as the FIRST escalation
+ * step, so every match that already reproduced with it stays bitwise
+ * unchanged (D-16) — but a single fixed value is not always enough:
+ * `promote.ts`'s bounded-slice replay always starts EVERY team's RP state
+ * from a genuinely fresh cold start (no prior-match history to carry in,
+ * unlike a full multi-season harness run), and an EWMA-tracked cross-
+ * covariance (`rp/state.ts`'s `rpCrossCovariance`) folded from only one or
+ * two observations can be large enough, RELATIVE to the Kalman-derived
+ * score variance it is paired with, that 1e-6 alone cannot restore positive
+ * definiteness — discovered running this plan's own real
+ * `pnpm promote --slice-events 3` against the live corpus. Escalating
+ * geometrically (rather than raising the single constant) keeps every
+ * ALREADY-succeeding match's draws untouched while still rescuing a
+ * genuinely near-singular one: adding `ridge * I` to any real symmetric
+ * matrix raises every eigenvalue by exactly `ridge`, so a large enough
+ * ridge always restores positive-definiteness — this is a numerical-
+ * stability ladder, not a modeling hyperparameter (unlike `Sigma1Params`'s
+ * tunable fields, `tune.ts` never searches this).
  */
-const CHOLESKY_RIDGE = 1e-6;
+const CHOLESKY_RIDGES = [1e-6, 1e-4, 1e-2, 1, 10, 100] as const;
 
 export interface RpPmfInput {
   readonly red: AllianceRpMoments;
@@ -159,10 +175,11 @@ interface JointModel {
  * `[redScore, blueScore, redVar_1..T, blueVar_1..T]` (see file header for
  * the cross-alliance-independence reasoning) and decomposes it via
  * `ml-matrix`'s `CholeskyDecomposition`. If the raw matrix is not positive
- * definite, retries ONCE with `CHOLESKY_RIDGE` added to every diagonal
- * entry; if it is STILL not positive definite, throws naming the match key
- * — never silently falls back to an independent draw, which would quietly
- * discard exactly the correlation D-11 exists to capture.
+ * definite, retries with each of `CHOLESKY_RIDGES` in turn, added to every
+ * diagonal entry, stopping at the first that succeeds; if EVERY escalation
+ * is still not positive definite, throws naming the match key — never
+ * silently falls back to an independent draw, which would quietly discard
+ * exactly the correlation D-11 exists to capture.
  */
 function buildJointModel(red: AllianceRpMoments, blue: AllianceRpMoments, matchKey: string): JointModel {
   const T = red.variableNames.length;
@@ -194,10 +211,17 @@ function buildJointModel(red: AllianceRpMoments, blue: AllianceRpMoments, matchK
 
   let chol = new CholeskyDecomposition(new Matrix(buildCovArray(0)));
   if (!chol.isPositiveDefinite()) {
-    chol = new CholeskyDecomposition(new Matrix(buildCovArray(CHOLESKY_RIDGE)));
-    if (!chol.isPositiveDefinite()) {
+    let succeeded = false;
+    for (const ridge of CHOLESKY_RIDGES) {
+      chol = new CholeskyDecomposition(new Matrix(buildCovArray(ridge)));
+      if (chol.isPositiveDefinite()) {
+        succeeded = true;
+        break;
+      }
+    }
+    if (!succeeded) {
       throw new Error(
-        `rpPmfForMatch: joint covariance matrix for match ${matchKey} is not positive definite even after a ${CHOLESKY_RIDGE} diagonal ridge`
+        `rpPmfForMatch: joint covariance matrix for match ${matchKey} is not positive definite even after escalating ridges up to ${CHOLESKY_RIDGES[CHOLESKY_RIDGES.length - 1]}`
       );
     }
   }

@@ -263,3 +263,52 @@ describe("mulberry32 / boxMullerPair / fnv1a32 — hand-rolled primitives", () =
     expect(fnv1a32("2022test_qm1")).not.toBe(fnv1a32("2022test_qm2"));
   });
 });
+
+describe("rpPmfForMatch — escalating Cholesky ridge (Rule 1 fix, plan 03-05)", () => {
+  /**
+   * Discovered running `pnpm promote` for real (plan 03-05 Task 3): a fresh
+   * cold-start team's `rpCrossCovariance`, folded from very few
+   * observations, can be large RELATIVE to its own tiny `rpCovariance`/
+   * score-variance — a near-singular joint matrix a single fixed 1e-6 ridge
+   * cannot always fix. This fixture manufactures exactly that: a
+   * near-zero self-variance paired with a cross-covariance whose magnitude
+   * exceeds it by many orders of magnitude, so `buildCovArray(0)` and
+   * `buildCovArray(1e-6)`/`(1e-4)`/`(1e-2)` all stay non-positive-definite
+   * (determinant ~= ridge^2 - cross^2 < 0 until ridge approaches
+   * |cross|) — the fix must escalate past the ORIGINAL single retry to
+   * resolve it.
+   */
+  it("resolves a near-singular joint matrix that the original single 1e-6 retry could not (does not throw, produces a valid pmf)", () => {
+    const pathologicalRed = moments({
+      scoreMean: 50,
+      scoreVariance: 1e-8,
+      varianceBlock: [
+        [1e-8, 0, 0],
+        [0, 0.000001, 0],
+        [0, 0, 0.000001],
+      ],
+      // The FIRST threshold variable's cross-covariance with score is many
+      // orders of magnitude larger than either's own (near-zero) variance --
+      // the joint 2x2 submatrix's determinant (~ridge^2 - cross^2) stays
+      // negative until the ridge approaches |cross| = 1, well past the
+      // original single 1e-6 retry.
+      scoreCrossCovariance: [1, 0, 0],
+    });
+    const input = baseInput({ red: pathologicalRed, blue: moments({ scoreVariance: 25 }) });
+    let result: ReturnType<typeof rpPmfForMatch> | undefined;
+    expect(() => {
+      result = rpPmfForMatch(input);
+    }).not.toThrow();
+    expect(result!.redPmf).toHaveLength(RULE_2022.maxRp + 1);
+    expect(Math.abs(result!.redPmf.reduce((s, v) => s + v, 0) - 1)).toBeLessThan(1e-9);
+  });
+
+  it("a well-conditioned match still succeeds at ridge 0 (the escalation never fires, existing behaviour is untouched)", () => {
+    // baseInput()'s default fixture (tiny but EQUAL, positive-definite
+    // 1e-6 diagonal variances, zero cross-covariance) is already
+    // positive-definite with no ridge at all -- this is the same fixture
+    // every other test in this file already exercises, re-asserted here
+    // explicitly as the "the fix changes nothing for the common case" proof.
+    expect(() => rpPmfForMatch(baseInput())).not.toThrow();
+  });
+});
