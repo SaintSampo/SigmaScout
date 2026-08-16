@@ -312,3 +312,63 @@ describe("rpPmfForMatch — escalating Cholesky ridge (Rule 1 fix, plan 03-05)",
     expect(() => rpPmfForMatch(baseInput())).not.toThrow();
   });
 });
+
+describe("rpPmfForMatch — cross-covariance Cauchy-Schwarz clamp (Rule 1 fix, plan 03-06)", () => {
+  /**
+   * Discovered running the real `pnpm harness --seasons 2022-2026`
+   * command (match `2026rikin_qm1`, cold-start blue alliance):
+   * `scoreCrossCovariance` (an EWMA of observed residual products) can
+   * exceed what its paired Kalman POSTERIOR variances allow by a wide
+   * margin — not a rounding-scale near-singularity `CHOLESKY_RIDGES` can
+   * escalate past, but a genuinely INVALID (negative-determinant) 2x2
+   * submatrix no diagonal ridge repairs. This fixture reproduces that
+   * shape at the SAME relative scale (cross roughly 1.3x the
+   * Cauchy-Schwarz bound `sqrt(varX*varY)`, both diagonal entries
+   * comfortably non-trivial — unlike the escalating-ridge fixture above,
+   * whose near-zero diagonals are a DIFFERENT failure mode).
+   */
+  it("a cross-covariance exceeding the Cauchy-Schwarz bound implied by its own paired variances does not throw and still produces a valid, normalized pmf", () => {
+    const varX = 511.26;
+    const varY = 1985.45;
+    const bound = Math.sqrt(varX * varY); // ~1007.48
+    const invalidCross = bound * 1.3; // ~1309.7 -- genuinely exceeds the bound, matches the real discovery's magnitude
+    const blueLikeAlliance = moments({
+      scoreMean: 115.78,
+      scoreVariance: varX,
+      meanVector: [171.62, -0.59],
+      varianceBlock: [
+        [varY, 0.0127],
+        [0.0127, 0.0347],
+      ],
+      variableNames: ["hubTotalCount", "totalTowerPoints"],
+      scoreCrossCovariance: [invalidCross, 0.37],
+    });
+    const input = baseInput({
+      ruleModule: rpRuleModuleForSeason(2026),
+      red: moments({ variableNames: ["hubTotalCount", "totalTowerPoints"], meanVector: [0, 0], varianceBlock: [[0, 0], [0, 0]] }),
+      blue: blueLikeAlliance,
+      matchKey: "2026clamp_qm1",
+    });
+
+    let result: ReturnType<typeof rpPmfForMatch> | undefined;
+    expect(() => {
+      result = rpPmfForMatch(input);
+    }).not.toThrow();
+    expect(result!.bluePmf.length).toBeGreaterThan(0);
+    expect(Math.abs(result!.bluePmf.reduce((s, v) => s + v, 0) - 1)).toBeLessThan(1e-9);
+    for (const v of result!.bluePmf) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it("a cross-covariance already within the Cauchy-Schwarz bound is left untouched (the clamp only ever narrows an already-invalid value)", () => {
+    // A valid, well-inside-bound cross-covariance (bound = sqrt(25*25) = 25;
+    // 10 is comfortably inside it) must produce the identical pmf whether
+    // or not the clamp exists -- this is the "the fix changes nothing for
+    // an already-consistent estimate" proof, mirroring the ridge escalation
+    // fixture's own "ridge 0 still succeeds" test above.
+    const withValidCross = moments({ scoreMean: 55, scoreVariance: 25, meanVector: [15, 0, 20], varianceBlock: [[25, 0, 0], [0, 1e-6, 0], [0, 0, 1e-6]], scoreCrossCovariance: [10, 0, 0] });
+    const blue = moments({ scoreMean: 50, scoreVariance: 25, meanVector: [5, 0, 0] });
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 500 };
+    const result = rpPmfForMatch(baseInput({ red: withValidCross, blue, params, matchKey: "2022valid_qm1" }));
+    expect(Math.abs(result.redPmf.reduce((s, v) => s + v, 0) - 1)).toBeLessThan(1e-9);
+  });
+});

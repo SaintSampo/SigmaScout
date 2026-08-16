@@ -142,6 +142,47 @@ export function pmfStandardDeviation(pmf: readonly number[]): number {
  */
 const CHOLESKY_RIDGES = [1e-6, 1e-4, 1e-2, 1, 10, 100] as const;
 
+/**
+ * [Rule 1 fix, plan 03-06] Clamps a score<->threshold-variable
+ * cross-covariance entry to Cauchy-Schwarz's own bound implied by its paired
+ * diagonal variances (`|Cov(X,Y)| <= sqrt(Var(X)*Var(Y))`), scaled by
+ * `CROSS_COVARIANCE_SAFETY_FACTOR` (strictly < 1, so the clamped matrix has
+ * genuine positive margin for `CHOLESKY_RIDGES`' escalation to work with,
+ * not merely a boundary-exact PSD matrix).
+ *
+ * D-11's `scoreCrossCovariance` (`rp/state.ts`'s `rpCrossCovariance`) is an
+ * EWMA of OBSERVED RESIDUAL products, while the paired `scoreVariance`/
+ * `varianceBlock` diagonal terms are Kalman POSTERIOR variances (the
+ * filter's shrinking uncertainty about its own mean estimate) — two
+ * estimators on genuinely different scales the model does not otherwise
+ * constrain to stay mutually consistent. Early in a season, with only a
+ * handful of folded observations, the residual-product EWMA can be
+ * dominated by one or two outlier matches and exceed what the (still small,
+ * still-converging) posterior variances allow — producing a joint matrix
+ * that is not merely ill-conditioned but mathematically INVALID (a negative
+ * eigenvalue), which no diagonal ridge can repair no matter how large.
+ * Discovered running this plan's own real `pnpm harness --seasons
+ * 2022-2026` command: match `2026rikin_qm1`'s cold-start blue alliance
+ * measured `scoreCrossCovariance=1315.57` against a Cauchy-Schwarz bound of
+ * `sqrt(511.26 * 1985.45)=1007.48` — a genuine ~30% violation, not a
+ * rounding-scale one, so even `CHOLESKY_RIDGES`' largest step (100) left the
+ * determinant negative.
+ *
+ * Clamping the cross term (rather than discarding it for an independent
+ * draw, or raising `CHOLESKY_RIDGES`' ceiling until this one match happens
+ * to pass) is the least-arbitrary fix available (RESEARCH.md
+ * Anti-Patterns): every ALREADY-valid cross-covariance is untouched (the
+ * clamp only ever narrows a value already exceeding its own bound), and
+ * D-11's directional correlation sign is preserved rather than zeroed.
+ */
+const CROSS_COVARIANCE_SAFETY_FACTOR = 0.999;
+
+function clampCrossCovariance(raw: number, varianceX: number, varianceY: number): number {
+  if (varianceX <= 0 || varianceY <= 0) return 0; // no variance on one side -- no valid correlation to express
+  const bound = CROSS_COVARIANCE_SAFETY_FACTOR * Math.sqrt(varianceX * varianceY);
+  return Math.max(-bound, Math.min(bound, raw));
+}
+
 export interface RpPmfInput {
   readonly red: AllianceRpMoments;
   readonly blue: AllianceRpMoments;
@@ -194,10 +235,18 @@ function buildJointModel(red: AllianceRpMoments, blue: AllianceRpMoments, matchK
     for (let i = 0; i < T; i++) {
       const redIdx = 2 + i;
       const blueIdx = 2 + T + i;
-      cov[0]![redIdx] = red.scoreCrossCovariance[i]!;
-      cov[redIdx]![0] = red.scoreCrossCovariance[i]!;
-      cov[1]![blueIdx] = blue.scoreCrossCovariance[i]!;
-      cov[blueIdx]![1] = blue.scoreCrossCovariance[i]!;
+      const redVarianceI = red.varianceBlock[i]?.[i] ?? 0;
+      const blueVarianceI = blue.varianceBlock[i]?.[i] ?? 0;
+      // [Rule 1 fix]: clamp against the RAW (pre-ridge) diagonal variances —
+      // the Cauchy-Schwarz bound this cross term must respect is a property
+      // of the underlying estimate, not of the numerical-stability ridge
+      // added below.
+      const redCross = clampCrossCovariance(red.scoreCrossCovariance[i]!, red.scoreVariance, redVarianceI);
+      const blueCross = clampCrossCovariance(blue.scoreCrossCovariance[i]!, blue.scoreVariance, blueVarianceI);
+      cov[0]![redIdx] = redCross;
+      cov[redIdx]![0] = redCross;
+      cov[1]![blueIdx] = blueCross;
+      cov[blueIdx]![1] = blueCross;
       // cov[0][blueIdx], cov[1][redIdx] stay 0 — cross-alliance zero block.
       for (let j = 0; j < T; j++) {
         cov[2 + i]![2 + j] = red.varianceBlock[i]?.[j] ?? 0;
