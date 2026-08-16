@@ -107,7 +107,7 @@ Plans:
   4. Every match has predicted ranking points with variance for both alliances, using the correct RP rules for its season, verified against the official 2022–2026 game manuals.
   5. Re-running any past algorithm version reproduces that version's metrics and predictions unchanged.
 
-**Plans**: 4/6 plans executed
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -125,7 +125,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03-05-PLAN.md — Sensitivity screen, joint search over survivors, two equal-budget runs, promotion (D-03/D-06/D-14)
+- [x] 03-05-PLAN.md — Sensitivity screen, joint search over survivors, two equal-budget runs, promotion (D-03/D-06/D-14)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -216,7 +216,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
-| 3. Tuning, Ranking Points & Versioning | 4/6 | In Progress|  |
+| 3. Tuning, Ranking Points & Versioning | 5/6 | In Progress|  |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |

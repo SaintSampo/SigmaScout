@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-08-15T07:21:19.830Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-08-16T20:48:21.603Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [█████████░] 89%
 | Phase 03 P02 | 100min | 3 tasks | 9 files |
 | Phase 03 P03 | 115min | 3 tasks | 32 files |
 | Phase 03 P04 | 55min | 2 tasks | 8 files |
+| Phase 03 P05 | 150min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,9 @@ Recent decisions affecting current work:
 - [Phase ?]: adaptation.ts (D-05/D-07): innovation-driven per-team process-noise scaling, one bounded scalar factor per team, cold-starts at exactly 1.0 (assume correctly specified), returns exactly 1 when disabled or below adaptationMinObservations -- provably inert-when-off (byte-identical prediction streams, digest.test.ts reproduces the committed version bitwise unchanged)
 - [Phase ?]: sigma1-adapt registered in cli.ts's ALGORITHMS (6 entries total, not the 7 plan 03-04's acceptance criteria literally stated -- the plan's action text only asked for one new entry; corrected the write-up rather than force-adding an unrequested sigma1Defaults registration)
 - [Phase ?]: ALGO-05 intentionally NOT marked complete by plan 03-04 -- it also appears in 03-05's and 03-06's requirements lists; this plan ships the adaptation mechanism and the on/off registry pair only, not the best-vs-best comparison or verdict ALGO-05 describes (matches ALGO-04/ALGO-06/ALGO-08 precedent)
+- [Phase ?]: [Phase 3]: Sensitivity screen (2022,2023, 5 values) found 9/20 Sigma1 hyperparameters survive brierRange>1e-4 -- three are structurally invisible to the objective (minConsistencyVariance/shrinkagePriorMatches only affect teamMetrics(), fallbackScoreSd unreachable via a normal replay), carryLastYearWeight/carryPriorYearWeight are inert in a 2-season screen window (the weighted blend only activates at a team's THIRD season), and all 5 adaptation-only params are inert because the screen ran at adaptationEnabled=false
+- [Phase ?]: [Phase 3]: Two equal-budget joint searches (evals=60, seed=42, seasons 2022-2024, identical 9-parameter survivor set) ran adaptation-off and adaptation-on; adaptation-off promoted as sigma1@2.0.0+tuned-2026-08 (D-08's default) with rpMonteCarloDraws restored to 2000; adaptation-on winner NOT promoted, held for plan 03-06's holdout best-vs-best comparison
+- [Phase ?]: [Phase 3]: Fixed Rule 1 blocking bugs discovered running this plan's real corpus commands -- runBoundedSeasons' predictions.push(...predictions) blew V8's call-stack argument limit at full-season batched-multi-candidate scale (117k+ elements), replaced with a plain loop; rp/distribution.ts's Cholesky ridge escalates through [1e-6,1e-4,1e-2,1,10,100] instead of a single fixed 1e-6 retry, since promote.ts's bounded-slice replay always starts every team's RP state cold and a sparse early cross-covariance estimate can exceed what one fixed ridge restores to positive-definite
 
 ### Pending Todos
 
@@ -158,6 +162,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T07:21:19.815Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-08-16T20:46:41.657Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
