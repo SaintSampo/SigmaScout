@@ -107,7 +107,7 @@ Plans:
   4. Every match has predicted ranking points with variance for both alliances, using the correct RP rules for its season, verified against the official 2022–2026 game manuals.
   5. Re-running any past algorithm version reproduces that version's metrics and predictions unchanged.
 
-**Plans**: 6/6 plans executed
+**Plans**: 6/8 plans executed (2 gap-closure plans added after verification found SC-4 unmet)
 
 Plans:
 **Wave 1**
@@ -130,6 +130,14 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 03-06-PLAN.md — CI reproducibility gate, holdout head-to-head, SC-3 verdict and adaptation finding (D-02/D-15)
+
+**Wave 6** *(gap closure — SC-4 / ALGO-08, from 03-VERIFICATION.md)*
+
+- [ ] 03-07-PLAN.md — CR-01: guard Sigma1's RP path against unmapped event types, proven a bitwise no-op (ALGO-08)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 03-08-PLAN.md — Threshold provenance decision and the quantified conservative-branch limitation (ALGO-08)
 
 ### Phase 4: Publish & Live Update Pipeline
 
