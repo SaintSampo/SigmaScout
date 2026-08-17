@@ -29,7 +29,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **ALGO-02**: EPA is reimplemented from TBA data and runs walk-forward at any point in a season
 - [x] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
 - [x] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
-- [ ] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
+- [x] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
 - [x] **ALGO-06**: Algorithm versions are first-class in the data model: the site can display metrics and predictions from any past algorithm version unchanged
 - [x] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
 - [x] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
@@ -112,7 +112,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALGO-02 | Phase 2 | Complete |
 | ALGO-03 | Phase 2 | Complete |
 | ALGO-04 | Phase 3 | Complete |
-| ALGO-05 | Phase 3 | Pending |
+| ALGO-05 | Phase 3 | Complete |
 | ALGO-06 | Phase 3 | Complete |
 | ALGO-07 | Phase 2 | Complete |
 | ALGO-08 | Phase 3 | Complete |
