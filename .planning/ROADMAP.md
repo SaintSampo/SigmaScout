@@ -107,7 +107,7 @@ Plans:
   4. Every match has predicted ranking points with variance for both alliances, using the correct RP rules for its season, verified against the official 2022–2026 game manuals.
   5. Re-running any past algorithm version reproduces that version's metrics and predictions unchanged.
 
-**Plans**: 6/8 plans executed (2 gap-closure plans added after verification found SC-4 unmet)
+**Plans**: 7/8 plans executed
 
 Plans:
 **Wave 1**
@@ -133,7 +133,7 @@ Plans:
 
 **Wave 6** *(gap closure — SC-4 / ALGO-08, from 03-VERIFICATION.md)*
 
-- [ ] 03-07-PLAN.md — CR-01: guard Sigma1's RP path against unmapped event types, proven a bitwise no-op (ALGO-08)
+- [x] 03-07-PLAN.md — CR-01: guard Sigma1's RP path against unmapped event types, proven a bitwise no-op (ALGO-08)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
@@ -224,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
-| 3. Tuning, Ranking Points & Versioning | 6/6 | In Progress|  |
+| 3. Tuning, Ranking Points & Versioning | 7/8 | In Progress|  |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |

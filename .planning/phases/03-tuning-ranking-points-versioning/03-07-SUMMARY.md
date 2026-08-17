@@ -193,3 +193,13 @@ error: eventTierFor: unmapped TBA event_type 99 (registered: 0, 1, 2, 3, 4, 5, 1
 ---
 *Phase: 03-tuning-ranking-points-versioning*
 *Completed: 2026-08-17*
+
+## Self-Check: PASSED
+
+- FOUND: packages/core/algorithms/sigma1/rp/constants.ts
+- FOUND: packages/core/algorithms/sigma1/index.ts
+- FOUND: packages/core/algorithms/sigma1/rp/distribution.ts
+- FOUND: packages/core/algorithms/sigma1/sigma1.test.ts
+- FOUND: .planning/phases/03-tuning-ranking-points-versioning/03-07-SUMMARY.md
+- FOUND commit: 0a056f89 (fix(03-07): guard Sigma1 RP path against unmapped event_type (CR-01))
+- FOUND commit: 757638aa (docs(03-07): summarize CR-01 fix, log newly-discovered out-of-scope defect)

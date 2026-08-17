@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-06-PLAN.md (phase 03 complete)
-last_updated: "2026-08-17T19:51:15.366Z"
-last_activity: 2026-08-14
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-08-17T20:14:42.617Z"
+last_activity: 2026-08-17
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 6 of 6
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-08-14 — Phase 03 execution started
+Last activity: 2026-08-17 — Phase 03 execution started
 
-Progress: [██████████] 100%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ Progress: [██████████] 100%
 | Phase 03 P04 | 55min | 2 tasks | 8 files |
 | Phase 03 P05 | 150min | 3 tasks | 9 files |
 | Phase 03 P06 | 6h03m | 2 tasks | 10 files |
+| Phase 03 P07 | 55min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3]: SC-3 evaluated at its literal 8-comparison reading and PASSES 8/8 -- tuned Sigma1 (sigma1@2.0.0+tuned-2026-08) beats both OPR and EPA on holdout Brier AND winner accuracy on both 2025 and 2026, closing the accuracy gap the Phase-2 starting position flagged as unlikely under D-01's Brier-only search objective
 - [Phase ?]: [Phase 3]: ALGO-05's best-vs-best holdout comparison shows adaptation-on beating adaptation-off on Brier on both holdout seasons (modest, consistent, ~0.8-2.4% relative; accuracy mixed/noise-scale) -- D-08's shipped-disabled default is flagged as a named decision to revisit, not silently flipped; adaptation-on remains unpromoted
 - [Phase ?]: [Phase 3]: Fixed a Rule 1 blocking bug found running the real pnpm harness --seasons 2022-2026 command -- Sigma1's RP joint covariance could be mathematically indefinite (a genuine Cauchy-Schwarz violation between the residual-based cross-covariance and the Kalman-posterior diagonal variances), not merely ill-conditioned; clamped the cross term to its own Cauchy-Schwarz bound before the existing ridge escalation, verified not to move any committed digest
+- [Phase ?]: [Phase 3] CR-01 fixed: isRpEligibleEventType() guards Sigma1's update()/predict() RP path against unmapped event_type, proven a bitwise no-op on both committed digest slices; a NEW, separate, out-of-scope score-breakdown-schema crash on self-reported offseason data was discovered (previously masked by CR-01) and logged to WINDOWS.md rather than fixed
+- [Phase ?]: [Phase 3] ALGO-08 intentionally NOT marked complete by plan 03-07 -- 03-08 also carries requirements:[ALGO-08] and closes the remaining gap (manual game-manual threshold confirmation, conservative-branch understatement quantification); this plan closes only the CR-01 crash ground
 
 ### Pending Todos
 
@@ -155,6 +158,7 @@ None yet.
 - Per-season RP rules for 2022–2026 must be verified against official game manuals in Phase 3 — generic parsing will not work.
 - REQUIREMENTS.md originally stated 34 v1 requirements; the actual count is 38. Corrected in the traceability section.
 - epa.ts's predict() may attribute foulsCommitted to the wrong side's score (sums a team's own learned foulsCommitted into its own score rather than the opponent's) -- unverified impact, logged to WINDOWS.md entry 3, not fixed by plan 02-04
+- packages/core/algorithms/breakdown/2024.ts's parseBreakdown() is called unconditionally at the top of sigma1's update() with no eventType/compLevel guard and no try/catch -- self-reported offseason score_breakdown JSON missing required fields (confirmed: 2024cafb_qm1, 2024wvrox_sf1m1) throws uncaught; logged WINDOWS.md #4/#5, not fixed (out of scope for 03-07)
 
 ## Deferred Items
 
@@ -166,6 +170,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T03:58:29.606Z
-Stopped at: Completed 03-06-PLAN.md (phase 03 complete)
+Last session: 2026-08-17T20:14:42.600Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None
