@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
-status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-08-16T20:48:21.603Z"
+status: verifying
+stopped_at: Completed 03-06-PLAN.md (phase 03 complete)
+last_updated: "2026-08-17T03:58:29.627Z"
 last_activity: 2026-08-14
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-14 — Phase 03 execution started
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 94%
 | Phase 03 P03 | 115min | 3 tasks | 32 files |
 | Phase 03 P04 | 55min | 2 tasks | 8 files |
 | Phase 03 P05 | 150min | 3 tasks | 9 files |
+| Phase 03 P06 | 6h03m | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3]: Sensitivity screen (2022,2023, 5 values) found 9/20 Sigma1 hyperparameters survive brierRange>1e-4 -- three are structurally invisible to the objective (minConsistencyVariance/shrinkagePriorMatches only affect teamMetrics(), fallbackScoreSd unreachable via a normal replay), carryLastYearWeight/carryPriorYearWeight are inert in a 2-season screen window (the weighted blend only activates at a team's THIRD season), and all 5 adaptation-only params are inert because the screen ran at adaptationEnabled=false
 - [Phase ?]: [Phase 3]: Two equal-budget joint searches (evals=60, seed=42, seasons 2022-2024, identical 9-parameter survivor set) ran adaptation-off and adaptation-on; adaptation-off promoted as sigma1@2.0.0+tuned-2026-08 (D-08's default) with rpMonteCarloDraws restored to 2000; adaptation-on winner NOT promoted, held for plan 03-06's holdout best-vs-best comparison
 - [Phase ?]: [Phase 3]: Fixed Rule 1 blocking bugs discovered running this plan's real corpus commands -- runBoundedSeasons' predictions.push(...predictions) blew V8's call-stack argument limit at full-season batched-multi-candidate scale (117k+ elements), replaced with a plain loop; rp/distribution.ts's Cholesky ridge escalates through [1e-6,1e-4,1e-2,1,10,100] instead of a single fixed 1e-6 retry, since promote.ts's bounded-slice replay always starts every team's RP state cold and a sparse early cross-covariance estimate can exceed what one fixed ridge restores to positive-definite
+- [Phase ?]: [Phase 3]: SC-3 evaluated at its literal 8-comparison reading and PASSES 8/8 -- tuned Sigma1 (sigma1@2.0.0+tuned-2026-08) beats both OPR and EPA on holdout Brier AND winner accuracy on both 2025 and 2026, closing the accuracy gap the Phase-2 starting position flagged as unlikely under D-01's Brier-only search objective
+- [Phase ?]: [Phase 3]: ALGO-05's best-vs-best holdout comparison shows adaptation-on beating adaptation-off on Brier on both holdout seasons (modest, consistent, ~0.8-2.4% relative; accuracy mixed/noise-scale) -- D-08's shipped-disabled default is flagged as a named decision to revisit, not silently flipped; adaptation-on remains unpromoted
+- [Phase ?]: [Phase 3]: Fixed a Rule 1 blocking bug found running the real pnpm harness --seasons 2022-2026 command -- Sigma1's RP joint covariance could be mathematically indefinite (a genuine Cauchy-Schwarz violation between the residual-based cross-covariance and the Kalman-posterior diagonal variances), not merely ill-conditioned; clamped the cross term to its own Cauchy-Schwarz bound before the existing ridge escalation, verified not to move any committed digest
 
 ### Pending Todos
 
@@ -162,6 +166,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T20:46:41.657Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-08-17T03:58:29.606Z
+Stopped at: Completed 03-06-PLAN.md (phase 03 complete)
 Resume file: None
