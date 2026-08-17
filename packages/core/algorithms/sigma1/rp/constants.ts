@@ -79,6 +79,32 @@ export function eventTierFor(eventType: number): EventTier {
 }
 
 /**
+ * CR-01 (03-REVIEW.md): the caller-side counterpart to `eventTierFor`'s
+ * deliberate throw above. Reads the SAME `EVENT_TYPE_TIERS` table, so the
+ * two can never disagree about which event types are eligible — adding a
+ * new event type to `EVENT_TYPE_TIERS` automatically makes it eligible here
+ * too, with no second edit required anywhere.
+ *
+ * `eventTierFor` is correct to throw for its own callers (every per-season
+ * `parse()`/`predictThresholds()`, which have no sensible fallback once
+ * invoked), but Sigma1's own live `update()`/`predict()` in `sigma1/index.ts`
+ * were the one place in the codebase relying on every caller remembering to
+ * filter offseason/unmapped matches out upstream — every OTHER caller
+ * already applies this exclusion structurally at its own boundary
+ * (`reconciliation.test.ts`'s `sampleQualMatches`, `promote.ts`'s
+ * `selectMatchesChronological(..., { excludeOffseason: true })`, `tune.ts`'s
+ * `boundedSeasonStream`, which hardcodes `includeOffseason: false`). This
+ * predicate exists so `update()`/`predict()` can apply that same exclusion
+ * themselves, right before the throw would otherwise be reached, instead of
+ * trusting an upstream filter that (for two documented CLI invocations)
+ * does not exist. `eventTierFor` itself is NOT weakened — it keeps
+ * throwing; this predicate is a precondition check, not a replacement.
+ */
+export function isRpEligibleEventType(eventType: number): boolean {
+  return EVENT_TYPE_TIERS[eventType] !== undefined;
+}
+
+/**
  * The shape every tiered RP threshold is expressed in. A season whose
  * threshold does not actually tier states the same number three times and
  * says so in a comment — the DATA shape stays uniform across every bonus in

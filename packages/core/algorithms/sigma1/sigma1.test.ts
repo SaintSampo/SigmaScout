@@ -715,3 +715,105 @@ describe("carrySeason — D-16/D-17", () => {
     expect(carried).toBe(state);
   });
 });
+
+describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip, never a throw", () => {
+  const offseasonMatch = match({
+    matchKey: "2024off_qm1",
+    eventKey: "2024off",
+    eventType: 99,
+    redTeams: ["T1", "T2", "T3"],
+    blueTeams: ["T4", "T5", "T6"],
+    redScore: UNIFORM_TOTAL,
+    blueScore: UNIFORM_TOTAL,
+    hasScoreBreakdown: true,
+    scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+  });
+
+  it("update() on a match with eventType: 99, compLevel: 'qm', and a real scoreBreakdownRaw does not throw, and rpSkippedMatchCount increments by exactly 1", () => {
+    const state = sigma1.initState([]);
+    const priorSkipped = state.rpSkippedMatchCount;
+    let next!: Sigma1State;
+    expect(() => {
+      next = sigma1.update(state, offseasonMatch);
+    }).not.toThrow();
+    expect(next.rpSkippedMatchCount).toBe(priorSkipped + 1);
+  });
+
+  it("that same call leaves the score side working — team beliefs still change, proving the guard skipped only the RP fold, not update() wholesale", () => {
+    const state = sigma1.initState([]);
+    // Cold-start: no team has any belief yet.
+    for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+      expect(state.teams.has(teamId)).toBe(false);
+    }
+    const next = sigma1.update(state, offseasonMatch);
+    for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+      const team = next.teams.get(teamId);
+      expect(team).toBeDefined();
+      expect(team!.matchCount).toBe(1);
+      for (const belief of Object.values(team!.beliefs)) {
+        expect(Number.isFinite(belief.mean)).toBe(true);
+      }
+    }
+  });
+
+  it("predict() on an upcoming match with eventType: 99 and compLevel: 'qm' does not throw, and the Prediction carries neither redRpPmf nor blueRpPmf", () => {
+    const state = sigma1.initState([]);
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024off_qm2",
+      eventKey: "2024off",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 2,
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 99,
+    };
+    let prediction!: ReturnType<typeof sigma1.predict>;
+    expect(() => {
+      prediction = sigma1.predict(state, upcoming);
+    }).not.toThrow();
+    expect("redRpPmf" in prediction).toBe(false);
+    expect("blueRpPmf" in prediction).toBe(false);
+  });
+
+  it("positive control (non-negotiable): every EVENT_TYPE_TIERS-mapped eventType still takes the full RP path — update() never increments rpSkippedMatchCount, and predict() always carries redRpPmf/blueRpPmf", () => {
+    // Without this test, an isRpEligibleEventType that always returned
+    // false would silently disable RP prediction for the entire project
+    // and still pass the three tests above.
+    for (const eventType of [0, 1, 2, 3, 4, 5, 100]) {
+      const state = sigma1.initState([]);
+      const priorSkipped = state.rpSkippedMatchCount;
+      const mappedMatch = match({
+        matchKey: `2024et${eventType}_qm1`,
+        eventKey: `2024et${eventType}`,
+        eventType,
+        redTeams: ["T1", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redScore: UNIFORM_TOTAL,
+        blueScore: UNIFORM_TOTAL,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      });
+      const next = sigma1.update(state, mappedMatch);
+      expect(next.rpSkippedMatchCount).toBe(priorSkipped);
+
+      const upcoming: UpcomingMatch = {
+        matchKey: `2024et${eventType}_qm2`,
+        eventKey: `2024et${eventType}`,
+        compLevel: "qm",
+        setNumber: 1,
+        matchNumber: 2,
+        redTeams: ["T1", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redSurrogates: [],
+        blueSurrogates: [],
+        eventType,
+      };
+      const prediction = sigma1.predict(next, upcoming);
+      expect("redRpPmf" in prediction).toBe(true);
+      expect("blueRpPmf" in prediction).toBe(true);
+    }
+  });
+});

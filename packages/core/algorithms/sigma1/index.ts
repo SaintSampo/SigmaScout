@@ -61,7 +61,7 @@ import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "./params.js";
 import { sigma1Carryover } from "./carryover.js";
 import { rpRuleModuleForSeason } from "./rp/rules.js";
-import type { RpParsedResult, RpRuleModule } from "./rp/constants.js";
+import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "./rp/constants.js";
 import {
   emptyRpTeamState,
   foldRpObservation,
@@ -674,15 +674,35 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const blueScoreVarianceOwn = bluePosteriorSum + blueCovarianceTotal;
   const redRpMoments = predictAllianceRpMoments(state.teams, redTeams, ruleModule, redScore, redScoreVarianceOwn);
   const blueRpMoments = predictAllianceRpMoments(state.teams, blueTeams, ruleModule, blueScore, blueScoreVarianceOwn);
-  const rpResult = rpPmfForMatch({
-    red: redRpMoments,
-    blue: blueRpMoments,
-    ruleModule,
-    eventType: match.eventType,
-    matchKey: match.matchKey,
-    compLevel: match.compLevel,
-    params,
-  });
+  // CR-01 (03-REVIEW.md): `rpPmfForMatch` calls `ruleModule.predictThresholds`,
+  // which calls `eventTierFor(eventType)` as its first statement and throws
+  // by design for an unmapped `eventType` (offseason `99` etc.) — guarded
+  // by the SAME `isRpEligibleEventType` predicate `update()`'s RP fold uses
+  // above, so the two can never disagree about which matches get an RP
+  // prediction. `redRpMoments`/`blueRpMoments` above are untouched:
+  // `predictAllianceRpMoments` takes no `eventType` and cannot throw.
+  //
+  // `{ redPmf: [], bluePmf: [] }` rather than `degenerateZeroPmf()`: the
+  // empty arrays make the `...(rpResult.redPmf.length > 0 ? ... : {})`
+  // spread below omit `redRpPmf`/`blueRpPmf` from the `Prediction` entirely
+  // — `types.ts`'s documented "omitted entirely, never an empty array"
+  // convention, already how the zero-draws fast path behaves. A degenerate
+  // `P(RP=0)=1` would be a POSITIVE claim that the alliance certainly earns
+  // no ranking points — false for an offseason qualification match, which
+  // does award RP under whatever rules that event ran. Absence of a
+  // prediction is the honest representation of "this subsystem has no
+  // rules for this event tier"; certainty of zero is not.
+  const rpResult = isRpEligibleEventType(match.eventType)
+    ? rpPmfForMatch({
+        red: redRpMoments,
+        blue: blueRpMoments,
+        ruleModule,
+        eventType: match.eventType,
+        matchKey: match.matchKey,
+        compLevel: match.compLevel,
+        params,
+      })
+    : { redPmf: [], bluePmf: [] };
 
   return {
     // margin === 0 gives pRedWin exactly 0.5 through every link mode's own
@@ -793,11 +813,30 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   // score side already imputes via `fallbackObserved` (RESEARCH.md Pitfall
   // 4) — a match with no `score_breakdown` has no raw RP fields to parse
   // either.
+  //
+  // CR-01 (03-REVIEW.md): ALSO skipped for a match whose `eventType` is not
+  // `EVENT_TYPE_TIERS`-mapped (offseason `99`, or any future unmapped TBA
+  // value) — `ruleModule.parse()` below calls `eventTierFor(eventType)` as
+  // its first statement and throws by design for exactly this input
+  // (`rp/constants.ts`). `rpSkippedMatchCount` DOES increment for this
+  // reason too, sharing the counter with the no-score-breakdown case above:
+  // the field's meaning is "matches whose RP fold was skipped, for any
+  // reason", not "matches missing a breakdown" — both skip reasons produce
+  // exactly the same diagnosable condition (a silently-empty RP state for
+  // this match), the counter exists so that condition is diagnosable
+  // (`carrySeason`, its only reader), and splitting it into two counters
+  // would be a versioned-shape change for a distinction nothing currently
+  // consumes. CONSISTENCY with `predict()`: `predict()` is pure and carries
+  // no counter, so consistency here means the PREDICATE is shared, not the
+  // bookkeeping — the same `isRpEligibleEventType(eventType)` decides both,
+  // so any match whose fold `update()` skips is exactly a match whose
+  // `predict()` emits no pmf. Do not add a second, drifting eligibility
+  // rule on either side.
   let rpTeamUpdates: ReadonlyMap<string, RpTeamState> = new Map();
   let rpLeague: RpLeague = state.league;
   let rpSkippedMatchCount = state.rpSkippedMatchCount;
 
-  if (usedFallback) {
+  if (usedFallback || !isRpEligibleEventType(result.eventType)) {
     rpSkippedMatchCount += 1;
   } else {
     const rawJson: unknown = JSON.parse(result.scoreBreakdownRaw!);

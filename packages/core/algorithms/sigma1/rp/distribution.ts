@@ -327,6 +327,16 @@ function valuesFromDraw(draw: readonly number[], offset: number, variableNames: 
  * D-10/D-11/D-16: the full discrete RP pmf for both alliances of one
  * qualification match, from ONE set of correlated, per-match-seeded draws.
  * See file header for the joint-model construction and seeding contract.
+ *
+ * CALLER PRECONDITION (CR-01, 03-REVIEW.md): the caller MUST check
+ * `isRpEligibleEventType(input.eventType)` (`rp/constants.ts`) before
+ * calling this function — the per-draw loop below calls
+ * `ruleModule.predictThresholds(values, eventType)`, which calls
+ * `eventTierFor(eventType)` as its first statement and throws for an
+ * unmapped `eventType` (offseason `99` etc.) by design. This function does
+ * NOT re-check the precondition itself — one load-bearing guard, at the
+ * call site (`sigma1/index.ts`'s `predict()`), documented once, beats two
+ * that could drift apart about which is authoritative.
  */
 export function rpPmfForMatch(input: RpPmfInput): RpPmfResult {
   const { red, blue, ruleModule, eventType, matchKey, compLevel, params } = input;
