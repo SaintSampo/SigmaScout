@@ -107,7 +107,7 @@ Plans:
   4. Every match has predicted ranking points with variance for both alliances, using the correct RP rules for its season, verified against the official 2022–2026 game manuals.
   5. Re-running any past algorithm version reproduces that version's metrics and predictions unchanged.
 
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -137,7 +137,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 03-08-PLAN.md — Threshold provenance decision and the quantified conservative-branch limitation (ALGO-08)
+- [x] 03-08-PLAN.md — Threshold provenance decision and the quantified conservative-branch limitation (ALGO-08)
 
 ### Phase 4: Publish & Live Update Pipeline
 
@@ -224,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Data Foundation & Evaluation Harness | 6/6 | In Progress|  |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
-| 3. Tuning, Ranking Points & Versioning | 7/8 | In Progress|  |
+| 3. Tuning, Ranking Points & Versioning | 8/8 | In Progress|  |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |

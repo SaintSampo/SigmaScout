@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
 - [ ] **ALGO-06**: Algorithm versions are first-class in the data model: the site can display metrics and predictions from any past algorithm version unchanged
 - [x] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
-- [ ] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
+- [x] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
 
 ### Teams
 
@@ -115,7 +115,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALGO-05 | Phase 3 | Gaps Found |
 | ALGO-06 | Phase 3 | Gaps Found |
 | ALGO-07 | Phase 2 | Complete |
-| ALGO-08 | Phase 3 | Gaps Found |
+| ALGO-08 | Phase 3 | Complete |
 | TEAM-01 | Phase 5 | Pending |
 | TEAM-02 | Phase 6 | Pending |
 | TEAM-03 | Phase 6 | Pending |

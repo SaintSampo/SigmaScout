@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: tuning-ranking-points-versioning
 status: executing
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-08-17T20:14:42.617Z"
+stopped_at: Completed 03-08-PLAN.md
+last_updated: "2026-08-18T06:29:16.981Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03 (tuning-ranking-points-versioning) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-08-17 — Phase 03 execution started
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Progress: [██████████] 95%
 | Phase 03 P05 | 150min | 3 tasks | 9 files |
 | Phase 03 P06 | 6h03m | 2 tasks | 10 files |
 | Phase 03 P07 | 55min | 2 tasks | 5 files |
+| Phase 03 P08 | 55min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3]: Fixed a Rule 1 blocking bug found running the real pnpm harness --seasons 2022-2026 command -- Sigma1's RP joint covariance could be mathematically indefinite (a genuine Cauchy-Schwarz violation between the residual-based cross-covariance and the Kalman-posterior diagonal variances), not merely ill-conditioned; clamped the cross term to its own Cauchy-Schwarz bound before the existing ridge escalation, verified not to move any committed digest
 - [Phase ?]: [Phase 3] CR-01 fixed: isRpEligibleEventType() guards Sigma1's update()/predict() RP path against unmapped event_type, proven a bitwise no-op on both committed digest slices; a NEW, separate, out-of-scope score-breakdown-schema crash on self-reported offseason data was discovered (previously masked by CR-01) and logged to WINDOWS.md rather than fixed
 - [Phase ?]: [Phase 3] ALGO-08 intentionally NOT marked complete by plan 03-07 -- 03-08 also carries requirements:[ALGO-08] and closes the remaining gap (manual game-manual threshold confirmation, conservative-branch understatement quantification); this plan closes only the CR-01 crash ground
+- [Phase ?]: Decision A = A1-confirmed: human read 2025 FRC Game Manual Sec 6.5.4 Table 6-2 and 2026 FRC Game Manual Sec 6.5.3 Tables 6-4/6-5, both corpus-converged threshold sets confirmed correct as shipped, no constant changed
+- [Phase ?]: Decision B = B2-plan-fix: conservative-branch understatement measured (never overstates, tested and held) but NOT accepted as a shipped limitation -- escalated to a future-phase redesign predicting undecidable RPs from teams' own historical achievement rates rather than a new latent Kalman gating dimension
+- [Phase ?]: Authorized deviation: fixed 2025 Coral Bonus coopertition gate to require BOTH alliances' coopertitionCriteriaMet (was: observing alliance's flag alone) -- matches 2023.ts's established pattern, cut the championship-tier reconciliation residual from 72/2004 to 5/2004
 
 ### Pending Todos
 
@@ -170,6 +174,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T20:14:42.600Z
-Stopped at: Completed 03-07-PLAN.md
+Last session: 2026-08-18T06:29:16.964Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None
