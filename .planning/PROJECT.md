@@ -15,20 +15,20 @@ Predictions that are *measurably* better than Statbotics — proven by walk-forw
 ### Validated
 
 - [x] Evaluation harness: walk-forward (predict-before-update) backtests over 2022–2026 with Brier score and winner accuracy, comparing all algorithms head-to-head — *Validated in Phase 2: Prediction Models — EPA & Sigma1.* One run scores OPR, EPA, and Sigma1's three link modes across all five seasons into a single comparable table (75 slices, 84,739 matches, 423,695 prediction records).
+- [x] Sigma1 algorithm: Kalman-filter family, variance-carrying metrics, hyperparameters tuned automatically (offline optimizer against backtest score + validated online within-season adaptation) — *Validated in Phase 3: Tuning, Ranking Points & Versioning.* A two-stage sensitivity screen plus joint search over the survivors promotes the winner as a named, reproducible algorithm version; innovation-driven online adaptation ships as an on/off registry pair scored side by side on holdout.
+- [x] Algorithm versioning as a first-class concept: past Sigma versions remain viewable and comparable — *Validated in Phase 3: Tuning, Ranking Points & Versioning.* Every version under `data/algorithm-versions/` reproduces its recorded prediction-stream digest bitwise, enforced as a CI gate.
+- [x] Rank-point prediction with per-season RP rules for all covered seasons (2022–2026) — *Validated in Phase 3: Tuning, Ranking Points & Versioning.* Per-season rule modules with event-tier thresholds and corpus-wide reconciliation feed a correlated joint pmf giving RP mean ± variance per alliance; per-threshold provenance is recorded in `docs/models/sigma1-rp-verification.md`.
 
 ### Active
 
 - [ ] Data pipeline: fetch from The Blue Alliance API v3, precompute all site data, refresh within ~1–3 minutes during active events
-- [ ] Sigma1 algorithm: Kalman-filter family, variance-carrying metrics, hyperparameters tuned automatically (offline optimizer against backtest score + validated online within-season adaptation) — *Phase 2 delivered the Kalman core and variance-carrying metrics (`X ± Y` from each team's own residual history, backed by a committed identifiability check). Automatic hyperparameter tuning remains for Phase 3.*
 - [ ] Baseline algorithms: OPR and reimplemented EPA, selectable in the UI and scored in the harness — *Phase 2 delivered both scored in the harness. UI selectability awaits the frontend phase.*
-- [ ] Algorithm versioning as a first-class concept: past Sigma versions remain viewable and comparable
 - [ ] Teams page: ranked table (number, name, rank, metrics, record, win rate) with search
 - [ ] Team page: robot image, TBA link, season stats, per-event sections with match-level predictions (winner, confidence, scores, RP ± variance) vs actuals, metric-history plot
 - [ ] Events page: all events for the selected year, sortable/filterable by week, country, state, district
 - [ ] Event page tabs: Insights, Breakdown, Quals, Alliances, Elims, Simulation (1000-run remaining-quals rank simulation from a chosen start match)
 - [ ] Compare page: prediction accuracy per algorithm per year
 - [ ] Global UI: top ribbon (Teams / Events / Compare), algorithm dropdown, year dropdown, team/event search; mobile and desktop
-- [ ] Rank-point prediction with per-season RP rules for all covered seasons (2022–2026)
 
 ### Out of Scope
 
@@ -85,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-14 after Phase 2 (Prediction Models — EPA & Sigma1) completion*
+*Last updated: 2026-08-18 after Phase 3 (Tuning, Ranking Points & Versioning) completion*
