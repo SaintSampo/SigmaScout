@@ -1,11 +1,12 @@
 ---
 phase: 3
 slug: tuning-ranking-points-versioning
-status: blocked
+status: verified
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 1
+threats_open: 0
 asvs_level: 1
 created: 2026-08-18
+updated: 2026-08-18
 ---
 
 # Phase 3 — Security
@@ -26,6 +27,12 @@ transplanted web-application register.
 > They are disambiguated below as **T-03-18a** and **T-03-18b**. The plan files are left unedited;
 > this note is the reconciliation.
 
+> **Register extended after the first audit.** T-03-18b was left open by the 2026-08-18 audit and
+> remediated by quick task `260818-inm` (commits `7983c458`, `11a382d4`, `dd39ba28`, `4b41f86d`).
+> That remediation authored its own `<threat_model>` covering the new attack surface it introduced —
+> **T-03-26 / T-03-27 / T-03-28** (`260818-inm-PLAN.md:377-385`). They are folded into the register
+> below, bringing the total from 26 to 29. All three were verified closed in the second audit.
+
 ---
 
 ## Trust Boundaries
@@ -42,6 +49,7 @@ transplanted web-application register.
 | `reports/tuned-v3/artifact.json` → `docs/models/*.md` | A generated, gitignored artifact becomes a committed published claim | Published figures |
 | human-reported manual text → shipped threshold constant + citation | An unverifiable spoken claim becomes code and a durable provenance record | Human judgment |
 | Repository → GitHub Actions runner | CI executes repository code on a hosted runner | Build execution |
+| skipped-breakdown count → cross-season carry (`carrySeason`) | A per-season availability metric crosses a season boundary and must not silently reset | Audit-trail integrity |
 
 ---
 
@@ -49,15 +57,15 @@ transplanted web-application register.
 
 | Threat ID | Category | Component | Severity | Disposition | Mitigation | Status |
 |-----------|----------|-----------|----------|-------------|------------|--------|
-| T-03-01 | Denial of Service | RP `parse` over malformed `score_breakdown_raw` | medium | mitigate | Per-season Zod schemas declare only fields read, `z.number().finite()` / `z.boolean()`; reconciliation reports per-`event_type`/per-bonus (`reconciliation.test.ts:215-259`). *Narrower than declared — see Findings F-2* | closed |
+| T-03-01 | Denial of Service | RP `parse` over malformed `score_breakdown_raw` | medium | mitigate | Per-season Zod schemas declare only fields read, `z.number().finite()` / `z.boolean()`; reconciliation reports per-`event_type`/per-bonus (`reconciliation.test.ts:215-259`). Re-verified after remediation: `.finite()` counts unchanged (6/9/13/7/11 for 2022–2026), zero `.optional()` added. *Narrower than declared — see Findings F-2* | closed |
 | T-03-02 | Tampering | non-finite threshold variable reaching `foldRpObservation` / Cholesky | medium | mitigate | `assertFiniteThresholdVariables` at `rp/2022.ts:91`, `2023.ts:83`, `2024.ts:135`, `2025.ts:142`, `2026.ts:94` **and** at the fold itself `rp/state.ts:239`; ridge escalation throws naming the match key `rp/distribution.ts:272-274` | closed |
-| T-03-03 | Tampering | prototype pollution via a `__proto__` key in raw TBA JSON | medium | mitigate | 4× `Object.create(null)` per season module with literal named assignment (e.g. `rp/2025.ts:136-171`); audit for third-party spread across all 5 modules returned **zero** | closed |
+| T-03-03 | Tampering | prototype pollution via a `__proto__` key in raw TBA JSON | medium | mitigate | 4× `Object.create(null)` per season module with literal named assignment (e.g. `rp/2025.ts:136-171`); audit for third-party spread across all 5 modules returned **zero**. Re-verified present in all 5 season modules after remediation | closed |
 | T-03-04 | Information Disclosure | `promote.ts` version-file write | low | mitigate | Serialize (`promote.ts:309-310`), then refuse before `writeFileSync` (`:323`) if `TBA_API_KEY` is set and its value appears in the output (`:316-319`) | closed |
-| T-03-05 | Tampering | committed digest in `data/algorithm-versions/*.json` | medium | mitigate | `digest.test.ts:150-151` recomputes from code + committed params and asserts; prohibition forbids regenerating as a fix. **Executed during audit: 3 passed, 0 skipped** | closed |
+| T-03-05 | Tampering | committed digest in `data/algorithm-versions/*.json` | medium | mitigate | `digest.test.ts:150-151` recomputes from code + committed params and asserts; prohibition forbids regenerating as a fix. **Executed in both audits: 3 passed, 0 skipped** | closed |
 | T-03-06 | Denial of Service | unbounded adaptation factor destabilizing the filter | low | mitigate | `adaptation.ts:139` clamp; exactly `1` below `adaptationMinObservations` (`:135`); defaults 0.25/4.0 (`params.ts:195-196`); exact-equality assertions at both bounds `adaptation.test.ts:63-72` | closed |
 | T-03-07 | Tampering | optimizer reading or selecting on holdout-season data | **high** | mitigate | Gates 1+2 `tune.ts:120-141` invoked at **all three** stage entries (`:372`, `:448`, `:754`), each *before* `openCorpusReadOnly`; gate 3 `assertNoHoldoutLeak` `:144-152` at `:296`; `tune.test.ts:119-131` covers both throw directions **plus a negative control**; `boundedSeasonStream:161` hardcodes `includeOffseason:false`. *Nuance — see Findings F-1* | closed |
 | T-03-08 | Tampering | `Sigma1ParamsSchema` parse of a committed parameter file | medium | mitigate | `params.ts:209` `z.strictObject`, 23× `z.number().finite()` | closed |
-| T-03-09 | Tampering | a wrong tier threshold mispredicting DCMP-and-above matches | medium | mitigate | Thresholds are DATA keyed by tier; `eventTierFor` throws for an unmapped `event_type` with no default (`rp/constants.ts:71-79`); mismatches grouped by `event_type` (`reconciliation.test.ts:224,275`) | closed |
+| T-03-09 | Tampering | a wrong tier threshold mispredicting DCMP-and-above matches | medium | mitigate | Thresholds are DATA keyed by tier; `eventTierFor` throws for an unmapped `event_type` with no default (`rp/constants.ts:71-79`); mismatches grouped by `event_type` (`reconciliation.test.ts:224,275`). Re-verified still throwing after remediation | closed |
 | T-03-10 | Tampering | a malformed pmf persisted as a published distribution | medium | mitigate | `predictions.ts:86-93` `.refine()` + `isValidPmf:54-59`, enforced on write at `:128` `.parse()` | closed |
 | T-03-11 | Spoofing | an algorithm module presenting a version identity it does not have | low | mitigate | `artifact.ts:126-141` `splitAlgorithmVersion` throws on a missing `+` and on an empty half; called at `:161` | closed |
 | T-03-12 | Tampering | a non-finite normalized innovation poisoning a team's factor | medium | mitigate | `adaptation.ts:94-98` throws, never coerces. *Minor deviation: the message omits the team key the plan specified — cosmetic; refusal behavior intact* | closed |
@@ -65,17 +73,20 @@ transplanted web-application register.
 | T-03-14 | Repudiation | a promoted version whose provenance cannot identify which search produced it | medium | mitigate | `promote.ts:35-63` `ProvenanceSchema` + `.parse()` before write (`:309`); headline file carries all 11 provenance fields. *Guarantee rests on the writer, not the schema — see Findings F-3* | closed |
 | T-03-15 | Tampering | a search log hand-edited between the search and the promotion | medium | mitigate | `promote.ts:207,289` records `searchArtifactSha256`; present in `sigma1@2.0.0+tuned-2026-08.json`; independent metric re-run `digest.test.ts:170-173` | closed |
 | T-03-16 | Tampering | a head-to-head table spliced from different runs, corpora, or versions | medium | mitigate | Every figure from ONE artifact with the command quoted verbatim: `sigma1-tuning-results.md:10,13,344`, `runTimestamp: 2026-08-17T01:11:06.668Z` | closed |
-| T-03-17 | Tampering | a stale committed fixture certifying a slice that no longer matches the corpus | medium | mitigate | `digest.test.ts:177-178` `toEqual` between corpus-derived and fixture match lists. **Executed during audit against the live corpus: passed** | closed |
+| T-03-17 | Tampering | a stale committed fixture certifying a slice that no longer matches the corpus | medium | mitigate | `digest.test.ts:177-178` `toEqual` between corpus-derived and fixture match lists. **Executed in both audits against the live corpus: passed** | closed |
 | T-03-18a | Elevation of Privilege | CI workflow permission / secret scope | low | mitigate | `test.yml:19-20` `permissions: contents: read`; zero `secrets.` references; `deploy.yml:38` `FIRST_API_KEY` is commented out and deliberately not propagated | closed |
-| **T-03-18b** | **Denial of Service** | **`sigma1/index.ts` `update()` / `predict()` — untrusted breakdown data aborting the harness run** | **high** | **mitigate** | **Guard half complete and proven (`rp/constants.ts:103-105`; `index.ts:695`, `:839`; 4 regression tests `sigma1.test.ts:719-819` incl. positive control). Verification half FAILED — the declared mitigation's clause 2 is unmet and the same abort survives upstream at `parseBreakdown`. See Open Threat Detail** | **open** |
-| T-03-19 | Tampering | the guard silently perturbing a committed prediction-stream digest, voiding SC-5 | **high** | mitigate | Verified **independently of the SUMMARY**: corpus query confirms `2022alhu`/`2022azfl`/`2022azva` are all `event_type=0, is_offseason=0`, so the guard is structurally inert; `git log` confirms no 03-07/03-08 commit touched `data/algorithm-versions` or `fixtures` (last was 03-06 `7e4b09f4`); `digest.test.ts` executed — **both digests reproduce bitwise** | closed |
-| T-03-20 | Tampering | `JSON.parse(result.scoreBreakdownRaw!)` reaching the RP fold | medium | mitigate | `index.ts:842` `JSON.parse` sits inside the `else` of the eligibility guard; the result flows to `ruleModule.parse` (Zod) and then into `Object.create(null)` records | closed |
-| T-03-21 | Spoofing | a guard broad enough to swallow unrelated exceptions, masking a rule defect as a skip | medium | mitigate | `rp/constants.ts:103-105` is a pure positive membership test, **not** `try`/`catch`; `eventTierFor` still throws (`:74`); positive control `sigma1.test.ts:781-818` over `[0,1,2,3,4,5,100]` | closed |
+| **T-03-18b** | Denial of Service | `sigma1/index.ts` `update()` / `predict()` — untrusted breakdown data aborting the harness run | **high** | mitigate | **Closed 2026-08-18 (second audit).** RP-guard half unchanged (`rp/constants.ts:103-105`; `index.ts:695`, `:839`; `sigma1.test.ts:719-819`). Upstream half remediated by `tryParseBreakdownPair` (`breakdown/index.ts:134-146`) applied at `sigma1/index.ts:740` and `epa.ts:443`. **Both re-close commands executed to exit 0**; corpus-wide probe shows exact 1:1 guarded/unguarded correspondence. See Closure Record | closed |
+| T-03-19 | Tampering | the guard silently perturbing a committed prediction-stream digest, voiding SC-5 | **high** | mitigate | Verified **independently of the SUMMARY** in audit 1 (corpus query: `2022alhu`/`2022azfl`/`2022azva` all `event_type=0, is_offseason=0`; guard structurally inert). **Re-verified in audit 2 against the post-remediation tree**: `digest.test.ts` executed — 3 passed, both `predictionStreamSha256` reproduce bitwise; `data/algorithm-versions/` and `packages/harness/fixtures/` untouched by all 4 remediation commits. SC-5 intact | closed |
+| T-03-20 | Tampering | `JSON.parse(result.scoreBreakdownRaw!)` reaching the RP fold | medium | mitigate | `JSON.parse` moved `:842` → `sigma1/index.ts:857` by the remediation but remains inside the `else` of the eligibility guard (`:854`); the result still flows to `ruleModule.parse` (Zod) then into `Object.create(null)` records. `usedFallback` now also covers the `malformed` outcome, so the fold is reached **only** when the same string already parsed — **strengthened, not weakened** | closed |
+| T-03-21 | Spoofing | a guard broad enough to swallow unrelated exceptions, masking a rule defect as a skip | medium | mitigate | RP side: `rp/constants.ts:103-105` is a pure positive membership test, **not** `try`/`catch`; `eventTierFor` still throws (`:74`); positive control `sigma1.test.ts:781-818` over `[0,1,2,3,4,5,100]`. Breakdown side (new): `isRecoverableBreakdownParseError` (`breakdown/index.ts:93-95`) matches `ZodError` or `SyntaxError` **only**; `componentMapForSeason` resolved at `:136` **outside** the `try`; `assertFiniteComponents` called outside the guard (`sigma1/index.ts:786-787`, `epa.ts:476-477`) and still throws; negative controls `breakdown.test.ts:199-206`; single `zod@4.4.3` resolution rules out a dual-instance `instanceof` hazard | closed |
 | T-03-22 | Repudiation | a "confirmed against the official manual" claim recorded without a human having read it | **high** | mitigate | `A1-confirmed` dated 2026-08-18 citing named sections (2025 §6.5.4 Tbl 6-2; 2026 §6.5.3 Tbl 6-4/6-5) at `03-08-SUMMARY.md:43,133`; `## Threshold Provenance` table `sigma1-rp-verification.md:35-65`; independent grep found no stale "pending manual check" comment in `rp/`. *Inherent limit: whether a human truly read the manual is unverifiable by code — every auditable control around it is present, and `03-08-SUMMARY.md:79-80` flags `human_judgment: true` honestly* | closed |
-| T-03-23 | Tampering | a threshold correction stranding a stale figure or moving a committed digest | medium | mitigate | Slices are 2022 events; 03-08 changed only `rp/2025.ts`/`2026.ts`; `digest.test.ts` executed on the post-03-08 tree — both `predictionStreamSha256` reproduce | closed |
-| T-03-24 | Tampering | a measured shortfall absorbed by widening a reconciliation tolerance | medium | mitigate | `git diff a12fe496..f1f9f763` on `reconciliation.test.ts`: `ensembleBonus` 0.1→**0.085**, `coralBonus` 0.05→**0.005**. Both tightened; **no rate increased** | closed |
+| T-03-23 | Tampering | a threshold correction stranding a stale figure or moving a committed digest | medium | mitigate | Slices are 2022 events; 03-08 changed only `rp/2025.ts`/`2026.ts`; `digest.test.ts` executed on the post-03-08 tree and again on the post-remediation tree — both `predictionStreamSha256` reproduce | closed |
+| T-03-24 | Tampering | a measured shortfall absorbed by widening a reconciliation tolerance | medium | mitigate | `git diff a12fe496..f1f9f763` on `reconciliation.test.ts`: `ensembleBonus` 0.1→**0.085**, `coralBonus` 0.05→**0.005**. Both tightened; **no rate increased**. Audit 2 confirms the file was untouched by the remediation — no late loosening | closed |
 | T-03-25 | Tampering | `JSON.parse` of corpus text in the new measurement script | low | mitigate | `rpConservativeBranch.ts:54` uses `openCorpusReadOnly` (`corpus/db.ts:96` `readonly:true, fileMustExist:true`); writes no algorithm state; output confined to gitignored `reports/` (`.gitignore:11`) | closed |
-| T-03-SC | Tampering | npm/pip/cargo installs (supply chain) | **high** | **accept** | See Accepted Risks Log **AR-03-01**. Hard proof: `pnpm-lock.yaml` last touched at `fa9d0455` (phase **01**-01); both phase-03 `package.json` commits add only npm *scripts*. CI runs `pnpm install --frozen-lockfile` | closed |
+| T-03-26 | Repudiation | skipped-breakdown count silently resetting across a season boundary, erasing the audit trail | **high** | mitigate | **Empirically proven across a real season boundary**: multi-season run reported 942 after 2022 and **1981** after 2023 (942+1039, matching the per-season probe) — `carrySeason` (`sigma1/index.ts:1055`) demonstrably does not reset. OPR correctly omits the field rather than fabricating a `0` | closed |
+| T-03-27 | Information Disclosure | guard telemetry leaking raw third-party payload content into logs | low | mitigate | `breakdown/index.ts:144` carries only `issueCount` — no field names, no values, no payload fragment; `cli.ts:310-312` prints algorithm id + count only | closed |
+| T-03-28 | Tampering | an over-broad guard skipping matches that should have parsed (silent under-counting of real data) | **high** | mitigate | Positive controls in `sigma1.test.ts` (counter 0 **and** `rpSkippedMatchCount` 0 **and** `foulsCommitted` present) and `epa.test.ts:475+`; corroborated at corpus scale — **84,318 official 2022–2026 matches → 0 malformed**, and both committed prediction-stream digests reproduce bitwise | closed |
+| T-03-SC | Tampering | npm/pip/cargo installs (supply chain) | **high** | **accept** | See Accepted Risks Log **AR-03-01**. Hard proof: `pnpm-lock.yaml` last touched at `fa9d0455` (phase **01**-01) — re-confirmed unchanged in audit 2 after the remediation commits; both phase-03 `package.json` commits add only npm *scripts*. CI runs `pnpm install --frozen-lockfile` | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above `workflow.security_block_on` (high) count toward `threats_open`*
@@ -83,63 +94,79 @@ transplanted web-application register.
 
 ---
 
-## Open Threat Detail — T-03-18b
+## Closure Record — T-03-18b
 
-**Severity:** high · **Disposition:** mitigate · **Counts toward `threats_open`** (high ≥ `block_on: high`)
+**Severity:** high · **Disposition:** mitigate · **Opened:** audit 1, 2026-08-18 · **Closed:** audit 2, 2026-08-18
 
-### What is closed
+### What was open
 
-The guard half is real and fully verified. `isRpEligibleEventType` (`rp/constants.ts:103-105`) is
-`EVENT_TYPE_TIERS[eventType] !== undefined` — a pure positive membership test over the *same* table
-`eventTierFor` throws on, so the predicate and the thrower cannot drift apart. It is applied at both
-call sites (`index.ts:695` in `predict`, `:839` in `update`). The skip path returns
-`{ redPmf: [], bluePmf: [] }`, which the spreads at `:722-723` turn into **omitted** fields rather
-than a degenerate `P(RP=0)=1` claim of false certainty. All four CR-01 regression tests exist
-(`sigma1.test.ts:719-819`), including a positive control proving all seven mapped event types still
-take the full RP path. `eventTierFor` is unweakened. **Plan 03-07 delivered what it promised.**
+T-03-18b's declared mitigation had two clauses. Clause 1 — the RP-side guard — verified closed in
+audit 1. Clause 2 — *"Task 2 re-runs both documented invocations that reached it"* — was **unmet**,
+self-recorded `status: fail` (`03-07-SUMMARY.md` coverage D5) and logged as `WINDOWS.md` #4 and #5.
+The defect sat ~100 lines *upstream* of the fix: `parseBreakdown` at `sigma1/index.ts:735-736` threw
+uncaught, and `replay.ts:117-119`/`:161-163` plus `epa.ts:432-433` had no `try`/`catch`, so a single
+throw aborted the entire batch across every season and algorithm.
 
-### What is open
+### How it was closed
 
-T-03-18b's declared mitigation had two clauses. Clause 2 — *"Task 2 re-runs both documented
-invocations that reached it"* — is **unmet**, recorded by the executor itself as `status: fail`
-(`03-07-SUMMARY.md` coverage D5) and logged as `WINDOWS.md` ledger **#4** and **#5**, both `status: open`.
+Quick task `260818-inm` implemented the remediation audit 1 recommended, following the
+`identifiability.ts:239-249` precedent but **narrower** than it:
 
-Direct corpus probing during this audit found the residual is materially larger than the ledger
-estimated:
+- `tryParseBreakdownPair` (`breakdown/index.ts:134-146`) returns a discriminated union; a Zod or
+  JSON failure degrades to the **existing, already-tested** `usedFallback` path
+  (`FALLBACK_NOISE_MULTIPLIER`) and increments a **counted** skip — never a silent drop.
+- Applied at both formerly-unguarded sites: `sigma1/index.ts:740` and `epa.ts:443`. Grep confirms
+  **zero** remaining unguarded `parseBreakdown` in the live replay path.
+- `replay.ts:117-119`/`:161-163` correctly left **unwrapped** — wrapping `update()` wholesale would
+  have been exactly the broad-catch antipattern T-03-21 forbids.
+- `predict()` is structurally immune: `replay.ts:24` `toLeakProofUpcoming` strips
+  `scoreBreakdownRaw` from `UpcomingMatch`, so it can never receive a raw breakdown at all.
 
-| Probe | Ledger record | Audit finding |
+### Verification — executed, not inferred
+
+Audit 2 closed this on execution and direct corpus probing, **not** on the commit messages, the
+quick-task artifacts, or the `WINDOWS.md` `fixed` annotations — all of which are self-reports by the
+same work under audit.
+
+**Both re-close commands run by the auditor:**
+
+| Ledger | Command | Result |
 |---|---|---|
-| `2024wvrox_sf1m1` | "~13 missing required score fields" | `parseBreakdown` throws with **20** Zod issues |
-| `2024cafb_qm1` | missing `adjustPoints` | confirmed — 2 issues (`red.adjustPoints`, `blue.adjustPoints`) |
-| 2024 offseason population | "systemic … not one bad match" | **1,004 of 4,757** matches carrying a breakdown fail — **21.1%** |
+| #4 | `pnpm harness --season 2024 --algorithm sigma1 --include-offseason` | **exit 0**, `Breakdown parse failures [sigma1]: 1004` |
+| #5 | `pnpm harness --event 2024wvrox --algorithm sigma1` | **exit 0**, count `19`; network live (`304 Not Modified` on both TBA calls), `TBA_API_KEY` present — no inference required |
 
-The defect is **upstream of the fix**: `parseBreakdown` runs at `sigma1/index.ts:735-736`, roughly
-100 lines *before* the RP guard at `:839`. `replay.ts:117-119` and `:161-163` call `predict`/`update`
-with no `try`/`catch`, so a single throw propagates out of the entire batch — and `epa.ts:432-433`
-carries the identical unguarded call. The blast radius is therefore precisely what T-03-18b's own
-wording describes: *every season and every algorithm in the batch, not just the offending match.*
+**Independent corpus re-measurement** (read-only probe running unguarded `parseBreakdown` against
+guarded `tryParseBreakdownPair` over the same rows):
 
-**Disposition rationale.** Plan 03-07 behaved correctly *procedurally* — its `files_modified` were
-RP-only, and logging to `WINDOWS.md` rather than patching outside its scope was the right call. The
-question here is not conduct but disposition: the security property T-03-18b asserts — *`update()`
-does not abort the harness on untrusted corpus data* — does not hold on the current tree.
+| Population | matches w/ breakdown | unguarded throws | guarded `malformed` | guarded throws |
+|---|---|---|---|---|
+| official 2022–2026 | 84,318 | **0** | **0** | **0** |
+| offseason 2022–2026 | 18,372 | 4,398 | **4,398** | **0** |
 
-### Recommended remediation
+Exact 1:1 in every cell — the guard neither under-catches nor over-skips. Audit 1's figures
+reproduce exactly: 2024 offseason **1,004 / 4,757 = 21.1%**; `2024wvrox_sf1m1` unguarded threw a
+`ZodError` with **20** issues → guarded `malformed issueCount=20`; `2024cafb_qm1` threw **2** →
+`issueCount=2`.
 
-The codebase's own precedent for this exact boundary already exists one file over:
-`identifiability.ts:239-249` wraps the same `parseBreakdown` in `try`/`catch` → `skippedMatchCount++`,
-commented *"counted, never silently coerced to zero."* The live replay path is the one place it was
-not applied.
+**The rejected alternative was not taken.** Zero `.optional()` in any breakdown schema; all five
+season modules last touched at `776c0266` (phase 02). The T-03-01/T-03-20 integrity controls were
+not traded away to buy availability.
 
-Smallest correct fix: wrap `parseBreakdown` at `sigma1/index.ts:735-736` and `epa.ts:432-433` so a
-Zod failure degrades to the **existing, tested** `usedFallback` path (`redParsed === null` already has
-defined semantics with `FALLBACK_NOISE_MULTIPLIER`) and increments a counted skip — never a silent drop.
+**The counter is genuinely surfaced, not a dead field.** `types.ts:146` → both algorithm states
+(`sigma1` init `:186`, update `:759`, returned `:913`, `carrySeason` `:1055`; `epa` `:225`/`:458`/
+`:504`/`:587`) → `breakdownParseFailureCountOf` (`types.ts:157`) → `cli.ts:303-313`, called from
+**both** modes `main()` dispatches (`cli.ts:481` runSeason, `:696` runEventMode). Observed live at
+1004, 19, and 942→1981 across a season boundary.
 
-**Explicitly rejected alternative:** relaxing `breakdown/2024.ts`'s schema to `.optional()`. That
-would weaken the T-03-01/T-03-20 integrity controls for *all* seasons in order to fix an availability
-problem confined to self-reported offseason data.
+**Full suite: 36 files / 484 tests pass.** Working tree clean throughout; no implementation file was
+modified by either audit.
 
-Re-close by running both `WINDOWS.md` #4/#5 commands to exit 0 and resolving both ledger entries.
+### Ledger
+
+`WINDOWS.md` #4 and #5 `fixed` claims **independently confirmed**, not accepted. The diff shows no
+quiet waiver or description edit — both descriptions preserved verbatim. (Entry #3's stale
+`"resolved"` → `"fixed"` is an enum normalization only. #1 and #2 remain genuinely open — phase
+01/02 Statbotics, unrelated to phase 3.)
 
 ---
 
@@ -153,12 +180,17 @@ either cannot silently disable the other" holds for logic bugs, not for corrupti
 Gate 3 (`assertNoHoldoutLeak`, post-scoring) is the genuinely independent backstop. Threat remains
 closed — this narrows the argument, not the protection.
 
-**F-2 · T-03-01 — no failure counter, and the test is blind to the failing population.** The plan
-says the reconciliation test *counts* parse failures. There is no counter: `module.parse`
-(`reconciliation.test.ts:222`) is uncaught, so a failure aborts the test. The no-silent-skip property
-therefore holds (loudly), but `sampleQualMatches` filters `e.is_offseason = 0`, leaving the test
-structurally blind to exactly the population that breaks the harness. **This blindness is why
-T-03-18b's 21% failure rate went unmeasured until this audit.**
+**F-2 · T-03-01 — no failure counter in the test, and the test is blind to the failing population.
+Still open; now compensated, not closed.** The plan says the reconciliation test *counts* parse
+failures. There is no counter: `module.parse` (`reconciliation.test.ts:222`) is uncaught, so a
+failure aborts the test. The no-silent-skip property therefore holds (loudly), but
+`sampleQualMatches` (`reconciliation.test.ts:55`, documented `:36`) filters `e.is_offseason = 0`,
+leaving the test structurally blind to exactly the population that broke the harness. **This
+blindness is why T-03-18b's 21% failure rate went unmeasured until audit 1.** The remediation did
+not touch this file, so the blind spot **remains**. It is now *compensated* by three things — the
+new synthetic regression suites derived from the real `2024cafb_qm1`/`2024wvrox_sf1m1` shapes,
+`breakdownParseFailureCount` making the population observable at runtime, and audit 2's corpus-wide
+probe. **Recommended follow-up:** add an offseason-inclusive reconciliation slice.
 
 **F-3 · T-03-14 — provenance completeness rests on the writer, not the schema.** The plan says
 `PromotedVersionSchema` *requires* the full provenance block. In fact 8 of 11 fields are `.optional()`
@@ -166,12 +198,27 @@ T-03-18b's 21% failure rate went unmeasured until this audit.**
 currently depends on `promote.ts` unconditionally populating them; a future promotion path could omit
 `seed`/`searchArtifactSha256` and still parse.
 
-**F-4 · Integrity controls extend past the RP boundary; availability controls do not.**
+**F-4 · Integrity controls extend past the RP boundary; availability controls did not.**
 `breakdown/2024.ts:84-87` has the same `Object.create(null)` + fixed allowlist loop over
 `OWN_FIELD_COMPONENT_MAP` as the `breakdown/2026.ts:103` precedent 03-02 copied, with the identical
 `T-02-04` comment, and all 13 fields are `z.number().finite()` — **2024.ts is not weaker than its
 precedent.** T-03-03/T-03-20's prototype-pollution and non-finite controls are uniform across both
-trees. The split is clean: confidentiality/integrity uniform, availability RP-only.
+trees. Audit 1 recorded the split as clean: confidentiality/integrity uniform, availability RP-only.
+**The remediation closed that asymmetry** — availability controls now extend to the score path too,
+via `tryParseBreakdownPair` at `sigma1/index.ts:740` and `epa.ts:443`.
+
+**F-5 (new, audit 2) · the failure population is corpus-wide, larger than the ledger's framing.**
+`WINDOWS.md` #4/#5 describe the defect in 2024 terms. The true population is **4,398** offseason
+matches across 2022–2026 — 2022: 942, 2023: 1039, 2024: 1004, 2025: 1317, 2026: 96. All are now
+guarded and counted. Recorded so the scale is on file and no future reader under-estimates it from
+the ledger alone.
+
+**F-6 (new, audit 2) · `identifiability.ts:239-249` remains broader than the new guard.** Its bare
+`catch` would swallow an unregistered-season `Error` or an `assertFiniteComponents` failure as a
+counted skip, where `isRecoverableBreakdownParseError` would not. Pre-existing, confined to a
+diagnostic-only reporting script (**not** the prediction path), and explicitly acknowledged in the
+new code's own doc comment. Not a phase-03 regression. **Recommended follow-up:** narrow it to reuse
+`isRecoverableBreakdownParseError`.
 
 ---
 
@@ -179,7 +226,7 @@ trees. The split is clean: confidentiality/integrity uniform, availability RP-on
 
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
-| AR-03-01 | T-03-SC | No package installs occur anywhere in phase 3. `03-RESEARCH.md:112-118`'s Package Legitimacy Audit records zero packages recommended for installation — every candidate was nonexistent, unpublished, a name collision (`cma-es`, `optuna`, `bayesian-optimization`, `hpjs`), or judged not worth the trust surface; the hyperparameter search is hand-rolled over existing primitives instead. Verified by audit: `pnpm-lock.yaml` was last modified at `fa9d0455` (phase **01**-01), and both phase-03 `package.json` commits add only npm *scripts* (`tune`, `promote`, `rp:conservative-branch`). CI runs `pnpm install --frozen-lockfile`. **Accepted because the attack surface is empty, not because the check was skipped.** | Jacob Williams | 2026-08-18 |
+| AR-03-01 | T-03-SC | No package installs occur anywhere in phase 3. `03-RESEARCH.md:112-118`'s Package Legitimacy Audit records zero packages recommended for installation — every candidate was nonexistent, unpublished, a name collision (`cma-es`, `optuna`, `bayesian-optimization`, `hpjs`), or judged not worth the trust surface; the hyperparameter search is hand-rolled over existing primitives instead. Verified by audit: `pnpm-lock.yaml` was last modified at `fa9d0455` (phase **01**-01) — re-confirmed unchanged in audit 2 after the four remediation commits — and both phase-03 `package.json` commits add only npm *scripts* (`tune`, `promote`, `rp:conservative-branch`). CI runs `pnpm install --frozen-lockfile`. **Accepted because the attack surface is empty, not because the check was skipped.** | Jacob Williams | 2026-08-18 |
 
 ---
 
@@ -188,13 +235,38 @@ trees. The split is clean: confidentiality/integrity uniform, availability RP-on
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-08-18 | 26 | 25 | 1 | gsd-security-auditor (opus) via /gsd-secure-phase 3 |
+| 2026-08-18 | 29 | 29 | 0 | gsd-security-auditor (opus) via /gsd-secure-phase 3 — re-audit after `260818-inm` remediation |
 
-**Audit depth.** ASVS L1 (`block_on: high`). The register was authored at plan time, so this was
-mitigation-verification, not retroactive STRIDE. Verification exceeded grep depth on the
-high-severity threats: `digest.test.ts` was **executed** against the live corpus (T-03-05/17/19/23),
-the corpus was **queried directly** to establish event types and the T-03-18b failure population, and
-`git log`/`git diff` were used to prove the lockfile and tolerance histories (T-03-SC, T-03-24)
-rather than relying on the SUMMARY files' own account.
+### Security Audit 2026-08-18 (re-audit)
+
+| Metric | Count |
+|--------|-------|
+| Threats found | 29 |
+| Closed | 29 |
+| Open | 0 |
+
+**Audit depth.** ASVS L1 (`block_on: high`). The register was authored at plan time, so both audits
+were mitigation-verification, not retroactive STRIDE. Both exceeded grep depth on the high-severity
+threats.
+
+Audit 1: `digest.test.ts` **executed** against the live corpus (T-03-05/17/19/23), the corpus
+**queried directly** to establish event types and the T-03-18b failure population, and
+`git log`/`git diff` used to prove the lockfile and tolerance histories (T-03-SC, T-03-24) rather
+than relying on the SUMMARY files' own account.
+
+Audit 2: both `WINDOWS.md` re-close commands **executed to exit 0** (including the networked event
+run, with live TBA `304`s), a corpus-wide **read-only probe** run over all five seasons comparing
+guarded against unguarded parse outcomes (102,690 matches carrying a breakdown), `digest.test.ts`
+**re-executed** on the post-remediation tree, and the **full 484-test suite** run. The three threats
+the remediation itself introduced (T-03-26/27/28) were verified by execution — T-03-26 specifically
+by observing the counter carry 942 → 1981 across a real season boundary — rather than accepted from
+the quick task's own threat model.
+
+**Reporting caveat (carried from the auditor verbatim).** A supplementary
+`--seasons 2022-2026 --algorithm opr,epa,sigma1 --include-offseason` replay was **killed mid-2024 by
+the background harness — not failed**. 2022 and 2023 completed cleanly for all three algorithms.
+That run was extra assurance beyond the declared re-close condition; both required commands (#4, #5)
+passed outright, and the corpus-wide probe covers all five seasons independently.
 
 ---
 
@@ -202,7 +274,8 @@ rather than relying on the SUMMARY files' own account.
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [ ] `threats_open: 0` confirmed — **1 open (T-03-18b, high)**
-- [ ] `status: verified` set in frontmatter — currently `blocked`
+- [x] `threats_open: 0` confirmed — 29/29 closed, no blocking threats remain
+- [x] `status: verified` set in frontmatter
 
-**Approval:** pending — blocked on T-03-18b
+**Approval:** verified 2026-08-18 — T-03-18b closed by execution; F-2 and F-6 carried forward as
+non-blocking follow-ups.
