@@ -144,19 +144,30 @@ const KNOWN_TOLERANCES: readonly Tolerance[] = [
   // This is the ONE exception this plan's must_haves.prohibitions
   // anticipated — MUST NEVER be widened to cover a rule change.
   { season: 2022, bonus: "cargoBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.005 },
-  // 2024 Ensemble Bonus: a ~7% residual (the on-stage-robot-count condition
-  // derived from endGameRobot{1,2,3} does not cleanly reconcile), spread
-  // across ~185 distinct events, not concentrated at one event or tier —
-  // see 2024.ts's file header for the investigation record. Flagged, not
-  // hidden (this plan's prohibitions entry carries verification: flagged).
-  { season: 2024, bonus: "ensembleBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.1 },
+  // 2024 Ensemble Bonus: a ~7-7.8% residual (the on-stage-robot-count
+  // condition derived from endGameRobot{1,2,3} does not cleanly reconcile),
+  // spread across ~185 distinct events, not concentrated at one event or
+  // tier — see 2024.ts's file header for the investigation record. Flagged,
+  // not hidden (this plan's prohibitions entry carries verification:
+  // flagged). IN-02 (03-REVIEW.md): tolerance tightened from 0.1 to 0.085
+  // (03-08-PLAN.md Task 3 Step 4) — the prior 0.1 margin was ~40% wider
+  // than the measured rate with no stated reason; the measured maximum
+  // across event types is 7.825% (event_type 1), so 0.085 keeps a small
+  // margin above the exact measured ceiling rather than an unexplained one.
+  { season: 2024, bonus: "ensembleBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.085 },
   // 2025 Auto Bonus: TBA's autoLineRobot{1,2,3} "No" cannot be
   // distinguished between "did not leave" and "was never enabled" (the
   // manual requires only ENABLED robots to leave) — measured ~2% overall.
   { season: 2025, bonus: "autoBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.03 },
-  // 2025 Coral Bonus: ~2.6-3.8% residual persists at every tier even after
-  // the championship-tier threshold was corpus-converged to 7.
-  { season: 2025, bonus: "coralBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.05 },
+  // 2025 Coral Bonus: tightened from 0.05 to 0.005 (03-08-PLAN.md,
+  // authorized deviation) after fixing the coopertition gate to require
+  // BOTH alliances' coopertitionCriteriaMet (was: `own` alliance's flag
+  // alone, an alliance-pair condition incorrectly gated on one side — see
+  // 2025.ts). Before the fix: ~2.6-3.8% residual at every tier. After: the
+  // measured maximum across event types is 0.336% (event_type 5); 0.005
+  // keeps margin above that ceiling. Every residual, before and after, is
+  // exclusively a false positive (0 false negatives measured).
+  { season: 2025, bonus: "coralBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.005 },
   // 2025 Barge Bonus: ~4% residual, concentrated mostly at base tier
   // (event_type 0/1), ALWAYS a false negative there (the >=14 rule never
   // over-predicts at base tier — 0 false positives measured); a much
@@ -456,6 +467,61 @@ describe("2024 threshold cross-check (TBA's own shipped thresholds)", () => {
       }
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * 2025 Coral Bonus coopertition regression pin (03-08-PLAN.md authorized
+ * deviation, mirrors 2023.ts's own-verified "AND, never OR" pattern):
+ * synthetic fixture, no corpus required, so this pins the semantics even
+ * when `data/corpus.sqlite` is absent. `own.coopertitionCriteriaMet` alone
+ * is NOT sufficient to relax the 4-of-4 requirement to 3-of-4 — the real
+ * rule is an alliance-PAIR condition requiring BOTH sides' flags true.
+ */
+describe("2025 Coral Bonus: coopertition requires BOTH alliances' criteria met (regression pin)", () => {
+  const module = rpRuleModuleForSeason(2025);
+
+  function reefSide(overrides: { trough: number; botRow: number; midRow: number; topRow: number }) {
+    return { trough: overrides.trough, tba_botRowCount: overrides.botRow, tba_midRowCount: overrides.midRow, tba_topRowCount: overrides.topRow };
+  }
+
+  function makeSide(opts: { coopertitionCriteriaMet: boolean; reef: { trough: number; botRow: number; midRow: number; topRow: number } }) {
+    const zeroReef = { trough: 0, tba_botRowCount: 0, tba_midRowCount: 0, tba_topRowCount: 0 };
+    return {
+      autoLineRobot1: "Yes",
+      autoLineRobot2: "Yes",
+      autoLineRobot3: "Yes",
+      autoCoralCount: 1,
+      autoReef: zeroReef,
+      teleopReef: reefSide(opts.reef),
+      endGameBargePoints: 0,
+      coopertitionCriteriaMet: opts.coopertitionCriteriaMet,
+      autoBonusAchieved: false,
+      coralBonusAchieved: false,
+      bargeBonusAchieved: false,
+    };
+  }
+
+  it("own alliance meets coopertition criteria, opponent does NOT: 3-of-4 relaxation must NOT apply (coralBonus false, not true)", () => {
+    // own: 3 of 4 levels at >=5 (topRow=0, below threshold) — would pass
+    // under the OLD own-flag-only bug (coop path needs only 3 of 4), must
+    // FAIL under the fixed both-alliances rule (falls back to strict
+    // 4-of-4, and topRow=0 fails that).
+    const red = makeSide({ coopertitionCriteriaMet: true, reef: { trough: 5, botRow: 5, midRow: 5, topRow: 0 } });
+    const blue = makeSide({ coopertitionCriteriaMet: false, reef: { trough: 0, botRow: 0, midRow: 0, topRow: 0 } });
+    const rawJson = { red, blue };
+
+    const parsedRed = module.parse(rawJson, "red", 0);
+    expect(parsedRed.bonusFlags.coralBonus, "own-alone coopertitionCriteriaMet must not relax the 4-of-4 requirement when the opponent's criteria are not met").toBe(false);
+  });
+
+  it("BOTH alliances meet coopertition criteria: 3-of-4 relaxation DOES apply (coralBonus true)", () => {
+    const red = makeSide({ coopertitionCriteriaMet: true, reef: { trough: 5, botRow: 5, midRow: 5, topRow: 0 } });
+    const blue = makeSide({ coopertitionCriteriaMet: true, reef: { trough: 0, botRow: 0, midRow: 0, topRow: 0 } });
+    const rawJson = { red, blue };
+
+    const parsedRed = module.parse(rawJson, "red", 0);
+    expect(parsedRed.bonusFlags.coralBonus, "when BOTH alliances meet coopertition criteria, 3-of-4 levels at threshold should achieve the bonus").toBe(true);
   });
 });
 

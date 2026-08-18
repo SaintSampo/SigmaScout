@@ -116,6 +116,7 @@ export const rp2025: RpRuleModule = {
   parse(rawBreakdownJson: unknown, side: "red" | "blue", eventType: number): RpParsedResult {
     const parsed = Rp2025Schema.parse(rawBreakdownJson);
     const own = parsed[side];
+    const opponent = side === "red" ? parsed.blue : parsed.red;
     const tier = eventTierFor(eventType);
 
     const trough = own.autoReef.trough + own.teleopReef.trough;
@@ -136,10 +137,16 @@ export const rp2025: RpRuleModule = {
     const autoBonus = allRobotsLeft && own.autoCoralCount >= 1;
 
     // Coral Bonus: >=N on each of 4 levels, relaxed to >=N on >=3 of 4 when coopertition met.
+    // Coopertition requires BOTH alliances' criteria met — AND, never OR (same
+    // fix as 2023's sustainabilityBonus, see 2023.ts). `own.coopertitionCriteriaMet`
+    // alone gates only THIS alliance's half of a pair condition; the corpus-measured
+    // effect of that bug (72/2004 -> 5/2004 mismatches at championship tier, all
+    // false positives) is recorded in docs/models/sigma1-rp-verification.md.
     const levels = [trough, botRow, midRow, topRow];
     const strictCount = levels.filter((v) => v >= CORAL_LEVEL_THRESHOLD_STRICT[tier]).length;
     const coopCount = levels.filter((v) => v >= CORAL_LEVEL_THRESHOLD_COOP[tier]).length;
-    const coralBonus = own.coopertitionCriteriaMet ? coopCount >= CORAL_BONUS_COOP_LEVELS_REQUIRED : strictCount === levels.length;
+    const bothCoopMet = own.coopertitionCriteriaMet && opponent.coopertitionCriteriaMet;
+    const coralBonus = bothCoopMet ? coopCount >= CORAL_BONUS_COOP_LEVELS_REQUIRED : strictCount === levels.length;
 
     // Barge Bonus: endGameBargePoints >= tiered threshold.
     const bargeBonus = own.endGameBargePoints >= BARGE_BONUS_THRESHOLD[tier];
