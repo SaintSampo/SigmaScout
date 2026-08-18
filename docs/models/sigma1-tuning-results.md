@@ -243,26 +243,31 @@ never hidden, never silently absorbed into a wider tolerance:
 | Season | Bonus | Measured gap | Nature |
 |---|---|---|---|
 | 2022 | Cargo Bonus | ~0.3% | Data artifact (corpus-recorded discrepancy, anticipated) |
-| 2024 | Ensemble Bonus | ~7%, spread across ~185 events | TBA's `ensembleBonusAchieved` does not cleanly reconcile against any tried on-stage-count/points formulation of the literal manual rule |
+| 2024 | Ensemble Bonus | ~7-7.8%, spread across ~185 events | TBA's `ensembleBonusAchieved` does not cleanly reconcile against any tried on-stage-count/points formulation of the literal manual rule |
 | 2025 | Auto Bonus | ~2% | TBA's `autoLineRobot{1,2,3}` "No" cannot distinguish "did not leave" from "never enabled," which the manual's rule depends on |
-| 2025 | Coral Bonus | ~2.6-3.8% at every tier | Residual gap after the championship-tier threshold was corpus-converged from 5 to 7 |
+| 2025 | Coral Bonus | ~0.06-0.34% at every tier (plan 03-08) | Fixed in plan 03-08: the coopertition gate incorrectly checked only `own` alliance's `coopertitionCriteriaMet` for an alliance-PAIR condition (both alliances' flags required, same "AND, never OR" pattern 2023's Sustainability Bonus already applied). Previously ~2.6-3.8% at every tier before the fix; the residual dropped roughly 10x (championship tier: 72/2004 -> 5/2004 mismatches, all false positives). See `docs/models/sigma1-rp-verification.md`. |
 | 2025 | Barge Bonus | ~4% at base tier (always a false negative) | Unexplained after bracketing every plausible alternate threshold/field |
 
-**Two thresholds corpus-converged, manual confirmation status.** 2025 Coral Bonus's
-championship-tier threshold (converged to 7) and 2026 Energized/Supercharged's
-District-Championship/Championship thresholds (converged to 240/360 and 360/500, exact clean
-boundaries) were bracketed from corpus evidence in plan 03-02 (D-12: the manual is the authoring
-source, the corpus reconciliation is the test). **The plan's own human-check step — opening the
-official 2025/2026 manuals to confirm these converged values — was never completed**; `03-02-SUMMARY.md`
-records this as a recommended follow-up, not a closed item, and this plan did not perform that
-manual check either. Carried forward to `## Open Items` rather than presented as confirmed.
+**Two thresholds corpus-converged, now manual-confirmed.** 2025 Coral Bonus's championship-tier
+threshold (converged to 7) and 2026 Energized/Supercharged's District-Championship/Championship
+thresholds (converged to 240/360 and 360/500, exact clean boundaries) were bracketed from corpus
+evidence in plan 03-02 (D-12: the manual is the authoring source, the corpus reconciliation is the
+test). **Plan 03-08's human checkpoint completed the manual-check step this document previously
+recorded as open**: a human read 2025 FRC Game Manual §6.5.4, Table 6-2 and 2026 FRC Game Manual
+§6.5.3, Tables 6-4/6-5, and reported both sets of converged values as correct as shipped. Full
+provenance: `docs/models/sigma1-rp-verification.md`'s `## Threshold Provenance`.
 
 **A separately-documented modeling gap** (`03-03-SUMMARY.md`, D6): three bonuses whose real
 achievement condition depends on an alliance-level gating signal `RpThresholdVariable`'s
 per-season design does not track (2023 `sustainabilityBonus`, 2024 `melodyBonus`, 2025
 `coralBonus`/`autoBonus`) are predicted at their conservative branch — the predicted *probability*
-of achieving these bonuses is systematically understated, never overstated. This affects the
-worked example below (`autoBonusAchieved` is one of the fields in the conservative-branch set).
+of achieving these bonuses is systematically understated, never overstated (now measured exactly,
+not just claimed — `docs/models/sigma1-rp-verification.md`'s `## Conservative-Branch
+Understatement`). This affects the worked example below (`autoBonusAchieved` is one of the fields
+in the conservative-branch set) — though the worked example's predicted pmf/mean/SD are unaffected
+by plan 03-08's coopertition fix, since the fix touches only `parse()`'s recomputed achievement
+flags (used for reconciliation), never `predictThresholds()` (the only path the Monte Carlo pmf
+draw calls).
 
 **Worked example** — a real 2025 (Reefscape) qualification match, `2025isde1_qm25` (FIRST Israel
 District Event 1, match 25; red = frc1690/frc9303/frc5928, blue = frc4661/frc6738/frc5951):
@@ -312,13 +317,21 @@ Measured but not resolved by this plan — named here rather than left implicit:
   Finding`) — the screen ran at `adaptationEnabled: false`, so a future screen re-run at
   `adaptationEnabled: true` is the correct way to ask whether adaptation's own knobs are
   separately worth tuning, and whether the ~0.8-2.4% Brier gain measured here would grow.
-- **The two 2025/2026 corpus-converged RP thresholds (Coral, Energized/Supercharged) remain
-  unconfirmed against the official manuals** — `03-02-SUMMARY.md`'s own recommended follow-up,
-  still open after this plan.
-- **The four named RP reconciliation tolerances** (2022 Cargo, 2024 Ensemble, 2025 Auto/Coral/Barge)
-  and the **three conservative-branch-understated bonuses** (2023 sustainability, 2024 melody,
-  2025 coral/auto) remain as documented, honestly-measured modeling limitations — see
-  `## Ranking-Point Prediction` above.
+- **RESOLVED (plan 03-08):** the two 2025/2026 corpus-converged RP thresholds (Coral, Energized/
+  Supercharged) are now manual-confirmed — `03-02-SUMMARY.md`'s recommended follow-up is closed.
+  See `docs/models/sigma1-rp-verification.md`'s `## Threshold Provenance` for the full disposition
+  and cited manual sections.
+- **RESOLVED as escalated, not accepted (plan 03-08):** the conservative-branch understatement
+  across the three affected bonuses (2023 sustainability, 2024 melody, 2025 coral/auto) is now
+  measured exactly (`pnpm rp:conservative-branch`), the "never overstates" half of its claim was
+  tested and held, and the human reviewing that measurement declined to accept it as a permanent
+  limitation — it is recorded as a named future-phase redesign direction (predict undecidable RPs
+  from teams' own historical achievement rates, not a new latent Kalman gating dimension) rather
+  than implemented here. The named reconciliation tolerances (2022 Cargo, 2024 Ensemble, 2025
+  Auto/Coral/Barge) remain documented, honestly-measured modeling limitations, with 2025 Coral's
+  tolerance substantially tightened by plan 03-08's coopertition-gate fix. Full disposition:
+  `docs/models/sigma1-rp-verification.md`'s `## Conservative-Branch Understatement` and `##
+  Known Reconciliation Tolerances`.
 - **The ALGO-06 edge-probe row `unclassified`** (`03-01-PLAN.md`'s `flagged_assumptions`) remains
   unresolved. The planner's reading was that ALGO-06's edge risk is covered by the bitwise-digest
   reproducibility guarantee (D-15, now CI-enforced) plus the T-03-05 threat-register row, but that

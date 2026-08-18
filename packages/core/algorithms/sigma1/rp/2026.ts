@@ -18,17 +18,22 @@
  * Threshold comparison semantics are `>=` throughout.
  *
  * Both Energized and Supercharged tiered thresholds were UNPINNED in
- * RESEARCH.md (Open Question 1) and are now corpus-converged: base-tier
- * (event_type 0/1/100) values were already 0-mismatch high confidence;
- * this session bracketed the District Championship (event_type 2/5) and
- * Championship (event_type 3/4) tiers with EXACT boundaries (the minimum
- * observed count among achieved=true matches equals one more than the
- * maximum observed count among achieved=false matches, at every tier) —
- * Energized: base 100, districtChampionship 240, championship 360.
- * Supercharged: base 360, districtChampionship 360 (does NOT bump — same
- * value as base, unlike Energized), championship 500. These converged
- * values should still be confirmed against the official manual's own
- * Table 6-5 (plan's human-check step).
+ * RESEARCH.md (Open Question 1) and were corpus-converged in plan 03-02:
+ * base-tier (event_type 0/1/100) values were already 0-mismatch high
+ * confidence; that session bracketed the District Championship
+ * (event_type 2/5) and Championship (event_type 3/4) tiers with EXACT
+ * boundaries (the minimum observed count among achieved=true matches
+ * equals one more than the maximum observed count among achieved=false
+ * matches, at every tier) — Energized: base 100, districtChampionship 240,
+ * championship 360. Supercharged: base 360, districtChampionship 360 (does
+ * NOT bump — same value as base, unlike Energized), championship 500.
+ * CONFIRMED against the official manual (2026-08-18): a human read the
+ * 2026 FRC Game Manual §6.5.3, Tables 6-4/6-5 and reported these
+ * Energized/Supercharged tier values as correct as shipped, matching the
+ * corpus-converged values exactly — see
+ * `docs/models/sigma1-rp-verification.md`'s `## Threshold Provenance`. The
+ * corpus-convergence evidence above is kept as corroborating evidence, not
+ * the sole basis, now that it has an independent manual confirmation.
  */
 import { z } from "zod";
 import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
@@ -52,10 +57,10 @@ const Rp2026Schema = z.object({
   blue: SideSchema,
 });
 
-/** Energized threshold on `hubScore.totalCount` (raw fuel count, never `.totalPoints`). Corpus-converged this session — see file header. */
+/** Energized threshold on `hubScore.totalCount` (raw fuel count, never `.totalPoints`). Corpus-converged in plan 03-02, manual-confirmed 2026-08-18 against 2026 FRC Game Manual §6.5.3, Tables 6-4/6-5 (see file header). */
 const ENERGIZED_THRESHOLD: RpTieredThreshold = { base: 100, districtChampionship: 240, championship: 360 };
 
-/** Supercharged threshold on `hubScore.totalCount`. District Championship does NOT bump (same as base) — corpus-converged this session. */
+/** Supercharged threshold on `hubScore.totalCount`. District Championship does NOT bump (same as base) — corpus-converged in plan 03-02, manual-confirmed 2026-08-18 (see file header). */
 const SUPERCHARGED_THRESHOLD: RpTieredThreshold = { base: 360, districtChampionship: 360, championship: 500 };
 
 /** Traversal threshold on `totalTowerPoints` (`autoTowerPoints + endGameTowerPoints`). Not tiered — 0/30382 mismatches, every event type (RESEARCH.md). */

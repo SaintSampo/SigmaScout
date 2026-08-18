@@ -188,10 +188,27 @@ export interface RpRuleModule {
    * predicted probability, never overstates it — a deliberate, honest,
    * conservative choice over silently guessing a gate is met, following
    * this project's "measured tolerance over a forced fit" precedent
-   * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`). A future plan that
-   * extends `RpThresholdVariable` to track these gating signals as their
-   * own Kalman-estimated propensity can close this gap without changing
-   * this method's shape.
+   * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`).
+   *
+   * MEASURED (plan 03-08, `pnpm rp:conservative-branch`, post the 2025
+   * Coral coopertition both-alliances fix — full method and the complete
+   * season x bonus table in `docs/models/sigma1-rp-verification.md`'s
+   * `## Conservative-Branch Understatement`): mean RP understatement per
+   * affected bonus, per alliance-match — 2023 `sustainabilityBonus`
+   * 0.105362; 2024 `melodyBonus` 0.123188; 2025 `coralBonus` 0.095405;
+   * 2025 `autoBonus` 0.625464 (by far the largest — it has no
+   * threshold-variable-only fallback at all). No bonus in any season
+   * showed a non-zero `overstatedRate` — the "never overstates" half of
+   * this claim was tested, not assumed. This measured shortfall was
+   * escalated as a named decision to a future phase (human checkpoint
+   * option `B2-plan-fix`, 03-08-PLAN.md Task 2) rather than accepted as-is
+   * — the future direction is to predict an underivable bonus from teams'
+   * historical RP success rates rather than a near-zero/conservative
+   * branch, not to extend `RpThresholdVariable` with a new latent Kalman
+   * dimension (which D-09's own rationale is wary of without an
+   * identifiability argument). See
+   * `docs/models/sigma1-rp-verification.md`'s `## Conservative-Branch
+   * Understatement` for the full disposition.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction;
   /**

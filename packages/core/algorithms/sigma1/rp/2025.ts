@@ -44,14 +44,23 @@
  *   `score_breakdown_raw` alone.
  *
  * Coral Bonus's Championship-tier threshold was UNPINNED in RESEARCH.md
- * (Open Question 1) and has been corpus-converged this session: bracketing
+ * (Open Question 1) and was corpus-converged in plan 03-02: bracketing
  * candidate per-level thresholds at event_type=3 found 7 (not the base
  * tier's 5) minimizes the mismatch rate (72/2004, vs 257/2004 at the base
  * value) — District Championship (event_type 2/5) does NOT bump, matching
  * this phase's repeated "DC never bumps, only Championship does" finding
- * (2023 Sustainability, 2025 Barge). This converged value should still be
- * confirmed against the official manual's own Table 6-2 (plan's
- * human-check step).
+ * (2023 Sustainability, 2025 Barge). CONFIRMED against the official manual
+ * (2026-08-18): a human read the 2025 FRC Game Manual §6.5.4, Table 6-2 and
+ * reported the Championship-tier per-reef-level count as 7, matching the
+ * shipped/corpus-converged value exactly — see
+ * `docs/models/sigma1-rp-verification.md`'s `## Threshold Provenance`. The
+ * corpus-convergence evidence above is kept as corroborating evidence, not
+ * the sole basis, now that it has an independent manual confirmation.
+ *
+ * The Coral Bonus coopertition gate was fixed in plan 03-08 (authorized
+ * deviation) to require BOTH alliances' `coopertitionCriteriaMet` — see
+ * `parse()`'s comment on `bothCoopMet` below and
+ * `docs/models/sigma1-rp-verification.md` for the measured effect.
  */
 import { z } from "zod";
 import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
@@ -83,11 +92,11 @@ const Rp2025Schema = z.object({
   blue: SideSchema,
 });
 
-/** Per-level CORAL count threshold ("at least 5 on each level") when coopertition NOT relaxing the requirement. Championship value corpus-converged this session (see file header) — confirm against the manual. */
+/** Per-level CORAL count threshold ("at least 5 on each level") when coopertition NOT relaxing the requirement. Championship value corpus-converged in plan 03-02, manual-confirmed 2026-08-18 against 2025 FRC Game Manual §6.5.4, Table 6-2 (see file header). */
 const CORAL_LEVEL_THRESHOLD_STRICT: RpTieredThreshold = { base: 5, districtChampionship: 5, championship: 7 };
 
-/** Per-level CORAL count threshold for the "at least 3 of 4 levels" relaxed coopertition path. */
-const CORAL_LEVEL_THRESHOLD_COOP: RpTieredThreshold = { base: 5, districtChampionship: 5, championship: 7 };
+/** Per-level CORAL count threshold for the "at least 3 of 4 levels" relaxed coopertition path. WR-02 (03-REVIEW.md): deliberately DERIVED from `CORAL_LEVEL_THRESHOLD_STRICT`, not an independent literal — the coopertition relaxation changes how MANY of the four reef levels must clear the threshold (3-of-4 vs 4-of-4), never the per-level count itself. Same table by rule, not by coincidence; a future threshold correction to one is now guaranteed to move both. */
+const CORAL_LEVEL_THRESHOLD_COOP: RpTieredThreshold = CORAL_LEVEL_THRESHOLD_STRICT;
 
 /** Number of reef levels (of 4) that must clear the per-level threshold when coopertition IS met. */
 const CORAL_BONUS_COOP_LEVELS_REQUIRED = 3;
