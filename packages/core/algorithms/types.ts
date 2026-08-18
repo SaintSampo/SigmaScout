@@ -128,6 +128,44 @@ export interface SeasonBoundary {
   isColdStart: boolean;
 }
 
+/**
+ * T-03-18b (security audit, phase 03, quick task 260818-inm): the shared
+ * telemetry seam every algorithm that routes its `score_breakdown` parse
+ * through `breakdown/index.ts`'s `tryParseBreakdownPair` implements on its
+ * state. Cumulative over the algorithm's whole lifetime, never reset by
+ * `carrySeason` (D-Q2) — this is a data-quality observation about the
+ * corpus, not a per-season quantity. Kept as its own field, deliberately
+ * SEPARATE from any per-algorithm "RP fold skipped"-style counter (e.g.
+ * Sigma1's `rpSkippedMatchCount`): the two overlap on a malformed match
+ * (both increment) but record different facts — this one the CAUSE (the
+ * breakdown failed its schema), the other the EFFECT (a downstream fold was
+ * skipped) — and folding a ~21% population into a counter whose documented
+ * expectation is ~0.1% would destroy the signal in both.
+ */
+export interface BreakdownParseTelemetry {
+  readonly breakdownParseFailureCount: number;
+}
+
+/**
+ * Reads `breakdownParseFailureCount` off an arbitrary algorithm state,
+ * returning `null` when the value does not track it (e.g. OPR, which never
+ * touches `score_breakdown` at all) rather than fabricating a `0` — a caller
+ * (`packages/harness/cli.ts`'s `reportBreakdownParseFailures`) must be able
+ * to distinguish "this algorithm has no opinion" from "this algorithm
+ * observed zero parse failures."
+ */
+export function breakdownParseFailureCountOf(state: unknown): number | null {
+  if (
+    typeof state === "object" &&
+    state !== null &&
+    "breakdownParseFailureCount" in state &&
+    Number.isFinite((state as { breakdownParseFailureCount: unknown }).breakdownParseFailureCount)
+  ) {
+    return (state as BreakdownParseTelemetry).breakdownParseFailureCount;
+  }
+  return null;
+}
+
 export interface AlgorithmModule<S> {
   id: string;
   version: string;

@@ -34,9 +34,9 @@
 import { ratingEligibleTeams } from "../opr.js";
 import {
   FOULS_COMMITTED_COMPONENT,
-  parseBreakdown,
   componentMapForSeason,
   assertFiniteComponents,
+  tryParseBreakdownPair,
   type ParsedComponents,
 } from "../breakdown/index.js";
 import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
@@ -44,6 +44,7 @@ import { emptyExpandingStats, foldObservation, standardDeviation, type Expanding
 import {
   TOTAL_METRIC_KEY,
   type AlgorithmModule,
+  type BreakdownParseTelemetry,
   type ComponentPrediction,
   type MatchResult,
   type Prediction,
@@ -146,7 +147,7 @@ export interface Sigma1League extends RpLeague {
   readonly componentConsistency: Readonly<Record<string, ExpandingStats>>;
 }
 
-export interface Sigma1State {
+export interface Sigma1State extends BreakdownParseTelemetry {
   readonly season: number | null;
   /** This season's canonical, ordered component list — indexes every team's `covariance` matrix. Empty until the first `update()` call resolves a season. */
   readonly componentOrder: readonly string[];
@@ -166,6 +167,9 @@ export interface Sigma1State {
    * unchanged" choice) — makes the skip observable rather than silent.
    */
   readonly rpSkippedMatchCount: number;
+  // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
+  // above) — see that interface's own doc comment for why this is a
+  // SEPARATE, never-merged counter from `rpSkippedMatchCount` above.
 }
 
 const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = { lastSeason: new Map(), yearBefore: new Map() };
@@ -179,6 +183,7 @@ function initState(): Sigma1State {
     allianceScoreStats: emptyExpandingStats(),
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     rpSkippedMatchCount: 0,
+    breakdownParseFailureCount: 0,
   };
 }
 
@@ -732,16 +737,26 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
 
-  const redParsed = parseBreakdown(season, result.scoreBreakdownRaw, "red");
-  const blueParsed = parseBreakdown(season, result.scoreBreakdownRaw, "blue");
-  // D-05: a match with no score_breakdown (parseBreakdown returns null for
-  // BOTH sides together, since the raw JSON is missing for the whole
-  // match) still updates state via a proportional-residual fallback, with
-  // the resulting observation's measurement noise inflated by
+  const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
+  const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
+  const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
+  // D-05: a match with no score_breakdown ("absent") OR a score_breakdown
+  // that IS present but fails its season Zod schema ("malformed" — T-03-18b,
+  // self-reported offseason data; `tryParseBreakdownPair`,
+  // `breakdown/index.ts`) still updates state via a proportional-residual
+  // fallback, with the resulting observation's measurement noise inflated by
   // FALLBACK_NOISE_MULTIPLIER inside applyAllianceUpdate — never a silent
-  // drop, never a coerced zero (RESEARCH.md Anti-Patterns).
-  const usedFallback = redParsed === null;
+  // drop, never a coerced zero (RESEARCH.md Anti-Patterns). D-Q2: a
+  // "malformed" outcome deliberately increments BOTH
+  // `breakdownParseFailureCount` below (the CAUSE — this match's raw
+  // breakdown failed its schema) and `rpSkippedMatchCount` further down (the
+  // EFFECT — the RP threshold-variable fold has no raw fields to parse
+  // either); see `BreakdownParseTelemetry`'s doc comment (`types.ts`) for why
+  // these are two separate, deliberately overlapping counters rather than
+  // one merged field.
+  const usedFallback = breakdownOutcome.kind !== "parsed";
   const measurementNoiseMultiplier = usedFallback ? FALLBACK_NOISE_MULTIPLIER : 1;
+  const breakdownParseFailureCount = state.breakdownParseFailureCount + (breakdownOutcome.kind === "malformed" ? 1 : 0);
 
   // CR-01 fix: the residual is distributed across this alliance's own
   // OFFENSIVE components only (never FOULS_COMMITTED_COMPONENT — see
@@ -895,6 +910,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     allianceScoreStats,
     priorSeasonRatings: state.priorSeasonRatings,
     rpSkippedMatchCount,
+    breakdownParseFailureCount,
   };
 }
 
@@ -1033,6 +1049,10 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     // lifetime — never reset at a season boundary (see `Sigma1State`'s own
     // doc comment).
     rpSkippedMatchCount: state.rpSkippedMatchCount,
+    // D-Q2 (quick task 260818-inm): also cumulative over the algorithm's
+    // whole lifetime, never reset at a season boundary — identical
+    // "carry forward unchanged" treatment to `rpSkippedMatchCount` above.
+    breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 }
 

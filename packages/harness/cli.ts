@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import { breakdownParseFailureCountOf } from "../core/algorithms/types.js";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -286,6 +287,32 @@ function reportUpdateTiming(collector: UpdateTimingCollector): void {
   }
 }
 
+/**
+ * T-03-18b/T-03-26 (security audit, phase 03, quick task 260818-inm): prints
+ * each algorithm's cumulative `breakdownParseFailureCount`
+ * (`types.ts`'s `breakdownParseFailureCountOf`) so a run that degraded
+ * matches through the D-05 fallback path leaves affirmative evidence in the
+ * CLI log rather than a silent, quietly-wrong model. Modeled on
+ * `reportUpdateTiming` above: one line per algorithm that tracks the field,
+ * skipping any algorithm (e.g. OPR) that returns `null` — never fabricating
+ * a `0` for an algorithm with no opinion. Printed even when the count is
+ * exactly 0, so an official-season run yields affirmative evidence of "the
+ * guard ran and found nothing" rather than silence indistinguishable from
+ * "this line never executes."
+ */
+function reportBreakdownParseFailures(
+  algorithms: readonly AlgorithmModule<any>[],
+  finalStates: ReadonlyMap<string, unknown>
+): void {
+  for (const algorithm of algorithms) {
+    const count = breakdownParseFailureCountOf(finalStates.get(algorithm.id));
+    if (count === null) continue;
+    console.log(
+      `Breakdown parse failures [${algorithm.id}]: ${count} (cumulative across this invocation; each was folded through the D-05 fallback with inflated measurement noise, never dropped)`
+    );
+  }
+}
+
 /** Parses `--seasons "2022-2026"` into an inclusive array of season years. */
 function parseSeasonsRange(spec: string): number[] {
   const rangeMatch = /^(\d{4})-(\d{4})$/.exec(spec);
@@ -451,6 +478,7 @@ async function runSeason(
       `Season ${season} [${algorithm.id}]: ${algorithmPredictions.length} matches replayed, ${algorithmPredictions.length - excludedCount} scorable, ${excludedCount} excluded (${carryStatus})`
     );
   }
+  reportBreakdownParseFailures(algorithms, records.finalStates);
 
   return { predictions, finalStates: records.finalStates };
 }
@@ -665,6 +693,7 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
 
     const simulator = new WalkForwardSimulator(matches);
     const records = simulator.runAll(algorithms, teams);
+    reportBreakdownParseFailures(algorithms, records.finalStates);
 
     const predictions: HarnessPredictionInput[] = records.map((r) => ({
       matchKey: r.match.matchKey,

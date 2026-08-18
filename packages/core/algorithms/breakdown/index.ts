@@ -24,6 +24,7 @@ export {
   type SeasonComponentMap,
 } from "./constants.js";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
+import { ZodError } from "zod";
 
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).
@@ -72,4 +73,74 @@ export function parseBreakdown(
   const map = componentMapForSeason(season);
   const rawJson: unknown = JSON.parse(scoreBreakdownRaw);
   return map.parse(rawJson, side);
+}
+
+/**
+ * T-03-18b (security audit, phase 03): true only for a `ZodError` (a raw
+ * corpus `score_breakdown` payload that failed a season's Zod schema) or a
+ * `SyntaxError` (raw corpus text that is not even valid JSON) — both are the
+ * SAME class of untrusted, self-reported third-party payload defect
+ * `tryParseBreakdownPair` below recovers from. Everything else —
+ * `componentMapForSeason`'s unmapped-season `Error`,
+ * `assertFiniteComponents`'s plain `Error`, or any future non-Zod defect
+ * inside a season module — is deliberately NOT recoverable and must keep
+ * propagating and abort loudly (T-03-21: this predicate is the direct,
+ * unit-tested narrowness proof the security review required, generalizing
+ * the bare `catch` precedent at `identifiability.ts:239-249` — this control
+ * is strictly NARROWER than that precedent, since a bare `catch` would
+ * swallow all three of the loud cases above too).
+ */
+export function isRecoverableBreakdownParseError(err: unknown): boolean {
+  return err instanceof ZodError || err instanceof SyntaxError;
+}
+
+/** Discriminated union `tryParseBreakdownPair` returns — see its own doc comment. */
+export type BreakdownParsePairOutcome =
+  | { readonly kind: "absent" }
+  | { readonly kind: "parsed"; readonly red: ParsedComponents; readonly blue: ParsedComponents }
+  | { readonly kind: "malformed"; readonly issueCount: number };
+
+/**
+ * T-03-18b: the guarded replacement for calling `parseBreakdown` twice (once
+ * per side) at the two call sites this closes
+ * (`sigma1/index.ts`/`epa.ts`, both formerly `:735-736`/`:432-433`).
+ * Precedent: `identifiability.ts:239-249`'s bare `catch` around the same
+ * `parseBreakdown` calls, generalized here into a shared, directly-tested
+ * helper both algorithms use instead of each duplicating the narrowing
+ * logic (D-Q1).
+ *
+ * Parses BOTH alliances from a SINGLE `JSON.parse` of `scoreBreakdownRaw`
+ * (D-Q1) — each season map's `parse` already validates the WHOLE `{red,
+ * blue}` payload before selecting one `side`, so the two sides already
+ * succeed or fail together today; pairing them here removes a duplicated
+ * `JSON.parse` of the same string and is a structural no-op relative to two
+ * separate `parseBreakdown` calls on the success path, never a semantic
+ * change.
+ *
+ * `componentMapForSeason(season)` is resolved BEFORE the `try` entirely, so
+ * an unregistered season stays a loud, unrecoverable throw (T-03-21) — never
+ * folded into the guarded region below. Inside the `try`, a schema/JSON
+ * failure on self-reported offseason data (measured: 1,004/4,757 2024
+ * offseason matches carrying a breakdown fail this parse, phase-03 security
+ * audit) degrades to `"malformed"` rather than aborting the whole harness
+ * batch (T-03-18b) — every other exception is rethrown immediately via
+ * `isRecoverableBreakdownParseError` (T-03-21).
+ *
+ * `"malformed"` carries only a numeric `issueCount` (a `ZodError`'s issue
+ * count, or 0 for a `SyntaxError`) — deliberately no error message, no field
+ * values, no payload fragment (T-03-27: third-party payload content must
+ * never reach a log line through this path).
+ */
+export function tryParseBreakdownPair(season: number, scoreBreakdownRaw: string | null): BreakdownParsePairOutcome {
+  if (scoreBreakdownRaw === null) return { kind: "absent" };
+  const map = componentMapForSeason(season);
+  try {
+    const rawJson: unknown = JSON.parse(scoreBreakdownRaw);
+    const red = map.parse(rawJson, "red");
+    const blue = map.parse(rawJson, "blue");
+    return { kind: "parsed", red, blue };
+  } catch (err) {
+    if (!isRecoverableBreakdownParseError(err)) throw err;
+    return { kind: "malformed", issueCount: err instanceof ZodError ? err.issues.length : 0 };
+  }
 }

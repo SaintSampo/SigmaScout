@@ -270,6 +270,7 @@ describe("teamMetrics — honest-variance check", () => {
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      breakdownParseFailureCount: 0,
     };
 
     const metrics = sigma1.teamMetrics(state);
@@ -610,6 +611,7 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      breakdownParseFailureCount: 0,
     };
 
     const fallbackMatch = match({
