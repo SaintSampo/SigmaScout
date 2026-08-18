@@ -97,7 +97,7 @@ import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 // show `sigma1` (the currently-promoted, potentially tuned version, see
 // `applyPromotedOverrides` below) alongside it — this is what makes "what
 // did tuning buy" legible in one artifact rather than implied.
-const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
+export const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
   sigma1,
@@ -144,7 +144,7 @@ interface TuneSearchOutputForOverride {
 }
 
 /** Builds a Sigma1 module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
-function loadPromotedSigma1(id: string, versionPath: string): AlgorithmModule<any> | undefined {
+export function loadPromotedSigma1(id: string, versionPath: string): AlgorithmModule<any> | undefined {
   if (!existsSync(versionPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(versionPath, "utf8"));
   const promoted = PromotedVersionSchema.parse(raw);
@@ -152,7 +152,7 @@ function loadPromotedSigma1(id: string, versionPath: string): AlgorithmModule<an
 }
 
 /** Builds a Sigma1 module from a `tune.ts --stage joint` search artifact's own winning candidate — restoring `rpMonteCarloDraws` to the versioned default the same way `promote.ts` does for a promoted winner (the search fixes it to 0 for speed). `undefined` if the artifact does not exist. */
-function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
+export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
   if (!existsSync(searchArtifactPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
   const output = raw as TuneSearchOutputForOverride;
@@ -171,7 +171,7 @@ function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, paramSet
  * returned it. Applied once in `main()`, never inside the static
  * `ALGORITHMS` registry itself (see the file-presence comments above).
  */
-function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
+export function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
   return algorithms.map((algorithm) => {
     if (algorithm.id === "sigma1") {
       return loadPromotedSigma1("sigma1", PROMOTED_SIGMA1_VERSION_PATH) ?? algorithm;
