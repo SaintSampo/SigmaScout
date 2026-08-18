@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 4 — Publish & Live Update Pipeline
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-18 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-08-18 - Completed quick task 260818-inm: Guard parseBreakdown against self-reported offseason score_breakdown JSON so a Zod failure degrades to a counted skip instead of aborting the harness run (security threat T-03-18b)
 
 Progress: [██████████] 100%
 
@@ -163,7 +163,13 @@ None yet.
 - Per-season RP rules for 2022–2026 must be verified against official game manuals in Phase 3 — generic parsing will not work.
 - REQUIREMENTS.md originally stated 34 v1 requirements; the actual count is 38. Corrected in the traceability section.
 - epa.ts's predict() may attribute foulsCommitted to the wrong side's score (sums a team's own learned foulsCommitted into its own score rather than the opponent's) -- unverified impact, logged to WINDOWS.md entry 3, not fixed by plan 02-04
-- packages/core/algorithms/breakdown/2024.ts's parseBreakdown() is called unconditionally at the top of sigma1's update() with no eventType/compLevel guard and no try/catch -- self-reported offseason score_breakdown JSON missing required fields (confirmed: 2024cafb_qm1, 2024wvrox_sf1m1) throws uncaught; logged WINDOWS.md #4/#5, not fixed (out of scope for 03-07)
+- ~~packages/core/algorithms/breakdown/2024.ts's parseBreakdown() is called unconditionally at the top of sigma1's update() with no eventType/compLevel guard and no try/catch -- self-reported offseason score_breakdown JSON missing required fields (confirmed: 2024cafb_qm1, 2024wvrox_sf1m1) throws uncaught; logged WINDOWS.md #4/#5, not fixed (out of scope for 03-07)~~ **RESOLVED** by quick task 260818-inm: `tryParseBreakdownPair` narrows the failure to ZodError/SyntaxError only and degrades to the D-05 fallback with a counted `breakdownParseFailureCount`; both commands now exit 0 (1004 and 19 failures counted, never dropped). WINDOWS.md #4/#5 closed. Security threat T-03-18b remains formally `open` in 03-SECURITY.md until `/gsd-secure-phase 3` is re-run.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260818-inm | Guard parseBreakdown against self-reported offseason score_breakdown JSON so a Zod failure degrades to a counted skip instead of aborting the harness run (security threat T-03-18b) | 2026-08-18 | dd39ba28 | [260818-inm-guard-parsebreakdown-against-self-report](./quick/260818-inm-guard-parsebreakdown-against-self-report/) |
 
 ## Deferred Items
 
