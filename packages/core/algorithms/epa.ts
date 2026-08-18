@@ -48,10 +48,10 @@
  */
 import { ratingEligibleTeams } from "./opr.js";
 import {
-  parseBreakdown,
   componentMapForSeason,
   assertFiniteComponents,
   FOULS_COMMITTED_COMPONENT,
+  tryParseBreakdownPair,
   type ParsedComponents,
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
@@ -64,6 +64,7 @@ import {
 import {
   TOTAL_METRIC_KEY,
   type AlgorithmModule,
+  type BreakdownParseTelemetry,
   type ComponentPrediction,
   type MatchResult,
   type Prediction,
@@ -176,13 +177,22 @@ function componentColdStartValue(componentCount: number): number {
  * cold-start season and for any team with no rating in a given prior
  * season (see `carryover.ts`).
  */
-export interface EpaState {
+export interface EpaState extends BreakdownParseTelemetry {
   readonly season: number | null;
   readonly teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>;
   readonly teamMatchCounts: ReadonlyMap<string, number>;
   readonly allianceScoreStats: ExpandingStats;
   readonly fallbackSkipped: number;
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
+  // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
+  // above): cumulative over the algorithm's whole lifetime, incremented only
+  // for a "malformed" `tryParseBreakdownPair` outcome (T-03-18b). Kept
+  // SEPARATE from `fallbackSkipped` immediately above — that field is a
+  // permanently-zero invariant about a code path that must never run (a
+  // breakdown-less match reaching a code path that dropped it entirely),
+  // while this one is a genuine, expected-nonzero data-quality counter that
+  // one shared CLI reader (`reportBreakdownParseFailures`) prints for both
+  // EPA and Sigma1 and therefore must mean the same thing on both states.
 }
 
 const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = {
@@ -212,6 +222,7 @@ function initState(teams: string[]): EpaState {
     allianceScoreStats: emptyExpandingStats(),
     fallbackSkipped: 0,
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
+    breakdownParseFailureCount: 0,
   };
 }
 
@@ -429,18 +440,22 @@ function update(state: EpaState, result: MatchResult): EpaState {
   const seasonMap = componentMapForSeason(season);
   const componentCount = seasonMap.components.length;
 
-  const redParsed = parseBreakdown(season, result.scoreBreakdownRaw, "red");
-  const blueParsed = parseBreakdown(season, result.scoreBreakdownRaw, "blue");
+  const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
+  const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
+  const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
 
-  // D-05 fallback: a match with no score_breakdown (parseBreakdown
-  // returns null) still updates state. CR-01 fix: the residual is
-  // distributed across this alliance's own OFFENSIVE components only
-  // (never FOULS_COMMITTED_COMPONENT — see fallbackObserved), against the
-  // alliance's own actual score net of the OPPONENT's currently-predicted
-  // foul contribution — mirroring predict()'s own cross-alliance
-  // attribution, rather than the flat, uncorrected sum this fallback used
-  // to feed distributeResidual pre-fix. Never a silent drop, never a
-  // coerced zero (RESEARCH.md Anti-Patterns).
+  // D-05 fallback: a match with no score_breakdown ("absent") OR a
+  // score_breakdown that IS present but fails its season Zod schema
+  // ("malformed" — T-03-18b, self-reported offseason data;
+  // `tryParseBreakdownPair`, `breakdown/index.ts`) still updates state. CR-01
+  // fix: the residual is distributed across this alliance's own OFFENSIVE
+  // components only (never FOULS_COMMITTED_COMPONENT — see
+  // fallbackObserved), against the alliance's own actual score net of the
+  // OPPONENT's currently-predicted foul contribution — mirroring predict()'s
+  // own cross-alliance attribution, rather than the flat, uncorrected sum
+  // this fallback used to feed distributeResidual pre-fix. Never a silent
+  // drop, never a coerced zero (RESEARCH.md Anti-Patterns).
+  const breakdownParseFailureCount = state.breakdownParseFailureCount + (breakdownOutcome.kind === "malformed" ? 1 : 0);
   const nonFoulsComponents = seasonMap.components.filter((name) => name !== FOULS_COMMITTED_COMPONENT);
   const blueFoulsMean = predictedComponentTotals(state.teamComponents, blueTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
   const redFoulsMean = predictedComponentTotals(state.teamComponents, redTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
@@ -486,6 +501,7 @@ function update(state: EpaState, result: MatchResult): EpaState {
     // Untouched by an ordinary match update — only carrySeason (D-16)
     // moves this forward, at a season boundary.
     priorSeasonRatings: state.priorSeasonRatings,
+    breakdownParseFailureCount,
   };
 }
 
@@ -560,6 +576,15 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
     allianceScoreStats: state.allianceScoreStats,
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
+    // D-Q2 (quick task 260818-inm): carried forward UNCHANGED, in deliberate
+    // CONTRAST to the `fallbackSkipped` reset immediately above.
+    // `fallbackSkipped` is a per-lifetime zero invariant about a code path
+    // that must never run; `breakdownParseFailureCount` is a cumulative
+    // data-quality counter that one shared CLI reader
+    // (`reportBreakdownParseFailures`) prints for both EPA and Sigma1, so it
+    // must mean the same thing — "observed since this algorithm started" —
+    // on both states, and a season boundary is not a reason to forget it.
+    breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 }
 

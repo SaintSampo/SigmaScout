@@ -106,6 +106,7 @@ describe("epa.carrySeason — isColdStart short-circuit", () => {
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
     };
 
     const result = epa.carrySeason!(state, boundary({ fromSeason: 2021, toSeason: 2022, isColdStart: true }));
@@ -184,6 +185,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
@@ -221,6 +223,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
@@ -237,6 +240,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       allianceScoreStats: { count: 10, mean: 90, m2: 400 },
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));

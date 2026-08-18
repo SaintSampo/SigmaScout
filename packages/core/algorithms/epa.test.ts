@@ -102,6 +102,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const result = matchResult({
@@ -128,6 +129,7 @@ describe("epa.update — D-08 elimination divergence", () => {
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const qualResult = matchResult({
@@ -201,6 +203,7 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
       allianceScoreStats: stats,
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const prediction = epa.predict(
@@ -232,6 +235,7 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const prediction = epa.predict(
@@ -272,6 +276,7 @@ describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const firstMatch = matchResult({
@@ -335,6 +340,7 @@ describe("epa — contract shape", () => {
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["autoLeave"]).toEqual({ value: 10 });
@@ -365,6 +371,7 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
     };
 
     const fallbackMatch = matchResult({
@@ -417,6 +424,76 @@ describe("epa.update — WR-01 finite-value gate (code review phase 02)", () => 
       scoreBreakdownRaw: null,
     });
     expect(() => epa.update(state, brokenMatch)).toThrow(/non-finite/);
+  });
+});
+
+/**
+ * T-03-18b (security audit, phase 03, quick task 260818-inm): derives a
+ * malformed 2024 payload from the well-formed `breakdown2024Json()`
+ * baseline by deleting `fieldsToOmit` from BOTH sides, rather than
+ * hand-typing a second payload.
+ */
+function breakdown2024JsonMissingFields(fieldsToOmit: readonly string[]): string {
+  const full = JSON.parse(breakdown2024Json()) as { red: Record<string, unknown>; blue: Record<string, unknown> };
+  for (const side of [full.red, full.blue]) {
+    for (const field of fieldsToOmit) delete side[field];
+  }
+  return JSON.stringify(full);
+}
+
+describe("epa.update — T-03-18b: a malformed self-reported breakdown degrades to the D-05 fallback, never a throw", () => {
+  it("the missing-adjustPoints (2024cafb_qm1) payload does not throw, breakdownParseFailureCount increments by 1, team components move off cold start, and fallbackSkipped remains 0", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    // Cold start: every team's teamComponents entry is genuinely EMPTY (no
+    // keys at all) before its first observation — see epa.ts's initState.
+    expect(state.teamComponents.get("frc1")).toEqual({});
+
+    const malformedMatch = matchResult({
+      matchKey: "2024cafb_qm1",
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: breakdown2024JsonMissingFields(["adjustPoints"]),
+    });
+    let next!: EpaState;
+    expect(() => {
+      next = epa.update(state, malformedMatch);
+    }).not.toThrow();
+    expect(next.breakdownParseFailureCount).toBe(1);
+    // The permanently-zero invariant (breakdown.test.ts's own describe
+    // block) is untouched — a malformed breakdown is not the "no
+    // score_breakdown at all" code path fallbackSkipped instruments.
+    expect(next.fallbackSkipped).toBe(0);
+    // "Moved off cold start" — every registered component is now DEFINED
+    // and finite, where it was previously entirely absent.
+    for (const componentName of breakdown2024.components) {
+      const value = next.teamComponents.get("frc1")![componentName];
+      expect(value).toBeDefined();
+      expect(Number.isFinite(value)).toBe(true);
+    }
+    expect(next.teamMatchCounts.get("frc1")).toBe(1);
+  });
+
+  it("positive control: a well-formed payload leaves breakdownParseFailureCount at 0 and each team's component means equal the expected parsed per-team shares, proving the full parse path still runs", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const wellFormedMatch = matchResult({
+      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 12, teleopSpeakerNotePoints: 30 }, { autoLeavePoints: 6 }),
+    });
+    const next = epa.update(state, wellFormedMatch);
+    expect(next.breakdownParseFailureCount).toBe(0);
+    // Red's roster (frc1/frc2/frc3) is all rating-eligible, so the alliance's
+    // observed 12-point autoLeavePoints/30-point teleopSpeakerNotePoints
+    // totals are evenly split three ways — every teammate must receive the
+    // IDENTICAL observed share, proving the real parse (not a cross-alliance
+    // or degenerate split) actually ran.
+    for (const team of ["frc2", "frc3"]) {
+      expect(next.teamComponents.get(team)!["autoLeave"]).toBe(next.teamComponents.get("frc1")!["autoLeave"]);
+      expect(next.teamComponents.get(team)!["teleopSpeakerNote"]).toBe(next.teamComponents.get("frc1")!["teleopSpeakerNote"]);
+    }
+    // A component this match's payload left at 0 (e.g. adjustPoints) still
+    // moves off the empty cold-start state to a defined, finite value —
+    // proving the well-formed payload took the REAL parse path end to end,
+    // not merely the two components this test explicitly overrode.
+    expect(Number.isFinite(next.teamComponents.get("frc1")!["adjust"])).toBe(true);
+    expect(next.teamMatchCounts.get("frc1")).toBe(1);
   });
 });
 

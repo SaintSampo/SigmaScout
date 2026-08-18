@@ -100,6 +100,42 @@ const SIGMA1_2024_COMPONENT_COUNT = 13; // 12 OWN_FIELD_COMPONENT_MAP keys + fou
 const UNIFORM_PER_COMPONENT = 10;
 const UNIFORM_TOTAL = SIGMA1_2024_COMPONENT_COUNT * UNIFORM_PER_COMPONENT; // 130
 
+/**
+ * T-03-18b (security audit, phase 03, quick task 260818-inm): derives a
+ * malformed 2024 payload from `rawBreakdown2024Uniform`'s well-formed
+ * baseline by deleting `fieldsToOmit` from BOTH sides, rather than
+ * hand-typing a second payload — the malformed and well-formed fixtures
+ * provably differ only in the removed fields.
+ */
+function rawBreakdown2024MissingFields(perComponentValue: number, fieldsToOmit: readonly string[]): string {
+  const full = JSON.parse(rawBreakdown2024Uniform(perComponentValue)) as {
+    red: Record<string, unknown>;
+    blue: Record<string, unknown>;
+  };
+  for (const side of [full.red, full.blue]) {
+    for (const field of fieldsToOmit) delete side[field];
+  }
+  return JSON.stringify(full);
+}
+
+/** The real `2024cafb_qm1` shape (security audit): missing `adjustPoints` on both sides, 2 Zod issues. */
+const CAFB_QM1_MISSING_FIELDS = ["adjustPoints"];
+/** The real `2024wvrox_sf1m1` shape (security audit): only `autoLeavePoints` survives per side, 20 Zod issues. */
+const WVROX_SF1M1_MISSING_FIELDS = [
+  "autoAmpNotePoints",
+  "autoSpeakerNotePoints",
+  "teleopAmpNotePoints",
+  "teleopSpeakerNotePoints",
+  "teleopSpeakerNoteAmplifiedPoints",
+  "endGameOnStagePoints",
+  "endGameParkPoints",
+  "endGameHarmonyPoints",
+  "endGameNoteInTrapPoints",
+  "endGameSpotLightBonusPoints",
+  "adjustPoints",
+  "foulPoints",
+];
+
 function serializeState(state: Sigma1State): string {
   return JSON.stringify({
     season: state.season,
@@ -816,6 +852,111 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
       const prediction = sigma1.predict(next, upcoming);
       expect("redRpPmf" in prediction).toBe(true);
       expect("blueRpPmf" in prediction).toBe(true);
+    }
+  });
+});
+
+describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to the D-05 fallback, never a throw", () => {
+  it("update() on a match with hasScoreBreakdown: true and the missing-adjustPoints (2024cafb_qm1) payload does not throw, and breakdownParseFailureCount increments by exactly 1", () => {
+    const state = sigma1.initState([]);
+    const priorFailures = state.breakdownParseFailureCount;
+    const malformedMatch = match({
+      matchKey: "2024cafb_qm1",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: UNIFORM_TOTAL,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024MissingFields(UNIFORM_PER_COMPONENT, CAFB_QM1_MISSING_FIELDS),
+    });
+    let next!: Sigma1State;
+    expect(() => {
+      next = sigma1.update(state, malformedMatch);
+    }).not.toThrow();
+    expect(next.breakdownParseFailureCount).toBe(priorFailures + 1);
+  });
+
+  it("that same call still folds the score side — all six teams gain beliefs with finite means and matchCount 1 — and rpSkippedMatchCount also increments by 1 (the documented D-Q2 overlap)", () => {
+    const state = sigma1.initState([]);
+    const priorSkipped = state.rpSkippedMatchCount;
+    const malformedMatch = match({
+      matchKey: "2024cafb_qm1",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: UNIFORM_TOTAL,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024MissingFields(UNIFORM_PER_COMPONENT, CAFB_QM1_MISSING_FIELDS),
+    });
+    const next = sigma1.update(state, malformedMatch);
+    for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+      const team = next.teams.get(teamId);
+      expect(team).toBeDefined();
+      expect(team!.matchCount).toBe(1);
+      for (const belief of Object.values(team!.beliefs)) {
+        expect(Number.isFinite(belief.mean)).toBe(true);
+      }
+    }
+    expect(next.rpSkippedMatchCount).toBe(priorSkipped + 1);
+  });
+
+  it("the severely truncated 2024wvrox_sf1m1-shaped payload (only autoLeavePoints survives per side) behaves identically: no throw, counter plus 1", () => {
+    const state = sigma1.initState([]);
+    const priorFailures = state.breakdownParseFailureCount;
+    const malformedMatch = match({
+      matchKey: "2024wvrox_sf1m1",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: UNIFORM_TOTAL,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024MissingFields(UNIFORM_PER_COMPONENT, WVROX_SF1M1_MISSING_FIELDS),
+    });
+    let next!: Sigma1State;
+    expect(() => {
+      next = sigma1.update(state, malformedMatch);
+    }).not.toThrow();
+    expect(next.breakdownParseFailureCount).toBe(priorFailures + 1);
+  });
+
+  it("update() on a match whose event key names an unregistered season still throws — the catch did not swallow the season-registry defect (T-03-21)", () => {
+    const state = sigma1.initState([]);
+    const unmappedSeasonMatch = match({
+      matchKey: "1999test_qm1",
+      eventKey: "1999test",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: UNIFORM_TOTAL,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+    });
+    expect(() => sigma1.update(state, unmappedSeasonMatch)).toThrow(/no component map registered/);
+  });
+
+  it("positive control (non-negotiable): a well-formed payload leaves breakdownParseFailureCount at 0 AND rpSkippedMatchCount at 0 AND every team's parsed component set includes foulsCommitted", () => {
+    // Without this test, a helper that reported "malformed" unconditionally
+    // would silently disable real component parsing across the whole
+    // project and still pass every test above. rpSkippedMatchCount is
+    // reachable at 0 only when the parse actually succeeded — any fallback
+    // (absent OR malformed) also skips the RP fold.
+    const state = sigma1.initState([]);
+    const wellFormedMatch = match({
+      matchKey: "2024test_qm1",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: UNIFORM_TOTAL,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+    });
+    const next = sigma1.update(state, wellFormedMatch);
+    expect(next.breakdownParseFailureCount).toBe(0);
+    expect(next.rpSkippedMatchCount).toBe(0);
+    for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+      const team = next.teams.get(teamId);
+      expect(team).toBeDefined();
+      expect(team!.beliefs[FOULS_COMMITTED_COMPONENT]).toBeDefined();
     }
   });
 });
