@@ -6,11 +6,11 @@ current_phase: 4
 current_phase_name: Publish & Live Update Pipeline
 status: planning
 stopped_at: Completed 03-08-PLAN.md
-last_updated: "2026-08-19T07:12:43.032Z"
+last_updated: "2026-08-19T18:20:40.156Z"
 last_activity: 2026-08-19
 last_activity_desc: "Phase 1 retroactively verified and closed: re-verification 5/5, UAT 31/31, security 15 threats 0 open"
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
   total_plans: 20
   completed_plans: 20
@@ -23,7 +23,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 03 — tuning-ranking-points-versioning
+**Current focus:** Phase 03.1 — address-phase-1-3-review-warnings-and-doc-drift
 
 ## Current Position
 
@@ -173,6 +173,10 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260818-inm | Guard parseBreakdown against self-reported offseason score_breakdown JSON so a Zod failure degrades to a counted skip instead of aborting the harness run (security threat T-03-18b) | 2026-08-18 | dd39ba28 | [260818-inm-guard-parsebreakdown-against-self-report](./quick/260818-inm-guard-parsebreakdown-against-self-report/) |
 | 260819-2x6 | Close EVAL-01/SC-4 outcome-leakage descriptor and enumeration bypasses: add getOwnPropertyDescriptor and ownKeys traps to toLeakProofUpcoming's Proxy handler | 2026-08-19 | e70b31df | [260819-2x6-add-getownpropertydescriptor-and-ownkeys](./quick/260819-2x6-add-getownpropertydescriptor-and-ownkeys/) |
+
+### Roadmap Evolution
+
+- Phase 03.1 inserted after Phase 3: Address Phase 1-3 review warnings and doc drift (URGENT)
 
 ## Deferred Items
 
