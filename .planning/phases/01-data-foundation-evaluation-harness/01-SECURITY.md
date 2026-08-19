@@ -91,6 +91,15 @@ mistake them for newly-discovered gaps.
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-08-19 | 15 | 15 | 0 | Claude (`/gsd-secure-phase 1`, ASVS L1, block_on: high) |
+| 2026-08-19 | 15 | 15 | 0 | Claude (`/gsd-secure-phase 1` re-run, ASVS L1, block_on: high) |
+
+Re-run scope: no implementation file changed between the two audits (`git diff b40db5dd..HEAD`
+over all non-`.planning/` paths is empty), and every mitigation's cited evidence was
+re-confirmed at its recorded location — the four `process.env` read sites, `git check-ignore .env`
+(exit 0), the five `.parse()` fetch-boundary calls, 26 `escapeHtml` sites, `THROTTLE_INTERVAL_MS`,
+`{ readonly: true, fileMustExist: true }`, `OPR_RIDGE_LAMBDA = 3`, the provenance fields, and
+`headlineEligible: label === "holdout"`. The three carried-forward caveats above are unchanged and
+remain below the `high` block threshold.
 
 ---
 
