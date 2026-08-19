@@ -2,10 +2,17 @@
  * Walk-forward replay driver (EVAL-01). This is the phase's signature
  * guarantee: `WalkForwardSimulator` owns the only reference to the
  * chronological match list, and every algorithm call site goes through
- * `toLeakProofUpcoming`, whose Proxy `get` trap throws for any
- * outcome-bearing property name — a runtime fact, not a type-level
- * convention that a cast could bypass (RESEARCH.md Pattern 1,
- * ARCHITECTURE.md Pattern 1).
+ * `toLeakProofUpcoming`, whose Proxy guards outcome-bearing properties on
+ * three surfaces — `get` and `getOwnPropertyDescriptor` both throw for a
+ * direct read/probe of any outcome key, while `ownKeys` instead OMITS
+ * outcome keys from enumeration (`Object.keys`, `for...in`, spread,
+ * `JSON.stringify`), since a whole-object operation has no per-key failure
+ * shape to throw into — a runtime fact, not a type-level convention that a
+ * cast could bypass (RESEARCH.md Pattern 1, ARCHITECTURE.md Pattern 1).
+ * The `ownKeys` omission is invariant-legal only while every `MatchResult`
+ * stays an extensible plain object literal with configurable properties
+ * (built in packages/corpus/db.ts); freezing/sealing one instead turns
+ * this guarantee into a loud engine `TypeError`, never silent leakage.
  */
 import type { AlgorithmModule, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { selectMatchesChronological, type Corpus } from "../corpus/db.js";

@@ -7,7 +7,9 @@
  * `predict` and `update` are pure: neither may mutate its `state` argument.
  * `predict` never receives outcome-bearing fields (see
  * `packages/harness/replay.ts`'s `toLeakProofUpcoming`, which enforces this
- * at runtime for every call site inside the walk-forward simulator).
+ * at runtime for every call site inside the walk-forward simulator, across
+ * all three Proxy surfaces an outcome field could otherwise leak through —
+ * direct read, descriptor probe, and key enumeration).
  */
 
 export type CompLevel = "qm" | "ef" | "qf" | "sf" | "f";
@@ -56,7 +58,8 @@ export interface MatchResult extends UpcomingMatch {
    * season-agnostic by design. Outcome-bearing: added to
    * `packages/harness/replay.ts`'s `OUTCOME_KEYS` in the same commit that
    * adds this field, so the leak-proof Proxy guards it identically to every
-   * other outcome field.
+   * other outcome field on all three trap surfaces (`get`,
+   * `getOwnPropertyDescriptor`, `ownKeys`).
    */
   scoreBreakdownRaw: string | null;
 }
