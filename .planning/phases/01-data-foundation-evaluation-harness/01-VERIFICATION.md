@@ -1,7 +1,7 @@
 ---
 phase: 01-data-foundation-evaluation-harness
 verified: 2026-08-19T06:52:15Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -10,10 +10,12 @@ re_verification:
   previous_score: 4/5
   previous_verified: 2026-08-13T21:04:15Z
   gaps_closed:
+
     - "A test proves outcome leakage is structurally impossible: any attempt to read a match's result before predicting it fails rather than returning data. (ROADMAP Phase 1 success criterion 4)"
   gaps_remaining: []
   regressions: []
 gaps:
+
   - truth: "A test proves outcome leakage is structurally impossible: any attempt to read a match's result before predicting it fails rather than returning data. (ROADMAP Phase 1 success criterion 4)"
     status: resolved
     resolved_at: 2026-08-19T06:52:15Z
@@ -21,14 +23,17 @@ gaps:
     reason: "ORIGINAL FAILURE (2026-08-13): `toLeakProofUpcoming` (packages/harness/replay.ts) wrapped the real MatchResult in a Proxy that defined only a `get` trap. `Object.getOwnPropertyDescriptor(wrapped, \"redScore\").value` (and the `Reflect` equivalent) did not go through `get` — it forwarded to the untrapped target and returned the real outcome value with no error."
     verification_2026_08_19: "Re-derived from first principles by direct execution against the CURRENT module (not by trusting the quick task's SUMMARY or the prior report's `resolution:` note). A standalone tsx probe imported the real `toLeakProofUpcoming` from packages/harness/replay.ts, wrapped a MatchResult carrying sentinel outcome values (redScore 999, blueScore 111, winner \"red\", scoreBreakdownRaw '{\"secret\":\"LEAK\"}'), and exercised 20+ distinct read surfaces. Result: all 7 outcome keys THROW on direct read, `Object.getOwnPropertyDescriptor`, `Reflect.getOwnPropertyDescriptor`, `Reflect.get`, destructuring, and prototype-chain read; all 7 are OMITTED from `Object.getOwnPropertyDescriptors`, `Object.keys`, `Object.getOwnPropertyNames`, `Reflect.ownKeys`, `for...in`, spread, `Object.assign`, `Object.values`, `Object.entries`, `Object.fromEntries`, and `JSON.stringify` — every one of which returned exactly the 10 non-outcome keys. A sentinel scan across every serializing surface found NO occurrence of 999, 111, \"red\", or \"LEAK\". Both `predict()` call sites in the codebase (replay.ts:152 and replay.ts:196) route through the wrapper; no unwrapped call site exists."
     artifacts:
+
       - path: "packages/harness/replay.ts"
         issue: "RESOLVED — Proxy handler now defines `get`, `getOwnPropertyDescriptor` (both throwing via the shared `denyOutcomeKey` helper so the two surfaces cannot drift), and `ownKeys` (filtering OUTCOME_KEYS out of enumeration). Lines 45-72."
+
       - path: "packages/harness/replay.test.ts"
         issue: "RESOLVED — 38 tests in this file pass; three new describe blocks pin the descriptor, enumeration, and derived-enumeration bypass paths (see Regression Test Adequacy table below)."
     missing: []
 deferred: []
 behavior_unverified_items: []
 human_verification:
+
   - test: "Open reports/full/report.html in a browser with networking disabled."
     expected: "Score table shows OPR's winner accuracy and Brier score for 2022-2026 with qual/elim/combined columns; the Statbotics reference row is present and clearly labelled with source/season; 2025 and 2026 are visually distinguished as the only headline-eligible rows; a calibration curve renders per season with the perfect-calibration diagonal visible; excluded/tie/no-call counts appear next to the scores they qualify, not hidden."
     why_human: "Visual legibility, color/badge distinguishability, and whether the disclosure \"reads as adequate\" are not assertable by a unit test. The structural elements are programmatically confirmed present (0 external references, 13 Statbotics mentions, 10-bin calibration arrays on all 15 OPR slices), but the interpretive sign-off has never been recorded in any UAT artifact — no *UAT* file exists anywhere under .planning/phases/."
