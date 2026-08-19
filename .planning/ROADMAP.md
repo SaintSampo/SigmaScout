@@ -154,11 +154,22 @@ Plans:
   4. Neither long-running numerical guarantee rests on coincidence: a season-scale run of the incremental OPR solve is proven to stay finite and within a documented tolerance of a fresh batch solve, and `isValidParamSet` is enforced at every Sigma1 candidate-generation and promotion boundary.
   5. Every Phase 1-3 planning artifact's recorded status matches HEAD — no artifact claims an open finding that is closed, or a closed finding that is open — covering the three REVIEW.md frontmatter blocks, `01-VERIFICATION.md`'s human-verification item, and STATE.md's Blockers/Concerns section.
 
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 03.1 to break down)
+- [ ] 03.1-01-PLAN.md — Corpus silent-drops: winner imputation, foreign-key enforcement, atomic lock, workspace glob (01-REVIEW WR-02/03/04/06)
+- [ ] 03.1-02-PLAN.md — Prediction validity at emission plus bounded quarantine at scoring (01-REVIEW WR-05)
+- [ ] 03.1-04-PLAN.md — Unconstructible invalid Sigma1 params, aborting screen stage, promoted-version staleness warning (03-REVIEW WR-01/02/03)
+
+**Wave 2** *(blocked on Wave 1 — shares `opr.ts` with 03.1-02)*
+
+- [ ] 03.1-03-PLAN.md — OPR incremental-solve runtime guard and season-scale drift property test (01-REVIEW WR-01)
+
+**Wave 3** *(blocked on Waves 1-2 — resolution blocks must name real fix commits)*
+
+- [ ] 03.1-05-PLAN.md — Review-frontmatter linter and reconciliation of the four stale planning artifacts
 
 ### Phase 4: Publish & Live Update Pipeline
 
