@@ -6,7 +6,7 @@ status: verified
 threats_open: 0
 asvs_level: 1
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # Phase 3 — Security
@@ -84,7 +84,7 @@ transplanted web-application register.
 | T-03-24 | Tampering | a measured shortfall absorbed by widening a reconciliation tolerance | medium | mitigate | `git diff a12fe496..f1f9f763` on `reconciliation.test.ts`: `ensembleBonus` 0.1→**0.085**, `coralBonus` 0.05→**0.005**. Both tightened; **no rate increased**. Audit 2 confirms the file was untouched by the remediation — no late loosening | closed |
 | T-03-25 | Tampering | `JSON.parse` of corpus text in the new measurement script | low | mitigate | `rpConservativeBranch.ts:54` uses `openCorpusReadOnly` (`corpus/db.ts:96` `readonly:true, fileMustExist:true`); writes no algorithm state; output confined to gitignored `reports/` (`.gitignore:11`) | closed |
 | T-03-26 | Repudiation | skipped-breakdown count silently resetting across a season boundary, erasing the audit trail | **high** | mitigate | **Empirically proven across a real season boundary**: multi-season run reported 942 after 2022 and **1981** after 2023 (942+1039, matching the per-season probe) — `carrySeason` (`sigma1/index.ts:1055`) demonstrably does not reset. OPR correctly omits the field rather than fabricating a `0` | closed |
-| T-03-27 | Information Disclosure | guard telemetry leaking raw third-party payload content into logs | low | mitigate | `breakdown/index.ts:144` carries only `issueCount` — no field names, no values, no payload fragment; `cli.ts:310-312` prints algorithm id + count only | closed |
+| T-03-27 | Information Disclosure | guard telemetry leaking raw third-party payload content into logs | low | mitigate | `breakdown/index.ts:144` carries only `issueCount` — no field names, no values, no payload fragment; `cli.ts:311` prints algorithm id + count only (was `:310-312`; re-verified 2026-08-19) | closed |
 | T-03-28 | Tampering | an over-broad guard skipping matches that should have parsed (silent under-counting of real data) | **high** | mitigate | Positive controls in `sigma1.test.ts` (counter 0 **and** `rpSkippedMatchCount` 0 **and** `foulsCommitted` present) and `epa.test.ts:475+`; corroborated at corpus scale — **84,318 official 2022–2026 matches → 0 malformed**, and both committed prediction-stream digests reproduce bitwise | closed |
 | T-03-SC | Tampering | npm/pip/cargo installs (supply chain) | **high** | **accept** | See Accepted Risks Log **AR-03-01**. Hard proof: `pnpm-lock.yaml` last touched at `fa9d0455` (phase **01**-01) — re-confirmed unchanged in audit 2 after the remediation commits; both phase-03 `package.json` commits add only npm *scripts*. CI runs `pnpm install --frozen-lockfile` | closed |
 
@@ -104,7 +104,7 @@ T-03-18b's declared mitigation had two clauses. Clause 1 — the RP-side guard �
 audit 1. Clause 2 — *"Task 2 re-runs both documented invocations that reached it"* — was **unmet**,
 self-recorded `status: fail` (`03-07-SUMMARY.md` coverage D5) and logged as `WINDOWS.md` #4 and #5.
 The defect sat ~100 lines *upstream* of the fix: `parseBreakdown` at `sigma1/index.ts:735-736` threw
-uncaught, and `replay.ts:117-119`/`:161-163` plus `epa.ts:432-433` had no `try`/`catch`, so a single
+uncaught, and `replay.ts:117-119`/`:161-163` (now `:154`/`:198`) plus `epa.ts:432-433` had no `try`/`catch`, so a single
 throw aborted the entire batch across every season and algorithm.
 
 ### How it was closed
@@ -117,7 +117,7 @@ Quick task `260818-inm` implemented the remediation audit 1 recommended, followi
   (`FALLBACK_NOISE_MULTIPLIER`) and increments a **counted** skip — never a silent drop.
 - Applied at both formerly-unguarded sites: `sigma1/index.ts:740` and `epa.ts:443`. Grep confirms
   **zero** remaining unguarded `parseBreakdown` in the live replay path.
-- `replay.ts:117-119`/`:161-163` correctly left **unwrapped** — wrapping `update()` wholesale would
+- `replay.ts:117-119`/`:161-163` — now `:154`/`:198` — correctly left **unwrapped** — wrapping `update()` wholesale would
   have been exactly the broad-catch antipattern T-03-21 forbids.
 - `predict()` is structurally immune: `replay.ts:24` `toLeakProofUpcoming` strips
   `scoreBreakdownRaw` from `UpcomingMatch`, so it can never receive a raw breakdown at all.
@@ -152,9 +152,9 @@ reproduce exactly: 2024 offseason **1,004 / 4,757 = 21.1%**; `2024wvrox_sf1m1` u
 season modules last touched at `776c0266` (phase 02). The T-03-01/T-03-20 integrity controls were
 not traded away to buy availability.
 
-**The counter is genuinely surfaced, not a dead field.** `types.ts:146` → both algorithm states
+**The counter is genuinely surfaced, not a dead field.** `types.ts:149` (was `:146`) → both algorithm states
 (`sigma1` init `:186`, update `:759`, returned `:913`, `carrySeason` `:1055`; `epa` `:225`/`:458`/
-`:504`/`:587`) → `breakdownParseFailureCountOf` (`types.ts:157`) → `cli.ts:303-313`, called from
+`:504`/`:587`) → `breakdownParseFailureCountOf` (`types.ts:160`, was `:157`) → `cli.ts:303-313`, called from
 **both** modes `main()` dispatches (`cli.ts:481` runSeason, `:696` runEventMode). Observed live at
 1004, 19, and 942→1981 across a season boundary.
 
@@ -220,6 +220,31 @@ diagnostic-only reporting script (**not** the prediction path), and explicitly a
 new code's own doc comment. Not a phase-03 regression. **Recommended follow-up:** narrow it to reuse
 `isRecoverableBreakdownParseError`.
 
+**F-7 (new, audit 3) · phase-3 code changed after audit 2; re-verified, no regression.** Three
+files cited by this register were modified between audit 2 and audit 3:
+
+| File | Commit | Change | Effect on this register |
+|---|---|---|---|
+| `harness/cli.ts` | `67d71db3` (phase-03 Nyquist) | `function`/`const` → `export` on 4 declarations | None — no behavior change, no line-count change; T-03-26/27/28 citations hold |
+| `core/algorithms/types.ts` | `e70b31df` (quick `260819-2x6`) | doc comment only | Control intact; citations shifted +3 and were corrected above |
+| `harness/replay.ts` | `f77757d8`, `e70b31df` (quick `260819-2x6`) | added `getOwnPropertyDescriptor` + `ownKeys` Proxy traps | **Strengthens** T-03-18b's "`predict()` is structurally immune" clause; `scoreBreakdownRaw` remains in `OUTCOME_KEYS` |
+
+Re-verified by execution, not by reading the commits: `digest.test.ts` **3 passed / 0 skipped** on the
+post-2x6 tree (T-03-05/17/19/23 — both committed `predictionStreamSha256` still reproduce bitwise),
+`tryParseBreakdownPair` still applied at `sigma1/index.ts:740` and `epa.ts:443` unchanged,
+`replay.ts` still contains **zero** `try`/`catch` (T-03-21's no-broad-catch property), and the full
+suite passes at **37 files / 531 tests** (grown from 36/484 by the new 2x6 and Nyquist tests).
+
+**F-8 (new, audit 3) · quick task `260819-2x6`'s own threat register has no home in any phase
+SECURITY.md — not a phase-3 threat, recorded so it is not lost.** That task authored a
+`<threat_model>` of six threats, **T-Q2x6-01 … T-Q2x6-06**, one of them **high** severity
+(`260819-2x6-PLAN.md`). It remediates EVAL-01 / SC-4, a **phase-1** success criterion, and its code
+lives in `packages/harness` — so those threats belong to phase 1's register, not this one. Phase 1's
+`01-SECURITY.md` was authored at `b40db5dd` (2026-08-19 03:11), *after* the 2x6 commits (~02:29), yet
+records none of them; its T-01-13 row still carries the pre-2x6 caveat about `toLeakProofUpcoming`
+lacking traps. **This does not affect `threats_open` for phase 3.** Recommended follow-up: re-run
+`/gsd-secure-phase 1` so the T-Q2x6 register is verified and folded into phase 1.
+
 ---
 
 ## Accepted Risks Log
@@ -236,6 +261,30 @@ new code's own doc comment. Not a phase-03 regression. **Recommended follow-up:*
 |------------|---------------|--------|------|--------|
 | 2026-08-18 | 26 | 25 | 1 | gsd-security-auditor (opus) via /gsd-secure-phase 3 |
 | 2026-08-18 | 29 | 29 | 0 | gsd-security-auditor (opus) via /gsd-secure-phase 3 — re-audit after `260818-inm` remediation |
+| 2026-08-19 | 29 | 29 | 0 | orchestrator (opus) via /gsd-secure-phase 3 — regression re-verification after post-audit commits |
+
+### Security Audit 2026-08-19 (regression re-verification)
+
+| Metric | Count |
+|--------|-------|
+| Threats found | 29 |
+| Closed | 29 |
+| Open | 0 |
+
+**Why a third pass.** Audit 2 closed the register at 29/29 on 2026-08-18. Six commits landed
+afterwards, three of which touched files this register cites by name — so "still 0 open" could not
+be inherited from audit 2 and was re-established rather than assumed. Full detail in **F-7**.
+
+**Depth.** ASVS L1, `block_on: high`, register authored at plan time — the workflow's short-circuit
+(`threats_open: 0` + plan-time register + L1) applies, so no auditor subagent was spawned. Even so
+this pass exceeded grep depth on the changed surface: `digest.test.ts` and the **full 531-test
+suite** were executed on the live post-2x6 tree, and every control cited for T-03-18b / T-03-21 /
+T-03-26 / T-03-27 was re-located in source. Working tree clean throughout; no implementation file was
+modified by this audit.
+
+**Carried forward unchanged.** F-2 (offseason-blind reconciliation slice) and F-6
+(`identifiability.ts:241-242` bare catch — re-confirmed still present, still diagnostic-only)
+remain open non-blocking follow-ups. F-8 is new and is a **phase-1** action, not a phase-3 one.
 
 ### Security Audit 2026-08-18 (re-audit)
 
@@ -277,5 +326,6 @@ passed outright, and the corpus-wide probe covers all five seasons independently
 - [x] `threats_open: 0` confirmed — 29/29 closed, no blocking threats remain
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-08-18 — T-03-18b closed by execution; F-2 and F-6 carried forward as
-non-blocking follow-ups.
+**Approval:** verified 2026-08-19 — register re-confirmed at 29/29 closed after the post-audit-2
+commits (F-7). T-03-18b remains closed by execution. F-2 and F-6 carried forward as non-blocking
+phase-3 follow-ups; F-8 raised as a **phase-1** action (`/gsd-secure-phase 1`).
