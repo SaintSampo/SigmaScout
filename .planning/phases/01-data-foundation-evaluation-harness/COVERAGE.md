@@ -39,7 +39,7 @@
 | capability | decision | reason |
 |---|---|---|
 | year-summary (per-season EPA accuracy: `epa_acc` / `epa_mse`) | INTEGRATE | |
-| team / team-year endpoints | OPT-OUT | deliberately excluded — D-04 needs only the per-season reference row; pulling team-level Statbotics values risks our metrics being derived from theirs instead of independently computed (clean-slate + independent-baseline mandate) |
+| team / team-year endpoints | OPT-OUT | deliberately excluded — D-04 needs only the per-season reference row; pulling team-level Statbotics values risks deriving our metrics from theirs (clean-slate + independent-baseline mandate) |
 | event / match endpoints | OPT-OUT | deliberately excluded — same independence reason as team endpoints |
 
 ---
