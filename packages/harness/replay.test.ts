@@ -31,18 +31,46 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   };
 }
 
+/**
+ * The exact set of outcome-bearing keys `toLeakProofUpcoming` must guard on
+ * ALL THREE surfaces (`get`, `getOwnPropertyDescriptor`, `ownKeys`) — mirrors
+ * `OUTCOME_KEYS` in replay.ts (not exported, so this is a deliberate
+ * parallel list rather than a shared import; a drift here is itself a
+ * regression the tests below would catch).
+ */
+const ALL_OUTCOME_KEYS = [
+  "winner",
+  "redScore",
+  "blueScore",
+  "redRpEarned",
+  "blueRpEarned",
+  "hasScoreBreakdown",
+  "scoreBreakdownRaw",
+] as const;
+
+/** The exact set of non-outcome keys `UpcomingMatch` carries. */
+const ALL_NON_OUTCOME_KEYS = [
+  "matchKey",
+  "eventKey",
+  "compLevel",
+  "setNumber",
+  "matchNumber",
+  "redTeams",
+  "blueTeams",
+  "redSurrogates",
+  "blueSurrogates",
+  "eventType",
+] as const;
+
 describe("toLeakProofUpcoming", () => {
   const match = makeMatch();
   const wrapped = toLeakProofUpcoming(match) as unknown as Record<string, unknown>;
   const raw = match as unknown as Record<string, unknown>;
 
-  it.each(["winner", "redScore", "blueScore", "redRpEarned", "blueRpEarned", "scoreBreakdownRaw"] as const)(
-    "throws when reading outcome field %s, naming the match key",
-    (field) => {
-      expect(() => wrapped[field]).toThrow(/Outcome leakage/);
-      expect(() => wrapped[field]).toThrow(new RegExp(match.matchKey));
-    }
-  );
+  it.each(ALL_OUTCOME_KEYS)("throws when reading outcome field %s, naming the match key", (field) => {
+    expect(() => wrapped[field]).toThrow(/Outcome leakage/);
+    expect(() => wrapped[field]).toThrow(new RegExp(match.matchKey));
+  });
 
   it.each(["matchKey", "compLevel", "redTeams", "blueTeams", "eventType"] as const)(
     "returns the real value for non-outcome field %s",
@@ -50,6 +78,56 @@ describe("toLeakProofUpcoming", () => {
       expect(wrapped[field]).toEqual(raw[field]);
     }
   );
+});
+
+describe("toLeakProofUpcoming — getOwnPropertyDescriptor bypass (EVAL-01/SC-4, T-Q2x6-01)", () => {
+  const match = makeMatch();
+  const wrapped = toLeakProofUpcoming(match) as unknown as object;
+
+  it.each(ALL_OUTCOME_KEYS)("Object.getOwnPropertyDescriptor throws for outcome field %s, naming the match key", (field) => {
+    expect(() => Object.getOwnPropertyDescriptor(wrapped, field)).toThrow(/Outcome leakage/);
+    expect(() => Object.getOwnPropertyDescriptor(wrapped, field)).toThrow(new RegExp(match.matchKey));
+  });
+
+  it.each(ALL_OUTCOME_KEYS)("Reflect.getOwnPropertyDescriptor throws for outcome field %s, naming the match key", (field) => {
+    expect(() => Reflect.getOwnPropertyDescriptor(wrapped, field)).toThrow(/Outcome leakage/);
+    expect(() => Reflect.getOwnPropertyDescriptor(wrapped, field)).toThrow(new RegExp(match.matchKey));
+  });
+});
+
+describe("toLeakProofUpcoming — ownKeys enumeration bypass (EVAL-01/SC-4, T-Q2x6-02)", () => {
+  const match = makeMatch();
+  const wrapped = toLeakProofUpcoming(match) as unknown as object;
+
+  it("Reflect.ownKeys omits every outcome key and includes every non-outcome key", () => {
+    const keys = Reflect.ownKeys(wrapped);
+    for (const outcomeKey of ALL_OUTCOME_KEYS) {
+      expect(keys).not.toContain(outcomeKey);
+    }
+    for (const nonOutcomeKey of ALL_NON_OUTCOME_KEYS) {
+      expect(keys).toContain(nonOutcomeKey);
+    }
+  });
+
+  it("Object.keys omits every outcome key and includes every non-outcome key", () => {
+    const keys = Object.keys(wrapped);
+    for (const outcomeKey of ALL_OUTCOME_KEYS) {
+      expect(keys).not.toContain(outcomeKey);
+    }
+    for (const nonOutcomeKey of ALL_NON_OUTCOME_KEYS) {
+      expect(keys).toContain(nonOutcomeKey);
+    }
+  });
+
+  it("Object.getOwnPropertyNames omits every outcome key and includes every non-outcome key", () => {
+    const keys = Object.getOwnPropertyNames(wrapped);
+    for (const outcomeKey of ALL_OUTCOME_KEYS) {
+      expect(keys).not.toContain(outcomeKey);
+    }
+    for (const nonOutcomeKey of ALL_NON_OUTCOME_KEYS) {
+      expect(keys).toContain(nonOutcomeKey);
+    }
+  });
 });
 
 describe("eventType — non-outcome-bearing (plan 03-03 Task 1)", () => {

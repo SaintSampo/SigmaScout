@@ -24,15 +24,43 @@ const OUTCOME_KEYS = new Set<string>([
   "scoreBreakdownRaw",
 ]);
 
+/**
+ * Shared throw helper (D-A/T-Q2x6-01) — the `get` and `getOwnPropertyDescriptor`
+ * traps both call this so the two surfaces can never drift onto two different
+ * message strings.
+ */
+function denyOutcomeKey(target: MatchResult, prop: string): never {
+  throw new Error(
+    `Outcome leakage: attempted to read "${prop}" on match ${target.matchKey} before predict() completed`
+  );
+}
+
 export function toLeakProofUpcoming(result: MatchResult): UpcomingMatch {
   return new Proxy(result, {
     get(target, prop, receiver) {
       if (typeof prop === "string" && OUTCOME_KEYS.has(prop)) {
-        throw new Error(
-          `Outcome leakage: attempted to read "${prop}" on match ${target.matchKey} before predict() completed`
-        );
+        denyOutcomeKey(target, prop);
       }
       return Reflect.get(target, prop, receiver);
+    },
+    // A direct descriptor probe has no innocent reading — it should fail as
+    // loudly as a direct property read does (D-A).
+    getOwnPropertyDescriptor(target, prop) {
+      if (typeof prop === "string" && OUTCOME_KEYS.has(prop)) {
+        denyOutcomeKey(target, prop);
+      }
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    },
+    // Unlike `get`/`getOwnPropertyDescriptor`, `ownKeys` has no per-key call
+    // shape — it returns a list or throws for the WHOLE object. Throwing
+    // here would blow up every benign whole-object operation (`console.log`,
+    // `util.inspect`, spread, `JSON.stringify`) since every `MatchResult`
+    // carries all 7 outcome keys, so filtering is the only workable choice
+    // (D-A). Omitting configurable own keys of an extensible target is
+    // invariant-legal (D-B) — `MatchResult` objects are plain object
+    // literals built in packages/corpus/db.ts and are never frozen/sealed.
+    ownKeys(target) {
+      return Reflect.ownKeys(target).filter((key) => !(typeof key === "string" && OUTCOME_KEYS.has(key)));
     },
   }) as UpcomingMatch;
 }
