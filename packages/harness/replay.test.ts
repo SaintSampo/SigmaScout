@@ -130,6 +130,88 @@ describe("toLeakProofUpcoming — ownKeys enumeration bypass (EVAL-01/SC-4, T-Q2
   });
 });
 
+describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant boundary (T-Q2x6-02/03)", () => {
+  const match = makeMatch();
+  const wrapped = toLeakProofUpcoming(match) as unknown as Record<string, unknown>;
+  const raw = match as unknown as Record<string, unknown>;
+
+  it("Object.getOwnPropertyDescriptors does not throw and its key set is exactly the 10 non-outcome keys", () => {
+    let descriptors: PropertyDescriptorMap | undefined;
+    expect(() => {
+      descriptors = Object.getOwnPropertyDescriptors(wrapped);
+    }).not.toThrow();
+    expect(Object.keys(descriptors!).sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
+    for (const outcomeKey of ALL_OUTCOME_KEYS) {
+      expect(descriptors).not.toHaveProperty(outcomeKey);
+    }
+  });
+
+  it("Object.values, Object.entries, spread, and JSON.stringify each complete WITHOUT throwing (D-D) and carry only the 10 non-outcome fields with their real values", () => {
+    let spread: Record<string, unknown> | undefined;
+    expect(() => {
+      spread = { ...wrapped };
+    }).not.toThrow();
+    expect(Object.keys(spread!).sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
+    for (const key of ALL_NON_OUTCOME_KEYS) {
+      expect(spread![key]).toEqual(raw[key]);
+    }
+
+    let entries: [string, unknown][] | undefined;
+    expect(() => {
+      entries = Object.entries(wrapped);
+    }).not.toThrow();
+    expect(
+      entries!.map(([k]) => k).sort()
+    ).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
+    for (const [key, value] of entries!) {
+      expect(value).toEqual(raw[key]);
+    }
+
+    let values: unknown[] | undefined;
+    expect(() => {
+      values = Object.values(wrapped);
+    }).not.toThrow();
+    expect(values!.length).toBe(ALL_NON_OUTCOME_KEYS.length);
+
+    let json: string | undefined;
+    expect(() => {
+      json = JSON.stringify(wrapped);
+    }).not.toThrow();
+    const parsed = JSON.parse(json!) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
+  });
+
+  it("for...in visits exactly the 10 non-outcome keys", () => {
+    const seen: string[] = [];
+    for (const key in wrapped) {
+      seen.push(key);
+    }
+    expect(seen.sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
+  });
+
+  it("D-B precondition: the raw fixture is extensible and every outcome key is configurable — the two facts that make omitting keys from ownKeys legal", () => {
+    expect(Object.isExtensible(match)).toBe(true);
+    for (const outcomeKey of ALL_OUTCOME_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(raw, outcomeKey);
+      expect(descriptor?.configurable).toBe(true);
+    }
+  });
+
+  it("D-B hazard: wrapping an Object.freeze-d MatchResult and calling Object.keys throws an engine-level TypeError, not our Outcome-leakage Error — MatchResult objects must stay extensible plain literals (see this plan's D-B)", () => {
+    const frozenMatch = Object.freeze(makeMatch());
+    const frozenWrapped = toLeakProofUpcoming(frozenMatch) as unknown as object;
+
+    let thrown: unknown;
+    try {
+      Object.keys(frozenWrapped);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect((thrown as Error).message).not.toMatch(/Outcome leakage/);
+  });
+});
+
 describe("eventType — non-outcome-bearing (plan 03-03 Task 1)", () => {
   it("a predict() call can read match.eventType through toLeakProofUpcoming without throwing", () => {
     const match = makeMatch({ eventType: 3 });
