@@ -15,7 +15,9 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../../corpus/db.js";
-import { componentMapForSeason, FOULS_COMMITTED_COMPONENT } from "./index.js";
+import { componentMapForSeason, FOULS_COMMITTED_COMPONENT, parseBreakdown } from "./index.js";
+import { distributeResidual } from "./fallback.js";
+import type { ParsedComponents } from "./constants.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const SAMPLE_SIZE = 2000;
@@ -195,5 +197,133 @@ describe("2026: structurally different shape must not silently parse under anoth
     const rawJson: unknown = JSON.parse(row.score_breakdown_raw);
     const map2025 = componentMapForSeason(2025);
     expect(() => map2025.parse(rawJson, "red")).toThrow();
+  });
+});
+
+describe("prototype-pollution regression (T-02-04)", () => {
+  /**
+   * T-02-04 (02-SECURITY.md:49, closed "— with caveat" precisely because
+   * this test did not exist): six sites build `ParsedComponents` with
+   * `Object.create(null)` plus a fixed allowlist loop, so a `__proto__`,
+   * `constructor`, or `prototype` key in third-party TBA JSON cannot reach
+   * `Object.prototype`.
+   *
+   * The vector is injected into the raw JSON *string* and driven through
+   * `parseBreakdown`, which owns the real `JSON.parse` boundary
+   * (`breakdown/index.ts:74`) — the actual path a poisoned corpus row would
+   * take. This matters: an object *literal* written `{ __proto__: {...} }`
+   * sets the object's prototype and creates NO own property, so a
+   * literal-based fixture silently tests nothing. `assertVectorIsLive`
+   * below fails loudly if that ever regresses into a tautology.
+   */
+  const POISON_KEYS = ["__proto__", "constructor", "prototype"] as const;
+  const POISON_JSON = POISON_KEYS.map((k) => `"${k}":{"polluted":true}`).join(",") + ",";
+
+  /** Injects the poison keys at the top level AND inside the `red`/`blue` alliance objects. */
+  function poison(raw: string): string {
+    let out = `{${POISON_JSON}${raw.slice(1)}`;
+    for (const side of ["red", "blue"] as const) {
+      out = out.replace(`"${side}":{`, `"${side}":{${POISON_JSON}`);
+    }
+    return out;
+  }
+
+  /**
+   * Guards the guard: proves the poisoned string really yields an OWN
+   * `__proto__` key once parsed, so the assertions below can actually fail.
+   */
+  function assertVectorIsLive(poisoned: string): void {
+    const obj = JSON.parse(poisoned) as Record<string, unknown>;
+    for (const key of POISON_KEYS) {
+      expect(Object.prototype.hasOwnProperty.call(obj, key)).toBe(true);
+    }
+    const red = obj["red"] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(red, "__proto__")).toBe(true);
+  }
+
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
+  } else {
+    it.each(REGISTERED_SEASONS)(
+      "season %i: a poisoned score_breakdown yields a null-prototype record and never touches Object.prototype",
+      (year) => {
+        const [row] = sampleBreakdowns(year, 1);
+        expect(row, `no ${year} corpus fixture`).toBeDefined();
+
+        const poisoned = poison(row!.score_breakdown_raw);
+        assertVectorIsLive(poisoned);
+
+        const parsed = parseBreakdown(year, poisoned, "red");
+        expect(parsed).not.toBeNull();
+
+        // The T-02-04 control itself.
+        expect(Object.getPrototypeOf(parsed!)).toBe(null);
+
+        // The allowlist loop admitted exactly the season's declared
+        // components — no poison key became a rating component. A
+        // spread-based construction would fail here.
+        const declared = [...componentMapForSeason(year).components].sort();
+        expect(Object.keys(parsed!).sort()).toEqual(declared);
+
+        // Object.prototype is intact: nothing leaked globally.
+        expect(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted")).toBe(false);
+        expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+      }
+    );
+  }
+
+  it("distributeResidual (fallback.ts, the 6th construction site) returns a null-prototype record", () => {
+    // JSON.parse — not a literal — so `__proto__` is a genuine own key.
+    const predicted = JSON.parse(`{${POISON_JSON}"alpha":1,"beta":3}`) as ParsedComponents;
+    expect(Object.prototype.hasOwnProperty.call(predicted, "__proto__")).toBe(true);
+
+    const result = distributeResidual(100, predicted, ["alpha", "beta"]);
+
+    expect(Object.getPrototypeOf(result)).toBe(null);
+    expect(Object.keys(result).sort()).toEqual(["alpha", "beta"]);
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted")).toBe(false);
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+  });
+});
+
+describe("2026 field-rename assertion (T-02-07)", () => {
+  /**
+   * GAP 3 (ALGO-02, T-02-07): 2026 renames foul fields to majorFoulCount/minorFoulCount.
+   * The old field names (foulCount/techFoulCount) must not appear in the implementation
+   * except as comments documenting the rename. This test reads the file, strips comments,
+   * and asserts zero occurrences of the old field names.
+   */
+  it("2026.ts: no foulCount or techFoulCount field reads (only comments documenting the rename)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const filePath = path.join(currentDir, "2026.ts");
+    const content = fs.readFileSync(filePath, "utf-8");
+
+    // Strip comment lines and block comments from the content.
+    // Lines starting with '//' are removed, and /* ... */ blocks are removed.
+    let stripped = content
+      .split("\n")
+      .map((line) => {
+        // Remove inline // comments
+        const commentIdx = line.indexOf("//");
+        if (commentIdx !== -1) {
+          return line.substring(0, commentIdx);
+        }
+        return line;
+      })
+      .join("\n");
+
+    // Remove /* ... */ block comments
+    stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // Assert zero occurrences of the old field names in non-comment code
+    const foulCountMatches = stripped.match(/\bfoulCount\b/g);
+    const techFoulCountMatches = stripped.match(/\btechFoulCount\b/g);
+
+    expect(foulCountMatches?.length ?? 0).toBe(0);
+    expect(techFoulCountMatches?.length ?? 0).toBe(0);
   });
 });

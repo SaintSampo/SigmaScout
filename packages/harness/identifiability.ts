@@ -120,7 +120,7 @@ const FOUL_DIAGNOSTIC_FALLBACK: Readonly<Record<number, readonly string[]>> = {
 };
 
 /** Deterministic PRNG (Mulberry32) — same seed always produces the same event sample, so this script's output is reproducible across runs, not a fresh random draw each time. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let t = seed;
   return () => {
     t += 0x6d2b79f5;
@@ -130,7 +130,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function seededShuffle<T>(items: readonly T[], seed: number): T[] {
+export function seededShuffle<T>(items: readonly T[], seed: number): T[] {
   const rng = mulberry32(seed);
   const arr = items.slice();
   for (let i = arr.length - 1; i > 0; i--) {
@@ -142,7 +142,7 @@ function seededShuffle<T>(items: readonly T[], seed: number): T[] {
   return arr;
 }
 
-interface AllianceRow {
+export interface AllianceRow {
   readonly matchKey: string;
   readonly eventKey: string;
   readonly teams: readonly string[];
@@ -283,7 +283,7 @@ function sampleSeason(db: Corpus, season: number): SampleResult {
   };
 }
 
-interface DesignMatrixResult {
+export interface DesignMatrixResult {
   readonly rowCount: number;
   readonly teamColumnCount: number;
   readonly rank: number;
@@ -299,7 +299,7 @@ interface DesignMatrixResult {
  * header for why this is computed once per season rather than once per
  * component.
  */
-function computeDesignMatrix(rows: readonly AllianceRow[]): DesignMatrixResult {
+export function computeDesignMatrix(rows: readonly AllianceRow[]): DesignMatrixResult {
   const teamIndex = new Map<string, number>();
   for (const row of rows) {
     for (const team of row.teams) {
@@ -347,13 +347,13 @@ function computeDesignMatrix(rows: readonly AllianceRow[]): DesignMatrixResult {
   };
 }
 
-interface ConnectedComponentInfo {
+export interface ConnectedComponentInfo {
   readonly componentIndex: number;
   readonly teamCount: number;
   readonly eventKeys: readonly string[];
 }
 
-interface ConnectedComponentsResult {
+export interface ConnectedComponentsResult {
   readonly componentCount: number;
   /** Sorted descending by `teamCount` — index 0 is the primary (largest) component. */
   readonly components: readonly ConnectedComponentInfo[];
@@ -384,7 +384,7 @@ interface ConnectedComponentsResult {
  * is introduced here, so the same corpus + the same `SAMPLE_SEED` always
  * yields the same component structure.
  */
-function computeConnectedComponents(rows: readonly AllianceRow[]): ConnectedComponentsResult {
+export function computeConnectedComponents(rows: readonly AllianceRow[]): ConnectedComponentsResult {
   const teamIndex = new Map<string, number>();
   for (const row of rows) {
     for (const team of row.teams) {
