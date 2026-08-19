@@ -6,9 +6,9 @@ current_phase: 4
 current_phase_name: Publish & Live Update Pipeline
 status: planning
 stopped_at: Completed 03-08-PLAN.md
-last_updated: "2026-08-18T07:10:54.122Z"
-last_activity: 2026-08-18
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
+last_updated: "2026-08-19T06:31:51.584Z"
+last_activity: 2026-08-19
+last_activity_desc: "Completed quick task 260819-2x6: Close EVAL-01/SC-4 outcome-leakage descriptor and enumeration bypasses — add getOwnPropertyDescriptor and ownKeys traps to toLeakProofUpcoming's Proxy handler"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 4 — Publish & Live Update Pipeline
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-18 - Completed quick task 260818-inm: Guard parseBreakdown against self-reported offseason score_breakdown JSON so a Zod failure degrades to a counted skip instead of aborting the harness run (security threat T-03-18b)
+Last activity: 2026-08-19 - Completed quick task 260819-2x6: Close EVAL-01/SC-4 outcome-leakage descriptor and enumeration bypasses — add getOwnPropertyDescriptor and ownKeys traps to toLeakProofUpcoming's Proxy handler
 
 Progress: [██████████] 100%
 
@@ -147,6 +147,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Decision A = A1-confirmed: human read 2025 FRC Game Manual Sec 6.5.4 Table 6-2 and 2026 FRC Game Manual Sec 6.5.3 Tables 6-4/6-5, both corpus-converged threshold sets confirmed correct as shipped, no constant changed
 - [Phase ?]: Decision B = B2-plan-fix: conservative-branch understatement measured (never overstates, tested and held) but NOT accepted as a shipped limitation -- escalated to a future-phase redesign predicting undecidable RPs from teams' own historical achievement rates rather than a new latent Kalman gating dimension
 - [Phase ?]: Authorized deviation: fixed 2025 Coral Bonus coopertition gate to require BOTH alliances' coopertitionCriteriaMet (was: observing alliance's flag alone) -- matches 2023.ts's established pattern, cut the championship-tier reconciliation residual from 72/2004 to 5/2004
+- [Phase ?]: [Quick 260819-2x6] Closed EVAL-01/SC-4: toLeakProofUpcoming's Proxy now traps getOwnPropertyDescriptor and ownKeys (in addition to the pre-existing get trap), closing the descriptor-value and key-enumeration leakage bypasses the v1.0 mid-milestone audit flagged as the sole blocker; audit's 'object spread copies every outcome field silently' claim corrected as non-reproducible (spread already hit the get trap)
 
 ### Pending Todos
 
@@ -170,6 +171,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260818-inm | Guard parseBreakdown against self-reported offseason score_breakdown JSON so a Zod failure degrades to a counted skip instead of aborting the harness run (security threat T-03-18b) | 2026-08-18 | dd39ba28 | [260818-inm-guard-parsebreakdown-against-self-report](./quick/260818-inm-guard-parsebreakdown-against-self-report/) |
+| 260819-2x6 | Close EVAL-01/SC-4 outcome-leakage descriptor and enumeration bypasses: add getOwnPropertyDescriptor and ownKeys traps to toLeakProofUpcoming's Proxy handler | 2026-08-19 | e70b31df | [260819-2x6-add-getownpropertydescriptor-and-ownkeys](./quick/260819-2x6-add-getownpropertydescriptor-and-ownkeys/) |
 
 ## Deferred Items
 

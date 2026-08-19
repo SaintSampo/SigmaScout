@@ -18,6 +18,21 @@ gaps:
       - "Add a `getOwnPropertyDescriptor` trap to the Proxy in `toLeakProofUpcoming` that throws the same `Outcome leakage` error for any key in OUTCOME_KEYS, mirroring the `get` trap"
       - "Add a regression test in replay.test.ts asserting `Object.getOwnPropertyDescriptor(wrapped, field)` throws for every outcome key, alongside the existing direct-access test"
       - "Consider an `ownKeys` trap that omits outcome keys from enumeration (`Object.keys`, `for...in`, spread) for defense in depth, per the review's suggested fix"
+    resolution: >-
+      Closed by quick task 260819-2x6 (commits f77757d8, 807c2a3a, e70b31df;
+      .planning/quick/260819-2x6-add-getownpropertydescriptor-and-ownkeys/). Added a
+      `getOwnPropertyDescriptor` trap to `toLeakProofUpcoming`'s Proxy handler that throws the
+      same `Outcome leakage` error as `get` (via a shared `denyOutcomeKey` helper) for every
+      `OUTCOME_KEYS` member; added an `ownKeys` trap that omits `OUTCOME_KEYS` from
+      enumeration. All three `missing` items above are now done, including the third, which was
+      written as "consider" — it is implemented, not merely considered. New regression coverage
+      in `packages/harness/replay.test.ts`: `Object.getOwnPropertyDescriptor(wrapped, field)`
+      and its `Reflect` equivalent throw for all 7 outcome keys; `Reflect.ownKeys`/
+      `Object.keys`/`getOwnPropertyNames` omit all 7 and retain all 10 non-outcome keys; a
+      second `describe` block pins `Object.getOwnPropertyDescriptors`, `Object.values`/
+      `entries`, spread, `JSON.stringify`, and `for...in` to the exact 10-key non-outcome set,
+      plus the D-B invariant precondition and its frozen-target `TypeError` boundary. Flipping
+      this gap's `status` requires re-running `/gsd-verify-work 1`, not a hand edit.
 ---
 
 # Phase 1: Data Foundation & Evaluation Harness Verification Report
