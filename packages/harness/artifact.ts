@@ -40,6 +40,8 @@ const ExclusionCountsSchema = z.object({
   offseason: z.number().int().nonnegative(),
   surrogateAffected: z.number().int().nonnegative(),
   missingResult: z.number().int().nonnegative(),
+  /** D-06 / 01-REVIEW WR-05: see `score.ts`'s `ExclusionCounts.quarantined` doc comment. */
+  quarantined: z.number().int().nonnegative(),
 });
 
 const ScoreSliceSchema = z.object({

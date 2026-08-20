@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateScores,
   HOLDOUT_SEASONS,
+  QUARANTINE_ABSOLUTE_LIMIT,
+  QUARANTINE_SHARE_LIMIT,
+  QUARANTINE_SHARE_MIN_POPULATION,
   seasonSplit,
   TUNE_SEASONS,
   type HarnessPredictionInput,
@@ -149,12 +152,14 @@ describe("aggregateScores", () => {
       offseason: 1,
       surrogateAffected: 1,
       missingResult: 1,
+      quarantined: 0,
     });
     const total =
       qualSlice2024.scoredCount +
       qualSlice2024.exclusionCounts.offseason +
       qualSlice2024.exclusionCounts.surrogateAffected +
-      qualSlice2024.exclusionCounts.missingResult;
+      qualSlice2024.exclusionCounts.missingResult +
+      qualSlice2024.exclusionCounts.quarantined;
     expect(total).toBe(qualSlice2024.candidateCount);
   });
 
@@ -164,8 +169,15 @@ describe("aggregateScores", () => {
         slice.scoredCount +
         slice.exclusionCounts.offseason +
         slice.exclusionCounts.surrogateAffected +
-        slice.exclusionCounts.missingResult;
+        slice.exclusionCounts.missingResult +
+        slice.exclusionCounts.quarantined;
       expect(total).toBe(slice.candidateCount);
+    }
+  });
+
+  it("D-06/D-07 zero-quarantine regression check: with no malformed predictions, exclusionCounts.quarantined is 0 on every slice, and every other slice value is unchanged from the pre-change fixture behavior above", () => {
+    for (const slice of slices) {
+      expect(slice.exclusionCounts.quarantined).toBe(0);
     }
   });
 
@@ -251,5 +263,130 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
     expect(oprSlice.brierScore).toBeCloseTo((1 - 0.9) ** 2, 10);
     expect(epaSlice.brierScore).toBeCloseTo((1 - 0.1) ** 2, 10);
     expect(oprSlice.brierScore).not.toBeCloseTo(epaSlice.brierScore!, 5);
+  });
+});
+
+describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
+  function prediction(overrides: Partial<HarnessPredictionInput> & Pick<HarnessPredictionInput, "matchKey">): HarnessPredictionInput {
+    return {
+      season: 2024,
+      compLevel: "qm",
+      algorithmId: "opr",
+      pRedWin: 0.6,
+      predictedRedScore: 60,
+      predictedBlueScore: 40,
+      actualWinner: "red",
+      isOffseason: false,
+      isSurrogateAffected: false,
+      ...overrides,
+    };
+  }
+
+  // The regression case required by success criterion 1: before this
+  // phase's fix, a NaN pRedWin flowed straight into scoreSet and produced a
+  // NaN brierScore instead of being quarantined and counted. This mixed
+  // fixture (2 valid predictions + 1 NaN) is the exact shape that proves
+  // it: brierScore must be a real number, and exclusionCounts.quarantined
+  // must be 1, never a NaN Brier and never a silent drop.
+  it("quarantines a non-numeric (NaN) probability alongside valid ones, yielding a real Brier score and a quarantine count of 1", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.7, actualWinner: "red" }),
+      prediction({ matchKey: "2024test_qm2", pRedWin: 0.3, actualWinner: "blue" }),
+      prediction({ matchKey: "2024test_qm3", pRedWin: NaN, actualWinner: "red" }),
+    ];
+    const slices = aggregateScores(predictions);
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+    expect(combined.brierScore).not.toBeNull();
+    expect(Number.isNaN(combined.brierScore)).toBe(false);
+    expect(combined.exclusionCounts.quarantined).toBe(1);
+    expect(combined.scoredCount).toBe(2);
+    expect(combined.candidateCount).toBe(3);
+  });
+
+  it("quarantines an out-of-interval probability (negative or above 1) the same way as a NaN", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.7, actualWinner: "red" }),
+      prediction({ matchKey: "2024test_qm2", pRedWin: -0.2, actualWinner: "blue" }),
+      prediction({ matchKey: "2024test_qm3", pRedWin: 1.4, actualWinner: "red" }),
+    ];
+    const slices = aggregateScores(predictions);
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+    expect(combined.exclusionCounts.quarantined).toBe(2);
+    expect(combined.scoredCount).toBe(1);
+    expect(combined.candidateCount).toBe(3);
+  });
+
+  it("keeps the scored-plus-excluded accounting identity true when quarantines are present", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.7, actualWinner: "red" }),
+      prediction({ matchKey: "2024off_qm1", pRedWin: NaN, actualWinner: "red", isOffseason: true }),
+      prediction({ matchKey: "2024test_qm2", pRedWin: Infinity, actualWinner: "blue" }),
+    ];
+    const slices = aggregateScores(predictions);
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+    // The offseason-flagged NaN candidate is counted under offseason (an
+    // earlier branch in the filter loop), never as a quarantine.
+    expect(combined.exclusionCounts.offseason).toBe(1);
+    expect(combined.exclusionCounts.quarantined).toBe(1);
+    const total =
+      combined.scoredCount +
+      combined.exclusionCounts.offseason +
+      combined.exclusionCounts.surrogateAffected +
+      combined.exclusionCounts.missingResult +
+      combined.exclusionCounts.quarantined;
+    expect(total).toBe(combined.candidateCount);
+  });
+
+  it("returns normally with 24 quarantined candidates in a population below the share-bound floor", () => {
+    const predictions: HarnessPredictionInput[] = [];
+    for (let i = 0; i < 24; i++) {
+      predictions.push(prediction({ matchKey: `2024bad_qm${i}`, pRedWin: NaN }));
+    }
+    predictions.push(prediction({ matchKey: "2024good_qm1", pRedWin: 0.6 }));
+    // 25 candidates total, well under QUARANTINE_SHARE_MIN_POPULATION.
+    expect(predictions.length).toBeLessThan(QUARANTINE_SHARE_MIN_POPULATION);
+
+    expect(() => aggregateScores(predictions)).not.toThrow();
+    const slices = aggregateScores(predictions);
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+    expect(combined.exclusionCounts.quarantined).toBe(24);
+  });
+
+  it("throws when the quarantine count reaches QUARANTINE_ABSOLUTE_LIMIT (25), naming the season and the bound crossed", () => {
+    const predictions: HarnessPredictionInput[] = [];
+    for (let i = 0; i < QUARANTINE_ABSOLUTE_LIMIT; i++) {
+      predictions.push(prediction({ matchKey: `2024bad_qm${i}`, pRedWin: NaN }));
+    }
+    expect(() => aggregateScores(predictions)).toThrow(/2024/);
+    expect(() => aggregateScores(predictions)).toThrow(/QUARANTINE_ABSOLUTE_LIMIT/);
+  });
+
+  it("throws when the quarantined share exceeds QUARANTINE_SHARE_LIMIT with a population at or above the floor, even below the absolute limit", () => {
+    const predictions: HarnessPredictionInput[] = [];
+    // 200 candidates (the population floor), 2 quarantined (1% > 0.5%),
+    // count (2) well below QUARANTINE_ABSOLUTE_LIMIT (25).
+    for (let i = 0; i < QUARANTINE_SHARE_MIN_POPULATION - 2; i++) {
+      predictions.push(prediction({ matchKey: `2024good_qm${i}`, pRedWin: 0.6 }));
+    }
+    predictions.push(prediction({ matchKey: "2024bad_qm1", pRedWin: NaN }));
+    predictions.push(prediction({ matchKey: "2024bad_qm2", pRedWin: NaN }));
+    expect(predictions.length).toBe(QUARANTINE_SHARE_MIN_POPULATION);
+    expect(2 / QUARANTINE_SHARE_MIN_POPULATION).toBeGreaterThan(QUARANTINE_SHARE_LIMIT);
+
+    expect(() => aggregateScores(predictions)).toThrow(/QUARANTINE_SHARE_LIMIT/);
+  });
+
+  it("does not apply the share bound below the population floor, even when the share would exceed it", () => {
+    const predictions: HarnessPredictionInput[] = [];
+    // 150 candidates (below the 200 floor), 1 quarantined — a 0.67% share
+    // that WOULD cross QUARANTINE_SHARE_LIMIT if the floor did not gate it.
+    for (let i = 0; i < 149; i++) {
+      predictions.push(prediction({ matchKey: `2024good_qm${i}`, pRedWin: 0.6 }));
+    }
+    predictions.push(prediction({ matchKey: "2024bad_qm1", pRedWin: NaN }));
+    expect(predictions.length).toBeLessThan(QUARANTINE_SHARE_MIN_POPULATION);
+    expect(1 / predictions.length).toBeGreaterThan(QUARANTINE_SHARE_LIMIT);
+
+    expect(() => aggregateScores(predictions)).not.toThrow();
   });
 });

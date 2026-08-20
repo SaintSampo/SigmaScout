@@ -9,6 +9,7 @@
 import type { CompLevel } from "../core/algorithms/types.js";
 import { scoreSet, type MatchOutcome, type ScoredPrediction } from "../core/scoring/brier.js";
 import { calibrationBins, type CalibrationBin } from "../core/scoring/calibration.js";
+import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 
 export type SeasonLabel = "tune" | "holdout";
 
@@ -47,7 +48,45 @@ export interface ExclusionCounts {
   surrogateAffected: number;
   /** No recorded outcome for this match. */
   missingResult: number;
+  /**
+   * D-06 / 01-REVIEW WR-05: a prediction whose `pRedWin` is non-finite or
+   * outside the closed interval [0, 1] (`isValidPRedWin` from
+   * `packages/core/scoring/predictionValidity.ts` — the SAME predicate
+   * `assertValidPRedWin` uses at emission, so the two can never disagree
+   * about what "valid" means). Excluded from `scoreSet`/`calibrationBins`
+   * and counted here, rather than silently dropped or allowed to produce a
+   * `NaN` Brier score. Bounded by `QUARANTINE_ABSOLUTE_LIMIT`/
+   * `QUARANTINE_SHARE_LIMIT` below — see their doc comment for D-07's
+   * rationale.
+   */
+  quarantined: number;
 }
+
+/**
+ * D-07: an unbounded quarantine could hollow out a season and produce a
+ * Brier score that looks good precisely because the hard cases left — the
+ * exact silent-narrowing failure this project exists to prevent (a
+ * non-finite `pRedWin` usually means a team's state is already corrupt, so
+ * one glitch can cascade across that team's remaining matches). Two bounds,
+ * both required to trip the throw in `aggregateScores` below:
+ *
+ *   - `QUARANTINE_ABSOLUTE_LIMIT` tolerates a handful of genuine one-off
+ *     anomalies without failing a whole season.
+ *   - `QUARANTINE_SHARE_LIMIT` (applied only once `candidateCount` reaches
+ *     `QUARANTINE_SHARE_MIN_POPULATION`) catches a cascade inside a small
+ *     slice — an elimination-only view can be a few hundred matches, where
+ *     the absolute limit alone would tolerate losing most of it. Below the
+ *     population floor a single anomaly is not evidence of a cascade, so
+ *     only the absolute limit governs.
+ *
+ * Measured malformed-prediction population as of this phase is 0, so no
+ * currently-published figure is affected by these bounds existing.
+ */
+export const QUARANTINE_ABSOLUTE_LIMIT = 25;
+/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full D-07 rationale. */
+export const QUARANTINE_SHARE_LIMIT = 0.005;
+/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full D-07 rationale. */
+export const QUARANTINE_SHARE_MIN_POPULATION = 200;
 
 /**
  * One prediction record as fed into aggregation. `actualWinner: null` means
@@ -95,7 +134,7 @@ export interface ScoreSlice {
   calibrationBins: CalibrationBin[];
 }
 
-const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, missingResult: 0 };
+const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 };
 
 /**
  * Produces one slice per algorithm per season per competition-level view
@@ -141,7 +180,27 @@ export function aggregateScores(
             exclusionCounts.missingResult += 1;
             continue;
           }
+          if (!isValidPRedWin(candidate.pRedWin)) {
+            exclusionCounts.quarantined += 1;
+            continue;
+          }
           scorable.push({ pRedWin: candidate.pRedWin, actualWinner: candidate.actualWinner });
+        }
+
+        // D-07: bounded quarantine — a hollowed-out population must never
+        // silently publish a flatteringly small Brier score. Never caught;
+        // the run is meant to fail here rather than continue.
+        const candidateCount = candidates.length;
+        const quarantinedCount = exclusionCounts.quarantined;
+        const exceedsAbsoluteLimit = quarantinedCount >= QUARANTINE_ABSOLUTE_LIMIT;
+        const exceedsShareLimit =
+          candidateCount >= QUARANTINE_SHARE_MIN_POPULATION &&
+          quarantinedCount / candidateCount > QUARANTINE_SHARE_LIMIT;
+        if (exceedsAbsoluteLimit || exceedsShareLimit) {
+          const boundCrossed = exceedsAbsoluteLimit ? "QUARANTINE_ABSOLUTE_LIMIT" : "QUARANTINE_SHARE_LIMIT";
+          throw new Error(
+            `score: algorithm "${algorithmId}" season ${season} (${view}) quarantined ${quarantinedCount} of ${candidateCount} candidates, crossing ${boundCrossed} — refusing to publish a Brier score computed on a materially narrowed population (D-07)`
+          );
         }
 
         const result = scoreSet(scorable);
