@@ -50,7 +50,11 @@ function isProcessAlive(pid: number): boolean {
  * probe-then-write ordering left a TOCTOU window where two concurrent
  * callers could both observe "no lock file" and both believe they'd
  * acquired it. Only on `EEXIST` does this fall into the stale-lock
- * detection below, which is unchanged.
+ * detection below. WR-01 (03.1-REVIEW.md): the stale-lock RECLAIM path is
+ * atomic too — it unlinks the stale file and retries the same `wx`
+ * exclusive-create from the top, rather than overwriting with a plain
+ * write, so two concurrent reclaimers of the same stale lock cannot both
+ * succeed either.
  */
 function acquireWriteLock(lockPath: string): void {
   try {
@@ -72,8 +76,26 @@ function acquireWriteLock(lockPath: string): void {
     );
   }
   // Stale lock from a process that no longer exists (or unparseable
-  // contents) — reclaim it.
-  writeFileSync(lockPath, String(process.pid), "utf8");
+  // contents) — reclaim it with the same atomic exclusive-create
+  // discipline as the fast path above (WR-01, 03.1-REVIEW.md): unlink the
+  // stale file, then retry acquisition from the top rather than
+  // overwriting it with a plain `writeFileSync`. If a second concurrent
+  // caller raced us into this same stale-reclaim branch, at most one of us
+  // wins the retried `wx` write; the loser's retry hits `EEXIST` again,
+  // this time against the WINNER's freshly-written (and therefore alive)
+  // pid, so it falls through to the "already open" throw above instead of
+  // silently believing it also holds the lock.
+  try {
+    unlinkSync(lockPath);
+  } catch (unlinkErr) {
+    // Another process may have already reclaimed (and thus unlinked) this
+    // exact stale file first — ENOENT just means we lost that narrow race;
+    // the retry below resolves correctly against whatever is there now.
+    if ((unlinkErr as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw unlinkErr;
+    }
+  }
+  acquireWriteLock(lockPath);
 }
 
 /**

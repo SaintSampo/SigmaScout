@@ -30,7 +30,7 @@ import {
 // unaffected.
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+  return { ...actual, existsSync: vi.fn(actual.existsSync), unlinkSync: vi.fn(actual.unlinkSync) };
 });
 
 let dir: string;
@@ -308,6 +308,52 @@ describe("openCorpus — atomic write-lock acquisition (WR-03)", () => {
       const reclaimed = openCorpus(freshPath);
       expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
       reclaimed.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("WR-01 regression proof: does not let two concurrent stale-lock reclaimers both believe they hold the lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-reclaim-race-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      // A dead pid — any reclaimer's isProcessAlive(...) check reads false.
+      writeFileSync(lockPath, "999999999", "utf8");
+
+      // Simulate a second, genuinely concurrent process winning the race to
+      // reclaim: immediately after THIS process's own unlink of the stale
+      // file (the first step of the atomic reclaim), a competitor
+      // recreates the lock, atomically, under its own (alive) pid — exactly
+      // what a second real `openCorpus` call doing the same
+      // unlink-then-retry sequence would do if it got there microseconds
+      // first. The fixed implementation must notice this on retry (its own
+      // `wx` re-attempt now hits a real `EEXIST` against a LIVE owner) and
+      // throw, rather than the old plain-`writeFileSync` reclaim, which had
+      // no such re-check and would let both callers "win".
+      const fsModule = await import("node:fs");
+      const realUnlinkSync = (await vi.importActual<typeof import("node:fs")>("node:fs")).unlinkSync;
+      (fsModule.unlinkSync as ReturnType<typeof vi.fn>).mockImplementationOnce((path: string) => {
+        realUnlinkSync(path);
+        writeFileSync(path, String(process.pid), { flag: "wx" });
+      });
+
+      // Pre-fix, this call does not throw at all — it silently reclaims a
+      // second time, opening a real db handle. Capture and close it so the
+      // `finally` block's directory cleanup does not fail on an open
+      // Windows file handle regardless of which state (red or green) this
+      // assertion runs against.
+      let opened: Corpus | undefined;
+      try {
+        expect(() => {
+          opened = openCorpus(freshPath);
+        }).toThrow(/already open for writing/);
+      } finally {
+        opened?.close();
+      }
+      // The simulated competitor's (live) pid lock must survive untouched —
+      // this process must not have clobbered it.
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
