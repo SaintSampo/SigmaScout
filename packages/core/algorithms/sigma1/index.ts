@@ -60,7 +60,7 @@ import { adaptationFactor, emptyInnovationStats, foldInnovation, type Innovation
 import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, teamTotalVariance } from "./covariance.js";
 import { foldConsistency, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "./params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { sigma1Carryover } from "./carryover.js";
 import { rpRuleModuleForSeason } from "./rp/rules.js";
 import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "./rp/constants.js";
@@ -1084,7 +1084,15 @@ export interface Sigma1Options {
  * never re-resolved per match.
  */
 export function makeSigma1(options: Sigma1Options): AlgorithmModule<Sigma1State> {
-  const params = options.params ?? DEFAULT_SIGMA1_PARAMS;
+  // WR-02 (03.1-REVIEW.md): parse through Sigma1ParamsSchema rather than
+  // merely accepting `options.params` by TypeScript shape — the schema's
+  // `.check(...)` enforces the cross-parameter invariants (D-07, T-03-06,
+  // D-04) that structural typing alone cannot, closing the boundary
+  // params.ts's "unconstructible" doc comment already claimed was closed.
+  // A no-op for every existing call site: `tune.ts`, `cli.ts`, and
+  // `promote.ts` already validate upstream, and `DEFAULT_SIGMA1_PARAMS`
+  // itself parses cleanly (verified directly before this change).
+  const params = Sigma1ParamsSchema.parse(options.params ?? DEFAULT_SIGMA1_PARAMS);
   return {
     id: options.id,
     // D-13: a version is a code version paired with a named, committed

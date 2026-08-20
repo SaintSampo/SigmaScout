@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_SIGMA1_PARAMS,
   SIGMA1_CONSISTENCY_CARRY_DECAY,
   makeSigma1,
   sigma1,
@@ -501,6 +502,21 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
   it("makeSigma1({ id, linkMode }) round-trips a custom id", () => {
     const custom = makeSigma1({ id: "sigma1-custom", linkMode: "season-sd" });
     expect(custom.id).toBe("sigma1-custom");
+  });
+
+  it("throws when constructed with a params object that violates a cross-parameter invariant (WR-02, 03.1-REVIEW.md: makeSigma1 must parse options.params through Sigma1ParamsSchema, not merely accept it by TypeScript shape)", () => {
+    // D-07's invariant: processNoiseEventBoundary must strictly exceed
+    // processNoiseWithinEvent. TypeScript's structural typing enforces the
+    // shape of Sigma1Params but not this cross-parameter invariant, so an
+    // object like this compiles fine and previously reached makeSigma1
+    // unvalidated.
+    expect(() =>
+      makeSigma1({
+        id: "sigma1-invalid",
+        linkMode: "predictive-variance",
+        params: { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 1, processNoiseWithinEvent: 5 },
+      })
+    ).toThrow(/processNoiseEventBoundary must strictly exceed processNoiseWithinEvent/);
   });
 });
 
