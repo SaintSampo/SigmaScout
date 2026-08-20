@@ -393,6 +393,36 @@ function applyObservation(
   for (const idx of indices) uX += ratingsVector[idx]!;
   const residual = observation.allianceScore - uX;
 
+  // 01-REVIEW WR-01 / D-08: a numerical breakdown in the incremental
+  // Sherman-Morrison/RLS solve aborts the run at the observation that broke
+  // it, instead of silently folding a non-finite or sign-broken update into
+  // every rating for the rest of the season. `residual` non-finite means
+  // `observation.allianceScore` (or the accumulated ratings it was compared
+  // against) is already corrupt; `denom <= 0` means the maintained inverse
+  // has lost positive-definiteness — in exact arithmetic `denom` is
+  // provably `1 + a positive quadratic form`, so a non-positive value here
+  // can only mean accumulated floating-point error broke that invariant.
+  // Per D-08 this safeguard is strictly detect-only: no periodic
+  // resynchronization or symmetrization of the inverse was added, because
+  // self-healing would move OPR's ratings, and Phase 3's D-04 froze OPR and
+  // EPA as fixed baselines precisely because every SC-3 number is measured
+  // against them — changing them invalidates the comparison and every
+  // published figure derived from it. Per D-09 this abort is deliberately
+  // unlike `packages/harness/score.ts`'s per-prediction quarantine: a
+  // `denom` breakdown corrupts the shared incremental-solve state every
+  // later observation reads, so there is nothing left to recover from and
+  // the whole run aborts, whereas a single malformed `pRedWin` is a
+  // per-prediction anomaly that can be quarantined and counted without
+  // discarding the rest of the run.
+  if (!Number.isFinite(residual) || denom <= 0) {
+    throw new Error(
+      `opr: incremental solve broke down applying an observation with allianceScore=${observation.allianceScore} — ` +
+        `computed residual=${residual}, denom=${denom}. The incremental Sherman-Morrison/RLS solve's shared model ` +
+        `state (the maintained inverse) is unrecoverable from this point, so the run aborts rather than propagating ` +
+        `corrupt ratings through the rest of the season (01-REVIEW WR-01, D-08).`
+    );
+  }
+
   const nextRatingsVector = ratingsVector.slice();
   for (let r = 0; r < nextRatingsVector.length; r++) {
     nextRatingsVector[r] = nextRatingsVector[r]! + (pu[r]! / denom) * residual;

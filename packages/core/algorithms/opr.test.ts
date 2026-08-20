@@ -429,6 +429,45 @@ describe("opr.update — incremental solve matches solveRidgeOpr's from-scratch 
   });
 });
 
+describe("opr.update — applyObservation's numerical-breakdown guard (D-08, 01-REVIEW WR-01)", () => {
+  it("throws when a match's alliance score is non-finite, naming the offending score and the computed residual, instead of writing a non-finite rating into the returned state", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+
+    expect(() =>
+      opr.update(
+        state,
+        match({ matchKey: "2024test_qm2", redTeams: ["A1", "A7", "A8"], blueTeams: ["A9", "A10", "A11"], redScore: Number.NaN, blueScore: 20 })
+      )
+    ).toThrow(/residual=NaN/);
+  });
+
+  it("never fires when an alliance's every team is a surrogate — that observation returns early before the guard is reached, and remains a genuine no-op", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+
+    expect(() =>
+      opr.update(
+        state,
+        match({
+          matchKey: "2024test_qm2",
+          redTeams: ["A1", "A2", "A3"],
+          redSurrogates: ["A1", "A2", "A3"],
+          blueTeams: ["A4", "A5", "A6"],
+          redScore: Number.NaN,
+          blueScore: 20,
+        })
+      )
+    ).not.toThrow();
+  });
+});
+
 describe("opr — disqualification policy (Open Question 3): opposite of surrogates", () => {
   it("a disqualified team's rating is updated from the match it was disqualified in — MatchResult carries no dq field, so a dq'd participant is indistinguishable from any other and keeps its column", () => {
     let state: OprState = opr.initState([]);
