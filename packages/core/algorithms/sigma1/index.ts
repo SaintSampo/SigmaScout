@@ -41,6 +41,7 @@ import {
 } from "../breakdown/index.js";
 import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation, type ExpandingStats } from "../../scoring/expandingStats.js";
+import { assertValidPRedWin } from "../../scoring/predictionValidity.js";
 import {
   TOTAL_METRIC_KEY,
   type AlgorithmModule,
@@ -663,6 +664,12 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const margin = redScore - blueScore;
   const seasonScoreSd = standardDeviation(state.allianceScoreStats, params.fallbackScoreSd);
   const pRedWin = winProbability(linkMode, margin, seasonScoreSd, variance, params.linkC);
+  // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
+  // is returned — see predictionValidity.ts's doc comment for why this
+  // check lives here rather than at scoreSet/calibrationBins entry. One
+  // module builds three link-mode variants (D-12), so `linkMode` stands in
+  // for the algorithm identifier alongside the match key.
+  assertValidPRedWin(pRedWin, `sigma1:${linkMode} predict (${match.matchKey})`);
 
   // Plan 03-03 (D-09/D-10/D-11): the RP pmf is computed from values ALREADY
   // produced above (redScore/blueScore, and each alliance's OWN posterior +

@@ -61,6 +61,7 @@ import {
   standardDeviation,
   type ExpandingStats,
 } from "../scoring/expandingStats.js";
+import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 import {
   TOTAL_METRIC_KEY,
   type AlgorithmModule,
@@ -368,6 +369,10 @@ function predict(state: EpaState, match: UpcomingMatch): Prediction {
   const scale = seasonScoreSd / (-EPA_K * Math.LN10);
   const margin = redScore - blueScore;
   const pRedWin = 1 / (1 + Math.exp(-margin / scale));
+  // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
+  // is returned — see predictionValidity.ts's doc comment for why this
+  // check lives here rather than at scoreSet/calibrationBins entry.
+  assertValidPRedWin(pRedWin, `epa.predict (${match.matchKey})`);
 
   return {
     // Ties (margin === 0) give pRedWin exactly 0.5 via the logistic form

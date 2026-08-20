@@ -100,3 +100,16 @@ describe("winProbability — degenerate variance handled without NaN/Infinity", 
     }
   });
 });
+
+describe("winProbability — season-sd mode's own degenerate seasonScoreSd branch (Rule 1 fix, plan 03.1-02)", () => {
+  it("a zero or negative seasonScoreSd never produces NaN or Infinity, resolving to the same sign-only step function as the other two modes' degenerate branches", () => {
+    for (const seasonScoreSd of [0, -1, -50]) {
+      for (const margin of [-10, 0, 10]) {
+        const p = winProbability("season-sd", margin, seasonScoreSd, 999, 1);
+        expect(Number.isFinite(p)).toBe(true);
+        const expected = margin === 0 ? 0.5 : margin > 0 ? 1 : 0;
+        expect(p).toBe(expected);
+      }
+    }
+  });
+});

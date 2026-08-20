@@ -24,6 +24,7 @@
  */
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
+import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 
 /**
  * Ridge penalty added to the normal equations (M^T M + λI). λ=3 is small
@@ -427,6 +428,10 @@ export const opr: AlgorithmModule<OprState> = {
     const redScore = redTeams.reduce((sum, team) => sum + (state.ratings.get(team) ?? 0), 0);
     const blueScore = blueTeams.reduce((sum, team) => sum + (state.ratings.get(team) ?? 0), 0);
     const pRedWin = logisticWinProbability(redScore - blueScore);
+    // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
+    // is returned — see predictionValidity.ts's doc comment for why this
+    // check lives here rather than at scoreSet/calibrationBins entry.
+    assertValidPRedWin(pRedWin, `opr.predict (${match.matchKey})`);
     return {
       winner: pRedWin >= 0.5 ? "red" : "blue",
       pRedWin,

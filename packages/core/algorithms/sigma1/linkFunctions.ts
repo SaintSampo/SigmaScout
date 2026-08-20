@@ -79,11 +79,19 @@ export const SIGMA1_LINK_C = 1.0;
  * `predictiveVariance` is D-10's full `P + Q + R` alliance total from
  * `sigma1/index.ts`'s `predict`, combined red+blue.
  *
- * `predictiveVariance <= 0` (mode 2/3 only) is a documented degenerate
- * branch: mode 2 falls back to a sign-only step function at `margin`
- * (matching mode 3's `normalCdf` boundary behavior at `sd <= 0`) instead of
- * dividing by zero; mode 3 delegates to `normalCdf`'s own `sd <= 0` branch
- * via `Math.sqrt(Math.max(0, predictiveVariance))`.
+ * `predictiveVariance <= 0` (mode 2/3) and `seasonScoreSd <= 0` (mode 1)
+ * are documented degenerate branches, all three following the same
+ * sign-only-step-function shape: mode 1 and mode 2 fall back to it
+ * directly (matching mode 3's `normalCdf` boundary behavior at `sd <= 0`)
+ * instead of dividing by zero; mode 3 delegates to `normalCdf`'s own
+ * `sd <= 0` branch via `Math.sqrt(Math.max(0, predictiveVariance))`.
+ * (01-REVIEW WR-05 / this phase: mode 1's guard was the one of the three
+ * missing until `assertValidPRedWin` at `sigma1/index.ts`'s `predict`
+ * return site surfaced a real `0/0 === NaN` case — a season-sd prediction
+ * for two alliances with identical observed history so far, where the
+ * expanding-window SD is still exactly 0 — that this file's own
+ * degenerate-branch convention for the other two modes had simply not
+ * been extended to cover.)
  */
 export function winProbability(
   mode: WinProbMode,
@@ -94,6 +102,9 @@ export function winProbability(
 ): number {
   switch (mode) {
     case "season-sd":
+      if (seasonScoreSd <= 0) {
+        return margin === 0 ? 0.5 : margin > 0 ? 1 : 0;
+      }
       return logistic(margin / seasonScoreSd);
     case "predictive-variance": {
       if (predictiveVariance <= 0) {
