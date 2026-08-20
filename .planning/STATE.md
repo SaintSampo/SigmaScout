@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03.1
 current_phase_name: address-phase-1-3-review-warnings-and-doc-drift
 status: executing
-stopped_at: Completed 03.1-02-PLAN.md
-last_updated: "2026-08-20T03:53:25.517Z"
+stopped_at: Completed 03.1-04-PLAN.md
+last_updated: "2026-08-20T04:17:04.796Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03.1 (address-phase-1-3-review-warnings-and-doc-drift) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-08-19 — Phase 03.1 execution started
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -81,6 +81,7 @@ Progress: [█████████░] 88%
 | Phase 03 P08 | 55min | 3 tasks | 8 files |
 | Phase 03.1 P01 | 55min | 3 tasks | 9 files |
 | Phase 03.1 P02 | 11min | 2 tasks | 12 files |
+| Phase 03.1 P04 | 55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 03.1 P02]: assertValidPRedWin's opr.predict regression test lives in the new predictionValidity.test.ts, not opr.test.ts, to avoid a file conflict with plan 03.1-03 (which owns opr.test.ts exclusively in the next wave)
 - [Phase ?]: [Phase 03.1 P02]: Rule 1 fix -- assertValidPRedWin surfaced a real latent 0/0 NaN in sigma1's season-sd link mode (the one of D-12's three modes missing the degenerate-branch guard modes 2/3 already had); fixed in linkFunctions.ts, proven not to move either committed digest (both are id="sigma1", predictive-variance mode, never season-sd)
 - [Phase ?]: [Phase 03.1 P02]: Rule 3 fix -- ExclusionCounts.quarantined becoming a required field broke artifact.ts's ExclusionCountsSchema plus inline ScoreSlice fixtures in report.test.ts/tune.test.ts (files outside this plan's declared files_modified); propagated quarantined: 0 / a matching Zod field through all three
+- [Phase ?]: [Phase 03.1 P04]: D-11 (WR-01) implemented via Zod 4's object-level .check() chained onto Sigma1ParamsSchema's existing z.strictObject(...), confirmed by direct execution to still satisfy z.ZodType<Sigma1Params> and nest unchanged inside PromotedVersionSchema -- every pre-existing .parse() call site now enforces the five cross-parameter invariants with zero new call sites
+- [Phase ?]: [Phase 03.1 P04]: One as Sigma1Params cast deliberately left in tune.ts's coordinate-descent refinement loop (not one of the two sites the plan named) -- filtered by isValidParamSet immediately before use, proven equivalent to Sigma1ParamsSchema by a dedicated agreement test, so it is not a bypass
+- [Phase ?]: [Phase 03.1 P04]: warnIfNewerPromotedSigma1 (D-12, WR-03) wired only into applyPromotedOverrides' sigma1 branch, never sigma1-adapt -- that branch reads a gitignored search artifact, not a committed version pin, so WR-03's staleness concern does not apply there
 
 ### Pending Todos
 
@@ -196,6 +200,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T03:53:25.502Z
-Stopped at: Completed 03.1-02-PLAN.md
+Last session: 2026-08-20T04:17:04.780Z
+Stopped at: Completed 03.1-04-PLAN.md
 Resume file: None

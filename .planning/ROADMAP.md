@@ -154,14 +154,14 @@ Plans:
   4. Neither long-running numerical guarantee rests on coincidence: a season-scale run of the incremental OPR solve is proven to stay finite and within a documented tolerance of a fresh batch solve, and `isValidParamSet` is enforced at every Sigma1 candidate-generation and promotion boundary.
   5. Every Phase 1-3 planning artifact's recorded status matches HEAD — no artifact claims an open finding that is closed, or a closed finding that is open — covering the three REVIEW.md frontmatter blocks, `01-VERIFICATION.md`'s human-verification item, and STATE.md's Blockers/Concerns section.
 
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 03.1-01-PLAN.md — Corpus silent-drops: winner imputation, foreign-key enforcement, atomic lock, workspace glob (01-REVIEW WR-02/03/04/06)
 - [x] 03.1-02-PLAN.md — Prediction validity at emission plus bounded quarantine at scoring (01-REVIEW WR-05)
-- [ ] 03.1-04-PLAN.md — Unconstructible invalid Sigma1 params, aborting screen stage, promoted-version staleness warning (03-REVIEW WR-01/02/03)
+- [x] 03.1-04-PLAN.md — Unconstructible invalid Sigma1 params, aborting screen stage, promoted-version staleness warning (03-REVIEW WR-01/02/03)
 
 **Wave 2** *(blocked on Wave 1 — shares `opr.ts` with 03.1-02)*
 
@@ -257,7 +257,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 1. Data Foundation & Evaluation Harness | 6/6 | Complete    | 2026-08-19 |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
-| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 2/5 | In Progress|  |
+| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 3/5 | In Progress|  |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
