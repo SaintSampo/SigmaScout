@@ -18,6 +18,15 @@
  *   can see the previously-stored row — wiring it there (not leaving it to
  *   each call site) means a caller cannot bypass the check by upserting
  *   directly.
+ * - The `winnerImputed` flag (D-01, 01-REVIEW WR-06): a played, non-tied
+ *   match whose TBA `winning_alliance` is empty (or some other non-red/blue
+ *   value) is treated as a reporting gap rather than as a statement about
+ *   the match — the winner is derived from the score comparison instead of
+ *   being left `null`, which would otherwise silently drop the match from
+ *   `selectMatchesChronological`'s `WHERE m.winner IS NOT NULL` clause. A
+ *   TBA-reported `winning_alliance` is never overwritten or re-derived. The
+ *   measured population of this case is 0 corpus-wide as of 2026-08-19, so
+ *   this is a forward-looking guard rather than a repair.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
@@ -44,6 +53,7 @@ export interface CorpusMatch {
   redDqs: string[];
   blueDqs: string[];
   winner: "red" | "blue" | "tie" | null;
+  winnerImputed: boolean;
   redScore: number | null;
   blueScore: number | null;
   redRpEarned: number | null;
@@ -92,11 +102,18 @@ export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusM
   const blueScore = played ? match.alliances.blue.score : null;
 
   let winner: "red" | "blue" | "tie" | null = null;
+  let winnerImputed = false;
   if (played) {
     if (match.winning_alliance === "red" || match.winning_alliance === "blue") {
       winner = match.winning_alliance;
     } else if (redScore === blueScore) {
       winner = "tie";
+    } else {
+      // TBA's `winning_alliance` is empty (or some other non-red/blue
+      // value) on a played, non-tied match. D-01/01-REVIEW WR-06: derive
+      // the winner from the score comparison rather than leaving it null.
+      winner = redScore! > blueScore! ? "red" : "blue";
+      winnerImputed = true;
     }
   }
 
@@ -118,6 +135,7 @@ export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusM
     redDqs: match.alliances.red.dq_team_keys,
     blueDqs: match.alliances.blue.dq_team_keys,
     winner,
+    winnerImputed,
     redScore,
     blueScore,
     redRpEarned,

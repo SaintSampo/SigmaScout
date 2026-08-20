@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS matches (
   red_dqs TEXT NOT NULL,            -- JSON array
   blue_dqs TEXT NOT NULL,
   winner TEXT,                      -- 'red' | 'blue' | 'tie' | NULL if unplayed
+  winner_imputed INTEGER NOT NULL DEFAULT 0, -- synthesized flag (TBA has no such field): 1 when `winner` was derived from the score comparison rather than TBA's own `winning_alliance` (D-01/D-03, 01-REVIEW WR-06)
   red_score INTEGER,
   blue_score INTEGER,
   red_rp_earned INTEGER,            -- NULL if not derivable yet

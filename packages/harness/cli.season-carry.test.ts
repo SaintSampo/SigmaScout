@@ -89,6 +89,7 @@ function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     redDqs: [],
     blueDqs: [],
     winner: "red",
+    winnerImputed: false,
     redScore: 100,
     blueScore: 50,
     redRpEarned: 2,

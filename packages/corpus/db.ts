@@ -177,12 +177,12 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
     `INSERT INTO matches (
        match_key, event_key, comp_level, match_number, set_number, sort_time,
        red_teams, blue_teams, red_surrogates, blue_surrogates, red_dqs, blue_dqs,
-       winner, red_score, blue_score, red_rp_earned, blue_rp_earned,
+       winner, winner_imputed, red_score, blue_score, red_rp_earned, blue_rp_earned,
        has_score_breakdown, score_breakdown_raw, replayed, replay_detected_at
      ) VALUES (
        @matchKey, @eventKey, @compLevel, @matchNumber, @setNumber, @sortTime,
        @redTeams, @blueTeams, @redSurrogates, @blueSurrogates, @redDqs, @blueDqs,
-       @winner, @redScore, @blueScore, @redRpEarned, @blueRpEarned,
+       @winner, @winnerImputed, @redScore, @blueScore, @redRpEarned, @blueRpEarned,
        @hasScoreBreakdown, @scoreBreakdownRaw, @replayed, @replayDetectedAt
      )
      ON CONFLICT(match_key) DO UPDATE SET
@@ -197,6 +197,7 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
        red_dqs = excluded.red_dqs,
        blue_dqs = excluded.blue_dqs,
        winner = excluded.winner,
+       winner_imputed = excluded.winner_imputed,
        red_score = excluded.red_score,
        blue_score = excluded.blue_score,
        red_rp_earned = excluded.red_rp_earned,
@@ -219,6 +220,7 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
     redDqs: JSON.stringify(match.redDqs),
     blueDqs: JSON.stringify(match.blueDqs),
     winner: match.winner,
+    winnerImputed: match.winnerImputed ? 1 : 0,
     redScore: match.redScore,
     blueScore: match.blueScore,
     redRpEarned: match.redRpEarned,

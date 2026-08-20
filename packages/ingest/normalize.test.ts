@@ -211,6 +211,102 @@ describe("normalizeMatch — tie", () => {
   });
 });
 
+describe("normalizeMatch — winner imputation (D-01, 01-REVIEW WR-06)", () => {
+  it("derives winner red and imputes when winning_alliance is empty and red outscored blue", () => {
+    const match = tbaMatch({
+      winning_alliance: "",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: 80 },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: 60 },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBe("red");
+    expect(result.winnerImputed).toBe(true);
+  });
+
+  it("derives winner blue and imputes when winning_alliance is empty and blue outscored red", () => {
+    const match = tbaMatch({
+      winning_alliance: "",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: 60 },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: 80 },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBe("blue");
+    expect(result.winnerImputed).toBe(true);
+  });
+
+  it("never re-derives or overwrites a TBA-reported winner", () => {
+    const match = tbaMatch({
+      winning_alliance: "red",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: 60 },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: 80 },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBe("red");
+    expect(result.winnerImputed).toBe(false);
+  });
+
+  it("does not treat an empty-winning_alliance tie as an imputation", () => {
+    const match = tbaMatch({
+      winning_alliance: "",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: 75 },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: 75 },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBe("tie");
+    expect(result.winnerImputed).toBe(false);
+  });
+
+  it("leaves winnerImputed false for an unplayed match", () => {
+    const match = tbaMatch({
+      winning_alliance: "",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: null },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: null },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBeNull();
+    expect(result.winnerImputed).toBe(false);
+  });
+
+  it("derives the winner from score comparison when winning_alliance is a non-red/blue/empty value on a played, non-tied match", () => {
+    // TBA's schema restricts winning_alliance to "red" | "blue" | "" (see
+    // schemas.ts), but normalizeMatch's own derivation logic treats ANY
+    // non-red/blue value the same as empty — this cast exercises that
+    // generality directly, as the plan's <behavior> spec requires.
+    const match = tbaMatch({
+      winning_alliance: "purple" as unknown as "" | "red" | "blue",
+      alliances: {
+        red: { team_keys: ["frc1"], surrogate_team_keys: [], dq_team_keys: [], score: 80 },
+        blue: { team_keys: ["frc4"], surrogate_team_keys: [], dq_team_keys: [], score: 60 },
+      },
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.winner).toBe("red");
+    expect(result.winnerImputed).toBe(true);
+  });
+});
+
 describe("normalizeMatch — ranking points", () => {
   it("reads the recon-observed 'rp' field directly", () => {
     const match = tbaMatch({ score_breakdown: { red: { rp: 2 }, blue: { rp: 1 } } });

@@ -61,6 +61,7 @@ function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     redDqs: [],
     blueDqs: [],
     winner: "red",
+    winnerImputed: false,
     redScore: 100,
     blueScore: 50,
     redRpEarned: 2,
@@ -148,6 +149,39 @@ describe("selectMatchesChronological — offseason exclusion", () => {
       (m) => m.matchKey
     );
     expect(withoutOffseason).toEqual(["2024normal_qm1"]);
+  });
+});
+
+describe("upsertMatch — winner_imputed round trip (D-01/D-03, 01-REVIEW WR-06)", () => {
+  it("a true winnerImputed flag survives a write/read round trip as 1", () => {
+    upsertEvent(db, event());
+    upsertMatch(db, match({ winnerImputed: true }));
+
+    const row = db.prepare("SELECT winner_imputed FROM matches WHERE match_key = ?").get("2024casj_qm1") as {
+      winner_imputed: number;
+    };
+    expect(row.winner_imputed).toBe(1);
+  });
+
+  it("a false winnerImputed flag survives a write/read round trip as 0", () => {
+    upsertEvent(db, event());
+    upsertMatch(db, match({ winnerImputed: false }));
+
+    const row = db.prepare("SELECT winner_imputed FROM matches WHERE match_key = ?").get("2024casj_qm1") as {
+      winner_imputed: number;
+    };
+    expect(row.winner_imputed).toBe(0);
+  });
+
+  it("a second upsert with a false flag overwrites a previously-stored true value (not sticky, unlike replayed)", () => {
+    upsertEvent(db, event());
+    upsertMatch(db, match({ winnerImputed: true }));
+    upsertMatch(db, match({ winnerImputed: false }));
+
+    const row = db.prepare("SELECT winner_imputed FROM matches WHERE match_key = ?").get("2024casj_qm1") as {
+      winner_imputed: number;
+    };
+    expect(row.winner_imputed).toBe(0);
   });
 });
 
