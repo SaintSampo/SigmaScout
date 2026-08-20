@@ -414,7 +414,7 @@ function applyObservation(
   // the whole run aborts, whereas a single malformed `pRedWin` is a
   // per-prediction anomaly that can be quarantined and counted without
   // discarding the rest of the run.
-  if (!Number.isFinite(residual) || denom <= 0) {
+  if (!Number.isFinite(residual) || !Number.isFinite(denom) || denom <= 0) {
     throw new Error(
       `opr: incremental solve broke down applying an observation with allianceScore=${observation.allianceScore} — ` +
         `computed residual=${residual}, denom=${denom}. The incremental Sherman-Morrison/RLS solve's shared model ` +

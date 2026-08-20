@@ -445,6 +445,50 @@ describe("opr.update — applyObservation's numerical-breakdown guard (D-08, 01-
     ).toThrow(/residual=NaN/);
   });
 
+  it("throws when denom is non-finite (NaN/Infinity) even though residual is finite — 03.1-REVIEW.md CR-01: `denom <= 0` alone is false for both NaN and +Infinity, so a non-finite denom must be checked explicitly or it walks straight past the guard", () => {
+    // A real non-finite `denom` only arises from accumulated floating-point
+    // error in the maintained Sherman-Morrison inverse over many thousands
+    // of updates (season scale) — not reproducible deterministically in a
+    // fast unit test by driving real match data through it. Instead, seed
+    // an `OprState` whose `incrementalSolve.inverse` is a duck-typed stub
+    // reporting exactly that breakdown (`rank1Update` returning a
+    // non-finite `denom`), the same shape a real corrupted
+    // `IncrementalInverse` would report to `applyObservation`. `A1` is
+    // pre-registered in `teamIndex`/`ratingsVector` so `applyObservation`'s
+    // team-growth loop (which calls `inverse.withNewDimension`, a method
+    // this stub deliberately does not implement) is never reached — only
+    // `rank1Update` is exercised, which is all that runs before the guard.
+    const corruptState = {
+      observations: [],
+      ratings: new Map([["A1", 0]]),
+      incrementalSolve: {
+        teamIndex: new Map([["A1", 0]]),
+        ratingsVector: new Float64Array([0]),
+        inverse: {
+          rank1Update: () => ({
+            next: undefined,
+            pu: new Float64Array([Number.POSITIVE_INFINITY]),
+            denom: Number.POSITIVE_INFINITY,
+          }),
+        },
+      },
+    } as unknown as OprState;
+
+    // `blueTeams: []` means the blue alliance's observation is an
+    // all-surrogate-equivalent no-op (`indices.length === 0`) that never
+    // touches `inverse` at all — so if the guard does NOT fire on the red
+    // observation (the pre-fix bug), `opr.update` returns normally instead
+    // of throwing later, silently corrupting `ratings.get("A1")` to `NaN`.
+    // This proves the throw fires on the SAME observation that produced the
+    // bad `denom`, not a later one.
+    expect(() =>
+      opr.update(
+        corruptState,
+        match({ matchKey: "2024test_qm3", redTeams: ["A1"], blueTeams: [], redScore: 30, blueScore: 0 })
+      )
+    ).toThrow(/denom=Infinity/);
+  });
+
   it("never fires when an alliance's every team is a surrogate — that observation returns early before the guard is reached, and remains a genuine no-op", () => {
     let state: OprState = opr.initState([]);
     state = opr.update(
