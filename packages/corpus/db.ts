@@ -59,6 +59,19 @@ function acquireWriteLock(lockPath: string): void {
   writeFileSync(lockPath, String(process.pid), "utf8");
 }
 
+/**
+ * True when the given handle's `matches` table already carries the
+ * `winner_imputed` column (D-03). `schema.sql` is applied with `CREATE
+ * TABLE IF NOT EXISTS`, so a database created before this column existed is
+ * never migrated — this predicate is the single source of truth both
+ * `openCorpus`'s open-time guard and `integrity.test.ts`'s skip guard read,
+ * so the two cannot drift (per this plan's `key_links`).
+ */
+export function hasWinnerImputedColumn(db: Corpus): boolean {
+  const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
+  return columns.some((column) => column.name === "winner_imputed");
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
@@ -67,6 +80,10 @@ export function openCorpus(path: string): Corpus {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
+  // D-02/01-REVIEW WR-04: a match written before its event row must fail at
+  // write time — where the ordering bug is — rather than silently
+  // vanishing from selectMatchesChronological's inner join at read time.
+  db.pragma("foreign_keys = ON");
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
 
   const originalClose = db.close.bind(db);
@@ -78,6 +95,18 @@ export function openCorpus(path: string): Corpus {
     }
     return originalClose();
   } as Corpus["close"];
+
+  if (!hasWinnerImputedColumn(db)) {
+    // Release the lock/handle before throwing so a stale-but-live-process
+    // lock doesn't block the next openCorpus call in this same process.
+    db.close();
+    throw new Error(
+      `Corpus at ${path} predates the winner_imputed column (D-03, 01-REVIEW WR-06). ` +
+        `schema.sql is applied with CREATE TABLE IF NOT EXISTS, so an existing database is never migrated. ` +
+        `Delete ${path} along with its -wal and -shm siblings and re-run pnpm ingest — ` +
+        `the corpus is gitignored and disposable by design.`
+    );
+  }
 
   return db;
 }
@@ -332,6 +361,36 @@ export function selectMatchesChronological(
     scoreBreakdownRaw: row.score_breakdown_raw,
     eventType: row.event_type,
   }));
+}
+
+/**
+ * Count of `matches` rows with no matching `events` row (D-04). This
+ * population is never legitimate — `openCorpus`'s `foreign_keys = ON`
+ * pragma (D-02) prevents new orphans going forward, so this count is
+ * asserted at 0, forever, by `integrity.test.ts`.
+ */
+export function selectOrphanMatchCount(db: Corpus): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) as n FROM matches m
+       LEFT JOIN events e ON e.event_key = m.event_key
+       WHERE e.event_key IS NULL`
+    )
+    .get() as { n: number };
+  return row.n;
+}
+
+/**
+ * Count of `matches` rows whose winner was derived from the score
+ * comparison rather than reported by TBA (D-01/D-03). Unlike
+ * `selectOrphanMatchCount`, a nonzero value here is valid TBA data the
+ * project wants surfaced, not an invariant violation — `integrity.test.ts`
+ * reports this count and never asserts it, so correct behavior can never
+ * turn the suite red (D-04's explicit asymmetry).
+ */
+export function selectImputedWinnerCount(db: Corpus): number {
+  const row = db.prepare(`SELECT COUNT(*) as n FROM matches WHERE winner_imputed = 1`).get() as { n: number };
+  return row.n;
 }
 
 export function readEtag(db: Corpus, url: string): string | undefined {
