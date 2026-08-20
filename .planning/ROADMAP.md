@@ -154,7 +154,7 @@ Plans:
   4. Neither long-running numerical guarantee rests on coincidence: a season-scale run of the incremental OPR solve is proven to stay finite and within a documented tolerance of a fresh batch solve, and `isValidParamSet` is enforced at every Sigma1 candidate-generation and promotion boundary.
   5. Every Phase 1-3 planning artifact's recorded status matches HEAD — no artifact claims an open finding that is closed, or a closed finding that is open — covering the three REVIEW.md frontmatter blocks, `01-VERIFICATION.md`'s human-verification item, and STATE.md's Blockers/Concerns section.
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -165,7 +165,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — shares `opr.ts` with 03.1-02)*
 
-- [ ] 03.1-03-PLAN.md — OPR incremental-solve runtime guard and season-scale drift property test (01-REVIEW WR-01)
+- [x] 03.1-03-PLAN.md — OPR incremental-solve runtime guard and season-scale drift property test (01-REVIEW WR-01)
 
 **Wave 3** *(blocked on Waves 1-2 — resolution blocks must name real fix commits)*
 
@@ -257,7 +257,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 1. Data Foundation & Evaluation Harness | 6/6 | Complete    | 2026-08-19 |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
-| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 3/5 | In Progress|  |
+| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 4/5 | In Progress|  |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |

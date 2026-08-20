@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03.1
 current_phase_name: address-phase-1-3-review-warnings-and-doc-drift
 status: executing
-stopped_at: Completed 03.1-04-PLAN.md
-last_updated: "2026-08-20T04:17:04.796Z"
+stopped_at: Completed 03.1-03-PLAN.md
+last_updated: "2026-08-20T04:45:51.539Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 23
+  completed_plans: 24
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03.1 (address-phase-1-3-review-warnings-and-doc-drift) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-08-19 — Phase 03.1 execution started
 
-Progress: [█████████░] 92%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -82,6 +82,7 @@ Progress: [█████████░] 92%
 | Phase 03.1 P01 | 55min | 3 tasks | 9 files |
 | Phase 03.1 P02 | 11min | 2 tasks | 12 files |
 | Phase 03.1 P04 | 55min | 3 tasks | 9 files |
+| Phase 03.1 P03 | 7min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 03.1 P04]: D-11 (WR-01) implemented via Zod 4's object-level .check() chained onto Sigma1ParamsSchema's existing z.strictObject(...), confirmed by direct execution to still satisfy z.ZodType<Sigma1Params> and nest unchanged inside PromotedVersionSchema -- every pre-existing .parse() call site now enforces the five cross-parameter invariants with zero new call sites
 - [Phase ?]: [Phase 03.1 P04]: One as Sigma1Params cast deliberately left in tune.ts's coordinate-descent refinement loop (not one of the two sites the plan named) -- filtered by isValidParamSet immediately before use, proven equivalent to Sigma1ParamsSchema by a dedicated agreement test, so it is not a bypass
 - [Phase ?]: [Phase 03.1 P04]: warnIfNewerPromotedSigma1 (D-12, WR-03) wired only into applyPromotedOverrides' sigma1 branch, never sigma1-adapt -- that branch reads a gitignored search artifact, not a committed version pin, so WR-03's staleness concern does not apply there
+- [Phase ?]: [Phase 03.1 P03]: applyObservation's D-08 guard drives its regression test through opr.update (the shipped public surface), not IncrementalInverse/applyObservation directly -- both stay module-private per the plan's recorded open-design-question resolution
+- [Phase ?]: [Phase 03.1 P03]: OPR season-scale drift property test holds team pool at 400 (not the review's 1,500-3,700) since the batch comparison runs solveRidgeOpr three times; match count held at the review's own low end (5,000) since match count is the drift-accumulation axis that matters -- measured max deviation 4.27e-12, six orders of magnitude inside the 1e-6 documented tolerance
+- [Phase ?]: [Phase 03.1 P03]: denom <= 0 branch in the OPR guard is documented as defense in depth, not directly regression-tested -- denom is provably > 1 on well-formed input while the inverse stays positive-definite, so no reachable path through the public surface forces it non-positive; manufacturing a fake reachability path was explicitly rejected
 
 ### Pending Todos
 
@@ -200,6 +204,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T04:17:04.780Z
-Stopped at: Completed 03.1-04-PLAN.md
+Last session: 2026-08-20T04:45:51.524Z
+Stopped at: Completed 03.1-03-PLAN.md
 Resume file: None
