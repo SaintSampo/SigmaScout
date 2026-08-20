@@ -37,7 +37,11 @@ human_verification:
   - test: "Open reports/full/report.html in a browser with networking disabled."
     expected: "Score table shows OPR's winner accuracy and Brier score for 2022-2026 with qual/elim/combined columns; the Statbotics reference row is present and clearly labelled with source/season; 2025 and 2026 are visually distinguished as the only headline-eligible rows; a calibration curve renders per season with the perfect-calibration diagonal visible; excluded/tie/no-call counts appear next to the scores they qualify, not hidden."
     why_human: "Visual legibility, color/badge distinguishability, and whether the disclosure \"reads as adequate\" are not assertable by a unit test. The structural elements are programmatically confirmed present (0 external references, 13 Statbotics mentions, 10-bin calibration arrays on all 15 OPR slices), but the interpretive sign-off has never been recorded in any UAT artifact — no *UAT* file exists anywhere under .planning/phases/."
-    status: outstanding
+    status: resolved
+    closed_by: "01-UAT.md"
+    closing_tests: [30, 31]
+    resolved_at: "2026-08-19T03:12:00Z"
+    note: "Corrected 2026-08-20 by phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift), per the 2026-08-19 milestone audit. 01-UAT.md tests 30 (\"Scoreboard report reads clearly\") and 31 (\"Full-corpus report presents all five seasons legibly\"), both pass, closed this exact item by directly opening and inspecting reports/full/report.html. This verification pass ran at 02:52 local; 01-UAT.md closed this exact item roughly sixteen minutes later at 03:08 local -- the item was genuinely outstanding at the moment this file was written, and went stale (not unresolved) sixteen minutes afterward when the UAT session recorded its sign-off."
     carried_from: "2026-08-13 verification (harvested from 01-06-PLAN.md Task 2 <human-check>, human_verify_mode=end-of-phase)"
 ---
 
@@ -45,10 +49,10 @@ human_verification:
 
 **Phase Goal:** Any prediction method can be scored honestly against 2022–2026 history, on data whose quirks are handled explicitly rather than silently
 **Verified:** 2026-08-19T06:52:15Z
-**Status:** human_needed
+**Status:** passed
 **Re-verification:** Yes — after gap closure (prior pass 2026-08-13T21:04:15Z, `gaps_found`, 4/5)
 
-**Verdict in one line:** All 5 ROADMAP success criteria now verify programmatically — the criterion-4 Blocker is genuinely closed, re-derived by direct execution rather than accepted on the quick task's word. The only outstanding item is the never-signed-off human visual check on `reports/full/report.html`, which is what holds the status at `human_needed` rather than `passed` (per the verification decision tree: `passed` is valid only when the human-verification section is empty).
+**Verdict in one line:** All 5 ROADMAP success criteria now verify programmatically — the criterion-4 Blocker is genuinely closed, re-derived by direct execution rather than accepted on the quick task's word. The human visual check on `reports/full/report.html` — the only item holding the status at `human_needed` when this pass was originally recorded — was in fact already closed by `01-UAT.md` (tests 30/31, both pass) roughly sixteen minutes after this pass ran; corrected 2026-08-20 (phase 03.1) per the 2026-08-19 milestone audit's finding that this was stale bookkeeping, not unresolved work. No remaining outstanding human-verification item; status corrected to `passed` per the verification decision tree.
 
 ## Goal Achievement
 
@@ -213,6 +217,8 @@ One item, **outstanding and never signed off** — carried forward unchanged fro
 
 **Note for the reviewer:** `reports/full/report.html` is the Phase-1-era (schema v1, OPR-only) report — the correct artifact for signing off *this* phase. `reports/tuned-v3/` holds the current five-algorithm schema-3 report if you want to sanity-check that the presentation held up through Phases 2–3.
 
+**Correction (2026-08-20, phase 03.1 follow-up):** This item is now closed. `01-UAT.md` — created after this verification pass ran — records tests 30 ("Scoreboard report reads clearly (plan-05 render contract)") and 31 ("Full-corpus report presents all five seasons legibly"), both `pass`, updated 2026-08-19T03:12:00Z, roughly sixteen minutes after this verification pass (2026-08-19T06:52:15Z UTC / 02:52 local). The statement above that "No `*UAT*` artifact exists anywhere under `.planning/phases/`" was true at the moment it was written and is left as the historical record of what this pass observed; it was superseded sixteen minutes later, and the 2026-08-19 milestone audit identified this as stale bookkeeping needing correction, not unresolved work. See the frontmatter `human_verification[0]` entry for the full closure record.
+
 ### Gaps Summary
 
 **No gaps remain.** The single Blocker from the 2026-08-13 pass — ROADMAP success criterion 4's "outcome leakage is structurally impossible" — is genuinely closed, and this pass established that by direct execution against the real module rather than by reading the quick task's SUMMARY. Twenty-one distinct read surfaces were exercised against a sentinel-loaded `MatchResult`; every outcome-bearing read either throws a named `Outcome leakage` error or is omitted from enumeration, and a sentinel scan across every serializing path found zero occurrences of any real outcome value. The specific bypass that failed before (`Object.getOwnPropertyDescriptor(wrapped, "redScore").value` returning 999) now throws. The `ownKeys` filter — which the original gap listed only as a "consider" item — is implemented and, notably, its Proxy-invariant preconditions and its degradation boundary (a frozen `MatchResult` produces a loud engine `TypeError`, never a silent leak) are both pinned by tests. The regression suite is adequate: it asserts exact key sets in both directions rather than a weak "does not contain" check.
@@ -223,7 +229,7 @@ Three new observations were recorded this pass, none blocking: the wrapper is re
 
 All six Warning-level findings from `01-REVIEW.md` were individually re-checked against current source and all six remain open, unchanged — the quick task correctly scoped itself to CR-01 only.
 
-The phase goal — "any prediction method can be scored honestly against 2022–2026 history, on data whose quirks are handled explicitly rather than silently" — is achieved as far as programmatic verification can establish. Status is `human_needed` solely because the report's visual sign-off has never been recorded; per the verification decision tree, `passed` requires an empty human-verification section.
+The phase goal — "any prediction method can be scored honestly against 2022–2026 history, on data whose quirks are handled explicitly rather than silently" — is achieved as far as programmatic verification can establish. Status was originally recorded as `human_needed` solely because the report's visual sign-off had not yet been recorded when this pass ran; per the verification decision tree, `passed` requires no outstanding item in the human-verification section. **Correction (2026-08-20, phase 03.1 follow-up):** `01-UAT.md` closed that sign-off roughly sixteen minutes after this pass ran (see the Human Verification Required section's correction note above and the frontmatter `human_verification[0]` entry). Status corrected to `passed`.
 
 ---
 

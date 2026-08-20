@@ -67,6 +67,12 @@ findings:
   warning: 3
   info: 2
   total: 5
+resolution:
+  resolved: 3
+  open: 2
+  open_ids: [IN-01, IN-02]
+  resolved_at: 2026-08-20
+  note: WR-01, WR-02, and WR-03 resolved by phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift); IN-01, IN-02 remain open by design, out of this phase's scope. status stays issues_found rather than flipping to a resolved value, since the two info findings genuinely remain open -- matches 02-REVIEW.md's identical precedent.
 status: issues_found
 ---
 
@@ -106,6 +112,18 @@ between the search space's declared bounds and `DEFAULT_SIGMA1_PARAMS`'s own val
 of an explicit guard at every site that needs one. Given this project's own stated failure log
 ("no evaluation harness," "silent drift"), this is worth closing rather than leaving to keep being
 coincidentally safe. Two smaller robustness/maintainability findings accompany it below.
+
+## Resolution Summary (2026-08-20, phase 03.1 follow-up)
+
+Phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift) closed all three Warnings. All findings below now have a per-finding `#### Resolution` subsection appended (original finding text is unchanged):
+
+| Finding | Status | Commit(s) |
+|---|---|---|
+| WR-01 (warning) | Resolved | `96cb47e9` (plan 03.1-04) |
+| WR-02 (warning) | Resolved | `17a982fe` (plan 03.1-04) |
+| WR-03 (warning) | Resolved | `41b57d9e` (plan 03.1-04) |
+| IN-01 (info) | Open, by design | Out of scope for phase 03.1 — not addressed this session |
+| IN-02 (info) | Open, by design | Out of scope for phase 03.1 — not addressed this session |
 
 ## Warnings
 
@@ -191,6 +209,14 @@ satisfies `isValidParamSet`, for every key in `SEARCHABLE_PARAM_KEYS` individual
 exactly the kind of "prove the mechanism, don't assert the shape" test the rest of this file
 already does well.
 
+#### Resolution (2026-08-20)
+
+**Status: Resolved.** Fixed in `96cb47e9` (`feat(03.1-04): make an invalid Sigma1Params unconstructible (D-11, WR-01)`) — plan 03.1-04.
+
+`Sigma1ParamsSchema` now enforces the same five cross-parameter invariants `isValidParamSet` already checked, via Zod 4's object-level `.check(...)` chained onto the existing `z.strictObject(...)`. This is the "unconstructible" approach rather than the finding's suggested per-call-site filter: every pre-existing `.parse()` call site (`promote.ts`'s `main`, `cli.ts`'s `loadSearchWinnerSigma1`, `PromotedVersionSchema`'s nested `params` field) now enforces the invariants for free, with zero new call sites added. `tune.ts`'s previously-undefended singleton candidate-generation branch (`planJointCandidates`, `mode: "singleton"`) now parses every candidate through the strengthened schema and gained real reject-and-count accounting (`rejectedCandidates`, previously hardcoded to 0), proven per every `SEARCHABLE_PARAM_KEYS` entry individually — exactly the test coverage this finding's "Fix" section asked for. `isValidParamSet` itself is unchanged and is proven, by a dedicated agreement test, to accept and reject exactly the same set as the strengthened schema.
+
+No promoted version's parameters or digest moved: `data/algorithm-versions/` is unchanged and `packages/harness/digest.test.ts` reproduces both committed versions' digests bitwise.
+
 ### WR-02: `runScreenStage` can crash with an unhelpful `TypeError` if a parameter's entire grid is rejected
 
 **File:** `packages/harness/tune.ts:493-496`
@@ -228,6 +254,12 @@ if (rows.length === 0) {
 let bestRow = rows[0]!;
 ```
 
+#### Resolution (2026-08-20)
+
+**Status: Resolved.** Fixed in `17a982fe` (`fix(03.1-04): abort the screen with a named error on a fully-rejected grid (D-10, WR-02)`) — plan 03.1-04.
+
+The per-parameter best-row selection is now an exported pure function, `selectBestScreenRow`, that throws a module-prefixed error naming the rejected parameter key and pointing at `SIGMA1_SEARCH_SPACE` — matching this finding's suggested fix. Extracting the selection into its own function also makes the empty-grid abort a fast, corpus-free unit test rather than something only reachable via a multi-minute real screen run. Selection behavior itself (lowest-Brier-wins, first-on-tie) is unchanged. As WR-01's resolution notes, this path is unreachable under the current `SIGMA1_SEARCH_SPACE` bounds — the fix is a named, loud abort for a future bound change, not a repair of an observed failure.
+
 ### WR-03: `cli.ts`'s promoted-version path is a hardcoded filename with no staleness signal
 
 **File:** `packages/harness/cli.ts:123,134`
@@ -256,6 +288,12 @@ instead of a literal filename, or — the smaller change — have `applyPromoted
 warning when `readdirSync(ALGORITHM_VERSIONS_DIR)` contains a `sigma1@*.json` file newer
 (`provenance.promotedAt`) than the one `PROMOTED_SIGMA1_VERSION_PATH` points at, so a stale
 constant is loud rather than silent.
+
+#### Resolution (2026-08-20)
+
+**Status: Resolved.** Fixed in `41b57d9e` (`feat(03.1-04): warn on a newer promoted Sigma1 version while keeping the pin (D-12, WR-03)`) — plan 03.1-04.
+
+`warnIfNewerPromotedSigma1` was added and wired into `applyPromotedOverrides`'s `sigma1` branch — the finding's "smaller change" option, not the dynamic-resolution option. It scans `data/algorithm-versions/` for a same-algorithm-id version file newer (by `provenance.promotedAt`) than the pinned `PROMOTED_SIGMA1_VERSION_PATH` constant, and emits a single, loud, non-blocking console warning naming both files and both timestamps — never throwing, never changing which file actually loads; the explicit pin stays authoritative, as the finding's smaller option intended. Confirmed against the real repository state: no warning fires today, since only one Sigma1 version is currently pinned and it is the newest. The warning was deliberately wired only into the `sigma1` branch, not `sigma1-adapt`, since that branch reads a gitignored search artifact rather than a committed version pin — this finding's staleness concern does not apply there.
 
 ## Info
 
