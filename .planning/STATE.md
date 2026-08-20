@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-current_phase_name: Publish & Live Update Pipeline
+current_phase: 03.1
+current_phase_name: address-phase-1-3-review-warnings-and-doc-drift
 status: executing
-stopped_at: Phase 03.1 context gathered
-last_updated: "2026-08-19T22:02:17.393Z"
+stopped_at: Completed 03.1-01-PLAN.md
+last_updated: "2026-08-20T03:40:11.138Z"
 last_activity: 2026-08-19
-last_activity_desc: "Phase 1 retroactively verified and closed: re-verification 5/5, UAT 31/31, security 15 threats 0 open"
+last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 ## Current Position
 
-Phase: 4 — Publish & Live Update Pipeline
-Plan: Not started
+Phase: 03.1 (address-phase-1-3-review-warnings-and-doc-drift) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-08-19 - Phase 1 retroactively verified and closed: re-verification 5/5, UAT 31/31, security 15 threats 0 open
+Last activity: 2026-08-19 — Phase 03.1 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [██████████] 100%
 | Phase 03 P06 | 6h03m | 2 tasks | 10 files |
 | Phase 03 P07 | 55min | 2 tasks | 5 files |
 | Phase 03 P08 | 55min | 3 tasks | 8 files |
+| Phase 03.1 P01 | 55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Decision B = B2-plan-fix: conservative-branch understatement measured (never overstates, tested and held) but NOT accepted as a shipped limitation -- escalated to a future-phase redesign predicting undecidable RPs from teams' own historical achievement rates rather than a new latent Kalman gating dimension
 - [Phase ?]: Authorized deviation: fixed 2025 Coral Bonus coopertition gate to require BOTH alliances' coopertitionCriteriaMet (was: observing alliance's flag alone) -- matches 2023.ts's established pattern, cut the championship-tier reconciliation residual from 72/2004 to 5/2004
 - [Phase ?]: [Quick 260819-2x6] Closed EVAL-01/SC-4: toLeakProofUpcoming's Proxy now traps getOwnPropertyDescriptor and ownKeys (in addition to the pre-existing get trap), closing the descriptor-value and key-enumeration leakage bypasses the v1.0 mid-milestone audit flagged as the sole blocker; audit's 'object spread copies every outcome field silently' claim corrected as non-reproducible (spread already hit the get trap)
+- [Phase ?]: [Phase 03.1 P01]: winner_imputed is a plain non-sticky boolean column (unlike replayed) -- written straight from the incoming CorpusMatch on every upsert since it describes the row as currently normalized
+- [Phase ?]: [Phase 03.1 P01]: openCorpus gained a schema-version guard (hasWinnerImputedColumn) per planner discretion -- a pre-winner_imputed corpus fails at open with a named actionable error instead of a cryptic mid-ingest SQLite error
+- [Phase ?]: [Phase 03.1 P01]: WR-04 and WR-03 regression proofs required stronger methodology than a literal line-revert -- better-sqlite3 defaults foreign_keys ON already in this environment, and single-threaded JS has no real TOCTOU window without vi.mock('node:fs', ...) to simulate the race
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-19T20:58:50.388Z
-Stopped at: Phase 03.1 context gathered
-Resume file: .planning/phases/03.1-address-phase-1-3-review-warnings-and-doc-drift/03.1-CONTEXT.md
+Last session: 2026-08-20T03:40:11.115Z
+Stopped at: Completed 03.1-01-PLAN.md
+Resume file: None
