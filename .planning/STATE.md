@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03.1
 current_phase_name: address-phase-1-3-review-warnings-and-doc-drift
-status: executing
-stopped_at: Completed 03.1-03-PLAN.md
-last_updated: "2026-08-20T04:45:51.539Z"
+status: verifying
+stopped_at: Completed 03.1-05-PLAN.md
+last_updated: "2026-08-20T18:21:38.826Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 03.1 (address-phase-1-3-review-warnings-and-doc-drift) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-19 — Phase 03.1 execution started
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Progress: [██████████] 96%
 | Phase 03.1 P02 | 11min | 2 tasks | 12 files |
 | Phase 03.1 P04 | 55min | 3 tasks | 9 files |
 | Phase 03.1 P03 | 7min | 2 tasks | 2 files |
+| Phase 03.1 P05 | 35min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 03.1 P03]: applyObservation's D-08 guard drives its regression test through opr.update (the shipped public surface), not IncrementalInverse/applyObservation directly -- both stay module-private per the plan's recorded open-design-question resolution
 - [Phase ?]: [Phase 03.1 P03]: OPR season-scale drift property test holds team pool at 400 (not the review's 1,500-3,700) since the batch comparison runs solveRidgeOpr three times; match count held at the review's own low end (5,000) since match count is the drift-accumulation axis that matters -- measured max deviation 4.27e-12, six orders of magnitude inside the 1e-6 documented tolerance
 - [Phase ?]: [Phase 03.1 P03]: denom <= 0 branch in the OPR guard is documented as defense in depth, not directly regression-tested -- denom is provably > 1 on well-formed input while the inverse stays positive-definite, so no reachable path through the public surface forces it non-positive; manufacturing a fake reachability path was explicitly rejected
+- [Phase ?]: [Phase 03.1 P05]: reviewFrontmatterLint.ts hand-rolls frontmatter parsing (no YAML dependency) and checks one narrow invariant (D-16): resolution counts vs body resolution subsections, findings.total, and status -- deliberately not a full cross-artifact consistency checker
+- [Phase ?]: [Phase 03.1 P05]: 01-REVIEW.md/03-REVIEW.md's findings: counts and status: issues_found left unchanged per 02-REVIEW.md's precedent -- a resolution: block records the accurate resolved/open split instead, since info findings remain genuinely open and flipping status would trade one false claim for another
+- [Phase ?]: [Phase 03.1 P05]: 01-VERIFICATION.md's status/verdict corrected to passed, reading the decision tree's 'empty human-verification section' rule as 'no outstanding items' (matching sibling phases' semantics) since the human_verification entry itself must be preserved for provenance, never deleted
 
 ### Pending Todos
 
@@ -205,6 +209,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T04:45:51.524Z
-Stopped at: Completed 03.1-03-PLAN.md
+Last session: 2026-08-20T18:21:38.811Z
+Stopped at: Completed 03.1-05-PLAN.md
 Resume file: None
