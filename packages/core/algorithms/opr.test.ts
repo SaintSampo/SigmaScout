@@ -468,6 +468,143 @@ describe("opr.update — applyObservation's numerical-breakdown guard (D-08, 01-
   });
 });
 
+describe("opr.update — season-scale drift proof against a fresh batch solve (D-08, 01-REVIEW WR-01)", () => {
+  /**
+   * Calibration rationale (03.1-03-PLAN.md's planning notes, planner
+   * discretion granted by 03.1-CONTEXT.md D-08): `OPR_DRIFT_MATCH_COUNT` is
+   * the low end of 01-REVIEW.md WR-01's own prescribed 5,000-15,000
+   * sequential-update range — this is the drift-accumulation axis that
+   * matters. `OPR_DRIFT_TEAM_POOL_SIZE` is held well below the review's
+   * 1,500-3,700-team range because the comparison below calls the dense
+   * O(n^3) `solveRidgeOpr` batch solve THREE times (once per checkpoint,
+   * over the full accumulated observation set each time); a full-season
+   * team pool would turn this into a multi-minute test instead of a fast
+   * CI gate. `OPR_DRIFT_RELATIVE_TOLERANCE` is relative with an absolute
+   * floor (`tolerance = OPR_DRIFT_RELATIVE_TOLERANCE * max(1, |batchRating|)`),
+   * matching the order of magnitude of this file's existing five-match
+   * equivalence test's six-decimal `toBeCloseTo` assertion, but expressed
+   * relatively so it does not tighten as ratings grow with the design
+   * matrix's rank.
+   */
+  const OPR_DRIFT_MATCH_COUNT = 5000;
+  const OPR_DRIFT_TEAM_POOL_SIZE = 400;
+  const OPR_DRIFT_CHECKPOINTS = [1000, 3000, 5000];
+  const OPR_DRIFT_RELATIVE_TOLERANCE = 1e-6;
+
+  /**
+   * Small seeded PRNG, reimplemented locally rather than imported from
+   * `packages/harness/tune.ts`'s `mulberry32` — `packages/core` must not
+   * import from `packages/harness` (verified by this describe block's own
+   * "no harness import" acceptance criterion).
+   */
+  function mulberry32(seed: number): () => number {
+    let a = seed;
+    return function next(): number {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /** A fixed latent strength per team, derived deterministically from its pool index. */
+  function latentStrength(teamIndex: number): number {
+    return 10 + ((teamIndex * 7) % 60);
+  }
+
+  function pickDistinctTeamIndices(rng: () => number, poolSize: number, count: number): number[] {
+    const chosen = new Set<number>();
+    while (chosen.size < count) {
+      chosen.add(Math.floor(rng() * poolSize));
+    }
+    return [...chosen];
+  }
+
+  /** Deterministic synthetic-match generator: same seed always produces the same sequence. */
+  function generateSyntheticMatches(seed: number, matchCount: number, poolSize: number): MatchResult[] {
+    const rng = mulberry32(seed);
+    const matches: MatchResult[] = [];
+    for (let m = 0; m < matchCount; m++) {
+      const indices = pickDistinctTeamIndices(rng, poolSize, 6);
+      const redIndices = indices.slice(0, 3);
+      const blueIndices = indices.slice(3, 6);
+      const redPerturbation = (rng() - 0.5) * 4;
+      const bluePerturbation = (rng() - 0.5) * 4;
+      const redScore = redIndices.reduce((sum, i) => sum + latentStrength(i), 0) + redPerturbation;
+      const blueScore = blueIndices.reduce((sum, i) => sum + latentStrength(i), 0) + bluePerturbation;
+      matches.push(
+        match({
+          matchKey: `2024synth_qm${m}`,
+          eventKey: "2024synth",
+          compLevel: "qm",
+          matchNumber: m + 1,
+          redTeams: redIndices.map((i) => `S${i}`),
+          blueTeams: blueIndices.map((i) => `S${i}`),
+          redScore,
+          blueScore,
+        })
+      );
+    }
+    return matches;
+  }
+
+  it(`stays finite and within OPR_DRIFT_RELATIVE_TOLERANCE of a fresh solveRidgeOpr batch solve at ${OPR_DRIFT_CHECKPOINTS.join(", ")} matches, over ${OPR_DRIFT_MATCH_COUNT} sequential synthetic matches`, () => {
+    const start = performance.now();
+    const matches = generateSyntheticMatches(42, OPR_DRIFT_MATCH_COUNT, OPR_DRIFT_TEAM_POOL_SIZE);
+
+    let state: OprState = opr.initState([]);
+    const maxDeviationByCheckpoint: Record<number, number> = {};
+
+    for (let m = 0; m < matches.length; m++) {
+      state = opr.update(state, matches[m]!);
+      const matchNumber = m + 1;
+      if (OPR_DRIFT_CHECKPOINTS.includes(matchNumber)) {
+        const teamIndex = buildTeamIndex(state.observations);
+        const batchRatings = solveRidgeOpr(state.observations, teamIndex, OPR_RIDGE_LAMBDA);
+
+        // Same team set known to both solves — no team dropped or invented.
+        expect(state.ratings.size).toBe(batchRatings.size);
+        expect(new Set(state.ratings.keys())).toEqual(new Set(batchRatings.keys()));
+
+        let maxDeviation = 0;
+        for (const [team, incrementalRating] of state.ratings) {
+          expect(Number.isFinite(incrementalRating)).toBe(true);
+          const batchRating = batchRatings.get(team)!;
+          const deviation = Math.abs(incrementalRating - batchRating);
+          const tolerance = OPR_DRIFT_RELATIVE_TOLERANCE * Math.max(1, Math.abs(batchRating));
+          expect(deviation).toBeLessThanOrEqual(tolerance);
+          if (deviation > maxDeviation) maxDeviation = deviation;
+        }
+        maxDeviationByCheckpoint[matchNumber] = maxDeviation;
+      }
+    }
+
+    const durationMs = performance.now() - start;
+    console.log(
+      `opr season-scale drift test: ${durationMs.toFixed(0)}ms over ${OPR_DRIFT_MATCH_COUNT} matches / ${OPR_DRIFT_TEAM_POOL_SIZE} teams, ` +
+        `max deviation by checkpoint: ${JSON.stringify(maxDeviationByCheckpoint)}`
+    );
+    // Escape valve (planning_notes): if this exceeds 30s, reduce
+    // OPR_DRIFT_TEAM_POOL_SIZE (never OPR_DRIFT_MATCH_COUNT) and record the
+    // reduction + measured time in the plan SUMMARY.
+    expect(durationMs).toBeLessThan(30000);
+  }, 30000);
+
+  it("is deterministic: two runs of the generator with the same seed over a short prefix produce identical incremental ratings, so a failure here is reproducible rather than flaky", () => {
+    const prefixLength = 200;
+    const matchesA = generateSyntheticMatches(42, prefixLength, OPR_DRIFT_TEAM_POOL_SIZE);
+    const matchesB = generateSyntheticMatches(42, prefixLength, OPR_DRIFT_TEAM_POOL_SIZE);
+
+    let stateA: OprState = opr.initState([]);
+    for (const m of matchesA) stateA = opr.update(stateA, m);
+    let stateB: OprState = opr.initState([]);
+    for (const m of matchesB) stateB = opr.update(stateB, m);
+
+    expect([...stateA.ratings.entries()]).toEqual([...stateB.ratings.entries()]);
+  });
+});
+
 describe("opr — disqualification policy (Open Question 3): opposite of surrogates", () => {
   it("a disqualified team's rating is updated from the match it was disqualified in — MatchResult carries no dq field, so a dq'd participant is indistinguishable from any other and keeps its column", () => {
     let state: OprState = opr.initState([]);
