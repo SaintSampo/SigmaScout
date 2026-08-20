@@ -7,7 +7,15 @@
  * a real corpus replay.
  */
 import { describe, expect, it, vi } from "vitest";
-import { assertNoHoldoutLeak, determineWinner, objectiveForCandidate, planJointCandidates, SCREEN_SURVIVAL_THRESHOLD } from "./tune.js";
+import {
+  assertNoHoldoutLeak,
+  determineWinner,
+  objectiveForCandidate,
+  planJointCandidates,
+  selectBestScreenRow,
+  SCREEN_SURVIVAL_THRESHOLD,
+  type ScreenRow,
+} from "./tune.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../core/algorithms/sigma1/params.js";
 import { isValidParamSet, SEARCHABLE_PARAM_KEYS } from "./searchSpace.js";
 import type { ScoreSlice } from "./score.js";
@@ -250,5 +258,28 @@ describe("planJointCandidates singleton mode (D-11 / 03-REVIEW WR-01)", () => {
       vi.doUnmock("./searchSpace.js");
       vi.resetModules();
     }
+  });
+});
+
+function screenRow(value: number, brierScore: number, winnerAccuracy: number | null = 0.5): ScreenRow {
+  return { value, brierScore, winnerAccuracy };
+}
+
+describe("selectBestScreenRow (D-10 / 03-REVIEW WR-02)", () => {
+  it("returns the row with the lowest Brier score", () => {
+    const rows = [screenRow(1, 0.2), screenRow(2, 0.1), screenRow(3, 0.15)];
+    expect(selectBestScreenRow("linkC", rows)).toEqual(screenRow(2, 0.1));
+  });
+
+  it("on a tie, returns the first such row (matches the existing strictly-less-than comparison's behavior)", () => {
+    const rows = [screenRow(1, 0.1), screenRow(2, 0.1), screenRow(3, 0.2)];
+    expect(selectBestScreenRow("linkC", rows)).toEqual(screenRow(1, 0.1));
+  });
+
+  it("throws — rather than returning undefined — on an empty row list, naming the parameter key", () => {
+    expect(() => selectBestScreenRow("linkC", [])).toThrow(/linkC/);
+    // The message must also point the reader at the search space, per
+    // WR-02's own prescribed fix.
+    expect(() => selectBestScreenRow("linkC", [])).toThrow(/SIGMA1_SEARCH_SPACE/);
   });
 });

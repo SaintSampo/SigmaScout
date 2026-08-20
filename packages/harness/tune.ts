@@ -437,6 +437,47 @@ interface ScreenParameterResult {
   readonly survives: boolean;
 }
 
+/** One evaluated grid point of one parameter's one-at-a-time sweep — the row shape `selectBestScreenRow` below picks from, exported so `tune.test.ts` can build fixtures directly without duplicating this shape inline. */
+export interface ScreenRow {
+  readonly value: number;
+  readonly brierScore: number;
+  readonly winnerAccuracy: number | null;
+}
+
+/**
+ * D-10 / 03-REVIEW WR-02: selects the lowest-Brier row for one parameter's
+ * one-at-a-time sweep — moved out of `runScreenStage`'s aggregation loop
+ * verbatim (selection behaviour is unchanged) so this policy can be
+ * unit-tested without a corpus. Throws, rather than returning `undefined` or
+ * silently reading index 0 of a possibly-empty array (`rows[0]!`, the
+ * non-null assertion that only silenced the type checker before this fix),
+ * when `rows` is empty: every candidate value for this parameter was
+ * rejected by the cross-parameter validity check
+ * (`isValidParamSet`/`Sigma1ParamsSchema`, D-11), which means the search
+ * space is misconfigured for this key, not merely that the parameter has no
+ * effect.
+ *
+ * D-10's policy (Claude's Discretion, recorded in
+ * `03.1-CONTEXT.md`): ABORT the whole screen rather than skip this
+ * parameter and mark it "unscreenable" — the rejected alternative, because
+ * a fully-rejected grid silently publishing a screen artifact
+ * (`docs/models/sigma1-sensitivity-screen.md`) with a hole in it would be
+ * indistinguishable from a parameter that genuinely has no effect, which is
+ * a worse failure than stopping the run.
+ */
+export function selectBestScreenRow(key: SearchableParamKey, rows: readonly ScreenRow[]): ScreenRow {
+  if (rows.length === 0) {
+    throw new Error(
+      `tune: every candidate value for parameter "${key}" was rejected by the cross-parameter validity check (isValidParamSet/Sigma1ParamsSchema) — "${key}" cannot be screened. Check "${key}"'s bound in SIGMA1_SEARCH_SPACE (packages/harness/searchSpace.ts) against the other parameters' defaults.`
+    );
+  }
+  let bestRow = rows[0]!;
+  for (const row of rows) {
+    if (row.brierScore < bestRow.brierScore) bestRow = row;
+  }
+  return bestRow;
+}
+
 async function runScreenStage(
   seasonsSpec: string,
   eventsLimit: number | undefined,
@@ -496,10 +537,7 @@ async function runScreenStage(
       return { value: c.value, brierScore: evaluatedCandidate.objective, winnerAccuracy: evaluatedCandidate.perSeason[0]?.winnerAccuracy ?? null };
     });
 
-    let bestRow = rows[0]!;
-    for (const row of rows) {
-      if (row.brierScore < bestRow.brierScore) bestRow = row;
-    }
+    const bestRow = selectBestScreenRow(key, rows);
     const brierValues = rows.map((r) => r.brierScore);
     const brierRange = Math.max(...brierValues) - Math.min(...brierValues);
     const atBound = bestRow.value === bound.min || bestRow.value === bound.max;
