@@ -31,8 +31,8 @@
  * carry-forward note); this flag is that measurement, opt-in so an ordinary
  * scoring run pays zero timing overhead.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -78,7 +78,7 @@ import {
   writePredictionLine,
   type PredictionsWriterHandle,
 } from "./predictions.js";
-import { PromotedVersionSchema } from "./promote.js";
+import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -122,6 +122,8 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
 const PROMOTED_SIGMA1_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
+/** The committed version-file directory `warnIfNewerPromotedSigma1` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
+const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**
  * D-06/D-08/ALGO-05 (plan 03-06): the adaptation-ON joint search's own
  * winning candidate — "each search's own best configuration," not a bare
@@ -164,6 +166,82 @@ export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, p
 }
 
 /**
+ * D-12 / 03-REVIEW WR-03: makes a newer committed Sigma1 version file LOUD
+ * at load time while keeping `PROMOTED_SIGMA1_VERSION_PATH` the explicit,
+ * pinned path that is actually loaded — never a bypass of the pin.
+ *
+ * Two alternatives were considered and rejected (both recorded in
+ * `03.1-CONTEXT.md`'s D-12):
+ *   - Globbing `versionsDir` for the newest file and loading THAT instead of
+ *     the pinned constant was rejected because Phase 3's D-13 makes version
+ *     identity load-bearing for Phase 4's precomputed artifacts, the
+ *     Phase 5 algorithm dropdown, and the Phase 8 Compare page — an
+ *     explicit pin is a reproducibility feature, not an oversight to paper
+ *     over with auto-selection.
+ *   - Hard-failing (throwing) when a newer file exists was rejected because
+ *     deliberately scoring an OLDER version to compare it against a newer
+ *     one is legitimate work this check must not block.
+ *
+ * Reads every `.json` file in `versionsDir`, parses each through
+ * `PromotedVersionSchema`, and compares each survivor's own
+ * `provenance.promotedAt` against the pinned file's — never throws, and
+ * never changes which file is actually loaded: a missing `versionsDir` or a
+ * missing `pinnedPath`, or a stray unparseable file anywhere in
+ * `versionsDir`, is treated as "nothing to warn about," exactly like
+ * `loadPromotedSigma1`'s own existing missing-file fallback.
+ */
+export function warnIfNewerPromotedSigma1(versionsDir: string, pinnedPath: string): void {
+  if (!existsSync(pinnedPath)) return;
+  let pinned: PromotedVersion;
+  try {
+    pinned = PromotedVersionSchema.parse(JSON.parse(readFileSync(pinnedPath, "utf8")));
+  } catch {
+    return;
+  }
+  const pinnedTime = Date.parse(pinned.provenance.promotedAt);
+  if (!Number.isFinite(pinnedTime)) return;
+
+  if (!existsSync(versionsDir)) return;
+  let fileNames: string[];
+  try {
+    fileNames = readdirSync(versionsDir).filter((name) => name.endsWith(".json"));
+  } catch {
+    return;
+  }
+
+  const pinnedFileName = basename(pinnedPath);
+  let newestFileName: string | undefined;
+  let newestTime = pinnedTime;
+
+  for (const fileName of fileNames) {
+    if (fileName === pinnedFileName) continue;
+    let candidate: PromotedVersion;
+    try {
+      candidate = PromotedVersionSchema.parse(JSON.parse(readFileSync(join(versionsDir, fileName), "utf8")));
+    } catch {
+      // A stray/malformed file in the versions directory must never abort a
+      // harness run (T-03.1-20) — skip it rather than throw.
+      continue;
+    }
+    if (candidate.id !== pinned.id) continue;
+    const candidateTime = Date.parse(candidate.provenance.promotedAt);
+    if (!Number.isFinite(candidateTime) || candidateTime <= newestTime) continue;
+    newestTime = candidateTime;
+    newestFileName = fileName;
+  }
+
+  if (newestFileName === undefined) return;
+
+  console.log(
+    `WARNING [warnIfNewerPromotedSigma1]: a newer promoted "${pinned.id}" version exists — ` +
+      `pinned=${pinnedFileName} (promoted ${pinned.provenance.promotedAt}), newest=${newestFileName} ` +
+      `(promoted ${new Date(newestTime).toISOString()}). The pin is deliberate (D-12: Phase 3's D-13 makes ` +
+      `version identity load-bearing for Phase 4's artifacts, the Phase 5 dropdown, and the Phase 8 Compare ` +
+      `page) — to score the newer version, edit PROMOTED_SIGMA1_VERSION_PATH in packages/harness/cli.ts.`
+  );
+}
+
+/**
  * Plan 03-06: swaps the static `sigma1`/`sigma1-adapt` registry entries for
  * the currently-promoted version / the on-search's own winner when their
  * source files are present, leaving every other algorithm (and either of
@@ -174,6 +252,11 @@ export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, p
 export function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
   return algorithms.map((algorithm) => {
     if (algorithm.id === "sigma1") {
+      // D-12 / 03-REVIEW WR-03: the committed-version pin, not the
+      // gitignored `reports/` search artifact this branch never reads — the
+      // adaptation branch below reads a search artifact instead and is
+      // deliberately excluded from this staleness check.
+      warnIfNewerPromotedSigma1(ALGORITHM_VERSIONS_DIR, PROMOTED_SIGMA1_VERSION_PATH);
       return loadPromotedSigma1("sigma1", PROMOTED_SIGMA1_VERSION_PATH) ?? algorithm;
     }
     if (algorithm.id === "sigma1-adapt") {
