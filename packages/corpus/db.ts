@@ -11,7 +11,7 @@
  * by upserting directly.
  */
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
@@ -44,18 +44,35 @@ function isProcessAlive(pid: number): boolean {
  * corpus. A lock file left behind by a crashed process (owning PID no
  * longer alive) is treated as stale and reclaimed automatically, so an
  * interrupted run can always be resumed.
+ *
+ * WR-03: the success path is a single atomic exclusive-create syscall
+ * attempt (`wx`), not a separate existence probe followed by a write — the
+ * probe-then-write ordering left a TOCTOU window where two concurrent
+ * callers could both observe "no lock file" and both believe they'd
+ * acquired it. Only on `EEXIST` does this fall into the stale-lock
+ * detection below, which is unchanged.
  */
 function acquireWriteLock(lockPath: string): void {
-  if (existsSync(lockPath)) {
-    const ownerPid = Number(readFileSync(lockPath, "utf8").trim());
-    if (Number.isFinite(ownerPid) && isProcessAlive(ownerPid)) {
-      throw new Error(
-        `Corpus is already open for writing by process ${ownerPid} (lock file: ${lockPath}). ` +
-          `Wait for it to finish, or delete the lock file if you are certain that process is gone.`
-      );
+  try {
+    writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw err;
     }
-    // Stale lock from a process that no longer exists — reclaim it.
+    // Someone else already holds (or left behind) the lock file — fall
+    // into the existing stale-lock detection below.
   }
+
+  const ownerPid = Number(readFileSync(lockPath, "utf8").trim());
+  if (Number.isFinite(ownerPid) && isProcessAlive(ownerPid)) {
+    throw new Error(
+      `Corpus is already open for writing by process ${ownerPid} (lock file: ${lockPath}). ` +
+        `Wait for it to finish, or delete the lock file if you are certain that process is gone.`
+    );
+  }
+  // Stale lock from a process that no longer exists (or unparseable
+  // contents) — reclaim it.
   writeFileSync(lockPath, String(process.pid), "utf8");
 }
 

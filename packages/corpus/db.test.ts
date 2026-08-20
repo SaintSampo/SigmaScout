@@ -4,10 +4,10 @@
  * filter, and the single-writer lock. Each test opens a fresh temp SQLite
  * file so tests never share state.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   findIncompleteIngestRuns,
@@ -19,6 +19,19 @@ import {
   upsertTeam,
   type Corpus,
 } from "./db.js";
+
+// WR-03 TOCTOU regression proof: acquireWriteLock's success path no longer
+// consults existsSync at all (the atomic `wx` exclusive-create replaced
+// it), so wrapping it here and forcing it to lie ("not present") on demand
+// reproduces the race window a genuinely concurrent second process could
+// hit against the OLD probe-then-write ordering, without needing real
+// multi-process timing. Every other call passes straight through to the
+// real implementation, so this leaves the rest of this file's fs usage
+// unaffected.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+});
 
 let dir: string;
 let corpusPath: string;
@@ -197,6 +210,107 @@ describe("openCorpus — single-writer lock", () => {
     reopened.close();
     // Reopen once more so the outer afterEach's db.close() doesn't error on an already-released lock.
     db = openCorpus(corpusPath);
+  });
+});
+
+describe("openCorpus — atomic write-lock acquisition (WR-03)", () => {
+  it("creates the lock file containing the current process id when none exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      const fresh = openCorpus(freshPath);
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+      fresh.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws the existing already-open message when the recorded owner pid is alive, and never clobbers the lock file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      // Our own process id really is alive — simulates a live concurrent owner.
+      writeFileSync(lockPath, String(process.pid), "utf8");
+
+      expect(() => openCorpus(freshPath)).toThrow(/already open for writing/);
+      // The throwing path must never write — the lock file still names the
+      // original owner.
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("TOCTOU regression proof: a race-simulated 'lock file absent' probe must not let acquisition silently clobber an alive owner's lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-race-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      // Our own process id really is alive — a live concurrent owner already
+      // holds this lock.
+      writeFileSync(lockPath, String(process.pid), "utf8");
+
+      // Simulate the exact TOCTOU window a probe-then-write implementation
+      // is exposed to: between a userspace existence check and the
+      // eventual write, a genuinely concurrent second process could create
+      // the file in between, making the earlier "absent" answer stale by
+      // the time it's acted on. Forcing the probe to (incorrectly) report
+      // "absent" here reproduces that window deterministically. The fixed
+      // implementation's success path never calls existsSync at all — it
+      // attempts a real atomic exclusive-create syscall, which the OS
+      // itself rejects with EEXIST regardless of what any prior probe
+      // believed — so this mock has no effect on it. Before the fix, this
+      // same setup caused acquisition to skip the ownership check entirely
+      // and silently overwrite the alive owner's lock file.
+      const fsModule = await import("node:fs");
+      (fsModule.existsSync as ReturnType<typeof vi.fn>).mockReturnValueOnce(false);
+
+      let opened: Corpus | undefined;
+      try {
+        expect(() => {
+          opened = openCorpus(freshPath);
+        }).toThrow(/already open for writing/);
+      } finally {
+        opened?.close();
+      }
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a lock file whose recorded pid is not alive", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      // A pid vanishingly unlikely to be a live process on any test runner.
+      writeFileSync(lockPath, "999999999", "utf8");
+
+      const reclaimed = openCorpus(freshPath);
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+      reclaimed.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a lock file whose contents are not a parseable pid", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    const lockPath = `${freshPath}.lock`;
+    try {
+      writeFileSync(lockPath, "not-a-pid", "utf8");
+
+      const reclaimed = openCorpus(freshPath);
+      expect(readFileSync(lockPath, "utf8")).toBe(String(process.pid));
+      reclaimed.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
