@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03.1
 current_phase_name: address-phase-1-3-review-warnings-and-doc-drift
 status: executing
-stopped_at: Completed 03.1-01-PLAN.md
-last_updated: "2026-08-20T03:40:11.138Z"
+stopped_at: Completed 03.1-02-PLAN.md
+last_updated: "2026-08-20T03:53:25.517Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 03.1 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 03.1 (address-phase-1-3-review-warnings-and-doc-drift) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-08-19 — Phase 03.1 execution started
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -80,6 +80,7 @@ Progress: [████████░░] 84%
 | Phase 03 P07 | 55min | 2 tasks | 5 files |
 | Phase 03 P08 | 55min | 3 tasks | 8 files |
 | Phase 03.1 P01 | 55min | 3 tasks | 9 files |
+| Phase 03.1 P02 | 11min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 03.1 P01]: winner_imputed is a plain non-sticky boolean column (unlike replayed) -- written straight from the incoming CorpusMatch on every upsert since it describes the row as currently normalized
 - [Phase ?]: [Phase 03.1 P01]: openCorpus gained a schema-version guard (hasWinnerImputedColumn) per planner discretion -- a pre-winner_imputed corpus fails at open with a named actionable error instead of a cryptic mid-ingest SQLite error
 - [Phase ?]: [Phase 03.1 P01]: WR-04 and WR-03 regression proofs required stronger methodology than a literal line-revert -- better-sqlite3 defaults foreign_keys ON already in this environment, and single-threaded JS has no real TOCTOU window without vi.mock('node:fs', ...) to simulate the race
+- [Phase ?]: [Phase 03.1 P02]: assertValidPRedWin's opr.predict regression test lives in the new predictionValidity.test.ts, not opr.test.ts, to avoid a file conflict with plan 03.1-03 (which owns opr.test.ts exclusively in the next wave)
+- [Phase ?]: [Phase 03.1 P02]: Rule 1 fix -- assertValidPRedWin surfaced a real latent 0/0 NaN in sigma1's season-sd link mode (the one of D-12's three modes missing the degenerate-branch guard modes 2/3 already had); fixed in linkFunctions.ts, proven not to move either committed digest (both are id="sigma1", predictive-variance mode, never season-sd)
+- [Phase ?]: [Phase 03.1 P02]: Rule 3 fix -- ExclusionCounts.quarantined becoming a required field broke artifact.ts's ExclusionCountsSchema plus inline ScoreSlice fixtures in report.test.ts/tune.test.ts (files outside this plan's declared files_modified); propagated quarantined: 0 / a matching Zod field through all three
 
 ### Pending Todos
 
@@ -192,6 +196,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T03:40:11.115Z
-Stopped at: Completed 03.1-01-PLAN.md
+Last session: 2026-08-20T03:53:25.502Z
+Stopped at: Completed 03.1-02-PLAN.md
 Resume file: None
