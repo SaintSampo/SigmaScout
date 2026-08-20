@@ -283,6 +283,55 @@ describe("Sigma1ParamsSchema", () => {
   it("throws on a non-finite field value", () => {
     expect(() => Sigma1ParamsSchema.parse({ ...DEFAULT_SIGMA1_PARAMS, linkC: Number.NaN })).toThrow();
   });
+
+  // D-11 / 03-REVIEW WR-01: the cross-parameter invariants that used to live
+  // ONLY in `packages/harness/searchSpace.ts`'s `isValidParamSet` are now
+  // additionally enforced here, folded into the schema every construction
+  // path already parses through — see `Sigma1ParamsSchema`'s own doc
+  // comment. Each case asserts the reported issue names the field(s) it
+  // broke, not just that parsing failed.
+  describe("cross-parameter invariants (D-11 / 03-REVIEW WR-01)", () => {
+    it("rejects processNoiseEventBoundary not strictly exceeding processNoiseWithinEvent, naming both fields", () => {
+      const result = Sigma1ParamsSchema.safeParse({
+        ...DEFAULT_SIGMA1_PARAMS,
+        processNoiseEventBoundary: 0.5,
+        processNoiseWithinEvent: 0.5,
+      });
+      expect(result.success).toBe(false);
+      const messages = result.success ? [] : result.error.issues.map((i) => i.message);
+      expect(messages.some((m) => m.includes("processNoiseEventBoundary") && m.includes("processNoiseWithinEvent"))).toBe(true);
+    });
+
+    it("rejects adaptationMinFactor >= adaptationMaxFactor, naming both fields", () => {
+      const result = Sigma1ParamsSchema.safeParse({
+        ...DEFAULT_SIGMA1_PARAMS,
+        adaptationMinFactor: 4,
+        adaptationMaxFactor: 4,
+      });
+      expect(result.success).toBe(false);
+      const messages = result.success ? [] : result.error.issues.map((i) => i.message);
+      expect(messages.some((m) => m.includes("adaptationMinFactor") && m.includes("adaptationMaxFactor"))).toBe(true);
+    });
+
+    it.each([
+      ["carryMeanReversion", -0.1] as const,
+      ["carryMeanReversion", 1.1] as const,
+      ["carryLastYearWeight", -0.1] as const,
+      ["carryLastYearWeight", 1.1] as const,
+      ["carryPriorYearWeight", -0.1] as const,
+      ["carryPriorYearWeight", 1.1] as const,
+    ])("rejects %s = %d outside [0, 1], naming the field", (field, value) => {
+      const result = Sigma1ParamsSchema.safeParse({ ...DEFAULT_SIGMA1_PARAMS, [field]: value });
+      expect(result.success).toBe(false);
+      const messages = result.success ? [] : result.error.issues.map((i) => i.message);
+      expect(messages.some((m) => m.includes(field))).toBe(true);
+    });
+
+    it("parsing DEFAULT_SIGMA1_PARAMS succeeds and returns a value equal to it — the defaults remain valid", () => {
+      const parsed = Sigma1ParamsSchema.parse(DEFAULT_SIGMA1_PARAMS);
+      expect(parsed).toEqual(DEFAULT_SIGMA1_PARAMS);
+    });
+  });
 });
 
 describe("SIGMA1_PARAM_KEYS", () => {

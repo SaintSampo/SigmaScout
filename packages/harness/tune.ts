@@ -60,7 +60,7 @@ import { pathToFileURL } from "node:url";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, HOLDOUT_SEASONS, seasonSplit, TUNE_SEASONS, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
@@ -460,11 +460,17 @@ async function runScreenStage(
   for (const key of SEARCHABLE_PARAM_KEYS) {
     const values = screenGridFor(key, valueCount);
     for (const value of values) {
-      const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, rpMonteCarloDraws: 0 };
-      if (!isValidParamSet(params)) {
+      const candidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, rpMonteCarloDraws: 0 };
+      // D-11 / 03-REVIEW WR-01: `isValidParamSet` stays the cheap boolean
+      // pre-filter so a rejected grid point is counted rather than throwing
+      // mid-sweep; the surviving value is then parsed through
+      // `Sigma1ParamsSchema` (the two must agree) before it reaches the
+      // candidate list — a bare `as Sigma1Params` cast would bypass that.
+      if (!isValidParamSet(candidateParams)) {
         rejectedCandidates++;
         continue;
       }
+      const params = Sigma1ParamsSchema.parse(candidateParams);
       candidates.push({ id: `screen-${seq}`, param: key, value, params });
       seq++;
     }
@@ -705,11 +711,23 @@ export function planJointCandidates(
     const key = survivors[0]!;
     const gridPoints = Math.max(3, Math.min(evalsCount, 9));
     const values = screenGridFor(key, gridPoints);
-    const candidates = values.map((value, i) => ({
-      id: `cand-${i}`,
-      params: { ...DEFAULT_SIGMA1_PARAMS, [key]: value, adaptationEnabled, rpMonteCarloDraws: 0 } as Sigma1Params,
-    }));
-    return { mode: "singleton", skipped: null, candidates, rejectedCandidates: 0 };
+    // D-11 / 03-REVIEW WR-01: mirrors `buildRandomCandidate`'s own
+    // reject-and-count discipline rather than the bare `as Sigma1Params`
+    // cast this branch used before — a grid point that violates a
+    // cross-parameter invariant (varying one key while every other stays at
+    // its default can still violate D-07/T-03-06/D-04 near a bound) is
+    // counted here instead of silently reaching the candidate list.
+    const candidates: { id: string; params: Sigma1Params }[] = [];
+    let rejectedCandidates = 0;
+    for (const value of values) {
+      const candidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, adaptationEnabled, rpMonteCarloDraws: 0 };
+      if (!isValidParamSet(candidateParams)) {
+        rejectedCandidates++;
+        continue;
+      }
+      candidates.push({ id: `cand-${candidates.length}`, params: Sigma1ParamsSchema.parse(candidateParams) });
+    }
+    return { mode: "singleton", skipped: null, candidates, rejectedCandidates };
   }
 
   const rng = mulberry32(seed);

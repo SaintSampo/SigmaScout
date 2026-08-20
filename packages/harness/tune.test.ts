@@ -6,7 +6,7 @@
  * `tune.ts` specifically so this file can exercise them without spinning up
  * a real corpus replay.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { assertNoHoldoutLeak, determineWinner, objectiveForCandidate, planJointCandidates, SCREEN_SURVIVAL_THRESHOLD } from "./tune.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../core/algorithms/sigma1/params.js";
 import { isValidParamSet, SEARCHABLE_PARAM_KEYS } from "./searchSpace.js";
@@ -194,6 +194,61 @@ describe("planJointCandidates", () => {
     const plan = planJointCandidates(SOME_SURVIVORS, 10, 42, true);
     for (const candidate of plan.candidates) {
       expect(candidate.params.rpMonteCarloDraws).toBe(0);
+    }
+  });
+});
+
+// D-11 / 03-REVIEW WR-01: the singleton branch (exactly one survivor) used
+// to build each candidate via a bare `as Sigma1Params` cast and always
+// reported `rejectedCandidates: 0` — 03-REVIEW's own prescribed fix asks for
+// per-searchable-key coverage, not just the four keys `SOME_SURVIVORS`
+// exercises above.
+describe("planJointCandidates singleton mode (D-11 / 03-REVIEW WR-01)", () => {
+  it.each(SEARCHABLE_PARAM_KEYS.map((key) => [key] as const))(
+    "%s: every generated candidate satisfies the cross-parameter invariants",
+    (key) => {
+      const plan = planJointCandidates([key], 9, 42, false);
+      expect(plan.mode).toBe("singleton");
+      expect(plan.candidates.length).toBeGreaterThan(0);
+      for (const candidate of plan.candidates) {
+        expect(isValidParamSet(candidate.params)).toBe(true);
+      }
+    }
+  );
+
+  it("reports a real rejected-candidate count (not a hardcoded 0) when a grid point violates a cross-parameter invariant", async () => {
+    // `screenGridFor` reads `SIGMA1_SEARCH_SPACE` from its OWN module's
+    // closure, so overriding just the exported `SIGMA1_SEARCH_SPACE`
+    // binding would not change what the real `screenGridFor` computes --
+    // `screenGridFor` itself is mocked instead, forced to return a grid
+    // containing 0.1 for `adaptationMaxFactor`, which is below
+    // DEFAULT_SIGMA1_PARAMS.adaptationMinFactor (0.25) and therefore
+    // guaranteed to violate D-11's adaptationMinFactor < adaptationMaxFactor
+    // invariant at that one grid point, while the other three points stay
+    // valid.
+    vi.resetModules();
+    vi.doMock("./searchSpace.js", async () => {
+      const actual = await vi.importActual<typeof import("./searchSpace.js")>("./searchSpace.js");
+      return {
+        ...actual,
+        screenGridFor: (key: string, valueCount: number) => {
+          if (key === "adaptationMaxFactor") return [0.1, 1, 4, 16];
+          return actual.screenGridFor(key as any, valueCount);
+        },
+      };
+    });
+    try {
+      const { planJointCandidates: mockedPlanJointCandidates } = await import("./tune.js");
+      const plan = mockedPlanJointCandidates(["adaptationMaxFactor"], 9, 42, false);
+      expect(plan.mode).toBe("singleton");
+      expect(plan.rejectedCandidates).toBeGreaterThan(0);
+      expect(plan.candidates.length).toBe(3);
+      for (const candidate of plan.candidates) {
+        expect(isValidParamSet(candidate.params)).toBe(true);
+      }
+    } finally {
+      vi.doUnmock("./searchSpace.js");
+      vi.resetModules();
     }
   });
 });

@@ -213,7 +213,11 @@ async function main(): Promise<void> {
 
   // T-03-08's mitigation: an unknown key, a missing key, or a NaN/Infinity
   // value in the search output's winning parameter set throws here, before
-  // it can ever reach a committed version file.
+  // it can ever reach a committed version file. D-11 / 03-REVIEW WR-01: this
+  // same parse now also enforces the five cross-parameter invariants
+  // (D-07's process-noise ordering, T-03-06's adaptation clamp, D-04's three
+  // carry-weight ranges) folded into `Sigma1ParamsSchema` itself — no new
+  // call was added at this site, the strengthened schema is enough.
   const searchedParams: Sigma1Params = Sigma1ParamsSchema.parse(winnerCandidate.params);
   // Task 3's own instruction: the search fixes `rpMonteCarloDraws: 0` for
   // speed (plan 03-03 proved this never moves `pRedWin`/predicted scores),

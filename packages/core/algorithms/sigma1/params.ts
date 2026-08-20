@@ -205,32 +205,104 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
  * instead of being silently stripped — T-03-08's mitigation. Every field is
  * `z.number().finite()`: a NaN/Infinity value in a committed file is a
  * corrupted or hand-edited artifact, never a valid parameter.
+ *
+ * D-11 / 03-REVIEW WR-01: the object-level `.check(...)` below folds in the
+ * five cross-parameter invariants that `packages/harness/searchSpace.ts`'s
+ * `isValidParamSet` also enforces (that function remains the cheap boolean
+ * pre-filter for grid sweeps — see its own doc comment). Before this change,
+ * those invariants were enforced only by CONVENTION at three call sites
+ * (`promote.ts`'s `main`, `cli.ts`'s `loadSearchWinnerSigma1`,
+ * `PromotedVersionSchema`'s nested `params` field) plus two bare `as
+ * Sigma1Params` casts in `tune.ts` that bypassed even that convention — a
+ * fourth boundary could simply forget to call `isValidParamSet`, exactly how
+ * this gap arose. Attaching the checks HERE, on the schema every
+ * construction path already parses through, makes an invalid `Sigma1Params`
+ * unconstructible rather than merely unbuilt-by-convention — the same
+ * "runtime fact, not a convention a cast can bypass" reasoning
+ * `replay.ts`'s leak-proof `toLeakProofUpcoming` Proxy already uses (D-11
+ * cites it directly). Each violation reports its own named issue, so a
+ * rejected candidate says which invariant it broke rather than failing
+ * opaquely:
+ *
+ *   - D-07: `processNoiseEventBoundary` must strictly exceed
+ *     `processNoiseWithinEvent`, or the boundary/within-event distinction is
+ *     meaningless.
+ *   - T-03-06: `adaptationMinFactor` must be strictly less than
+ *     `adaptationMaxFactor`, or the stability clamp is degenerate/inverted.
+ *   - D-04: each of `carryMeanReversion`, `carryLastYearWeight`, and
+ *     `carryPriorYearWeight` is only meaningful in the closed interval
+ *     [0, 1].
  */
-export const Sigma1ParamsSchema = z.strictObject({
-  processNoiseWithinEvent: z.number().finite(),
-  processNoiseEventBoundary: z.number().finite(),
-  consistencyEwmaAlpha: z.number().finite(),
-  shrinkagePriorMatches: z.number().finite(),
-  minConsistencyVariance: z.number().finite(),
-  covEwmaAlpha: z.number().finite(),
-  covShrinkage: z.number().finite(),
-  linkC: z.number().finite(),
-  coldStartTeamTotal: z.number().finite(),
-  coldStartConsistencyVariance: z.number().finite(),
-  fallbackScoreSd: z.number().finite(),
-  consistencyCarryDecay: z.number().finite(),
-  carryMeanReversion: z.number().finite(),
-  carryLastYearWeight: z.number().finite(),
-  carryPriorYearWeight: z.number().finite(),
-  rpMonteCarloSeed: z.number().finite(),
-  rpMonteCarloDraws: z.number().finite(),
-  adaptationEnabled: z.boolean(),
-  adaptationEwmaAlpha: z.number().finite(),
-  adaptationExponent: z.number().finite(),
-  adaptationMinFactor: z.number().finite(),
-  adaptationMaxFactor: z.number().finite(),
-  adaptationMinObservations: z.number().finite(),
-}) satisfies z.ZodType<Sigma1Params>;
+export const Sigma1ParamsSchema = z
+  .strictObject({
+    processNoiseWithinEvent: z.number().finite(),
+    processNoiseEventBoundary: z.number().finite(),
+    consistencyEwmaAlpha: z.number().finite(),
+    shrinkagePriorMatches: z.number().finite(),
+    minConsistencyVariance: z.number().finite(),
+    covEwmaAlpha: z.number().finite(),
+    covShrinkage: z.number().finite(),
+    linkC: z.number().finite(),
+    coldStartTeamTotal: z.number().finite(),
+    coldStartConsistencyVariance: z.number().finite(),
+    fallbackScoreSd: z.number().finite(),
+    consistencyCarryDecay: z.number().finite(),
+    carryMeanReversion: z.number().finite(),
+    carryLastYearWeight: z.number().finite(),
+    carryPriorYearWeight: z.number().finite(),
+    rpMonteCarloSeed: z.number().finite(),
+    rpMonteCarloDraws: z.number().finite(),
+    adaptationEnabled: z.boolean(),
+    adaptationEwmaAlpha: z.number().finite(),
+    adaptationExponent: z.number().finite(),
+    adaptationMinFactor: z.number().finite(),
+    adaptationMaxFactor: z.number().finite(),
+    adaptationMinObservations: z.number().finite(),
+  })
+  .check((ctx) => {
+    const value = ctx.value;
+    if (!(value.processNoiseEventBoundary > value.processNoiseWithinEvent)) {
+      ctx.issues.push({
+        code: "custom",
+        message:
+          "D-07: processNoiseEventBoundary must strictly exceed processNoiseWithinEvent (the boundary/within-event distinction is otherwise meaningless)",
+        path: ["processNoiseEventBoundary", "processNoiseWithinEvent"],
+        input: value,
+      });
+    }
+    if (!(value.adaptationMinFactor < value.adaptationMaxFactor)) {
+      ctx.issues.push({
+        code: "custom",
+        message: "T-03-06: adaptationMinFactor must be strictly less than adaptationMaxFactor (a degenerate or inverted clamp is never valid)",
+        path: ["adaptationMinFactor", "adaptationMaxFactor"],
+        input: value,
+      });
+    }
+    if (!(value.carryMeanReversion >= 0 && value.carryMeanReversion <= 1)) {
+      ctx.issues.push({
+        code: "custom",
+        message: "D-04: carryMeanReversion must lie within the closed interval [0, 1]",
+        path: ["carryMeanReversion"],
+        input: value,
+      });
+    }
+    if (!(value.carryLastYearWeight >= 0 && value.carryLastYearWeight <= 1)) {
+      ctx.issues.push({
+        code: "custom",
+        message: "D-04: carryLastYearWeight must lie within the closed interval [0, 1]",
+        path: ["carryLastYearWeight"],
+        input: value,
+      });
+    }
+    if (!(value.carryPriorYearWeight >= 0 && value.carryPriorYearWeight <= 1)) {
+      ctx.issues.push({
+        code: "custom",
+        message: "D-04: carryPriorYearWeight must lie within the closed interval [0, 1]",
+        path: ["carryPriorYearWeight"],
+        input: value,
+      });
+    }
+  }) satisfies z.ZodType<Sigma1Params>;
 
 /**
  * The ONE canonical iteration order for every consumer that folds

@@ -5,7 +5,7 @@
  * `isValidParamSet`'s cross-parameter rejections.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { SEARCHABLE_PARAM_KEYS, SIGMA1_SEARCH_SPACE, isValidParamSet, screenGridFor } from "./searchSpace.js";
 
 describe("SEARCHABLE_PARAM_KEYS", () => {
@@ -118,5 +118,37 @@ describe("isValidParamSet", () => {
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 })).toBe(false);
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryLastYearWeight: -0.1 })).toBe(false);
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearWeight: 1.5 })).toBe(false);
+  });
+
+  // D-11 / 03-REVIEW WR-01: `isValidParamSet` and `Sigma1ParamsSchema`'s
+  // object-level `.check(...)` must agree on exactly the same accept/reject
+  // set — this is what makes the schema a safe drop-in enforcement point for
+  // every construction path, not just an independently-plausible duplicate
+  // check that could silently drift from the boolean pre-filter. Placed here
+  // (not in `params.test.ts`) so `packages/core`'s own test suite stays
+  // package-local and never imports from `packages/harness`.
+  describe("agreement with Sigma1ParamsSchema (D-11)", () => {
+    const CANDIDATES: readonly Sigma1Params[] = [
+      DEFAULT_SIGMA1_PARAMS,
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.5, processNoiseWithinEvent: 0.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.4, processNoiseWithinEvent: 0.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 4, adaptationMaxFactor: 4 },
+      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 5, adaptationMaxFactor: 4 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: -0.1 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryLastYearWeight: -0.1 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearWeight: 1.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 20 },
+      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 0.1, adaptationMaxFactor: 8 },
+    ];
+
+    it.each(CANDIDATES.map((params, i) => [i, params] as const))(
+      "candidate %i: isValidParamSet and Sigma1ParamsSchema.safeParse agree",
+      (_i, params) => {
+        const accepted = isValidParamSet(params);
+        const parsed = Sigma1ParamsSchema.safeParse(params);
+        expect(parsed.success).toBe(accepted);
+      }
+    );
   });
 });

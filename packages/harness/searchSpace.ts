@@ -223,6 +223,17 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
  *     depth for any candidate constructed outside `screenGridFor`'s own
  *     bound-respecting grid (the joint search's random sampling, in
  *     particular).
+ *
+ * D-11 / 03-REVIEW WR-01: these same five predicates are now ADDITIONALLY
+ * enforced inside `sigma1/params.ts`'s `Sigma1ParamsSchema` (its own
+ * object-level `.check(...)`), which every `Sigma1Params` construction path
+ * already parses through — that is what makes an invalid parameter set
+ * unconstructible rather than merely unbuilt-by-convention. This function
+ * remains the cheap boolean pre-filter for grid sweeps that must not throw
+ * mid-sweep (`runScreenStage`'s and `buildRandomCandidate`'s
+ * reject-and-count loops read a boolean here, not a caught exception); the
+ * two must be kept in agreement — `searchSpace.test.ts` and
+ * `params.test.ts` both assert this.
  */
 export function isValidParamSet(params: Sigma1Params): boolean {
   if (!(params.processNoiseEventBoundary > params.processNoiseWithinEvent)) return false;
