@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildBaselineFingerprint,
@@ -72,5 +74,47 @@ describe("buildBaselineFingerprint", () => {
     };
     expect(() => buildBaselineFingerprint(ambiguousSliceOptions)).toThrow(/opr/);
     expect(() => buildBaselineFingerprint(ambiguousSliceOptions)).toThrow(/2022/);
+  });
+});
+
+const BASELINES_DIR = join("data", "baselines");
+const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
+
+/**
+ * Task 3 (03.2-RESEARCH.md Pitfall 1): proves the two committed OPR
+ * fingerprints' placement does not break `digest.test.ts`'s
+ * `listVersionFiles()` glob-scan of `data/algorithm-versions/`, which
+ * parses every file there against the Sigma1-shaped `PromotedVersionSchema`
+ * — a bare OPR fingerprint placed there would fail that scan with an opaque
+ * Zod error about a missing `params` field instead of living in a directory
+ * built for its own shape.
+ */
+describe("committed baseline fingerprints", () => {
+  it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
+    const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    for (const file of files) {
+      const raw: unknown = JSON.parse(readFileSync(join(BASELINES_DIR, file), "utf8"));
+      expect(() => BaselineFingerprintSchema.parse(raw)).not.toThrow();
+    }
+  });
+
+  it("data/algorithm-versions/ still contains exactly the 2 pre-existing Sigma1 promoted versions (RESEARCH.md Pitfall 1)", () => {
+    const files = readdirSync(ALGORITHM_VERSIONS_DIR).filter((name) => name.endsWith(".json"));
+    expect(
+      files,
+      `data/algorithm-versions/ is glob-scanned and Sigma1-schema-parsed by digest.test.ts — baseline fingerprints ` +
+        `belong in ${BASELINES_DIR}, never in ${ALGORITHM_VERSIONS_DIR}. Found: ${JSON.stringify(files)}`
+    ).toHaveLength(2);
+  });
+
+  it("both committed OPR fingerprints record the retired implementation's own id/version, not anything later", () => {
+    const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
+    for (const file of files) {
+      const raw: unknown = JSON.parse(readFileSync(join(BASELINES_DIR, file), "utf8"));
+      const parsed = BaselineFingerprintSchema.parse(raw);
+      expect(parsed.algorithms[0]?.id).toBe("opr");
+      expect(parsed.algorithms[0]?.version).toBe("2.0.0+baseline");
+    }
   });
 });
