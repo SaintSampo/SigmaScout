@@ -189,12 +189,28 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 03.2-01-PLAN.md — Capture the retired season-pooled OPR baseline as two committed, reproducible fingerprints before its code is deleted (D-13)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03.2-02-PLAN.md — Rewrite `opr.ts` as event-scoped, quals-only, no-ridge, proven end-to-end through the real replay path (SC-1)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 03.2-03-PLAN.md — Full 2022–2026 five-algorithm re-run against the new baseline, with its figures committed (SC-2 data)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 03.2-04-PLAN.md — Measure early-event rank deficiency: accuracy-by-checkpoint curve plus rank-vs-team-count diagnostic (SC-5)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 03.2-05-PLAN.md — Create `docs/models/opr-baseline-change.md`, restate SC-3 honestly, re-issue every live OPR figure (SC-2/SC-3/SC-4)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 03.2-06-PLAN.md — Annotate the Phase 1–3 execution record, correct 04-CONTEXT D-11's errata, close the phase gate (SC-2, D-17)
 
 ### Phase 4: Publish & Live Update Pipeline

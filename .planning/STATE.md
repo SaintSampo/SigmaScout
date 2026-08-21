@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 3.2
 current_phase_name: Swap OPR to event-scoped and re-issue affected figures
-status: planning
+status: executing
 stopped_at: Phase 3.2 context gathered
-last_updated: "2026-08-21T04:48:30.715Z"
+last_updated: "2026-08-21T06:00:49.969Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 03.1 complete, transitioned to Phase 4
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 25
+  total_plans: 31
   completed_plans: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 3.2 — Swap OPR to event-scoped and re-issue affected figures
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-20 — Phase 03.1 complete, transitioned to Phase 4
 
 Progress: [██████████] 100%
@@ -200,6 +200,7 @@ None yet.
 
 - Phase 03.1 inserted after Phase 3: Address Phase 1-3 review warnings and doc drift (URGENT)
 - Phase 3.2 inserted after Phase 3.1: Swap OPR to event-scoped and re-issue affected figures (URGENT)
+- Phase 3.2 edited: SC-2 reworded: docs/models and PROJECT.md re-issued outright; Phase 1-3 SUMMARYs annotated with dated superseded-by notes, original numbers intact (03.2-CONTEXT D-16). Reworded before any new figures were measured.
 
 ## Deferred Items
 
