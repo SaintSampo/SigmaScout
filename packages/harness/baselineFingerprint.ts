@@ -53,7 +53,7 @@
  * run — it only ever needs the handful of fields above, on every schema
  * version this project has shipped.
  */
-import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
@@ -301,6 +301,20 @@ interface SidecarLineShape {
  * over `createReadStream` — T-03.2-12: sidecars run 75-157 MB, never
  * buffered whole into memory), splitting records into one bucket per
  * requested algorithm id, in file (chronological) order.
+ *
+ * Rule 1 fix (found running plan 03.2-01 Task 2's real command): a
+ * `--seasons` run's sidecar for one season can be ABSENT entirely (not just
+ * empty) if the run process is killed/interrupted mid-write — observed on
+ * the real D-13 final run, whose `predictions-2024.jsonl` came out 0 bytes
+ * and `predictions-2025.jsonl` was never created, while `artifact.json`
+ * still aggregated complete, correct metrics for every season (the metrics
+ * path and the sidecar-write path are independent). A missing sidecar is
+ * treated as "zero available prediction records for this season" — logged
+ * loudly, never silently — rather than crashing the whole fingerprint
+ * generation. This makes that season's `predictionStreamSha256` the
+ * well-known empty-input hash rather than a real digest; callers comparing
+ * digests across runs must treat that as "digest unavailable for this
+ * season," recorded plainly wherever the comparison is reported.
  */
 async function readSeasonRecordsBySidecar(
   runDir: string,
@@ -310,6 +324,14 @@ async function readSeasonRecordsBySidecar(
   const sidecarPath = join(runDir, `predictions-${season}.jsonl`);
   const perAlgorithm = new Map<string, BaselineFingerprintPredictionRecord[]>();
   for (const id of algorithmIds) perAlgorithm.set(id, []);
+
+  if (!existsSync(sidecarPath)) {
+    console.warn(
+      `baselineFingerprint: ${sidecarPath} does not exist — season ${season} has zero available prediction ` +
+        `records for this run (its predictionStreamSha256 will be the empty-input hash, not a real digest)`
+    );
+    return perAlgorithm;
+  }
 
   const rl = createInterface({ input: createReadStream(sidecarPath, "utf8"), crlfDelay: Infinity });
   for await (const line of rl) {
