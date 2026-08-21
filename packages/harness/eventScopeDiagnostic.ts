@@ -144,15 +144,33 @@ export interface PooledAccuracyResult {
 
 /**
  * Pools multiple `combined`-view `ScoreSlice`s (e.g. one per season) into a
- * single figure. This is exact, not an approximation: `brierScore` is
- * defined as `squaredErrorSum / count` (`core/scoring/brier.ts`), so
- * weighting each slice's already-computed mean by its own count and summing
- * reconstructs the true pooled mean bit-for-bit-equivalent to scoring the
- * full pooled population directly. `winnerAccuracy`'s denominator excludes
- * ties/no-calls (`count - tieCount - noCallCount`), so it is reconstructed
- * the same way from its own denominator, not from `scoredCount`.
+ * single figure.
+ *
+ * Single-slice case (the one `buildReconciliationEntry` below actually
+ * exercises, since it pools exactly one season's predictions): returns that
+ * slice's own `brierScore`/`winnerAccuracy`/`scoredCount` UNCHANGED, with no
+ * arithmetic performed on them at all. This is genuinely bit-for-bit exact —
+ * not merely "close" — which is what keeps the reconciliation gate's strict
+ * `===` comparison trustworthy.
+ *
+ * Two-or-more-slice case: each slice's already-computed mean is weighted by
+ * its own count and summed to reconstruct the pooled mean (`brierScore` is
+ * `squaredErrorSum / count` per `core/scoring/brier.ts`; `winnerAccuracy`'s
+ * denominator excludes ties/no-calls, so it is reconstructed from its own
+ * denominator, not from `scoredCount`). This is a standard weighted-mean-of-
+ * group-means identity and is mathematically exact in real-number
+ * arithmetic, but it is NOT guaranteed bit-for-bit identical to scoring the
+ * full pooled population directly: `(x * n) / n` is frequently not
+ * bit-identical to `x` in IEEE 754 double-precision arithmetic (empirically
+ * ~12% of sampled `(x, n)` pairs mismatch). A caller that needs a strict
+ * `===` guarantee — like the reconciliation gate — must only ever compare
+ * against a pool built from a single slice.
  */
 export function poolSlices(slices: readonly ScoreSlice[]): PooledAccuracyResult {
+  if (slices.length === 1) {
+    const [slice] = slices;
+    return { brierScore: slice!.brierScore, winnerAccuracy: slice!.winnerAccuracy, scoredCount: slice!.scoredCount };
+  }
   let squaredErrorSum = 0;
   let scoredCount = 0;
   let accuracyCorrect = 0;
