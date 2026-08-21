@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3.2
-current_phase_name: Swap OPR to event-scoped and re-issue affected figures
+current_phase: 03.2
+current_phase_name: swap-opr-to-event-scoped-and-re-issue-affected-figures
 status: executing
 stopped_at: Phase 3.2 context gathered
-last_updated: "2026-08-21T06:00:49.969Z"
-last_activity: 2026-08-20
-last_activity_desc: Phase 03.1 complete, transitioned to Phase 4
+last_updated: "2026-08-21T06:10:37.692Z"
+last_activity: 2026-08-21
+last_activity_desc: Phase 03.2 execution started
 progress:
   total_phases: 6
   completed_phases: 4
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 3.2 — swap-opr-to-event-scoped-and-re-issue-affected-figures
+**Current focus:** Phase 03.2 — swap-opr-to-event-scoped-and-re-issue-affected-figures
 
 ## Current Position
 
-Phase: 3.2 — Swap OPR to event-scoped and re-issue affected figures
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-20 — Phase 03.1 complete, transitioned to Phase 4
+Phase: 03.2 (swap-opr-to-event-scoped-and-re-issue-affected-figures) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 03.2
+Last activity: 2026-08-21 — Phase 03.2 execution started
 
 Progress: [██████████] 100%
 

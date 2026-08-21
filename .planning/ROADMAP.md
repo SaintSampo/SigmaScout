@@ -186,12 +186,12 @@ Plans:
   4. Phase 3's SC-3 verdict is re-stated against the new baseline as an explicit measured result, with any change in whether Sigma1 beats OPR on holdout Brier and holdout winner accuracy named outright — never presented as an improvement Sigma1 did not make.
   5. Event-scoped OPR's behavior early in an event, where the design matrix is rank-deficient, is measured and documented rather than assumed benign.
 
-**Plans**: 6 plans
+**Plans**: 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 03.2-01-PLAN.md — Capture the retired season-pooled OPR baseline as two committed, reproducible fingerprints before its code is deleted (D-13)
+- [x] 03.2-01-PLAN.md — Capture the retired season-pooled OPR baseline as two committed, reproducible fingerprints before its code is deleted (D-13)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
