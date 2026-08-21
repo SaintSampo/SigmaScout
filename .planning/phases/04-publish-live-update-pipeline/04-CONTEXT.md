@@ -70,6 +70,34 @@ Consequences the planner must honor:
 - **D-10:** The swap is sequenced as an **inserted Phase 3.2, executed before Phase 4 plans**. Phase 3.2 changes OPR to event-scoped, re-runs the full 2022–2026 harness, and re-issues every affected figure in `docs/models/`, the Phase 1–3 SUMMARYs, and `PROJECT.md`. Phase 4 then publishes numbers that are already correct. Rejected: doing it as Phase 4's first plan — Phase 4's success criteria say nothing about baselines, so a change to the project's headline comparison would land with no criterion verifying it. Rejected: publishing event-OPR now and re-running later — that puts season-pooled accuracy figures on the Compare page for an OPR the rest of the site no longer computes, which is the two-things-under-one-name drift 03 D-04 exists to prevent.
 - **D-11:** The **season-pooled results are kept as recorded history, not deleted**. `docs/models/` records them as "the baseline this project used through Phase 3, and what Sigma1 measured against then," with the switch and its rationale alongside. **This is not optional bookkeeping.** Season-pooled OPR sees every match a team played all season; event OPR sees only that event's handful — so event OPR is a *weaker* baseline, and Sigma1 currently **loses** holdout winner accuracy to season-pooled OPR on both holdout seasons (2025: 0.7539 vs 0.7618; 2026: 0.7819 vs 0.7825). A Sigma1 win against the new baseline must not be mistakable for the goalpost move 03-CONTEXT D-02 explicitly forbade. The record showing both numbers and the reason is what keeps that claim honest. Expect event OPR to be noisy early in an event, where 40 teams and few matches leave the design matrix badly rank-deficient; the existing ridge term is what keeps it finite.
 
+  > **Dated errata (2026-08-21, Phase 3.2 plan 06, per 03.2-CONTEXT D-17).** D-11's cited figures
+  > above are misattributed and its closing sentence about the ridge term is now stale. Both are
+  > corrected here, in place, rather than silently edited — D-11's original text is left unchanged
+  > above.
+  >
+  > **1. The misattribution.** The cited 2025: `0.7539` and 2026: `0.7819` are the **untuned**
+  > Sigma1 rows (`sigma1-defaults`) from `docs/models/sigma1-tuning-results.md`'s Phase-2
+  > starting-position table (lines 129-141), not the promoted, tuned Sigma1 this project ships. The
+  > **promoted** Sigma1 (`sigma1@2.0.0+tuned-2026-08`) scored **0.7657** (2025) and **0.7873**
+  > (2026) against season-pooled OPR's **0.7618** and **0.7825** — and **won both** holdout winner-
+  > accuracy comparisons. `sigma1-tuning-results.md`'s `## SC-3 Verdict` (lines 151-160) records
+  > this as **8/8 PASS**, not a loss.
+  >
+  > **2. Why the correction strengthens D-11's argument rather than weakening it.** D-11's point is
+  > that a Sigma1 win against a weaker new baseline (event-scoped OPR) must not be mistakable for
+  > the goalpost move 03-CONTEXT D-02 forbids. That risk is *higher*, not lower, when Sigma1 was
+  > already winning against the harder baseline (season-pooled OPR) before the swap — a reader has
+  > more reason to suspect a widened margin is attributable to the opponent weakening, precisely
+  > because Sigma1 did not need a weaker opponent to win in the first place. The corrected premise
+  > makes the honesty requirement more load-bearing, not less.
+  >
+  > **3. The ridge claim.** D-11 closes by saying "the existing ridge term is what keeps it
+  > finite." After 03.2-CONTEXT D-06 there is **no ridge term** — it was dropped entirely, and
+  > finiteness now comes from a minimum-norm pseudo-inverse solve via SVD (matching TBA's own
+  > `np.linalg.pinv`). Rank deficiency in an early event is a well-defined minimum-norm answer, not
+  > a divergence risk needing regularization to contain. See `docs/models/opr-baseline-change.md`
+  > § "Early-event behavior (SC-5)" for the measured early-event accuracy/rank curve this produces.
+
 ### Live state & correctness
 
 - **D-12:** Live state is bootstrapped by an **offline-published state snapshot, with a scheduled re-baseline**. The offline pipeline replays history, publishes both artifacts and a state snapshot, and re-runs on a schedule to overwrite live state. The Worker only loads and advances. Fully automatic at run time; what distinguishes this from the alternatives is that the offline run is the *authority*, so incremental drift gets corrected rather than compounding across a season. Rejected: Worker self-bootstrap — mid-season teams would start from a cold prior instead of their real accumulated rating, and the Worker would own logic the harness never exercises (ARCHITECTURE.md Anti-Pattern 2).
