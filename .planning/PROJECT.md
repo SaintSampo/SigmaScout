@@ -85,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-18 after Phase 3 (Tuning, Ranking Points & Versioning) completion*
+*Last updated: 2026-08-20 after Phase 03.1 (Address Phase 1-3 Review Warnings and Doc Drift) completion. A remediation phase: it closed all nine open Phase 1-3 review warnings and reconciled the stale planning artifacts, hardening DATA-02, EVAL-02, EVAL-03, ALGO-01, ALGO-04 and ALGO-06 without validating any new requirement or widening scope. No requirement moved between Active and Validated.*
