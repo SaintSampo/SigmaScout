@@ -14,7 +14,7 @@ import {
   type OprObservation,
   type OprState,
 } from "./opr.js";
-import type { MatchResult, UpcomingMatch } from "./types.js";
+import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "./types.js";
 import { WalkForwardSimulator } from "../../harness/replay.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
@@ -146,64 +146,32 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
   });
 });
 
-describe("solveEventOpr — synthetic strength recovery", () => {
-  it("recovers known synthetic team strengths near-exactly — no ridge shrinkage to tolerate", () => {
-    const strengths: Record<string, number> = {
-      T1: 20,
-      T2: 25,
-      T3: 15,
-      T4: 10,
-      T5: 30,
-      T6: 5,
-      T7: 22,
-      T8: 18,
-    };
-    const teams = Object.keys(strengths);
-    // Every 3-team combination among 8 teams (56 alliances), scored as an
-    // exact sum of the true strengths (no noise) — a well-connected,
-    // overdetermined design matrix.
+describe("solveEventOpr — synthetic strength recovery without shrinkage (D-06)", () => {
+  it("recovers known synthetic team strengths near-exactly at event scale (~39 teams) — no ridge term means no shrinkage bias to tolerate", () => {
+    // Corpus-measured event scale: mean 38.7 / median 38 teams per event
+    // (03.2-RESEARCH.md). Every 3-team combination among 39 teams (9139
+    // alliances), scored as an exact sum of the true strengths (no noise)
+    // — a well-connected, heavily overdetermined design matrix.
+    const teamCount = 39;
+    const teams = Array.from({ length: teamCount }, (_, i) => `T${i}`);
+    const strengths = new Map(teams.map((team, i) => [team, 10 + ((i * 7) % 40)]));
     const alliances = combinations(teams, 3);
     const observations: OprObservation[] = alliances.map((allianceTeams) => ({
       teams: allianceTeams,
-      allianceScore: allianceTeams.reduce((sum, t) => sum + strengths[t]!, 0),
+      allianceScore: allianceTeams.reduce((sum, t) => sum + strengths.get(t)!, 0),
     }));
     const teamIndex = buildTeamIndex(observations);
     const ratings = solveEventOpr(observations, teamIndex);
 
     for (const team of teams) {
       expect(ratings.get(team)).toBeDefined();
-      // D-06: no ridge term means no shrinkage bias to tolerate — the
-      // minimum-norm solve recovers the exact synthetic strengths.
-      expect(ratings.get(team)!).toBeCloseTo(strengths[team]!, 6);
+      expect(ratings.get(team)!).toBeCloseTo(strengths.get(team)!, 4);
     }
   });
 });
 
-describe("opr — cold start / under-determined regime", () => {
-  it("returns a finite rating for every team in a two-match, many-team system with more teams than independent observations", () => {
-    // 2 matches, 4 alliance observations, 12 unique teams that never repeat
-    // across alliances — massively rank-deficient at this event.
-    let state: OprState = opr.initState([]);
-    state = opr.update(
-      state,
-      match({ matchKey: "2024test_qm1", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
-    );
-    state = opr.update(
-      state,
-      match({ matchKey: "2024test_qm2", redTeams: ["A7", "A8", "A9"], blueTeams: ["A10", "A11", "A12"], redScore: 40, blueScore: 35 })
-    );
-
-    const allTeams = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12"];
-    const ratings = ratingsAt(state, "2024test");
-    expect(ratings.size).toBe(12);
-    for (const team of allTeams) {
-      const rating = ratings.get(team);
-      expect(rating).toBeDefined();
-      expect(Number.isFinite(rating)).toBe(true);
-    }
-  });
-
-  it("gives the first qualification match of an event a literal-zero cold-start prediction (D-02)", () => {
+describe("opr — literal-zero cold start (D-02)", () => {
+  it("gives the first qualification match of an event a prediction of exactly {redScore: 0, blueScore: 0, pRedWin: 0.5} — no observations yet at this event", () => {
     const state: OprState = opr.initState([]);
     const upcoming: UpcomingMatch = {
       matchKey: "2024test_qm1",
@@ -221,6 +189,187 @@ describe("opr — cold start / under-determined regime", () => {
     expect(prediction.redScore).toBe(0);
     expect(prediction.blueScore).toBe(0);
     expect(prediction.pRedWin).toBe(0.5);
+  });
+});
+
+describe("opr — rank-deficient event scale stays finite", () => {
+  it("returns an all-finite rating for every team in a ~39-team event fixture with only 4 qualification matches played (8 alliance rows, far fewer independent rows than teams)", () => {
+    // Corpus-measured event scale (39 teams — 03.2-RESEARCH.md), but only 4
+    // of an event's ~73 qualification matches played so far: massively
+    // rank-deficient by construction, with no team repeating across
+    // alliances. D-08: this measures the regime — no fallback, floor, or
+    // seeded value is asserted, because none exists and none is added.
+    const teamCount = 39;
+    const teams = Array.from({ length: teamCount }, (_, i) => `R${i}`);
+    let state: OprState = opr.initState([]);
+    for (let m = 0; m < 4; m++) {
+      const redTeams = teams.slice(m * 6, m * 6 + 3);
+      const blueTeams = teams.slice(m * 6 + 3, m * 6 + 6);
+      state = opr.update(
+        state,
+        match({
+          matchKey: `2024rank_qm${m + 1}`,
+          eventKey: "2024rank",
+          matchNumber: m + 1,
+          redTeams,
+          blueTeams,
+          redScore: 30 + m,
+          blueScore: 25 + m,
+        })
+      );
+    }
+
+    const ratings = ratingsAt(state, "2024rank");
+    expect(ratings.size).toBe(24); // 4 matches x 6 rating-eligible teams each
+    for (const [, rating] of ratings) {
+      expect(Number.isFinite(rating)).toBe(true);
+    }
+  });
+});
+
+describe("opr — per-event keying under interleaved events (D-01)", () => {
+  it("gives each event exactly the ratings a solo run over that event's own matches (in isolation) would produce, even when the events' matches interleave in one stream", () => {
+    const sharedTeam = "SHARED";
+
+    function eventAMatches(): MatchResult[] {
+      return [
+        match({ matchKey: "2024eventa_qm1", eventKey: "2024eventa", matchNumber: 1, redTeams: [sharedTeam, "A1", "A2"], blueTeams: ["A3", "A4", "A5"], redScore: 30, blueScore: 22 }),
+        match({ matchKey: "2024eventa_qm2", eventKey: "2024eventa", matchNumber: 2, redTeams: ["A1", "A3", sharedTeam], blueTeams: ["A2", "A4", "A5"], redScore: 35, blueScore: 25 }),
+        match({ matchKey: "2024eventa_qm3", eventKey: "2024eventa", matchNumber: 3, redTeams: ["A4", "A5", "A1"], blueTeams: [sharedTeam, "A2", "A3"], redScore: 20, blueScore: 33 }),
+      ];
+    }
+    function eventBMatches(): MatchResult[] {
+      return [
+        match({ matchKey: "2024eventb_qm1", eventKey: "2024eventb", matchNumber: 1, redTeams: [sharedTeam, "B1", "B2"], blueTeams: ["B3", "B4", "B5"], redScore: 45, blueScore: 27 }),
+        match({ matchKey: "2024eventb_qm2", eventKey: "2024eventb", matchNumber: 2, redTeams: ["B1", "B3", sharedTeam], blueTeams: ["B2", "B4", "B5"], redScore: 50, blueScore: 24 }),
+        match({ matchKey: "2024eventb_qm3", eventKey: "2024eventb", matchNumber: 3, redTeams: ["B4", "B5", "B1"], blueTeams: [sharedTeam, "B2", "B3"], redScore: 18, blueScore: 40 }),
+      ];
+    }
+
+    // Interleaved: A1, B1, A2, B2, A3, B3 — mirrors buildSeasonStream's
+    // real cross-event interleaving.
+    const [a1, a2, a3] = eventAMatches();
+    const [b1, b2, b3] = eventBMatches();
+    let interleavedState: OprState = opr.initState([]);
+    for (const m of [a1!, b1!, a2!, b2!, a3!, b3!]) {
+      interleavedState = opr.update(interleavedState, m);
+    }
+
+    // Solo: each event replayed completely alone, in its own event-only order.
+    let soloAState: OprState = opr.initState([]);
+    for (const m of eventAMatches()) soloAState = opr.update(soloAState, m);
+    let soloBState: OprState = opr.initState([]);
+    for (const m of eventBMatches()) soloBState = opr.update(soloBState, m);
+
+    expect([...ratingsAt(interleavedState, "2024eventa").entries()]).toEqual([...ratingsAt(soloAState, "2024eventa").entries()]);
+    expect([...ratingsAt(interleavedState, "2024eventb").entries()]).toEqual([...ratingsAt(soloBState, "2024eventb").entries()]);
+
+    // The shared team holds two distinct ratings, one per event.
+    const sharedAtA = ratingsAt(interleavedState, "2024eventa").get(sharedTeam);
+    const sharedAtB = ratingsAt(interleavedState, "2024eventb").get(sharedTeam);
+    expect(sharedAtA).toBeDefined();
+    expect(sharedAtB).toBeDefined();
+    expect(sharedAtA).not.toBe(sharedAtB);
+  });
+});
+
+describe("opr — qualification matches only feed the fit (D-05)", () => {
+  it("update() is a no-op on playoff comp levels (state.perEvent unchanged) while predict() still returns a finite prediction for them, reflecting the ratings this event's quals produced", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", eventKey: "2024test", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+    const beforePerEvent = state.perEvent;
+
+    for (const compLevel of ["sf", "f"] as const) {
+      const playoffMatch = match({
+        matchKey: `2024test_${compLevel}1`,
+        eventKey: "2024test",
+        compLevel,
+        redTeams: ["A1", "A4", "A2"],
+        blueTeams: ["A3", "A5", "A6"],
+        redScore: 50,
+        blueScore: 45,
+      });
+
+      const nextState = opr.update(state, playoffMatch);
+      expect(nextState).toBe(state); // A genuine no-op — the identical object.
+      expect(nextState.perEvent).toBe(beforePerEvent);
+
+      const prediction = opr.predict(state, playoffMatch);
+      expect(Number.isFinite(prediction.pRedWin)).toBe(true);
+      expect(prediction.pRedWin).toBeGreaterThanOrEqual(0);
+      expect(prediction.pRedWin).toBeLessThanOrEqual(1);
+      expect(Number.isFinite(prediction.redScore)).toBe(true);
+      expect(Number.isFinite(prediction.blueScore)).toBe(true);
+    }
+  });
+});
+
+describe("opr.teamMetrics — most recent event headlines (D-04)", () => {
+  it("headlines a team's MOST RECENT event, not the event it was first inserted into — a team playing event B before event A finishes in stream order still headlines A", () => {
+    let state: OprState = opr.initState([]);
+    // Event B is seen FIRST in stream order (so perEvent's insertion order
+    // would wrongly point at B if teamMetrics inferred from it).
+    state = opr.update(
+      state,
+      match({ matchKey: "2024eventb_qm1", eventKey: "2024eventb", redTeams: ["SHARED", "B1", "B2"], blueTeams: ["B3", "B4", "B5"], redScore: 40, blueScore: 30 })
+    );
+    // Event A is seen SECOND — it is SHARED's most recent event.
+    state = opr.update(
+      state,
+      match({ matchKey: "2024eventa_qm1", eventKey: "2024eventa", redTeams: ["SHARED", "A1", "A2"], blueTeams: ["A3", "A4", "A5"], redScore: 35, blueScore: 20 })
+    );
+
+    const expectedRating = ratingsAt(state, "2024eventa").get("SHARED");
+    expect(expectedRating).toBeDefined();
+    const metrics = opr.teamMetrics(state, ["SHARED"]);
+    expect(metrics["SHARED"]![TOTAL_METRIC_KEY]!.value).toBe(expectedRating);
+  });
+
+  it("never registers a team in lastEventByTeam from a playoff-only appearance at an event (D-05: update() never touches lastEventByTeam for a non-qm match)", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024test_sf1",
+        eventKey: "2024test",
+        compLevel: "sf",
+        redTeams: ["P1", "P2", "P3"],
+        blueTeams: ["P4", "P5", "P6"],
+        redScore: 40,
+        blueScore: 35,
+      })
+    );
+    expect(state.lastEventByTeam.has("P1")).toBe(false);
+  });
+});
+
+describe("opr — finiteness guard throws loudly (01-REVIEW WR-01, D-03)", () => {
+  it("throws when an alliance's score is non-finite, naming the eventKey, instead of writing a non-finite rating into the returned state", () => {
+    let state: OprState = opr.initState([]);
+    // Establish a well-connected event first so the corrupted match shares
+    // a team with real observations, forcing the corruption to propagate
+    // through the solve rather than staying isolated.
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", eventKey: "2024test", redTeams: ["A1", "A2", "A3"], blueTeams: ["A4", "A5", "A6"], redScore: 30, blueScore: 25 })
+    );
+
+    expect(() =>
+      opr.update(
+        state,
+        match({
+          matchKey: "2024test_qm2",
+          eventKey: "2024test",
+          redTeams: ["A1", "A7", "A8"],
+          blueTeams: ["A9", "A10", "A11"],
+          redScore: Number.NaN,
+          blueScore: 20,
+        })
+      )
+    ).toThrow(/2024test/);
   });
 });
 
