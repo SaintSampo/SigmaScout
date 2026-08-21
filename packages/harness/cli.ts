@@ -580,8 +580,10 @@ async function runSeason(
  * `initialStates` for every season — `runAll` falls back to `initState`
  * for any algorithm id missing from the map, exactly reproducing Phase 1's
  * per-season-fresh-start behavior. This is intentional, not an oversight:
- * OPR is season-pooled by design (see `opr.ts`'s file header), and a
- * cross-season OPR would be a different algorithm, not a bug fix.
+ * OPR is event-scoped by design (Phase 3.2, see `opr.ts`'s file header) —
+ * its state does not even survive across events within a season, let alone
+ * across a season boundary — so carrying it forward here would contradict
+ * the algorithm's own definition, not merely change its behavior.
  *
  * An algorithm that HAS carried-in live state from a prior season in this
  * same run, but whose current live state is `undefined` (it was never
