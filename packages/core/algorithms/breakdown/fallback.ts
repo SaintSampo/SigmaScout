@@ -19,7 +19,7 @@ import type { ParsedComponents } from "./constants.js";
  * predicted shares, not observed directly — so an algorithm that carries
  * measurement noise (Sigma1, a later plan) should treat a fallback
  * observation as proportionally less informative than a real one. Mirrors
- * `opr.ts`'s `OPR_RIDGE_LAMBDA` reasoning style: a small, documented
+ * `opr.ts`'s `OPR_LOGISTIC_SCALE` reasoning style: a small, documented
  * constant chosen for a defensible qualitative property, not derived from
  * data. EPA carries no variance channel and does not consume this constant
  * itself; it exists here so Sigma1's fallback wiring has it ready-made
