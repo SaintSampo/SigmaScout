@@ -95,6 +95,11 @@ status: complete
 
 # Phase 1 Plan 3: Full 2022-2026 Ingestion — Corpus Total Order, Hardened TBA Client, Quirk Flags Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **Corpus schema completed with teams/ingest_runs/replay provenance and a proven deterministic chronological total order; TBA client hardened with throttling, per-run request counting, and the full eight-capability surface; every DATA-02 quirk (surrogates, dqs, replays, missing breakdowns, offseason) synthesized as an explicit flag and unit-tested; a real backfill populated all five 2022-2026 seasons (108,772 matches, 4,655 teams, 1,580 events) and a repeat run proved conditional-request savings — 1,585 of 1,699 requests came back 304 with zero match payloads re-downloaded.**
 
 ## Performance

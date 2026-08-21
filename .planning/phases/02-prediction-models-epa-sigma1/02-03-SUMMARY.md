@@ -142,6 +142,11 @@ status: complete
 
 # Phase 02 Plan 03: Season Carryover & Head-to-Head Report Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **EPA ratings now survive a season boundary through a fully parameterized, tested carry (`carryover.ts`), the harness threads that state across every season in a range via `algorithm.carrySeason`, and the HTML report renders one head-to-head table with a loudly-caveated Statbotics row instead of per-algorithm-only score tables.**
 
 ## Performance

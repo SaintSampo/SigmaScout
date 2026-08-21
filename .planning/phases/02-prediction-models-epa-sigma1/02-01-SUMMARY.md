@@ -128,6 +128,11 @@ status: complete
 
 # Phase 02 Plan 01: End-to-End Tracer Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **A 2024 match's `score_breakdown` now flows through a real walk-forward EPA, OPR and EPA replay one shared match stream, and a schema-v2 artifact carries both algorithms' 2024 numbers side by side — OPR reproducing its Phase 1 baseline to five decimal places.**
 
 ## Performance

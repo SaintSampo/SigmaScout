@@ -108,6 +108,11 @@ status: complete
 
 # Phase 1 Plan 4: Season-Pooled, Ridge-Regularized OPR with Surrogate/DQ Policy Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **OPR rewritten around explicit season-scope pooling and a ridge-regularized `ml-matrix` SVD solve (`solveRidgeOpr`), recovering known synthetic team strengths within 4 points on an 8-team/56-alliance fixture and staying finite and mean-shrunk in a deliberately under-determined two-match cold start; D-07's surrogate-slot question is resolved via a subtracted-offset observation (`allianceObservation`) that updates only non-surrogate teammates, disqualified teams keep their column and rating by a documented opposite policy, and a new `isomorphic.test.ts` proves `packages/core` stays free of Node built-ins and `better-sqlite3`.**
 
 ## Performance
