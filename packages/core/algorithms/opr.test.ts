@@ -16,6 +16,8 @@ import {
 } from "./opr.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "./types.js";
 import { WalkForwardSimulator } from "../../harness/replay.js";
+import { ALGORITHMS } from "../../harness/cli.js";
+import * as oprModule from "./opr.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -143,6 +145,29 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
     expect(sharedAtAaa).toBeDefined();
     expect(sharedAtBbb).toBeDefined();
     expect(sharedAtAaa).not.toBe(sharedAtBbb);
+  });
+});
+
+describe("opr — public export surface (SC-1)", () => {
+  it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts/identifiability.ts depend on", () => {
+    expect(Object.keys(oprModule).sort()).toEqual([
+      "OPR_LOGISTIC_SCALE",
+      "allianceObservation",
+      "opr",
+      "ratingEligibleTeams",
+      "solveEventOpr",
+    ]);
+  });
+
+  it("identifies itself as opr, version 3.0.0+baseline", () => {
+    expect(opr.id).toBe("opr");
+    expect(opr.version).toBe("3.0.0+baseline");
+  });
+});
+
+describe("opr — harness registry resolves to the rewritten module (SC-1)", () => {
+  it("ALGORITHMS.opr (packages/harness/cli.ts) is the exact same object as the opr export from packages/core/algorithms/opr.ts", () => {
+    expect(ALGORITHMS.opr).toBe(opr);
   });
 });
 
