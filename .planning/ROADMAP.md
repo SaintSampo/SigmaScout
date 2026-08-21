@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Data Foundation & Evaluation Harness** - Normalized TBA corpus plus walk-forward backtesting with an OPR baseline (completed 2026-08-19)
 - [x] **Phase 2: Prediction Models — EPA & Sigma1** - Reimplemented EPA and the Sigma1 Kalman filter, scored head-to-head (completed 2026-08-14)
 - [x] **Phase 3: Tuning, Ranking Points & Versioning** - Offline optimizer, online adaptation, per-season RP prediction, versioned algorithms (completed 2026-08-18)
-- [ ] **Phase 3.1: Address Phase 1-3 review warnings and doc drift** (INSERTED) - Resolve outstanding review warnings from Phases 1-3 and reconcile documentation drift
+- [x] **Phase 3.1: Address Phase 1-3 review warnings and doc drift** (INSERTED) - Resolve outstanding review warnings from Phases 1-3 and reconcile documentation drift (completed 2026-08-20)
 - [ ] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers
 - [ ] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings
 - [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot
@@ -154,7 +154,7 @@ Plans:
   4. Neither long-running numerical guarantee rests on coincidence: a season-scale run of the incremental OPR solve is proven to stay finite and within a documented tolerance of a fresh batch solve, and `isValidParamSet` is enforced at every Sigma1 candidate-generation and promotion boundary.
   5. Every Phase 1-3 planning artifact's recorded status matches HEAD — no artifact claims an open finding that is closed, or a closed finding that is open — covering the three REVIEW.md frontmatter blocks, `01-VERIFICATION.md`'s human-verification item, and STATE.md's Blockers/Concerns section.
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -257,7 +257,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 1. Data Foundation & Evaluation Harness | 6/6 | Complete    | 2026-08-19 |
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
-| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | In Progress|  |
+| 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
 | 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
