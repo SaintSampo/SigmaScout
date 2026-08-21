@@ -202,15 +202,134 @@ warm-only cut (D-09).
 
 ## Early-event behavior (SC-5)
 
-_(Written by plan 03.2-05, Task 2 — see below.)_
+D-07's measurement is reported in two halves together: the accuracy cost, in the project's own
+units, and the rank-deficiency mechanism that explains its shape. Both are from
+`data/diagnostics/opr-event-scope-2026-08.json`, pooled across all five seasons 2022-2026.
+
+**The cold-start consequence, stated in plain terms first.** A team with no observations at an
+event has rating 0 (D-02, literal zero, not a league-mean seed or a carried-forward prior). The
+first qualification match of every event therefore predicts a 0-0 score for both alliances, with
+`pRedWin` exactly 0.500 — an uninformative coin flip — and a flat 0.25 Brier ceiling on those
+matches specifically. This is not a near-miss approximation of a real prediction; it is a
+structurally guaranteed no-call.
+
+**Accuracy by completed-qualification-match checkpoint** (pooled Brier / winner accuracy,
+bucketed by how many qualification matches the event had completed at prediction time):
+
+| Bucket (completed quals) | Brier | Winner accuracy | Scored count |
+|---|---|---|---|
+| 0 | 0.2480 | *(null — every prediction here is an exact 0.5 no-call; the accuracy denominator is genuinely empty, not merely low)* | 1,105 |
+| 1-6 | 0.2599 | 0.5737 | 5,725 |
+| 7-12 | 0.2801 | 0.6221 | 5,690 |
+| 13-24 | 0.2937 | 0.6494 | 11,256 |
+| 25-48 | 0.2039 | 0.7401 | 22,458 |
+| 49+ | 0.1718 | 0.7670 | 37,769 |
+
+**The curve is not monotonic in the middle, and that is reported as measured, not smoothed.**
+Buckets 1-6 through 13-24 score a *worse* Brier than the 0.25 a constant 50/50 predictor achieves
+— a calibration failure (a rank-deficient fit producing overconfident probabilities), not a
+discrimination failure, since winner accuracy climbs steadily and monotonically across the same
+buckets (0.5737 -> 0.6221 -> 0.6494) even while Brier temporarily worsens. Only past bucket 24 does
+Brier recover below the 0.25 ceiling.
+
+**The rank-vs-team-count mechanism behind that shape**, at fixed checkpoints (SVD-derived rank and
+condition number over the design matrix, reused from `identifiability.ts`'s own
+`computeDesignMatrix`, pooled across 955 non-offseason events):
+
+| Completed quals | Mean team columns | Mean rank | Rank/columns | Full-column-rank fraction | Median condition number (among full-rank) |
+|---|---|---|---|---|---|
+| 0 | 0.0 | 0.0 | 0.00 | 0% | — |
+| 6 | 33.40 | 11.99 | 0.37 | 0% | — |
+| 12 | 39.15 | 23.70 | 0.65 | 3.6% | 7.80 |
+| 24 | 39.46 | 37.61 | 0.97 | 81.1% | 8.99 |
+| 48 | 40.21 | 40.21 | 1.00 | 100% | 3.40 |
+| event-end | 39.34 | 39.34 | 1.00 | 100% | 2.46 |
+
+Rank climbs from a literal 0/0 at checkpoint 0 to full column rank in 100% of events by checkpoint
+48 — directly explaining why the early buckets' predictions are underdetermined: the design matrix
+genuinely cannot separate every team's rating from every other's until roughly two-thirds of a
+typical ~36-match qualification schedule has been played.
+
+**A numerical caveat, stated honestly rather than left implicit.** OPR solves the normal equations
+on the Gram matrix `M^T M` (matching TBA's own `build_Minv_matrix` plus `np.linalg.pinv`), not an
+SVD of the raw design matrix `M` directly. Forming `M^T M` squares the matrix's condition number
+(`kappa(M^T M) = kappa(M)^2`), so some of the early-event degradation measured above is
+attributable to this fidelity-preserving numerical choice, not only to true rank deficiency. This
+is not corrected — switching to `SVD(M)` directly would make SigmaScout's OPR a different
+computation than TBA's own (03.2-RESEARCH.md Pitfall 2).
+
+**The warm-only cut, reported alongside the all-matches headline, never replacing it (D-09).**
+OPR's headline stays all-matches — `0.2111` Brier / `0.7294` accuracy, identical to the reported
+combined-view figures above — because EPA and Sigma1 predict the exact same match set, and that
+shared denominator is what SC-3's comparisons rest on:
+
+| Cut | Brier | Winner accuracy | Scored count |
+|---|---|---|---|
+| All matches (the actual reported score) | 0.2111 | 0.7294 | 84,003 |
+| Warm only (excludes each event's opening 12 completed quals) | 0.2024 | 0.7385 | 72,427 |
+| Cold only (each event's opening 12 completed quals) | 0.2651 | 0.6123 | 11,576 |
+
+The warm-only cut shows a real but partial improvement (0.2024 vs. the 0.2111 headline) — cold
+start explains part of OPR's gap against EPA/Sigma1, not all of it. **This cut is diagnostic only
+and must never be presented as OPR's score** (D-09); every comparison table in this document, and
+every SC-3 comparison above, quotes the all-matches headline exclusively.
+
+**Mitigation is explicitly out of scope for this phase** (D-08). SC-5's mandate is "measured and
+documented," not "measured and mitigated" — a degraded early-event baseline is a true fact about
+event-scoped OPR and belongs in the record as one. Any fallback scheme (seeding from a league
+mean, carrying a prior event's rating forward) is a modeling addition that would need its own
+phase and its own criterion; adding one here would reopen D-02 and quietly make the baseline
+SigmaScout's own construction again rather than TBA's. This measurement is the input to a future
+phase's decision, not a trigger to widen this one.
 
 ## Named divergences from TBA
 
-_(Written by plan 03.2-05, Task 2 — see below.)_
+Two divergences from TBA's literal computation survive this rewrite, both deliberate, both worth
+stating so a future reader who diffs SigmaScout's OPR against TBA's own does not file a bug.
+
+**Surrogates.** TBA's `matchstats_helper.py` has no surrogate handling at all — every listed
+team's column is included in the design matrix and every team's rating is updated by every match
+it appears in, surrogate or not. This project instead excludes a surrogate's column from the
+design matrix and subtracts its current rating (or a league-mean per-team share) from its
+alliance's target score before fitting, so the non-surrogate teammates' observation is correctly
+scaled (D-07, established in Phase 1, unchanged by this rewrite). Ratings will differ from TBA's
+own published OPR on any surrogate-affected event as a direct, expected consequence.
+
+**Disqualifications.** This project deliberately keeps a disqualified team's column and rating
+update in the fit, on the reasoning that OPR models physical score contribution, and a
+disqualification is a ranking ruling, not a claim that the team's alliance never scored the points
+it scored. This is the opposite policy from the surrogate handling above, and both policies
+predate and survive this rewrite unchanged.
+
+**A narrower reconciliation target than "matches TBA and Statbotics" implies.** Per
+03.2-RESEARCH.md's Pitfall 4, "matching what TBA and Statbotics publish" reduces in practice to
+matching TBA specifically for OPR — Statbotics' primary rating model is EPA, and it does not
+currently publish a plain per-event OPR comparable to TBA's own. There is no second independent
+published OPR implementation to reconcile event-scoped OPR against; TBA's `matchstats_helper.py`
+is the sole external reference this rewrite matches its computation against.
 
 ## Open Items
 
-_(Written by plan 03.2-05, Task 2 — see below.)_
+Named plainly, with a forward pointer, following `sigma1-tuning-results.md`'s own `## Open Items`
+precedent — nothing here is softened to look more finished than it is.
+
+- **Cold-start mitigation is deferred**, per D-08. The measurement above (`## Early-event behavior
+  (SC-5)`) is the input a future phase would need to design one; no fallback scheme exists in the
+  code today.
+- **Sigma1 re-tuning against the event-scoped baseline is deferred as its own phase**, per D-10.
+  Sigma1's promoted parameters (`sigma1@2.0.0+tuned-2026-08`) were tuned against season-pooled OPR
+  as the opponent; whether re-tuning against the weaker event-scoped baseline would change the
+  chosen hyperparameters is an open question this phase deliberately does not answer, so that the
+  SC-3 restatement above measures only the baseline swap, not a simultaneous re-tune.
+- **Whether each championship division should be its own event scope is raised and not opened.**
+  Championship divisions and Einstein have a different event structure than a single regional;
+  this rewrite treats every `eventKey` (division or regional alike) as one scope uniformly, and
+  whether that is the right modeling choice for multi-division championships was flagged during
+  context-gathering as a topic worth a future researcher's attention, not resolved here.
+- **`AlgorithmModule` has no event-boundary hook analogous to the existing `carrySeason`
+  season-boundary hook.** D-01 keys OPR's state internally by `eventKey`, so this rewrite needed no
+  contract change — but if a future algorithm wants genuine event-boundary behavior (distinct from
+  keeping internal per-event state), the `AlgorithmModule` contract has no place for it today.
 
 ---
 *Phase: 03.2-swap-opr-to-event-scoped-and-re-issue-affected-figures*
