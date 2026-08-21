@@ -88,6 +88,11 @@ status: complete
 
 # Phase 02 Plan 06: Identifiability Check, Full-Range Head-to-Head, and Checkpoint Gap Closure Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **SC-3's identifiability check now ships a committed, reproducible connected-components pass (correcting the prior ad-hoc island count), and EPA's event-boundary invariance — the checkpoint's one named ALGO-02 gap — is now a verified test; the phase's full 2022-2026 five-algorithm head-to-head (OPR/EPA/Sigma1 x3 link modes) stands as reviewed and approved.**
 
 ## Performance
