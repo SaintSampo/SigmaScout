@@ -5,7 +5,10 @@
  * accuracy-by-checkpoint half, exercised directly rather than through a
  * real corpus/run-dir read.
  */
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   assertWarmCutPartition,
   assignCheckpointBucket,
@@ -13,6 +16,7 @@ import {
   buildReconciliationEntry,
   computeWarmCut,
   poolSlices,
+  readSidecarRecordsForAlgorithm,
   tagRecordsWithCompletedQuals,
   type QualMatchLike,
   type TaggableRecord,
@@ -293,5 +297,52 @@ describe("buildReconciliationEntry — T-03.2-18's own gate", () => {
     });
     const entry = buildReconciliationEntry(2024, unbucketed, artifact as never, "opr");
     expect(entry.matches).toBe(false);
+  });
+});
+
+/**
+ * IN-03 (03.2-REVIEW.md): a truncated final line — the process-killed-
+ * mid-write failure mode this file's own doc comment already reasons about
+ * — must re-throw with the sidecar path and line number named, not surface
+ * a bare `SyntaxError`. This diagnostic's reconciliation gate exists to
+ * fail loudly on population mismatches; a silently-skipped partial record
+ * would defeat that gate's purpose.
+ */
+describe("readSidecarRecordsForAlgorithm", () => {
+  const tempDirs: string[] = [];
+  function makeTempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-eventscopediagnostic-test-"));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-throws with the sidecar path and line number when the final line is truncated JSON", async () => {
+    const runDir = makeTempDir();
+    const goodLine = JSON.stringify({
+      matchKey: "2022test_qm1",
+      algorithmId: "opr",
+      eventKey: "2022test",
+      compLevel: "qm",
+      pRedWin: 0.6,
+      predictedRedScore: 50,
+      predictedBlueScore: 40,
+      actualWinner: "red",
+    });
+    const truncatedLine = '{"matchKey":"2022test_qm2","algorithmId":"opr","pRedWin":0.4,"pred';
+    const sidecarPath = join(runDir, "predictions-2022.jsonl");
+    writeFileSync(sidecarPath, `${goodLine}\n${truncatedLine}`, "utf8");
+
+    await expect(readSidecarRecordsForAlgorithm(sidecarPath, "opr")).rejects.toThrow(
+      /predictions-2022\.jsonl:2/
+    );
+    await expect(readSidecarRecordsForAlgorithm(sidecarPath, "opr")).rejects.toThrow(
+      /2022test_qm2/
+    );
   });
 });

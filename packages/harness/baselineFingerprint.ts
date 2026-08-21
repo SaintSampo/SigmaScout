@@ -316,7 +316,9 @@ interface SidecarLineShape {
  * digests across runs must treat that as "digest unavailable for this
  * season," recorded plainly wherever the comparison is reported.
  */
-async function readSeasonRecordsBySidecar(
+// Exported for baselineFingerprint.test.ts's malformed-final-line regression
+// (IN-03, 03.2-REVIEW.md).
+export async function readSeasonRecordsBySidecar(
   runDir: string,
   season: number,
   algorithmIds: readonly string[]
@@ -334,9 +336,27 @@ async function readSeasonRecordsBySidecar(
   }
 
   const rl = createInterface({ input: createReadStream(sidecarPath, "utf8"), crlfDelay: Infinity });
+  let lineNumber = 0;
   for await (const line of rl) {
+    lineNumber += 1;
     if (line.trim().length === 0) continue;
-    const rec = JSON.parse(line) as SidecarLineShape;
+    let rec: SidecarLineShape;
+    try {
+      rec = JSON.parse(line) as SidecarLineShape;
+    } catch (cause) {
+      // A truncated final line (process killed mid-write, same failure mode
+      // as the missing/empty-file case above, just caught partway through a
+      // record instead of before it starts) must not surface as a bare
+      // `SyntaxError: Unexpected end of JSON input` — that tells a future
+      // reader nothing about which file or line broke. Re-throw (not skip):
+      // this fingerprint feeds committed provenance digests, and silently
+      // dropping a partial record would change the population being
+      // fingerprinted without any signal that it happened.
+      throw new Error(
+        `baselineFingerprint: malformed JSON at ${sidecarPath}:${lineNumber} — ${line.slice(0, 80)}${line.length > 80 ? "…" : ""}`,
+        { cause }
+      );
+    }
     const bucket = perAlgorithm.get(rec.algorithmId);
     if (!bucket) continue; // not one of the requested algorithms — skip without buffering it
     bucket.push({

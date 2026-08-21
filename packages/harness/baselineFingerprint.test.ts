@@ -1,9 +1,11 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildBaselineFingerprint,
   BaselineFingerprintSchema,
+  readSeasonRecordsBySidecar,
   type BaselineFingerprintArtifactInput,
   type BuildBaselineFingerprintOptions,
 } from "./baselineFingerprint.js";
@@ -74,6 +76,53 @@ describe("buildBaselineFingerprint", () => {
     };
     expect(() => buildBaselineFingerprint(ambiguousSliceOptions)).toThrow(/opr/);
     expect(() => buildBaselineFingerprint(ambiguousSliceOptions)).toThrow(/2022/);
+  });
+});
+
+const tempDirs: string[] = [];
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "sigmascout-baselinefingerprint-test-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * IN-03 (03.2-REVIEW.md): a truncated final line — the process-killed-
+ * mid-write failure mode this file's own doc comment already reasons
+ * about for the missing/empty-file case — must re-throw with the sidecar
+ * path and line number named, not surface a bare `SyntaxError`.
+ */
+describe("readSeasonRecordsBySidecar", () => {
+  it("re-throws with the sidecar path and line number when the final line is truncated JSON", async () => {
+    const runDir = makeTempDir();
+    const goodLine = JSON.stringify({
+      matchKey: "2022test_qm1",
+      algorithmId: "opr",
+      pRedWin: 0.6,
+      predictedRedScore: 50,
+      predictedBlueScore: 40,
+    });
+    const truncatedLine = '{"matchKey":"2022test_qm2","algorithmId":"opr","pRedWin":0.4,"pred';
+    writeFileSync(join(runDir, "predictions-2022.jsonl"), `${goodLine}\n${truncatedLine}`, "utf8");
+
+    await expect(readSeasonRecordsBySidecar(runDir, 2022, ["opr"])).rejects.toThrow(
+      /predictions-2022\.jsonl:2/
+    );
+    await expect(readSeasonRecordsBySidecar(runDir, 2022, ["opr"])).rejects.toThrow(
+      /2022test_qm2/
+    );
+  });
+
+  it("still returns zero records for a missing sidecar file (pre-existing behavior, unchanged by IN-03)", async () => {
+    const runDir = makeTempDir();
+    const result = await readSeasonRecordsBySidecar(runDir, 2022, ["opr"]);
+    expect(result.get("opr")).toEqual([]);
   });
 });
 

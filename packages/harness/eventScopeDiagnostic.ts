@@ -116,12 +116,30 @@ interface SidecarRecord extends TaggableRecord {
  * buffered whole into memory — sidecars run 75-157 MB per
  * 03.2-03-SUMMARY.md), keeping only records for `algorithmId`.
  */
-async function readSidecarRecordsForAlgorithm(sidecarPath: string, algorithmId: string): Promise<SidecarRecord[]> {
+// Exported for eventScopeDiagnostic.test.ts's malformed-final-line
+// regression (IN-03, 03.2-REVIEW.md).
+export async function readSidecarRecordsForAlgorithm(sidecarPath: string, algorithmId: string): Promise<SidecarRecord[]> {
   const records: SidecarRecord[] = [];
   const rl = createInterface({ input: createReadStream(sidecarPath, "utf8"), crlfDelay: Infinity });
+  let lineNumber = 0;
   for await (const line of rl) {
+    lineNumber += 1;
     if (line.trim().length === 0) continue;
-    const rec = JSON.parse(line) as SidecarRecord;
+    let rec: SidecarRecord;
+    try {
+      rec = JSON.parse(line) as SidecarRecord;
+    } catch (cause) {
+      // A truncated final line (process killed mid-write) must not surface
+      // as a bare `SyntaxError: Unexpected end of JSON input` — that tells a
+      // future reader nothing about which file or line broke. Re-throw (not
+      // skip): this diagnostic's reconciliation gate exists specifically to
+      // fail loudly on population mismatches, and silently dropping a
+      // partial record would defeat that gate's whole purpose.
+      throw new Error(
+        `eventScopeDiagnostic: malformed JSON at ${sidecarPath}:${lineNumber} — ${line.slice(0, 80)}${line.length > 80 ? "…" : ""}`,
+        { cause }
+      );
+    }
     if (rec.algorithmId !== algorithmId) continue;
     records.push(rec);
   }
