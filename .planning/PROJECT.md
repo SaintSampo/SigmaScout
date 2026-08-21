@@ -66,6 +66,7 @@ Predictions that are *measurably* better than Statbotics — proven by walk-forw
 | Sigma1 tuning: offline optimizer + online within-season adaptation ("Both") | Online-only hides hand-picked meta-parameters and is unfalsifiable; the harness validates the adaptation itself | — Pending |
 | EPA reimplemented, not pulled from Statbotics API | Walk-forward at any time point, self-contained pipeline; drift risk mitigated by spot-checks | ⚠ Partially held (Phase 2) — reimplementation works walk-forward at every boundary, but the spot-check mitigation is **blocked**: `api.statbotics.io/v3/year/{year}` reproducibly 500s (D-14, WINDOWS entries 1–2). EPA correctness currently rests on synthetic-fixture tests and walk-forward structural proofs instead |
 | Clean-slate rebuild; only the failure log carries over | Prior tech debt; independent re-derivation allowed, inheritance not | — Pending |
+| OPR is event-scoped: one fit per event over qualification matches, no ridge | FRC and TBA/Statbotics mean event-scoped OPR; a season-pooled ridge variant published under the name `OPR` would be a different quantity than readers expect | ✓ Held (Phase 3.2) — `opr.ts` matches TBA’s own `matchstats_helper.py`; the retired season-pooled baseline is preserved as committed fingerprints and the new baseline is measurably weaker (holdout Brier 0.212/0.221 vs 0.167/0.177), which `docs/models/opr-baseline-change.md` states outright |
 
 ## Evolution
 
@@ -85,4 +86,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-20 after Phase 03.1 (Address Phase 1-3 Review Warnings and Doc Drift) completion. A remediation phase: it closed all nine open Phase 1-3 review warnings and reconciled the stale planning artifacts, hardening DATA-02, EVAL-02, EVAL-03, ALGO-01, ALGO-04 and ALGO-06 without validating any new requirement or widening scope. No requirement moved between Active and Validated.*
+*Last updated: 2026-08-21 after Phase 3.2 (Swap OPR to Event-Scoped and Re-Issue Affected Figures) completion. A baseline-correction phase: OPR was rewritten from a season-pooled ridge fit to TBA’s event-scoped, qualification-matches-only, no-ridge definition, the full 2022–2026 five-algorithm walk-forward was re-run against it, and every affected figure was re-issued. No requirement moved between Active and Validated — ALGO-01’s text was corrected in place to the event-scoped definition, keeping its ID and completion mark. The retired baseline survives as committed fingerprints under `data/baselines/`; the early-event cost of the new one is measured in `data/diagnostics/opr-event-scope-2026-08.json` and narrated in `docs/models/opr-baseline-change.md`.*
