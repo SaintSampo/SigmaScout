@@ -186,7 +186,7 @@ Plans:
   4. Phase 3's SC-3 verdict is re-stated against the new baseline as an explicit measured result, with any change in whether Sigma1 beats OPR on holdout Brier and holdout winner accuracy named outright — never presented as an improvement Sigma1 did not make.
   5. Event-scoped OPR's behavior early in an event, where the design matrix is rank-deficient, is measured and documented rather than assumed benign.
 
-**Plans**: 3/6 plans executed
+**Plans**: 4/6 plans executed
 
 Plans:
 **Wave 1**
@@ -203,7 +203,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03.2-04-PLAN.md — Measure early-event rank deficiency: accuracy-by-checkpoint curve plus rank-vs-team-count diagnostic (SC-5)
+- [x] 03.2-04-PLAN.md — Measure early-event rank deficiency: accuracy-by-checkpoint curve plus rank-vs-team-count diagnostic (SC-5)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
