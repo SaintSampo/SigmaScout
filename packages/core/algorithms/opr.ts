@@ -49,8 +49,10 @@ interface PerEventOprState {
 
 /**
  * `perEvent` (D-01): every event accumulated independently, keyed by
- * `eventKey`. `lastEventByTeam` (D-04): explicitly tracked, not inferred
- * from insertion order — a team's FIRST event, not its MOST RECENT one.
+ * `eventKey`. `lastEventByTeam` (D-04): explicitly tracked. Map insertion
+ * order alone would record a team's FIRST event, not its MOST RECENT one —
+ * wrong once two events interleave — so this field is written explicitly on
+ * every `update()` call instead.
  */
 export interface OprState {
   readonly perEvent: ReadonlyMap<string, PerEventOprState>;
