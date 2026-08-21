@@ -5,5 +5,8 @@
       "Bash(dir \"c:\\\\Users\\\\Jacob\\\\Documents\\\\GitHub\\\\SigmaScout\\\\server\\\\cache\")",
       "Bash(node --env-file=.env ./_rp.mts)"
     ]
+  },
+  "worktree": {
+    "baseRef": "head"
   }
 }
