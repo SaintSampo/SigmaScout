@@ -1,0 +1,223 @@
+{
+  "generatedAt": "2026-08-21T18:52:30.999Z",
+  "algorithm": "opr",
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "provenance": {
+    "runDir": "reports\\event-scoped-v1",
+    "artifactRunTimestamp": "2026-08-21T18:29:11.904Z",
+    "command": "pnpm event-scope-diagnostic --run-dir reports\\event-scoped-v1 --seasons 2022-2026 --algorithm opr --out reports/event-scope-diagnostic.json --summary-out data/diagnostics/opr-event-scope-2026-08.json"
+  },
+  "methodology": {
+    "bucketBoundaries": [
+      "0",
+      "1-6",
+      "7-12",
+      "13-24",
+      "25-48",
+      "49+"
+    ],
+    "normalEquationsNote": "OPR solves the normal equations on the Gram matrix M^T M (matching TBA's own build_Minv_matrix + np.linalg.pinv), not an SVD of the raw design matrix M directly. Forming M^T M squares the matrix's condition number (kappa(M^T M) = kappa(M)^2), so some of the early-event degradation the accuracy curve below shows is attributable to this fidelity-preserving numerical choice, not only to true rank deficiency. This is not corrected — switching to SVD(M) directly would make SigmaScout's OPR a different computation than TBA's own (03.2-RESEARCH.md Pitfall 2)."
+  },
+  "accuracyBuckets": [
+    {
+      "brierScore": 0.24796380090497738,
+      "winnerAccuracy": null,
+      "scoredCount": 1105,
+      "bucket": "0"
+    },
+    {
+      "brierScore": 0.2598775841837982,
+      "winnerAccuracy": 0.5736607699932846,
+      "scoredCount": 5725,
+      "bucket": "1-6"
+    },
+    {
+      "brierScore": 0.28012273362871787,
+      "winnerAccuracy": 0.6221376544369431,
+      "scoredCount": 5690,
+      "bucket": "7-12"
+    },
+    {
+      "brierScore": 0.29369011092665565,
+      "winnerAccuracy": 0.6494299308735075,
+      "scoredCount": 11256,
+      "bucket": "13-24"
+    },
+    {
+      "brierScore": 0.20387872420072076,
+      "winnerAccuracy": 0.7400611620795107,
+      "scoredCount": 22458,
+      "bucket": "25-48"
+    },
+    {
+      "brierScore": 0.17180049875443706,
+      "winnerAccuracy": 0.76701382414831,
+      "scoredCount": 37769,
+      "bucket": "49+"
+    }
+  ],
+  "rankCheckpoints": [
+    {
+      "completedQuals": 0,
+      "eventCount": 955,
+      "meanTeamColumnCount": 0,
+      "medianTeamColumnCount": 0,
+      "meanRank": 0,
+      "medianRank": 0,
+      "meanRankToColumnRatio": 0,
+      "fullColumnRankFraction": 0,
+      "medianConditionNumberAmongFullRank": null
+    },
+    {
+      "completedQuals": 6,
+      "eventCount": 955,
+      "meanTeamColumnCount": 33.39685863874345,
+      "medianTeamColumnCount": 36,
+      "meanRank": 11.989528795811518,
+      "medianRank": 12,
+      "meanRankToColumnRatio": 0.36760109509863914,
+      "fullColumnRankFraction": 0,
+      "medianConditionNumberAmongFullRank": null
+    },
+    {
+      "completedQuals": 12,
+      "eventCount": 955,
+      "meanTeamColumnCount": 39.15183246073298,
+      "medianTeamColumnCount": 38,
+      "meanRank": 23.695287958115184,
+      "medianRank": 24,
+      "meanRankToColumnRatio": 0.6458571348200436,
+      "fullColumnRankFraction": 0.0356020942408377,
+      "medianConditionNumberAmongFullRank": 7.8005972669864425
+    },
+    {
+      "completedQuals": 24,
+      "eventCount": 947,
+      "meanTeamColumnCount": 39.464625131995774,
+      "medianTeamColumnCount": 38,
+      "meanRank": 37.60506863780359,
+      "medianRank": 38,
+      "meanRankToColumnRatio": 0.9717615768225736,
+      "fullColumnRankFraction": 0.8109820485744457,
+      "medianConditionNumberAmongFullRank": 8.994916998856663
+    },
+    {
+      "completedQuals": 48,
+      "eventCount": 915,
+      "meanTeamColumnCount": 40.20546448087432,
+      "medianTeamColumnCount": 39,
+      "meanRank": 40.20546448087432,
+      "medianRank": 39,
+      "meanRankToColumnRatio": 1,
+      "fullColumnRankFraction": 1,
+      "medianConditionNumberAmongFullRank": 3.4005998797456223
+    },
+    {
+      "completedQuals": "event-end",
+      "eventCount": 955,
+      "meanTeamColumnCount": 39.34240837696335,
+      "medianTeamColumnCount": 38,
+      "meanRank": 39.34240837696335,
+      "medianRank": 38,
+      "meanRankToColumnRatio": 1,
+      "fullColumnRankFraction": 1,
+      "medianConditionNumberAmongFullRank": 2.455875919034791
+    }
+  ],
+  "reconciliation": [
+    {
+      "season": 2022,
+      "matches": true,
+      "unbucketed": {
+        "brierScore": 0.18896499839245842,
+        "winnerAccuracy": 0.7444717444717445,
+        "scoredCount": 14603
+      },
+      "artifact": {
+        "brierScore": 0.18896499839245842,
+        "winnerAccuracy": 0.7444717444717445,
+        "scoredCount": 14603
+      }
+    },
+    {
+      "season": 2023,
+      "matches": true,
+      "unbucketed": {
+        "brierScore": 0.2170678960862125,
+        "winnerAccuracy": 0.7132583072517813,
+        "scoredCount": 16290
+      },
+      "artifact": {
+        "brierScore": 0.2170678960862125,
+        "winnerAccuracy": 0.7132583072517813,
+        "scoredCount": 16290
+      }
+    },
+    {
+      "season": 2024,
+      "matches": true,
+      "unbucketed": {
+        "brierScore": 0.21257434859333965,
+        "winnerAccuracy": 0.7059957586273375,
+        "scoredCount": 16958
+      },
+      "artifact": {
+        "brierScore": 0.21257434859333965,
+        "winnerAccuracy": 0.7059957586273375,
+        "scoredCount": 16958
+      }
+    },
+    {
+      "season": 2025,
+      "matches": true,
+      "unbucketed": {
+        "brierScore": 0.21190532443246488,
+        "winnerAccuracy": 0.7296375266524521,
+        "scoredCount": 17815
+      },
+      "artifact": {
+        "brierScore": 0.21190532443246488,
+        "winnerAccuracy": 0.7296375266524521,
+        "scoredCount": 17815
+      }
+    },
+    {
+      "season": 2026,
+      "matches": true,
+      "unbucketed": {
+        "brierScore": 0.22105544969005492,
+        "winnerAccuracy": 0.7529868754046259,
+        "scoredCount": 18337
+      },
+      "artifact": {
+        "brierScore": 0.22105544969005492,
+        "winnerAccuracy": 0.7529868754046259,
+        "scoredCount": 18337
+      }
+    }
+  ],
+  "warmCut": {
+    "allMatches": {
+      "brierScore": 0.21105097244082024,
+      "winnerAccuracy": 0.7294093338023272,
+      "scoredCount": 84003
+    },
+    "warmOnly": {
+      "brierScore": 0.20241023184003554,
+      "winnerAccuracy": 0.7384733143135481,
+      "scoredCount": 72427
+    },
+    "coldOnly": {
+      "brierScore": 0.2651130767508585,
+      "winnerAccuracy": 0.6122575940680733,
+      "scoredCount": 11576
+    },
+    "note": "allMatches is OPR's actual reported score (identical to the headline artifact combined-view figures) and is what every comparison table in this phase quotes; warmOnly is a diagnostic cut excluding each event's opening 12 completed qualification matches, showing how much of OPR's gap is structural cold start versus modelling — it must never be presented as OPR's score (D-09)."
+  }
+}
