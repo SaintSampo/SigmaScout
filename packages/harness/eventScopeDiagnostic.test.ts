@@ -10,14 +10,16 @@ import {
   assertWarmCutPartition,
   assignCheckpointBucket,
   buildCheckpointRows,
+  buildReconciliationEntry,
   computeWarmCut,
+  poolSlices,
   tagRecordsWithCompletedQuals,
   type QualMatchLike,
   type TaggableRecord,
   type TaggedPrediction,
 } from "./eventScopeDiagnostic.js";
 import { computeDesignMatrix } from "./identifiability.js";
-import type { HarnessPredictionInput } from "./score.js";
+import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 
 function rec(eventKey: string, compLevel: TaggableRecord["compLevel"]): TaggableRecord {
   return { eventKey, compLevel };
@@ -170,5 +172,126 @@ describe("computeWarmCut / assertWarmCutPartition — D-09's warm-only cut", () 
     const warmOnly = { brierScore: 0.2, winnerAccuracy: 0.7, scoredCount: 7 };
     const coldOnlyCorrupted = { brierScore: 0.2, winnerAccuracy: 0.7, scoredCount: 2 }; // should be 3
     expect(() => assertWarmCutPartition(allMatches, warmOnly, coldOnlyCorrupted)).toThrow();
+  });
+});
+
+const EMPTY_EXCLUSIONS = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 };
+
+/** Minimal synthetic `ScoreSlice` fixture — every field `poolSlices` reads is explicit, everything else is a plausible filler. */
+function scoreSlice(overrides: Partial<ScoreSlice>): ScoreSlice {
+  return {
+    algorithmId: "test-algo",
+    season: 2024,
+    seasonLabel: "tune",
+    headlineEligible: false,
+    compLevelView: "combined",
+    brierScore: 0.2,
+    winnerAccuracy: 0.7,
+    scoredCount: 10,
+    tieCount: 0,
+    noCallCount: 0,
+    exclusionCounts: { ...EMPTY_EXCLUSIONS },
+    candidateCount: 10,
+    calibrationBins: [],
+    ...overrides,
+  };
+}
+
+describe("poolSlices — WR-01/WR-02: the pooling/reconstruction arithmetic behind the reconciliation gate", () => {
+  it("a single slice is returned UNCHANGED (no multiply-then-divide round-trip) — covers the exact floating-point fragility WR-01 identified", () => {
+    // 0.1 * 3 / 3 !== 0.1 in IEEE 754 double precision (a standard example of
+    // the (x*n)/n round-trip not being bit-identical to x). If poolSlices
+    // ever regresses to always doing the multiply-then-divide reconstruction
+    // — even for a single slice — this assertion catches it, because the
+    // round-tripped value would fail a strict `toBe` here.
+    expect((0.1 * 3) / 3).not.toBe(0.1); // sanity-check the fragility actually exists in this JS runtime
+    const slice = scoreSlice({ brierScore: 0.1, winnerAccuracy: 0.1, scoredCount: 3, candidateCount: 3 });
+    const pooled = poolSlices([slice]);
+    expect(pooled.brierScore).toBe(0.1);
+    expect(pooled.winnerAccuracy).toBe(0.1);
+    expect(pooled.scoredCount).toBe(3);
+  });
+
+  it("pooling 2+ slices reconstructs the weighted-mean identity", () => {
+    const sliceA = scoreSlice({ brierScore: 0.2, winnerAccuracy: 0.75, scoredCount: 4, candidateCount: 4 });
+    const sliceB = scoreSlice({ brierScore: 0.3, winnerAccuracy: 0.5, scoredCount: 6, candidateCount: 6 });
+    const pooled = poolSlices([sliceA, sliceB]);
+    // squaredErrorSum = 0.2*4 + 0.3*6 = 0.8 + 1.8 = 2.6; /10 = 0.26
+    expect(pooled.brierScore).toBeCloseTo(0.26, 10);
+    // accuracyCorrect = 0.75*4 + 0.5*6 = 3 + 3 = 6; /10 = 0.6
+    expect(pooled.winnerAccuracy).toBeCloseTo(0.6, 10);
+    expect(pooled.scoredCount).toBe(10);
+  });
+
+  it("a slice with brierScore: null contributes nothing to the pooled Brier score", () => {
+    const scored = scoreSlice({ brierScore: 0.2, winnerAccuracy: 0.75, scoredCount: 4, candidateCount: 4 });
+    const nullBrier = scoreSlice({
+      brierScore: null,
+      winnerAccuracy: 0.8,
+      scoredCount: 5,
+      candidateCount: 5,
+    });
+    const pooled = poolSlices([scored, nullBrier]);
+    // squaredErrorSum only from `scored`: 0.2*4 = 0.8; scoredCount is still
+    // the SUM of both slices' counts (9), so the null-brier slice's
+    // population is counted but contributes zero to the numerator.
+    expect(pooled.scoredCount).toBe(9);
+    expect(pooled.brierScore).toBeCloseTo(0.8 / 9, 10);
+  });
+
+  it("a slice with winnerAccuracy: null is excluded from the accuracy denominator entirely", () => {
+    const scored = scoreSlice({ brierScore: 0.2, winnerAccuracy: 0.75, scoredCount: 4, candidateCount: 4 });
+    const nullAccuracy = scoreSlice({
+      brierScore: 0.3,
+      winnerAccuracy: null,
+      scoredCount: 5,
+      candidateCount: 5,
+    });
+    const pooled = poolSlices([scored, nullAccuracy]);
+    // accuracyDenominator only includes `scored`'s denom (4), NOT nullAccuracy's
+    // 5 — a null winnerAccuracy slice must not silently widen the denominator.
+    expect(pooled.winnerAccuracy).toBeCloseTo(0.75, 10);
+  });
+});
+
+describe("buildReconciliationEntry — T-03.2-18's own gate", () => {
+  function artifactWithSlice(fields: {
+    algorithmId: string;
+    season: number;
+    brierScore: number | null;
+    winnerAccuracy: number | null;
+    scoredCount: number;
+  }) {
+    return {
+      provenance: { runTimestamp: "2026-01-01T00:00:00.000Z" },
+      slices: [{ ...fields, compLevelView: "combined" }],
+    };
+  }
+
+  it("matches: true for a synthetic identical-population case", () => {
+    const unbucketed = { brierScore: 0.21, winnerAccuracy: 0.7, scoredCount: 100 };
+    const artifact = artifactWithSlice({
+      algorithmId: "opr",
+      season: 2024,
+      brierScore: 0.21,
+      winnerAccuracy: 0.7,
+      scoredCount: 100,
+    });
+    const entry = buildReconciliationEntry(2024, unbucketed, artifact as never, "opr");
+    expect(entry.matches).toBe(true);
+    expect(entry.season).toBe(2024);
+  });
+
+  it("matches: false for a synthetic population mismatch", () => {
+    const unbucketed = { brierScore: 0.21, winnerAccuracy: 0.7, scoredCount: 100 };
+    const artifact = artifactWithSlice({
+      algorithmId: "opr",
+      season: 2024,
+      brierScore: 0.21,
+      winnerAccuracy: 0.7,
+      scoredCount: 99, // mismatched scoredCount
+    });
+    const entry = buildReconciliationEntry(2024, unbucketed, artifact as never, "opr");
+    expect(entry.matches).toBe(false);
   });
 });

@@ -260,7 +260,7 @@ function findArtifactCombinedSlice(
  * than no curve at all, because a reader would compare incomparable
  * numbers believing them commensurable.
  */
-function buildReconciliationEntry(season: number, unbucketed: PooledAccuracyResult, artifact: ArtifactRead, algorithmId: string): ReconciliationEntry {
+export function buildReconciliationEntry(season: number, unbucketed: PooledAccuracyResult, artifact: ArtifactRead, algorithmId: string): ReconciliationEntry {
   const artifactSlice = findArtifactCombinedSlice(artifact, algorithmId, season);
   const artifactResult: PooledAccuracyResult = {
     brierScore: artifactSlice.brierScore,
