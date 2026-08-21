@@ -225,7 +225,16 @@ Plans:
   3. Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit, and daily write volume stays inside KV/R2 free-tier quotas.
   4. Ingestion and cron polling stay within TBA rate limits, with measured request counts documented.
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Provision Cloudflare, prove one real page artifact end to end (offline → R2 → HTTPS), and put the credentials under the TBA key's secrets discipline
+- [ ] 04-02-PLAN.md — The five page-artifact schemas, the D-06 rounding rule, and the not-yet-played match reader D-08 needs
+- [ ] 04-03-PLAN.md — The live-windows and algorithms manifests, the lossless live-state snapshot, and the D1 schema
+- [ ] 04-04-PLAN.md — Full-season publish of every page for 2022–2026, the committed payload budget, and the test that guards it
+- [ ] 04-05-PLAN.md — Worker scaffold with real D1 tables, the batched state store, and the subrequest budget that defers instead of throwing
+- [ ] 04-06-PLAN.md — The cron tick: liveness, polite TBA polling, scoped artifact refresh, and per-event failure confinement
+- [ ] 04-07-PLAN.md — Deploy by hand, the dual-purpose replay rig (freshness + offline/online equivalence), and the measured Worker budget
 
 ### Phase 5: Site Shell — Navigation & Browsing
 

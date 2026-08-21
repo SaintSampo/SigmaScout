@@ -46,11 +46,27 @@ created: 2026-08-21
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| _pending planner_ | — | — | DATA-03 | — | — | unit | `pnpm test -- packages/harness/publish.test.ts` | ❌ W0 | ⬜ pending |
-| _pending planner_ | — | — | DATA-03 | — | — | unit | `pnpm test -- packages/harness/payloadBudget.test.ts` | ❌ W0 | ⬜ pending |
-| _pending planner_ | — | — | DATA-04 | — | — | integration | replay rig (`apps/worker/test/scheduled.replay.test.ts` or `scripts/replayRig.ts`) | ❌ W0 | ⬜ pending |
-| _pending planner_ | — | — | DATA-04 | — | — | integration | same replay rig, asserting offline↔online equivalence (D-14) | ❌ W0 | ⬜ pending |
-| _pending planner_ | — | — | DATA-05 | — | — | unit | extends `packages/ingest/tbaClient.test.ts` (`TbaRequestCounter`) | ✅ pattern exists | ⬜ pending |
+| 04-01 T1 | 04-01 | 1 | DATA-05 | T-04-SC | Package legitimacy confirmed by a human before install; not auto-approvable | checkpoint | — (blocking human checkpoint) | n/a | ⬜ pending |
+| 04-01 T2 | 04-01 | 1 | DATA-03 | T-04-01 | Cloudflare credentials under hash-compare, never-print discipline | unit | `pnpm vitest run scripts/secrets-boundary.test.ts` | ✅ extends existing | ⬜ pending |
+| 04-01 T3 | 04-01 | 1 | DATA-03 | T-04-04, T-04-08 | Validate-before-upload; shared leak-proof guard reachable from a Worker | unit + real round trip | `pnpm vitest run packages/harness/publish.tracer.test.ts packages/harness/replay.test.ts packages/core/isomorphic.test.ts` | ❌ W0 | ⬜ pending |
+| 04-02 T1 | 04-02 | 2 | DATA-03 | T-04-11, T-04-12 | Rounding confined to the publish path; rounded pmf still a valid distribution | unit | `pnpm vitest run packages/harness/rounding.test.ts` | ❌ W0 | ⬜ pending |
+| 04-02 T2 | 04-02 | 2 | DATA-03 | T-04-10, T-04-13 | Raw numbers only; every artifact stamped | unit | `pnpm vitest run packages/harness/pageArtifacts.test.ts` | ❌ W0 | ⬜ pending |
+| 04-02 T3 | 04-02 | 2 | DATA-03 | T-04-09 | Scheduled-match reader carries no outcome key at all | unit | `pnpm vitest run packages/corpus/db.test.ts` | ✅ extends existing | ⬜ pending |
+| 04-03 T1 | 04-03 | 2 | DATA-04 | T-04-15, T-04-16, T-04-21 | Half-open live windows; manifest rejects harness-only algorithm ids | unit | `pnpm vitest run packages/harness/manifests.test.ts` | ❌ W0 | ⬜ pending |
+| 04-03 T2 | 04-03 | 2 | DATA-04 | T-04-17 | Lossless state round trip, asserted by prediction-stream digest | unit | `pnpm vitest run packages/harness/stateSnapshot.test.ts` | ❌ W0 | ⬜ pending |
+| 04-03 T3 | 04-03 | 2 | DATA-05 | T-04-14, T-04-18, T-04-19 | Seed SQL escaping; per-tick bookkeeping in D1, never KV | unit | `pnpm vitest run packages/harness/stateSnapshot.test.ts` | ❌ W0 | ⬜ pending |
+| 04-04 T1 | 04-04 | 3 | DATA-03 | T-04-22, T-04-25 | Zero uploads on a schema-parse failure | unit | `pnpm vitest run packages/harness/publish.test.ts` | ❌ W0 | ⬜ pending |
+| 04-04 T2 | 04-04 | 3 | DATA-05 | T-04-23, T-04-24, T-04-27 | Every budget figure names the run that produced it | measured + doc check | `node -e` structure check over `docs/publish-budget.md` (see plan) | ❌ W0 | ⬜ pending |
+| 04-04 T3 | 04-04 | 3 | DATA-03 | T-04-28 | Payload regression fails on the commit that causes it | unit | `pnpm vitest run packages/harness/payloadBudget.test.ts` | ❌ W0 | ⬜ pending |
+| 04-05 T1 | 04-05 | 3 | DATA-05 | T-04-35, T-04-36, T-04-37 | Migration proven applied by querying the live DB, not by a green build | config check + live query | `node -e` wrangler.toml check; `wrangler d1 execute … sqlite_master` | ❌ W0 | ⬜ pending |
+| 04-05 T2 | 04-05 | 3 | DATA-04 | T-04-31, T-04-32, T-04-34 | Batched read/write; all-or-nothing writes; idempotent folds | unit | `pnpm vitest run apps/worker/test/stateStore.test.ts` | ❌ W0 | ⬜ pending |
+| 04-05 T3 | 04-05 | 3 | DATA-05 | T-04-29, T-04-30, T-04-33 | Boundary at the cap; no event ever starved | unit | `pnpm vitest run apps/worker/test/subrequestBudget.test.ts` | ❌ W0 | ⬜ pending |
+| 04-06 T1 | 04-06 | 4 | DATA-05 | T-04-39, T-04-44, T-04-46 | One TBA client, one politeness policy; key never in an error | unit | `pnpm vitest run apps/worker/test/liveWindows.test.ts apps/worker/test/tbaPoll.test.ts` | ❌ W0 | ⬜ pending |
+| 04-06 T2 | 04-06 | 4 | DATA-04 | T-04-42, T-04-44 | Validate-before-put; deferral is a normal outcome, not a throw | unit | `pnpm vitest run apps/worker/test/artifactWriter.test.ts` | ❌ W0 | ⬜ pending |
+| 04-06 T3 | 04-06 | 4 | DATA-04 | T-04-38, T-04-40, T-04-41, T-04-43, T-04-45 | State before artifacts; overlapping ticks fold once; failure confined per event | unit | `pnpm vitest run apps/worker/test/scheduled.test.ts` | ❌ W0 | ⬜ pending |
+| 04-07 T1 | 04-07 | 5 | DATA-05 | T-04-47, T-04-48, T-04-54 | Secret set on the Worker, never in tracked config; deploy stays manual | doc/config check + live fetch | `node -e` operations-doc check; `curl -i` through the custom domain | ❌ W0 | ⬜ pending |
+| 04-07 T2 | 04-07 | 5 | DATA-04 | T-04-51, T-04-53 | Offline↔online equivalence by prediction-stream digest (D-14); exclusion list of exactly two fields | integration | `pnpm vitest run apps/worker/test/scheduled.replay.test.ts scripts/replayRig.test.ts` | ❌ W0 | ⬜ pending |
+| 04-07 T3 | 04-07 | 5 | DATA-05 | T-04-49, T-04-50 | Figures read from Cloudflare's own reporting, worst case reported separately | measured + doc check | `node -e` completeness check over `docs/publish-budget.md` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
