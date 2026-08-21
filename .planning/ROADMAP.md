@@ -186,7 +186,7 @@ Plans:
   4. Phase 3's SC-3 verdict is re-stated against the new baseline as an explicit measured result, with any change in whether Sigma1 beats OPR on holdout Brier and holdout winner accuracy named outright — never presented as an improvement Sigma1 did not make.
   5. Event-scoped OPR's behavior early in an event, where the design matrix is rank-deficient, is measured and documented rather than assumed benign.
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
@@ -195,7 +195,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03.2-02-PLAN.md — Rewrite `opr.ts` as event-scoped, quals-only, no-ridge, proven end-to-end through the real replay path (SC-1)
+- [x] 03.2-02-PLAN.md — Rewrite `opr.ts` as event-scoped, quals-only, no-ridge, proven end-to-end through the real replay path (SC-1)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
