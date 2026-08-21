@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-current_phase_name: Publish & Live Update Pipeline
+current_phase: 3.2
+current_phase_name: Swap OPR to event-scoped and re-issue affected figures
 status: planning
-stopped_at: Phase 4 context gathered
-last_updated: "2026-08-21T04:06:44.672Z"
+stopped_at: Phase 3.2 context gathered
+last_updated: "2026-08-21T04:48:30.715Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 03.1 complete, transitioned to Phase 4
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 4
   total_plans: 25
   completed_plans: 25
@@ -23,11 +23,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 03.1 — address-phase-1-3-review-warnings-and-doc-drift
+**Current focus:** Phase 3.2 — swap-opr-to-event-scoped-and-re-issue-affected-figures
 
 ## Current Position
 
-Phase: 4 — Publish & Live Update Pipeline
+Phase: 3.2 — Swap OPR to event-scoped and re-issue affected figures
 Plan: Not started
 Status: Ready to plan
 Last activity: 2026-08-20 — Phase 03.1 complete, transitioned to Phase 4
@@ -199,6 +199,7 @@ None yet.
 ### Roadmap Evolution
 
 - Phase 03.1 inserted after Phase 3: Address Phase 1-3 review warnings and doc drift (URGENT)
+- Phase 3.2 inserted after Phase 3.1: Swap OPR to event-scoped and re-issue affected figures (URGENT)
 
 ## Deferred Items
 
@@ -210,6 +211,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T04:06:44.657Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-publish-live-update-pipeline/04-CONTEXT.md
+Last session: 2026-08-21T04:48:30.699Z
+Stopped at: Phase 3.2 context gathered
+Resume file: .planning/phases/03.2-swap-opr-to-event-scoped-and-re-issue-affected-figures/03.2-CONTEXT.md
