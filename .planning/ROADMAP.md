@@ -228,13 +228,31 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 04-01-PLAN.md — Provision Cloudflare, prove one real page artifact end to end (offline → R2 → HTTPS), and put the credentials under the TBA key's secrets discipline
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 04-02-PLAN.md — The five page-artifact schemas, the D-06 rounding rule, and the not-yet-played match reader D-08 needs
 - [ ] 04-03-PLAN.md — The live-windows and algorithms manifests, the lossless live-state snapshot, and the D1 schema
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 04-04-PLAN.md — Full-season publish of every page for 2022–2026, the committed payload budget, and the test that guards it
 - [ ] 04-05-PLAN.md — Worker scaffold with real D1 tables, the batched state store, and the subrequest budget that defers instead of throwing
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 04-06-PLAN.md — The cron tick: liveness, polite TBA polling, scoped artifact refresh, and per-event failure confinement
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 04-07-PLAN.md — Deploy by hand, the dual-purpose replay rig (freshness + offline/online equivalence), and the measured Worker budget
+
+**Cross-cutting constraints:**
+
+- Measured peak-tick subrequest count on the deployed Worker stays under the free plan's 50-per-invocation limit.
 
 ### Phase 5: Site Shell — Navigation & Browsing
 
