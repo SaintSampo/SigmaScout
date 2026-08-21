@@ -190,6 +190,25 @@ describe("committed baseline fingerprints", () => {
     expect(opr?.version).toBe("3.0.0+baseline");
   });
 
+  /**
+   * A-01 / T-03.2-13 (03.2-SECURITY.md): `packages/harness/cli.ts:263` resolves
+   * `loadSearchWinnerSigma1("sigma1-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner")
+   * ?? algorithm`. When the gitignored `reports/tune-joint-on.json` is absent — the default
+   * state of any fresh worktree — that `??` silently falls back and `sigma1-adapt` resolves to
+   * `2.0.0+defaults-adapt` instead of the published `2.0.0+tune-joint-on-winner`. The run still
+   * succeeds and the numbers still look plausible; they are a different algorithm's numbers.
+   * This is not a typo guard — `2.0.0+defaults-adapt` is exactly what the silent fallback
+   * produces, and this assertion exists so a future re-run cannot regress to it undetected.
+   */
+  it("the event-scoped fingerprint's sigma1-adapt entry reads 2.0.0+tune-joint-on-winner, not the silent-fallback 2.0.0+defaults-adapt (A-01, T-03.2-13)", () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(join(BASELINES_DIR, EVENT_SCOPED_FINGERPRINT_FILE), "utf8")
+    );
+    const parsed = BaselineFingerprintSchema.parse(raw);
+    const sigma1Adapt = parsed.algorithms.find((a) => a.id === "sigma1-adapt");
+    expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
+  });
+
   it("data/baselines/ contains exactly 3 committed fingerprints: two retired-implementation runs plus the event-scoped re-run", () => {
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
     expect(files).toHaveLength(3);
