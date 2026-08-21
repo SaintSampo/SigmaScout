@@ -191,6 +191,8 @@ allowBuilds:
 
 This is a resolution by **redefinition**, and it is recorded as such deliberately rather than presented as a clean close. The original finding's forward-looking concern — that a future `package.json` under `packages/*` would not be recognized — is arguably *reopened* under the commented-out globs, not closed: such a package would now be silently ignored until the globs are uncommented. That is an accepted, recorded trade-off, on the reasoning that converting the four flat subdirectories into genuine workspace members (per-package manifests, dependency rewiring, tsconfig path updates) is a structural change belonging to the planned multi-package split in a later phase, not to a review fix. Whoever performs that split must uncomment these globs as part of it.
 
+**Follow-up (2026-08-20, Phase 4 prep).** That split is now imminent, so the globs were uncommented ahead of it. `pnpm-workspace.yaml` again lists `apps/*` and `packages/*` as live patterns. This resolves the reopened forward-looking risk described in the paragraph above: Phase 4 introduces `apps/worker` as a genuine package, and with the globs commented its `package.json` would have been silently ignored. A directory still only becomes a workspace member once it carries its own `package.json`, so the live globs match zero members today and are harmless until Phase 4 adds one. `pnpm install --frozen-lockfile` verified clean with `pnpm-lock.yaml` unchanged. **This finding is now closed on its original terms, not by redefinition.**
+
 ### WR-03: TOCTOU race in the single-writer corpus lock
 
 **File:** `packages/corpus/db.ts:48-60` (`acquireWriteLock`)

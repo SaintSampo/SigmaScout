@@ -1,12 +1,16 @@
-# WR-03 (03.1-REVIEW.md): the repo is currently a single root package with
-# flat subdirectories under apps/ and packages/ — none of them has its own
-# package.json, so pnpm does not treat them as workspace members today.
-# These globs are reserved for the planned multi-package split (a later
-# phase); until that split happens, leave them commented so this file
-# states a fact about the repo rather than an aspiration.
-# packages:
-#   - "apps/*"
-#   - "packages/*"
+# Workspace globs are live. A directory only becomes a workspace member once it
+# carries its own package.json — these patterns simply describe where members are
+# allowed to appear, so they are harmless while a directory has no manifest yet.
+#
+# History: phase 03.1's code-review gate (03.1-REVIEW.md WR-03) found these globs
+# matched zero members and commented them out so the file stated present fact
+# rather than an aspiration. Phase 4 (Publish & Live Update Pipeline) introduces
+# apps/worker as a real package, so leaving them commented would have caused its
+# package.json to be silently ignored — the exact forward-looking risk 01-REVIEW
+# WR-02 originally raised. Uncommented 2026-08-20 as Phase 4 prep.
+packages:
+  - "apps/*"
+  - "packages/*"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
