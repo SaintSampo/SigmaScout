@@ -149,7 +149,7 @@ function currentLeagueMeanPerTeamShare(
     totalScore += obs.allianceScore;
     totalSlots += obs.teams.length;
   }
-  return totalSlots === 0 ? fallbackAllianceScore / 3 : totalScore / totalSlots;
+  return totalSlots === 0 ? fallbackAllianceScore / 3 /* 3 teams per FRC alliance */ : totalScore / totalSlots;
 }
 
 function buildTeamIndex(observations: readonly OprObservation[]): Map<string, number> {
