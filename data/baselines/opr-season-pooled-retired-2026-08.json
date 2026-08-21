@@ -1,0 +1,60 @@
+{
+  "label": "opr-season-pooled-retired",
+  "generatedAt": "2026-08-21T08:12:44.544Z",
+  "sourceNote": "D-13's mandated final full run of the season-pooled ridge implementation, executed at HEAD immediately before the plan 03.2-02 rewrite deleted it; command: pnpm harness --seasons 2022-2026 --algorithm opr --out reports/retired-season-pooled. NOTE: predictions-2024.jsonl came out 0 bytes and predictions-2025.jsonl was never written (a sidecar-persistence defect in this particular run, not a code-behavior change) — artifact.json's aggregated metrics for every season are complete and exact, but the 2024/2025 predictionStreamSha256 values in this fingerprint are the empty-input hash, not real per-season digests. See 03.2-01-SUMMARY.md for the full account.",
+  "runDir": "reports/retired-season-pooled",
+  "runTimestamp": "2026-08-21T08:09:13.781Z",
+  "corpusIdentity": "data/corpus.sqlite",
+  "artifactSchemaVersion": 3,
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "algorithms": [
+    {
+      "id": "opr",
+      "version": "2.0.0+baseline",
+      "perSeason": [
+        {
+          "season": 2022,
+          "brierScore": 0.15234959626676314,
+          "winnerAccuracy": 0.77433909058865,
+          "scoredCount": 14603,
+          "predictionStreamSha256": "f7842a322bd9e973dc9bf2353b76987042961c34680de6e6bbfcd13878b103d8"
+        },
+        {
+          "season": 2023,
+          "brierScore": 0.17061102361607577,
+          "winnerAccuracy": 0.7501576491360827,
+          "scoredCount": 16290,
+          "predictionStreamSha256": "073b48c51beec5ac02540c3c5e9b150b160cfe48a45a1de915c2a37278308673"
+        },
+        {
+          "season": 2024,
+          "brierScore": 0.1687196006409546,
+          "winnerAccuracy": 0.7501366203169592,
+          "scoredCount": 16958,
+          "predictionStreamSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "season": 2025,
+          "brierScore": 0.1674797596975863,
+          "winnerAccuracy": 0.7617621652749784,
+          "scoredCount": 17815,
+          "predictionStreamSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "season": 2026,
+          "brierScore": 0.1773371256148654,
+          "winnerAccuracy": 0.7825409197194076,
+          "scoredCount": 18337,
+          "predictionStreamSha256": "0f010892f908ea9a397cab0ff3c18688886573f6b00bce341ddf20dcae530b03"
+        }
+      ],
+      "predictionStreamSha256": "5c2120fd0bad6d0ce7703ef91acfdb659567d5d142e68347313000a408c8c57a"
+    }
+  ]
+}

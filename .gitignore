@@ -8,4 +8,5 @@ dist/
 .DS_Store
 data/*
 !data/algorithm-versions/
+!data/baselines/
 reports/
