@@ -64,13 +64,15 @@ describe("assertValidPRedWin", () => {
 
 describe("opr.predict end-to-end — regression proof for 01-REVIEW WR-05", () => {
   it("throws instead of returning a Prediction with a non-finite pRedWin when a team's rating is non-finite", () => {
-    // A directly-constructed OprState with one participating team's rating
-    // set to NaN — simulates a corrupted rating reaching predict() without
-    // needing a full update() sequence to produce it.
+    // A directly-constructed OprState (event-scoped shape, Phase 3.2) with
+    // one participating team's rating at this event set to NaN — simulates
+    // a corrupted rating reaching predict() without needing a full update()
+    // sequence to produce it.
     const state: OprState = {
-      observations: [],
-      ratings: new Map([["frc100", NaN]]),
-      incrementalSolve: opr.initState([]).incrementalSolve,
+      perEvent: new Map([
+        ["2024test", { observations: [], ratings: new Map([["frc100", NaN]]) }],
+      ]),
+      lastEventByTeam: new Map([["frc100", "2024test"]]),
     };
     const match: UpcomingMatch = {
       matchKey: "2024test_qm1",

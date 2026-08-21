@@ -1,73 +1,60 @@
 /**
  * OPR (Offensive Power Rating) baseline — a no-variance AlgorithmModule.
  *
- * RESEARCH.md Pattern 4: ridge-regularized least-squares over pooled
- * alliance-score observations. Two mitigations, applied together, keep the
- * solve well-posed even when the design matrix is rank-deficient early in
- * a season (RESEARCH.md Pitfall 2, the identifiability trap this project's
- * failure log already recorded once):
+ * Event-scoped, quals-only, no-ridge rewrite (Phase 3.2, D-01/D-02/D-03/D-05/
+ * D-06) — TBA's own definition: a fit over ONE event's qualification
+ * matches, a plain minimum-norm pseudo-inverse (verified against
+ * `matchstats_helper.py`'s `build_Minv_matrix`: filters to `comp_level ==
+ * "qm"`, calls bare `np.linalg.pinv(M)`, no ridge anywhere).
  *
- *   1. Season-scope pooling — `update()` never resets or scopes its
- *      accumulated observations to "this event"; every observation a team
- *      has produced so far this season (across every event it has
- *      attended) stays in the design matrix for every later solve.
- *   2. Ridge regularization (M^T M + λI) — keeps the normal equations
- *      invertible even while the design matrix is still thin, shrinking
- *      ratings toward zero (and, empirically, toward the observed mean —
- *      see opr.test.ts) rather than letting an ill-conditioned solve
- *      diverge or return NaN/Infinity.
+ * WHY no penalty term (D-06): season pooling let a team accumulate ~30-40
+ * observations by mid-season, so `lambda=3`'s bias stayed a small ~7-9%.
+ * Event scope with quals only finishes a regional at ~12 observations — the
+ * SAME lambda would shrink ratings by ~20%, far more early on. Freezing it
+ * would triple its effect while calling it unchanged. Rank deficiency
+ * becomes a well-defined minimum-norm answer once the term is gone.
  *
- * Surrogate handling (D-07) and disqualification handling (Open Question 3,
- * RESEARCH.md) are resolved by `ratingEligibleTeams`/`allianceObservation`
- * below — see the comment on `allianceObservation` for the reasoning behind
- * both policies.
+ * WHY state is keyed by event, not reset (D-01): `replay.ts`'s
+ * `buildSeasonStream` interleaves concurrent events in one chronological
+ * stream — resetting on every `eventKey` change would corrupt every
+ * simultaneously-running event. State is partitioned by `eventKey` instead.
+ *
+ * Surrogate (D-07) / disqualification (Open Question 3) handling below is
+ * UNCHANGED and orthogonal to the event-scope change — see their comments.
  */
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 
 /**
- * Ridge penalty added to the normal equations (M^T M + λI). λ=3 is small
- * relative to a typical FRC alliance score (tens to hundreds of points),
- * so once a team has accumulated even a handful of real observations its
- * ridge-induced bias is small relative to its signal — but it is enough to
- * keep the solve invertible (and every rating finite) during the
- * rank-deficient regime at the very start of a season, when the design
- * matrix may have far fewer independent rows than teams.
- */
-export const OPR_RIDGE_LAMBDA = 3;
-
-/**
  * Logistic scale converting a predicted score margin into a red-win
- * probability: pRedWin = 1 / (1 + exp(-margin / OPR_LOGISTIC_SCALE)).
- * Chosen so a margin of roughly one typical FRC alliance-score standard
- * deviation (empirically tens of points across 2022-2026 seasons) maps to
- * a clearly-confident-but-not-saturated probability (margin=10 -> ~0.73);
- * a smaller value saturates the curve faster, a larger value flattens it.
+ * probability: pRedWin = 1 / (1 + exp(-margin / OPR_LOGISTIC_SCALE)). Chosen
+ * so a margin of roughly one typical alliance-score SD (tens of points
+ * across 2022-2026) maps to a confident-but-unsaturated probability
+ * (margin=10 -> ~0.73).
  */
 export const OPR_LOGISTIC_SCALE = 10;
 
-/**
- * One alliance's rating-eligible observation for the design matrix: which
- * teams' columns get a 1 in that row, and the target score attributed to
- * them (adjusted for any surrogate offset — see `allianceObservation`).
- */
+/** One alliance's rating-eligible observation: teams' columns (a 1 in the design matrix row) and the target score, adjusted for any surrogate offset (see `allianceObservation`). */
 export interface OprObservation {
   readonly teams: readonly string[];
   readonly allianceScore: number;
 }
 
-export interface OprState {
+/** One event's accumulated quals-only observations and current solved ratings (D-01). Module-private — only the outer `OprState.perEvent` map needs to name this shape. */
+interface PerEventOprState {
   readonly observations: readonly OprObservation[];
   readonly ratings: ReadonlyMap<string, number>;
-  /**
-   * Incremental Sherman-Morrison/RLS solve cache — see `IncrementalInverse`'s
-   * doc comment for why `update()` no longer calls `solveRidgeOpr` on every
-   * match. Internal to this module: `predict()` never reads it, and it is
-   * not part of the algorithm's tested public contract beyond keeping
-   * `update()` fast at season scale.
-   */
-  readonly incrementalSolve: IncrementalRidgeSolve;
+}
+
+/**
+ * `perEvent` (D-01): every event accumulated independently, keyed by
+ * `eventKey`. `lastEventByTeam` (D-04): explicitly tracked, not inferred
+ * from insertion order — a team's FIRST event, not its MOST RECENT one.
+ */
+export interface OprState {
+  readonly perEvent: ReadonlyMap<string, PerEventOprState>;
+  readonly lastEventByTeam: ReadonlyMap<string, string>;
 }
 
 /**
@@ -115,9 +102,9 @@ export function ratingEligibleTeams(
  * simply thrown away (which would discard real information about its two
  * or three non-surrogate teammates) nor left in the design matrix (which
  * would update its rating in violation of D-07) — instead its current
- * rating (or, if it has none yet, the season's current league-mean
- * per-team share, as a cold-start substitute) is subtracted from the
- * target alliance score, so its teammates keep a correctly-scaled
+ * rating at THIS event (or, if it has none yet, this event's current
+ * league-mean per-team share, as a cold-start substitute) is subtracted
+ * from the target alliance score, so its teammates keep a correctly-scaled
  * observation instead of one inflated by absorbing the surrogate's share.
  *
  * Disqualification policy (Open Question 3, RESEARCH.md — no locked
@@ -149,15 +136,7 @@ export function allianceObservation(
   return { teams: eligibleTeams, allianceScore: allianceScore - surrogateOffset };
 }
 
-/**
- * The season's current mean per-team-slot contribution, computed from
- * every pooled observation so far: total observed alliance score divided
- * by total rating-eligible team-slots. Used only as the cold-start
- * substitute for a surrogate with no rating yet. Before any observation
- * exists, falls back to a naive three-way split of this match's own
- * average alliance score, so the very first match of a season never
- * throws for lack of prior data.
- */
+/** This event's mean per-team-slot contribution, from THIS EVENT ONLY (D-02: cross-event data would leak season-wide info into a surrogate's offset). Cold-start substitute for a surrogate with no rating yet. */
 function currentLeagueMeanPerTeamShare(
   observations: readonly OprObservation[],
   fallbackAllianceScore: number
@@ -182,17 +161,19 @@ function buildTeamIndex(observations: readonly OprObservation[]): Map<string, nu
 }
 
 /**
- * Ridge-regularized least-squares OPR solve (RESEARCH.md Pattern 4):
- * M^T M x = M^T s becomes (M^T M + λI) x = M^T s, solved via ml-matrix's
- * `SingularValueDecomposition` rather than a hand-rolled elimination —
- * early-season systems are ill-conditioned by construction, and a bespoke
- * Gaussian elimination is exactly the kind of code that looks finished
- * until one team's row makes it diverge.
+ * Minimum-norm least-squares OPR solve for one event (D-06): normal
+ * equations `M^T M x = M^T s` via `SingularValueDecomposition` — no ridge,
+ * no hand-rolled cutoff (`.solve()` already zeroes singular values at or
+ * below its own relative `threshold`, matching `np.linalg.pinv`'s default).
+ * Solving via `M^T M` rather than an SVD of the raw `M` is a DELIBERATE
+ * fidelity choice — it squares the effective condition number, but TBA's
+ * own `build_Minv_matrix` builds this same Gram matrix and pseudo-inverts
+ * it; "improving" this would make our OPR a different computation than
+ * TBA's.
  */
-export function solveRidgeOpr(
+export function solveEventOpr(
   observations: readonly OprObservation[],
-  teamIndex: ReadonlyMap<string, number>,
-  lambda: number = OPR_RIDGE_LAMBDA
+  teamIndex: ReadonlyMap<string, number>
 ): Map<string, number> {
   const ratings = new Map<string, number>();
   const n = teamIndex.size;
@@ -207,7 +188,7 @@ export function solveRidgeOpr(
     }
   });
 
-  const MtM = M.transpose().mmul(M).add(Matrix.eye(n).mul(lambda));
+  const MtM = M.transpose().mmul(M);
   const Mts = M.transpose().mmul(s);
   const x = new SingularValueDecomposition(MtM).solve(Mts);
 
@@ -217,250 +198,31 @@ export function solveRidgeOpr(
   return ratings;
 }
 
-/**
- * Performance note (this is why `update()` below does not call
- * `solveRidgeOpr` directly): recomputing the dense O(n^3) SVD solve from
- * scratch after every single match does not scale to a real FRC season. A
- * season pools every event nationally (this module's own season-scope
- * pooling, see the file header) — real corpus measurement found
- * ~3,000-3,700 distinct teams and ~15,000-18,000
- * played matches per 2022-2026 season. Benchmarked directly against this
- * project's `ml-matrix` dependency: one dense SVD solve at n=1,500 teams
- * takes ~21s, and the cost scales cubically — at n≈3,700 a full season
- * would need on the order of 16 CPU-DAYS. `update()` therefore maintains
- * `(M^T M + lambda*I)^-1` incrementally via a Sherman-Morrison rank-1
- * update (the classic Recursive Least Squares algorithm) instead. This is
- * mathematically EXACT, not an approximation — for any prefix of
- * observations, the incremental ratings are identical (up to
- * floating-point rounding) to calling `solveRidgeOpr` fresh over that same
- * prefix. Proven directly in opr.test.ts's "incremental solve matches the
- * from-scratch dense solve" test. `solveRidgeOpr` itself is untouched and
- * is exactly what that equivalence test checks the incremental path
- * against. Implemented with raw `Float64Array` math (not `ml-matrix`,
- * whose generic-matrix overhead benchmarked ~20-30x slower for this
- * exact operation) to keep the O(n^2)-per-match cost real: ~15-30ms per
- * update even at n=3,700, versus ml-matrix's ~110-420ms for the
- * equivalent operation.
- */
-function nextPowerOfTwo(n: number): number {
-  let p = 1;
-  while (p < n) p *= 2;
-  return p;
-}
-
-/**
- * `(M^T M + lambda*I)^-1`, maintained incrementally via Sherman-Morrison
- * rank-1 updates. Backed by a flat, power-of-two-padded `Float64Array` so
- * that adding one new team at a time (routine — every season starts empty
- * and grows to thousands of teams) is amortized O(1) array growth rather
- * than an O(n) copy on every single addition.
- */
-class IncrementalInverse {
-  readonly #capacity: number;
-  readonly #size: number;
-  readonly #data: Float64Array;
-
-  private constructor(capacity: number, size: number, data: Float64Array) {
-    this.#capacity = capacity;
-    this.#size = size;
-    this.#data = data;
-  }
-
-  static empty(): IncrementalInverse {
-    return new IncrementalInverse(0, 0, new Float64Array(0));
-  }
-
-  #at(row: number, col: number): number {
-    return this.#data[row * this.#capacity + col]!;
-  }
-
-  /**
-   * Appends one new dimension, isolated from every existing one (zero
-   * cross terms, diagonal = 1/lambda) — exactly `(0*I + lambda*I)^-1` for
-   * a team with no observations yet, since a never-yet-observed team's row
-   * and column in `M^T M` are genuinely all-zero at that instant.
-   */
-  withNewDimension(diagonalValue: number): IncrementalInverse {
-    if (this.#size < this.#capacity) {
-      const data = this.#data.slice();
-      data[this.#size * this.#capacity + this.#size] = diagonalValue;
-      return new IncrementalInverse(this.#capacity, this.#size + 1, data);
-    }
-    const capacity = nextPowerOfTwo(this.#size + 1);
-    const data = new Float64Array(capacity * capacity);
-    for (let r = 0; r < this.#size; r++) {
-      for (let c = 0; c < this.#size; c++) {
-        data[r * capacity + c] = this.#at(r, c);
-      }
-    }
-    data[this.#size * capacity + this.#size] = diagonalValue;
-    return new IncrementalInverse(capacity, this.#size + 1, data);
-  }
-
-  /**
-   * Sherman-Morrison rank-1 update for a new observation row whose nonzero
-   * entries are exactly at `indices` (every OPR design-matrix row is a 0/1
-   * indicator over its rating-eligible teams, coefficient always 1).
-   * Returns the updated inverse plus `pu` (the OLD inverse times this row
-   * vector) and `denom`, so the caller can update the ratings vector in
-   * O(n) without a second O(n^2) pass.
-   */
-  rank1Update(indices: readonly number[]): { next: IncrementalInverse; pu: Float64Array; denom: number } {
-    const n = this.#size;
-    const capacity = this.#capacity;
-    const pu = new Float64Array(n);
-    for (let r = 0; r < n; r++) {
-      let sum = 0;
-      for (const c of indices) sum += this.#at(r, c);
-      pu[r] = sum;
-    }
-    let uPu = 0;
-    for (const c of indices) uPu += pu[c]!;
-    const denom = 1 + uPu;
-
-    const data = this.#data.slice();
-    for (let r = 0; r < n; r++) {
-      const factor = pu[r]! / denom;
-      if (factor === 0) continue;
-      const base = r * capacity;
-      for (let c = 0; c < n; c++) {
-        data[base + c] = data[base + c]! - factor * pu[c]!;
-      }
-    }
-    return { next: new IncrementalInverse(capacity, n, data), pu, denom };
-  }
-}
-
-export interface IncrementalRidgeSolve {
-  readonly teamIndex: ReadonlyMap<string, number>;
-  readonly inverse: IncrementalInverse;
-  readonly ratingsVector: Float64Array;
-}
-
-function emptyIncrementalSolve(): IncrementalRidgeSolve {
-  return { teamIndex: new Map(), inverse: IncrementalInverse.empty(), ratingsVector: new Float64Array(0) };
-}
-
-function ratingsVectorToMap(teamIndex: ReadonlyMap<string, number>, vector: Float64Array): Map<string, number> {
-  const ratings = new Map<string, number>();
-  for (const [team, idx] of teamIndex) ratings.set(team, vector[idx]!);
-  return ratings;
-}
-
-/**
- * Applies one alliance observation to the incremental solve (classic RLS:
- * gain `k = Pu / denom`, then `x += k * (y - u^T x)`, `P -= outer(k, Pu)`),
- * returning the new solve state and a ratings `Map` for every team known
- * so far — the same shape `solveRidgeOpr` returns, computed incrementally
- * instead of by a fresh SVD.
- */
-function applyObservation(
-  solve: IncrementalRidgeSolve,
-  observation: OprObservation,
-  lambda: number
-): { solve: IncrementalRidgeSolve; ratings: Map<string, number> } {
-  let teamIndex = solve.teamIndex;
-  let inverse = solve.inverse;
-  let ratingsVector = solve.ratingsVector;
-
-  for (const team of observation.teams) {
-    if (!teamIndex.has(team)) {
-      const next = new Map(teamIndex);
-      next.set(team, next.size);
-      teamIndex = next;
-      inverse = inverse.withNewDimension(1 / lambda);
-      const grown = new Float64Array(ratingsVector.length + 1);
-      grown.set(ratingsVector);
-      ratingsVector = grown;
-    }
-  }
-
-  const indices = observation.teams.map((team) => teamIndex.get(team)!);
-
-  if (indices.length === 0) {
-    // Nothing to attribute (e.g. an alliance whose every team was a
-    // surrogate) — a genuine no-op, matching solveRidgeOpr's behavior for
-    // an all-zero design-matrix row.
-    return {
-      solve: { teamIndex, inverse, ratingsVector },
-      ratings: ratingsVectorToMap(teamIndex, ratingsVector),
-    };
-  }
-
-  const { next: nextInverse, pu, denom } = inverse.rank1Update(indices);
-
-  let uX = 0;
-  for (const idx of indices) uX += ratingsVector[idx]!;
-  const residual = observation.allianceScore - uX;
-
-  // 01-REVIEW WR-01 / D-08: a numerical breakdown in the incremental
-  // Sherman-Morrison/RLS solve aborts the run at the observation that broke
-  // it, instead of silently folding a non-finite or sign-broken update into
-  // every rating for the rest of the season. `residual` non-finite means
-  // `observation.allianceScore` (or the accumulated ratings it was compared
-  // against) is already corrupt; `denom <= 0` means the maintained inverse
-  // has lost positive-definiteness — in exact arithmetic `denom` is
-  // provably `1 + a positive quadratic form`, so a non-positive value here
-  // can only mean accumulated floating-point error broke that invariant.
-  // Per D-08 this safeguard is strictly detect-only: no periodic
-  // resynchronization or symmetrization of the inverse was added, because
-  // self-healing would move OPR's ratings, and Phase 3's D-04 froze OPR and
-  // EPA as fixed baselines precisely because every SC-3 number is measured
-  // against them — changing them invalidates the comparison and every
-  // published figure derived from it. Per D-09 this abort is deliberately
-  // unlike `packages/harness/score.ts`'s per-prediction quarantine: a
-  // `denom` breakdown corrupts the shared incremental-solve state every
-  // later observation reads, so there is nothing left to recover from and
-  // the whole run aborts, whereas a single malformed `pRedWin` is a
-  // per-prediction anomaly that can be quarantined and counted without
-  // discarding the rest of the run.
-  if (!Number.isFinite(residual) || !Number.isFinite(denom) || denom <= 0) {
-    throw new Error(
-      `opr: incremental solve broke down applying an observation with allianceScore=${observation.allianceScore} — ` +
-        `computed residual=${residual}, denom=${denom}. The incremental Sherman-Morrison/RLS solve's shared model ` +
-        `state (the maintained inverse) is unrecoverable from this point, so the run aborts rather than propagating ` +
-        `corrupt ratings through the rest of the season (01-REVIEW WR-01, D-08).`
-    );
-  }
-
-  const nextRatingsVector = ratingsVector.slice();
-  for (let r = 0; r < nextRatingsVector.length; r++) {
-    nextRatingsVector[r] = nextRatingsVector[r]! + (pu[r]! / denom) * residual;
-  }
-
-  return {
-    solve: { teamIndex, inverse: nextInverse, ratingsVector: nextRatingsVector },
-    ratings: ratingsVectorToMap(teamIndex, nextRatingsVector),
-  };
-}
-
 function logisticWinProbability(scoreMargin: number, scale: number = OPR_LOGISTIC_SCALE): number {
   return 1 / (1 + Math.exp(-scoreMargin / scale));
 }
 
 export const opr: AlgorithmModule<OprState> = {
   id: "opr",
-  // D-13 (plan 03-03, Rule 1 fix): `buildArtifact` (packages/harness/artifact.ts)
-  // now REQUIRES every algorithm's `version` to carry the
-  // `{codeVersion}+{paramSetName}` shape, throwing otherwise — a real
-  // `pnpm harness --algorithm opr` run would break at artifact-build time
-  // without this. OPR has no separate tuned parameter set (D-04: frozen,
-  // not searched), so "baseline" is the honest, single named set.
-  version: "2.0.0+baseline",
+  // Bumped 2.0.0 -> 3.0.0 (D-13's version-identity scheme): no artifact may
+  // show one code version standing for two structurally different algorithms.
+  version: "3.0.0+baseline",
 
   initState(): OprState {
-    return { observations: [], ratings: new Map(), incrementalSolve: emptyIncrementalSolve() };
+    return { perEvent: new Map(), lastEventByTeam: new Map() };
   },
 
+  // D-05: no comp-level branch — every comp level is predicted and scored.
   predict(state: OprState, match: UpcomingMatch): Prediction {
+    const eventRatings = state.perEvent.get(match.eventKey)?.ratings;
     const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
     const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
-    const redScore = redTeams.reduce((sum, team) => sum + (state.ratings.get(team) ?? 0), 0);
-    const blueScore = blueTeams.reduce((sum, team) => sum + (state.ratings.get(team) ?? 0), 0);
+    // D-02: literal-zero cold start — a team with no observations yet at
+    // this event predicts exactly 0 (the `?? 0` below).
+    const redScore = redTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
+    const blueScore = blueTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
     const pRedWin = logisticWinProbability(redScore - blueScore);
-    // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
-    // is returned — see predictionValidity.ts's doc comment for why this
-    // check lives here rather than at scoreSet/calibrationBins entry.
+    // 01-REVIEW WR-05 / D-05: validated at emission, before returning.
     assertValidPRedWin(pRedWin, `opr.predict (${match.matchKey})`);
     return {
       winner: pRedWin >= 0.5 ? "red" : "blue",
@@ -470,42 +232,64 @@ export const opr: AlgorithmModule<OprState> = {
     };
   },
 
+  // D-05: only quals feed the fit — playoff alliances are hand-selected,
+  // not a random draw, so a non-"qm" match is a genuine update() no-op.
   update(state: OprState, result: MatchResult): OprState {
+    if (result.compLevel !== "qm") return state;
+
+    const eventKey = result.eventKey;
+    const eventState: PerEventOprState = state.perEvent.get(eventKey) ?? { observations: [], ratings: new Map() };
     const fallbackAllianceScore = (result.redScore + result.blueScore) / 2;
-    const meanShare = currentLeagueMeanPerTeamShare(state.observations, fallbackAllianceScore);
+    const meanShare = currentLeagueMeanPerTeamShare(eventState.observations, fallbackAllianceScore);
+    const redObservation = allianceObservation(result.redTeams, result.redSurrogates, result.redScore, eventState.ratings, meanShare);
+    const blueObservation = allianceObservation(result.blueTeams, result.blueSurrogates, result.blueScore, eventState.ratings, meanShare);
 
-    const redObservation = allianceObservation(
-      result.redTeams,
-      result.redSurrogates,
-      result.redScore,
-      state.ratings,
-      meanShare
-    );
-    const blueObservation = allianceObservation(
-      result.blueTeams,
-      result.blueSurrogates,
-      result.blueScore,
-      state.ratings,
-      meanShare
-    );
+    // An alliance whose every listed team is a surrogate contributes no row
+    // (filtered here, not pushed in as an all-zero row); if both alliances
+    // were fully surrogate, nothing to re-solve — a genuine no-op.
+    const newRows = [redObservation, blueObservation].filter((obs) => obs.teams.length > 0);
+    if (newRows.length === 0) return state;
 
-    const afterRed = applyObservation(state.incrementalSolve, redObservation, OPR_RIDGE_LAMBDA);
-    const afterBlue = applyObservation(afterRed.solve, blueObservation, OPR_RIDGE_LAMBDA);
+    const observations = [...eventState.observations, ...newRows];
+    const teamIndex = buildTeamIndex(observations);
+    const ratings = solveEventOpr(observations, teamIndex);
 
-    const observations = [...state.observations, redObservation, blueObservation];
-    return { observations, ratings: afterBlue.ratings, incrementalSolve: afterBlue.solve };
+    // 01-REVIEW WR-01 / D-03: surviving finiteness guard — throw loudly
+    // rather than fold a corrupt rating into every later prediction here.
+    for (const [team, rating] of ratings) {
+      if (!Number.isFinite(rating)) {
+        throw new Error(
+          `opr: solveEventOpr produced a non-finite rating for team ${team} at event ${eventKey} ` +
+            `(${observations.length} accumulated observations) — the run aborts rather than propagating ` +
+            `a corrupt rating through the rest of this event (01-REVIEW WR-01, D-03).`
+        );
+      }
+    }
+
+    const nextPerEvent = new Map(state.perEvent);
+    nextPerEvent.set(eventKey, { observations, ratings });
+
+    // D-04: track each team's MOST RECENT event explicitly — insertion
+    // order records a team's FIRST event, wrong for an interleaved stream.
+    const touchedTeams = newRows.flatMap((obs) => obs.teams);
+    let nextLastEventByTeam = state.lastEventByTeam;
+    if (touchedTeams.length > 0) {
+      const next = new Map(nextLastEventByTeam);
+      for (const team of touchedTeams) next.set(team, eventKey);
+      nextLastEventByTeam = next;
+    }
+    return { perEvent: nextPerEvent, lastEventByTeam: nextLastEventByTeam };
   },
 
-  /**
-   * D-27: OPR is the no-variance baseline — one unnamed value per team
-   * (`TOTAL_METRIC_KEY`), no `spread`. When `teams` is omitted, every team
-   * with a rating is returned.
-   */
+  // D-27: no-variance baseline, one `TOTAL_METRIC_KEY` value per team. D-04:
+  // headlines each team's MOST RECENT event via `lastEventByTeam`.
   teamMetrics(state: OprState, teams?: readonly string[]): TeamMetrics {
-    const requestedTeams = teams ?? [...state.ratings.keys()];
+    const requestedTeams = teams ?? [...state.lastEventByTeam.keys()];
     const result: TeamMetrics = {};
     for (const team of requestedTeams) {
-      const rating = state.ratings.get(team);
+      const eventKey = state.lastEventByTeam.get(team);
+      if (eventKey === undefined) continue;
+      const rating = state.perEvent.get(eventKey)?.ratings.get(team);
       if (rating === undefined) continue;
       result[team] = { [TOTAL_METRIC_KEY]: { value: rating } };
     }
