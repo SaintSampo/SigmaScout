@@ -2,11 +2,21 @@
 
 This is the check the failure log demands before a variance-carrying model ships: REBUILD_SPEC.md's failure log records an unidentifiable 4D offense/defense/time-allocation model that collapsed — given only alliance-level 3-vs-3 sum observations, the optimizer had more free parameters per team than the data could pin down, and parameters drifted arbitrarily between runs rather than converging. D-06's response was structural: Sigma1 estimates offense only, no defense latent, no cross-team covariance. This document is the check that the response actually works, run against the real corpus (`data/corpus.sqlite`) rather than argued on paper — every number below is quoted from `reports/identifiability.json`, produced by `packages/harness/identifiability.ts` (`pnpm identifiability --seasons 2022-2026`).
 
+**Corrected 2026-08-21 (Phase 3.2):** this document's description of `opr.ts` below (Sections 1
+and 2) previously described it as a season-scale ridge regression recovering a per-team total
+"for the season" over a roughly 36,000 x 3,700 design matrix. That is no longer true — `opr.ts`
+was rewritten to an event-scoped, quals-only, no-ridge fit (D-03, D-06), matching TBA's own
+computation. The OPR description below is corrected accordingly; every one of this document's own
+Sigma1 sampling design, measured rank, and condition-number figures is a Sigma1 identifiability
+measurement, not an OPR figure, and is left exactly as originally measured — this phase did not
+re-run this check. See `docs/models/opr-baseline-change.md` for the full baseline-change
+narrative.
+
 **Not re-run after the CR-01/WR-01 code review fixes (2026-08-14):** `identifiability.ts` imports `parseBreakdown`/`componentMapForSeason` directly (the real-`score_breakdown` parse path) and does not import `epa.ts`, `sigma1/index.ts`, or `distributeResidual` at all — it builds its design matrix purely from real, parsed breakdowns, never through either algorithm's `update()`/D-05 fallback path. CR-01 (fallback cross-alliance foul misattribution) and WR-01 (EPA's finite-value gate) are both isolated to that fallback path, so this document's inputs are unaffected; it was not re-run.
 
 ## 1. What Sigma1 estimates — every state dimension, per season
 
-Sigma1 tracks exactly one thing per team: a mean and variance for each named component in that season's registered `breakdown/*.ts` component map (D-02), plus a derived `foulsCommitted` component (D-04). **No other latent dimension exists in `Sigma1State`** — no defense rating, no time-allocation split, no cross-team correlation term. Every component is recovered from the same observable: a 3-vs-3 alliance's summed contribution to that component for one match, exactly the structure `opr.ts`'s ridge regression already uses for the season TOTAL. This is what D-06 means by "no defense latent" — Sigma1 has nothing else to estimate beyond what a 3-vs-3 alliance sum, replayed match by match, can actually observe.
+Sigma1 tracks exactly one thing per team: a mean and variance for each named component in that season's registered `breakdown/*.ts` component map (D-02), plus a derived `foulsCommitted` component (D-04). **No other latent dimension exists in `Sigma1State`** — no defense rating, no time-allocation split, no cross-team correlation term. Every component is recovered from the same observable: a 3-vs-3 alliance's summed contribution to that component for one match, exactly the structure `opr.ts`'s regression already uses for the per-event TOTAL (as of Phase 3.2, a plain minimum-norm fit over one event's qualification matches, with no ridge term — see the correction note above). This is what D-06 means by "no defense latent" — Sigma1 has nothing else to estimate beyond what a 3-vs-3 alliance sum, replayed match by match, can actually observe.
 
 The registered components per season (`componentMapForSeason(season).components`, verified live against the corpus this session):
 
@@ -22,7 +32,15 @@ Every component here is alliance-level (never per-robot — RESEARCH.md's Assump
 
 ## 2. Sampling design and what was measured (not a full-season claim)
 
-A full-season design matrix is roughly 36,000 rows x 3,700 columns (`opr.ts`'s own file header measurement) — a dense SVD at that scale is not tractable (`opr.ts` measured ~21s at n=1,500 with cubic scaling; n≈3,700 would run for hours). `identifiability.ts` instead draws a fixed, seeded 25-event sample per season (Mulberry32 PRNG, seed 42 — deterministic, reproducible), yielding:
+A full-season alliance-participation design matrix is roughly 36,000 rows x 3,700 columns — the
+retired season-pooled `opr.ts`'s own file header measurement, from before Phase 3.2 rewrote it to
+an event-scoped fit (see the correction note above; `opr.ts` no longer builds a matrix at this
+scale at all, since it now solves independently per event at roughly 12 rows x 40 columns). A
+dense SVD at the season scale is not tractable (the retired implementation measured ~21s at
+n=1,500 with cubic scaling; n≈3,700 would run for hours) — this is the reason `identifiability.ts`'s
+own check, below, does not attempt a full-season measurement either. `identifiability.ts` instead
+draws a fixed, seeded 25-event sample per season (Mulberry32 PRNG, seed 42 — deterministic,
+reproducible), yielding:
 
 | Season | Events sampled | Matches | Alliance observations (rows) | Teams (columns) |
 |---|---|---|---|---|

@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Algorithms
 
-- [x] **ALGO-01**: OPR is computed per team per season as a no-variance baseline
+- [x] **ALGO-01**: OPR is computed per team per event over qualification matches only, as a no-variance baseline, matching TBA's definition
 - [x] **ALGO-02**: EPA is reimplemented from TBA data and runs walk-forward at any point in a season
 - [x] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
 - [x] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
@@ -33,6 +33,12 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **ALGO-06**: Algorithm versions are first-class in the data model: the site can display metrics and predictions from any past algorithm version unchanged
 - [x] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
 - [x] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
+
+**Re-issued 2026-08-21 (Phase 3.2):** ALGO-01's text above was corrected from "OPR is computed per
+team per season as a no-variance baseline" (no longer true) to the event-scoped, qualification-
+matches-only definition the code now implements. This is a requirement-text correction, not a new
+requirement — the `[x]` completion mark and ID are unchanged. See `docs/models/opr-baseline-change.md`
+for the full baseline-change narrative.
 
 ### Teams
 

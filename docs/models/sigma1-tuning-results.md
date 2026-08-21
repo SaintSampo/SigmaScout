@@ -1,10 +1,17 @@
 # Sigma1 tuning results, holdout head-to-head, and phase verdicts
 
+**Baseline change (Phase 3.2, 2026-08-21):** OPR now means an event-scoped, qualification-matches-
+only fit (matching TBA's own computation), not the season-pooled ridge regression this document
+originally measured against. Every OPR figure below has been re-issued against the new baseline.
+See `docs/models/opr-baseline-change.md` for the full narrative — why the switch, both baselines'
+numbers side by side, and the required framing for what a widened Sigma1 margin does and does not
+mean.
+
 The committed answer to Phase 3's four questions: did the offline search actually find something
 (ALGO-04), does tuned Sigma1 beat OPR and EPA on holdout Brier *and* winner accuracy on both
 holdout seasons (SC-3), does within-season adaptation improve holdout score (ALGO-05), and does
-predicted ranking-point variance hold up against real matches (ALGO-08). Every figure in the
-`## Holdout Head-to-Head` and `## Tune-Season Result` tables comes from ONE run:
+predicted ranking-point variance hold up against real matches (ALGO-08). Every EPA/Sigma1 figure in
+the `## Holdout Head-to-Head` and `## Tune-Season Result` tables comes from ONE run:
 
 ```
 pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/tuned-v3
@@ -16,7 +23,12 @@ pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigm
 defaults (`sigma1Defaults`); `sigma1-adapt` to the adaptation-ON joint search's own winning
 candidate (`reports/tune-joint-on.json`, `rpMonteCarloDraws` restored to 2000, `paramSetName:
 "tune-joint-on-winner"`). No baseline row in this document was spliced from an earlier run,
-corpus, or algorithm version (T-03-16).
+corpus, or algorithm version (T-03-16). **OPR's figures below are the exception**: they are
+re-issued from a later re-run against the event-scoped baseline
+(`data/baselines/opr-event-scoped-2026-08.json`, command and `runTimestamp` in the footer below).
+`docs/models/opr-baseline-change.md`'s side-by-side table proves every non-OPR figure in this
+document is identical between the two runs to four decimal places, so this substitution changes
+nothing except OPR's own numbers.
 
 ## What Was Searched
 
@@ -114,11 +126,11 @@ a different pass.
 
 | Season | Algorithm | Brier | Winner accuracy |
 |---|---|---|---|
-| 2025 (holdout) | opr | 0.1675 | 0.7618 |
+| 2025 (holdout) | opr (event-scoped) | 0.2119 | 0.7296 |
 | 2025 (holdout) | epa | 0.1932 | 0.7290 |
 | 2025 (holdout) | sigma1-defaults | 0.1662 | 0.7539 |
 | 2025 (holdout) | **sigma1 (tuned)** | **0.1612** | **0.7657** |
-| 2026 (holdout) | opr | 0.1773 | 0.7825 |
+| 2026 (holdout) | opr (event-scoped) | 0.2211 | 0.7530 |
 | 2026 (holdout) | epa | 0.1742 | 0.7454 |
 | 2026 (holdout) | sigma1-defaults | 0.1554 | 0.7819 |
 | 2026 (holdout) | **sigma1 (tuned)** | **0.1531** | **0.7873** |
@@ -126,10 +138,15 @@ a different pass.
 **Phase-2 starting position** (`02-06-SUMMARY.md`, `03-CONTEXT.md` D-02), for comparison — untuned
 Sigma1 already won holdout Brier on both seasons and *lost* holdout winner accuracy on both:
 
-| Season | Sigma1 (untuned) Brier / acc | OPR Brier / acc |
+| Season | Sigma1 (untuned) Brier / acc | OPR Brier / acc (season-pooled, retired — preserved unedited) |
 |---|---|---|
 | 2025 | 0.1662 / 0.7539 | 0.1675 / 0.7618 |
 | 2026 | 0.1554 / 0.7819 | 0.1773 / 0.7825 |
+
+*This table intentionally preserves Phase 2's original season-pooled OPR measurement unchanged —
+it records what `02-06-SUMMARY.md` actually measured at the time, not a current claim. For the
+current event-scoped OPR figures, see the Holdout Head-to-Head table above and
+`docs/models/opr-baseline-change.md`.*
 
 This run's `sigma1-defaults` row reproduces the starting position to 4 decimal places on every
 figure (0.1662/0.7539 and 0.1554/0.7819, exactly) — confirming this run's baseline is the
@@ -137,8 +154,9 @@ identical Phase-2 measurement, not a re-derived approximation. **What tuning bou
 against that starting position:** Brier improved further on both seasons (2025: 0.1662 -> 0.1612;
 2026: 0.1554 -> 0.1531), and — the number D-01's Brier-steered search was not steering toward and
 was flagged as a real risk of *not* closing — **winner accuracy also improved past the untuned
-baseline AND past OPR on both seasons** (2025: 0.7539 -> 0.7657, versus OPR's 0.7618; 2026: 0.7819
--> 0.7873, versus OPR's 0.7825).
+baseline AND past OPR on both seasons** (2025: 0.7539 -> 0.7657, versus event-scoped OPR's 0.7296;
+2026: 0.7819 -> 0.7873, versus event-scoped OPR's 0.7530). *(OPR's figures here are the
+event-scoped re-run — see the baseline note above and `docs/models/opr-baseline-change.md`.)*
 
 ## SC-3 Verdict
 
@@ -148,12 +166,12 @@ comparisons per season, eight total.
 
 | # | Season | Comparison | Tuned Sigma1 | Baseline | Result |
 |---|---|---|---|---|---|
-| 1 | 2025 | Brier vs OPR | 0.1612 | 0.1675 | **PASS** (lower is better) |
-| 2 | 2025 | Accuracy vs OPR | 0.7657 | 0.7618 | **PASS** (higher is better) |
+| 1 | 2025 | Brier vs OPR (event-scoped) | 0.1612 | 0.2119 | **PASS** (lower is better) |
+| 2 | 2025 | Accuracy vs OPR (event-scoped) | 0.7657 | 0.7296 | **PASS** (higher is better) |
 | 3 | 2025 | Brier vs EPA | 0.1612 | 0.1932 | **PASS** |
 | 4 | 2025 | Accuracy vs EPA | 0.7657 | 0.7290 | **PASS** |
-| 5 | 2026 | Brier vs OPR | 0.1531 | 0.1773 | **PASS** |
-| 6 | 2026 | Accuracy vs OPR | 0.7873 | 0.7825 | **PASS** |
+| 5 | 2026 | Brier vs OPR (event-scoped) | 0.1531 | 0.2211 | **PASS** |
+| 6 | 2026 | Accuracy vs OPR (event-scoped) | 0.7873 | 0.7530 | **PASS** |
 | 7 | 2026 | Brier vs EPA | 0.1531 | 0.1742 | **PASS** |
 | 8 | 2026 | Accuracy vs EPA | 0.7873 | 0.7454 | **PASS** |
 
@@ -161,15 +179,24 @@ comparisons per season, eight total.
 on both holdout Brier and holdout winner accuracy, on both holdout seasons. This is the literal
 reading (D-02), evaluated exactly as stated, with no comparison reworded or dropped.
 
+**Baseline note (re-issued by Phase 3.2, 2026-08-21):** the OPR figures in the table above are
+from the event-scoped re-run, not the season-pooled baseline Phase 3's search was originally
+measured against. Event-scoped OPR is a materially weaker opponent than season-pooled OPR
+(`docs/models/opr-baseline-change.md`), so the accuracy margin above (2025: +3.61 percentage
+points; 2026: +3.43 percentage points) is wider than what Phase 3 originally measured — **that
+widening is attributable to the baseline changing, not to any improvement in Sigma1**, whose
+promoted parameters stayed bit-frozen across this rewrite (D-10, confirmed by the unchanged digest
+gate). Phase 3's original verdict, measured against season-pooled OPR with a narrower margin
+(OPR accuracy margin: +0.39 percentage points in 2025, +0.48 in 2026), is preserved dated and
+unedited in `docs/models/opr-baseline-change.md`'s retired SC-3 verdict table.
+
 **This was not the anticipated outcome, and that is worth saying plainly.** The Phase-2 starting
 position and this plan's own `<objective>` explicitly flagged winner accuracy as "the live gap"
 that "D-01's Brier-steered search may not close" — a Brier-only objective was expected to plausibly
 buy calibration without moving the step-function accuracy metric at all. It did move it, on both
-holdout seasons, past both baselines. The margins are real but not large (OPR accuracy margin:
-+0.39 percentage points in 2025, +0.48 in 2026) — this is a genuine, measured win, not a blowout,
-and it is reported at exactly the precision measured rather than rounded up to look more decisive.
-No parameter, threshold, or objective was changed in response to this result; it is what the
-single required run produced.
+holdout seasons, past both baselines, and it is reported at exactly the precision measured rather
+than rounded up to look more decisive. No parameter, threshold, or objective was changed in
+response to this result; it is what the single required run produced.
 
 ## Adaptation Finding (ALGO-05)
 
@@ -341,4 +368,5 @@ Measured but not resolved by this plan — named here rather than left implicit:
 
 ---
 *Phase: 03-tuning-ranking-points-versioning*
-*Generated: 2026-08-17, from `reports/tuned-v3/artifact.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/tuned-v3`, `runTimestamp: 2026-08-17T01:11:06.668Z`)*
+*Generated: 2026-08-17, from `reports/tuned-v3/artifact.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/tuned-v3`, `runTimestamp: 2026-08-17T01:11:06.668Z`) — EPA/Sigma1 figures throughout this document are from this run, unchanged*
+*OPR figures re-issued 2026-08-21 (Phase 3.2), from `data/baselines/opr-event-scoped-2026-08.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/event-scoped-v1`, `runTimestamp: 2026-08-21T17:48:49.076Z`)*
