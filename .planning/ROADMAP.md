@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Prediction Models — EPA & Sigma1** - Reimplemented EPA and the Sigma1 Kalman filter, scored head-to-head (completed 2026-08-14)
 - [x] **Phase 3: Tuning, Ranking Points & Versioning** - Offline optimizer, online adaptation, per-season RP prediction, versioned algorithms (completed 2026-08-18)
 - [x] **Phase 3.1: Address Phase 1-3 review warnings and doc drift** (INSERTED) - Resolve outstanding review warnings from Phases 1-3 and reconcile documentation drift (completed 2026-08-20)
-- [ ] **Phase 3.2: Swap OPR to event-scoped and re-issue affected figures** (INSERTED) - OPR becomes event-scoped everywhere, matching TBA and Statbotics; affected figures re-run and the retired baseline preserved in the record
+- [x] **Phase 3.2: Swap OPR to event-scoped and re-issue affected figures** (INSERTED) - OPR becomes event-scoped everywhere, matching TBA and Statbotics; affected figures re-run and the retired baseline preserved in the record (completed 2026-08-21)
 - [ ] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers
 - [ ] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings
 - [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot

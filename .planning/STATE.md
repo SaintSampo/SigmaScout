@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03.2
-current_phase_name: swap-opr-to-event-scoped-and-re-issue-affected-figures
-status: executing
+current_phase: 04
+current_phase_name: Publish & Live Update Pipeline
+status: planning
 stopped_at: Phase 3.2 context gathered
-last_updated: "2026-08-21T06:10:37.692Z"
+last_updated: "2026-08-21T20:03:24.665Z"
 last_activity: 2026-08-21
-last_activity_desc: Phase 03.2 execution started
+last_activity_desc: Phase 03.2 complete, transitioned to Phase 04
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 31
-  completed_plans: 25
+  completed_plans: 31
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 ## Current Position
 
-Phase: 03.2 (swap-opr-to-event-scoped-and-re-issue-affected-figures) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 03.2
-Last activity: 2026-08-21 — Phase 03.2 execution started
+Phase: 04 — Publish & Live Update Pipeline
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-21 — Phase 03.2 complete, transitioned to Phase 04
 
 Progress: [██████████] 100%
 
@@ -38,7 +38,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 25
+- Total plans completed: 31
 - Average duration: —
 - Total execution time: 0.0 hours
 
@@ -50,6 +50,7 @@ Progress: [██████████] 100%
 | 02 | 6 | - | - |
 | 03 | 8 | - | - |
 | 03.1 | 5 | - | - |
+| 03.2 | 6 | - | - |
 
 **Recent Trend:**
 
