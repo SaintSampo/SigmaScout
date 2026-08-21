@@ -104,6 +104,11 @@ status: complete
 
 # Phase 02 Plan 05: Prediction & Metric-History Sidecars Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **Every (match, algorithm) prediction from a 2024/5-algorithm run now persists to a streaming, Zod-validated `predictions-2024.jsonl` with full component vectors and honest-absent variance, every match's 6 involved teams' metrics snapshot to `metrics-2024.jsonl` from inside the existing replay loop, and `cli.ts` scores OPR, EPA, and all three Sigma1 link modes side by side in one run.**
 
 ## Performance

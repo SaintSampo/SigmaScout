@@ -100,6 +100,11 @@ status: complete
 
 # Phase 1 Plan 6: Full 2022-2026 Season Replay, Cross-Event Interleaving, and the Real Report Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **Every event of every 2022-2026 season replayed as one cross-event-interleaved, walk-forward, read-only-corpus stream through OPR, with a discovered-and-fixed O(n^3)-to-O(n^2) algorithm rewrite that made replaying a real ~18,000-match/~3,700-team season computationally possible at all, and a reproducible real report proving Phase 1's core value proposition on the actual corpus (78m20s full run, byte-identical on rerun).**
 
 ## Performance

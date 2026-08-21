@@ -102,6 +102,11 @@ status: complete
 
 # Phase 3 Plan 6: CI Reproducibility Gate and Holdout Verdicts Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **CI now runs D-15's reproducibility gate for real against a committed fixture; one real 2022-2026 five-algorithm harness run shows tuned Sigma1 clearing SC-3's literal reading 8/8 and adaptation-on beating adaptation-off on holdout Brier — both verdicts recorded exactly as measured, including a Cauchy-Schwarz bug fix the real run itself surfaced.**
 
 ## Performance

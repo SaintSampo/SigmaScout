@@ -108,6 +108,11 @@ status: complete
 
 # Phase 1 Plan 2: Tracer — TBA Ingestion Through Corpus, Walk-Forward OPR, Both Artifacts Summary
 
+> **Superseded by Phase 3.2 (2026-08-21):** OPR became event-scoped and qualification-matches-only;
+> every OPR figure below describes the retired season-pooled baseline. The original numbers are left
+> intact as the execution record of what this plan actually measured — see
+> `docs/models/opr-baseline-change.md` for the current baseline and both SC-3 verdicts.
+
 **One real event (2024casj) flows end-to-end through ETag-cached TBA ingestion, Zod validation, quirk-aware normalization, a SQLite corpus, a Proxy-enforced walk-forward replay, a ridge-regularized OPR baseline, and both a canonical JSON artifact and a self-contained escaped HTML report — producing 93 predictions (Brier 0.2246, winner accuracy 64.5%) and proving outcome leakage is structurally impossible by 12 passing tests, not by design intent.**
 
 ## Performance
