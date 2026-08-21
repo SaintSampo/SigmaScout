@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Prediction Models — EPA & Sigma1** - Reimplemented EPA and the Sigma1 Kalman filter, scored head-to-head (completed 2026-08-14)
 - [x] **Phase 3: Tuning, Ranking Points & Versioning** - Offline optimizer, online adaptation, per-season RP prediction, versioned algorithms (completed 2026-08-18)
 - [x] **Phase 3.1: Address Phase 1-3 review warnings and doc drift** (INSERTED) - Resolve outstanding review warnings from Phases 1-3 and reconcile documentation drift (completed 2026-08-20)
+- [ ] **Phase 3.2: Swap OPR to event-scoped and re-issue affected figures** (INSERTED) - OPR becomes event-scoped everywhere, matching TBA and Statbotics; affected figures re-run and the retired baseline preserved in the record
 - [ ] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers
 - [ ] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings
 - [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot
@@ -171,10 +172,35 @@ Plans:
 
 - [x] 03.1-05-PLAN.md — Review-frontmatter linter and reconciliation of the four stale planning artifacts
 
+### Phase 03.2: Swap OPR to event-scoped and re-issue affected figures (INSERTED)
+
+**Goal**: OPR means event-scoped OPR everywhere in this project — harness, published figures, and the record — matching what TBA and Statbotics publish, with the season-pooled baseline it replaces preserved as recorded history rather than deleted
+**Requirements**: TBD (baseline correction — re-establishes ALGO-01 and the EVAL-01/EVAL-03 comparison surface against a new baseline without widening their scope)
+**Depends on**: Phase 3.1
+**Scope source**: `.planning/phases/04-publish-live-update-pipeline/04-CONTEXT.md` D-09, D-10, D-11 — the decision, its sequencing, and the honesty requirement on the record. Phase 4 consumes this phase's output and is blocked until it lands.
+**Success Criteria** (what must be TRUE):
+
+  1. `packages/core/algorithms/opr.ts` computes OPR at event scope, and no season-pooled ridge OPR path remains reachable from the harness registry or the published set.
+  2. The full 2022–2026 walk-forward harness has been re-run against the new baseline; every OPR figure in `docs/models/` and `PROJECT.md` reflects that run rather than the retired one, and every Phase 1–3 SUMMARY carrying a retired OPR figure has a dated superseded-by note pointing at the new record, with its original measured numbers left intact as the execution record.
+  3. `docs/models/` records both baselines side by side — the retired season-pooled numbers, the new event-scoped numbers, and the reason for the switch — so a reader can see that the baseline moved and judge the SC-3 claim against either.
+  4. Phase 3's SC-3 verdict is re-stated against the new baseline as an explicit measured result, with any change in whether Sigma1 beats OPR on holdout Brier and holdout winner accuracy named outright — never presented as an improvement Sigma1 did not make.
+  5. Event-scoped OPR's behavior early in an event, where the design matrix is rank-deficient, is measured and documented rather than assumed benign.
+
+**Plans**: 6 plans
+
+Plans:
+
+- [ ] 03.2-01-PLAN.md — Capture the retired season-pooled OPR baseline as two committed, reproducible fingerprints before its code is deleted (D-13)
+- [ ] 03.2-02-PLAN.md — Rewrite `opr.ts` as event-scoped, quals-only, no-ridge, proven end-to-end through the real replay path (SC-1)
+- [ ] 03.2-03-PLAN.md — Full 2022–2026 five-algorithm re-run against the new baseline, with its figures committed (SC-2 data)
+- [ ] 03.2-04-PLAN.md — Measure early-event rank deficiency: accuracy-by-checkpoint curve plus rank-vs-team-count diagnostic (SC-5)
+- [ ] 03.2-05-PLAN.md — Create `docs/models/opr-baseline-change.md`, restate SC-3 honestly, re-issue every live OPR figure (SC-2/SC-3/SC-4)
+- [ ] 03.2-06-PLAN.md — Annotate the Phase 1–3 execution record, correct 04-CONTEXT D-11's errata, close the phase gate (SC-2, D-17)
+
 ### Phase 4: Publish & Live Update Pipeline
 
 **Goal**: Every page's data exists as a precomputed versioned artifact in production storage and stays fresh during live events inside free-tier limits
-**Depends on**: Phase 3
+**Depends on**: Phase 3.2 (its published set includes event-scoped OPR — see `04-CONTEXT.md` D-03/D-09)
 **Requirements**: DATA-03, DATA-04, DATA-05
 **Success Criteria** (what must be TRUE):
 
