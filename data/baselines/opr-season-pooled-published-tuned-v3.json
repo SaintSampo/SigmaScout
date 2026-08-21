@@ -1,0 +1,60 @@
+{
+  "label": "opr-season-pooled-published-tuned-v3",
+  "generatedAt": "2026-08-21T06:24:07.502Z",
+  "sourceNote": "reports/tuned-v3, the run behind docs/models/sigma1-tuning-results.md's published tables; captured in plan 03.2-01 because reports/ is gitignored and this directory is the sole surviving provenance for every published retired OPR figure",
+  "runDir": "reports/tuned-v3",
+  "runTimestamp": "2026-08-17T01:11:06.668Z",
+  "corpusIdentity": "data/corpus.sqlite",
+  "artifactSchemaVersion": 3,
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "algorithms": [
+    {
+      "id": "opr",
+      "version": "2.0.0+baseline",
+      "perSeason": [
+        {
+          "season": 2022,
+          "brierScore": 0.15234959626676314,
+          "winnerAccuracy": 0.77433909058865,
+          "scoredCount": 14603,
+          "predictionStreamSha256": "f7842a322bd9e973dc9bf2353b76987042961c34680de6e6bbfcd13878b103d8"
+        },
+        {
+          "season": 2023,
+          "brierScore": 0.17061102361607577,
+          "winnerAccuracy": 0.7501576491360827,
+          "scoredCount": 16290,
+          "predictionStreamSha256": "073b48c51beec5ac02540c3c5e9b150b160cfe48a45a1de915c2a37278308673"
+        },
+        {
+          "season": 2024,
+          "brierScore": 0.1687196006409546,
+          "winnerAccuracy": 0.7501366203169592,
+          "scoredCount": 16958,
+          "predictionStreamSha256": "cae7819618affff69f78d16fda6f98b0d527d3112d946c315436d85c1b4b5d0e"
+        },
+        {
+          "season": 2025,
+          "brierScore": 0.1674797596975863,
+          "winnerAccuracy": 0.7617621652749784,
+          "scoredCount": 17815,
+          "predictionStreamSha256": "a7076f6c8d35761c03e4493392a6c9ffb56883f06fd78ed32511d331cd4b58ab"
+        },
+        {
+          "season": 2026,
+          "brierScore": 0.1773371256148654,
+          "winnerAccuracy": 0.7825409197194076,
+          "scoredCount": 18337,
+          "predictionStreamSha256": "0f010892f908ea9a397cab0ff3c18688886573f6b00bce341ddf20dcae530b03"
+        }
+      ],
+      "predictionStreamSha256": "077f8b6152ccc1bebdb41403f483b2686ef30d740666a8f9d7e9d7a921f95ecd"
+    }
+  ]
+}

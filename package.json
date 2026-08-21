@@ -12,6 +12,7 @@
     "ingest": "tsx --env-file=.env packages/ingest/cli.ts",
     "harness": "tsx --env-file=.env packages/harness/cli.ts",
     "identifiability": "tsx packages/harness/identifiability.ts",
+    "fingerprint": "tsx packages/harness/baselineFingerprint.ts",
     "rp:conservative-branch": "tsx packages/harness/rpConservativeBranch.ts",
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
