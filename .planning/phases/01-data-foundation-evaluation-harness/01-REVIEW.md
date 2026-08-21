@@ -164,6 +164,8 @@ A new property test drives 5,000 deterministic synthetic matches across a 400-te
 
 This finding's failure condition (a numerical breakdown in the incremental solve) has never occurred in the real corpus — the guard and the property test are forward-looking safeguards, not repairs. No published OPR rating changed; `packages/harness/digest.test.ts` reproduces every committed digest bitwise.
 
+**Correction (2026-08-20, phase 03.1 code-review gate).** The guard condition quoted above (`residual` non-finite or `denom <= 0`) is the **pre-fix, defective** condition and no longer matches HEAD. Phase 03.1's own code-review gate found it Critical: `NaN <= 0` and `Infinity <= 0` both evaluate to `false` in JS, so a non-finite `denom` walked straight past the throw and then corrupted every entry of `nextRatingsVector` via `pu[r]/denom` — the run aborting one match later, misattributed to an unrelated observation (`03.1-REVIEW.md` CR-01). Widened in `d73d5aba` (`fix(03.1): CR-01 widen OPR breakdown guard to catch non-finite denom`) to `!Number.isFinite(residual) || !Number.isFinite(denom) || denom <= 0`, with a regression test proven red against the pre-fix source. Still detect-only: no rating arithmetic changed, and `packages/harness/digest.test.ts` reproduces every committed digest bitwise. The 5,000-match property test described above predates that fix and never exercised the `denom` path.
+
 ### WR-02: `pnpm-workspace.yaml` glob does not match the repository's actual package layout
 
 **File:** `pnpm-workspace.yaml:1-2`
@@ -185,6 +187,10 @@ allowBuilds:
 
 `pnpm-workspace.yaml` now lists `packages/*` alongside `apps/*`, matching this finding's suggested fix exactly. `pnpm install --frozen-lockfile` was confirmed to produce no lockfile change, since no directory under `packages/*` carries its own `package.json` yet — the glob correction is real but currently still a no-op in practice, exactly as this finding anticipated for the "future plan adds a `package.json`" case.
 
+**Correction (2026-08-20, phase 03.1 code-review gate).** The paragraph above is **stale as of HEAD** and no longer describes the tree. Phase 03.1's own code-review gate found that adding `packages/*` did not actually fix anything: no `apps/` directory exists, and no directory under `packages/*` carries its own `package.json`, so the glob still resolved to zero workspace members (`03.1-REVIEW.md` WR-03). In `c09b4b57` (`fix(03.1): WR-03 comment out unmatched pnpm-workspace.yaml package globs`) BOTH the `apps/*` and `packages/*` entries were commented out, with an inline note, so the file states a fact about the present single-root-package repo rather than an aspiration. `allowBuilds` (required by `better-sqlite3` and `esbuild`) remains active and unchanged.
+
+This is a resolution by **redefinition**, and it is recorded as such deliberately rather than presented as a clean close. The original finding's forward-looking concern — that a future `package.json` under `packages/*` would not be recognized — is arguably *reopened* under the commented-out globs, not closed: such a package would now be silently ignored until the globs are uncommented. That is an accepted, recorded trade-off, on the reasoning that converting the four flat subdirectories into genuine workspace members (per-package manifests, dependency rewiring, tsconfig path updates) is a structural change belonging to the planned multi-package split in a later phase, not to a review fix. Whoever performs that split must uncomment these globs as part of it.
+
 ### WR-03: TOCTOU race in the single-writer corpus lock
 
 **File:** `packages/corpus/db.ts:48-60` (`acquireWriteLock`)
@@ -197,6 +203,8 @@ allowBuilds:
 **Status: Resolved.** Fixed in the same commit as WR-02, `8dec3a05` — plan 03.1-01's Task 3.
 
 `acquireWriteLock`'s success path is now a single atomic exclusive-create (`wx`-flag) write attempt, exactly matching this finding's suggested fix, closing the probe-then-write race window entirely. The regression proof needed more than a literal revert-and-rerun: a naive sequential test (pre-write an alive-pid lock file, call `openCorpus`, expect a throw) stays green against the pre-fix code too, because single-threaded JavaScript has no genuine interleaving window without deliberately simulating one. A `vi.mock("node:fs", ...)`-based test that forces the `existsSync` probe to report "absent" while an alive owner's lock file genuinely exists reproduces the race deterministically, and does go red against the pre-fix probe-then-write implementation. This is new test infrastructure for the codebase (no prior `vi.mock`/`vi.spyOn` usage existed) but is scoped entirely to `packages/corpus/db.test.ts`.
+
+**Correction (2026-08-20, phase 03.1 code-review gate).** The paragraph above credits `8dec3a05` with closing this race, which is accurate only for the *no-lock-file fast path*. Phase 03.1's own code-review gate found the *stale-lock reclaim* path still used a plain non-exclusive `writeFileSync`, so two processes both encountering the same crashed-owner lock could both claim it (`03.1-REVIEW.md` WR-01). That residual window was closed separately in `280b1e7e` (`fix(03.1): WR-01 make corpus stale-lock reclaim atomic`), which unlinks the stale lock and retries the same atomic `wx` exclusive-create. This finding is fully resolved only across BOTH commits.
 
 ### WR-04: Unenforced `matches.event_key` foreign key + inner join can silently drop matches from the walk-forward corpus
 
