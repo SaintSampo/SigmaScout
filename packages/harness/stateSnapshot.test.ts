@@ -7,10 +7,11 @@
  * Sigma1/EPA), the stability property that lets a Worker skip a write for an
  * unchanged team, and the partial-load property D-13 requires.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import * as fs from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
 import { sigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
@@ -21,7 +22,15 @@ import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { computePredictionStreamDigest } from "./promote.js";
-import { MissingLeagueRowError, StateRowSchema, deserializeState, serializeState, type StateRow, type StateStamp } from "./stateSnapshot.js";
+import {
+  MissingLeagueRowError,
+  StateRowSchema,
+  deserializeState,
+  emitSeedSql,
+  serializeState,
+  type StateRow,
+  type StateStamp,
+} from "./stateSnapshot.js";
 
 const STAMP: StateStamp = { generation: "test-gen-1", computedAt: "2026-08-22T00:00:00.000Z" };
 
@@ -453,5 +462,129 @@ describe("StateRowSchema", () => {
         computedAt: STAMP.computedAt,
       })
     ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3: emitSeedSql — the D1 bulk-seed emitter
+// ---------------------------------------------------------------------------
+
+function makeRows(count: number, overrides: Partial<StateRow> = {}): StateRow[] {
+  return Array.from({ length: count }, (_, i) =>
+    StateRowSchema.parse({
+      algorithmId: "epa",
+      algorithmVersion: epa.version,
+      scopeKind: "team",
+      scopeKey: `frc${i}`,
+      stateJson: JSON.stringify({ components: { autoLeavePoints: i }, matchCount: i }),
+      generation: STAMP.generation,
+      computedAt: STAMP.computedAt,
+      ...overrides,
+    })
+  );
+}
+
+describe("emitSeedSql", () => {
+  let outDir: string;
+  let outPath: string;
+
+  beforeEach(() => {
+    outDir = mkdtempSync(join(tmpdir(), "sigmascout-seedsql-"));
+    outPath = join(outDir, "seed.sql");
+  });
+
+  afterEach(() => {
+    rmSync(outDir, { recursive: true, force: true });
+  });
+
+  it("emits a DELETE guard as the first statement, naming the algorithm", () => {
+    emitSeedSql(makeRows(2), { algorithmId: "epa", out: outPath });
+    const text = readFileSync(outPath, "utf8");
+    const firstStatement = text.split(";")[0]!.trim() + ";";
+    expect(firstStatement).toBe(`DELETE FROM algorithm_state WHERE algorithm_id = 'epa';`);
+  });
+
+  it("the emitted INSERT's column list equals StateRowSchema's field order (mapped to snake_case)", () => {
+    emitSeedSql(makeRows(3), { algorithmId: "epa", out: outPath });
+    const text = readFileSync(outPath, "utf8");
+    const insertMatch = /INSERT INTO algorithm_state \(([^)]+)\)/.exec(text);
+    expect(insertMatch).not.toBeNull();
+    const emittedColumns = insertMatch![1]!.split(",").map((c) => c.trim());
+
+    const schemaFieldOrder = Object.keys(StateRowSchema.shape);
+    const expectedColumns = schemaFieldOrder.map((key) => key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`));
+
+    expect(emittedColumns).toEqual(expectedColumns);
+  });
+
+  it("a state_json blob containing a single-quote character is escaped by doubling and survives a parse of the emitted statement", () => {
+    const trickyJson = JSON.stringify({ note: "team's rating", quote: "it's a \"test\"" });
+    const rows = makeRows(1, { stateJson: trickyJson, scopeKey: "frc999" });
+    emitSeedSql(rows, { algorithmId: "epa", out: outPath });
+    const text = readFileSync(outPath, "utf8");
+
+    // The escaped form (every "'" doubled) must appear verbatim in the emitted SQL.
+    const escaped = trickyJson.replace(/'/g, "''");
+    expect(text).toContain(escaped);
+
+    // And it must be recoverable: undo SQL's doubling and re-parse as JSON.
+    const tupleMatch = new RegExp(`'frc999', '(${escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})'`).exec(text);
+    expect(tupleMatch).not.toBeNull();
+    const recovered = tupleMatch![1]!.replace(/''/g, "'");
+    expect(JSON.parse(recovered)).toEqual(JSON.parse(trickyJson));
+  });
+
+  it("splits into more than one INSERT statement when given more rows than maxRowsPerInsert", () => {
+    emitSeedSql(makeRows(1200), { algorithmId: "epa", out: outPath, maxRowsPerInsert: 500 });
+    const text = readFileSync(outPath, "utf8");
+    const insertCount = (text.match(/INSERT INTO algorithm_state/g) ?? []).length;
+    expect(insertCount).toBeGreaterThan(1);
+    // 1200 rows at 500/insert -> 3 statements (500, 500, 200).
+    expect(insertCount).toBe(3);
+  });
+
+  it("keeps a single INSERT statement when the row count is well under maxRowsPerInsert", () => {
+    emitSeedSql(makeRows(5), { algorithmId: "epa", out: outPath });
+    const text = readFileSync(outPath, "utf8");
+    const insertCount = (text.match(/INSERT INTO algorithm_state/g) ?? []).length;
+    expect(insertCount).toBe(1);
+  });
+
+  it("splits into a new statement when maxStatementLength is reached, even under maxRowsPerInsert", () => {
+    // Force a split well before the row-count cap by setting a tiny character budget.
+    emitSeedSql(makeRows(10), { algorithmId: "epa", out: outPath, maxStatementLength: 300 });
+    const text = readFileSync(outPath, "utf8");
+    const insertCount = (text.match(/INSERT INTO algorithm_state/g) ?? []).length;
+    expect(insertCount).toBeGreaterThan(1);
+  });
+
+  it("every row appears exactly once across the emitted statements, in a valid parseable VALUES tuple", () => {
+    const rows = makeRows(1200);
+    emitSeedSql(rows, { algorithmId: "epa", out: outPath, maxRowsPerInsert: 500 });
+    const text = readFileSync(outPath, "utf8");
+    for (const row of rows) {
+      expect(text).toContain(`'${row.scopeKey}'`);
+    }
+  });
+
+  it("performs exactly one file write call", async () => {
+    // `node:fs`'s named exports are non-configurable in real ESM, so
+    // `vi.spyOn(fs, "writeFileSync")` cannot wrap them directly — isolate a
+    // fresh module graph for just this test via `vi.doMock`, replacing
+    // `node:fs` with a spy-wrapped real implementation, then reset it
+    // immediately afterward so no other test in this file is affected.
+    vi.resetModules();
+    const actualFs = await vi.importActual<typeof fs>("node:fs");
+    const writeFileSyncSpy = vi.fn(actualFs.writeFileSync);
+    vi.doMock("node:fs", () => ({ ...actualFs, writeFileSync: writeFileSyncSpy }));
+    try {
+      const fresh = await import("./stateSnapshot.js");
+      fresh.emitSeedSql(makeRows(2), { algorithmId: "epa", out: outPath });
+      expect(writeFileSyncSpy).toHaveBeenCalledTimes(1);
+      expect(actualFs.readFileSync(outPath, "utf8")).toContain("DELETE FROM algorithm_state");
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
   });
 });

@@ -22,7 +22,14 @@
  * re-serializing an UNCHANGED team produce the byte-identical `stateJson`
  * string, which is what lets a real Worker tick skip a D1 write for a team
  * that did not move (a direct saving against DATA-05's write-volume cap).
+ *
+ * `emitSeedSql` (Task 3) turns `serializeState`'s row output into a `.sql`
+ * file `wrangler d1 execute --file` can import — the bulk-seed path that
+ * fills `apps/worker/migrations/0001_algorithm_state.sql`'s `algorithm_state`
+ * table from a real offline replay.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
@@ -370,4 +377,85 @@ export function deserializeState(algorithmId: string, rows: readonly StateRow[])
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
   return deserializeSigma1State(algorithmId, rows);
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: the D1 bulk seed emitter
+// ---------------------------------------------------------------------------
+
+/** Every string field going into a SQL string literal is escaped by doubling its single quotes — the `state_json` blobs are arbitrary JSON text (T-04-14), and the other string fields (event/team keys, generation, ids) are treated with the same discipline defensively. */
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+const INSERT_COLUMNS = "(algorithm_id, algorithm_version, scope_kind, scope_key, state_json, generation, computed_at)";
+
+function sqlRowTuple(row: StateRow): string {
+  return (
+    `('${escapeSqlString(row.algorithmId)}', '${escapeSqlString(row.algorithmVersion)}', ` +
+    `'${escapeSqlString(row.scopeKind)}', '${escapeSqlString(row.scopeKey)}', ` +
+    `'${escapeSqlString(row.stateJson)}', '${escapeSqlString(row.generation)}', '${escapeSqlString(row.computedAt)}')`
+  );
+}
+
+/** D1's bulk-import path (`wrangler d1 execute --file`) rejects a statement once it grows too large — 04-RESEARCH.md records a real ~7.5 MB statement as the practical breaking point. This default keeps every assembled `INSERT` well under that, independent of `maxRowsPerInsert`. */
+const DEFAULT_MAX_STATEMENT_LENGTH = 4_000_000;
+/** A conservative starting cap on value-tuples per `INSERT`, independent of the character-length cap above — either limit reaching first triggers a new statement. */
+const DEFAULT_MAX_ROWS_PER_INSERT = 500;
+
+export interface EmitSeedSqlOptions {
+  /** The algorithm this seed is for — becomes the `DELETE FROM algorithm_state WHERE algorithm_id = '<id>'` re-baseline guard (D-12: a re-baseline overwrites in place, it does not merge). */
+  readonly algorithmId: string;
+  /** Output `.sql` file path. */
+  readonly out: string;
+  /** Overrides `DEFAULT_MAX_ROWS_PER_INSERT`. */
+  readonly maxRowsPerInsert?: number;
+  /** Overrides `DEFAULT_MAX_STATEMENT_LENGTH`. */
+  readonly maxStatementLength?: number;
+}
+
+/**
+ * D-12: turns `serializeState`'s row output into a `.sql` file `wrangler d1
+ * execute --file` can import: a leading `DELETE FROM algorithm_state WHERE
+ * algorithm_id = '<id>';` guard (a re-baseline is an overwrite, per D-12 —
+ * the offline run is the authority, so it replaces rather than merges),
+ * then batched multi-row `INSERT INTO algorithm_state (...) VALUES
+ * (...),(...),...;` statements, each capped at BOTH `maxRowsPerInsert`
+ * value tuples (default 500) AND `maxStatementLength` characters (default a
+ * bound well under D1 import's real ~7.5 MB failure point) — whichever
+ * limit is reached first starts a new statement. Single quotes in every
+ * string field are escaped by doubling. Performs exactly ONE terminal file
+ * write, after every statement is assembled in memory — an interrupted
+ * emit leaves no half-file, the same discipline `baselineFingerprint.ts`
+ * already uses for its own committed output.
+ */
+export function emitSeedSql(rows: readonly StateRow[], options: EmitSeedSqlOptions): void {
+  const { algorithmId, out } = options;
+  const maxRowsPerInsert = options.maxRowsPerInsert ?? DEFAULT_MAX_ROWS_PER_INSERT;
+  const maxStatementLength = options.maxStatementLength ?? DEFAULT_MAX_STATEMENT_LENGTH;
+
+  const statements: string[] = [`DELETE FROM algorithm_state WHERE algorithm_id = '${escapeSqlString(algorithmId)}';`];
+
+  let currentTuples: string[] = [];
+  let currentLength = 0;
+
+  const flush = (): void => {
+    if (currentTuples.length === 0) return;
+    statements.push(`INSERT INTO algorithm_state ${INSERT_COLUMNS} VALUES ${currentTuples.join(",")};`);
+    currentTuples = [];
+    currentLength = 0;
+  };
+
+  for (const row of rows) {
+    const tuple = sqlRowTuple(row);
+    const wouldExceedLength = currentTuples.length > 0 && currentLength + tuple.length + 1 > maxStatementLength;
+    const wouldExceedCount = currentTuples.length >= maxRowsPerInsert;
+    if (wouldExceedLength || wouldExceedCount) flush();
+    currentTuples.push(tuple);
+    currentLength += tuple.length + 1;
+  }
+  flush();
+
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, `${statements.join("\n")}\n`, "utf8");
 }
