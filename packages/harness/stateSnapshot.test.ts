@@ -24,6 +24,7 @@ import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { computePredictionStreamDigest } from "./promote.js";
 import {
   MissingLeagueRowError,
+  SeedRowTooLargeError,
   StateRowSchema,
   deserializeState,
   emitSeedSql,
@@ -502,6 +503,46 @@ describe("emitSeedSql", () => {
     const text = readFileSync(outPath, "utf8");
     const firstStatement = text.split(";")[0]!.trim() + ";";
     expect(firstStatement).toBe(`DELETE FROM algorithm_state WHERE algorithm_id = 'epa';`);
+  });
+
+  // D1 rejects the whole import with `statement too long: SQLITE_TOOBIG` once
+  // any single statement passes 100,000 bytes. The emitter's default cap was
+  // 4,000,000 until plan 04-07 — 40x over — so every seed this project had
+  // ever produced was unimportable. Nothing caught it because no test asserted
+  // the property the importer actually enforces, and no plan ran the import.
+  // These two tests assert it directly, at the boundary and past it.
+  const D1_STATEMENT_LIMIT = 100_000;
+
+  it("no emitted statement exceeds D1's 100,000-byte per-statement limit, even when the rows would batch into one much larger statement", () => {
+    // 400 rows x ~2 KB of state_json each = ~800 KB of tuples: comfortably
+    // more than one statement's worth, and under the old 4 MB default it all
+    // batched into a single unimportable statement.
+    const fatRows = makeRows(400).map((row, i) =>
+      StateRowSchema.parse({ ...row, scopeKey: `frc${i}`, stateJson: JSON.stringify({ blob: "x".repeat(2000) }) })
+    );
+    emitSeedSql(fatRows, { algorithmId: "epa", out: outPath });
+
+    const statements = readFileSync(outPath, "utf8")
+      .split(/;\s*\n/)
+      .filter((s) => s.trim().length > 0);
+
+    expect(statements.length).toBeGreaterThan(1);
+    for (const statement of statements) {
+      expect(statement.length).toBeLessThan(D1_STATEMENT_LIMIT);
+    }
+  });
+
+  it("throws SeedRowTooLargeError, naming the row, when one row alone exceeds the budget — batching cannot split a single row", () => {
+    const oversized = makeRows(1, {
+      algorithmId: "sigma1",
+      scopeKind: "league",
+      scopeKey: "league",
+      stateJson: JSON.stringify({ priorSeasonRatings: "x".repeat(200_000) }),
+    });
+
+    expect(() => emitSeedSql(oversized, { algorithmId: "sigma1", out: outPath })).toThrow(SeedRowTooLargeError);
+    // The message must identify WHICH row, or an operator cannot act on it.
+    expect(() => emitSeedSql(oversized, { algorithmId: "sigma1", out: outPath })).toThrow(/scopeKey="league"/);
   });
 
   it("the emitted INSERT's column list equals StateRowSchema's field order (mapped to snake_case)", () => {

@@ -398,10 +398,66 @@ function sqlRowTuple(row: StateRow): string {
   );
 }
 
-/** D1's bulk-import path (`wrangler d1 execute --file`) rejects a statement once it grows too large — 04-RESEARCH.md records a real ~7.5 MB statement as the practical breaking point. This default keeps every assembled `INSERT` well under that, independent of `maxRowsPerInsert`. */
-const DEFAULT_MAX_STATEMENT_LENGTH = 4_000_000;
+/**
+ * D1's hard per-statement cap is **100,000 bytes**, and `wrangler d1 execute
+ * --file` fails the whole import with `statement too long: SQLITE_TOOBIG` if
+ * any single statement exceeds it.
+ *
+ * This was previously 4,000,000, citing 04-RESEARCH.md's "~7.5 MB practical
+ * breaking point" — 40x over the real limit. Every seed this project has ever
+ * emitted was therefore unimportable, and nobody noticed because no plan in
+ * Phase 4 ever ran the import: 04-03 wrote this emitter, 04-04 generated the
+ * files, 04-05 built the reader and 04-06 built the tick, while
+ * `docs/publish-budget.md` documented the re-baseline procedure as if it
+ * worked. Measured failure (plan 04-07, 2026-08-22): opr 2.14 MB longest
+ * statement, epa 0.48 MB, sigma1 2.24 MB — all rejected.
+ *
+ * 90,000 leaves ~10 KB of headroom under the cap for the `INSERT INTO ... VALUES`
+ * prefix and the trailing semicolon, so a statement assembled right at the
+ * budget still lands comfortably inside D1's limit.
+ */
+const DEFAULT_MAX_STATEMENT_LENGTH = 90_000;
+
+/** D1's documented hard limit, for the error message that fires when a single row cannot be split to fit. */
+const D1_STATEMENT_LIMIT = 100_000;
 /** A conservative starting cap on value-tuples per `INSERT`, independent of the character-length cap above — either limit reaching first triggers a new statement. */
 const DEFAULT_MAX_ROWS_PER_INSERT = 500;
+
+/**
+ * Thrown when one `StateRow`'s own value tuple exceeds `maxStatementLength`.
+ *
+ * Batching cannot help: a single row is the smallest thing an `INSERT` can
+ * carry, so no chunking strategy makes an over-limit row fit. Before this
+ * threw, the emitter's `currentTuples.length > 0` guard meant such a row was
+ * simply written out as its own over-limit statement — producing a `.sql`
+ * file that looked fine and failed only at import time, far from the code
+ * that caused it.
+ *
+ * Hitting this means per-key data is being stored in a row that should hold
+ * aggregates. The two known cases, both measured in plan 04-07, are sigma1's
+ * `priorSeasonRatings` (245.8 KB of a 253.1 KB `league` row) and opr's
+ * `lastEventByTeam` — per-team maps living in a `scopeKind: "league"` row.
+ * The fix is to move that data into `scopeKind: "team"` rows, which is also
+ * what D-13 requires so a tick reads only the keys it is folding rather than
+ * parsing the whole league every minute.
+ */
+export class SeedRowTooLargeError extends Error {
+  constructor(
+    readonly algorithmId: string,
+    readonly scopeKind: string,
+    readonly scopeKey: string,
+    readonly tupleLength: number,
+    readonly maxStatementLength: number
+  ) {
+    super(
+      `emitSeedSql: algorithm "${algorithmId}" row (scopeKind="${scopeKind}", scopeKey="${scopeKey}") is ${tupleLength} bytes as a single ` +
+        `INSERT tuple, over the ${maxStatementLength}-byte per-statement budget (D1's hard limit is ${D1_STATEMENT_LIMIT}). ` +
+        `A single row cannot be split across statements, so this cannot be fixed by batching — it means per-key data is being ` +
+        `stored in a row meant for aggregates. Move it into scopeKind:"team" rows (D-13).`
+    );
+    this.name = "SeedRowTooLargeError";
+  }
+}
 
 export interface EmitSeedSqlOptions {
   /** The algorithm this seed is for — becomes the `DELETE FROM algorithm_state WHERE algorithm_id = '<id>'` re-baseline guard (D-12: a re-baseline overwrites in place, it does not merge). */
@@ -448,6 +504,12 @@ export function emitSeedSql(rows: readonly StateRow[], options: EmitSeedSqlOptio
 
   for (const row of rows) {
     const tuple = sqlRowTuple(row);
+    // Fail loudly BEFORE batching: a tuple over the budget on its own can
+    // never be made to fit, and the old `currentTuples.length > 0` guard
+    // silently emitted it as its own over-limit statement instead.
+    if (tuple.length + 1 > maxStatementLength) {
+      throw new SeedRowTooLargeError(algorithmId, row.scopeKind, row.scopeKey, tuple.length, maxStatementLength);
+    }
     const wouldExceedLength = currentTuples.length > 0 && currentLength + tuple.length + 1 > maxStatementLength;
     const wouldExceedCount = currentTuples.length >= maxRowsPerInsert;
     if (wouldExceedLength || wouldExceedCount) flush();
