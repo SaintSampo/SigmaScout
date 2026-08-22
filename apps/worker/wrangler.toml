@@ -1,0 +1,66 @@
+# SigmaScout Worker — the live-update Cron Worker (D-17/D-19). Applied with
+# `wrangler deploy` / `wrangler dev`. Every binding below is a NAME/ID, never
+# a secret — the TBA key is set once with `wrangler secret put TBA_API_KEY`
+# (plan 04-07) and is NEVER assigned a value in this file, because this file
+# is tracked in git.
+name = "sigmascout-worker"
+
+# TEMPORARY (plan 04-05): plan 04-06 creates src/scheduled.ts, the real
+# scheduled() orchestration entrypoint. Until then this points at
+# src/bundleSmoke.ts, whose only job is proving `packages/core`'s
+# linear-algebra dependency (ml-matrix's SVD/Cholesky) bundles and executes
+# inside the Workers runtime (04-RESEARCH.md Assumption A1). Plan 04-06 MUST
+# switch this back to src/scheduled.ts — do not ship this pointer to
+# production.
+main = "src/bundleSmoke.ts"
+
+compatibility_date = "2026-08-22"
+# [Rule 2 fix, plan 04-05 Task 2] `stateStore.ts` imports `deserializeState`
+# from `packages/harness/stateSnapshot.ts` (the SAME deserializer the
+# offline pipeline's own losslessness tests already prove correct — this
+# Worker must never grow a second one). That file also exports
+# `emitSeedSql`, an offline-only helper that imports `node:fs`/`node:path`
+# at module top level; since ESM imports are file-scoped, that import line
+# is pulled into the Worker's bundle graph even though the Worker never
+# CALLS `emitSeedSql`. Verified empirically (not assumed) via a real
+# `wrangler dev --local` request that this resolves and executes cleanly —
+# but relying on an implicit default is fragile against a future
+# compatibility_date change, so it is made explicit here.
+compatibility_flags = ["nodejs_compat"]
+
+# D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
+# expression. An offseason event runs in the fall and championship dates
+# move, so a hardcoded season calendar is one more thing that silently goes
+# stale. A tick with nothing live early-exits after a single manifest read
+# (Pattern 2), so ~1,440 near-zero invocations/day is negligible against the
+# Workers free plan's 100,000/day allowance.
+[triggers]
+crons = ["* * * * *"]
+
+# D-12/D-13/D-09: the Worker's live algorithm state + per-event cron
+# bookkeeping (algorithm_state, event_cursor — apps/worker/migrations/
+# 0001_algorithm_state.sql). Batched reads/writes only (stateStore.ts) —
+# never one query per team.
+[[d1_databases]]
+binding = "DB"
+database_name = "sigmascout-state"
+database_id = "8c1cee63-0567-4faa-ad74-a7721728a956"
+
+# D-01/D-02/D-16: published page artifacts (event/team/teams-list/
+# events-list/compare JSON), written by the offline `pnpm publish:artifacts`
+# CLI (plan 04-01) and read back by the client's serving layer. Same bucket
+# ("sigmascout-artifacts") plan 04-01's tracer already published a real
+# artifact to.
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "sigmascout-artifacts"
+
+# D-18: the small, hot live-windows manifest pointer ONLY (Pattern 2) —
+# read once at the top of every tick, written rarely by the offline publish
+# step. Per-tick bookkeeping (ETags, cursors, rotation offset) lives in D1
+# instead (event_cursor table), never here: KV's free tier allows only 1,000
+# writes/day, and a single ten-hour event day at one-minute ticks would blow
+# past that on bookkeeping alone (T-04-33).
+[[kv_namespaces]]
+binding = "MANIFEST"
+id = "f051554d9d60407097959b92aca51109"
