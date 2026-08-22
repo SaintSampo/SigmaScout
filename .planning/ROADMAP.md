@@ -225,7 +225,7 @@ Plans:
   3. Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit, and daily write volume stays inside KV/R2 free-tier quotas.
   4. Ingestion and cron polling stay within TBA rate limits, with measured request counts documented.
 
-**Plans**: 4/7 plans executed
+**Plans**: 5/7 plans executed
 
 Plans:
 **Wave 1**
@@ -239,7 +239,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-04-PLAN.md — Full-season publish of every page for 2022–2026, the committed payload budget, and the test that guards it
+- [x] 04-04-PLAN.md — Full-season publish of every page for 2022–2026, the committed payload budget, and the test that guards it
 - [x] 04-05-PLAN.md — Worker scaffold with real D1 tables, the batched state store, and the subrequest budget that defers instead of throwing
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -327,7 +327,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
-| 4. Publish & Live Update Pipeline | 4/7 | In Progress|  |
+| 4. Publish & Live Update Pipeline | 5/7 | In Progress|  |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
 | 7. Event Pages | 0/TBD | Not started | - |
