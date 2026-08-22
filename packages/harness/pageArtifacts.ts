@@ -237,7 +237,7 @@ const EventUpcomingMatchSchema = z
     path: ["blueRpPmf"],
   });
 
-/** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. Optional on `EventArtifactSchema` (never populated by plan 04-01's tracer or plan 04-02; filled by plan 04-03's multi-page publish, which owns `publish.ts`) so this plan's schema work does not force an out-of-scope rewrite of the existing tracer's assembly code. */
+/** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. Optional on `EventArtifactSchema` (never populated by plan 04-01's tracer or plan 04-02; filled by plan 04-04's multi-page publish, which owns `publish.ts`) so this plan's schema work does not force an out-of-scope rewrite of the existing tracer's assembly code. */
 const EventTeamSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int().optional(),
@@ -368,7 +368,13 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
  * plan's own action text ("keep `matches` as-is"). `teams` is optional
  * (see `EventTeamSchema`'s doc comment) so plan 04-01's already-shipped
  * `buildEventArtifact` (which never sets it) keeps validating unchanged;
- * plan 04-03 populates it.
+ * plan 04-04 populates it when it rewrites `publish.ts`.
+ *
+ * NOTE: no plan after 04-04 owns this file, so if 04-04 populates `teams`
+ * for every event it should also tighten this field to required in the same
+ * change. Left optional, "not populated yet" and "this event genuinely has
+ * no teams" are indistinguishable, and the event page's standings table
+ * would render empty instead of failing loudly.
  */
 export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
