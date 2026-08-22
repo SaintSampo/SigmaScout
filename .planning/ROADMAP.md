@@ -225,7 +225,7 @@ Plans:
   3. Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit, and daily write volume stays inside KV/R2 free-tier quotas.
   4. Ingestion and cron polling stay within TBA rate limits, with measured request counts documented.
 
-**Plans**: 1/7 plans executed
+**Plans**: 3/7 plans executed
 
 Plans:
 **Wave 1**
@@ -234,8 +234,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02-PLAN.md — The five page-artifact schemas, the D-06 rounding rule, and the not-yet-played match reader D-08 needs
-- [ ] 04-03-PLAN.md — The live-windows and algorithms manifests, the lossless live-state snapshot, and the D1 schema
+- [x] 04-02-PLAN.md — The five page-artifact schemas, the D-06 rounding rule, and the not-yet-played match reader D-08 needs
+- [x] 04-03-PLAN.md — The live-windows and algorithms manifests, the lossless live-state snapshot, and the D1 schema
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -327,7 +327,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
-| 4. Publish & Live Update Pipeline | 1/7 | In Progress|  |
+| 4. Publish & Live Update Pipeline | 3/7 | In Progress|  |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
 | 7. Event Pages | 0/TBD | Not started | - |
