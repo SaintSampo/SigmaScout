@@ -91,13 +91,30 @@ class FakeD1Database {
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
     if (sql.includes("FROM algorithm_state")) {
       const algorithmId = args[0] as string;
-      if (sql.includes("scope_key IN")) {
-        const scopeKind = args[1] as string;
-        const scopeKeys = args.slice(2) as string[];
-        const keySet = new Set(scopeKeys);
-        return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && ((row.scope_kind === scopeKind && keySet.has(row.scope_key)) || row.scope_kind === "league"));
+      // Plan 04-08: a request may name more than one scope kind in one query
+      // (e.g. OPR's event key + team keys). Each
+      // `(scope_kind = ? AND scope_key IN (?,?,...))` group in the SQL text
+      // names its own placeholder count, in the SAME order the real query
+      // binds its args -- walking the SQL text is what lets this fake
+      // support an arbitrary number of selections without hardcoding shape.
+      const groupSizes = [...sql.matchAll(/\(scope_kind = \? AND scope_key IN \(([^)]*)\)\)/g)].map((m) => m[1]!.split(",").filter((s) => s.length > 0).length);
+      if (groupSizes.length === 0) {
+        return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && row.scope_kind === "league");
       }
-      return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && row.scope_kind === "league");
+      let idx = 1;
+      const matchers: { scopeKind: string; keySet: Set<string> }[] = [];
+      for (const size of groupSizes) {
+        const scopeKind = args[idx] as string;
+        idx += 1;
+        const keys = args.slice(idx, idx + size) as string[];
+        idx += size;
+        matchers.push({ scopeKind, keySet: new Set(keys) });
+      }
+      return [...this.algorithmState.values()].filter((row) => {
+        if (row.algorithm_id !== algorithmId) return false;
+        if (row.scope_kind === "league") return true;
+        return matchers.some((m) => m.scopeKind === row.scope_kind && m.keySet.has(row.scope_key));
+      });
     }
     if (sql.includes("FROM event_cursor")) {
       const eventKey = args[0] as string;
@@ -383,6 +400,18 @@ describe("runTick — one live event, one new match", () => {
       const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: "3.0.0+baseline" });
       expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
     }
+
+    // Plan 04-08 (Task 2): OPR's lastEventByTeam bookkeeping now lives in its
+    // OWN team-scoped rows (moved out of the league row), and the ONE batched
+    // state write for this event includes them alongside the event row —
+    // proof the tick reads/folds/writes both scope kinds together, in the
+    // same single-statement read and the same single batched write.
+    for (const teamKey of RED_TEAMS) {
+      const row = d1.algorithmState.get(`opr::team::${teamKey}`);
+      expect(row).toBeDefined();
+      expect(JSON.parse(row!.state_json)).toEqual({ lastEventKey: "2026casj" });
+    }
+    expect(d1.algorithmState.get("opr::event::2026casj")).toBeDefined();
 
     // Ordering: the state write (d1-batch) for this event precedes EVERY
     // artifact put (r2-put) for it.

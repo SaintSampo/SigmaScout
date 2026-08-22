@@ -88,7 +88,7 @@ import type { AlgorithmsManifest } from "../../../packages/harness/manifestSchem
 import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { liveEventsAt, loadAlgorithmsManifest, loadLiveWindowsManifest } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
-import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type StateRowScopeKind } from "./stateStore.js";
+import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
@@ -149,18 +149,36 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest): M
   return modules;
 }
 
-function scopeKindFor(algorithmId: string): StateRowScopeKind {
-  return algorithmId === "opr" ? "event" : "team";
+/**
+ * Plan 04-08: an algorithm's FULL selection list for one event's fold — every
+ * scope kind it stores, in ONE `readScopedState` request (never a second
+ * call, which would spend a second subrequest). OPR now stores BOTH `event`
+ * rows (its per-event observations/ratings, D-09) AND `team` rows
+ * (`lastEventByTeam`'s per-team bookkeeping, moved out of the league row by
+ * plan 04-08); EPA/Sigma1 store only `team` rows.
+ */
+function selectionsFor(algorithmId: string, eventKey: string, touchedTeams: readonly string[]): ScopeSelection[] {
+  if (algorithmId === "opr") {
+    return [
+      { scopeKind: "event", scopeKeys: [eventKey] },
+      { scopeKind: "team", scopeKeys: touchedTeams },
+    ];
+  }
+  return [{ scopeKind: "team", scopeKeys: touchedTeams }];
 }
 
-async function loadOrInitState(db: D1Database, algorithmId: string, scopeKind: StateRowScopeKind, scopeKeys: readonly string[], algorithm: AlgorithmModule<any>) {
-  const rows = await readScopedState(db, algorithmId, scopeKind, scopeKeys);
+async function loadOrInitState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[], algorithm: AlgorithmModule<any>) {
+  const rows = await readScopedState(db, algorithmId, selections);
   const hasLeagueRow = rows.some((row) => row.scopeKind === "league");
   // Not-yet-seeded algorithm/scope: cold-start via initState rather than
   // deserializeState, which throws MissingLeagueRowError by design for
   // exactly this case (stateStore.ts's own readAndDeserializeScopedState
-  // doc comment names this as the caller's responsibility).
-  const state: any = hasLeagueRow ? deserializeState(algorithmId, rows) : algorithm.initState([...scopeKeys]);
+  // doc comment names this as the caller's responsibility). initState's
+  // only real consumer of its argument is EPA (seeds teamComponents/
+  // teamMatchCounts) — OPR and Sigma1 both ignore it — so the TEAM
+  // selection's own key list (never the event key) is what gets passed.
+  const teamKeys = selections.find((s) => s.scopeKind === "team")?.scopeKeys ?? [];
+  const state: any = hasLeagueRow ? deserializeState(algorithmId, rows) : algorithm.initState([...teamKeys]);
   return { rows, state };
 }
 
@@ -608,11 +626,10 @@ async function processEvent(
       const perAlgorithm = new Map<string, { readonly algorithm: AlgorithmModule<any>; readonly newPredictions: Map<string, Prediction>; readonly upcomingPredictions: Map<string, Prediction>; readonly touchedMetrics: Record<string, Record<string, TeamMetric>> }>();
 
       for (const [algorithmId, algorithm] of algorithmModules) {
-        const scopeKind = scopeKindFor(algorithmId);
-        const scopeKeys = scopeKind === "event" ? [eventKey] : touchedTeams;
+        const selections = selectionsFor(algorithmId, eventKey, touchedTeams);
 
         budget.consume(1);
-        const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, scopeKind, scopeKeys, algorithm);
+        const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
 
         let state = initialState;
         const newPredictions = new Map<string, Prediction>();

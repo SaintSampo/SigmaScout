@@ -41,14 +41,16 @@ export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stat
 
 /**
  * A generous, named ceiling on how many scope keys a single `readScopedState`
- * call will bind into one `IN (...)` clause. The peak realistic tick (~21-38
- * teams, 04-RESEARCH.md Pattern 1) is nowhere near this, but a caller that
- * one day passes an unbounded key list should get a named, actionable error
- * here rather than an opaque D1/SQLite bound-parameter-limit failure. Chunked
- * reads are deliberately NOT implemented — a chunked read would cost more
- * than one subrequest, which is exactly the invariant this module exists to
- * hold; a caller that genuinely needs more than this should reconsider
- * scope, not raise this constant.
+ * call will bind into one `IN (...)` clause, TOTALED ACROSS every selection
+ * in the request (plan 04-08: a request may now name more than one scope
+ * kind — e.g. OPR's event key plus its touched teams — in one call). The
+ * peak realistic tick (~21-38 teams, 04-RESEARCH.md Pattern 1) is nowhere
+ * near this, but a caller that one day passes an unbounded key list should
+ * get a named, actionable error here rather than an opaque D1/SQLite
+ * bound-parameter-limit failure. Chunked reads are deliberately NOT
+ * implemented — a chunked read would cost more than one subrequest, which is
+ * exactly the invariant this module exists to hold; a caller that genuinely
+ * needs more than this should reconsider scope, not raise this constant.
  */
 export const MAX_SCOPE_KEYS_PER_READ = 100;
 
@@ -64,33 +66,47 @@ interface AlgorithmStateRow {
 const ALGORITHM_STATE_SELECT_COLUMNS = "scope_kind, scope_key, algorithm_version, state_json, generation, computed_at";
 
 /**
- * One D1 statement, one subrequest, however many teams: reads every row for
- * `algorithmId` whose `scope_kind`/`scope_key` matches one of `scopeKeys`
- * (assumed to all share `scopeKind`), PLUS the algorithm's single
+ * One scope kind's own key list within a `readScopedState` request. Plan
+ * 04-08: an algorithm that stores more than one scope kind (OPR's `event`
+ * rows alongside its `team` rows, since `lastEventByTeam` moved out of the
+ * league row) names ALL of them here, in one request — never a second
+ * `readScopedState` call, which would spend a second subrequest.
+ */
+export interface ScopeSelection {
+  readonly scopeKind: StateRowScopeKind;
+  readonly scopeKeys: readonly string[];
+}
+
+/**
+ * One D1 statement, one subrequest, however many selections or keys: reads
+ * every row for `algorithmId` matching ANY of `selections` (each selection's
+ * key list is matched against its OWN `scopeKind` explicitly — a team key is
+ * never satisfied by an event row, and vice versa, even if the two key
+ * spaces happen not to collide today), PLUS the algorithm's single
  * `scope_kind = 'league'` row (a value every tick needs — folded into the
  * SAME query rather than costing a second one). Returns an empty array
  * (never throws) for an algorithm with no rows at all, so a not-yet-seeded
  * algorithm degrades to "nothing to advance" instead of taking the tick
  * down (D-13's partial-load property).
  */
-export async function readScopedState(
-  db: D1Database,
-  algorithmId: string,
-  scopeKind: StateRowScopeKind,
-  scopeKeys: readonly string[]
-): Promise<StateRow[]> {
-  if (scopeKeys.length > MAX_SCOPE_KEYS_PER_READ) {
+export async function readScopedState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[]): Promise<StateRow[]> {
+  const totalKeys = selections.reduce((sum, s) => sum + s.scopeKeys.length, 0);
+  if (totalKeys > MAX_SCOPE_KEYS_PER_READ) {
     throw new Error(
-      `readScopedState: ${scopeKeys.length} scope keys exceeds MAX_SCOPE_KEYS_PER_READ (${MAX_SCOPE_KEYS_PER_READ}) — ` +
-        `a single tick should never touch this many; this is a named error rather than an opaque driver failure`
+      `readScopedState: ${totalKeys} scope keys across ${selections.length} selection(s) exceeds MAX_SCOPE_KEYS_PER_READ ` +
+        `(${MAX_SCOPE_KEYS_PER_READ}) — a single tick should never touch this many; this is a named error rather than an ` +
+        `opaque driver failure`
     );
   }
 
-  const hasKeys = scopeKeys.length > 0;
-  const sql = hasKeys
-    ? `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND ((scope_kind = ? AND scope_key IN (${scopeKeys.map(() => "?").join(",")})) OR scope_kind = 'league')`
-    : `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND scope_kind = 'league'`;
-  const bindArgs: readonly (string | number)[] = hasKeys ? [algorithmId, scopeKind, ...scopeKeys] : [algorithmId];
+  const nonEmptySelections = selections.filter((s) => s.scopeKeys.length > 0);
+  const groups = nonEmptySelections.map((s) => `(scope_kind = ? AND scope_key IN (${s.scopeKeys.map(() => "?").join(",")}))`);
+  const whereTail = groups.length > 0 ? `(${groups.join(" OR ")}) OR scope_kind = 'league'` : `scope_kind = 'league'`;
+  const sql = `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND ${whereTail}`;
+  const bindArgs: (string | number)[] = [algorithmId];
+  for (const selection of nonEmptySelections) {
+    bindArgs.push(selection.scopeKind, ...selection.scopeKeys);
+  }
 
   const { results } = await db
     .prepare(sql)
@@ -123,10 +139,9 @@ export async function readScopedState(
 export async function readAndDeserializeScopedState(
   db: D1Database,
   algorithmId: string,
-  scopeKind: StateRowScopeKind,
-  scopeKeys: readonly string[]
+  selections: readonly ScopeSelection[]
 ): Promise<Sigma1State | EpaState | OprState> {
-  const rows = await readScopedState(db, algorithmId, scopeKind, scopeKeys);
+  const rows = await readScopedState(db, algorithmId, selections);
   return deserializeState(algorithmId, rows);
 }
 

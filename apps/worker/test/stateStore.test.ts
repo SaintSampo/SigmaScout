@@ -15,6 +15,7 @@ import {
   writeEventCursor,
   writeScopedState,
   type EventCursor,
+  type ScopeSelection,
   type StateRow,
 } from "../src/stateStore.js";
 
@@ -112,18 +113,33 @@ class FakeD1Database {
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
     if (sql.includes("FROM algorithm_state")) {
       const algorithmId = args[0] as string;
-      if (sql.includes("scope_key IN")) {
-        const scopeKind = args[1] as string;
-        const scopeKeys = args.slice(2) as string[];
-        const keySet = new Set(scopeKeys);
-        return [...this.algorithmState.values()].filter(
-          (row) =>
-            row.algorithm_id === algorithmId &&
-            ((row.scope_kind === scopeKind && keySet.has(row.scope_key)) || row.scope_kind === "league")
-        );
+      // Each `(scope_kind = ? AND scope_key IN (?,?,...))` group in the SQL
+      // text names its own placeholder count, in the SAME order the real
+      // query binds its args — walking the SQL text (rather than assuming a
+      // single fixed-shape group) is what lets this fake support plan
+      // 04-08's multi-selection reads (e.g. OPR's event key + team keys in
+      // ONE query) without hardcoding how many groups exist.
+      const groupSizes = [...sql.matchAll(/\(scope_kind = \? AND scope_key IN \(([^)]*)\)\)/g)].map(
+        (m) => m[1]!.split(",").filter((s) => s.length > 0).length
+      );
+      if (groupSizes.length === 0) {
+        // league-only shape (zero scope keys across every selection)
+        return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && row.scope_kind === "league");
       }
-      // league-only shape (zero scope keys)
-      return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && row.scope_kind === "league");
+      let idx = 1;
+      const matchers: { scopeKind: string; keySet: Set<string> }[] = [];
+      for (const size of groupSizes) {
+        const scopeKind = args[idx] as string;
+        idx += 1;
+        const keys = args.slice(idx, idx + size) as string[];
+        idx += size;
+        matchers.push({ scopeKind, keySet: new Set(keys) });
+      }
+      return [...this.algorithmState.values()].filter((row) => {
+        if (row.algorithm_id !== algorithmId) return false;
+        if (row.scope_kind === "league") return true;
+        return matchers.some((m) => m.scopeKind === row.scope_kind && m.keySet.has(row.scope_key));
+      });
     }
     if (sql.includes("FROM event_cursor")) {
       const eventKey = args[0] as string;
@@ -206,7 +222,7 @@ describe("stateStore", () => {
         });
       }
 
-      const rows = await readScopedState(db as unknown as D1Database, "sigma1", "team", keys);
+      const rows = await readScopedState(db as unknown as D1Database, "sigma1", [{ scopeKind: "team", scopeKeys: keys }]);
 
       expect(db.prepareCallCount).toBe(1);
       expect(db.allCallCount).toBe(1);
@@ -216,14 +232,137 @@ describe("stateStore", () => {
     });
 
     it("returns an empty array (never throws) for an algorithm with no rows at all", async () => {
-      const rows = await readScopedState(db as unknown as D1Database, "unseeded-algo", "team", ["frc254"]);
+      const rows = await readScopedState(db as unknown as D1Database, "unseeded-algo", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
       expect(rows).toEqual([]);
     });
 
     it("throws a named error rather than issuing a second statement past MAX_SCOPE_KEYS_PER_READ", async () => {
       const tooMany = Array.from({ length: MAX_SCOPE_KEYS_PER_READ + 1 }, (_, i) => `frc${i}`);
-      await expect(readScopedState(db as unknown as D1Database, "sigma1", "team", tooMany)).rejects.toThrow(/MAX_SCOPE_KEYS_PER_READ/);
+      await expect(readScopedState(db as unknown as D1Database, "sigma1", [{ scopeKind: "team", scopeKeys: tooMany }])).rejects.toThrow(
+        /MAX_SCOPE_KEYS_PER_READ/
+      );
       expect(db.prepareCallCount).toBe(0);
+    });
+
+    // Plan 04-08 (Task 2): an algorithm that stores more than one scope kind
+    // (OPR: event + team, since lastEventByTeam moved out of the league row)
+    // reads ALL of them in one statement/one subrequest.
+    it("a read for an algorithm that stores two scope kinds issues exactly ONE prepare/all() call, and returns the event row, the requested team rows, and the league row", async () => {
+      db.algorithmState.set("opr league league", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "league",
+        scope_key: "league",
+        state_json: "{}",
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+      db.algorithmState.set("opr event 2026casj", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "event",
+        scope_key: "2026casj",
+        state_json: '{"observations":[]}',
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+      for (const teamKey of ["frc1", "frc2"]) {
+        db.algorithmState.set(`opr team ${teamKey}`, {
+          algorithm_id: "opr",
+          algorithm_version: "3.0.0+baseline",
+          scope_kind: "team",
+          scope_key: teamKey,
+          state_json: '{"lastEventKey":"2026casj"}',
+          generation: "gen-1",
+          computed_at: "2026-08-22T00:00:00.000Z",
+        });
+      }
+      // A team NOT requested this tick — must not appear in the result.
+      db.algorithmState.set("opr team frc999", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "team",
+        scope_key: "frc999",
+        state_json: '{"lastEventKey":"2026someothereven"}',
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+
+      const selections: ScopeSelection[] = [
+        { scopeKind: "event", scopeKeys: ["2026casj"] },
+        { scopeKind: "team", scopeKeys: ["frc1", "frc2"] },
+      ];
+      const rows = await readScopedState(db as unknown as D1Database, "opr", selections);
+
+      expect(db.prepareCallCount).toBe(1);
+      expect(db.allCallCount).toBe(1);
+      expect(rows).toHaveLength(4); // 1 league + 1 event + 2 requested team rows
+      expect(rows.filter((r) => r.scopeKind === "league")).toHaveLength(1);
+      expect(rows.filter((r) => r.scopeKind === "event").map((r) => r.scopeKey)).toEqual(["2026casj"]);
+      expect(rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual(["frc1", "frc2"]);
+      expect(rows.some((r) => r.scopeKey === "frc999")).toBe(false);
+    });
+
+    it("matches each selection's key list against its OWN scope kind — a team key is never satisfied by an event row sharing the same string, even when the fake's stored rows are arranged to tempt that", async () => {
+      // Deliberately arrange a "team" row and an "event" row under the SAME
+      // scope_key string ("2026casj") — a caller matching one combined key
+      // list against a SET of scope kinds (the shortcut this task's action
+      // text forbids) would incorrectly return BOTH for a selection naming
+      // only "event".
+      db.algorithmState.set("opr league league", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "league",
+        scope_key: "league",
+        state_json: "{}",
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+      db.algorithmState.set("opr event 2026casj", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "event",
+        scope_key: "2026casj",
+        state_json: '{"observations":[]}',
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+      db.algorithmState.set("opr team 2026casj", {
+        algorithm_id: "opr",
+        algorithm_version: "3.0.0+baseline",
+        scope_kind: "team",
+        scope_key: "2026casj", // same literal string as the event key above
+        state_json: '{"lastEventKey":"2026elsewhere"}',
+        generation: "gen-1",
+        computed_at: "2026-08-22T00:00:00.000Z",
+      });
+
+      // Request ONLY the event scope for "2026casj" — no team selection at all.
+      const rows = await readScopedState(db as unknown as D1Database, "opr", [{ scopeKind: "event", scopeKeys: ["2026casj"] }]);
+
+      expect(rows.filter((r) => r.scopeKind === "event")).toHaveLength(1);
+      expect(rows.filter((r) => r.scopeKind === "team")).toHaveLength(0); // must NOT be pulled in just because the key string matches
+    });
+
+    it("MAX_SCOPE_KEYS_PER_READ is enforced against the TOTAL key count across all requested scope kinds", async () => {
+      const half = Math.ceil((MAX_SCOPE_KEYS_PER_READ + 1) / 2);
+      const eventKeys = Array.from({ length: half }, (_, i) => `2026evt${i}`);
+      const teamKeys = Array.from({ length: half }, (_, i) => `frc${i}`);
+      const selections: ScopeSelection[] = [
+        { scopeKind: "event", scopeKeys: eventKeys },
+        { scopeKind: "team", scopeKeys: teamKeys },
+      ];
+      await expect(readScopedState(db as unknown as D1Database, "opr", selections)).rejects.toThrow(/MAX_SCOPE_KEYS_PER_READ/);
+      expect(db.prepareCallCount).toBe(0);
+    });
+
+    it("an algorithm with no rows at all still returns an empty array (never throws) for a multi-selection request", async () => {
+      const selections: ScopeSelection[] = [
+        { scopeKind: "event", scopeKeys: ["2026casj"] },
+        { scopeKind: "team", scopeKeys: ["frc1", "frc2"] },
+      ];
+      const rows = await readScopedState(db as unknown as D1Database, "unseeded-algo", selections);
+      expect(rows).toEqual([]);
     });
   });
 
