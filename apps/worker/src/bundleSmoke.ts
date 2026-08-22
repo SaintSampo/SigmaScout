@@ -7,11 +7,16 @@
  * .test.ts` only proves the import specifiers are clean, never that the
  * dependency's own transitive tree loads (Pitfall 5).
  *
- * TEMPORARY entry point (see wrangler.toml's `main` comment) — plan 04-06
- * replaces this with the real `scheduled()` orchestration. This file's only
- * job is to import the real prediction code from `packages/core` (never a
- * Worker-specific reimplementation — that would violate D-14's shared-code
- * equivalence claim) and actually RUN it, once, on a `fetch` request.
+ * NOT the Worker's entrypoint anymore (plan 04-06 pointed `wrangler.toml`'s
+ * `main` at `src/scheduled.ts`, the real `scheduled()` orchestration) —
+ * deliberately KEPT in the repo as a re-runnable bundle-smoke proof rather
+ * than deleted, since Assumption A1 is exactly the kind of thing that could
+ * silently regress on a future `ml-matrix`/dependency bump, and re-proving
+ * it should cost re-pointing `main` here temporarily, not re-deriving this
+ * whole fixture from scratch. This file's only job is to import the real
+ * prediction code from `packages/core` (never a Worker-specific
+ * reimplementation — that would violate D-14's shared-code equivalence
+ * claim) and actually RUN it, once, on a `fetch` request.
  *
  * `opr.initState`/`opr.predict`/`opr.update` exercise `ml-matrix`'s
  * `SingularValueDecomposition` (opr.ts line 25); `rpPmfForMatch` exercises

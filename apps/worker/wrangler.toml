@@ -5,14 +5,14 @@
 # is tracked in git.
 name = "sigmascout-worker"
 
-# TEMPORARY (plan 04-05): plan 04-06 creates src/scheduled.ts, the real
-# scheduled() orchestration entrypoint. Until then this points at
-# src/bundleSmoke.ts, whose only job is proving `packages/core`'s
-# linear-algebra dependency (ml-matrix's SVD/Cholesky) bundles and executes
-# inside the Workers runtime (04-RESEARCH.md Assumption A1). Plan 04-06 MUST
-# switch this back to src/scheduled.ts — do not ship this pointer to
-# production.
-main = "src/bundleSmoke.ts"
+# The real scheduled() orchestration entrypoint (plan 04-06) — reads what is
+# live, polls TBA, folds the shared prediction state, and rewrites only the
+# artifacts that moved (D-16). `src/bundleSmoke.ts` (plan 04-05) served as a
+# TEMPORARY entrypoint proving Assumption A1 (ml-matrix bundles/executes in
+# the real Workers runtime, apps/worker/src/bundleSmoke.ts's own header has
+# the evidence) and is kept in the repo as a re-runnable bundle-smoke proof,
+# not wired to `main` anymore.
+main = "src/scheduled.ts"
 
 compatibility_date = "2026-08-22"
 # [Rule 2 fix, plan 04-05 Task 2] `stateStore.ts` imports `deserializeState`
