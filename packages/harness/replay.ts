@@ -13,64 +13,19 @@
  * stays an extensible plain object literal with configurable properties
  * (built in packages/corpus/db.ts); freezing/sealing one instead turns
  * this guarantee into a loud engine `TypeError`, never silent leakage.
+ *
+ * `toLeakProofUpcoming`/`OUTCOME_KEYS` themselves now live in
+ * `packages/core/algorithms/leakProof.ts` (04-01-PLAN.md Task 3): this file
+ * imports `packages/corpus/db.ts`, which pulls in `better-sqlite3`, so it is
+ * not importable by the Phase 4 Cloudflare Worker — the guard had to move to
+ * a module the Worker CAN import. Re-exported below so every existing call
+ * site in this repo keeps its `from "../harness/replay.js"` import path.
  */
-import type { AlgorithmModule, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction } from "../core/algorithms/types.js";
+import { toLeakProofUpcoming } from "../core/algorithms/leakProof.js";
 import { selectMatchesChronological, type Corpus } from "../corpus/db.js";
 
-/**
- * Properties that exist on `MatchResult` but not `UpcomingMatch` — the
- * exact set an algorithm's `predict()` must never observe.
- */
-const OUTCOME_KEYS = new Set<string>([
-  "winner",
-  "redScore",
-  "blueScore",
-  "redRpEarned",
-  "blueRpEarned",
-  "hasScoreBreakdown",
-  "scoreBreakdownRaw",
-]);
-
-/**
- * Shared throw helper (D-A/T-Q2x6-01) — the `get` and `getOwnPropertyDescriptor`
- * traps both call this so the two surfaces can never drift onto two different
- * message strings.
- */
-function denyOutcomeKey(target: MatchResult, prop: string): never {
-  throw new Error(
-    `Outcome leakage: attempted to read "${prop}" on match ${target.matchKey} before predict() completed`
-  );
-}
-
-export function toLeakProofUpcoming(result: MatchResult): UpcomingMatch {
-  return new Proxy(result, {
-    get(target, prop, receiver) {
-      if (typeof prop === "string" && OUTCOME_KEYS.has(prop)) {
-        denyOutcomeKey(target, prop);
-      }
-      return Reflect.get(target, prop, receiver);
-    },
-    // A direct descriptor probe has no innocent reading — it should fail as
-    // loudly as a direct property read does (D-A).
-    getOwnPropertyDescriptor(target, prop) {
-      if (typeof prop === "string" && OUTCOME_KEYS.has(prop)) {
-        denyOutcomeKey(target, prop);
-      }
-      return Reflect.getOwnPropertyDescriptor(target, prop);
-    },
-    // Unlike `get`/`getOwnPropertyDescriptor`, `ownKeys` has no per-key call
-    // shape — it returns a list or throws for the WHOLE object. Throwing
-    // here would blow up every benign whole-object operation (`console.log`,
-    // `util.inspect`, spread, `JSON.stringify`) since every `MatchResult`
-    // carries all 7 outcome keys, so filtering is the only workable choice
-    // (D-A). Omitting configurable own keys of an extensible target is
-    // invariant-legal (D-B) — `MatchResult` objects are plain object
-    // literals built in packages/corpus/db.ts and are never frozen/sealed.
-    ownKeys(target) {
-      return Reflect.ownKeys(target).filter((key) => !(typeof key === "string" && OUTCOME_KEYS.has(key)));
-    },
-  }) as UpcomingMatch;
-}
+export { toLeakProofUpcoming, OUTCOME_KEYS } from "../core/algorithms/leakProof.js";
 
 export interface PredictionRecord {
   match: MatchResult;
