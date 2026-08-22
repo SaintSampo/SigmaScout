@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 04
-current_phase_name: Publish & Live Update Pipeline
+current_phase_name: publish-live-update-pipeline
 status: executing
 stopped_at: Phase 3.2 context gathered
-last_updated: "2026-08-21T22:56:00.064Z"
+last_updated: "2026-08-21T23:25:15.064Z"
 last_activity: 2026-08-21
-last_activity_desc: Phase 4 planning complete
+last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 6
   completed_phases: 5
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 03.2 — swap-opr-to-event-scoped-and-re-issue-affected-figures
+**Current focus:** Phase 04 — publish-live-update-pipeline
 
 ## Current Position
 
-Phase: 04 — Publish & Live Update Pipeline
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-21 — Phase 4 planning complete
+Phase: 04 (publish-live-update-pipeline) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 04
+Last activity: 2026-08-21 — Phase 04 execution started
 
 Progress: [██████████] 100%
 
