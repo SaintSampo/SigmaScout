@@ -157,6 +157,10 @@ function validEventFixture() {
         predictedBlueScore: 90,
       },
     ],
+    // 04-04: EventArtifactSchema.teams is required (not optional) as of
+    // plan 04-04 Task 1 — publish.ts now always populates it (defaulting to
+    // [] when an event genuinely has no team data in scope).
+    teams: [],
   };
 }
 

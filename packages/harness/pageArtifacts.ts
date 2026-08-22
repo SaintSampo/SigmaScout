@@ -237,7 +237,7 @@ const EventUpcomingMatchSchema = z
     path: ["blueRpPmf"],
   });
 
-/** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. Optional on `EventArtifactSchema` (never populated by plan 04-01's tracer or plan 04-02; filled by plan 04-04's multi-page publish, which owns `publish.ts`) so this plan's schema work does not force an out-of-scope rewrite of the existing tracer's assembly code. */
+/** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. */
 const EventTeamSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int().optional(),
@@ -364,24 +364,22 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
 /**
  * The one page schema plan 04-01's tracer needed, widened by plan 04-02
  * Task 2 to carry `upcoming`'s real D-08 shape and a standings-style
- * `teams` list. `matches` is unchanged from the tracer's shape per this
- * plan's own action text ("keep `matches` as-is"). `teams` is optional
- * (see `EventTeamSchema`'s doc comment) so plan 04-01's already-shipped
- * `buildEventArtifact` (which never sets it) keeps validating unchanged;
- * plan 04-04 populates it when it rewrites `publish.ts`.
- *
- * NOTE: no plan after 04-04 owns this file, so if 04-04 populates `teams`
- * for every event it should also tighten this field to required in the same
- * change. Left optional, "not populated yet" and "this event genuinely has
- * no teams" are indistinguishable, and the event page's standings table
- * would render empty instead of failing loudly.
+ * `teams` list, and by plan 04-04 Task 1 to make `teams` REQUIRED (never
+ * optional) — `publish.ts`'s `buildEventArtifact` now populates it for
+ * every event artifact it assembles, defaulting to an empty array only for
+ * an event that genuinely has no team data in this run's scope, never
+ * omitting the key entirely. Left optional, "not populated yet" and "this
+ * event genuinely has no teams" were indistinguishable, and the event
+ * page's standings table would have rendered empty instead of failing
+ * loudly on a real gap. `matches` is unchanged from the 04-01 tracer's
+ * shape.
  */
 export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
   season: z.number().int(),
   matches: z.array(EventMatchSchema),
   upcoming: z.array(EventUpcomingMatchSchema),
-  teams: z.array(EventTeamSchema).optional(),
+  teams: z.array(EventTeamSchema),
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;

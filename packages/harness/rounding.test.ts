@@ -35,6 +35,30 @@ describe("roundTo — half-away-from-zero, symmetric about zero", () => {
   it("throws a named error for -Infinity", () => {
     expect(() => roundTo(-Infinity, 2)).toThrow(/non-finite/i);
   });
+
+  // 04-04 [Rule 1 - Bug]: discovered running the real corpus at scale — a
+  // confident OPR blowout prediction produces a pRedWin near 0 or near 1,
+  // and JS renders a magnitude below 1e-6 in exponential notation on its own
+  // (`(0.00000001).toString() === "1e-8"`). The pre-fix implementation
+  // string-concatenated a SECOND "e..." suffix onto that already-exponential
+  // string (producing "1e-8e4"), which `Number(...)` silently parses to NaN
+  // rather than throwing — invisible until a real EventArtifactSchema.parse
+  // call rejected the resulting NaN far downstream of roundTo itself.
+  it("rounds a magnitude JS renders in exponential notation without producing NaN (sub-1e-6 probability)", () => {
+    expect(roundTo(0.00000001, 4)).toBe(0);
+    expect(roundTo(0.00000001, 4)).not.toBeNaN();
+  });
+
+  it("rounds a magnitude just above the exponential-notation threshold without producing NaN", () => {
+    expect(roundTo(0.0000075, 4)).not.toBeNaN();
+    expect(Number.isFinite(roundTo(0.0000075, 4))).toBe(true);
+  });
+
+  it("round-trips a near-1 probability (JS renders magnitudes >= 1e21 in exponential notation too)", () => {
+    const huge = 1.23456e21;
+    expect(roundTo(huge, 2)).not.toBeNaN();
+    expect(Number.isFinite(roundTo(huge, 2))).toBe(true);
+  });
 });
 
 describe("roundMetric / roundProbability — fixed decimal counts", () => {

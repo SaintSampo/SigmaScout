@@ -75,6 +75,33 @@ export class NonFiniteRoundError extends Error {
 }
 
 /**
+ * Shifts `magnitude`'s decimal point by `exponentDelta` places via
+ * exponential-notation string construction, WITHOUT naively concatenating a
+ * second `"e..."` suffix onto a string JS may have already rendered in
+ * exponential form. `(0.00000001).toString()` is `"1e-8"`, not
+ * `"0.00000001"` — JS switches a number's own `toString()` to exponential
+ * notation once its magnitude drops below 1e-6 or reaches 1e21. Naively
+ * building `` `${magnitude}e${exponentDelta}` `` against such a value
+ * produces a malformed double-exponent string like `"1e-8e4"`, which
+ * `Number(...)` parses to `NaN` — silently, with no thrown error, discovered
+ * only when a real near-zero probability (an OPR blowout prediction) hit
+ * this path during plan 04-04's real corpus run. Combining `magnitude`'s OWN
+ * exponent (if its string form has one) with `exponentDelta` numerically,
+ * rather than string-concatenating a second `"e"`, fixes this for every
+ * magnitude, not just the ones small/large enough to trigger it.
+ */
+function shiftDecimalPoint(magnitude: number, exponentDelta: number): number {
+  const str = magnitude.toString();
+  const eIndex = str.indexOf("e");
+  if (eIndex === -1) {
+    return Number(`${str}e${exponentDelta}`);
+  }
+  const mantissa = str.slice(0, eIndex);
+  const existingExponent = Number.parseInt(str.slice(eIndex + 1), 10);
+  return Number(`${mantissa}e${existingExponent + exponentDelta}`);
+}
+
+/**
  * Half-away-from-zero rounding to `decimals` places, symmetric about zero.
  * See this module's file header for why this is implemented explicitly
  * rather than delegated to `Math.round`.
@@ -85,10 +112,13 @@ export class NonFiniteRoundError extends Error {
  * ~100.49999999999999 and `Math.round` would silently round DOWN — the
  * exact wrong-tie-break bug a "we rounded" claim without a stated
  * mechanism could hide. Instead this shifts the decimal point via
- * exponential-notation string construction (`Number(`${magnitude}e${decimals}`)`),
- * which reparses the value's shortest round-trippable decimal string as one
+ * `shiftDecimalPoint` (exponential-notation string reparsing), which
+ * reparses the value's shortest round-trippable decimal string as one
  * literal — `"1.005e2"` parses directly to the exact double `100.5` — so no
- * intermediate multiplication error is introduced before `Math.round` sees it.
+ * intermediate multiplication error is introduced before `Math.round` sees
+ * it, and no malformed double-exponent string is built for a magnitude JS
+ * already renders in exponential form (see `shiftDecimalPoint`'s own doc
+ * comment).
  */
 export function roundTo(value: number, decimals: number): number {
   if (!Number.isFinite(value)) {
@@ -96,9 +126,9 @@ export function roundTo(value: number, decimals: number): number {
   }
   const sign = value < 0 ? -1 : 1;
   const magnitude = Math.abs(value);
-  const shifted = Number(`${magnitude}e${decimals}`);
+  const shifted = shiftDecimalPoint(magnitude, decimals);
   const roundedShifted = Math.round(shifted);
-  const rounded = Number(`${roundedShifted}e${-decimals}`);
+  const rounded = shiftDecimalPoint(roundedShifted, -decimals);
   return sign * rounded;
 }
 
