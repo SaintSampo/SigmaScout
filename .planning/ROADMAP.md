@@ -225,12 +225,12 @@ Plans:
   3. Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit, and daily write volume stays inside KV/R2 free-tier quotas.
   4. Ingestion and cron polling stay within TBA rate limits, with measured request counts documented.
 
-**Plans**: 7 plans
+**Plans**: 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Provision Cloudflare, prove one real page artifact end to end (offline → R2 → HTTPS), and put the credentials under the TBA key's secrets discipline
+- [x] 04-01-PLAN.md — Provision Cloudflare, prove one real page artifact end to end (offline → R2 → HTTPS), and put the credentials under the TBA key's secrets discipline
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -327,7 +327,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
-| 4. Publish & Live Update Pipeline | 0/TBD | Not started | - |
+| 4. Publish & Live Update Pipeline | 1/7 | In Progress|  |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
 | 7. Event Pages | 0/TBD | Not started | - |
