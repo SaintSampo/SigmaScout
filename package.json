@@ -17,7 +17,8 @@
     "rp:conservative-branch": "tsx packages/harness/rpConservativeBranch.ts",
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
-    "lint:reviews": "tsx scripts/reviewFrontmatterLint.ts"
+    "lint:reviews": "tsx scripts/reviewFrontmatterLint.ts",
+    "publish:artifacts": "tsx --env-file=.env packages/harness/publish.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",

@@ -14,3 +14,6 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/workers-types@5.20260822.1'
