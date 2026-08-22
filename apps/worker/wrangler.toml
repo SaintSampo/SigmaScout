@@ -15,6 +15,18 @@ name = "sigmascout-worker"
 main = "src/bundleSmoke.ts"
 
 compatibility_date = "2026-08-22"
+# [Rule 2 fix, plan 04-05 Task 2] `stateStore.ts` imports `deserializeState`
+# from `packages/harness/stateSnapshot.ts` (the SAME deserializer the
+# offline pipeline's own losslessness tests already prove correct — this
+# Worker must never grow a second one). That file also exports
+# `emitSeedSql`, an offline-only helper that imports `node:fs`/`node:path`
+# at module top level; since ESM imports are file-scoped, that import line
+# is pulled into the Worker's bundle graph even though the Worker never
+# CALLS `emitSeedSql`. Verified empirically (not assumed) via a real
+# `wrangler dev --local` request that this resolves and executes cleanly —
+# but relying on an implicit default is fragile against a future
+# compatibility_date change, so it is made explicit here.
+compatibility_flags = ["nodejs_compat"]
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
 # expression. An offseason event runs in the fall and championship dates
