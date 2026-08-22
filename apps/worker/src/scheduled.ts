@@ -889,8 +889,46 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   return { eventsConsidered, eventsAdvanced, eventsDeferred, eventsFailed, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan };
 }
 
+/**
+ * One structured line per invocation, and the only logging this Worker does.
+ *
+ * `runTick` already returns everything an operator needs (`TickResult`), but
+ * until this handler emitted it, a deployed tick was completely invisible:
+ * `wrangler tail` showed nothing at all, so "the cron is firing and finding
+ * nothing live" and "the cron is not firing" produced identical evidence.
+ * That is the exact question `docs/worker-operations.md`'s troubleshooting
+ * table tells an operator to answer first during a live event, and 04-07's
+ * own acceptance criterion asks for a tail capture proving it.
+ *
+ * Emitted as a single JSON object rather than prose so Workers Observability
+ * can filter on a field (`eventsAdvanced > 0`, `eventsFailed > 0`) instead of
+ * matching substrings. Nothing here is secret: counts and durations only,
+ * never a key, an artifact body, or a TBA response.
+ */
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runTick(env));
+    const startedMs = Date.now();
+    ctx.waitUntil(
+      runTick(env).then(
+        (result) => {
+          console.log(JSON.stringify({ msg: "tick", ok: true, durationMs: Date.now() - startedMs, ...result }));
+        },
+        (error: unknown) => {
+          // A rejected waitUntil would otherwise be swallowed silently, so a
+          // tick that throws every minute would look exactly like a healthy
+          // idle tick. Log and rethrow: the log is for the operator, the
+          // rethrow keeps the invocation recorded as failed in the dashboard.
+          console.error(
+            JSON.stringify({
+              msg: "tick",
+              ok: false,
+              durationMs: Date.now() - startedMs,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+          throw error;
+        }
+      )
+    );
   },
 } satisfies ExportedHandler<Env>;

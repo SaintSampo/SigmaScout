@@ -37,6 +37,18 @@ compatibility_flags = ["nodejs_compat"]
 [triggers]
 crons = ["* * * * *"]
 
+# D-27: the tick emits one structured JSON line per invocation
+# (src/scheduled.ts's default export). Without this block those lines are
+# visible to a live `wrangler tail` but are NOT retained, so an operator
+# asking "was the cron firing an hour ago, while I was asleep?" — the
+# question docs/worker-operations.md's troubleshooting table opens with —
+# has no way to answer it after the fact. Sampling stays at 1.0 because a
+# once-a-minute cron produces ~1,440 events/day, far too few for sampling to
+# save anything worth the blind spots it would create.
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
 # D-12/D-13/D-09: the Worker's live algorithm state + per-event cron
 # bookkeeping (algorithm_state, event_cursor — apps/worker/migrations/
 # 0001_algorithm_state.sql). Batched reads/writes only (stateStore.ts) —
