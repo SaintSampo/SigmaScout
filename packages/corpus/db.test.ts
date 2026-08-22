@@ -8,12 +8,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OUTCOME_KEYS } from "../core/algorithms/leakProof.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   findIncompleteIngestRuns,
   openCorpus,
   recordIngestRun,
   selectMatchesChronological,
+  selectScheduledMatches,
   upsertEvent,
   upsertMatch,
   upsertTeam,
@@ -394,5 +396,103 @@ describe("upsertTeam and recordIngestRun", () => {
     });
 
     expect(findIncompleteIngestRuns(db)).toEqual([]);
+  });
+});
+
+describe("selectScheduledMatches (D-08, plan 04-02 Task 3)", () => {
+  it("returns only rows whose winner is NULL, partitioning exactly with selectMatchesChronological", () => {
+    upsertEvent(db, event({ eventKey: "2026casj" }));
+    upsertMatch(
+      db,
+      match({ matchKey: "2026casj_qm1", eventKey: "2026casj", sortTime: 1, winner: "red" })
+    );
+    upsertMatch(
+      db,
+      match({ matchKey: "2026casj_qm2", eventKey: "2026casj", matchNumber: 2, sortTime: 2, winner: null })
+    );
+    upsertMatch(
+      db,
+      match({ matchKey: "2026casj_qm3", eventKey: "2026casj", matchNumber: 3, sortTime: 3, winner: null })
+    );
+
+    const played = selectMatchesChronological(db, { eventKey: "2026casj" }).map((m) => m.matchKey);
+    const scheduled = selectScheduledMatches(db, { eventKey: "2026casj" }).map((m) => m.matchKey);
+
+    expect(played).toEqual(["2026casj_qm1"]);
+    expect(scheduled).toEqual(["2026casj_qm2", "2026casj_qm3"]);
+
+    // Partition property: disjoint, union covers every row for the event.
+    const playedSet = new Set(played);
+    const scheduledSet = new Set(scheduled);
+    for (const key of playedSet) expect(scheduledSet.has(key)).toBe(false);
+    for (const key of scheduledSet) expect(playedSet.has(key)).toBe(false);
+    expect(new Set([...played, ...scheduled])).toEqual(new Set(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3"]));
+  });
+
+  it("returned objects carry no OUTCOME_KEYS field — driven by the shared exported set, not a copied literal", () => {
+    upsertEvent(db, event({ eventKey: "2026casj" }));
+    upsertMatch(db, match({ matchKey: "2026casj_qm1", eventKey: "2026casj", winner: null }));
+
+    const [result] = selectScheduledMatches(db, { eventKey: "2026casj" });
+    expect(result).toBeDefined();
+    const keys = Object.keys(result as object);
+    for (const outcomeKey of OUTCOME_KEYS) {
+      expect(keys).not.toContain(outcomeKey);
+    }
+  });
+
+  it("results come back in the same five-key total order selectMatchesChronological uses", () => {
+    upsertEvent(db, event({ eventKey: "2026aaaa" }));
+    // All share sort_time = 5000; expected order: comp-level play order, then set_number, then match_number.
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2026aaaa_f1m2",
+        eventKey: "2026aaaa",
+        compLevel: "f",
+        setNumber: 1,
+        matchNumber: 2,
+        sortTime: 5000,
+        winner: null,
+      })
+    );
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2026aaaa_sf1m1",
+        eventKey: "2026aaaa",
+        compLevel: "sf",
+        setNumber: 1,
+        matchNumber: 1,
+        sortTime: 5000,
+        winner: null,
+      })
+    );
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2026aaaa_qm1",
+        eventKey: "2026aaaa",
+        compLevel: "qm",
+        setNumber: 1,
+        matchNumber: 1,
+        sortTime: 5000,
+        winner: null,
+      })
+    );
+
+    const order = selectScheduledMatches(db, { eventKey: "2026aaaa" }).map((m) => m.matchKey);
+    expect(order).toEqual(["2026aaaa_qm1", "2026aaaa_sf1m1", "2026aaaa_f1m2"]);
+  });
+
+  it("an event with no unplayed matches returns [] — never undefined, never a throw", () => {
+    upsertEvent(db, event({ eventKey: "2026allplayed" }));
+    upsertMatch(db, match({ matchKey: "2026allplayed_qm1", eventKey: "2026allplayed", winner: "red" }));
+
+    expect(selectScheduledMatches(db, { eventKey: "2026allplayed" })).toEqual([]);
+  });
+
+  it("an event key that does not exist returns []", () => {
+    expect(selectScheduledMatches(db, { eventKey: "2026nonexistent" })).toEqual([]);
   });
 });
