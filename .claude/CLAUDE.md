@@ -174,7 +174,42 @@ This is a clean-slate rebuild (v3). Prior implementations exist only in git hist
 
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+### Secrets handling (added 2026-08-22, Phase 4)
+
+`.env` holds live credentials — the TBA API key and the Cloudflare/R2 token pair. It is
+gitignored and untracked, and `scripts/secrets-boundary.test.ts` enforces that boundary.
+Those protections stop secrets reaching **git**. They do nothing about secrets reaching a
+**transcript**, which is a separate and equally real exposure path.
+
+**Never render the contents of `.env` into any output stream.** Concretely, never:
+
+- call the `Read` tool on `.env` (this renders the whole file, secrets included, into the transcript)
+- `cat`, `head`, `tail`, `less`, or `echo` the file or any variable read from it
+- interpolate a secret into a shell command, a log line, a test name, or an assertion message
+- paste a secret into a commit message, a SUMMARY.md, or a planning document
+
+**Do this instead:**
+
+- **To use a secret:** let the tool read the file itself — `tsx --env-file=.env ...` (the
+  established pattern in every `package.json` script), or `set -a; . ./.env; set +a` and then
+  reference `"$VAR"` without ever echoing it.
+- **To copy `.env` into a git worktree:** `cp` it by path. Never read-then-write.
+- **To confirm a key is set:** test presence and length only —
+  `v=$(grep -E "^KEY=" .env | cut -d= -f2-); [ -n "$v" ] && echo "OK (len=${#v})"`.
+- **To compare values:** hash both sides and compare digests, exactly as
+  `scripts/secrets-boundary.test.ts` already does with its `sha256` helper. Never compare or
+  message with a raw value.
+- **To scan a diff for leaked secrets:** load values into shell variables, `grep -qF` for them,
+  and report only a match count — never the matched text.
+
+This rule exists because it was broken: during Phase 4 plan 04-01 an executor called `Read` on
+`.env` to copy it into a worktree, putting the live R2 access key and secret in plaintext into a
+subagent transcript on disk. No secret reached git — the commits were clean and verified — but
+the token had to be rotated. The failure mode is that the git-side protections all passed while
+the secret escaped anyway, so passing `secrets-boundary.test.ts` must never be read as evidence
+that secrets were handled correctly.
+
+Applies to every agent and every workflow, including work inside isolated worktrees.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
