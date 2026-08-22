@@ -75,6 +75,53 @@ export class MissingLeagueRowError extends Error {
   }
 }
 
+/**
+ * Plan 04-08 (D-13): the current shape every `scopeKind: "league"` payload
+ * must declare (`snapshotShapeVersion`). Bumped whenever a league payload's
+ * FIELDS change shape — in particular, this version's introduction is what
+ * makes the RETIRED shape (per-team maps such as `priorSeasonRatings`/
+ * `lastEventByTeam` living inside the league row) unreadable rather than
+ * silently parsed with those per-team maps discarded. A retired-shape row
+ * has no `snapshotShapeVersion` field at all, so it always fails this check.
+ */
+export const STATE_SNAPSHOT_SHAPE_VERSION = 2;
+
+/**
+ * Thrown when `deserializeState`'s league row does not declare the current
+ * `STATE_SNAPSHOT_SHAPE_VERSION` — either absent (the retired pre-04-08
+ * shape, which stored per-team data inside the league row) or a stale
+ * numeric value from some future re-shape. Reading either silently would
+ * either drop per-team data that isn't there to find (retired shape) or
+ * misinterpret fields against the wrong version's meaning — this makes that
+ * failure loud instead, mirroring `MissingLeagueRowError`'s own reasoning
+ * and message style (D-13).
+ */
+export class LeagueRowShapeVersionError extends Error {
+  constructor(algorithmId: string, found: unknown) {
+    super(
+      `deserializeState: algorithm "${algorithmId}" league row does not declare snapshotShapeVersion ` +
+        `${STATE_SNAPSHOT_SHAPE_VERSION} (found ${JSON.stringify(found)}) — this is either a retired-shape row ` +
+        `(per-team data stored inside the league row, pre plan-04-08) or a stale version, and reading it as the ` +
+        `current shape would silently misinterpret or drop data rather than fail loudly. Re-seed this algorithm ` +
+        `from a fresh publish run.`
+    );
+    this.name = "LeagueRowShapeVersionError";
+  }
+}
+
+/**
+ * D-13: a `scopeKind: "league"` row's `stateJson` byte length must never
+ * grow with the number of teams in the season — it holds only genuinely
+ * league-wide aggregates. 16384 (16 KB) is set well above sigma1's measured
+ * genuine-aggregate size (7.1 KB, 2026-08-22 corpus) to leave headroom for a
+ * season with more components, while staying roughly 6x under D1's real
+ * 100,000-byte per-statement limit. `serializeState` does NOT throw when a
+ * league row exceeds this — the constant exists so tests (and `docs/publish-
+ * budget.md`) can assert against it; a hard throw here would make a
+ * legitimate future aggregate a harder failure than a red test.
+ */
+export const MAX_LEAGUE_ROW_BYTES = 16384;
+
 // ---------------------------------------------------------------------------
 // Stable serialization helpers
 // ---------------------------------------------------------------------------
@@ -139,6 +186,7 @@ interface SerializedSigma1TeamState {
 }
 
 interface SerializedSigma1League {
+  snapshotShapeVersion: number;
   season: number | null;
   componentOrder: string[];
   league: {
@@ -147,12 +195,24 @@ interface SerializedSigma1League {
     rpVariableMean: Sigma1League["rpVariableMean"];
   };
   allianceScoreStats: ExpandingStats;
-  priorSeasonRatings: {
-    lastSeason: [string, number][];
-    yearBefore: [string, number][];
-  };
   rpSkippedMatchCount: number;
   breakdownParseFailureCount: number;
+}
+
+/**
+ * Plan 04-08 (D-13): a `scopeKind: "team"` row's payload for sigma1/epa is a
+ * UNION — a team may have current-season state, a prior-season rating (from
+ * `priorSeasonRatings.lastSeason`/`.yearBefore`), or both. `current` is
+ * omitted entirely for a team with no current-season entry (a team known
+ * only via a prior-season rating) — never a placeholder/empty object, so the
+ * shape a reader sees on the wire matches exactly what was actually there
+ * (this project's "raw numbers only, no fabricated placeholders" discipline
+ * applied to row presence itself).
+ */
+interface SerializedSigma1TeamRow {
+  current?: SerializedSigma1TeamState;
+  priorSeasonLastSeason?: number;
+  priorSeasonYearBefore?: number;
 }
 
 function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState {
@@ -171,6 +231,7 @@ function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState
 
 function serializeSigma1State(algorithmId: string, algorithmVersion: string, state: Sigma1State, stamp: StateStamp): StateRow[] {
   const leagueJson: SerializedSigma1League = {
+    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     componentOrder: [...state.componentOrder],
     league: {
@@ -179,17 +240,30 @@ function serializeSigma1State(algorithmId: string, algorithmVersion: string, sta
       rpVariableMean: state.league.rpVariableMean,
     },
     allianceScoreStats: state.allianceScoreStats,
-    priorSeasonRatings: {
-      lastSeason: sortedEntries(state.priorSeasonRatings.lastSeason),
-      yearBefore: sortedEntries(state.priorSeasonRatings.yearBefore),
-    },
     rpSkippedMatchCount: state.rpSkippedMatchCount,
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
-  for (const [teamKey, teamState] of sortedEntries(state.teams)) {
-    rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, sigma1TeamStateToJson(teamState), stamp));
+
+  // D-13: the UNION of every map's keys — a team present only in
+  // `priorSeasonRatings.lastSeason`/`.yearBefore` (no current-season entry
+  // at all) must still get its own row, never silently dropped.
+  const teamKeys = new Set<string>([
+    ...state.teams.keys(),
+    ...state.priorSeasonRatings.lastSeason.keys(),
+    ...state.priorSeasonRatings.yearBefore.keys(),
+  ]);
+  for (const teamKey of [...teamKeys].sort()) {
+    const current = state.teams.get(teamKey);
+    const priorSeasonLastSeason = state.priorSeasonRatings.lastSeason.get(teamKey);
+    const priorSeasonYearBefore = state.priorSeasonRatings.yearBefore.get(teamKey);
+    const teamJson: SerializedSigma1TeamRow = {
+      ...(current !== undefined ? { current: sigma1TeamStateToJson(current) } : {}),
+      ...(priorSeasonLastSeason !== undefined ? { priorSeasonLastSeason } : {}),
+      ...(priorSeasonYearBefore !== undefined ? { priorSeasonYearBefore } : {}),
+    };
+    rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
   return rows;
 }
@@ -198,12 +272,19 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedSigma1League;
+  if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
+    throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
+  }
 
   const teams = new Map<string, Sigma1TeamState>();
+  const lastSeason = new Map<string, number>();
+  const yearBefore = new Map<string, number>();
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
-    const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamState;
-    teams.set(row.scopeKey, teamJson);
+    const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamRow;
+    if (teamJson.current !== undefined) teams.set(row.scopeKey, teamJson.current);
+    if (teamJson.priorSeasonLastSeason !== undefined) lastSeason.set(row.scopeKey, teamJson.priorSeasonLastSeason);
+    if (teamJson.priorSeasonYearBefore !== undefined) yearBefore.set(row.scopeKey, teamJson.priorSeasonYearBefore);
   }
 
   return {
@@ -212,10 +293,7 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     teams,
     league: leagueJson.league,
     allianceScoreStats: leagueJson.allianceScoreStats,
-    priorSeasonRatings: {
-      lastSeason: new Map(leagueJson.priorSeasonRatings.lastSeason),
-      yearBefore: new Map(leagueJson.priorSeasonRatings.yearBefore),
-    },
+    priorSeasonRatings: { lastSeason, yearBefore },
     rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
@@ -231,38 +309,51 @@ interface SerializedEpaTeamState {
 }
 
 interface SerializedEpaLeague {
+  snapshotShapeVersion: number;
   season: number | null;
   allianceScoreStats: ExpandingStats;
   fallbackSkipped: number;
-  priorSeasonRatings: {
-    lastSeason: [string, number][];
-    yearBefore: [string, number][];
-  };
   breakdownParseFailureCount: number;
+}
+
+/** D-13: same union shape as sigma1's `SerializedSigma1TeamRow` — see that interface's doc comment. */
+interface SerializedEpaTeamRow {
+  current?: SerializedEpaTeamState;
+  priorSeasonLastSeason?: number;
+  priorSeasonYearBefore?: number;
 }
 
 function serializeEpaState(algorithmId: string, algorithmVersion: string, state: EpaState, stamp: StateStamp): StateRow[] {
   const leagueJson: SerializedEpaLeague = {
+    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     allianceScoreStats: state.allianceScoreStats,
     fallbackSkipped: state.fallbackSkipped,
-    priorSeasonRatings: {
-      lastSeason: sortedEntries(state.priorSeasonRatings.lastSeason),
-      yearBefore: sortedEntries(state.priorSeasonRatings.yearBefore),
-    },
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
 
-  // Union of both maps' keys (defensive: `teamComponents`/`teamMatchCounts`
-  // are expected to share a keyset by construction, but a serializer must
-  // not silently drop a team present in only one of the two).
-  const teamKeys = new Set<string>([...state.teamComponents.keys(), ...state.teamMatchCounts.keys()]);
+  // D-13: the UNION of every map's keys — `teamComponents`/`teamMatchCounts`
+  // (current-season) and `priorSeasonRatings.lastSeason`/`.yearBefore`
+  // (prior-season). A team present in only one must still get its own row,
+  // never silently dropped.
+  const teamKeys = new Set<string>([
+    ...state.teamComponents.keys(),
+    ...state.teamMatchCounts.keys(),
+    ...state.priorSeasonRatings.lastSeason.keys(),
+    ...state.priorSeasonRatings.yearBefore.keys(),
+  ]);
   for (const teamKey of [...teamKeys].sort()) {
-    const teamJson: SerializedEpaTeamState = {
-      components: state.teamComponents.get(teamKey) ?? {},
-      matchCount: state.teamMatchCounts.get(teamKey) ?? 0,
+    const components = state.teamComponents.get(teamKey);
+    const matchCount = state.teamMatchCounts.get(teamKey);
+    const hasCurrent = components !== undefined || matchCount !== undefined;
+    const priorSeasonLastSeason = state.priorSeasonRatings.lastSeason.get(teamKey);
+    const priorSeasonYearBefore = state.priorSeasonRatings.yearBefore.get(teamKey);
+    const teamJson: SerializedEpaTeamRow = {
+      ...(hasCurrent ? { current: { components: components ?? {}, matchCount: matchCount ?? 0 } } : {}),
+      ...(priorSeasonLastSeason !== undefined ? { priorSeasonLastSeason } : {}),
+      ...(priorSeasonYearBefore !== undefined ? { priorSeasonYearBefore } : {}),
     };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
@@ -273,14 +364,23 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedEpaLeague;
+  if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
+    throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
+  }
 
   const teamComponents = new Map<string, Readonly<Record<string, number>>>();
   const teamMatchCounts = new Map<string, number>();
+  const lastSeason = new Map<string, number>();
+  const yearBefore = new Map<string, number>();
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
-    const teamJson = JSON.parse(row.stateJson) as SerializedEpaTeamState;
-    teamComponents.set(row.scopeKey, teamJson.components);
-    teamMatchCounts.set(row.scopeKey, teamJson.matchCount);
+    const teamJson = JSON.parse(row.stateJson) as SerializedEpaTeamRow;
+    if (teamJson.current !== undefined) {
+      teamComponents.set(row.scopeKey, teamJson.current.components);
+      teamMatchCounts.set(row.scopeKey, teamJson.current.matchCount);
+    }
+    if (teamJson.priorSeasonLastSeason !== undefined) lastSeason.set(row.scopeKey, teamJson.priorSeasonLastSeason);
+    if (teamJson.priorSeasonYearBefore !== undefined) yearBefore.set(row.scopeKey, teamJson.priorSeasonYearBefore);
   }
 
   return {
@@ -289,10 +389,7 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     teamMatchCounts,
     allianceScoreStats: leagueJson.allianceScoreStats,
     fallbackSkipped: leagueJson.fallbackSkipped,
-    priorSeasonRatings: {
-      lastSeason: new Map(leagueJson.priorSeasonRatings.lastSeason),
-      yearBefore: new Map(leagueJson.priorSeasonRatings.yearBefore),
-    },
+    priorSeasonRatings: { lastSeason, yearBefore },
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
 }
@@ -307,15 +404,23 @@ interface SerializedOprEventState {
 }
 
 interface SerializedOprLeague {
-  lastEventByTeam: [string, string][];
+  snapshotShapeVersion: number;
+}
+
+/** D-13: `lastEventByTeam`'s per-team entry, moved out of the league row (it was OPR's only offender — see `SeedRowTooLargeError`'s doc comment). One row per team, never folded into that team's most-recent EVENT row (see this plan's action text on why that alternative is ambiguous under interleaved events). */
+interface SerializedOprTeamRow {
+  lastEventKey: string;
 }
 
 function serializeOprState(algorithmId: string, algorithmVersion: string, state: OprState, stamp: StateStamp): StateRow[] {
-  const leagueJson: SerializedOprLeague = {
-    lastEventByTeam: sortedEntries(state.lastEventByTeam),
-  };
+  const leagueJson: SerializedOprLeague = { snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
+
+  for (const [teamKey, lastEventKey] of sortedEntries(state.lastEventByTeam)) {
+    const teamJson: SerializedOprTeamRow = { lastEventKey };
+    rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
+  }
 
   for (const [eventKey, eventState] of sortedEntries(state.perEvent)) {
     const eventJson: SerializedOprEventState = {
@@ -334,21 +439,26 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedOprLeague;
-
-  const perEvent = new Map<string, { observations: OprObservation[]; ratings: Map<string, number> }>();
-  for (const row of rows) {
-    if (row.scopeKind !== "event") continue;
-    const eventJson = JSON.parse(row.stateJson) as SerializedOprEventState;
-    perEvent.set(row.scopeKey, {
-      observations: eventJson.observations,
-      ratings: new Map(eventJson.ratings),
-    });
+  if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
+    throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
   }
 
-  return {
-    perEvent,
-    lastEventByTeam: new Map(leagueJson.lastEventByTeam),
-  };
+  const perEvent = new Map<string, { observations: OprObservation[]; ratings: Map<string, number> }>();
+  const lastEventByTeam = new Map<string, string>();
+  for (const row of rows) {
+    if (row.scopeKind === "event") {
+      const eventJson = JSON.parse(row.stateJson) as SerializedOprEventState;
+      perEvent.set(row.scopeKey, {
+        observations: eventJson.observations,
+        ratings: new Map(eventJson.ratings),
+      });
+    } else if (row.scopeKind === "team") {
+      const teamJson = JSON.parse(row.stateJson) as SerializedOprTeamRow;
+      lastEventByTeam.set(row.scopeKey, teamJson.lastEventKey);
+    }
+  }
+
+  return { perEvent, lastEventByTeam };
 }
 
 // ---------------------------------------------------------------------------
