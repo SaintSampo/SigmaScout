@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 5
 waived_count: 0
 fixed_count: 3
-total_count: 5
-last_updated: 2026-08-18T18:06:47.672Z
+total_count: 8
+last_updated: 2026-08-22T18:03:11.610Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,9 @@ last_updated: 2026-08-18T18:06:47.672Z
 | 3 | 02 | deviation | packages/core/algorithms/epa.ts |  | epa.ts's predict() sums a team's own learned foulsCommitted component directly into that team's own predicted score, rather than adding the OPPOSING alliance's foulsCommitted per D-04 (the cross-alliance attribution 02-04's Sigma1 implements explicitly). Whether this materially skews EPA's predicted scores is unverified and out of scope for plan 02-04 to fix -- observed while implementing Sigma1's own D-04 handling, not investigated further. | fixed | epa.ts predict() now excludes an alliance's own foulsCommitted from its offensive total and adds the opposing alliance's foulsCommitted instead, mirroring sigma1's D-04 handling; regression test added in epa.test.ts. | 2026-08-14T05:13:43.248Z | 2026-08-14T06:40:51.008Z |
 | 4 | 03 | unrun-verify | packages/core/algorithms/breakdown/2024.ts |  | 03-07's Task 2 acceptance criterion `pnpm harness --season 2024 --algorithm sigma1 --include-offseason` exits 0 is NOT met: parseBreakdown()'s unconditional Zod parse of self-reported offseason score_breakdown JSON throws uncaught (2024cafb_qm1, missing `adjustPoints`) -- a separate, pre-existing defect in the SCORE-side breakdown schema, unguarded by eventType/compLevel, previously masked by CR-01's earlier RP-guard crash (which occurred at 2024mnst_qm1, position 17029/22099, well before 2024cafb). Out of scope for 03-07, whose files_modified are RP-only; CR-01's own fix is proven correct (the replay progresses 17358 matches past the old crash point, including 329 offseason matches, before hitting this new one). | fixed | Fixed by T-03-18b's tryParseBreakdownPair guard (packages/core/algorithms/breakdown/index.ts, quick task 260818-inm): a score_breakdown that fails its season Zod schema now degrades to the existing D-05 fallback path (inflated measurement noise, never a throw) instead of aborting the harness batch. Both `pnpm harness --season 2024 --algorithm sigma1 --include-offseason` and `pnpm harness --event 2024wvrox --algorithm sigma1` now exit 0, observed 2026-08-18: breakdownParseFailureCount 1004 (season run, matching the phase-03 security audit's independently measured 1,004/4,757 figure) and 19 (event run) respectively. | 2026-08-17T00:00:00.000Z | 2026-08-18T18:06:47.326Z |
 | 5 | 03 | unrun-verify | packages/core/algorithms/breakdown/2024.ts |  | 03-07's Task 2 acceptance criterion `pnpm harness --event 2024wvrox --algorithm sigma1` exits 0 is NOT met: the SAME class of defect as ledger #4, but worse -- the event's very FIRST match (2024wvrox_sf1m1, offseason, compLevel sf) fails parseBreakdown() with ~13 missing required score fields, confirming this is systemic to self-reported offseason breakdowns generally, not one bad match. Network + TBA_API_KEY both worked (304 Not Modified on both TBA calls); the crash is data-shape, not connectivity. | fixed | Fixed by T-03-18b's tryParseBreakdownPair guard (packages/core/algorithms/breakdown/index.ts, quick task 260818-inm): a score_breakdown that fails its season Zod schema now degrades to the existing D-05 fallback path (inflated measurement noise, never a throw) instead of aborting the harness batch. Both `pnpm harness --season 2024 --algorithm sigma1 --include-offseason` and `pnpm harness --event 2024wvrox --algorithm sigma1` now exit 0, observed 2026-08-18: breakdownParseFailureCount 1004 (season run, matching the phase-03 security audit's independently measured 1,004/4,757 figure) and 19 (event run) respectively. | 2026-08-17T00:00:00.000Z | 2026-08-18T18:06:47.672Z |
+| 6 | 04 | stub | apps/worker/src/scheduled.ts |  | runGlobalRebuild's incremental teams/{year} merge updates metrics/matchCount but NOT the win/loss/tie record field (would need per-team match outcomes threaded through touchedTeamsByAlgorithm, which the plan's time budget did not extend to) -- stays accurate only as of the last offline pnpm publish:seasons run until a future plan extends this | open |  | 2026-08-22T18:03:00.607Z |  |
+| 7 | 04 | stub | apps/worker/src/scheduled.ts |  | The online path never rebuilds events/{year} at all (only teams/{year} via runGlobalRebuild) -- the events list stays accurate only as of the last offline pnpm publish:seasons run; extending the incremental-merge mechanism to events/{year} is deferred to a future plan | open |  | 2026-08-22T18:03:06.054Z |  |
+| 8 | 04 | deviation | apps/worker/src/scheduled.ts |  | Phase B (artifact writes) is deliberately best-effort: a failure there does not change an event's 'advanced' outcome (state has genuinely advanced correctly), but a skipped artifact stays one tick stale until that team's next match at that event -- no future trigger re-attempts a partially-completed Phase B on its own | open |  | 2026-08-22T18:03:11.610Z |  |
 
 ````json
 [
@@ -82,6 +85,42 @@ last_updated: 2026-08-18T18:06:47.672Z
     "reason": "Fixed by T-03-18b's tryParseBreakdownPair guard (packages/core/algorithms/breakdown/index.ts, quick task 260818-inm): a score_breakdown that fails its season Zod schema now degrades to the existing D-05 fallback path (inflated measurement noise, never a throw) instead of aborting the harness batch. Both `pnpm harness --season 2024 --algorithm sigma1 --include-offseason` and `pnpm harness --event 2024wvrox --algorithm sigma1` now exit 0, observed 2026-08-18: breakdownParseFailureCount 1004 (season run, matching the phase-03 security audit's independently measured 1,004/4,757 figure) and 19 (event run) respectively.",
     "recorded_at": "2026-08-17T00:00:00.000Z",
     "resolved_at": "2026-08-18T18:06:47.672Z"
+  },
+  {
+    "id": 6,
+    "kind": "stub",
+    "phase": "04",
+    "file": "apps/worker/src/scheduled.ts",
+    "line": null,
+    "description": "runGlobalRebuild's incremental teams/{year} merge updates metrics/matchCount but NOT the win/loss/tie record field (would need per-team match outcomes threaded through touchedTeamsByAlgorithm, which the plan's time budget did not extend to) -- stays accurate only as of the last offline pnpm publish:seasons run until a future plan extends this",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-22T18:03:00.607Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "stub",
+    "phase": "04",
+    "file": "apps/worker/src/scheduled.ts",
+    "line": null,
+    "description": "The online path never rebuilds events/{year} at all (only teams/{year} via runGlobalRebuild) -- the events list stays accurate only as of the last offline pnpm publish:seasons run; extending the incremental-merge mechanism to events/{year} is deferred to a future plan",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-22T18:03:06.054Z",
+    "resolved_at": null
+  },
+  {
+    "id": 8,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "apps/worker/src/scheduled.ts",
+    "line": null,
+    "description": "Phase B (artifact writes) is deliberately best-effort: a failure there does not change an event's 'advanced' outcome (state has genuinely advanced correctly), but a skipped artifact stays one tick stale until that team's next match at that event -- no future trigger re-attempts a partially-completed Phase B on its own",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-22T18:03:11.610Z",
+    "resolved_at": null
   }
 ]
 ````
