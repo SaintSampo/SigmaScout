@@ -418,3 +418,12 @@ TBA secret itself is plan 04-07's job, per `wrangler secret put`).
 ---
 *Phase: 04-publish-live-update-pipeline*
 *Completed: 2026-08-22*
+
+## Self-Check: PASSED
+
+All eight created files confirmed present on disk (`apps/worker/wrangler.toml`,
+`apps/worker/tsconfig.json`, `apps/worker/src/env.ts`,
+`apps/worker/src/bundleSmoke.ts`, `apps/worker/src/stateStore.ts`,
+`apps/worker/src/subrequestBudget.ts`, `apps/worker/test/stateStore.test.ts`,
+`apps/worker/test/subrequestBudget.test.ts`). All four commits (`bd615eec`,
+`d8d41577`, `62e21bf7`, `f613c6e9`) confirmed present in `git log --oneline --all`.
