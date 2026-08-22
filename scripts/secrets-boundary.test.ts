@@ -118,3 +118,69 @@ describe("secrets boundary (T-01-02)", () => {
     // we verified .env.example exists and has a placeholder.
   });
 });
+
+/**
+ * D-24: the Cloudflare credentials (`CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+ * `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BASE_URL`) enter `.env` alongside
+ * `TBA_API_KEY` for `packages/harness/r2Client.ts`. This block mirrors the
+ * "secrets boundary (T-01-02)" suite above exactly, using the same `sha256`/
+ * `getEnvValue` helpers, so the Cloudflare token carries the identical
+ * never-print, hash-compare protection the TBA key has had since Phase 1.
+ */
+describe("cloudflare credentials boundary (D-24)", () => {
+  const CLOUDFLARE_ENV_KEYS = ["CLOUDFLARE_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_PUBLIC_BASE_URL"] as const;
+  /** Only these two are bearer-token-shaped secrets; `CLOUDFLARE_ACCOUNT_ID` and `R2_PUBLIC_BASE_URL` are not secret (an account ID and a public bucket URL are meant to be visible). */
+  const CLOUDFLARE_SECRET_KEYS = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] as const;
+
+  it("should have .env.example with non-empty placeholder values for all four Cloudflare keys", () => {
+    const envExamplePath = resolve(REPO_ROOT, ".env.example");
+    expect(existsSync(envExamplePath)).toBe(true);
+
+    for (const key of CLOUDFLARE_ENV_KEYS) {
+      const exampleValue = getEnvValue(envExamplePath, key);
+      expect(exampleValue, `.env.example is missing a placeholder for ${key}`).not.toBeNull();
+      expect(exampleValue, `.env.example's ${key} placeholder must be non-empty`).toBeTruthy();
+    }
+  });
+
+  it("should have each Cloudflare secret's .env value differ from its .env.example placeholder (hash-compared only)", () => {
+    const envPath = resolve(REPO_ROOT, ".env");
+    const envExamplePath = resolve(REPO_ROOT, ".env.example");
+
+    if (!existsSync(envPath)) {
+      // CI machine with no .env — nothing to compare, matches the TBA key test's own skip behavior.
+      return;
+    }
+
+    for (const key of CLOUDFLARE_SECRET_KEYS) {
+      const exampleValue = getEnvValue(envExamplePath, key);
+      const realValue = getEnvValue(envPath, key);
+      expect(exampleValue, `.env.example is missing a placeholder for ${key}`).not.toBeNull();
+      expect(realValue, `.env is missing a value for ${key}`).not.toBeNull();
+
+      // Compare hashes only — never assert on, interpolate, or message with a raw value.
+      const exampleHash = sha256(exampleValue!);
+      const realHash = sha256(realValue!);
+      expect(exampleHash).not.toBe(realHash);
+    }
+  });
+
+  it("should NOT have any tracked file containing an R2 secret — .env stays out of the git index", () => {
+    // The mechanism is the same one the pre-existing untracked-file assertion
+    // above already proves (.gitignore lines 5-7); this test names the
+    // Cloudflare token as an in-scope secret so a future contributor reading
+    // this file knows the boundary applies to it too, not only the TBA key.
+    let isTracked = false;
+    try {
+      execSync("git ls-files --error-unmatch .env", {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      isTracked = true;
+    } catch {
+      // Exit code 1: file is NOT tracked. This is what we want.
+    }
+    expect(isTracked).toBe(false);
+  });
+});
