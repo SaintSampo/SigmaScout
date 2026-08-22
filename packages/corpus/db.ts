@@ -14,7 +14,7 @@ import Database from "better-sqlite3";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
+import type { CompLevel, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import {
   detectReplay,
   type CorpusEvent,
@@ -398,6 +398,96 @@ export function selectMatchesChronological(
     blueRpEarned: row.blue_rp_earned,
     hasScoreBreakdown: row.has_score_breakdown === 1,
     scoreBreakdownRaw: row.score_breakdown_raw,
+    eventType: row.event_type,
+  }));
+}
+
+interface ScheduledMatchRow {
+  match_key: string;
+  event_key: string;
+  comp_level: string;
+  match_number: number;
+  set_number: number;
+  red_teams: string;
+  blue_teams: string;
+  red_surrogates: string;
+  blue_surrogates: string;
+  event_type: number;
+}
+
+/** Same option shape as `ChronologicalQueryOptions` (`selectMatchesChronological`'s mirror-image reader) so a caller does not have to learn two vocabularies. */
+export type ScheduledMatchQueryOptions = ChronologicalQueryOptions;
+
+/**
+ * D-08: the not-yet-played counterpart to `selectMatchesChronological` —
+ * together the two cover every row of an event, disjointly. Scheduled
+ * matches ARE stored (`schema.sql` declares `winner` nullable, "NULL if
+ * unplayed"); nothing before Phase 4 needed to read them back, since the
+ * walk-forward harness only ever replays completed matches.
+ *
+ * The SQL selects ONLY the columns an `UpcomingMatch` needs — deliberately
+ * omitting `winner`, `red_score`, `blue_score`, `red_rp_earned`,
+ * `blue_rp_earned`, `has_score_breakdown` and `score_breakdown_raw`
+ * entirely, not merely setting them to `null` on the returned object. That
+ * is the difference between "an algorithm reads `undefined`" and "an
+ * algorithm cannot read it at all" — the same leak-proof guarantee
+ * `packages/core/algorithms/leakProof.ts`'s `toLeakProofUpcoming` Proxy
+ * enforces on the played-match side, achieved here structurally instead,
+ * by never selecting the columns in the first place.
+ *
+ * The ORDER BY clause is copied verbatim from `selectMatchesChronological`
+ * — deliberately identical, so an event's played and scheduled halves read
+ * in one consistent total order.
+ */
+export function selectScheduledMatches(
+  db: Corpus,
+  options: ScheduledMatchQueryOptions = {}
+): UpcomingMatch[] {
+  const clauses: string[] = ["m.winner IS NULL"];
+  const params: Record<string, string | number> = {};
+
+  if (options.eventKey !== undefined) {
+    clauses.push("m.event_key = @eventKey");
+    params["eventKey"] = options.eventKey;
+  }
+  if (options.year !== undefined) {
+    clauses.push("e.year = @year");
+    params["year"] = options.year;
+  }
+  if (options.excludeOffseason === true) {
+    clauses.push("e.is_offseason = 0");
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT m.match_key, m.event_key, m.comp_level, m.match_number, m.set_number,
+              m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
+              e.event_type
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY
+         m.sort_time ASC,
+         m.event_key ASC,
+         CASE m.comp_level
+           WHEN 'qm' THEN 0 WHEN 'ef' THEN 1 WHEN 'qf' THEN 2 WHEN 'sf' THEN 3 WHEN 'f' THEN 4
+           ELSE 5
+         END ASC,
+         m.set_number ASC,
+         m.match_number ASC`
+    )
+    .all(params) as ScheduledMatchRow[];
+
+  return rows.map((row) => ({
+    matchKey: row.match_key,
+    eventKey: row.event_key,
+    compLevel: row.comp_level as CompLevel,
+    setNumber: row.set_number,
+    matchNumber: row.match_number,
+    redTeams: JSON.parse(row.red_teams) as string[],
+    blueTeams: JSON.parse(row.blue_teams) as string[],
+    redSurrogates: JSON.parse(row.red_surrogates) as string[],
+    blueSurrogates: JSON.parse(row.blue_surrogates) as string[],
     eventType: row.event_type,
   }));
 }
