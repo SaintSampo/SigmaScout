@@ -11,3 +11,9 @@ data/*
 !data/baselines/
 !data/diagnostics/
 reports/
+
+# wrangler local dev state (D1/KV/R2 emulation) — generated, machine-local,
+# never the source of truth (the source of truth is the live database
+# migrations apply against — see apps/worker/migrations/).
+.wrangler/
+
