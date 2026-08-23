@@ -73,7 +73,7 @@ interface SignedRequest {
  * algorithm) lives — `putObject`/`getObject` below are thin callers.
  */
 function signRequest(
-  method: "PUT" | "GET",
+  method: "PUT" | "GET" | "DELETE",
   credentials: R2Credentials,
   bucket: string,
   key: string,
@@ -173,4 +173,27 @@ export async function getObject(bucket: string, key: string): Promise<string> {
     throw new Error(`r2Client.getObject: GET "${key}" failed with status ${response.status} ${response.statusText}`);
   }
   return response.text();
+}
+
+/**
+ * DELETEs `{bucket}/{key}` from R2's S3-compatible endpoint (plan 04-07's
+ * replay rig: establishing a genuinely cold-started published-artifact
+ * baseline for an already-published historical event, alongside its D1
+ * `algorithm_state` reset — deleting only, never a bulk/prefix operation).
+ * S3's DELETE is idempotent (a missing key is not an error): both a 204 (or
+ * 200) and a 404 are treated as success, matching that contract; any other
+ * status throws with the key in the message.
+ */
+export async function deleteObject(bucket: string, key: string): Promise<void> {
+  const credentials = credentialsFromEnv();
+  const signed = signRequest("DELETE", credentials, bucket, key, undefined, {});
+
+  const response = await fetch(signed.url, {
+    method: "DELETE",
+    headers: signed.headers,
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`r2Client.deleteObject: DELETE "${key}" failed with status ${response.status} ${response.statusText}`);
+  }
 }

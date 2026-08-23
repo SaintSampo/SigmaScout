@@ -62,6 +62,7 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { z } from "zod";
 import { opr } from "../packages/core/algorithms/opr.js";
 import { epa } from "../packages/core/algorithms/epa.js";
@@ -73,7 +74,7 @@ import { computePredictionStreamDigest } from "../packages/harness/promote.js";
 import { buildAlgorithmsManifest, PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest } from "../packages/harness/manifests.js";
 import { roundMetric, roundProbability } from "../packages/harness/rounding.js";
 import { artifactKey } from "../packages/harness/pageArtifacts.js";
-import { getObject, putObject } from "../packages/harness/r2Client.js";
+import { deleteObject, getObject, putObject } from "../packages/harness/r2Client.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -376,9 +377,26 @@ function touchedTeamsOf(rows: readonly RawEventMatchRow[]): string[] {
 // mutations, always run from apps/worker so wrangler.toml resolves.
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolves wrangler's real JS entry point (never its `.cmd`/`.ps1` shim) so
+ * it can be spawned via `process.execPath` directly — `spawnSync` invoking a
+ * Windows `.cmd` file WITHOUT `shell: true` fails outright (`EINVAL`), and
+ * `shell: true` is a documented argument-injection risk (Node's own
+ * deprecation warning: "arguments are not escaped, only concatenated").
+ * Spawning `node <wrangler.js> ...args` sidesteps both — no shell involved.
+ */
+function resolveWranglerBin(): string {
+  const require = createRequire(import.meta.url);
+  const pkgJsonPath = require.resolve("wrangler/package.json", { paths: [WORKER_DIR] });
+  return join(dirname(pkgJsonPath), "bin", "wrangler.js");
+}
+
 function runWrangler(args: string[]): { status: number; stdout: string; stderr: string } {
-  const cmd = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(cmd, ["wrangler", ...args], { cwd: WORKER_DIR, encoding: "utf8" });
+  const wranglerBin = resolveWranglerBin();
+  const result = spawnSync(process.execPath, [wranglerBin, ...args], { cwd: WORKER_DIR, encoding: "utf8" });
+  if (result.error) {
+    return { status: 1, stdout: result.stdout ?? "", stderr: `spawnSync error: ${result.error.message}` };
+  }
   return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
@@ -604,7 +622,12 @@ function parseOptions(): RigOptions {
   if (!fixtureUrl) throw new Error("--fixture-url is required (the deployed sigmascout-fixture-rig Worker's base URL)");
 
   const algorithms = (values.algorithm ?? PUBLISHED_ALGORITHM_IDS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
-  const out = values.out ?? join(REPO_ROOT, "reports", "replay-rig", `${event}-${mode}-${liveTrigger}-${Date.now()}.json`);
+  // ALWAYS absolute: resetD1State/deployWorker shell out to `wrangler` with
+  // `cwd: WORKER_DIR` (apps/worker), so a relative `--out`/`--corpus` path
+  // (naturally typed relative to the repo root, where this script is meant
+  // to be invoked from) would silently resolve against the WRONG directory
+  // once handed to a child process with a different cwd.
+  const out = resolve(REPO_ROOT, values.out ?? join("reports", "replay-rig", `${event}-${mode}-${liveTrigger}-${Date.now()}.json`));
   const matchLimit = values["match-limit"] ? Number.parseInt(values["match-limit"], 10) : undefined;
 
   return {
@@ -616,7 +639,7 @@ function parseOptions(): RigOptions {
     out,
     liveTrigger,
     matchLimit,
-    corpusPath: values.corpus ?? join(REPO_ROOT, "data", "corpus.sqlite"),
+    corpusPath: resolve(REPO_ROOT, values.corpus ?? join("data", "corpus.sqlite")),
     pollIntervalMs: values["poll-interval-ms"] ? Number.parseInt(values["poll-interval-ms"], 10) : 2000,
     pollTimeoutMs: values["poll-timeout-ms"] ? Number.parseInt(values["poll-timeout-ms"], 10) : 90_000,
     skipDeploy: values["skip-deploy"] ?? false,
@@ -642,21 +665,30 @@ export async function runRig(options: RigOptions): Promise<ReplayRigResult> {
 
     console.log(`replayRig: event=${options.event} season=${info.season} matches=${rows.length} algorithms=${options.algorithms.join(",")} mode=${options.mode} liveTrigger=${options.liveTrigger}`);
 
-    // Capture the pre-existing published event artifact's team roster BEFORE
-    // any mutation — the online merge preserves teamNumber/nickname from
-    // whatever was already published, and the offline reconstruction below
-    // must read the SAME snapshot to be comparable (see this file's header).
-    const priorTeamInfoByAlgorithm = new Map<string, Map<string, { teamNumber: number; nickname: string }>>();
-    for (const mod of modules) {
-      const existing = await readPublishedEventArtifact(options.event, mod.id, mod.version);
-      const priorInfo = new Map<string, { teamNumber: number; nickname: string }>();
-      const teams = (existing?.["teams"] as { teamKey: string; teamNumber: number; nickname: string }[] | undefined) ?? [];
-      for (const t of teams) priorInfo.set(t.teamKey, { teamNumber: t.teamNumber, nickname: t.nickname });
-      priorTeamInfoByAlgorithm.set(mod.id, priorInfo);
-    }
-
-    // Cold-start (D-14's controlled condition).
+    // Cold-start (D-14's controlled condition). `--event` names a REAL
+    // historical event this repo's own `pnpm publish:seasons` has already
+    // published in full (every corpus event has been) — its D1 algorithm
+    // state AND its published R2 artifact both already reflect the whole
+    // real result. Resetting D1 alone is not a cold start: the deployed
+    // Worker's merge logic reads the EXISTING published artifact first
+    // (`readExistingEvent`) and a freshness poll would find every match
+    // "already there" from the ORIGINAL publish, not from anything this run
+    // drove — a methodological bug this rig's own first real run caught (see
+    // the SUMMARY). Deleting the touched-scope published artifacts too is
+    // what makes "newly folded" genuinely new.
     resetD1State(dirname(options.out), options.algorithms, options.event, touchedTeams);
+    for (const mod of modules) {
+      await deleteObject(BUCKET, artifactKey({ page: "event", eventKey: options.event, algorithmId: mod.id, version: mod.version }));
+      for (const teamKey of touchedTeams) {
+        await deleteObject(BUCKET, artifactKey({ page: "team", teamKey, year: info.season, algorithmId: mod.id, version: mod.version }));
+      }
+    }
+    // Symmetric with the now-deleted artifacts: BOTH the online merge (reading
+    // nothing back) and this offline reconstruction start from no prior team
+    // roster, falling back to the teamKey-derived number and an empty
+    // nickname on both sides — never a real name read from data this run
+    // just deleted.
+    const emptyPriorTeamInfo = new Map<string, { teamNumber: number; nickname: string }>();
 
     // Make the event live for the deployed Worker's tick, and point it at the fixture.
     const nowMs = Date.now();
@@ -705,7 +737,7 @@ export async function runRig(options: RigOptions): Promise<ReplayRigResult> {
       const matchResults = selectMatchesChronological(db, { eventKey: options.event }).slice(0, rows.length);
       const perAlgorithm: z.infer<typeof EquivalenceEntrySchema>[] = [];
       for (const mod of modules) {
-        const offline = runOfflineReplay(matchResults, touchedTeams, mod, priorTeamInfoByAlgorithm.get(mod.id) ?? new Map());
+        const offline = runOfflineReplay(matchResults, touchedTeams, mod, emptyPriorTeamInfo);
         const offlineDigestInput = offline.records.map((r) => ({
           match: r.match,
           prediction: { ...r.prediction, pRedWin: roundProbability(r.prediction.pRedWin), redScore: roundMetric(r.prediction.redScore), blueScore: roundMetric(r.prediction.blueScore) },

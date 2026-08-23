@@ -10,6 +10,16 @@ name = "sigmascout-fixture-rig"
 main = "src/fixtureServer.ts"
 compatibility_date = "2026-08-22"
 
+# A *.workers.dev URL cannot be reached by fetch() FROM another Worker
+# (Cloudflare's own workers.dev zone intercepts the request and returns 404
+# rather than routing it to the target script — discovered running this
+# plan's own real rig experiment, see the SUMMARY). A custom-domain route on
+# the SAME zone R2's custom domain already uses (sigmascout.org) does not
+# have that restriction.
+routes = [
+  { pattern = "fixture-rig.sigmascout.org", custom_domain = true }
+]
+
 # Reuses the SAME R2 bucket the production Worker publishes artifacts to,
 # under a `fixtures/` key prefix that never collides with a published
 # `v1/...` key — no new Cloudflare resource needed for a rig-only Worker.

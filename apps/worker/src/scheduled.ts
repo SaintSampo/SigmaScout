@@ -665,7 +665,18 @@ async function processEvent(
       }
       throw phaseAError; // re-thrown -- caught by the OUTER try/catch below, event recorded "failed"
     }
-  } catch {
+  } catch (err) {
+    // Plan 04-07 (Rule 2 — missing critical functionality, found running the
+    // replay rig's real deployed-Worker experiment): before this, a per-event
+    // failure was completely invisible — the tick itself still logs
+    // `"ok":true` (the TICK didn't throw, only this one event's processing
+    // did), so `docs/worker-operations.md`'s own troubleshooting table
+    // promise ("a tick throwing: check subrequestsUsed first, read the error
+    // field") had nothing to point an operator at for this exact case. Never
+    // the TBA key, never a response header/body — only the event key and the
+    // caught error's own message, matching `TbaPollError`'s own naming
+    // discipline (D-22).
+    console.error(JSON.stringify({ msg: "event-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
     return { status: "failed" };
   }
 }
