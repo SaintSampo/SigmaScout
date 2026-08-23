@@ -32,7 +32,7 @@ export type { TbaClientContext, TbaFetchResult };
 
 /** Builds the `TbaClientContext` `pollEventMatches` needs from the Worker's typed `Env` and a counter the caller owns for the whole tick (one counter, shared across every event polled this tick — D-15's own "TBA requests" figure comes from it). */
 export function createTbaContext(env: Env, counter: TbaRequestCounter): TbaClientContext {
-  return { apiKey: env.TBA_API_KEY, counter };
+  return { apiKey: env.TBA_API_KEY, counter, baseUrl: env.TBA_BASE_URL };
 }
 
 export type PollEventMatchesResult =

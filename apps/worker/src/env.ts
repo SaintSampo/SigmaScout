@@ -15,4 +15,16 @@ export interface Env {
   readonly MANIFEST: KVNamespace;
   /** Set via `wrangler secret put TBA_API_KEY` (plan 04-07) — NEVER assigned a value in wrangler.toml, which is tracked in git. */
   readonly TBA_API_KEY: string;
+  /**
+   * D-20 (plan 04-07): a plain `[vars]` value (never a secret) — the real TBA
+   * base URL by default, tracked in `wrangler.toml`. The replay rig
+   * overrides it at DEPLOY TIME only, via `wrangler deploy --var
+   * TBA_BASE_URL:<fixture-worker-url>`, never by editing the tracked file —
+   * see `docs/worker-operations.md`'s "Replay rig" section for the exact
+   * procedure. Threaded into `packages/ingest/tbaClient.ts`'s
+   * `TbaClientContext.baseUrl` by `tbaPoll.ts`'s `createTbaContext`; nothing
+   * else about the TBA client (spacing, ETag handling, the request counter)
+   * changes when this is overridden (D-22).
+   */
+  readonly TBA_BASE_URL: string;
 }

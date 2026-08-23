@@ -10,7 +10,7 @@ import type { Env } from "../src/env.js";
 const STUB_KEY = "test-tba-secret-key-do-not-leak";
 
 function makeEnv(): Env {
-  return { DB: {} as unknown, ARTIFACTS: {} as unknown, MANIFEST: {} as unknown, TBA_API_KEY: STUB_KEY } as Env;
+  return { DB: {} as unknown, ARTIFACTS: {} as unknown, MANIFEST: {} as unknown, TBA_API_KEY: STUB_KEY, TBA_BASE_URL: "https://tba.example.invalid/api/v3" } as Env;
 }
 
 describe("pollEventMatches", () => {
@@ -70,6 +70,17 @@ describe("pollEventMatches", () => {
       expect(err).toBeInstanceOf(Error);
       expect((err as Error).message).toContain("2026casj");
     }
+  });
+
+  it("requests against env.TBA_BASE_URL (D-20's override point), never a hardcoded host", async () => {
+    fetchMock.mockResolvedValue({ status: 200, ok: true, headers: { get: () => null }, json: async () => [] });
+    const counter = new TbaRequestCounter();
+    const ctx = createTbaContext({ ...makeEnv(), TBA_BASE_URL: "https://fixture.example.invalid/api/v3" }, counter);
+
+    await pollEventMatches(ctx, "2026casj", undefined);
+
+    const [requestUrl] = fetchMock.mock.calls[0] as [string];
+    expect(String(requestUrl)).toBe("https://fixture.example.invalid/api/v3/event/2026casj/matches");
   });
 
   it("never leaks the stubbed TBA key value in a thrown error message or a returned value", async () => {

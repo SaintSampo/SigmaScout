@@ -1,0 +1,18 @@
+# The replay rig's fixture-serving Worker (plan 04-07, D-20). A SEPARATE
+# deployment from the production `sigmascout-worker` (`wrangler.toml`) — this
+# config exists ONLY so `scripts/replayRig.ts` can point the production
+# Worker's `TBA_BASE_URL` at a real HTTPS endpoint serving recorded,
+# real-corpus-derived TBA-shaped payloads instead of the real TBA API, for
+# the bounded duration of one measurement run. Deployed and torn down by
+# hand, documented in docs/worker-operations.md's "Replay rig" section —
+# never left running as a second permanent production surface.
+name = "sigmascout-fixture-rig"
+main = "src/fixtureServer.ts"
+compatibility_date = "2026-08-22"
+
+# Reuses the SAME R2 bucket the production Worker publishes artifacts to,
+# under a `fixtures/` key prefix that never collides with a published
+# `v1/...` key — no new Cloudflare resource needed for a rig-only Worker.
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "sigmascout-artifacts"

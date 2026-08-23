@@ -15,6 +15,8 @@
  */
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
+/** Exported so a caller building a `TbaClientContext` can name the real default explicitly (plan 04-07's `baseUrl` override — see `TbaClientContext.baseUrl`'s own doc comment for why this exists and what it does NOT change). */
+export const DEFAULT_TBA_BASE_URL = TBA_BASE;
 
 /**
  * Minimum time between outbound TBA requests. Conditional requests
@@ -72,11 +74,12 @@ export async function tbaFetch(
   path: string,
   apiKey: string,
   cachedEtag: string | undefined,
-  counter?: TbaRequestCounter
+  counter?: TbaRequestCounter,
+  baseUrl: string = TBA_BASE
 ): Promise<TbaFetchResult> {
   await throttle();
 
-  const res = await fetch(`${TBA_BASE}${path}`, {
+  const res = await fetch(`${baseUrl}${path}`, {
     headers: {
       "X-TBA-Auth-Key": apiKey,
       ...(cachedEtag ? { "If-None-Match": cachedEtag } : {}),
@@ -97,13 +100,25 @@ export async function tbaFetch(
 export interface TbaClientContext {
   apiKey: string;
   counter: TbaRequestCounter;
+  /**
+   * D-20 (plan 04-07): overrides `DEFAULT_TBA_BASE_URL` — the ONE substitution
+   * point that lets the replay rig point a real deployed Worker at a recorded
+   * fixture endpoint instead of the real TBA API, without touching
+   * `THROTTLE_INTERVAL_MS`'s spacing or `tbaFetch`'s conditional-request
+   * (ETag) handling, which stay identical regardless of which base URL is in
+   * effect (D-22: one politeness policy, applied to whichever host is
+   * configured). Left `undefined` by every production caller (the real
+   * ingest pipeline, `apps/worker/src/tbaPoll.ts`'s production default) —
+   * only a rig/test ever sets this.
+   */
+  baseUrl?: string;
 }
 
 // --- The eight capabilities COVERAGE.md marks INTEGRATE ---------------
 
 /** `GET /status` — datafeed health, checked once at the start of a run. */
 export function fetchStatus(ctx: TbaClientContext, cachedEtag?: string): Promise<TbaFetchResult> {
-  return tbaFetch("/status", ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch("/status", ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /team/{key}` */
@@ -112,7 +127,7 @@ export function fetchTeamDetail(
   teamKey: string,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/team/${teamKey}`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/team/${teamKey}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /events/{year}` — bulk event list for a season. */
@@ -121,7 +136,7 @@ export function fetchEventsList(
   year: number,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/events/${year}`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/events/${year}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /event/{key}` */
@@ -130,7 +145,7 @@ export function fetchEventDetail(
   eventKey: string,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/event/${eventKey}`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/event/${eventKey}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /event/{key}/teams` */
@@ -139,7 +154,7 @@ export function fetchEventTeams(
   eventKey: string,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/event/${eventKey}/teams`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/event/${eventKey}/teams`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /event/{key}/matches` */
@@ -148,7 +163,7 @@ export function fetchEventMatches(
   eventKey: string,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/event/${eventKey}/matches`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/event/${eventKey}/matches`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /match/{key}` */
@@ -157,7 +172,7 @@ export function fetchMatchDetail(
   matchKey: string,
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
-  return tbaFetch(`/match/${matchKey}`, ctx.apiKey, cachedEtag, ctx.counter);
+  return tbaFetch(`/match/${matchKey}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /**
@@ -177,7 +192,7 @@ export async function fetchAllTeams(
   const pages: { url: string; body: unknown[] }[] = [];
   for (let page = 0; ; page++) {
     const url = `/teams/${year}/${page}`;
-    const result = await tbaFetch(url, ctx.apiKey, undefined, ctx.counter);
+    const result = await tbaFetch(url, ctx.apiKey, undefined, ctx.counter, ctx.baseUrl);
     if (result.status !== 200) {
       // Unreachable: fetchAllTeams never supplies a cachedEtag, so tbaFetch
       // can only resolve 200 or throw. Guard kept for exhaustiveness.

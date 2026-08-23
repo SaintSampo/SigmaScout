@@ -28,6 +28,15 @@ compatibility_date = "2026-08-22"
 # compatibility_date change, so it is made explicit here.
 compatibility_flags = ["nodejs_compat"]
 
+# D-20 (plan 04-07): the real TBA base URL by default, tracked here so the
+# override point is visible in the tracked config rather than an undocumented
+# back door (T-04-47). The replay rig substitutes a fixture-serving Worker's
+# URL for the duration of one measurement run via a DEPLOY-TIME flag —
+# `wrangler deploy --var TBA_BASE_URL:<fixture-worker-url>` — never by
+# editing this file. See docs/worker-operations.md's "Replay rig" section.
+[vars]
+TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
+
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
 # expression. An offseason event runs in the fall and championship dates
 # move, so a hardcoded season calendar is one more thing that silently goes
