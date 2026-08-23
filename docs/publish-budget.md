@@ -97,6 +97,14 @@ npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-ep
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-sigma1.sql
 ```
 
+**Historical note (corrected by plan 04-08):** before plan 04-08's league-row reshape (D-13), only
+the `opr` step above could actually complete. `epa` and `sigma1`'s `emitSeedSql` step threw
+`SeedRowTooLargeError` — their league rows carried per-team `priorSeasonRatings` data, each over
+D1's 100,000-byte per-statement limit as a single row — so this four-command cadence was written
+down here as if it worked for all three algorithms while only ever actually completing for one.
+All three commands completed successfully for the first time on plan 04-08's 2026-08-22 run (see
+"State-row shape" below).
+
 `pnpm publish:seasons` writes the three `seed-{algorithmId}.sql` files to
 `reports/publish/` (gitignored, local only) as a side effect — the three `wrangler d1 execute`
 calls are what actually applies them, and they are **not run automatically by `publish:seasons`
@@ -126,6 +134,163 @@ deleted, in [`docs/models/opr-baseline-change.md`](models/opr-baseline-change.md
 **weaker** baseline than the retired season-pooled one — it sees only one event's handful of
 matches rather than a team's whole season — and that is stated here explicitly so a Sigma1 result
 measured against it is read honestly, not mistaken for a moved goalpost (D-11).
+
+## State-row shape (D-13, plan 04-08)
+
+Before this plan, three of the state store's `scopeKind: "league"` rows held per-team maps that
+belong in `scopeKind: "team"` rows instead — measured against the real corpus, 2026-08-22 (the
+`sigma1`/`epa` figures from this plan's own objective text; the `opr` figure independently
+re-confirmed by a read-back query run immediately before this plan's re-seed):
+
+| Algorithm | League row before | Offending per-team map |
+|---|---:|---|
+| sigma1 | 259,174 bytes (≈253.1 KB) | `priorSeasonRatings` (`lastSeason`/`yearBefore`, ≈245.8 KB of the row) |
+| epa | 251,995 bytes (≈246.0 KB) | `priorSeasonRatings` (`lastSeason`/`yearBefore`) |
+| opr | 86,974 bytes (≈84.9 KB) | `lastEventByTeam` |
+
+D1's hard per-statement cap is 100,000 bytes; sigma1's and epa's league rows were each roughly
+2.5x that cap as a single SQL tuple, so `wrangler d1 execute --file` could never import them —
+`pnpm publish:seasons` exited 1 for both algorithms on every run before this plan. Only `opr` (the
+smallest offender) had ever been successfully seeded: 210 rows, RETIRED shape, seeded 2026-08-22,
+still the only rows present in remote D1 immediately before this plan's re-seed.
+
+Plan 04-08 moved every one of these per-team maps into `scopeKind: "team"` rows — a union type,
+so a team may carry current-season state, a prior-season rating, or both, and a team known only
+via a prior-season rating still gets its own row rather than being dropped — and added an explicit
+`snapshotShapeVersion` to every league payload, so a RETIRED-shape row (exactly the 210 `opr` rows
+already sitting in production) fails loudly (`LeagueRowShapeVersionError`) if read by the reshaped
+deserializer, rather than being silently parsed with its per-team data discarded.
+
+### League rows: before vs. after, measured against the real 2022-2026 corpus
+
+Run: `pnpm publish:seasons` (`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`),
+completed 2026-08-22 ~20:04:55Z, ~14 min wall clock. Seed files:
+`reports/publish/seed-{opr,epa,sigma1}.sql`.
+
+| Algorithm | League row before | League row after | Reduction |
+|---|---:|---:|---:|
+| opr | 86,974 bytes | 26 bytes | −99.97% |
+| epa | 251,995 bytes | 179 bytes | −99.93% |
+| sigma1 | 259,174 bytes | 7,465 bytes | −97.12% |
+| **Total (3 algorithms)** | **598,143 bytes (≈584 KB)** | **7,670 bytes** | **−98.72%** |
+
+All three are at or under `MAX_LEAGUE_ROW_BYTES` (16,384 bytes). sigma1's 7,465-byte league row —
+the largest of the three, since it alone carries genuine per-component league aggregates
+(`componentMean`/`componentConsistency`/`rpVariableMean`) — leaves roughly 2.2x headroom under
+that budget.
+
+### Seed emission: no `SeedRowTooLargeError`, for the first time for epa and sigma1
+
+`pnpm publish:seasons` exited **0** on this run. Longest emitted statement, per seed file — all
+comfortably under D1's real 100,000-byte per-statement limit:
+
+| Algorithm | Statements (1 DELETE + N INSERT) | Longest statement (bytes) |
+|---|---:|---:|
+| opr | 34 (33 INSERT) | 90,050 |
+| epa | 32 (31 INSERT) | 90,101 |
+| sigma1 | 220 (219 INSERT) | 90,034 |
+
+All three sit roughly 9.9–10 KB under D1's real 100,000-byte cap — the "~10 KB of headroom"
+`emitSeedSql`'s own doc comment reserves for the `INSERT ... VALUES` prefix and trailing semicolon
+sitting on top of the 90,000-byte per-tuple accumulation budget, exactly as designed. (epa's
+90,101-byte longest statement is, honestly, a handful of bytes over the nominal 90,000
+`maxStatementLength` config value itself — the accumulator bounds tuple bytes, not the final
+assembled statement's own `INSERT INTO ... VALUES ` prefix — but it is nowhere near D1's real
+100,000-byte enforced limit, which is the property that actually determines import success.)
+
+### Import: all three algorithms present in remote D1, verified by read-back
+
+All three seed files imported cleanly into remote `sigmascout-state`
+(`npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-{id}.sql`, run in
+order opr, epa, sigma1), 2026-08-22 ~20:05–20:08Z. Read-back
+(`SELECT algorithm_id, scope_kind, COUNT(*), MAX(LENGTH(state_json)) ... GROUP BY algorithm_id,
+scope_kind`), same run:
+
+| algorithm_id | scope_kind | rows | max bytes |
+|---|---|---:|---:|
+| epa | league | 1 | 179 |
+| epa | team | 4,598 | 495 |
+| opr | event | 209 | 18,135 |
+| opr | league | 1 | 26 |
+| opr | team | 3,699 | 29 |
+| sigma1 | league | 1 | 7,465 |
+| sigma1 | team | 4,598 | 4,760 |
+
+`opr` has both `event` rows (its per-event OPR fit, D-09, unchanged by this plan) and `team` rows
+(`lastEventByTeam`'s per-team bookkeeping, moved here by this plan). `epa` and `sigma1` each have
+`team` rows only, matching their own `scopeKind` shape. This unblocks plan 04-07's Task 2
+precondition — a seeded D1 — for all three published algorithms, not just `opr`.
+
+### Re-seed, not migrate
+
+This was a re-seed (a clean DELETE-then-INSERT overwrite per algorithm), not a migration, for four
+reasons:
+
+1. `emitSeedSql`'s output already begins with `DELETE FROM algorithm_state WHERE algorithm_id =
+   '<id>'` — a re-seed is a clean overwrite by construction, not something a migration script would
+   need to separately orchestrate.
+2. D-12 makes the offline run the authority: live state is derived data, meant to be overwritten by
+   a fresh replay rather than incrementally migrated in place.
+3. The only rows in remote D1 before this plan were `opr`'s 210 rows (seeded 2026-08-22), and
+   nothing had advanced them incrementally since — no event has been live — so there was no
+   incremental progress a migration would have needed to preserve.
+4. A migration would have to be written, tested, and kept around forever to serve a one-time
+   transition of derived data. No new file under `apps/worker/migrations/` was needed either — the
+   schema is unchanged (`scope_kind` already admitted a `'team'` value; this plan changes only what
+   PAYLOAD `sigma1`/`epa`/`opr` store there, never the table shape).
+
+### Worker deploy and re-measured idle-tick CPU (D-21)
+
+Order matters and is stated explicitly: **the Worker was deployed before the re-seed.** A Worker
+running this plan's reshaped `deserializeState` meeting the 210 pre-existing `opr` rows in the
+RETIRED shape would throw `LeagueRowShapeVersionError` loudly on any tick that tried to fold that
+event — the correct failure mode, since a retired-shape Worker meeting the newly-reshaped rows
+instead would have silently read an empty per-team map. No event was live during the
+deploy-to-reseed window, so no tick actually attempted an `opr` fold against the stale rows in
+practice; the ordering is what makes that failure loud rather than silent, had one been live.
+
+Deploy: `pnpm worker:deploy`, 2026-08-22 ~23:49:17Z, from commit `752b0747` (this plan's Task 2 —
+Tasks 1 and 2 were both already committed at deploy time). Version
+`8d1919c6-e8d7-4490-a583-bcb6bb46e691`. Deploy output confirmed `schedule: * * * * *` and all three
+bindings (`MANIFEST`, `DB`, `ARTIFACTS`); `wrangler deployments list` confirmed it at 100%.
+
+Re-measured the same way the baseline below was taken: `npx wrangler tail sigmascout-worker
+--format json`, 12 consecutive invocations, version `8d1919c6-e8d7-4490-a583-bcb6bb46e691`, all
+`outcome: ok`:
+
+| | CPU time | Wall time |
+|---|---|---|
+| Median (all 12) | 7 ms | 160 ms |
+| Range (all 12) | 5–13 ms | 152–192 ms |
+| First captured invocation | 13 ms | 192 ms |
+| Median, excluding first | 7 ms | — |
+| Range, excluding first | 5–12 ms | — |
+
+Compare against the pre-change baseline (`docs/worker-operations.md`, version `5a8e0a6f`, n=10, all
+`ok`): median **7 ms**, range **5–9 ms**, cold start **14 ms**. The median is identical. The range
+is close but not identical (this run's 5–13 ms is slightly wider than the baseline's 5–9 ms — most
+likely ordinary jitter at this sample size; every sample returned a genuine `outcome: ok`, not a
+regression signal). The first-captured invocation's 13 ms sits close to the baseline's 14 ms
+cold-start figure. Note, honestly: "cold start" here — in both this measurement and the baseline it
+is compared against — means "the first invocation captured after this version's deploy," not a
+value read from an explicit platform-exposed cold-start flag; `wrangler tail`'s JSON output carries
+no such field.
+
+**What this figure does and does not show (measurement honesty).** The idle path (`runTick`'s
+"nothing live" early exit) performs exactly one KV read and loads NO algorithm state at all — it
+never calls `readScopedState`/`deserializeState`, so it cannot exercise the parse this plan
+removes. This re-measurement is a **no-regression check only**: the reshape did not make the idle
+path slower. It is **not** evidence that a WORKING tick (one that actually folds a live match and
+parses team-scoped state) got any CPU cheaper — that claim is not made here, and the working-tick
+CPU measurement remains plan 04-07's job. The measured saving THIS plan proves is at the row level,
+not the CPU level: **≈584 KB of league-row JSON down to 7,670 bytes total, across the three
+algorithms** (table above) — a real, measured number, but a storage-shape number, not a
+CPU-timing one.
+
+Also unresolved, carried forward from the baseline and not settled by this measurement either: the
+13 ms/14 ms first-invocation figures both returned `outcome: ok` against the documented 10 ms
+free-plan CPU budget. Whether the platform actually enforces that budget, and against what, remains
+an open question this plan does not answer.
 
 ## Worker runtime budget (D-21/D-23)
 
