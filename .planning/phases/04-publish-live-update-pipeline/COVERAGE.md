@@ -26,7 +26,7 @@
 | tba:match-detail | INTEGRATE | |
 | tba:etag-conditional-requests | INTEGRATE | |
 | tba:request-throttling | INTEGRATE | |
-| tba:event-rankings | OPT-OUT | not needed — SigmaScout derives ranking-point standings from its own corpus RP fields; consuming TBA's precomputed ranking table would put two ranking definitions under one name. Revisit in Phase 7 if the Event page needs the official table verbatim. |
+| tba:event-rankings | OPT-OUT | not needed — standings come from our own corpus RP fields; consuming TBA's precomputed table would put two ranking definitions under one name. Revisit in Phase 7 if the Event page needs it verbatim. |
 | tba:event-alliances | OPT-OUT | not needed yet — elimination alliance selection is not modeled in v1; Phase 8's rank simulation is quals-only. |
 | tba:event-oprs | OPT-OUT | explicitly out of scope — TBA's own OPR is an external-validation channel, and `WINDOWS.md` #1/#2 place external validation in Phase 8, not here. |
 | tba:event-predictions | OPT-OUT | explicitly out of scope — SigmaScout publishes its own predictions; ingesting TBA's would make provenance ambiguous on exactly the pages this phase exists to feed. |
@@ -37,7 +37,7 @@
 | tba:team-years-participated | OPT-OUT | not needed — the published corpus already knows which seasons a team appears in, from its own match rows. |
 | tba:zebra-motionworks | OPT-OUT | not needed — tracking data is not an input to any shipped algorithm (OPR, EPA, Sigma1). |
 | tba:trusted-write-api | OPT-OUT | explicitly out of scope — SigmaScout is strictly read-only against TBA; write access would require event-owner credentials it neither has nor wants. |
-| tba:webhooks | OPT-OUT | not needed yet — D-17/D-18 chose scheduled polling with an offline-published live-windows manifest; a webhook receiver would need a public HTTP endpoint and event-owner registration. Revisit only against a measured freshness shortfall. |
+| tba:webhooks | OPT-OUT | not needed yet — D-17/D-18 chose scheduled polling off an offline-published manifest; a webhook receiver needs a public endpoint and owner registration. Revisit on a measured freshness shortfall. |
 | cloudflare-r2:put-object | INTEGRATE | |
 | cloudflare-r2:get-object | INTEGRATE | |
 | cloudflare-r2:http-metadata-cache-control | INTEGRATE | |
@@ -57,6 +57,6 @@
 | cloudflare-workers:cron-triggers | INTEGRATE | |
 | cloudflare-workers:fetch-handler | OPT-OUT | explicitly out of scope — D-25 puts no compute in the read path; a thin read Worker is a recorded Deferred Idea, added only against a measured need. |
 | cloudflare-workers:secrets | INTEGRATE | |
-| cloudflare-workers:durable-objects | OPT-OUT | not needed — evaluated in `04-RESEARCH.md` § Alternatives Considered and rejected for v1: D1's batched multi-row API already meets D-13's per-team-granular-read requirement without actor-model addressing. Documented as the fallback if D1's per-invocation query ceiling proves insufficient. |
+| cloudflare-workers:durable-objects | OPT-OUT | not needed — rejected for v1 in `04-RESEARCH.md` § Alternatives: D1's batched API already meets D-13 without actor-model addressing. Fallback if D1's query ceiling proves insufficient. |
 | cloudflare-workers:queues | OPT-OUT | not needed — deferral under subrequest pressure is handled by D-15's in-tick rotation and the next cron tick, not by an external queue. |
 | cloudflare-workers:tail-workers | OPT-OUT | not needed — D-21's CPU and subrequest figures are read from Workers Observability's built-in invocation reporting, which requires no custom tail consumer. |
