@@ -42,8 +42,23 @@ function fixtureKey(eventKey: string, kind: "matches" | "detail"): string {
 const EVENT_MATCHES_RE = /^\/event\/([^/]+)\/matches$/;
 const EVENT_DETAIL_RE = /^\/event\/([^/]+)$/;
 
+/**
+ * Real bug found running this plan's own live rig against the deployed
+ * Worker (see the SUMMARY): R2's `onlyIf.etagDoesNotMatch` throws (surfaced
+ * to the caller as a bare 500) when handed an HTTP-header-shaped, DOUBLE-
+ * QUOTED etag — the exact shape `packages/ingest/tbaClient.ts`'s real TBA
+ * client always sends, since it captures `res.headers.get("etag")`
+ * (RFC 7232's own quoted form) verbatim as `cachedEtag` and replays it back
+ * as `If-None-Match` unchanged. R2's binding wants the BARE hash, unquoted.
+ * Stripped once, here, rather than asking the TBA client to send a
+ * non-standard header shape it would never send against the real TBA API.
+ */
+function stripEtagQuotes(etag: string): string {
+  return etag.replace(/^"|"$/g, "");
+}
+
 async function serveFixture(env: FixtureEnv, key: string, ifNoneMatch: string | null): Promise<Response> {
-  const object = await env.ARTIFACTS.get(key, ifNoneMatch ? { onlyIf: { etagDoesNotMatch: ifNoneMatch } } : undefined);
+  const object = await env.ARTIFACTS.get(key, ifNoneMatch ? { onlyIf: { etagDoesNotMatch: stripEtagQuotes(ifNoneMatch) } } : undefined);
   if (object === null) {
     return new Response("fixture not found", { status: 404 });
   }

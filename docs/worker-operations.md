@@ -172,3 +172,82 @@ npx wrangler rollback
 reverts the tick logic, but whatever that logic already folded into `algorithm_state` stays folded.
 If the state itself is suspect, re-baseline from the offline snapshot — that is the only supported
 way to correct it, and it is authoritative by design.
+
+---
+
+## Replay rig (plan 04-07)
+
+`scripts/replayRig.ts` drives a real historical event through the deployed `sigmascout-worker`'s
+real `scheduled()` path, over HTTPS, to measure freshness (D-20/SC-2) and prove online/offline
+equivalence (D-14). It substitutes for TBA with a **second, minimal Worker**,
+`apps/worker/src/fixtureServer.ts` / `wrangler.fixture.toml`, deployed separately as
+`sigmascout-fixture-rig`, serving real-corpus-derived TBA-shaped JSON from the SAME
+`sigmascout-artifacts` R2 bucket under a `fixtures/` prefix.
+
+**The override is a plain, tracked config value, never a back door.** `apps/worker/wrangler.toml`'s
+`[vars]` block declares `TBA_BASE_URL`, defaulting to the real TBA base — visible in git, not a
+secret. The rig substitutes the fixture Worker's URL for the duration of one measurement run via a
+deploy-time flag only, never by editing the tracked file:
+
+```bash
+cd apps/worker
+npx wrangler deploy --var "TBA_BASE_URL:https://fixture-rig.sigmascout.org"
+# ... run the rig ...
+npx wrangler deploy   # restores the tracked default — the rig itself does this in a try/finally
+```
+
+**The fixture Worker needs its own custom domain, not a `*.workers.dev` URL.** A `fetch()` from
+inside one Worker to another Worker's `*.workers.dev` subdomain is intercepted by Cloudflare's own
+`workers.dev` zone and returns a bare 404 rather than routing to the target script — discovered
+running this plan's own first real rig experiment (see `04-07-SUMMARY.md`). `wrangler.fixture.toml`
+routes `sigmascout-fixture-rig` to `fixture-rig.sigmascout.org` instead — a custom domain on the
+same zone R2's own custom domain (`sigmascout.org`) already uses, which has no such restriction.
+
+**Deploying/updating the fixture Worker:**
+
+```bash
+cd apps/worker
+npx wrangler deploy --config wrangler.fixture.toml
+```
+
+**Running the rig:**
+
+```bash
+npx tsx --env-file=.env scripts/replayRig.ts \
+  --event <a real historical event key, e.g. 2026cmptx> \
+  --worker-url https://sigmascout-worker.jrw4561.workers.dev \
+  --fixture-url https://fixture-rig.sigmascout.org \
+  --algorithm opr,epa,sigma1 \
+  --mode both \
+  --live-trigger cron \
+  --out reports/replay-rig/<name>.json
+```
+
+Prefer `pnpm replay:rig -- <flags>` for the identical `tsx --env-file=.env` invocation, spelled once
+in `package.json`.
+
+**`--live-trigger manual`'s `/cdn-cgi/handler/scheduled` route did not work against the real
+deployed Worker in this project's own testing** (a bare 404, Cloudflare error 1042) — this appears to
+be a `wrangler dev --test-scheduled`-only local-development feature, not a route Cloudflare exposes
+on a genuinely deployed Worker's public edge. `--live-trigger cron` (the default recommendation for
+a real run) is what this project actually uses: it waits for the REAL one-minute cron to pick up
+each revealed match, which is also the ONLY run that measures the platform's own scheduling jitter
+(D-20's own framing already preferred this run). The `manual` code path is kept in the rig (it warns
+and continues rather than failing outright on the 404) in case a future Cloudflare change or account
+configuration makes it work — do not delete it as dead code without re-testing first.
+
+**What the rig necessarily mutates on the deployed Worker (and why it is safe):**
+
+- `--event`'s scope in `algorithm_state`/`event_cursor` is reset to a cold start, and the SAME
+  event's already-published R2 artifacts (`v1/event/...`, `v1/team/...`) are deleted too — every
+  corpus event has already been published once by `pnpm publish:seasons`, so resetting D1 state
+  alone is not a cold start: the deployed Worker's merge logic reads the EXISTING published artifact
+  first, and a freshness poll would find every match "already there" from the ORIGINAL publish, not
+  from anything the rig drove. This was a real bug this plan's own first live run caught.
+- The real `v1/manifest/live-windows.json` gains one temporary window for `--event`.
+- The production Worker is redeployed twice per session (fixture URL, then the tracked default).
+
+**All of this is undone by the next re-baseline** (`pnpm publish:seasons` + the three `wrangler d1
+execute --file` seed imports, see "Re-baselining" above) — a rig session should always be followed
+by one, not just for hygiene but as the actual restore mechanism for the manifest and any touched
+published artifacts.
