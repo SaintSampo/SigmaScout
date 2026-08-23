@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 7
 waived_count: 0
 fixed_count: 3
-total_count: 8
-last_updated: 2026-08-22T18:03:11.610Z
+total_count: 10
+last_updated: 2026-08-23T03:17:53.122Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,8 @@ last_updated: 2026-08-22T18:03:11.610Z
 | 6 | 04 | stub | apps/worker/src/scheduled.ts |  | runGlobalRebuild's incremental teams/{year} merge updates metrics/matchCount but NOT the win/loss/tie record field (would need per-team match outcomes threaded through touchedTeamsByAlgorithm, which the plan's time budget did not extend to) -- stays accurate only as of the last offline pnpm publish:seasons run until a future plan extends this | open |  | 2026-08-22T18:03:00.607Z |  |
 | 7 | 04 | stub | apps/worker/src/scheduled.ts |  | The online path never rebuilds events/{year} at all (only teams/{year} via runGlobalRebuild) -- the events list stays accurate only as of the last offline pnpm publish:seasons run; extending the incremental-merge mechanism to events/{year} is deferred to a future plan | open |  | 2026-08-22T18:03:06.054Z |  |
 | 8 | 04 | deviation | apps/worker/src/scheduled.ts |  | Phase B (artifact writes) is deliberately best-effort: a failure there does not change an event's 'advanced' outcome (state has genuinely advanced correctly), but a skipped artifact stays one tick stale until that team's next match at that event -- no future trigger re-attempts a partially-completed Phase B on its own | open |  | 2026-08-22T18:03:11.610Z |  |
+| 9 | 04 | deviation | docs/publish-budget.md |  | 3 published algorithms folded together for a single ordinary match exceed the deployed Worker's real per-tick subrequest budget (estimated cost 50 vs usable ~41); confirmed by repeated live observation, not fixed in this plan (Rule 4 -- architectural) | open |  | 2026-08-23T03:17:45.065Z |  |
+| 10 | 04 | unrun-verify | apps/worker/src/scheduled.ts |  | epa/sigma1 solo deployed-Worker freshness runs (plan 04-07 Task 2) never folded a single match within the poll window and were not diagnosed to root cause within the plan's session; opr's identical rig succeeded cleanly (6/6, digestMatch=true). Not reproduced in an isolated local call to the same algorithm code with the same real data. The CI-runnable offline equivalence test (scheduled.replay.test.ts) independently proves equivalence for all three algorithms and is unaffected. | open |  | 2026-08-23T03:17:53.122Z |  |
 
 ````json
 [
@@ -120,6 +122,30 @@ last_updated: 2026-08-22T18:03:11.610Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-22T18:03:11.610Z",
+    "resolved_at": null
+  },
+  {
+    "id": 9,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "docs/publish-budget.md",
+    "line": null,
+    "description": "3 published algorithms folded together for a single ordinary match exceed the deployed Worker's real per-tick subrequest budget (estimated cost 50 vs usable ~41); confirmed by repeated live observation, not fixed in this plan (Rule 4 -- architectural)",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-23T03:17:45.065Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "unrun-verify",
+    "phase": "04",
+    "file": "apps/worker/src/scheduled.ts",
+    "line": null,
+    "description": "epa/sigma1 solo deployed-Worker freshness runs (plan 04-07 Task 2) never folded a single match within the poll window and were not diagnosed to root cause within the plan's session; opr's identical rig succeeded cleanly (6/6, digestMatch=true). Not reproduced in an isolated local call to the same algorithm code with the same real data. The CI-runnable offline equivalence test (scheduled.replay.test.ts) independently proves equivalence for all three algorithms and is unaffected.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-23T03:17:53.122Z",
     "resolved_at": null
   }
 ]
