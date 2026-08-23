@@ -157,6 +157,26 @@ anywhere. This phase creates `apps/web` from nothing.
   header, ribbon and column headers render immediately from the shell while the
   artifact downloads. NAV-06 makes load speed the top priority, and perceived speed is
   part of that. — **Reversibility:** reversible.
+
+### Added at planning time (2026-08-23)
+
+- **D-17:** **The site is hosted at `https://www.sigmascout.org`** (Cloudflare Pages
+  custom domain on the existing zone). `sigmascout.org` stays exactly as Phase 4
+  shipped it — an R2 custom domain serving artifacts with no compute in the path
+  (Phase 4 D-25 is untouched, nothing republishes). An R2 custom domain claims a whole
+  hostname rather than a path prefix, so the site and the data cannot share the apex
+  without a proxy Worker on every artifact read, which NAV-06 rules out.
+  — **Reversibility:** reversible (DNS + one CORS origin string).
+
+- **D-18:** **The R2 bucket carries an explicit CORS policy with `AllowedOrigins`
+  scoped to `https://www.sigmascout.org`** — never a wildcard. R2 sends no CORS headers
+  by default, so without this every artifact fetch fails on first deploy; this must be
+  configured and confirmed **before the first real `fetch()` call is written**. The data
+  is public, so the risk of a wildcard is low, but narrow-scoping is free and stops the
+  bucket serving arbitrary third-party sites. Preview deploys on `*.pages.dev` need
+  their origin added too, or must be tested against a local artifact fixture.
+  — **Reversibility:** reversible.
+  — *Resolves RESEARCH.md Open Question 1 / Pitfall 1.*
 </decisions>
 
 <constraints>
