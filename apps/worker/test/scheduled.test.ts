@@ -220,8 +220,13 @@ class FakeKvNamespace {
   }
 }
 
+// Quick task 260822-wqt: every `makeKv` call site in this file uses the
+// default OPR-ONLY manifest, so `LIVE_ALGORITHM_IDS: "opr"` keeps every
+// existing assertion in this file exercising exactly what it exercised
+// before the live-tier filter existed — without it the filter yields an
+// empty tier and every test in this file throws (EmptyLiveAlgorithmTierError).
 function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env {
-  return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key" } as Env;
+  return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key", LIVE_ALGORITHM_IDS: "opr" } as Env;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,9 +582,12 @@ describe("runTick — algorithm module construction (Pitfall 4)", () => {
 
     let constructionCount = 0;
     const { buildAlgorithmModules: realBuildAlgorithmModules } = await import("../src/scheduled.js");
-    const countingBuilder = (manifest: Parameters<typeof realBuildAlgorithmModules>[0]) => {
+    // Quick task 260822-wqt: `buildAlgorithmModules` gained a required second
+    // parameter (the live tier) — passed through unchanged here since this
+    // test's own concern is call COUNT, not filtering behavior.
+    const countingBuilder = (manifest: Parameters<typeof realBuildAlgorithmModules>[0], liveAlgorithmIds: Parameters<typeof realBuildAlgorithmModules>[1]) => {
       constructionCount++;
-      return realBuildAlgorithmModules(manifest);
+      return realBuildAlgorithmModules(manifest, liveAlgorithmIds);
     };
 
     await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder, ...DISABLE_GLOBAL_REBUILD });

@@ -84,8 +84,7 @@ import {
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import type { AlgorithmsManifest } from "../../../packages/harness/manifestSchemas.js";
-import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { liveEventsAt, loadAlgorithmsManifest, loadLiveWindowsManifest } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -128,10 +127,97 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
 // Algorithm module construction — hoisted ONCE per tick (Pitfall 4)
 // ---------------------------------------------------------------------------
 
-/** Builds exactly the modules `algorithmsManifest` names, at the exact versions/parameters it names — never a second, independently-derived resolution (D-03). Called exactly ONCE per tick; every event this tick reuses the SAME module instances, never rebuilt per event. */
-export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest): Map<string, AlgorithmModule<any>> {
+/**
+ * Quick task 260822-wqt (D-04 regression fix): only sigma1 needs real-time
+ * folding during a live event — the user's explicit decision over adding
+ * per-algorithm cursor granularity. `processEvent`'s `estimatedCost` for ONE
+ * ordinary 3v3 match (6 touched teams) is 18 with sigma1 alone vs. 50 with
+ * all three published algorithms live, against ~41 subrequests actually
+ * available per tick — with all three live the event defers every tick,
+ * forever (measured on the deployed Worker during plan 04-07, recorded in
+ * `docs/publish-budget.md`'s "Worker runtime budget" section). This does NOT
+ * change what is PUBLISHED (D-03 — opr, epa, sigma1 stay exactly as
+ * published); it only narrows what THIS Worker folds LIVE. opr/epa refresh
+ * at the manual pre/post-event-weekend re-baseline (D-12) instead. Exported
+ * so `parseLiveAlgorithmIds`'s unset/empty fallback and this file's own
+ * regression test (`liveAlgorithmTier.test.ts`) bind to the SAME default
+ * rather than a re-typed copy.
+ */
+export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["sigma1"];
+
+/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
+export class UnknownLiveAlgorithmIdError extends Error {
+  constructor(id: string) {
+    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
+    this.name = "UnknownLiveAlgorithmIdError";
+  }
+}
+
+/**
+ * The live tier, after filtering the algorithms manifest, came out empty.
+ * Thrown rather than allowed to silently fold zero algorithms: a tick that
+ * folds nothing would still CLAIM and ADVANCE the event cursor
+ * (`claimEventAdvance`), marking matches folded that were never applied to
+ * any algorithm's state — a corruption that is indistinguishable from
+ * health in the one log line `docs/worker-operations.md`'s troubleshooting
+ * table tells an operator to read (`"ok":true`, `eventsAdvanced` climbing
+ * normally). This guard exists specifically to make that failure loud.
+ */
+export class EmptyLiveAlgorithmTierError extends Error {
+  constructor() {
+    super(
+      "buildAlgorithmModules: the live algorithm tier is empty after filtering the algorithms manifest — " +
+        "a tick that folds zero algorithms would still claim and advance the event cursor, marking matches " +
+        "folded that were never applied to any state. Check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml " +
+        "against the deployed algorithms manifest (v1/manifest/algorithms.json)."
+    );
+    this.name = "EmptyLiveAlgorithmTierError";
+  }
+}
+
+/**
+ * Parses `Env.LIVE_ALGORITHM_IDS` (a comma-separated string) into the tier
+ * that folds LIVE this tick. Three decided behaviors (quick task
+ * 260822-wqt), each deliberate:
+ *  - Unset or empty (after trimming/dropping blank segments) — falls back to
+ *    `DEFAULT_LIVE_ALGORITHM_IDS` AND emits ONE structured
+ *    `live-tier-defaulted` warn line (never silent). Defaulting to "all"
+ *    would reintroduce the exact defect this fixes; throwing would take the
+ *    site's freshness down over a config omission (including the plausible
+ *    case where a deploy-time `--var` override drops this tracked var).
+ *    Falling back is safe; the warn line is what stops it being silent. Only
+ *    the ids themselves are logged, never any other binding value.
+ *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
+ * Called at the TOP of `runTick`, before the live-windows manifest read, so
+ * a misconfigured deploy surfaces on the very next tick — one minute later,
+ * in the tail an operator is already watching — rather than lying dormant
+ * until an event goes live months later.
+ */
+export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
+  const segments = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  if (segments.length === 0) {
+    console.warn(JSON.stringify({ msg: "live-tier-defaulted", ids: DEFAULT_LIVE_ALGORITHM_IDS }));
+    return [...DEFAULT_LIVE_ALGORITHM_IDS];
+  }
+
+  for (const id of segments) {
+    if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(id)) {
+      throw new UnknownLiveAlgorithmIdError(id);
+    }
+  }
+  return segments;
+}
+
+/** Builds exactly the modules `algorithmsManifest` names, at the exact versions/parameters it names — never a second, independently-derived resolution (D-03) — narrowed to ONLY the ids in `liveAlgorithmIds` (quick task 260822-wqt: PUBLISHED (D-03) and FOLDED-LIVE are two different sets; this filter narrows the latter only). Called exactly ONCE per tick; every event this tick reuses the SAME module instances, never rebuilt per event. Throws `EmptyLiveAlgorithmTierError` if the filtered result is empty — see that error's own doc comment for why. */
+export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]): Map<string, AlgorithmModule<any>> {
+  const liveSet = new Set(liveAlgorithmIds);
   const modules = new Map<string, AlgorithmModule<any>>();
   for (const entry of algorithmsManifest.algorithms) {
+    if (!liveSet.has(entry.id)) continue;
     if (entry.id === "opr") {
       modules.set(entry.id, opr);
       continue;
@@ -145,6 +231,9 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest): M
     // harness-only link-mode ids by name, so this branch is only ever
     // reached for `id === "sigma1"`).
     modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
+  }
+  if (modules.size === 0) {
+    throw new EmptyLiveAlgorithmTierError();
   }
   return modules;
 }
@@ -535,6 +624,37 @@ function changesOf(result: unknown): number {
   return (result as { meta?: { changes?: number } })?.meta?.changes ?? 0;
 }
 
+// ---------------------------------------------------------------------------
+// Subrequest budget estimate (D-15) — extracted (quick task 260822-wqt) so
+// `processEvent` and this file's regression test (`liveAlgorithmTier.test.ts`)
+// bind to the SAME formula; see this module's header for the atomicity/
+// budget reasoning.
+// ---------------------------------------------------------------------------
+
+/** `runTick`'s own three fixed `consume(1)` calls, paid before any event-specific work: the live-windows manifest read, the algorithms manifest read, and the tick-meta read (see `runTick`'s "Step 1" / "something is live" comments below). Pinned to the real deployed Worker's measured `subrequestsUsed` for an idle/unchanged tick by this file's regression test — never re-typed without re-measuring on a deployed Worker. */
+export const TICK_FIXED_SUBREQUEST_COST = 3;
+
+/** `processEvent`'s own fixed cost, spent BEFORE the estimate check below: the cursor-CAS-gate read (`tryConsume(1)`) and the TBA poll (`tryConsume(1)`). */
+export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
+
+/**
+ * The whole event's remaining subrequest cost, estimated up front (D-15) —
+ * see this module's header for why all-or-nothing-per-event atomicity is the
+ * safe choice. `processEvent` below is this function's ONLY caller; the
+ * regression test in `liveAlgorithmTier.test.ts` binds to this SAME function
+ * rather than a re-typed copy of the arithmetic — re-typing a
+ * plausible-looking formula is exactly how the live-folding-defers-forever
+ * defect (quick task 260822-wqt) survived four plans undetected.
+ */
+export function estimateEventSubrequestCost(algorithmCount: number, touchedTeamCount: number): number {
+  return (
+    1 /* claim (cursor CAS) */ +
+    1 /* event-detail fetch */ +
+    algorithmCount * 2 /* Phase A: read + write, per algorithm */ +
+    algorithmCount * 2 * (1 + touchedTeamCount) /* Phase B: read + write, per event artifact + per team artifact, per algorithm */
+  );
+}
+
 async function processEvent(
   env: Env,
   budget: SubrequestBudget,
@@ -584,11 +704,7 @@ async function processEvent(
     // see this module's header for why atomicity (all-or-nothing per event)
     // is the safe choice here.
     const algorithmCount = algorithmModules.size;
-    const estimatedCost =
-      1 /* claim (cursor CAS) */ +
-      1 /* event-detail fetch */ +
-      algorithmCount * 2 /* Phase A: read + write, per algorithm */ +
-      algorithmCount * 2 * (1 + touchedTeams.length); /* Phase B: read + write, per event artifact + per team artifact, per algorithm */
+    const estimatedCost = estimateEventSubrequestCost(algorithmCount, touchedTeams.length);
     if (budget.remaining < estimatedCost) {
       return { status: "deferred" };
     }
@@ -822,7 +938,7 @@ export interface RunTickDeps {
   readonly nowMs?: number;
   readonly globalRebuildIntervalMs?: number;
   /** Test-only injection point (defaults to the real `buildAlgorithmModules`) — lets a test wrap it with a call counter to assert modules are constructed ONCE per tick, never once per event (Pitfall 4), without mocking the whole `packages/core/algorithms/sigma1` module. */
-  readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest) => Map<string, AlgorithmModule<any>>;
+  readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
   /** Test-only override of `SubrequestBudget`'s constructor args — lets a test drive the deferral/no-starvation and budget-exhausted-global-rebuild paths deterministically without depending on this tick's exact real subrequest-cost arithmetic. Defaults to `SUBREQUEST_CAP`/`SUBREQUEST_RESERVE` (the real production values) when omitted. */
   readonly subrequestCap?: number;
   readonly subrequestReserve?: number;
@@ -851,6 +967,13 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const counter = new TbaRequestCounter();
   const tbaCtx = createTbaContext(env, counter);
 
+  // Quick task 260822-wqt: parsed BEFORE the live-windows manifest read, on
+  // EVERY tick (including idle ones), so a misconfigured deploy surfaces on
+  // the very next tick — one minute later, in the tail an operator is
+  // already watching — rather than lying dormant until an event goes live
+  // months later.
+  const liveAlgorithmIds = parseLiveAlgorithmIds(env.LIVE_ALGORITHM_IDS);
+
   // Step 1 (Pattern 2): the ONE manifest read that answers "is anything
   // live" — an idle tick (the overwhelmingly common case, ~10 months of the
   // year) exits right here, having spent zero TBA requests.
@@ -867,7 +990,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   budget.consume(1);
   const algorithmsManifest = await loadAlgorithmsManifest(env);
   const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
-  const algorithmModules = buildModules(algorithmsManifest);
+  const algorithmModules = buildModules(algorithmsManifest, liveAlgorithmIds);
 
   budget.consume(1);
   const meta = await readTickMeta(env.DB);

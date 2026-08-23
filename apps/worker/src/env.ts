@@ -27,4 +27,22 @@ export interface Env {
    * changes when this is overridden (D-22).
    */
   readonly TBA_BASE_URL: string;
+  /**
+   * Quick task 260822-wqt (D-04 regression fix): the comma-separated subset
+   * of the published algorithm ids that folds LIVE, per tick — NOT the
+   * published set (D-03), which stays all three regardless of this value.
+   * A plain `[vars]` value (never a secret), tracked in `wrangler.toml`,
+   * following `TBA_BASE_URL`'s own precedent in the same block.
+   *
+   * Declared OPTIONAL, not required, for two reasons: the existing test envs
+   * construct `Env` through an `as Env` cast, and — more importantly — a
+   * deploy-time `wrangler deploy --var` override (the replay rig's own
+   * mechanism, see `docs/worker-operations.md`'s "Replay rig" section) may
+   * or may not carry the other tracked vars through. An optional type makes
+   * the unset branch (`scheduled.ts`'s `parseLiveAlgorithmIds`, which
+   * defaults to sigma1 and emits a `live-tier-defaulted` warn line) a real,
+   * reachable, type-checked path instead of dead code the compiler believes
+   * cannot happen.
+   */
+  readonly LIVE_ALGORITHM_IDS?: string;
 }

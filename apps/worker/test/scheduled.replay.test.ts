@@ -229,8 +229,23 @@ class FakeKvNamespace {
   }
 }
 
+// Quick task 260822-wqt: this test asserts D-14's equivalence property
+// across ALL THREE published algorithms, so its live tier is deliberately
+// left at all three rather than narrowed to sigma1 — it already overrides
+// the subrequest budget (`subrequestCap: 1000, subrequestReserve: 0`) below
+// precisely because it tests the equivalence property, not the deferral
+// mechanism `scheduled.test.ts` covers directly. Narrowing this to sigma1
+// would silently drop opr/epa fold-equivalence coverage while the suite
+// stayed green.
 function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env {
-  return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key", TBA_BASE_URL: "https://tba.example.invalid/api/v3" } as Env;
+  return {
+    DB: d1 as unknown as D1Database,
+    ARTIFACTS: r2 as unknown,
+    MANIFEST: kv as unknown,
+    TBA_API_KEY: "test-key",
+    TBA_BASE_URL: "https://tba.example.invalid/api/v3",
+    LIVE_ALGORITHM_IDS: "opr,epa,sigma1",
+  } as Env;
 }
 
 function liveWindowsManifest(windows: readonly { eventKey: string; season: number; startMs: number; endMs: number }[]): string {
