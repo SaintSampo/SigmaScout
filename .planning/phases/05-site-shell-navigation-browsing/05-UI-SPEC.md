@@ -1,10 +1,11 @@
 ---
 phase: 5
 slug: site-shell-navigation-browsing
-status: draft
+status: approved
 shadcn_initialized: false
-preset: "recommended, not yet run — see Design System notes below"
+preset: "confirmed 2026-08-23 (neutral / CSS variables on / 0.375rem); `npx shadcn init` not yet run — see Design System notes below"
 created: 2026-08-23
+approved: 2026-08-23
 ---
 
 # Phase 5 — UI Design Contract
@@ -17,7 +18,7 @@ created: 2026-08-23
 
 | Property | Value |
 |----------|-------|
-| Tool | shadcn (recommended — not yet initialized) |
+| Tool | shadcn — **confirmed by the user 2026-08-23**, official registry only; `npx shadcn init` not yet run because `apps/web` does not exist |
 | Preset | base color `neutral`, CSS variables **on** (mandatory — matches 05-CONTEXT D-06's token-discipline requirement), radius `0.375rem` (6px) |
 | Component library | Radix primitives via shadcn |
 | Icon library | lucide-react |
@@ -39,8 +40,10 @@ layer. This phase needs several accessible interactive primitives with real keyb
 behavior out of the box — a combobox-style instant search dropdown (D-08), a `Select` for two
 global dropdowns (NAV-02), a mobile filter sheet (D-15), a skeleton loader (D-16) — and shadcn
 (Radix underneath, Tailwind-native styling, code lives in the repo rather than a node_modules
-black box) is the standard 2025/2026 choice for exactly this shape of app. This is a recommendation
-for the executor/planner to confirm, not an irreversible action already taken.
+black box) is the standard 2025/2026 choice for exactly this shape of app. **The user confirmed this
+on 2026-08-23**, choosing it over depending on `@radix-ui/*` directly and over hand-rolling the
+primitives; official registry only, no third-party registries. Running `npx shadcn init` with the
+preset above remains the first action item of Phase 5's scaffolding plan.
 
 **Component inventory needed this phase (all shadcn official registry — no third-party registry):**
 `select` (year + algorithm dropdowns), `command` (search instant-results, built on `cmdk` — matches
@@ -175,54 +178,95 @@ template's de-dup rule, referenced from UI Considerations below):**
 > Populated by the ui-phase UI-consideration probe (Step 9.5) and lifted by plan-phase's
 > `## UI Considerations` lift rule via the identical rule as SPEC `## Edge Coverage`. Shape-rooted UI *state*
 > coverage (empty / loading / error / populated / partial / overflow / zero-one-many / long-text).
-> Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
+> Empty-state and error-state COPY lives in `## Copywriting Contract` above — this section covers
 > state coverage and REFERENCES those rows rather than restating the copy (de-dup).
 
-Applicable state considerations resolved: 19 covered, 6 backstop, 1 unresolved
+**Probe result:** 64 applicable considerations across 8 surfaces — **40 covered**, **7 backstop**, **17 dismissed** (category cannot occur for that surface), **0 unresolved**.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| loading | Top ribbon (nav) | ✅ covered | Ribbon is static app-shell chrome (links, wordmark) — renders instantly, never blocked on any data fetch; NAV-06's fast-load priority applies to content below it |
-| overflow | Top ribbon (nav) | ✅ covered | On phone width, Teams/Events/Compare links collapse into the ribbon's remaining space with the year/algorithm selects and search moving to a second row or a compact icon-triggered layout — never a horizontal-scrolling nav bar |
-| long-text | Top ribbon (nav) | ✅ covered (dismissed for dynamic content) | Ribbon labels are fixed short strings ("Teams", "Events", "Compare") — no dynamic/long text ever appears here |
-| loading | Year dropdown (interactive-control) | ✅ covered | Year options are a small fixed, build-time-known range (2022–current season) — no fetch dependency, no loading state needed |
-| loading | Algorithm dropdown (interactive-control) | 🧪 backstop | Options come from the published `manifest/algorithms.json` (dynamic version strings, D-13). Client ships `PUBLISHED_ALGORITHM_IDS = ["opr","epa","sigma1"]` (already an exported constant in `packages/harness/manifestSchemas.ts`) as a build-time fallback list with static display labels, shown immediately; the manifest fetch upgrades version strings in place once it resolves, with no visible loading flicker for the common case |
-| error | Algorithm dropdown (interactive-control) | 🧪 backstop | If the manifest fetch fails, the dropdown silently keeps the build-time fallback list (id + generic label, no version suffix shown) rather than showing an error banner — low-stakes chrome, not worth interrupting the page for |
-| empty | Search results (list-collection) | ✅ covered | Reuses "Search — no matches" copy row above |
-| loading | Search results (list-collection) | 🧪 backstop | Reuses "Search — events not yet loaded" copy row above; team results (always resident) render immediately and are never gated by the events lazy-fetch |
-| error | Search results (list-collection) | 🧪 backstop | Reuses "Search — events failed to load" copy row above; degrades to team-only results rather than failing the whole search |
-| populated | Search results (list-collection) | ✅ covered | Dropdown groups matches under small "Teams" / "Events" section labels, hard-capped at a fixed count (e.g. 8 total) — no internal scroll, no "N more" affordance |
-| zero-one-many | Search results (list-collection) | ✅ covered | Zero → no-matches copy; one → Enter jumps directly with no ambiguity (D-08); many → capped display, never all matches |
-| long-text | Search results (list-collection) | ✅ covered | Team nicknames/event names truncate with ellipsis mid-row; full text available via the native `title` attribute on hover/long-press |
-| loading | Teams table (list-collection) | ✅ covered | D-16: skeleton table — header, ribbon, and column headers render immediately from the shell; body rows show skeleton placeholders until the `teams/{year}` artifact resolves |
-| error | Teams table (list-collection) | ✅ covered | Reuses the canonical Error-state copy row above, substituting "teams" for `{resource}` |
-| populated | Teams table (list-collection) | ✅ covered | D-01/D-02: all ~3,750 rows in one continuous virtualized scroll, ranked, sortable, single upfront fetch |
-| partial | Teams table (list-collection) | ✅ covered | Every row is schema-guaranteed to carry `TOTAL_METRIC_KEY` (D-27); the Teams table renders exactly one metric column ("Rating," bound to `total`) so no row can ever be missing the column it needs to render — see the Claude's-Discretion note below |
-| overflow | Teams table (list-collection) | 🧪 backstop | D-04's flagged risk: mobile horizontal scroll for the non-frozen columns while `rank`/`teamNumber`/`nickname` stay pinned. Mechanism named above (TanStack Table column pinning + TanStack Virtual); needs a real touch-interaction test proving vertical and horizontal scroll gestures don't fight before this can move to covered |
-| zero-one-many | Teams table (list-collection) | ✅ covered | "Many" (≈3,750) is the only realistic case; a hypothetical single-row season renders as an ordinary one-row table with no special-cased layout |
-| long-text | Teams table (list-collection) | ✅ covered | Long team nicknames (sponsor-heavy names) truncate with ellipsis in the nickname cell; full name via `title` attribute, matching the search dropdown's own rule |
-| empty | Events list (list-collection) | ✅ covered | Reuses the canonical Empty-state copy row above (D-11's named case) |
-| loading | Events list (list-collection) | ✅ covered | Same D-16 skeleton pattern as Teams, scaled to the events list's own column set |
-| error | Events list (list-collection) | ✅ covered | Reuses the canonical Error-state copy row above, substituting "events" for `{resource}` |
-| populated | Events list (list-collection) | ✅ covered | Row counts stay in the low hundreds per season (measured: 15 season files, 51,879 B median) — plain sortable/filterable list, no virtualization required (unlike Teams) |
-| partial | Events list (list-collection) | 🧪 backstop | `week` is nullable in the published schema; a `null` week renders as an "Offseason" badge in place of a week number (copy row above) rather than a blank cell or a literal "null" — needs a rendering test against a real offseason fixture row |
-| overflow | Events list (list-collection) | ✅ covered | Long event names truncate with ellipsis, same rule as the Teams table |
-| zero-one-many | Events list (list-collection) | ✅ covered | Zero → empty-state copy; one → ordinary single-row layout; many → ordinary list, no special treatment |
-| long-text | Events list (list-collection) | ✅ covered | Same truncation rule as overflow, above |
-| empty | Events filter sheet/dropdowns (form, interactive-control) | ⚠ unresolved | **Blocking data gap, not a design choice:** the published `v1/events/{year}` artifact (`EventsListRowSchema`) carries no `country`, `stateProv`, or `districtKey` field anywhere in the repo (`packages/harness/pageArtifacts.ts`; confirmed by full-repo grep — zero matches). EVNT-01 and 05-CONTEXT D-15 both require filtering by country/state/district. This phase cannot build that filter UI against data that does not exist in the artifact today. Flagged for the planner: either Phase 4's `EventsArtifactSchema`/`buildEventsArtifact` needs an amendment (new fields sourced from TBA's `event.country`/`event.state_prov`/`event.district`, plus a republish) before Phase 5 can implement this filter, or the requirement's scope narrows to week-only filtering with country/state/district explicitly deferred. This is a planner/requirements decision, not something this UI-SPEC can resolve unilaterally |
-| loading | Events filter sheet/dropdowns (form, interactive-control) | ✅ covered | Filter option lists (week, and country/state/district once the gap above is resolved) derive locally from the already-fetched Events artifact already in memory — no separate fetch, no loading state |
+Element kinds were confirmed rather than taken from the prose heuristic alone: the classifier under-detected the Teams table (missed `static-content`, so `long-text` never raised despite sponsor-heavy nicknames being a real truncation case) and the algorithm dropdown (missed `list-collection`, which the year dropdown *did* get). Both were widened before resolution.
 
-**Claude's Discretion note — Teams table metric column count.** TEAM-01 says "metric(s)" (plural,
-ambiguous). OPR publishes exactly one metric (`total`, no components); EPA and Sigma1 publish
-several named components plus `total`. Showing per-component columns would make the Teams table's
-column SET itself change when switching algorithms, which conflicts with 05-CONTEXT D-13's "same
-sort field... only the values change" premise for anything beyond `total`. **Resolution: the
-Teams table renders exactly one metric column, labeled "Rating," bound to `TOTAL_METRIC_KEY`.**
-This is schema-stable across every algorithm (every `AlgorithmModule.teamMetrics` guarantees
-`total`, per D-27) and cleanly resolves 05-CONTEXT Open Question 3 — no fallback-to-rank-order
-case is ever needed, because `total` always exists. Per-component metric breakdowns belong on the
-Phase 6 team detail page, where a single team's full metric set is the natural unit of display.
-Flagged for planner override if this reading of TEAM-01 is wrong.
+| Surface | Category | Status | Resolution / Reason |
+|---------|----------|--------|---------------------|
+| Top ribbon (nav) | empty | — dismissed | Ribbon carries a fixed build-time link set (Teams / Events / Compare) plus the wordmark — no data source, so it cannot be empty. |
+| Top ribbon (nav) | loading | ✅ covered | Static app-shell chrome: renders in the first paint, never gated on any fetch. NAV-06's fast-load priority applies to the content below it, not to the ribbon itself. |
+| Top ribbon (nav) | error | — dismissed | No data dependency backs the ribbon, so it has no failure mode of its own. |
+| Top ribbon (nav) | populated | ✅ covered | Desktop: single row — wordmark, three nav links, year Select, algorithm Select, search box. The active link carries the accent underline indicator. |
+| Top ribbon (nav) | partial | — dismissed | The link set is a complete constant; there is no per-item data that could be missing. |
+| Top ribbon (nav) | overflow | ✅ covered | At phone width the nav links collapse onto a compact second row alongside an icon-triggered search (44×44px hit area). Never a horizontally scrolling nav bar. |
+| Top ribbon (nav) | zero-one-many | — dismissed | Link count is fixed at three; zero and one never occur. |
+| Top ribbon (nav) | long-text | — dismissed | Labels are fixed short strings that never receive dynamic content. |
+| Year dropdown | empty | — dismissed | Options are a build-time-known range (2022 through the current season); the list is never empty. |
+| Year dropdown | loading | ✅ covered | No fetch dependency — options are available at first paint, so no loading state is rendered. |
+| Year dropdown | error | — dismissed | No fetch, therefore no failure mode. |
+| Year dropdown | populated | ✅ covered | Descending list, current season first and selected by default. Selection writes to the URL search params (NAV-05) and re-slices the page immediately. |
+| Year dropdown | partial | — dismissed | The year range is a complete constant with no optional per-option fields. |
+| Year dropdown | overflow | ✅ covered | Roughly five to eight options — shadcn Select's own built-in scroll handles the list with no custom treatment. |
+| Year dropdown | zero-one-many | — dismissed | The option count is fixed and always many; zero and one never occur. |
+| Year dropdown | long-text | — dismissed | Every label is a four-character year. |
+| Algorithm dropdown | empty | ✅ covered | Cannot be empty: PUBLISHED_ALGORITHM_IDS (exported from packages/harness/manifestSchemas.ts) ships as a build-time constant, so the trigger always offers at least the three known ids even before any fetch resolves. |
+| Algorithm dropdown | loading | 🧪 backstop | The build-time fallback list renders immediately with static display labels; the manifest/algorithms.json fetch upgrades version strings in place. Needs a test proving the upgrade does not remount the Select or reset the current selection. |
+| Algorithm dropdown | error | 🧪 backstop | On manifest fetch failure the dropdown silently keeps the build-time list (id + generic label, no version suffix) rather than showing an error banner — low-stakes chrome, not worth interrupting the page for. Needs a test that a failed manifest leaves both the selection and the page usable. |
+| Algorithm dropdown | populated | ✅ covered | Three options (OPR, EPA, Sigma1), each gaining a version suffix once the manifest resolves. No color-coded freshness indicator anywhere — only sigma1 is folded live, so color must not imply parity across the three. |
+| Algorithm dropdown | partial | ✅ covered | A manifest entry whose id is not in PUBLISHED_ALGORITHM_IDS is ignored rather than rendered; a known id absent from the manifest still renders from the fallback constant, without a version suffix. |
+| Algorithm dropdown | overflow | — dismissed | Three options — the list can never exceed its container. |
+| Algorithm dropdown | zero-one-many | — dismissed | Always exactly three options. |
+| Algorithm dropdown | long-text | ✅ covered | Label plus version suffix truncates with ellipsis in the closed trigger; the open list shows the full string. |
+| Search + results dropdown | empty | ✅ covered | Reuses the 'Search — no matches' copy row in the Copywriting Contract: inline in the dropdown, no heading/body split. |
+| Search + results dropdown | loading | 🧪 backstop | Reuses the 'Search — events not yet loaded' copy row. Team results are always resident and render immediately; the events lazy-fetch (D-10) never gates them. Needs a test proving the events section resolving does not reorder results or steal focus from a highlighted team row. |
+| Search + results dropdown | error | 🧪 backstop | Reuses the 'Search — events failed to load' copy row — degrades to team-only results rather than failing the whole search. Needs a test that a failed events fetch still leaves team matches navigable by keyboard. |
+| Search + results dropdown | populated | ✅ covered | Matches grouped under small 'Teams' and 'Events' section labels, hard-capped at eight total. No internal scroll and no 'N more' affordance — the cap is the whole rule. |
+| Search + results dropdown | partial | ✅ covered | An event match whose week is null renders without a week chip rather than a blank slot or a literal 'null'. |
+| Search + results dropdown | overflow | ✅ covered | The eight-item cap IS the overflow rule; the dropdown never scrolls internally. |
+| Search + results dropdown | zero-one-many | ✅ covered | Zero → no-matches copy. One → Enter navigates directly with no disambiguation step (D-08). Many → capped display, never the full match set. |
+| Search + results dropdown | long-text | ✅ covered | Team nicknames and event names truncate with ellipsis mid-row; full text is available via the native title attribute on hover / long-press. |
+| Teams table | empty | ✅ covered | Reuses the canonical Empty-state heading/body pattern with 'for {year}' substituted. Corpus-gap-only case: D-01 loads every team for the year, so this is never filter-driven. |
+| Teams table | loading | ✅ covered | D-16 skeleton table — ribbon and column headers render immediately from the shell; body rows show skeleton placeholders until the teams/{year} artifact resolves. |
+| Teams table | error | ✅ covered | Reuses the canonical Error-state copy with 'teams' substituted for {resource}, plus the Retry button. |
+| Teams table | populated | ✅ covered | All ~3,750 rows in one continuous virtualized scroll, ranked by the selected algorithm's total, sortable, from a single upfront fetch (D-01/D-02). |
+| Teams table | partial | 🧪 backstop | The column SET is derived from the selected algorithm's declared teamMetrics, never from row data. A row missing a declared component renders an em-dash — never a blank cell, never 'null'. Needs a fixture test against a real row with a component absent. See the Teams table column note for the companion sort-fallback rule. |
+| Teams table | overflow | 🧪 backstop | Per-algorithm component columns make the mobile horizontal scroll materially wider than a single-metric table would. rank / teamNumber / nickname stay pinned via TanStack Table column pinning while total + components + record + win rate scroll horizontally in a separate DOM region, so vertical (virtualized) and horizontal touch-scroll never compete for the same gesture. Needs a real touch-interaction test at phone width on the widest algorithm (Sigma1). |
+| Teams table | zero-one-many | ✅ covered | Many (~3,750) is the only realistic case; a hypothetical single-row season renders as an ordinary one-row table with no special-cased layout. |
+| Teams table | long-text | ✅ covered | Sponsor-heavy team nicknames truncate with ellipsis in the nickname cell; the full name is available via the title attribute, matching the search dropdown's rule. |
+| Events list | empty | ✅ covered | Reuses the canonical Empty-state copy rows — 'No events match your filters' plus the inline Clear filters text-button (D-11). |
+| Events list | loading | ✅ covered | The same D-16 skeleton pattern as Teams, scaled to the events list's own column set. |
+| Events list | error | ✅ covered | Reuses the canonical Error-state copy with 'events' substituted for {resource}, plus Retry. |
+| Events list | populated | ✅ covered | Row counts stay in the low hundreds per season (measured: 15 season files, 51,879 B median), so a plain sortable/filterable list is enough — no virtualization, unlike Teams. |
+| Events list | partial | 🧪 backstop | A null week renders as an 'Offseason' Badge in place of the week number, never a blank cell or a literal 'null'. A null country / stateProv / districtKey (added by the Phase 4 amendment) renders as an em-dash in its cell and is excluded from that filter's option list rather than creating an 'Unknown' bucket. Needs a rendering test against both a real offseason fixture row and a null-location fixture row. |
+| Events list | overflow | ✅ covered | Long event names truncate with ellipsis, the same rule as the Teams table. |
+| Events list | zero-one-many | ✅ covered | Zero → empty-state copy. One → ordinary single-row layout. Many → ordinary list, no special treatment. |
+| Events list | long-text | ✅ covered | Same truncation-plus-title rule as overflow, above. |
+| Events filter & sort controls | empty | ✅ covered | PREREQUISITE — gated on the Phase 4 amendment adding country / stateProv / districtKey to EventsArtifactSchema. Once present, each filter's option list derives from the distinct values in the fetched artifact. A filter whose distinct-value set is empty for the selected year (e.g. district in a year with no districts) renders DISABLED with its label still visible, not hidden — so the control set never shifts between years. |
+| Events filter & sort controls | loading | ✅ covered | Filter option lists derive locally from the already-fetched Events artifact in memory — no separate fetch, therefore no loading state. |
+| Events filter & sort controls | error | — dismissed | The controls have no independent fetch; a failed Events artifact fetch surfaces through the Events list's own error state and the filter controls are simply not rendered. |
+| Events filter & sort controls | populated | ✅ covered | Desktop: inline control row above the list. Phone: inside a Sheet behind a 'Filters' trigger carrying the active-count badge, submitted with 'Apply filters' and reset with the 'Clear filters' text-button (D-15). |
+| Events filter & sort controls | partial | ✅ covered | An event with a null country / state / district is excluded from that filter's option list and from matches while that filter is active; it is never silently coerced into an 'Unknown' bucket. |
+| Events filter & sort controls | overflow | ✅ covered | On phone the Sheet body scrolls vertically with the 'Apply filters' button pinned to the sheet's bottom edge, so it stays reachable regardless of how long the option lists grow. |
+| Events filter & sort controls | zero-one-many | ✅ covered | Zero active filters → plain 'Filters' trigger with no badge. One or more → numeric badge (e.g. 'Filters ●2'). The list's own zero-result case is the Events list empty state, not a filter-control concern. |
+| Events filter & sort controls | long-text | ✅ covered | Long country and district names truncate in the option row with full text via the title attribute; active-filter chips truncate at a fixed max-width. |
+| Sigma metric display | empty | ✅ covered | A row carrying no metric value at all renders a single em-dash — never an empty cell and never a coerced 0, which would read as a real measurement. |
+| Sigma metric display | loading | — dismissed | A pure presentational primitive: it never loads independently of its host table's skeleton state (Teams table / Events list). |
+| Sigma metric display | error | — dismissed | Formats already-fetched values only; it has no fetch and therefore no failure mode of its own. |
+| Sigma metric display | populated | ✅ covered | Renders '{value} ± {spread}': the value at Body 14/400 in primary text, the ' ± {spread}' suffix at 12/400 in --color-text-muted. Both numbers arrive already rounded to two decimals from the artifact (packages/harness/rounding.ts, D-06) — never re-rounded client-side; toFixed(2) only restores trailing zeros JSON serialization dropped. |
+| Sigma metric display | partial | ✅ covered | OPR and EPA rows carry no spread field at all: render the bare value with no ± suffix and no placeholder dash. A missing spread is not a missing value (D-07). |
+| Sigma metric display | overflow | ✅ covered | The whole 'value ± spread' string is one non-wrapping unit (white-space: nowrap); the column sizes to the widest realistic value rather than letting the spread wrap to a second line and break row height. |
+| Sigma metric display | zero-one-many | — dismissed | A scalar display primitive, not a collection. |
+| Sigma metric display | long-text | — dismissed | Bounded numeric output — at most about twelve characters including the suffix. |
+
+### Cross-phase prerequisite (blocking)
+
+**Phase 4 artifact amendment, decided 2026-08-23.** The published `v1/events/{year}` artifact (`EventsListRowSchema` in `packages/harness/pageArtifacts.ts`) carries no `country`, `stateProv`, or `districtKey` field — confirmed by full-repo grep, zero matches — but EVNT-01 and 05-CONTEXT D-15 both require filtering by all three. **Resolution: amend `EventsArtifactSchema` and `buildEventsArtifact` to carry those three fields, sourced from TBA's `event.country` / `event.state_prov` / `event.district`, and republish the events artifacts before Phase 5's Events-filter work begins.** The fields are already present on TBA's event object, so this is a schema-and-republish task, not new data gathering. All three fields are nullable; the null handling is specified in the Events list `partial` and Events filter `empty`/`partial` rows above.
+
+### Teams table column note — supersedes the earlier one-column reading of TEAM-01
+
+**Decided 2026-08-23: the Teams table renders `total` PLUS the selected algorithm's named component metrics**, not a single "Rating" column. TEAM-01's "metric(s)" is read as plural. The consequence is that the table's column SET is algorithm-dependent — OPR contributes one metric column, EPA and Sigma1 several — which reopens 05-CONTEXT Open Question 3.
+
+**Sort-fallback rule (resolves Open Question 3):** the active sort column is stored in the URL search params by metric key. On an algorithm switch, if that key is absent from the new algorithm's declared `teamMetrics`, the table falls back to `TOTAL_METRIC_KEY` descending and rewrites the search param to match — every algorithm guarantees `total` (D-27), so the fallback can never itself fail. The sort direction is preserved across the switch. No error, no toast: the column simply is not there any more and the table lands on the one sort every algorithm shares.
+
+**Column-set derivation:** columns come from the selected algorithm's declared `teamMetrics`, never from inspecting row data — so a row missing a declared component renders an em-dash rather than silently shrinking the table. Per-component *history* charts remain Phase 6 team-detail scope.
+
+### Icon-only control labels (closes the checker's Dimension 2 FLAG)
+
+Every icon-only control carries an `aria-label` naming its action, in addition to its 44×44px hit area: `aria-label="Open search"` (mobile search trigger), `aria-label="Open filters"` (filter-sheet trigger, with the active count folded in when non-zero — `"Open filters, 2 active"`), and `aria-sort` on every sortable column header (`ascending` / `descending` / `none`) so the sort state is announced rather than conveyed by the accent-colored arrow glyph alone. Decorative lucide glyphs inside labelled controls carry `aria-hidden="true"` so the label is not read twice.
 
 ---
 
@@ -237,20 +281,32 @@ Flagged for planner override if this reading of TEAM-01 is wrong.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS — checker FLAGged missing icon-only labels (non-blocking); closed by
+      the "Icon-only control labels" subsection under UI Considerations
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-08-23 (gsd-ui-checker: 6/6, one non-blocking FLAG since closed)
 
-**Open items requiring human confirmation before this can move to `approved`:**
-1. shadcn init has not been run (no interactive channel available this session) — confirm the
-   recommended preset (neutral base, CSS variables on, 0.375rem radius) or substitute your own
-   before/during Phase 5's scaffolding plan.
-2. The events country/state/district filter data gap (flagged ⚠ unresolved above) needs a decision:
-   amend Phase 4's artifact schema and republish, or narrow EVNT-01's scope for this phase.
-3. The "one metric column, bound to `total`" reading of TEAM-01 (Claude's Discretion note above) —
-   confirm or override at planning time.
+**UI-consideration probe:** 64/64 applicable considerations resolved — 40 covered, 7 backstop,
+17 dismissed, 0 unresolved. Element kinds were widened past the prose classifier for the Teams
+table and the algorithm dropdown before resolution ran.
+
+**The three open items are now decided (user, 2026-08-23):**
+1. **shadcn confirmed** — official registry only, preset `neutral` / CSS variables on / `0.375rem`.
+   `npx shadcn init` is the first action item of Phase 5's scaffolding plan, after `apps/web` exists.
+2. **Events location filters: amend Phase 4 and republish** — add `country` / `stateProv` /
+   `districtKey` to `EventsArtifactSchema` and `buildEventsArtifact` from TBA's `event.country` /
+   `event.state_prov` / `event.district`. This is a **hard prerequisite** for the Events filter work;
+   see "Cross-phase prerequisite (blocking)" above. EVNT-01's scope is NOT narrowed.
+3. **Teams table shows `total` plus per-algorithm components** — the earlier one-column reading of
+   TEAM-01 is superseded. The algorithm-dependent column set reopened 05-CONTEXT Open Question 3,
+   which the sort-fallback rule (fall back to `TOTAL_METRIC_KEY` descending, preserve direction,
+   rewrite the search param) now answers. See "Teams table column note" above.
+
+**Remaining planner obligations:**
+- Sequence the Phase 4 events-artifact amendment before any Events-filter plan in Phase 5.
+- Wire evidence for all 7 backstop rows, or they surface as `insufficient_spec` at verify time.
