@@ -121,6 +121,65 @@ the next run.
 
 ---
 
+## Live folding tier (quick task 260822-wqt)
+
+**Only sigma1 folds live.** `apps/worker/wrangler.toml`'s `[vars] LIVE_ALGORITHM_IDS` is the
+single place that is configured — a plain tracked value, visible in git, following
+`TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere else.
+
+**Why.** `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match (6 touched teams) is 18 with
+sigma1 alone vs. 50 with all three published algorithms, against ~41 subrequests actually
+available per tick (`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own fixed costs).
+With all three live the event defers every tick, forever — measured on the deployed Worker during
+plan 04-07 and recorded in [`publish-budget.md`](publish-budget.md)'s "Worker runtime budget
+(D-21/D-23, plan 04-07)" section; this task's own numbers below reconfirm it on the same criterion
+with sigma1 alone.
+
+**`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page still read
+them; `packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest
+are untouched by this. They refresh only at the manual pre/post-event-weekend re-baseline above,
+**not** on the cron. During an event weekend their numbers are as of the last re-baseline — that is
+expected behavior, not a bug.
+
+**Adding a second id to `LIVE_ALGORITHM_IDS` is gated** by
+`apps/worker/test/liveAlgorithmTier.test.ts`, which recomputes the same budget arithmetic
+`processEvent` uses. Re-measure on a deployed Worker before changing the tracked value; do not
+raise the test's threshold to make a wider tier pass.
+
+**Verified 2026-08-23** (`apps/worker/test/liveAlgorithmTier.test.ts`'s tracked-tier assertion
+flipped to `"sigma1,epa,opr"` and observed to fail on the arithmetic-naming message, then reverted
+— see that test file and its own commit):
+
+- Deployed version `77fca208-753f-4a4b-9f91-98e32c0e1717` (tracked config). `wrangler deploy`'s
+  output listed both `env.TBA_BASE_URL` and `env.LIVE_ALGORITHM_IDS ("sigma1")` alongside the
+  `MANIFEST`/`DB`/`ARTIFACTS` bindings and `schedule: * * * * *`.
+- Idle ticks on that version: 3 consecutive `"ok":true`, `eventsConsidered:0`, `subrequestsUsed:1`,
+  CPU 5–6 ms — no `live-tier-defaulted` warn line, confirming the tracked var reached the deployed
+  Worker.
+- A real fold, driven via the replay rig (`--event 2026cmptx --algorithm sigma1 --match-limit 2
+  --live-trigger cron`) against version `6cbe6d50-c556-49df-a2f6-551030e4ed01` (the rig's
+  fixture-pointed deploy): both matches folded with **zero timeouts** —
+  `"eventsAdvanced":1,"eventsDeferred":0` on both advancing ticks, `subrequestsUsed` 24 then 26
+  (comfortably under 46), CPU 42 ms then 208 ms (n=2). Freshness: 49,586 ms and 60,083 ms
+  end-to-end (fixture reveal → published artifact), median/p95/max reported by the rig as
+  49,586/60,083/60,083 ms — this includes the real one-minute cron's own scheduling jitter
+  (`--live-trigger cron`), not just write-path latency.
+- After the mandatory post-rig re-baseline (`pnpm publish:seasons` + the three seed imports), the
+  algorithms manifest still lists `opr`, `epa`, `sigma1`, and an `opr` and an `epa` event artifact
+  for `2026cmptx` are both still retrievable from R2 — the published set (D-03) is intact.
+
+**A real bug found running this verification, fixed alongside it.** Cold-starting sigma1 alone
+(no league row of its own yet, `opr`/`epa` already seeded) deterministically deserialized `opr`'s
+league row as sigma1's own state and crashed every tick — a pre-existing SQL operator-precedence
+bug in `readScopedState` (`apps/worker/src/stateStore.ts`), unrelated to the live-tier filter
+itself but only ever exercised by cold-starting one algorithm in isolation, exactly what this task
+needed to verify. See that file's own comment and `apps/worker/test/readScopedStateSql.test.ts`
+for the fix and its regression test.
+
+Two new rows for this section's symptoms are added to the "When something is wrong" table below.
+
+---
+
 ## Watching it
 
 ```bash
@@ -158,6 +217,8 @@ requests. All ten returned `ok`.
 | `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
+| `opr` or `epa` metrics look stale mid-event while `sigma1` updates | Expected — only `sigma1` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
+| A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 
 ---
 
