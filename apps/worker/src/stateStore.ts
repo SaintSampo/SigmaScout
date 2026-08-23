@@ -102,7 +102,28 @@ export async function readScopedState(db: D1Database, algorithmId: string, selec
   const nonEmptySelections = selections.filter((s) => s.scopeKeys.length > 0);
   const groups = nonEmptySelections.map((s) => `(scope_kind = ? AND scope_key IN (${s.scopeKeys.map(() => "?").join(",")}))`);
   const whereTail = groups.length > 0 ? `(${groups.join(" OR ")}) OR scope_kind = 'league'` : `scope_kind = 'league'`;
-  const sql = `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND ${whereTail}`;
+  // Quick task 260822-wqt (Rule 1/3 deviation — a real, deterministic
+  // production bug found running this task's own required live-fold
+  // verification): `whereTail` MUST be wrapped in its own parens here. SQL
+  // binds AND tighter than OR, so the previous
+  // `algorithm_id = ? AND ${whereTail}` (no outer parens) parsed as
+  // `(algorithm_id = ? AND (groups)) OR (scope_kind = 'league')` — the
+  // league-row fallback was NOT scoped to `algorithmId` at all, contrary to
+  // this function's own doc comment ("PLUS the algorithm's single
+  // scope_kind = 'league' row"). Whenever the CALLING algorithm's own
+  // league row happened to sort first in D1's (unordered-by-contract) result
+  // set this went unnoticed; the moment it does not — e.g. a cold-started
+  // algorithm with no league row of its own yet — this returned a DIFFERENT
+  // algorithm's league row instead, and `deserializeState` parsed its
+  // (differently-shaped) JSON as this algorithm's own, corrupting the fold.
+  // Reproduced live: sigma1, cold-started via the replay rig with opr/epa
+  // both already seeded, deterministically deserialized OPR's league row
+  // (`{"snapshotShapeVersion":2}`, no `componentOrder` field) as its own,
+  // throwing `TypeError: state.componentOrder is not iterable` in
+  // `predict()` on every tick. See `readScopedStateSql.test.ts` (a real
+  // SQLite engine, not a JS fake — the bug lives in the SQL text itself) for
+  // the regression test binding this exact scenario.
+  const sql = `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND (${whereTail})`;
   const bindArgs: (string | number)[] = [algorithmId];
   for (const selection of nonEmptySelections) {
     bindArgs.push(selection.scopeKind, ...selection.scopeKeys);
