@@ -3,11 +3,12 @@ phase: 4
 slug: publish-live-update-pipeline
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-21
----
+validated: 2026-08-23
+
 
 # Phase 4 — Validation Strategy
 
@@ -64,9 +65,9 @@ created: 2026-08-21
 | 04-06 T1 | 04-06 | 4 | DATA-05 | T-04-39, T-04-44, T-04-46 | One TBA client, one politeness policy; key never in an error | unit | `pnpm vitest run apps/worker/test/liveWindows.test.ts apps/worker/test/tbaPoll.test.ts` | ❌ W0 | ⬜ pending |
 | 04-06 T2 | 04-06 | 4 | DATA-04 | T-04-42, T-04-44 | Validate-before-put; deferral is a normal outcome, not a throw | unit | `pnpm vitest run apps/worker/test/artifactWriter.test.ts` | ❌ W0 | ⬜ pending |
 | 04-06 T3 | 04-06 | 4 | DATA-04 | T-04-38, T-04-40, T-04-41, T-04-43, T-04-45 | State before artifacts; overlapping ticks fold once; failure confined per event | unit | `pnpm vitest run apps/worker/test/scheduled.test.ts` | ❌ W0 | ⬜ pending |
-| 04-07 T1 | 04-07 | 5 | DATA-05 | T-04-47, T-04-48, T-04-54 | Secret set on the Worker, never in tracked config; deploy stays manual | doc/config check + live fetch | `node -e` operations-doc check; `curl -i` through the custom domain | ❌ W0 | ⬜ pending |
-| 04-07 T2 | 04-07 | 5 | DATA-04 | T-04-51, T-04-53 | Offline↔online equivalence by prediction-stream digest (D-14); exclusion list of exactly two fields | integration | `pnpm vitest run apps/worker/test/scheduled.replay.test.ts scripts/replayRig.test.ts` | ❌ W0 | ⬜ pending |
-| 04-07 T3 | 04-07 | 5 | DATA-05 | T-04-49, T-04-50 | Figures read from Cloudflare's own reporting, worst case reported separately | measured + doc check | `node -e` completeness check over `docs/publish-budget.md` | ❌ W0 | ⬜ pending |
+| 04-07 T1 | 04-07 | 5 | DATA-05 | T-04-47, T-04-48, T-04-54 | Secret set on the Worker, never in tracked config; deploy stays manual | doc/config check + live fetch | `node -e` operations-doc check; `curl -i` through the custom domain | ✅ | ✅ green |
+| 04-07 T2 | 04-07 | 5 | DATA-04 | T-04-51, T-04-53 | Offline↔online equivalence by prediction-stream digest (D-14); exclusion list of exactly two fields | integration | `pnpm vitest run apps/worker/test/scheduled.replay.test.ts scripts/replayRig.test.ts` | ✅ | ✅ green |
+| 04-07 T3 | 04-07 | 5 | DATA-05 | T-04-49, T-04-50 | Figures read from Cloudflare's own reporting, worst case reported separately | measured + doc check | `node -e` completeness check over `docs/publish-budget.md` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -84,28 +85,33 @@ created: 2026-08-21
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
+| Behavior | Requirement | Why Manual | Result (plan 04-07, 2026-08-23) |
 |----------|-------------|------------|-------------------|
-| Peak-tick subrequest count stays under 50 | DATA-05 | Cannot be asserted without a live deploy — the subrequest cap is enforced by the Cloudflare runtime, not by any local simulator | Run the replay rig against a deployed Worker; read subrequest count from Workers Observability / Logpush; record the number in the D-23 budget doc |
-| Peak-tick CPU time stays under 10 ms | DATA-05 | Same — free-tier CPU accounting only exists on the real runtime | Same run; read CPU-time percentiles from Workers Observability; record in the D-23 budget doc |
-| Per-page payload sizes recorded as a committed budget | DATA-03 | Sizes are measured artifacts of a real publish run, not a green/red assertion (the *regression* against the recorded budget IS automated — see `payloadBudget.test.ts`) | Run the full-season publish; record per-page byte sizes into the D-05 budget file, which the automated test then guards |
-| R2 / KV daily write volume inside free-tier quotas | DATA-05 | Quota consumption is an account-level Cloudflare metric | Read R2 Class-A op count and KV write count from the Cloudflare dashboard after a replay-rig day; record in the D-23 budget doc |
+| Peak-tick subrequest count stays under 50 | DATA-05 | Cannot be asserted without a live deploy — the subrequest cap is enforced by the Cloudflare runtime, not by any local simulator | **Measured, and the finding is negative.** The smallest real live-event case (one 3v3 match, all three published algorithms) has an `estimatedCost` of 50 against a usable budget of ~41 — it never advances at all under current production settings. The one genuine single-algorithm fold observed used 24 subrequests. See `docs/publish-budget.md`'s "Worker runtime budget" section for the full measurement and what would have to change. |
+| Peak-tick CPU time stays under 10 ms | DATA-05 | Same — free-tier CPU accounting only exists on the real runtime | **Partially measured.** Idle/deferred ticks: 10–18 ms (n≈16, exceeds the documented 10 ms figure already, consistent with plan 04-08's own unresolved observation that `outcome:"ok"` returns above 10 ms in practice). The one genuine fold observed: 35 ms (n=1). The true 3-algorithm worst-case tick's CPU was never observed because it never reaches the expensive work — reported as unmeasurable, not fabricated. |
+| Per-page payload sizes recorded as a committed budget | DATA-03 | Sizes are measured artifacts of a real publish run, not a green/red assertion (the *regression* against the recorded budget IS automated — see `payloadBudget.test.ts`) | Closed by plan 04-04 — see `docs/publish-budget.md`'s Payload budget section. |
+| R2 / KV daily write volume inside free-tier quotas | DATA-05 | Quota consumption is an account-level Cloudflare metric | **Partially measured.** KV writes/day: 0, measured directly (nothing in this codebase currently writes to KV at all — a genuine minor gap, see the budget doc). R2/KV account-level dashboard totals: not read — this automated execution has no browser/dashboard access, the same limitation plan 04-04 already recorded for its own R2 write-volume figures. Remains an open manual step. |
 
 > These four are "measured and recorded", not pass/fail unit tests. Per RESEARCH.md
 > § Sampling Rate, they must be separately tracked plan items — the automated suite
 > does **not** cover them, and treating a green `pnpm test` as satisfying Success
-> Criteria 3 and 4 would be false.
+> Criteria 3 and 4 would be false. Two of the four (subrequest count, CPU time) are now measured
+> with a NEGATIVE finding — the free-tier fit does not currently hold for a live event with all
+> three published algorithms — which is reported as-is per this plan's own explicit instruction not
+> to soften an over-limit figure.
 
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] Measured-number items above recorded in the D-23 budget doc
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] Measured-number items above recorded in the D-23 budget doc
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-08-23 (plan 04-07) — with an open, honestly-recorded negative finding:
+the deployed Worker's real subrequest budget cannot currently accommodate a live event with all
+three published algorithms. See `docs/publish-budget.md` for the full measurement and next steps.

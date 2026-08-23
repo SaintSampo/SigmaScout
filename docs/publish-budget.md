@@ -292,19 +292,112 @@ Also unresolved, carried forward from the baseline and not settled by this measu
 free-plan CPU budget. Whether the platform actually enforces that budget, and against what, remains
 an open question this plan does not answer.
 
-## Worker runtime budget (D-21/D-23)
+## Worker runtime budget (D-21/D-23, plan 04-07)
+
+**The headline finding: the per-tick subrequest budget cannot accommodate an ordinary 3v3 match
+folded across all three published algorithms — measured directly, repeatedly, on the deployed
+Worker, not derived from the code alone.** `processEvent`'s own `estimatedCost` formula (`1 + 1 +
+algorithmCount*2 + algorithmCount*2*(1+touchedTeams.length)`) evaluates to **50** for the smallest
+possible real case — one newly-completed 3v3 match (6 touched teams) across `opr`+`epa`+`sigma1`
+(`algorithmCount=3`) — against a **usable budget of 46** (`SUBREQUEST_CAP` 50 minus
+`SUBREQUEST_RESERVE` 4), and the tick's own fixed costs (manifest reads, tick-meta read, the
+per-event cursor read and poll) consume roughly 5 more before that check runs, leaving **~41
+actually available**. 50 > 41: the event **defers every single tick, forever**, for as long as all
+three algorithms are live simultaneously — confirmed by direct, repeated observation below, not
+inferred. This is 04-RESEARCH.md's own Pitfall 1 warning realized in production: the ~46-49
+subrequest estimate it called "typical, not worst-case" turns out to already exceed the real usable
+budget for the most ordinary live match there is.
+
+**Run:** `scripts/replayRig.ts` against the deployed `sigmascout-worker`
+(`https://sigmascout-worker.jrw4561.workers.dev`), real historical event `2026cmptx` (16 matches,
+16 real teams), 2026-08-23, `--live-trigger cron` throughout (see the plan's own SUMMARY for why
+`--live-trigger manual`'s `/cdn-cgi/handler/scheduled` route was tried and found unavailable on a
+genuinely deployed Worker). CPU/subrequest figures below are read directly from `wrangler tail
+sigmascout-worker --format json` during these runs — the platform's own per-invocation reporting,
+the same method `docs/worker-operations.md`'s pre-existing idle-tick baseline (plan 04-08) already
+used, not a local simulation (D-21's own prohibition).
+
+### Observed tick shapes, all three real and reproduced live
+
+| Tick shape | CPU time | Wall time | Subrequests | TBA requests | Outcome |
+|---|---:|---:|---:|---:|---|
+| Idle (nothing live) | 10–18 ms (n≈14, prior + this plan) | ~150–190 ms | 1 | 0 | `eventsConsidered:0` |
+| Considered, deferred (3 algorithms, 1 new 3v3 match — the case above) | 11–18 ms | ~700–870 ms | 6 | 1 | `eventsDeferred:1` |
+| Considered, **advanced** (1 algorithm — `opr` — alone, 1 new 3v3 match, full fold + 7 R2 writes) | **35 ms** (n=1) | 6,682 ms | 24 | 2 | `eventsAdvanced:1` |
+
+The **advanced** row is the only one that actually did the expensive work (Phase A fold for one
+algorithm + Phase B: 1 event artifact + 6 team artifacts, each read-then-write) — it is the closest
+this measurement gets to a genuine "worst realistic single-algorithm tick," and its single sample
+(n=1) is stated as such, not inflated into a false median. **A true 3-algorithm worst-case tick's
+CPU time was never observed, because the tick never reaches the expensive Phase A/B work at all —
+it deferred every time before doing anything beyond the poll.** Reporting a CPU figure for that
+shape would be fabricating a number for work the platform never actually performed; the honest
+figure is that it is unmeasurable under current production settings, and the reason why is itself
+the finding.
+
+### Why the originally-planned 38-event/207-match fixture was not additionally run live
+
+`04-RESEARCH.md`'s Pattern 1 table and this phase's `04-CONTEXT.md` both frame the worst case as
+many *concurrent* events (the corpus's real measured peak: 38 events live on 2026-03-21, a busiest
+hour of 207 matches, a busiest single minute of 10 events each contributing exactly one new match).
+Reproducing that shape live was scoped and a real fixture (10 real 2025-03-22 matches, one per
+event, from the corpus's actual busiest minute) was built for it
+(`scripts/_worstCaseTick.ts`, an uncommitted one-off measurement tool). It was not additionally run:
+the single-event result above already answers the question it exists to ask. Every additional
+concurrent live event adds its own `estimatedCost` against the exact same shared per-tick budget —
+if **one** event with all three algorithms cannot fit inside 41 remaining subrequests, no number of
+additional concurrent events changes that arithmetic in the deferring event's favor; they can only
+themselves also defer. Running the 10-event fixture live would have cost real additional production
+time to demonstrate `eventsDeferred` climbing to 10 instead of 1 — a strictly implied, not a
+separately informative, result. If a future measurement disagrees with this reasoning (for instance
+because a fix changes the per-algorithm cost shape), the fixture script is committed-adjacent
+(deleted before this plan's final commit, reconstructable from this doc's own description) and
+should be re-run then.
+
+### What would have to change
+
+The measured deferral is not a one-off — it is deterministic and structural for the current
+`SUBREQUEST_CAP`/`SUBREQUEST_RESERVE`/estimate-formula combination. Reducing the estimate's
+dominant term (`algorithmCount*2*(1+touchedTeams.length)` — Phase B's per-team, per-algorithm
+read+write) is the highest-leverage lever available without an architectural change:
+- **Batch Phase B's per-team artifact reads/writes** the same way Phase A's state read/write
+  already is (`stateStore.ts`'s `readScopedState`/`writeScopedState`, one D1 statement regardless of
+  team count) — R2 has no native multi-object batch `get`/`put`, so this would need a genuine design
+  change (e.g., folding all touched teams into a single per-event "touched teams" object rather than
+  one R2 object per team), which is an architectural change this plan does not make unilaterally.
+- **Raise `SUBREQUEST_RESERVE`'s headroom claim downward** (i.e., trust more of the real 50-cap) —
+  already at its documented minimum per `subrequestBudget.ts`'s own comment; not much room here.
+- **Publish fewer algorithms simultaneously live**, or fold algorithms across more than one tick
+  (partial-Phase-A-per-tick) — both are real architectural options a future plan should evaluate
+  against this measured number, not something this plan decides unilaterally.
+
+This is reported as a **finding for the next plan to act on**, not softened, and not fixed here —
+Rule 4 (architectural change) applies, and this plan's own scope is measurement, not redesign.
+
+### CPU/subrequest table (D-21/D-23)
 
 | Metric | Median | Worst case |
 |---|---|---|
-| CPU time per tick | pending — measured in plan 04-07 | pending — measured in plan 04-07 |
-| Subrequests per tick | pending — measured in plan 04-07 | pending — measured in plan 04-07 |
-| TBA requests per event-day | pending — measured in plan 04-07 | pending — measured in plan 04-07 |
-| KV writes per day | pending — measured in plan 04-07 | pending — measured in plan 04-07 |
+| CPU time per tick | 10–18 ms (idle/deferred shapes, n≈16) | **Unmeasurable for the 3-algorithm shape — see above.** 35 ms is the one measured sample of a genuine single-algorithm fold (n=1). |
+| Subrequests per tick | 1 (idle) / 6 (deferred) | 24 (single-algorithm fold, n=1, the most expensive tick shape actually observed) |
+| TBA requests per event-day | 0 (idle, ~10 months/year) | 1–2 per live tick once an event is live (measured); a full live event-day extrapolation was not performed (no genuinely live event occurred during this measurement window) |
+| KV writes per day | **0, measured directly** — `env.MANIFEST.get` on the live-windows manifest key returned 404 (no value) throughout this entire phase's testing (verified via `wrangler kv key get`, 2026-08-22/23); `liveWindows.ts`'s KV-primary/R2-fallback design is real code, but nothing in this project currently WRITES to KV at all — every read this phase has ever observed falls through to R2. This is a genuine, minor gap: the KV read is not wasted (R2 fallback works correctly), but the documented "KV is primary, edge-cached" performance benefit is currently theoretical, not realized. | n/a |
 
-This table is deliberately present and empty rather than omitted — it makes the outstanding
-Worker-runtime measurement visible instead of implied. Plan 04-04 (this plan) closes the
-per-page-payload and R2-write-volume halves of DATA-05's measured-budget requirement; the Worker
-CPU and peak-tick subrequest halves remain open and are plan 04-07's job.
+**Prediction vs. measurement:** `04-RESEARCH.md`'s Pattern 1 predicted ~46–49 subrequests at the
+38-event peak, calling it a per-event average rather than a worst case (its own Pitfall 1). The
+measured `estimatedCost` for the smallest real single-event case is **50** — inside, not below, that
+predicted range, and the prediction's own caveat (this is typical, not worst-case) is confirmed
+exactly: the real worst case is not merely "at" the predicted figure, it **exceeds the actually
+usable budget** once the tick's own fixed costs are subtracted. The research's arithmetic held; its
+own warning about what that arithmetic meant is what this measurement confirms.
+
+**R2 Class-A operations / KV write count from the Cloudflare dashboard: not read.** This automated
+run has no browser/dashboard access — the same limitation plan 04-04's own budget section already
+recorded for its R2 write-volume figures ("these are the LOCAL counter's numbers, not the
+dashboard's"). The `subrequestsUsed` figures above are the Worker's own self-reported count via
+`wrangler tail`, which is real platform telemetry (not a local simulation) but is not the same thing
+as an account-level Cloudflare dashboard total. **This remains an open manual step**, tracked here
+rather than silently marked done, exactly as plan 04-04 tracked its own equivalent gap.
 
 ## The machine-readable block
 
