@@ -38,15 +38,16 @@ evidence:
 - Scope: sigma1 only, by explicit user decision. opr/epa refresh at the manual re-baseline, not on the cron (see Gaps).
 - Accepted limitation (D-20), recorded not glossed: the rig substitutes for TBA, so real TBA latency is not exercised; the cron-driven run covers platform scheduling jitter but not TBA's own response time.
 
-### 3. Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit
-expected: Every cron invocation's CPU time is under 10 ms.
-result: [pending]
+### 3. Measured Worker CPU (`cpuTime` as reported by Workers Logs, NOT wall time) per cron invocation stays under the 10 ms free-tier limit
+expected: Every cron invocation's `cpuTime` — the field Cloudflare enforces the limit against — is under 10 ms. Wall time and the tick's own `durationMs` are different quantities and do not test this criterion.
+result: pass (idle path); advanced-tick shape unverified — see Gaps
 
 measured:
-- Idle tick (nothing live): **10–18 ms**, n≈14, all `outcome: ok`.
-- Considered-then-deferred tick: **11–18 ms**, all `outcome: ok`.
-- Advanced tick (one algorithm, full fold + 7 R2 writes): **35 ms**, n=1, `outcome: ok`.
-- Every observed invocation exceeded 10 ms at least some of the time, and **none failed**.
+- Idle tick, `cpuTime` from `wrangler tail --format json`, deployed version `cfdafca8`, two independent samples: **n=10 → median 7 ms, range 5–9, one 14 ms cold start**; **n=9 → median 7 ms, range 5–10**. Combined n=19, **zero invocations over 10 ms** apart from the single cold start.
+- Wall time on the same traces: 162–212 ms — an order of magnitude above CPU, as expected for a tick dominated by awaiting I/O. Confirms the two quantities were being conflated.
+- `outcome` was `ok` on every one of the 19 traces; **`exceededCpu` appeared in none**. Exceeding the limit produces Error 1102 and an `exceededCpu` outcome, so this is a positive-reporting instrument returning a negative, not merely an absence of complaints.
+- The earlier "10–18 ms idle / 35 ms advanced" figures are withdrawn: they match neither `cpuTime`, `wallTime`, nor `durationMs` from the same traces and their provenance could not be reconstructed. Correction recorded in `docs/publish-budget.md`.
+- The 10 ms limit itself was confirmed current against Cloudflare's docs and applies to Cron Triggers identically to HTTP-triggered Workers.
 
 ### 4. Daily write volume inside KV/R2 quotas; TBA request counts documented and within rate limits
 expected: Measured write volume stays inside free-tier quotas and TBA polling is documented and considerate.
@@ -60,11 +61,36 @@ evidence:
 ## Summary
 
 total: 4
-passed: 2
+passed: 3
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 partial: 1
 
 ## Gaps
+
+### G1. The advanced (real fold) tick's CPU has never been measured against `cpuTime`
+status: open
+severity: low
+source: Test 3
+
+The only tick shape that does the expensive work — Phase A fold plus Phase B's
+seven sequential R2 read-then-writes — has no trustworthy CPU figure. Its
+recorded "35 ms" came from the same unattributable source as the withdrawn idle
+range, and its 6,682 ms wall time makes it the shape where a wall-for-CPU
+substitution would be largest.
+
+Idle is settled at median 7 ms (n=19). The realistic worst case is not. It is
+plausible it is fine — a sigma1 fold plus seven R2 round-trips is mostly awaited
+I/O, which does not accrue CPU — but that is reasoning, not measurement, and
+this phase has repeatedly found that the two diverge.
+
+**To close:** drive one live fold through `scripts/replayRig.ts` and read
+`cpuTime` off the `eventsAdvanced:1` trace. Requires temporarily pointing the
+deployed Worker at the fixture Worker via `wrangler deploy --var TBA_BASE_URL:…`
+and restoring tracked config afterwards, so it is a real production operation
+rather than a passive observation.
+
+**Not a blocker:** no `exceededCpu` outcome has ever been observed, including
+during the live folds already performed in plan 04-07 and the quick task.

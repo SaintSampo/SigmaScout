@@ -319,11 +319,32 @@ used, not a local simulation (D-21's own prohibition).
 
 ### Observed tick shapes, all three real and reproduced live
 
-| Tick shape | CPU time | Wall time | Subrequests | TBA requests | Outcome |
+**Instrument (read this before comparing any figure below to the 10 ms limit).** "CPU time" here
+means the `cpuTime` field of the `wrangler tail --format json` trace event — the same quantity
+Cloudflare enforces the 10 ms free-plan limit against. It is NOT wall time (`wallTime`, dominated by
+awaiting I/O) and NOT the tick's own `durationMs` log field (measured with `Date.now()` across
+`await` boundaries, which the Workers runtime freezes during synchronous execution — so it can
+never be a CPU figure). Any future row here must name which field it read.
+
+| Tick shape | CPU time (`cpuTime`) | Wall time | Subrequests | TBA requests | Outcome |
 |---|---:|---:|---:|---:|---|
-| Idle (nothing live) | 10–18 ms (n≈14, prior + this plan) | ~150–190 ms | 1 | 0 | `eventsConsidered:0` |
-| Considered, deferred (3 algorithms, 1 new 3v3 match — the case above) | 11–18 ms | ~700–870 ms | 6 | 1 | `eventsDeferred:1` |
-| Considered, **advanced** (1 algorithm — `opr` — alone, 1 new 3v3 match, full fold + 7 R2 writes) | **35 ms** (n=1) | 6,682 ms | 24 | 2 | `eventsAdvanced:1` |
+| Idle (nothing live) | **median 7 ms, range 5–10, one 14 ms cold start** (n=19) | ~162–212 ms | 1 | 0 | `eventsConsidered:0` |
+| Considered, deferred (3 algorithms, 1 new 3v3 match — the case above) | unverified — see correction below | ~700–870 ms | 6 | 1 | `eventsDeferred:1` |
+| Considered, **advanced** (1 algorithm — `opr` — alone, 1 new 3v3 match, full fold + 7 R2 writes) | unverified — see correction below | 6,682 ms | 24 | 2 | `eventsAdvanced:1` |
+
+> **Correction (2026-08-23).** This table originally recorded idle CPU as "10–18 ms (n≈14)",
+> deferred as "11–18 ms", and advanced as "35 ms (n=1)". The idle figure was re-measured directly
+> from `cpuTime` on deployed version `cfdafca8` across two independent samples (n=10 and n=9,
+> every invocation `outcome: ok`, no `exceededCpu` in any trace) and came in at **median 7 ms,
+> max 10 ms, zero invocations over the limit** — comfortably inside the 10 ms ceiling rather than
+> 1.8× over it. The original range matches neither `cpuTime` nor `wallTime` nor `durationMs` from
+> the same traces, so its provenance could not be reconstructed; it is withdrawn rather than
+> reinterpreted. The deferred and advanced rows came from the same unattributable source and are
+> marked unverified until re-measured against `cpuTime` — the advanced row especially, since a tick
+> doing seven sequential R2 round-trips is exactly the shape where a wall-time-for-CPU-time
+> substitution would be largest (its 6,682 ms wall time against a claimed 35 ms "CPU" is itself the
+> tell). Absence of `exceededCpu` across every trace captured to date is a positive-reporting
+> instrument returning negative, not merely "nothing broke".
 
 The **advanced** row is the only one that actually did the expensive work (Phase A fold for one
 algorithm + Phase B: 1 event artifact + 6 team artifacts, each read-then-write) — it is the closest
