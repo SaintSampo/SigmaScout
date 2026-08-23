@@ -1,19 +1,17 @@
 ---
-status: testing
+status: passed
 phase: 04-publish-live-update-pipeline
 source: [ROADMAP.md Phase 4 Success Criteria]
 started: 2026-08-23
 updated: 2026-08-23
+completed: 2026-08-23
 ---
 
 ## Current Test
 
-number: 3
-name: Measured Worker CPU per cron invocation stays under the 10 ms free-tier limit
-expected: |
-  Every cron invocation's CPU time, read from `wrangler tail` on the deployed
-  Worker, is under 10 ms.
-awaiting: user response
+none — all tests resolved. One gap (G1) accepted as a known unmeasured shape
+rather than a blocker, on the user's decision: no `exceededCpu` outcome has ever
+been observed, including during the live folds already performed.
 
 ## Tests
 
