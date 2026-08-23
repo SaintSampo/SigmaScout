@@ -19,9 +19,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **DATA-01**: Pipeline ingests TBA API v3 teams, events, and matches for 2022–2026 using ETag conditional requests
 - [x] **DATA-02**: Pipeline correctly handles TBA data quirks: surrogate matches, match replays, missing score breakdowns, and offseason events (excluded or flagged, never silently ingested)
-- [ ] **DATA-03**: Full-season precompute runs offline and publishes compact, versioned artifacts that the site reads — no server-side or client-side recomputation per request
-- [ ] **DATA-04**: During active events, new match results are reflected on the site within ~1–3 minutes via an incremental update path
-- [ ] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits
+- [x] **DATA-03**: Full-season precompute runs offline and publishes compact, versioned artifacts that the site reads — no server-side or client-side recomputation per request
+- [x] **DATA-04**: During active events, new match results are reflected on the site within ~1–3 minutes via an incremental update path
+  - **Scoped in Phase 4 to sigma1 only.** Measured median 58.9 s (p95 60.9 s) on the deployed Worker via real cron. `opr` and `epa` remain fully *published* but are **not folded live** — they refresh at the manual pre/post-event-weekend re-baseline. This narrows plan-time intent (04-06 originally folded all three live) and is a deliberate decision, not an oversight: measurement showed three live algorithms cost 50 subrequests against ~41 usable, deferring every ordinary match forever. Controlled by `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; see `.planning/quick/260822-wqt-restrict-live-folding-to-sigma1/` and `docs/publish-budget.md` § "Worker runtime budget". Promoting a second algorithm to the live tier requires the Phase B batching work named in that doc.
+- [x] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits
+  - Idle-tick `cpuTime` median 7 ms (range 5–10, n=19), zero invocations over 10 ms, `exceededCpu` never observed. **Open:** the advanced (real fold) tick's `cpuTime` is unmeasured — see G1 in `04-UAT.md`. A full live event-day TBA/write-volume extrapolation was also not performed; recorded as unmeasured rather than estimated.
 
 ### Algorithms
 
@@ -111,9 +113,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-05 | Phase 8 | Pending |
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 4 | Pending |
-| DATA-04 | Phase 4 | Pending |
-| DATA-05 | Phase 4 | Pending |
+| DATA-03 | Phase 4 | Complete |
+| DATA-04 | Phase 4 | Complete (scoped: sigma1 only folds live — see note) |
+| DATA-05 | Phase 4 | Complete (advanced-tick CPU unmeasured — see G1) |
 | ALGO-01 | Phase 1 | Complete |
 | ALGO-02 | Phase 2 | Complete |
 | ALGO-03 | Phase 2 | Complete |
