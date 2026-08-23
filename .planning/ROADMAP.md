@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Tuning, Ranking Points & Versioning** - Offline optimizer, online adaptation, per-season RP prediction, versioned algorithms (completed 2026-08-18)
 - [x] **Phase 3.1: Address Phase 1-3 review warnings and doc drift** (INSERTED) - Resolve outstanding review warnings from Phases 1-3 and reconcile documentation drift (completed 2026-08-20)
 - [x] **Phase 3.2: Swap OPR to event-scoped and re-issue affected figures** (INSERTED) - OPR becomes event-scoped everywhere, matching TBA and Statbotics; affected figures re-run and the retired baseline preserved in the record (completed 2026-08-21)
-- [ ] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers
+- [x] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers (completed 2026-08-23)
 - [ ] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings
 - [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot
 - [ ] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs
@@ -330,7 +330,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 2. Prediction Models — EPA & Sigma1 | 6/6 | Complete    | 2026-08-14 |
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
-| 4. Publish & Live Update Pipeline | 8/8 | In Progress|  |
+| 4. Publish & Live Update Pipeline | 8/8 | Complete    | 2026-08-23 |
 | 5. Site Shell — Navigation & Browsing | 0/TBD | Not started | - |
 | 6. Team Pages | 0/TBD | Not started | - |
 | 7. Event Pages | 0/TBD | Not started | - |
