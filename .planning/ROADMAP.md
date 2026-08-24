@@ -270,7 +270,18 @@ Plans:
   4. The Teams page lists all teams for the selected year ranked by the selected algorithm's metric with team number, name, rank, metric(s), record, and win rate — rendered straight from precomputed artifacts with no season statistics computed in the browser.
   5. The Events page lists all events for the selected year and can be sorted and filtered by week, country, state, and district.
 
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Tracer: provision Pages and R2 CORS, scaffold `apps/web`, render real published team rows end to end on the live origin
+- [ ] 05-02-PLAN.md — Amend the Phase 4 events artifact with name, week, country, state and district, then re-ingest and republish
+- [ ] 05-03-PLAN.md — Design system: shadcn primitives, the D-06 token layer, shared state views, and the `MetricValue` display primitive
+- [ ] 05-04-PLAN.md — Retire the two empirical risks: the two-axis touch spike and the NAV-06 first-paint measurement
+- [ ] 05-05-PLAN.md — Site shell: ribbon, year and algorithm dropdowns, typed URL search params, and the shared sort-key resolver
+- [ ] 05-06-PLAN.md — Teams page: virtualized pinned table with algorithm-derived columns, rank, record and win rate (TEAM-01)
+- [ ] 05-07-PLAN.md — Events page: list plus week, country, state and district filters, inline on desktop and in a sheet on phone (EVNT-01)
+- [ ] 05-08-PLAN.md — Search across teams and events, deep-link end-to-end proof, deferred measurements, spike removal, human sign-off
+
 **UI hint**: yes
 
 ### Phase 6: Team Pages
