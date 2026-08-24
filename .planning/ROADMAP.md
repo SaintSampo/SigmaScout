@@ -270,7 +270,7 @@ Plans:
   4. The Teams page lists all teams for the selected year ranked by the selected algorithm's metric with team number, name, rank, metric(s), record, and win rate — rendered straight from precomputed artifacts with no season statistics computed in the browser.
   5. The Events page lists all events for the selected year and can be sorted and filtered by week, country, state, and district.
 
-**Plans**: 1/8 plans executed
+**Plans**: 4/8 plans executed
 
 Plans:
 **Wave 1**
@@ -279,9 +279,9 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02-PLAN.md — Amend the Phase 4 events artifact with name, week, country, state and district, then re-ingest and republish
-- [ ] 05-03-PLAN.md — Design system: shadcn primitives, the D-06 token layer, shared state views, and the `MetricValue` display primitive
-- [ ] 05-04-PLAN.md — Retire the two empirical risks: the two-axis touch spike and the NAV-06 first-paint measurement
+- [x] 05-02-PLAN.md — Amend the Phase 4 events artifact with name, week, country, state and district, then re-ingest and republish
+- [x] 05-03-PLAN.md — Design system: shadcn primitives, the D-06 token layer, shared state views, and the `MetricValue` display primitive
+- [x] 05-04-PLAN.md — Retire the two empirical risks: the two-axis touch spike and the NAV-06 first-paint measurement
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -356,7 +356,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 3. Tuning, Ranking Points & Versioning | 8/8 | Complete    | 2026-08-18 |
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
 | 4. Publish & Live Update Pipeline | 8/8 | Complete    | 2026-08-23 |
-| 5. Site Shell — Navigation & Browsing | 1/8 | In Progress|  |
+| 5. Site Shell — Navigation & Browsing | 4/8 | In Progress|  |
 | 6. Team Pages | 0/TBD | Not started | - |
 | 7. Event Pages | 0/TBD | Not started | - |
 | 8. Simulation & Compare | 0/TBD | Not started | - |
