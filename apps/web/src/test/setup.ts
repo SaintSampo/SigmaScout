@@ -34,3 +34,26 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
     } as MediaQueryList;
   };
 }
+
+// 05-05-PLAN.md Task 3: jsdom provides none of these DOM APIs Radix's
+// `Select` (used by `YearSelect`/`AlgorithmSelect`) calls when opening its
+// listbox — without these, any test that opens a Select throws before the
+// popover ever mounts, well before assertions run.
+if (typeof Element !== "undefined") {
+  if (typeof Element.prototype.hasPointerCapture !== "function") {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (typeof Element.prototype.releasePointerCapture !== "function") {
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  if (typeof Element.prototype.scrollIntoView !== "function") {
+    Element.prototype.scrollIntoView = () => {};
+  }
+}
+if (typeof window !== "undefined" && typeof window.ResizeObserver !== "function") {
+  window.ResizeObserver = class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

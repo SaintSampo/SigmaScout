@@ -103,6 +103,39 @@
    * itself is this contract's own single named value, reachable by name.
    */
   --radius: 0.375rem;
+
+  /*
+   * 05-05-PLAN.md's <upstream_context> (documented deviation, not one of
+   * this plan's declared files_modified — see this plan's SUMMARY.md):
+   * `main.tsx` has imported `@fontsource-variable/inter` since plan 05-01,
+   * shipping the Inter woff2 files in every build, but nothing anywhere in
+   * `apps/web` ever declared `font-family`, so the browser silently fell
+   * back to its default system font and paid full byte cost for a typeface
+   * it never rendered.
+   *
+   * Overriding Tailwind's own `--font-sans` token (rather than a plain
+   * `body { font-family: ... }` rule) is the FIX, not a style preference:
+   * a plain rule using an unquoted two-word family name (`Inter Variable`)
+   * was silently DROPPED by Vite's production CSS minifier (verified by
+   * diffing minified vs. unminified build output — the property survived
+   * unminified, vanished only after minification; a real minifier
+   * defect/quirk with this specific unquoted-multi-word-ident shape, not a
+   * cascade/specificity problem). Tailwind's Preflight already sets
+   * `html`'s `font-family` to `var(--default-font-family, ...)`, which
+   * itself resolves to `var(--font-sans)` — redeclaring `--font-sans` here,
+   * INSIDE a custom-property value (never dropped by the minifier, unlike
+   * a literal property value), reaches the exact same `html`/inherited-
+   * `body` result through Tailwind's own token mechanism, verified by a
+   * real headless-browser `getComputedStyle` check (see this plan's
+   * SUMMARY.md).
+   *
+   * `'Inter Variable'` is the exact family name `@fontsource-variable/inter`'s
+   * own `@font-face` rules register (verified against the installed
+   * package's `index.css`). The tabular-numeral treatment below
+   * (`.numeric-cell`) is unaffected — it only sets a font FEATURE, not a
+   * family, and keeps working once a real font is actually selected.
+   */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
