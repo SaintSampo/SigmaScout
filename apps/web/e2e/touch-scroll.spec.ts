@@ -144,7 +144,15 @@ test("virtualization is real: rendered row count stays far below a plausible ful
 
   const box = await page.locator(SCROLL_CONTAINER).boundingBox();
   if (!box) throw new Error("scroll container has no bounding box");
-  await touchDrag(page, { x: box.x + box.width / 2, y: box.y + box.height * 0.8 }, { x: box.x + box.width / 2, y: box.y + box.height * 0.05 });
+  // Several repeated drags, not one: the virtualizer's overscan window
+  // (8 rows above/below the visible range) absorbs a single short drag
+  // without shifting the FIRST RENDERED row at all — the earlier
+  // "advances vertical scroll" test already proves `scrollTop` itself
+  // moves on one drag; this test needs enough total distance to clear the
+  // overscan buffer too.
+  for (let i = 0; i < 4; i++) {
+    await touchDrag(page, { x: box.x + box.width / 2, y: box.y + box.height * 0.8 }, { x: box.x + box.width / 2, y: box.y + box.height * 0.05 });
+  }
 
   const rowsScrolled = await page.locator(ROW).count();
   expect(rowsScrolled).toBeGreaterThan(0);

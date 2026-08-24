@@ -22,16 +22,29 @@ import { defineConfig, devices } from "@playwright/test";
  * current build is ALREADY DEPLOYED before `playwright test` runs (this
  * task's own action deploys it as part of closing the phase).
  *
- * Two projects use Playwright's built-in device descriptors for a recent
- * iPhone and a recent Pixel (`hasTouch: true` on both, already set by each
- * descriptor). The iPhone project pins `browserName: "chromium"` rather
- * than the descriptor's own WebKit default — the spec drives a real
- * multi-point touch drag via `Input.dispatchTouchEvent` over a Chromium
- * CDP session (`e2e/touch-scroll.spec.ts`'s `touchDrag` helper), and
- * `context.newCDPSession()` only exists for Chromium; WebKit's public
- * surface here is `page.touchscreen.tap()` alone, which cannot express a
- * drag. The iPhone descriptor's viewport, user agent, `hasTouch` and
- * `isMobile` flags are unaffected by the engine override.
+ * Three projects, matched to each spec by `testMatch` — these are NOT
+ * interchangeable and each spec runs on exactly one project family:
+ *  - `desktop`: `e2e/deep-link.spec.ts` only. NAV-05's deep-link promise is
+ *    viewport-agnostic — it is about the URL restoring STATE, not about
+ *    touch gestures — and a real desktop width is what lets the assertions
+ *    stay simple and honest: at phone width, `EventFilters` renders the D-15
+ *    collapsed Sheet (no visible `Week`/`District` comboboxes at all until
+ *    the sheet is opened) and the Teams table's non-pinned columns sit
+ *    almost entirely off-screen behind the pinned group, needing an extra,
+ *    unrelated horizontal-scroll step before a sort header is even
+ *    clickable. Running this spec at 1440x900 keeps it testing exactly what
+ *    it says it tests.
+ *  - `iphone-17`/`pixel-10`: `e2e/touch-scroll.spec.ts` only, using
+ *    Playwright's built-in device descriptors for a recent iPhone and a
+ *    recent Pixel (`hasTouch: true` on both, already set by each
+ *    descriptor). The iPhone project pins `browserName: "chromium"` rather
+ *    than the descriptor's own WebKit default — the spec drives a real
+ *    multi-point touch drag via `Input.dispatchTouchEvent` over a Chromium
+ *    CDP session (`e2e/touch-scroll.spec.ts`'s `touchDrag` helper), and
+ *    `context.newCDPSession()` only exists for Chromium; WebKit's public
+ *    surface here is `page.touchscreen.tap()` alone, which cannot express a
+ *    drag. The iPhone descriptor's viewport, user agent, `hasTouch` and
+ *    `isMobile` flags are unaffected by the engine override.
  */
 export default defineConfig({
   testDir: "e2e",
@@ -45,11 +58,18 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "desktop",
+      testMatch: /deep-link\.spec\.ts/,
+      use: { viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "iphone-17",
+      testMatch: /touch-scroll\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium" },
     },
     {
       name: "pixel-10",
+      testMatch: /touch-scroll\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
   ],
