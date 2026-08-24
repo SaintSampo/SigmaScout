@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { teamsQueryOptions } from "../lib/api/teams.js";
 import { ArtifactFetchError, ArtifactValidationError } from "../lib/api/errors.js";
+import { markFirstRowsRendered, measureParseToPaint } from "../lib/perfMarks.js";
 
 export const Route = createFileRoute("/teams")({
   component: TeamsPage,
@@ -16,6 +18,23 @@ function TeamsPage() {
   // Hard-coded for the tracer (plan 05-01 Task 3) — parameterized by the
   // year/algorithm dropdowns in plan 05-05.
   const { data, isPending, error } = useQuery(teamsQueryOptions({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" }));
+
+  // 05-VALIDATION.md's "Measurement Gate (NAV-06)" — the render side of the
+  // parse-to-paint split. This effect runs after every render, including the
+  // pending-state (skeleton) render, but only marks/logs once `data` is
+  // present — which is exactly the render that actually commits populated
+  // rows below, never the "Loading teams…" branch. Guarded against the
+  // specific `data` reference (not a plain boolean) so a future artifact
+  // reload (year/algorithm change, plan 05-05) marks and logs again rather
+  // than firing only once for the component's whole lifetime.
+  const markedDataRef = useRef<typeof data>(undefined);
+  useEffect(() => {
+    if (!data || markedDataRef.current === data) return;
+    markedDataRef.current = data;
+    markFirstRowsRendered();
+    const durationMs = measureParseToPaint();
+    console.log(JSON.stringify({ event: "teams-parse-to-paint", season: data.season, durationMs }));
+  }, [data]);
 
   if (isPending) {
     return (
