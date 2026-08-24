@@ -10,6 +10,18 @@
  * this test fail, naming that file — see 05-01-PLAN.md's acceptance
  * criteria, which requires this to be verified by hand once and reverted.
  *
+ * Plan 05-05 Task 1 extends this with a THIRD entry point:
+ * `packages/core/algorithms/breakdown/index.ts` — `apps/web/src/lib/metricKeys.ts`
+ * now imports `componentMapForSeason` from it directly, so the client bundles
+ * this module (and every season file under `breakdown/`) on purpose. Unlike
+ * the first two entry points, this one legitimately LIVES inside
+ * `packages/core/algorithms/` — the existing "never reaches a file under
+ * packages/core/algorithms/" assertion does not apply to it (it would
+ * trivially fail on the entry point itself). It is checked ONLY for Node
+ * built-in imports, so a future Node import added to a season module still
+ * breaks the web build with a clear, named failure here rather than a
+ * confusing bundler error far from its cause.
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -20,6 +32,7 @@ import { describe, expect, it } from "vitest";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts")];
+const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -99,5 +112,17 @@ describe("browser-safe schema import graph", () => {
     expect(visited.has(resolve(HERE, "pageArtifacts.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "publishedAlgorithms.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "metricHistorySchema.ts"))).toBe(true);
+  });
+
+  it("never reaches a Node built-in import from packages/core/algorithms/breakdown/index.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/)", () => {
+    const { nodeBuiltinViolations, visited } = scan([BREAKDOWN_ENTRY_POINT]);
+    // Sanity check the scan is not vacuous: it must actually visit the
+    // per-season modules `componentMapForSeason` dispatches to.
+    expect(visited.has(BREAKDOWN_ENTRY_POINT)).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "algorithms", "breakdown", "2026.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/breakdown/index.ts: ${detail}`);
+    }
   });
 });
