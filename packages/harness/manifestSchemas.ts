@@ -24,6 +24,8 @@
 import { z } from "zod";
 import { Sigma1ParamsSchema } from "../core/algorithms/sigma1/index.js";
 
+export { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "./publishedAlgorithms.js";
+
 /** Shared literal for both manifests — bumped whenever either shape changes in a way the Worker must know about. Independent of `pageArtifacts.ts`'s `PAGE_ARTIFACT_SCHEMA_VERSION` and `artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` (different consumer, different evolution schedule). */
 export const MANIFEST_SCHEMA_VERSION = 1;
 
@@ -70,9 +72,6 @@ export function isLiveAt(window: Pick<LiveWindowEntry, "startMs" | "endMs">, epo
 
 /** D-03: the four Phase-2/Phase-3 experiment ids that exist to answer harness questions and must never appear in a user-facing manifest. */
 export const HARNESS_ONLY_ALGORITHM_IDS = new Set(["sigma1-defaults", "sigma1-seasonsd", "sigma1-normalcdf", "sigma1-adapt"]);
-
-/** D-03: the published set is exactly these three ids, in this order. */
-export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "sigma1"] as const;
 
 export const AlgorithmManifestEntrySchema = z.object({
   id: z.string().min(1),

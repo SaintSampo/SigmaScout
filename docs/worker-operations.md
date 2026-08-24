@@ -236,6 +236,37 @@ way to correct it, and it is authoritative by design.
 
 ---
 
+## Site hosting and R2 CORS (plan 05-01)
+
+The site (`apps/web`) and the artifact bucket live on **two different hostnames on purpose**
+(D-17). Cloudflare Pages project **`sigmascout-web`**, production alias
+`https://sigmascout-web.pages.dev`, custom domain **`https://www.sigmascout.org`**. Artifacts stay
+exactly where Phase 4 put them: `https://sigmascout.org` (no `www`), an R2 custom domain with no
+compute in the path (Phase 4 D-25).
+
+**Why not one hostname.** An R2 custom domain claims the *whole* hostname it's attached to — it
+cannot share an apex with a Pages project without a proxy Worker sitting in front of every artifact
+read, and NAV-06 rules out any compute in that path. Two hostnames costs one CORS policy; sharing
+one costs a Worker on every read.
+
+**The CORS policy.** `infra/r2-cors.json` is the tracked source of truth — this file holds no
+credential, only public origin strings. It names the site's real origin and the Pages production
+alias explicitly; per D-18, a wildcard origin is forbidden even though the data itself is public.
+Re-apply it after any change:
+
+```bash
+npx wrangler r2 bucket cors set sigmascout-artifacts --file infra/r2-cors.json --force
+npx wrangler r2 bucket cors list sigmascout-artifacts   # confirm what R2 actually stored
+```
+
+**Preview deploys are deliberately not allow-listed.** Every Cloudflare Pages preview gets its own
+per-deployment hostname (`https://<hash>.sigmascout-web.pages.dev`), and CORS origins can't be
+wildcarded per D-18 — so a preview's artifact fetches will fail CORS by design. Test a preview
+build against a local artifact fixture (`VITE_ARTIFACT_ORIGIN` override, see
+`apps/web/src/lib/artifactOrigin.ts`), or measure against the stable production alias instead.
+
+---
+
 ## Replay rig (plan 04-07)
 
 `scripts/replayRig.ts` drives a real historical event through the deployed `sigmascout-worker`'s

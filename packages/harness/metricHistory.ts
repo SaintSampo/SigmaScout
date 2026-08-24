@@ -15,30 +15,19 @@
  * Mirrors `predictions.ts`'s shape exactly: validate-then-append streaming
  * writer, same secret-scrub discipline, same truncate-on-open semantics (a
  * fresh replay produces a fresh sidecar, never a mix of two runs' rows).
+ *
+ * The schema itself (`MetricValueSchema`/`MetricHistoryRowSchema`/
+ * `MetricHistoryRow`) lives in `./metricHistorySchema.js`, a Node-free leaf,
+ * and is re-exported here unchanged — see that file's header for why
+ * (plan 05-01 Task 3: this module's `node:fs`/`node:path` imports are
+ * file-scoped and would otherwise reach any browser bundle that needs only
+ * the schema).
  */
 import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
+import { MetricHistoryRowSchema, type MetricHistoryRow } from "./metricHistorySchema.js";
 
-const MetricValueSchema = z.object({
-  value: z.number(),
-  /** Present only for algorithms that model uncertainty (Sigma1) — omitted entirely, never `0`, for algorithms that do not (OPR). */
-  spread: z.number().optional(),
-});
-
-export const MetricHistoryRowSchema = z.object({
-  matchKey: z.string().min(1),
-  season: z.number().int(),
-  eventKey: z.string().min(1),
-  algorithmId: z.string().min(1),
-  teamKey: z.string().min(1),
-  /** This team's position in the season's chronological match stream — the same total order `buildSeasonStream` produces, not a per-team match count. */
-  matchIndex: z.number().int().nonnegative(),
-  /** Component name -> that team's metric after this match, per `AlgorithmModule.teamMetrics`. */
-  metrics: z.record(z.string(), MetricValueSchema),
-});
-
-export type MetricHistoryRow = z.infer<typeof MetricHistoryRowSchema>;
+export { MetricValueSchema, MetricHistoryRowSchema, type MetricHistoryRow } from "./metricHistorySchema.js";
 
 export interface MetricHistoryWriterHandle {
   readonly path: string;

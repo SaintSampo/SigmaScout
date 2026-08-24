@@ -17,3 +17,10 @@ reports/
 # migrations apply against — see apps/worker/migrations/).
 .wrangler/
 
+# apps/web generated output (plan 05-01) — dist/ above already matches these
+# at any depth, but listed explicitly for clarity plus the two not yet covered.
+apps/web/dist/
+apps/web/src/routeTree.gen.ts
+apps/web/test-results/
+apps/web/playwright-report/
+

@@ -32,7 +32,7 @@
  *     every schema — never merged into one `uncertainty` field.
  */
 import { z } from "zod";
-import { MetricHistoryRowSchema } from "./metricHistory.js";
+import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
 
 /** Bumped whenever a published page artifact's shape changes in a way a client consumer must know about. Independent of `packages/harness/artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` — see file header. */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;
