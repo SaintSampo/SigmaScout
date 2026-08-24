@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { TeamsSearchSchema } from "../lib/searchParams.js";
 import { teamsQueryOptions } from "../lib/api/teams.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../lib/perfMarks.js";
@@ -26,9 +26,18 @@ function TeamsPage() {
   // with a placeholder version.
   const version = useAlgorithmVersion(algorithm);
 
+  // `placeholderData: keepPreviousData` keeps the PREVIOUS artifact on
+  // screen while a year/algorithm switch's new query resolves, rather than
+  // dropping to the loading skeleton (which collapses the virtualized
+  // container's height and, verified against the deployed page, resets
+  // scroll position to the top) — a real UX regression this plan's own
+  // "keeps the scroll position" requirement rules out. A row whose stale
+  // metrics don't match the new column set simply renders an em-dash
+  // (`MetricValue`'s own absent-metric case) until fresh data lands.
   const { data, isPending, error, refetch } = useQuery({
     ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
     enabled: version !== undefined,
+    placeholderData: keepPreviousData,
   });
 
   // The declared metric key set PLUS the reserved win-rate sentinel — the
