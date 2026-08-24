@@ -76,16 +76,32 @@ export const TeamsSearchSchema = RootSearchSchema.extend({
 export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;
 
 /**
+ * The shape `applyYearChange` needs — `RootSearch` plus `sort`/`sortDir`,
+ * BOTH OPTIONAL. `TeamsSearch` (required `sortDir`) satisfies this
+ * structurally, but so does the bare `RootSearch` the Events/Compare
+ * placeholder routes carry (Task 2) — the Ribbon (Task 3) mounts at the
+ * ROOT layout and is visible on every route, so the year dropdown's change
+ * handler must work whether or not the active route's own search happens to
+ * carry a `sort`/`sortDir` field, without needing to know which route is
+ * active.
+ */
+export interface YearChangeableSearch extends RootSearch {
+  sort?: string;
+  sortDir?: "asc" | "desc";
+}
+
+/**
  * The ONE shared year-change handler (D-11) — every year control (this
  * plan's `YearSelect.tsx`, and any later plan's own year control) calls
  * this rather than re-deriving the same preserve-filters-and-resolve-sort
  * logic. Preserves every existing field on `current` (filters, sort
- * direction, column state — whatever `TeamsSearch` carries) and re-resolves
- * `sort` through the SAME `resolveSortKey` function the algorithm-change
- * path uses (Task 1's own "one function, both triggers" contract) — the
- * valid metric-key set is season-dependent as well as algorithm-dependent,
- * so a plain year change can invalidate a sort just as an algorithm change
- * can.
+ * direction, column state — whatever the caller's search shape carries, via
+ * the `...current` spread) and re-resolves `sort` — ONLY when the current
+ * route's search actually carries one — through the SAME `resolveSortKey`
+ * function the algorithm-change path uses (Task 1's own "one function, both
+ * triggers" contract). The valid metric-key set is season-dependent as well
+ * as algorithm-dependent, so a plain year change can invalidate a sort just
+ * as an algorithm change can.
  *
  * D-12 EXTENSION POINT (Phase 7, out of this plan's scope): on an event
  * *DETAIL* page, a year change should map to the SAME EVENT CODE in the
@@ -96,7 +112,7 @@ export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;
  * `applyYearChange`-shaped function. Phase 7 extends the call site, not
  * this contract.
  */
-export function applyYearChange(current: TeamsSearch, newYear: number): TeamsSearch {
+export function applyYearChange<S extends YearChangeableSearch>(current: S, newYear: number): S {
   return {
     ...current,
     year: newYear,

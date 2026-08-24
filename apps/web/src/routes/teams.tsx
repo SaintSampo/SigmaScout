@@ -5,6 +5,7 @@ import { TeamsSearchSchema } from "../lib/searchParams.js";
 import { teamsQueryOptions } from "../lib/api/teams.js";
 import { ArtifactFetchError, ArtifactValidationError } from "../lib/api/errors.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../lib/perfMarks.js";
+import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
@@ -22,13 +23,14 @@ function TeamsPage() {
   // tracer's hard-coded constants.
   const { year, algorithm } = Route.useSearch();
 
-  // The artifact version is resolved from the algorithms manifest (Task 3's
-  // `lib/api/manifests.ts`). Until Task 3 wires the real hook in here, the
-  // query stays DISABLED rather than firing with a placeholder version — no
-  // literal version string belongs in this file (05-05-PLAN.md Task 2's own
-  // instruction; see this plan's SUMMARY.md for the Task 3 follow-up edit
-  // that enables this for real).
-  const version: string | undefined = undefined;
+  // The artifact version is resolved from the algorithms manifest
+  // (`AlgorithmSelect.tsx`'s `useAlgorithmVersion`, Task 3) — until the
+  // manifest resolves, `version` stays `undefined` and the query below stays
+  // DISABLED rather than firing with a placeholder version (05-05-PLAN.md
+  // Task 2's own instruction). This import is not in Task 3's own declared
+  // `<files>` list — see this plan's SUMMARY.md's documented deviation note
+  // (matches the same reasoning as `__root.tsx`'s Ribbon wiring).
+  const version = useAlgorithmVersion(algorithm);
 
   const { data, isPending, error } = useQuery({
     ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
