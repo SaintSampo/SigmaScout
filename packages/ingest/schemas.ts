@@ -23,11 +23,31 @@ export const tbaTeamSchema = z.object({
 export type TbaTeam = z.infer<typeof tbaTeamSchema>;
 export const tbaTeamListSchema = z.array(tbaTeamSchema);
 
+/** TBA's district assignment for an event — absent on non-district events (RESEARCH.md, plan 05-02). */
+const tbaDistrictSchema = z.object({
+  abbreviation: z.string(),
+  display_name: z.string(),
+  key: z.string(),
+  year: z.number(),
+});
+
 export const tbaEventSchema = z.object({
   key: z.string(),
+  // `name` is present on every TBA event (plan 05-02, EVNT-01) — required,
+  // not nullish, so a missing one is real drift and throws per this file's
+  // header policy, rather than silently degrading the events page's search
+  // and display.
+  name: z.string(),
   year: z.number(),
   event_type: z.number(),
   start_date: z.string(),
+  // `week`, `country`, `state_prov` and `district` are legitimately absent
+  // for offseason, preseason and non-district events — `nullish` describes
+  // TBA's actual contract rather than coercing a value that isn't there.
+  week: z.number().nullish(),
+  country: z.string().nullish(),
+  state_prov: z.string().nullish(),
+  district: tbaDistrictSchema.nullish(),
 });
 export type TbaEvent = z.infer<typeof tbaEventSchema>;
 

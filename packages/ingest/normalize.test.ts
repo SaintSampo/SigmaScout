@@ -33,7 +33,7 @@ function tbaMatch(overrides: Partial<TbaMatch> = {}): TbaMatch {
 }
 
 function tbaEvent(overrides: Partial<TbaEvent> = {}): TbaEvent {
-  return { key: "2024casj", year: 2024, event_type: 0, start_date: EVENT_START, ...overrides };
+  return { key: "2024casj", name: "Silicon Valley Regional", year: 2024, event_type: 0, start_date: EVENT_START, ...overrides };
 }
 
 describe("normalizeMatch — surrogates", () => {
@@ -161,6 +161,45 @@ describe("normalizeEvent — offseason flag", () => {
     expect(normalizeEvent(tbaEvent({ event_type: 99 })).isOffseason).toBe(true);
     expect(normalizeEvent(tbaEvent({ event_type: 98 })).isOffseason).toBe(false);
     expect(normalizeEvent(tbaEvent({ event_type: 100 })).isOffseason).toBe(false);
+  });
+});
+
+describe("normalizeEvent — location and calendar fields (EVNT-01, plan 05-02)", () => {
+  it("maps a full TBA event's name, week, country, stateProv and districtKey through", () => {
+    const result = normalizeEvent(
+      tbaEvent({
+        name: "Silicon Valley Regional",
+        week: 1,
+        country: "USA",
+        state_prov: "CA",
+        district: { abbreviation: "ne", display_name: "New England", key: "2024ne", year: 2024 },
+      })
+    );
+
+    expect(result.name).toBe("Silicon Valley Regional");
+    expect(result.week).toBe(1);
+    expect(result.country).toBe("USA");
+    expect(result.stateProv).toBe("CA");
+    expect(result.districtKey).toBe("ne");
+  });
+
+  it("an event with district: null yields districtKey: null", () => {
+    const result = normalizeEvent(tbaEvent({ district: null }));
+    expect(result.districtKey).toBeNull();
+  });
+
+  it("an event with week absent (undefined) yields week: null", () => {
+    const result = normalizeEvent(tbaEvent({ week: undefined }));
+    expect(result.week).toBeNull();
+  });
+
+  it("a real district event yields the abbreviation, never the year-prefixed district.key", () => {
+    const result = normalizeEvent(
+      tbaEvent({ district: { abbreviation: "fim", display_name: "FIRST in Michigan", key: "2024fim", year: 2024 } })
+    );
+
+    expect(result.districtKey).toBe("fim");
+    expect(result.districtKey).not.toBe("2024fim");
   });
 });
 

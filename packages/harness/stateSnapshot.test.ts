@@ -99,7 +99,19 @@ const PER_COMPONENT = 10;
 const SIDE_TOTAL = 13 * PER_COMPONENT; // 13 components, uniform
 
 function event(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
-  return { eventKey: "2024evta", year: 2024, eventType: 0, isOffseason: false, startDate: "2024-03-01", ...overrides };
+  return {
+    eventKey: "2024evta",
+    year: 2024,
+    eventType: 0,
+    isOffseason: false,
+    startDate: "2024-03-01",
+    name: "2024evta",
+    week: null,
+    country: null,
+    stateProv: null,
+    districtKey: null,
+    ...overrides,
+  };
 }
 
 function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {

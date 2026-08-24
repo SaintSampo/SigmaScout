@@ -111,6 +111,31 @@ export function hasWinnerImputedColumn(db: Corpus): boolean {
   return columns.some((column) => column.name === "winner_imputed");
 }
 
+/**
+ * The five EVNT-01 location/calendar columns `events` gained in plan 05-02,
+ * paired with the SQL type used when adding a missing one via `ALTER TABLE
+ * ... ADD COLUMN` below.
+ */
+const EVENT_LOCATION_COLUMNS: readonly [string, string][] = [
+  ["name", "TEXT"],
+  ["week", "INTEGER"],
+  ["country", "TEXT"],
+  ["state_prov", "TEXT"],
+  ["district_key", "TEXT"],
+];
+
+/**
+ * True when the given handle's `events` table already carries all five
+ * EVNT-01 location/calendar columns (plan 05-02) — mirrors
+ * `hasWinnerImputedColumn`'s `PRAGMA table_info` shape, scanning `events`
+ * instead of `matches` and checking a set of columns instead of one.
+ */
+export function hasEventLocationColumns(db: Corpus): boolean {
+  const columns = db.prepare(`PRAGMA table_info(events)`).all() as { name: string }[];
+  const existing = new Set(columns.map((column) => column.name));
+  return EVENT_LOCATION_COLUMNS.every(([name]) => existing.has(name));
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
@@ -145,6 +170,36 @@ export function openCorpus(path: string): Corpus {
         `Delete ${path} along with its -wal and -shm siblings and re-run pnpm ingest — ` +
         `the corpus is gitignored and disposable by design.`
     );
+  }
+
+  // plan 05-02 (EVNT-01): unlike winner_imputed above, this is deliberately
+  // an ADDITIVE migration, not a rebuild guard. winner_imputed is a
+  // *derived* value — an existing row's value would be wrong until
+  // recomputed from source, so only a rebuild can produce it correctly.
+  // The five EVNT-01 columns are *new source fields* that are honestly NULL
+  // until the very --events-only refetch (packages/ingest/cli.ts) fills
+  // them — NULL here is already the schema's legitimate value, so an
+  // in-place `ALTER TABLE ADD COLUMN` is correct and an existing corpus
+  // does not need to be deleted and re-ingested from scratch. This
+  // exception is scoped to additive nullable columns; it must not become a
+  // general migration framework.
+  if (!hasEventLocationColumns(db)) {
+    const columns = db.prepare(`PRAGMA table_info(events)`).all() as { name: string }[];
+    const existing = new Set(columns.map((column) => column.name));
+    for (const [name, sqlType] of EVENT_LOCATION_COLUMNS) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE events ADD COLUMN ${name} ${sqlType}`);
+      }
+    }
+    if (!hasEventLocationColumns(db)) {
+      // Unreachable in practice — guards against a bug in the ALTER loop
+      // itself, not TBA drift, so a named error is appropriate here too.
+      db.close();
+      throw new Error(
+        `Additive migration for events table location columns at ${path} did not complete — ` +
+          `hasEventLocationColumns still returns false after running every missing ALTER TABLE.`
+      );
+    }
   }
 
   return db;
@@ -182,19 +237,29 @@ export function upsertTeam(db: Corpus, team: CorpusTeam): void {
 
 export function upsertEvent(db: Corpus, event: CorpusEvent): void {
   db.prepare(
-    `INSERT INTO events (event_key, year, event_type, is_offseason, start_date)
-     VALUES (@eventKey, @year, @eventType, @isOffseason, @startDate)
+    `INSERT INTO events (event_key, year, event_type, is_offseason, start_date, name, week, country, state_prov, district_key)
+     VALUES (@eventKey, @year, @eventType, @isOffseason, @startDate, @name, @week, @country, @stateProv, @districtKey)
      ON CONFLICT(event_key) DO UPDATE SET
        year = excluded.year,
        event_type = excluded.event_type,
        is_offseason = excluded.is_offseason,
-       start_date = excluded.start_date`
+       start_date = excluded.start_date,
+       name = excluded.name,
+       week = excluded.week,
+       country = excluded.country,
+       state_prov = excluded.state_prov,
+       district_key = excluded.district_key`
   ).run({
     eventKey: event.eventKey,
     year: event.year,
     eventType: event.eventType,
     isOffseason: event.isOffseason ? 1 : 0,
     startDate: event.startDate,
+    name: event.name,
+    week: event.week,
+    country: event.country,
+    stateProv: event.stateProv,
+    districtKey: event.districtKey,
   });
 }
 

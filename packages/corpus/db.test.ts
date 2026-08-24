@@ -57,6 +57,11 @@ function event(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
     eventType: 0,
     isOffseason: false,
     startDate: "2024-03-01",
+    name: "Silicon Valley Regional",
+    week: 1,
+    country: "USA",
+    stateProv: "CA",
+    districtKey: null,
     ...overrides,
   };
 }
@@ -396,6 +401,87 @@ describe("upsertTeam and recordIngestRun", () => {
     });
 
     expect(findIncompleteIngestRuns(db)).toEqual([]);
+  });
+});
+
+describe("upsertEvent — EVNT-01 location/calendar fields round trip (plan 05-02)", () => {
+  it("round-trips name, week, country, stateProv and districtKey", () => {
+    upsertEvent(
+      db,
+      event({
+        eventKey: "2024fim",
+        name: "FIM District Champs",
+        week: 3,
+        country: "USA",
+        stateProv: "MI",
+        districtKey: "fim",
+      })
+    );
+
+    const row = db
+      .prepare(`SELECT name, week, country, state_prov, district_key FROM events WHERE event_key = ?`)
+      .get("2024fim") as {
+      name: string | null;
+      week: number | null;
+      country: string | null;
+      state_prov: string | null;
+      district_key: string | null;
+    };
+
+    expect(row.name).toBe("FIM District Champs");
+    expect(row.week).toBe(3);
+    expect(row.country).toBe("USA");
+    expect(row.state_prov).toBe("MI");
+    expect(row.district_key).toBe("fim");
+  });
+
+  it("a null week, country, stateProv and districtKey survive the round trip as NULL, not a coerced default", () => {
+    upsertEvent(
+      db,
+      event({
+        eventKey: "2024off",
+        week: null,
+        country: null,
+        stateProv: null,
+        districtKey: null,
+      })
+    );
+
+    const row = db
+      .prepare(`SELECT week, country, state_prov, district_key FROM events WHERE event_key = ?`)
+      .get("2024off") as {
+      week: number | null;
+      country: string | null;
+      state_prov: string | null;
+      district_key: string | null;
+    };
+
+    expect(row.week).toBeNull();
+    expect(row.country).toBeNull();
+    expect(row.state_prov).toBeNull();
+    expect(row.district_key).toBeNull();
+  });
+
+  it("a second upsert with changed location values overwrites, rather than being ignored", () => {
+    upsertEvent(db, event({ eventKey: "2024casj", week: null, country: null, stateProv: null, districtKey: null }));
+    upsertEvent(
+      db,
+      event({ eventKey: "2024casj", week: 1, country: "USA", stateProv: "CA", districtKey: "pnw" })
+    );
+
+    const row = db
+      .prepare(`SELECT week, country, state_prov, district_key FROM events WHERE event_key = ?`)
+      .get("2024casj") as {
+      week: number | null;
+      country: string | null;
+      state_prov: string | null;
+      district_key: string | null;
+    };
+
+    expect(row.week).toBe(1);
+    expect(row.country).toBe("USA");
+    expect(row.state_prov).toBe("CA");
+    expect(row.district_key).toBe("pnw");
   });
 });
 

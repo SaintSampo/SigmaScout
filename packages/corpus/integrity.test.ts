@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
+  hasEventLocationColumns,
   hasWinnerImputedColumn,
   openCorpus,
   openCorpusReadOnly,
@@ -84,6 +85,19 @@ function createLegacyMatchesTable(db: Database.Database): void {
   `);
 }
 
+/** An `events` table shaped exactly like the pre-05-02 schema — five columns, none of EVNT-01's new location/calendar fields. */
+function createLegacyEventsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE events (
+      event_key TEXT PRIMARY KEY,
+      year INTEGER NOT NULL,
+      event_type INTEGER NOT NULL,
+      is_offseason INTEGER NOT NULL,
+      start_date TEXT NOT NULL
+    );
+  `);
+}
+
 describe("openCorpus — foreign-key enforcement and schema guard (D-02/D-03, 01-REVIEW WR-04)", () => {
   let dir: string;
   let db: Corpus;
@@ -143,6 +157,63 @@ describe("openCorpus — foreign-key enforcement and schema guard (D-02/D-03, 01
       const message = (caught as Error).message;
       expect(message).toContain(legacyPath);
       expect(message).toContain("pnpm ingest");
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("hasEventLocationColumns — additive migration path (EVNT-01, plan 05-02)", () => {
+  it("is true for a corpus created by the current schema.sql", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-integrity-events-"));
+    const db = openCorpus(join(dir, "corpus.sqlite"));
+    try {
+      expect(hasEventLocationColumns(db)).toBe(true);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is false for an events table created without the five location/calendar columns", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-integrity-events-legacy-"));
+    const legacyDb = new Database(join(legacyDir, "legacy.sqlite"));
+    try {
+      createLegacyEventsTable(legacyDb);
+      expect(hasEventLocationColumns(legacyDb)).toBe(false);
+    } finally {
+      legacyDb.close();
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("is true again after openCorpus runs the additive migration over a legacy database — proving the migration path, not just the predicate", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-integrity-events-migrate-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    const seedDb = new Database(legacyPath);
+    // Only `events` is pre-created in the legacy (pre-05-02) shape. `matches`
+    // is deliberately left absent: openCorpus's own `CREATE TABLE IF NOT
+    // EXISTS` (schema.sql) then creates it fresh, already carrying
+    // winner_imputed (D-03) — so that older guard passes and this test
+    // exercises only the events-location migration path.
+    createLegacyEventsTable(seedDb);
+    seedDb.close();
+
+    try {
+      const migrated = openCorpus(legacyPath);
+      try {
+        expect(hasEventLocationColumns(migrated)).toBe(true);
+        // The migration is additive, not destructive — the pre-existing
+        // events table (though empty here) still opens and is queryable
+        // with the new columns present.
+        const columns = migrated.prepare(`PRAGMA table_info(events)`).all() as { name: string }[];
+        const names = new Set(columns.map((c) => c.name));
+        for (const col of ["name", "week", "country", "state_prov", "district_key"]) {
+          expect(names.has(col)).toBe(true);
+        }
+      } finally {
+        migrated.close();
+      }
     } finally {
       rmSync(legacyDir, { recursive: true, force: true });
     }

@@ -13,7 +13,18 @@ CREATE TABLE IF NOT EXISTS events (
   year INTEGER NOT NULL,
   event_type INTEGER NOT NULL,      -- TBA event_type enum (0=Regional ... 99=Offseason, 100=Preseason)
   is_offseason INTEGER NOT NULL,    -- derived: event_type == 99 (D-06)
-  start_date TEXT NOT NULL
+  start_date TEXT NOT NULL,
+  -- EVNT-01 (plan 05-02): five new source fields, all nullable. NULL is
+  -- this schema's honest starting value for a row ingested before this
+  -- plan's --events-only refresh ran -- see db.ts's openCorpus migration
+  -- comment for why these are additive (unlike winner_imputed's rebuild
+  -- guard). name is nullable here even though TBA always provides it,
+  -- because an un-refreshed corpus row predates this column entirely.
+  name TEXT,
+  week INTEGER,
+  country TEXT,
+  state_prov TEXT,
+  district_key TEXT               -- TBA's short district abbreviation ("ne", "fim"), not the year-prefixed district.key
 );
 
 CREATE TABLE IF NOT EXISTS matches (
