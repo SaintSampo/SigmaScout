@@ -198,6 +198,34 @@ anywhere. This phase creates `apps/web` from nothing.
   their origin added too, or must be tested against a local artifact fixture.
   — **Reversibility:** reversible.
   — *Resolves RESEARCH.md Open Question 1 / Pitfall 1.*
+
+- **D-19 (added 2026-08-24 during wave 4 execution):** **Route-level code splitting is folded into
+  plan 05-08** to bring the Teams page back under NAV-06's locked 2.5 s LCP threshold.
+
+  Trigger: the shipped Teams table breached the threshold. Three Lighthouse measurements, all on
+  the same methodology (13.4.1, `--preset=perf --emulated-form-factor=mobile
+  --throttling-method=simulate`, median of three runs against the canonical apex), tell a
+  consistent story: **2448 ms** (05-04, plain tracer table) → **2851 ms** (05-06, shipped table)
+  → **3099 ms** (orchestrator, after 05-06 + 05-07 merged) against a **2500 ms** threshold — 24%
+  over.
+
+  Diagnosis (05-06's, independently re-confirmed): the LCP element is the ribbon's wordmark, not
+  table content; parse-to-paint stays under 10 ms; TBT is 126 ms. This is **JS bundle weight**
+  (602 KB built / 183 KB gzip) delaying first paint of static shell — not virtualization cost, not
+  artifact size. Brotli is confirmed active, so it is genuine bytes-to-parse-and-execute.
+
+  Why 05-08 and not later: 05-08 *adds* a search box and search index, so the trend worsens on its
+  own; removing its throwaway spike sheds almost nothing because the spike's heavy imports
+  (`@tanstack/react-table`, `@tanstack/react-virtual`) are now used by the real table. Phases 6-8
+  add three more pages on top. The fix is cheapest now. 05-08 is also the phase's closing pass and
+  already owns "measure what was deferred", so the re-measurement has a natural home there.
+
+  Scope: `apps/web/vite.config.ts` and route modules gain a route-level dynamic `import()` split —
+  outside 05-08's declared `files_modified`, so it is recorded here rather than applied silently.
+  D-03's deferred search-index split is a **separate** question about artifact size and stays
+  deferred; this is about JS bundle size.
+  — **Reversibility:** reversible (a build-config and import-shape change).
+  — *Decided by the user at an execution checkpoint after the breach was measured.*
 </decisions>
 
 <constraints>
