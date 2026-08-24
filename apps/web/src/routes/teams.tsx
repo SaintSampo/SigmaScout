@@ -1,50 +1,65 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { TeamsSearchSchema } from "../lib/searchParams.js";
 import { teamsQueryOptions } from "../lib/api/teams.js";
-import { ArtifactFetchError, ArtifactValidationError } from "../lib/api/errors.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../lib/perfMarks.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
+import { metricKeysFor } from "../lib/metricKeys.js";
+import { resolveSortKey } from "../lib/resolveSortKey.js";
+import { buildTeamRows, sortTeamRows, WIN_RATE_SORT_KEY } from "../components/teams-table/rowModel.js";
+import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/TeamsTable.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
   component: TeamsPage,
 });
 
-/** Restores trailing-zero digits JSON serialization dropped — never a new rounding operation. Values arrive already rounded to 2 decimals (packages/harness/rounding.ts's D-06 rule). */
-function formatMetric(value: number): string {
-  return value.toFixed(2);
-}
-
 function TeamsPage() {
-  // 05-05-PLAN.md Task 2: year/algorithm now come from the URL (via
-  // TeamsSearchSchema, validated once at the router boundary) instead of the
-  // tracer's hard-coded constants.
-  const { year, algorithm } = Route.useSearch();
+  // 05-06-PLAN.md Task 3: the real table replaces the tracer's plain one,
+  // with sort bound to the URL (D-14) instead of a hard-coded slice.
+  const { year, algorithm, sort, sortDir } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
-  // The artifact version is resolved from the algorithms manifest
-  // (`AlgorithmSelect.tsx`'s `useAlgorithmVersion`, Task 3) — until the
-  // manifest resolves, `version` stays `undefined` and the query below stays
-  // DISABLED rather than firing with a placeholder version (05-05-PLAN.md
-  // Task 2's own instruction). This import is not in Task 3's own declared
-  // `<files>` list — see this plan's SUMMARY.md's documented deviation note
-  // (matches the same reasoning as `__root.tsx`'s Ribbon wiring).
+  // 05-05-PLAN.md Task 2: until the algorithms manifest resolves a real
+  // version, the artifact query below stays DISABLED rather than firing
+  // with a placeholder version.
   const version = useAlgorithmVersion(algorithm);
 
-  const { data, isPending, error } = useQuery({
+  // `placeholderData: keepPreviousData` keeps the PREVIOUS artifact on
+  // screen while a year/algorithm switch's new query resolves, rather than
+  // dropping to the loading skeleton (which collapses the virtualized
+  // container's height and, verified against the deployed page, resets
+  // scroll position to the top) — a real UX regression this plan's own
+  // "keeps the scroll position" requirement rules out. A row whose stale
+  // metrics don't match the new column set simply renders an em-dash
+  // (`MetricValue`'s own absent-metric case) until fresh data lands.
+  const { data, isPending, error, refetch } = useQuery({
     ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
     enabled: version !== undefined,
+    placeholderData: keepPreviousData,
   });
 
+  // The declared metric key set PLUS the reserved win-rate sentinel — the
+  // full "valid sort key" universe for this (algorithm, year) pair (Task 2's
+  // "sortable for every metric column plus win rate").
+  const validSortKeys = useMemo(() => [...metricKeysFor(algorithm, year), WIN_RATE_SORT_KEY], [algorithm, year]);
+  const effectiveSortKey = resolveSortKey(sort, validSortKeys);
+
+  // "the URL never claims a sort the table is not showing" (this plan's own
+  // key_links entry) — fires only when an EXPLICIT, stale `sort` param needs
+  // correcting (a hand-edited URL, or a key valid for a different year/algo
+  // pair). A plain ABSENT `sort` (the common first-visit case) resolves to
+  // the total key locally without forcing a redirect on every load.
+  useEffect(() => {
+    if (sort !== undefined && sort !== effectiveSortKey) {
+      navigate({ search: (prev) => ({ ...prev, sort: effectiveSortKey }), replace: true });
+    }
+  }, [sort, effectiveSortKey, navigate]);
+
   // 05-VALIDATION.md's "Measurement Gate (NAV-06)" — the render side of the
-  // parse-to-paint split. This effect runs after every render, including the
-  // pending-state (skeleton) render, but only marks/logs once `data` is
-  // present — which is exactly the render that actually commits populated
-  // rows below, never the "Loading teams…" branch. Guarded against the
-  // specific `data` reference (not a plain boolean) so a future artifact
-  // reload (year/algorithm change) marks and logs again rather than firing
-  // only once for the component's whole lifetime.
+  // parse-to-paint split. Fires once per artifact load (guarded on the
+  // specific `data` reference, not a boolean), never on the skeleton render.
   const markedDataRef = useRef<typeof data>(undefined);
   useEffect(() => {
     if (!data || markedDataRef.current === data) return;
@@ -54,62 +69,44 @@ function TeamsPage() {
     console.log(JSON.stringify({ event: "teams-parse-to-paint", season: data.season, durationMs }));
   }, [data]);
 
-  if (isPending) {
-    return (
-      <div className="p-[var(--spacing-lg)] text-[14px] text-[var(--color-text-primary)]">Loading teams…</div>
-    );
+  // Clicking a sortable header writes the new key/direction back to the URL
+  // with the updater form so year/algorithm survive (05-05's D-14 pattern).
+  // Re-clicking the ACTIVE column toggles direction; clicking a different
+  // column starts it at descending (the common "biggest first" reading for
+  // this project's metrics).
+  function handleSortChange(columnId: string) {
+    navigate({
+      search: (prev) => {
+        const nextDirection: "asc" | "desc" = prev.sort === columnId && prev.sortDir === "desc" ? "asc" : "desc";
+        return { ...prev, sort: columnId, sortDir: nextDirection };
+      },
+    });
   }
 
-  if (error) {
-    const resource = error instanceof ArtifactFetchError || error instanceof ArtifactValidationError ? error.resource : "teams";
-    const errorYear = error instanceof ArtifactFetchError || error instanceof ArtifactValidationError ? error.year : year;
-    return (
-      <div className="p-[var(--spacing-lg)]">
-        <p className="text-[14px] text-[var(--color-destructive)]">
-          Couldn&apos;t load {resource} for {errorYear}.
-        </p>
-        <p className="text-[14px] text-[var(--color-text-muted)]">Check your connection and try again.</p>
-      </div>
-    );
-  }
+  const rows = useMemo(() => {
+    if (!data) return [];
+    return sortTeamRows(buildTeamRows(data, algorithm), effectiveSortKey, sortDir);
+  }, [data, algorithm, effectiveSortKey, sortDir]);
 
-  const rows = [...data.teams].sort((a, b) => (b.metrics.total?.value ?? 0) - (a.metrics.total?.value ?? 0)).slice(0, 100);
+  let status: TeamsTableStatus;
+  if (isPending) status = "loading";
+  else if (error) status = "error";
+  else if (rows.length === 0) status = "empty";
+  else status = "success";
 
   return (
     <div className="p-[var(--spacing-lg)]">
-      <h1 className="mb-[var(--spacing-md)] text-[20px] font-semibold leading-[1.2] text-[var(--color-text-primary)]">Teams — {data.season}</h1>
-      <table className="w-full border-collapse text-[14px]">
-        <thead>
-          <tr className="bg-[var(--color-bg-surface)] text-[12px] font-semibold leading-[1.3]">
-            <th className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)] text-left">Rank</th>
-            <th className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)] text-left">Team #</th>
-            <th className="px-[var(--spacing-md)] py-[var(--spacing-sm)] text-left">Nickname</th>
-            <th className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)] text-right">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => {
-            const total = row.metrics.total;
-            return (
-              <tr key={row.teamKey} className="bg-[var(--color-bg-page)]">
-                <td className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)]">{index + 1}</td>
-                <td className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)]">{row.teamNumber}</td>
-                <td className="px-[var(--spacing-md)] py-[var(--spacing-sm)]">{row.nickname}</td>
-                <td className="numeric-cell px-[var(--spacing-md)] py-[var(--spacing-sm)] text-right">
-                  {total === undefined ? null : (
-                    <>
-                      <span className="text-[var(--color-text-primary)]">{formatMetric(total.value)}</span>
-                      {total.spread !== undefined && (
-                        <span className="ml-[var(--spacing-xs)] text-[12px] font-normal text-[var(--color-text-muted)]">± {formatMetric(total.spread)}</span>
-                      )}
-                    </>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <h1 className="text-role-heading mb-[var(--spacing-md)] text-[var(--color-text-primary)]">Teams — {year}</h1>
+      <TeamsTable
+        status={status}
+        rows={rows}
+        algorithmId={algorithm}
+        season={year}
+        sortKey={effectiveSortKey}
+        sortDirection={sortDir}
+        onSortChange={handleSortChange}
+        onRetry={() => void refetch()}
+      />
     </div>
   );
 }
