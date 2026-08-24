@@ -196,6 +196,11 @@ None - no external service configuration required. Deployment used the already-a
 - The search keystroke-latency secondary gate (D-10) remains genuinely unmeasured (no search box exists yet) -- plan 05-08 must run it before that plan can be considered complete, not silently skip it; the threshold (`<100ms`) is restated in `docs/first-paint-measurement.md` for exactly that purpose.
 - Real-device (non-emulated) touch spot-checks for D-04 remain outstanding per `05-VALIDATION.md`'s own Manual-Only Verifications table -- flagged as `human_judgment: true` in this SUMMARY's `coverage` block rather than silently marked done.
 
+## Self-Check: PASSED
+
+All 9 files claimed created/modified are tracked in git (`git ls-files`), and all 4 commit hashes
+referenced above (`aff98986`, `34c9be77`, `8102ebf3`, `3ed9f4f4`) are present in `git log`.
+
 ---
 *Phase: 05-site-shell-navigation-browsing*
 *Completed: 2026-08-24*
