@@ -1,21 +1,25 @@
 import { Link } from "@tanstack/react-router";
-import { SearchIcon } from "lucide-react";
 import { useIsMobile } from "@/lib/breakpoints";
 import { YearSelect } from "./YearSelect.js";
 import { AlgorithmSelect } from "./AlgorithmSelect.js";
+import { SearchBox } from "../search/SearchBox.js";
 
 /**
  * NAV-01's persistent top ribbon: wordmark, three nav links in a FIXED
- * order, both global dropdowns, and a slot for the search box (plan 05-08
- * fills it in — this task renders the 44x44 icon trigger with its
- * accessible label now so the layout is settled, per 05-UI-SPEC.md's
- * "Icon-only control labels" section).
+ * order, both global dropdowns, and the search box (05-08-PLAN.md Task 2 —
+ * `SearchBox` itself decides, via the shared `useIsMobile()` breakpoint,
+ * whether to render as the inline desktop search box or the 44x44 icon
+ * trigger that opens a phone dialog; this component just places it in the
+ * same reserved slot on both branches below).
  *
  * No fetch of its own — this component is static chrome and must never be
  * gated on a query. `YearSelect` has no fetch either; `AlgorithmSelect`
  * fetches the algorithms manifest internally, but renders its full
  * build-time option list on the very first paint regardless (05-UI-SPEC.md
- * "Algorithm dropdown" empty row — it can never be empty).
+ * "Algorithm dropdown" empty row — it can never be empty). `SearchBox`
+ * itself is also never gated on a fetch resolving before it renders — its
+ * two artifact queries stay `enabled: false` until D-10's lazy-fetch trigger
+ * fires.
  */
 const NAV_LINKS = [
   { to: "/teams", label: "Teams" },
@@ -69,14 +73,6 @@ function NavLinks() {
   );
 }
 
-function SearchTrigger() {
-  return (
-    <button type="button" aria-label="Open search" className="tap-target flex items-center justify-center rounded-md">
-      <SearchIcon aria-hidden="true" className="size-4 text-[var(--color-text-primary)]" />
-    </button>
-  );
-}
-
 function GlobalSelects() {
   return (
     <div className="flex items-center gap-[var(--spacing-sm)]">
@@ -105,12 +101,14 @@ export function Ribbon() {
           <GlobalSelects />
         </div>
         {/* The "compact second row" (05-UI-SPEC.md "Top ribbon" overflow row):
-            the SAME NavLinks/SearchTrigger elements the desktop branch below
-            renders — the link order (Teams, Events, Compare) never differs
-            between the two branches, only the surrounding layout reflows. */}
+            the SAME NavLinks element the desktop branch below renders — the
+            link order (Teams, Events, Compare) never differs between the two
+            branches, only the surrounding layout reflows. `SearchBox`
+            renders as the 44x44 icon trigger here (`useIsMobile()` inside it
+            resolves the same way this component's own `isMobile` did). */}
         <div className="mt-[var(--spacing-sm)] flex items-center justify-between gap-[var(--spacing-md)]">
           <NavLinks />
-          <SearchTrigger />
+          <SearchBox />
         </div>
       </header>
     );
@@ -122,7 +120,7 @@ export function Ribbon() {
         {wordmark}
         <NavLinks />
         <GlobalSelects />
-        <SearchTrigger />
+        <SearchBox />
       </div>
     </header>
   );
