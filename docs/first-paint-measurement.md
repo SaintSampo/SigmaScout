@@ -341,3 +341,69 @@ parse-time benefit despite the worse Lighthouse score, revert it, add an explici
 `pendingComponent`/prefetch strategy to remove the newly-introduced sequential hop, or reconsider
 whether Lighthouse's simulated model is the right instrument for judging a route-split architecture
 at all — none of those decisions belongs to this task.
+
+---
+
+## Fourth measurement — real-network A/B of the split, and its reversal (orchestrator, D-19 close-out)
+
+**Why this entry exists.** The third entry recorded that route-level code splitting scored *worse*
+under Lighthouse (3232 ms vs 3099 ms) and correctly declined to tune the number. That left an open
+question the Lighthouse simulator cannot answer on its own: is the split actually worse for a real
+user, or is the simulator over-penalizing one extra request hop? This entry answers it by measuring
+both builds directly, with no simulator in the loop.
+
+### Method
+
+Both builds were produced from the same worktree — `autoCodeSplitting: true` and
+`autoCodeSplitting: false` — and served from identical local static servers on adjacent ports, so
+the only variable is the split itself. Chromium was driven via Playwright with **real CDP
+throttling** (`Network.emulateNetworkConditions` + `Emulation.setCPUThrottlingRate`, 4x CPU on every
+profile), LCP read from a `PerformanceObserver` registered before navigation. Median of three runs
+per cell.
+
+### Results — Teams route
+
+| Network profile | With split | Without split | Split costs |
+|---|---:|---:|---:|
+| Congested venue (1.6 Mbps / 150 ms) | 4144 ms | 4064 ms | **+80 ms** |
+| Decent LTE (10 Mbps / 40 ms) | 1144 ms | 1100 ms | **+44 ms** |
+| Good wifi (40 Mbps / 15 ms) | 668 ms | 656 ms | **+12 ms** |
+
+**The split is consistently slower on Teams across every profile, and never faster.** Lighthouse's
+simulator exaggerated the effect but did not invent it.
+
+### Why — the size table explains it
+
+| | Eager JS | Route chunk | Total on Teams |
+|---|---|---|---|
+| With split | 539.6 KB (`index` 273.9 + vendor 265.7) | + 71.2 KB `teams` | 610.8 KB, **two serial stages** |
+| Without split | 622.1 KB | — | 622.1 KB, **one stage** |
+
+On the Teams route the split saves about **11 KB** and buys an extra serialized round trip. Most of
+the bundle's weight lives in the *shared* vendor chunk that every route loads regardless, so there is
+very little route-specific weight for a route-level split to defer. It does help Events (~552 KB
+eager) and Compare, but not the page users land on and the one NAV-06 is measured against.
+
+### Decision — reverted
+
+`autoCodeSplitting` was reverted (`29364417` reverts `51ad41d6`). It measurably costs more than it
+saves on the flagship page and adds build complexity in exchange. D-19's intent — get Teams under
+2.5 s — is **not** satisfied, and is explicitly left open rather than declared closed.
+
+### What is actually slow (the real finding, logged for a scoped follow-up)
+
+The LCP element is the ribbon's wordmark, and this is a pure client-rendered SPA: **nothing paints
+at all until ~600 KB of JS downloads, parses and executes.** That is why every profile above scales
+with bundle size, and why reshuffling which JS blocks the paint cannot fix it. Splitting was the
+wrong lever.
+
+The lever that would work is putting real markup — a static shell or skeleton — into `index.html`,
+so first paint is independent of JS entirely. On the congested-venue profile that is the difference
+between ~4 s of blank screen and an immediate shell. That is a structural change to the app shell
+and deserves its own plan with before/after measurement on this same method, not a late
+in-phase edit.
+
+Worth recording for whoever picks this up: Lighthouse's Slow-4G preset sits close to the
+"congested venue" row above, and SigmaScout's users are in arenas with thousands of people sharing
+wifi. The 2.5 s threshold is not an arbitrary target for this audience — the ~4 s measured there is
+a real problem, and the gate is measuring something that matters.
