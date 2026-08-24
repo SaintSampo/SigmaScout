@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 5
-current_phase_name: Site Shell — Navigation & Browsing
+current_phase: 05
+current_phase_name: site-shell-navigation-browsing
 status: executing
 stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-08-24T04:03:28.417Z"
-last_activity: 2026-08-23
-last_activity_desc: Phase 04 complete, transitioned to Phase 5
+last_updated: "2026-08-24T04:08:00.091Z"
+last_activity: 2026-08-24
+last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 7
   completed_phases: 6
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 04 — publish-live-update-pipeline
+**Current focus:** Phase 05 — site-shell-navigation-browsing
 
 ## Current Position
 
-Phase: 5 — Site Shell — Navigation & Browsing
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-23 — Phase 04 complete, transitioned to Phase 5
+Phase: 05 (site-shell-navigation-browsing) — EXECUTING
+Plan: 1 of 8
+Status: Executing Phase 05
+Last activity: 2026-08-24 — Phase 05 execution started
 
 Progress: [██████████] 100%
 
