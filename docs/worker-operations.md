@@ -239,20 +239,27 @@ way to correct it, and it is authoritative by design.
 ## Site hosting and R2 CORS (plan 05-01)
 
 The site (`apps/web`) and the artifact bucket live on **two different hostnames on purpose**
-(D-17). Cloudflare Pages project **`sigmascout-web`**, production alias
-`https://sigmascout-web.pages.dev`, custom domain **`https://www.sigmascout.org`**. Artifacts stay
-exactly where Phase 4 put them: `https://sigmascout.org` (no `www`), an R2 custom domain with no
-compute in the path (Phase 4 D-25).
+(D-17, amended 2026-08-24). Cloudflare Pages project **`sigmascout-web`**, production alias
+`https://sigmascout-web.pages.dev`, custom domains **`https://sigmascout.org`** (canonical) and
+**`https://www.sigmascout.org`**. Artifacts are served from **`https://data.sigmascout.org`**, an R2
+custom domain with no compute in the path (Phase 4 D-25, which names no hostname and is unaffected).
+
+**Why the apex serves the site.** D-17 originally gave the apex to R2 and put the site on `www`.
+That left `https://sigmascout.org` — the address people actually type — returning a Cloudflare 404,
+because R2 serves objects by path and has no `/` or `/teams` object. The Blue Alliance and Statbotics
+both serve from their apex; matching that convention is worth more than leaving the naked domain
+dead. Swapped 2026-08-24, within D-17's own stated reversibility envelope ("DNS + one CORS origin
+string").
 
 **Why not one hostname.** An R2 custom domain claims the *whole* hostname it's attached to — it
-cannot share an apex with a Pages project without a proxy Worker sitting in front of every artifact
-read, and NAV-06 rules out any compute in that path. Two hostnames costs one CORS policy; sharing
-one costs a Worker on every read.
+cannot share a hostname with a Pages project without a proxy Worker sitting in front of every
+artifact read, and NAV-06 rules out any compute in that path. Two hostnames costs one CORS policy;
+sharing one costs a Worker on every read.
 
 **The CORS policy.** `infra/r2-cors.json` is the tracked source of truth — this file holds no
-credential, only public origin strings. It names the site's real origin and the Pages production
-alias explicitly; per D-18, a wildcard origin is forbidden even though the data itself is public.
-Re-apply it after any change:
+credential, only public origin strings. `origins` lists the **site's** origins (apex, `www`, and the
+Pages production alias) — not the artifact host. Per D-18, a wildcard origin is forbidden even
+though the data itself is public. Re-apply it after any change:
 
 ```bash
 npx wrangler r2 bucket cors set sigmascout-artifacts --file infra/r2-cors.json --force

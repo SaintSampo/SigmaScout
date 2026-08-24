@@ -160,16 +160,37 @@ anywhere. This phase creates `apps/web` from nothing.
 
 ### Added at planning time (2026-08-23)
 
-- **D-17:** **The site is hosted at `https://www.sigmascout.org`** (Cloudflare Pages
-  custom domain on the existing zone). `sigmascout.org` stays exactly as Phase 4
-  shipped it — an R2 custom domain serving artifacts with no compute in the path
-  (Phase 4 D-25 is untouched, nothing republishes). An R2 custom domain claims a whole
-  hostname rather than a path prefix, so the site and the data cannot share the apex
-  without a proxy Worker on every artifact read, which NAV-06 rules out.
+- **D-17:** ~~**The site is hosted at `https://www.sigmascout.org`**~~ **AMENDED
+  2026-08-24 during 05-01 execution — see D-17a below.** Original text: the site is
+  hosted at `https://www.sigmascout.org` (Cloudflare Pages custom domain on the
+  existing zone); `sigmascout.org` stays exactly as Phase 4 shipped it — an R2 custom
+  domain serving artifacts with no compute in the path. An R2 custom domain claims a
+  whole hostname rather than a path prefix, so the site and the data cannot share a
+  hostname without a proxy Worker on every artifact read, which NAV-06 rules out.
   — **Reversibility:** reversible (DNS + one CORS origin string).
 
+- **D-17a (amends D-17, 2026-08-24):** **The site is hosted at the apex
+  `https://sigmascout.org`** (canonical), with `https://www.sigmascout.org` attached to
+  the same Pages project. **Artifacts move to the R2 custom domain
+  `https://data.sigmascout.org`.** Trigger: D-17 as written left the apex serving a
+  Cloudflare 404 to anyone typing `sigmascout.org`, because R2 serves objects by path
+  and the bucket has no `/` or `/teams` object — the decision was framed as "where do
+  artifacts live" and never asked what a human typing the domain would see. The Blue
+  Alliance (`thebluealliance.com`) and Statbotics (`statbotics.io`) both serve from
+  their apex, and matching that convention beats leaving the naked domain dead. The
+  two-hostname split and its NAV-06 rationale are unchanged — only which side gets the
+  apex. Phase 4 **D-25 is unaffected**: it specifies "an R2 custom domain with no
+  compute in the path" and names no hostname. Cost at time of change: one line in
+  `apps/web/src/lib/artifactOrigin.ts`, one test assertion, the `infra/r2-cors.json`
+  origins list, one doc section, and a redeploy — the switching cost is lowest
+  pre-launch and only grows.
+  — **Reversibility:** reversible (DNS + one origin string, same envelope D-17 declared).
+  — *Decided by the user at an execution checkpoint after the 404 was demonstrated.*
+
 - **D-18:** **The R2 bucket carries an explicit CORS policy with `AllowedOrigins`
-  scoped to `https://www.sigmascout.org`** — never a wildcard. R2 sends no CORS headers
+  scoped to the site's own origins** — per D-17a these are `https://sigmascout.org`,
+  `https://www.sigmascout.org` and the Pages production alias (originally just
+  `https://www.sigmascout.org`) — never a wildcard. R2 sends no CORS headers
   by default, so without this every artifact fetch fails on first deploy; this must be
   configured and confirmed **before the first real `fetch()` call is written**. The data
   is public, so the risk of a wildcard is low, but narrow-scoping is free and stops the

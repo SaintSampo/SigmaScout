@@ -82,6 +82,6 @@ describe("fetchTeamsArtifact", () => {
 
     await fetchTeamsArtifact({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://sigmascout.org/v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json");
   });
 });

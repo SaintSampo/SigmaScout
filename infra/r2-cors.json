@@ -3,6 +3,7 @@
     {
       "allowed": {
         "origins": [
+          "https://sigmascout.org",
           "https://www.sigmascout.org",
           "https://sigmascout-web.pages.dev"
         ],
