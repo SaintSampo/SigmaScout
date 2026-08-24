@@ -16,6 +16,7 @@
  */
 import { artifactKey, TeamsArtifactSchema, type TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
+import { markArtifactParsed } from "../perfMarks.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 export interface FetchTeamsArtifactParams {
@@ -32,7 +33,13 @@ export async function fetchTeamsArtifact({ year, algorithmId, version }: FetchTe
   }
   const body: unknown = await res.json();
   try {
-    return TeamsArtifactSchema.parse(body);
+    const parsed = TeamsArtifactSchema.parse(body);
+    // 05-VALIDATION.md's "Measurement Gate (NAV-06)" — the network/parse
+    // side of the parse-to-paint split. Marked immediately after the schema
+    // parse resolves, before returning, so nothing downstream of the parse
+    // (React state updates, render) is counted as network/parse time.
+    markArtifactParsed();
+    return parsed;
   } catch (err) {
     throw new ArtifactValidationError("teams", year, err);
   }
