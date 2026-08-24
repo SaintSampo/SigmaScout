@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens transcribed from 05-UI-SPEC.md's Color/Spacing/Typography
+ * tables. D-06 requires every color to exist as a token from the first
+ * component — never a hardcoded hex literal in component code. This file is
+ * the whole point of that discipline.
+ */
+@theme {
+  /* Color — 05-UI-SPEC.md "Color" table */
+  --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50 */
+  --color-bg-surface: #f1f5f9; /* Secondary (30%) — slate-100 */
+  --color-accent: #4f46e5; /* Accent (10%) — indigo-600 */
+  --color-destructive: #dc2626; /* red-600 */
+  /*
+   * --color-text-muted: not specified by the UI-SPEC (left open for the
+   * scaffolding plan). Chosen: Tailwind's slate-600 (#475569) — measured
+   * 7.25:1 contrast ratio against --color-bg-page (#f8fafc), comfortably
+   * clearing WCAG AA's 4.5:1 floor for the 12px sigma-spread suffix text
+   * (05-UI-SPEC.md Typography's "Sigma display format" section) at Label
+   * size, where the suffix must stay legible while visually receding behind
+   * the primary metric value.
+   */
+  --color-text-muted: #475569;
+  --color-text-primary: #0f172a; /* slate-900 — body/heading text, not itself in the UI-SPEC table but needed for any text render */
+
+  /* Spacing Scale — 05-UI-SPEC.md "Spacing Scale" table (multiples of 4) */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* Radius — 05-UI-SPEC.md "Design System" table, shadcn preset (0.375rem / 6px) */
+  --radius: 0.375rem;
+}
+
+body {
+  background-color: var(--color-bg-page);
+  color: var(--color-text-primary);
+}
+
+/* Digit columns (rank, team #, metric values, win rate) align vertically — 05-UI-SPEC.md "Design System" Font row. */
+.numeric-cell {
+  font-feature-settings: "tnum";
+}

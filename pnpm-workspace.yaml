@@ -17,3 +17,6 @@ allowBuilds:
   workerd: true
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260822.1'
+  - '@tanstack/query-core@5.102.2'
+  - '@tanstack/react-query@5.102.2'
+  - '@types/react-dom@19.2.5'
