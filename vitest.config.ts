@@ -15,10 +15,10 @@ export default defineConfig({
           include: ["packages/**/*.test.ts", "scripts/**/*.test.ts", "apps/worker/**/*.test.ts"],
           environment: "node",
           globals: false,
-          passWithNoTests: true,
         },
       },
       "./apps/web",
     ],
+    passWithNoTests: true,
   },
 });
