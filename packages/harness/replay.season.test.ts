@@ -46,6 +46,11 @@ function event(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
     eventType: 0,
     isOffseason: false,
     startDate: "2024-03-01",
+    name: "2024evta",
+    week: null,
+    country: null,
+    stateProv: null,
+    districtKey: null,
     ...overrides,
   };
 }

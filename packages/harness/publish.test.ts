@@ -219,12 +219,77 @@ describe("buildEventsArtifact", () => {
           teamCount: 40,
           matchCount: 80,
           playedMatchCount: 80,
+          country: null,
+          stateProv: null,
+          districtKey: null,
         },
       ],
       generation: "g1",
     });
     expect(artifact.events).toHaveLength(1);
     expect(artifact.events[0]?.week).toBeNull();
+  });
+
+  it("round-trips name, week, country, stateProv and districtKey (EVNT-01, plan 05-02)", () => {
+    const artifact = buildEventsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      events: [
+        {
+          eventKey: "2026fim",
+          name: "FIM District Champs",
+          eventType: 0,
+          isOffseason: false,
+          startDate: "2026-03-01",
+          week: 3,
+          teamCount: 40,
+          matchCount: 80,
+          playedMatchCount: 80,
+          country: "USA",
+          stateProv: "MI",
+          districtKey: "fim",
+        },
+      ],
+      generation: "g1",
+    });
+    const row = artifact.events[0]!;
+    expect(row.name).toBe("FIM District Champs");
+    expect(row.week).toBe(3);
+    expect(row.country).toBe("USA");
+    expect(row.stateProv).toBe("MI");
+    expect(row.districtKey).toBe("fim");
+  });
+
+  it("a null week and a null district survive the build unchanged — not dropped by JSON.stringify or defaulted", () => {
+    const artifact = buildEventsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      events: [
+        {
+          eventKey: "2026off",
+          name: "Some Offseason Event",
+          eventType: 99,
+          isOffseason: true,
+          startDate: "2026-09-01",
+          week: null,
+          teamCount: 10,
+          matchCount: 20,
+          playedMatchCount: 20,
+          country: null,
+          stateProv: null,
+          districtKey: null,
+        },
+      ],
+      generation: "g1",
+    });
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    const row = roundTripped.events[0]!;
+    expect("week" in row).toBe(true);
+    expect(row.week).toBeNull();
+    expect("districtKey" in row).toBe(true);
+    expect(row.districtKey).toBeNull();
   });
 });
 
@@ -354,7 +419,19 @@ describe("selectScheduledMatches never carries an outcome key (D-08) — publish
   });
 
   function corpusEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
-    return { eventKey: "2026casj", year: 2026, eventType: 0, isOffseason: false, startDate: "2026-03-01", ...overrides };
+    return {
+      eventKey: "2026casj",
+      year: 2026,
+      eventType: 0,
+      isOffseason: false,
+      startDate: "2026-03-01",
+      name: "2026casj",
+      week: null,
+      country: null,
+      stateProv: null,
+      districtKey: null,
+      ...overrides,
+    };
   }
   function corpusMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     return {

@@ -37,6 +37,21 @@ export interface CorpusEvent {
   eventType: number;
   isOffseason: boolean;
   startDate: string;
+  /** TBA's real event name (EVNT-01, NAV-03) — never the event key. */
+  name: string;
+  /** The FRC competition week; null when TBA has none (offseason/preseason). */
+  week: number | null;
+  country: string | null;
+  stateProv: string | null;
+  /**
+   * TBA's short district abbreviation (`ne`, `fim`, `ont`) — deliberately
+   * NOT `district.key`, which is year-prefixed (`2024ne`). D-11 requires a
+   * year change to preserve active filters, so a year-scoped identifier
+   * would silently invalidate every district filter on every year switch.
+   * The abbreviation is stable across seasons and is what an FRC user
+   * recognizes (plan 05-02).
+   */
+  districtKey: string | null;
 }
 
 export interface CorpusMatch {
@@ -72,6 +87,14 @@ export function normalizeEvent(event: TbaEvent): CorpusEvent {
     eventType: event.event_type,
     isOffseason: event.event_type === OFFSEASON_EVENT_TYPE,
     startDate: event.start_date,
+    name: event.name,
+    // `?? null` collapses `undefined` (field absent from TBA's response) and
+    // `null` (field present but empty) into one corpus value — the corpus
+    // never stores the difference between "absent" and "null" (plan 05-02).
+    week: event.week ?? null,
+    country: event.country ?? null,
+    stateProv: event.state_prov ?? null,
+    districtKey: event.district?.abbreviation ?? null,
   };
 }
 

@@ -125,11 +125,49 @@ function signRequest(
 }
 
 /**
+ * Retry policy for R2 writes (plan 05-02 deviation, 2026-08-24).
+ *
+ * A full `publish:seasons` run makes on the order of 55,000 sequential PUTs.
+ * Before this, `putObject` issued exactly one `fetch` with no retry, so a
+ * single transient 5xx anywhere in that run aborted the whole publish — which
+ * is exactly what happened on 2026-08-24 (`PUT "v1/team/frc8285/2022/opr@..."
+ * failed with status 500`) after R2 had been verified healthy either side of
+ * the failure. At that request count a bare single-shot write is not a
+ * reasonable bet, and the same path backs the live-event cron tick, where an
+ * aborted run means stale published data during a match.
+ *
+ * Only *transient* classes are retried: 5xx (server-side), 429 (throttling)
+ * and 408 (request timeout), plus network-level `fetch` rejections. A 4xx
+ * other than those is a permanent client error — a bad key, bad credentials,
+ * a malformed body — and retrying it just burns Class-A operations against
+ * the free-tier quota, so it throws immediately.
+ */
+const PUT_MAX_ATTEMPTS = 5;
+const PUT_BASE_DELAY_MS = 250;
+
+function isRetriableStatus(status: number): boolean {
+  return status >= 500 || status === 429 || status === 408;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
  * PUTs `body` to `{bucket}/{key}` on R2's S3-compatible endpoint.
  * `options.contentType`/`options.cacheControl` are sent verbatim as the
  * `Content-Type`/`Cache-Control` headers (D-26 — the publisher passes
  * `application/json` and `public, max-age=60`). Throws on any non-2xx
  * response, with the status and the key in the message.
+ *
+ * Transient failures are retried with exponential backoff plus jitter (see
+ * the retry-policy note above). Each attempt re-signs the request rather than
+ * reusing the first signature: SigV4 embeds `x-amz-date`, so a signature
+ * reused across a backoff window is a correctness hazard, not just a style
+ * point. The thrown message names the attempt count so an exhausted retry is
+ * distinguishable in a log from a first-shot failure.
  */
 export async function putObject(
   bucket: string,
@@ -138,19 +176,41 @@ export async function putObject(
   options: { contentType: string; cacheControl: string }
 ): Promise<void> {
   const credentials = credentialsFromEnv();
-  const signed = signRequest("PUT", credentials, bucket, key, body, {
-    "content-type": options.contentType,
-    "cache-control": options.cacheControl,
-  });
 
-  const response = await fetch(signed.url, {
-    method: "PUT",
-    headers: signed.headers,
-    body,
-  });
+  for (let attempt = 1; attempt <= PUT_MAX_ATTEMPTS; attempt += 1) {
+    const signed = signRequest("PUT", credentials, bucket, key, body, {
+      "content-type": options.contentType,
+      "cache-control": options.cacheControl,
+    });
 
-  if (!response.ok) {
-    throw new Error(`r2Client.putObject: PUT "${key}" failed with status ${response.status} ${response.statusText}`);
+    let response: Response;
+    try {
+      response = await fetch(signed.url, {
+        method: "PUT",
+        headers: signed.headers,
+        body,
+      });
+    } catch (cause) {
+      // Network-level failure (DNS, socket reset, TLS). Transient by nature.
+      if (attempt === PUT_MAX_ATTEMPTS) {
+        throw new Error(
+          `r2Client.putObject: PUT "${key}" failed after ${attempt} attempts: ${String(cause)}`
+        );
+      }
+      await delay(PUT_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * PUT_BASE_DELAY_MS));
+      continue;
+    }
+
+    if (response.ok) return;
+
+    if (!isRetriableStatus(response.status) || attempt === PUT_MAX_ATTEMPTS) {
+      const suffix = attempt > 1 ? ` after ${attempt} attempts` : "";
+      throw new Error(
+        `r2Client.putObject: PUT "${key}" failed with status ${response.status} ${response.statusText}${suffix}`
+      );
+    }
+
+    await delay(PUT_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * PUT_BASE_DELAY_MS));
   }
 }
 

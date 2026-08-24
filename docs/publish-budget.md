@@ -20,14 +20,17 @@ algorithms (opr, epa, sigma1):
 pnpm publish:seasons
 ```
 
-Run completed 2026-08-22, `06:31:08Z`-`06:45:49Z` (~14 min 41 sec wall clock), producing 54,671
-page objects plus 2 manifests (54,673 total `PUT`s), 2,274,047,079 bytes (≈2.12 GiB).
+Run completed 2026-08-24, `21:59Z`-`22:24Z` (~25 min wall clock), producing 54,671
+page objects plus 2 manifests (54,673 total `PUT`s), 2,274,389,691 bytes (≈2.12 GiB). This run
+re-measured `events/{year}` after plan 05-02 added five location and calendar fields to that
+artifact (EVNT-01); every other page kind's distribution came back byte-identical to the
+2026-08-22 run, so only the `events/{year}` row moved.
 
 | Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key |
 |---|---:|---:|---:|---:|---|
 | `teams/{year}` | 15 | 1,361,992 | 2,721,887 | 2,721,887 | `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json` |
 | `team/{teamKey}/{year}` | 51,693 | 30,228 | 98,239 | 287,264 | `v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json` |
-| `events/{year}` | 15 | 51,879 | 58,362 | 58,362 | `v1/events/2025/sigma1@2.0.0+tuned-2026-08.json` |
+| `events/{year}` | 15 | 75,106 | 83,752 | 83,752 | `v1/events/2025/sigma1@2.0.0+tuned-2026-08.json` |
 | `event/{eventKey}` | 2,943 | 81,358 | 169,830 | 276,105 | `v1/event/2024new/sigma1@2.0.0+tuned-2026-08.json` |
 | `compare/{year}` | 5 | 14,017 | — | 14,121 | `v1/compare/2026.json` |
 | `manifest/live-windows` | 1 | — | — | — | `v1/manifest/live-windows.json` |
@@ -427,7 +430,7 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-22T06:45:49Z",
+  "measuredAt": "2026-08-24T22:24:00Z",
   "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026)",
   "pages": {
     "teams": {
@@ -448,10 +451,10 @@ rendering of these same numbers, not a second source.
     },
     "events": {
       "count": 15,
-      "medianBytes": 51879,
-      "p95Bytes": 58362,
-      "maxBytes": 58362,
-      "budgetMaxBytes": 75000,
+      "medianBytes": 75106,
+      "p95Bytes": 83752,
+      "maxBytes": 83752,
+      "budgetMaxBytes": 108000,
       "largestKey": "v1/events/2025/sigma1@2.0.0+tuned-2026-08.json"
     },
     "event": {

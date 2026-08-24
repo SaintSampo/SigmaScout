@@ -5,6 +5,11 @@
  *   pnpm ingest --year 2024
  *   pnpm ingest --event 2024casj
  *   pnpm ingest --years 2022-2026 --force   (bypass the ETag cache)
+ *   pnpm ingest --years 2022-2026 --events-only   (EVNT-01, plan 05-02: refresh
+ *     only /events/{year} for the requested range — no teams, no per-event
+ *     matches. Always bypasses the ETag cache, the same way --force does,
+ *     because a 304 carries no body and a body is exactly what's needed to
+ *     fill the new name/week/country/stateProv/districtKey columns.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -59,6 +64,8 @@ interface CliOptions {
   seasonEnd: number;
   eventKey: string | undefined;
   force: boolean;
+  /** EVNT-01 (plan 05-02): refresh only /events/{year} for the requested season range. */
+  eventsOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -81,20 +88,22 @@ function parseCliOptions(): CliOptions {
       year: { type: "string" },
       event: { type: "string" },
       force: { type: "boolean", default: false },
+      "events-only": { type: "boolean", default: false },
     },
   });
+  const eventsOnly = values["events-only"] ?? false;
 
   if (values.event) {
-    return { seasonStart: 0, seasonEnd: 0, eventKey: values.event, force: values.force ?? false };
+    return { seasonStart: 0, seasonEnd: 0, eventKey: values.event, force: values.force ?? false, eventsOnly };
   }
   if (values.years) {
     const [seasonStart, seasonEnd] = parseYearsRange(values.years);
-    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false };
+    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly };
   }
   if (values.year) {
     const year = Number(values.year);
     if (!Number.isInteger(year)) throw new Error(`--year must be an integer, got "${values.year}"`);
-    return { seasonStart: year, seasonEnd: year, eventKey: undefined, force: values.force ?? false };
+    return { seasonStart: year, seasonEnd: year, eventKey: undefined, force: values.force ?? false, eventsOnly };
   }
   throw new Error("One of --years, --year, or --event is required");
 }
@@ -170,6 +179,30 @@ async function ingestSeason(
   }
 }
 
+/**
+ * EVNT-01 (plan 05-02): refreshes only `/events/{year}` for one season — no
+ * teams, no per-event matches — so filling the five new location/calendar
+ * columns costs roughly one request per season rather than a full
+ * multi-season match re-ingest. Always bypasses the ETag cache (the same
+ * bypass `--force` performs in `ingestSeason`): a cached 304 carries no
+ * body, and a body is exactly what's needed to read the new fields.
+ */
+async function ingestSeasonEventsOnly(db: Corpus, ctx: TbaClientContext, year: number): Promise<void> {
+  const eventsUrl = `/events/${year}`;
+  const eventsResult = await fetchEventsList(ctx, year, undefined);
+  if (eventsResult.status !== 200) {
+    // Unreachable: an undefined cachedEtag can only ever resolve 200 or throw.
+    throw new Error(`Unexpected non-200 status while refreshing events metadata for ${year}`);
+  }
+  console.log(`  ${eventsUrl}: 200 OK`);
+  const rawEvents = tbaEventListSchema.parse(eventsResult.body);
+  for (const rawEvent of rawEvents) {
+    upsertEvent(db, normalizeEvent(rawEvent));
+  }
+  if (eventsResult.etag) writeEtag(db, eventsUrl, eventsResult.etag);
+  console.log(`Season ${year}: ${rawEvents.length} events (events-only refresh)`);
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -226,6 +259,20 @@ async function main(): Promise<void> {
         console.log(`${eventUrl}: 304 Not Modified`);
       }
       await ingestEvent(db, ctx, options.eventKey, options.force);
+    } else if (options.eventsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonEventsOnly(db, ctx, year);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
     } else {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeason(db, ctx, year, options.force);

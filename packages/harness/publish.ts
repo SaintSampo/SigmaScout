@@ -380,6 +380,10 @@ export interface EventsArtifactEventInput {
   readonly teamCount: number;
   readonly matchCount: number;
   readonly playedMatchCount: number;
+  /** plan 05-02 (EVNT-01) */
+  readonly country: string | null;
+  readonly stateProv: string | null;
+  readonly districtKey: string | null;
 }
 
 export interface BuildEventsArtifactParams {
@@ -689,11 +693,20 @@ interface EventMetaRow {
   event_type: number;
   is_offseason: number;
   start_date: string;
+  /** plan 05-02 (EVNT-01) — nullable: NULL until an --events-only refetch fills it. */
+  name: string | null;
+  week: number | null;
+  country: string | null;
+  state_prov: string | null;
+  district_key: string | null;
 }
 
 function selectEventMeta(db: Corpus, season: number): EventMetaRow[] {
   return db
-    .prepare(`SELECT event_key, event_type, is_offseason, start_date FROM events WHERE year = ? ORDER BY event_key ASC`)
+    .prepare(
+      `SELECT event_key, event_type, is_offseason, start_date, name, week, country, state_prov, district_key
+       FROM events WHERE year = ? ORDER BY event_key ASC`
+    )
     .all(season) as EventMetaRow[];
 }
 
@@ -878,17 +891,21 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         const counts = eventCounts.get(e.event_key);
         return {
           eventKey: e.event_key,
-          // The corpus has no event-name column (packages/corpus/schema.sql)
-          // — falls back to the event key itself rather than fabricating a
-          // name. See SUMMARY.md for the full deviation note.
-          name: e.event_key,
+          // plan 05-02 (EVNT-01): real name from the corpus's name column.
+          // Falls back to the event key only when the column is null —
+          // an un-refreshed corpus (never ran --events-only) degrades to
+          // the pre-05-02 behavior instead of failing a required-string parse.
+          name: e.name ?? e.event_key,
           eventType: e.event_type,
           isOffseason: e.is_offseason === 1,
           startDate: e.start_date,
-          week: null,
+          week: e.week,
           teamCount: counts?.teamKeys.size ?? 0,
           matchCount: counts?.matchCount ?? 0,
           playedMatchCount: counts?.playedMatchCount ?? 0,
+          country: e.country,
+          stateProv: e.state_prov,
+          districtKey: e.district_key,
         };
       });
       const eventsArtifact = buildEventsArtifact({
