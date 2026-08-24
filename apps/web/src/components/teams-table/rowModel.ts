@@ -58,6 +58,25 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
 }
 
 /**
+ * Reserved sort key for the win-rate column (Task 2, 05-06-PLAN.md — "sortable
+ * for every metric column plus win rate"). Not a metric key: win rate lives on
+ * `TeamRow.winRate`, never inside the published `metrics` record, so
+ * `sortTeamRows` special-cases this one string sentinel to read that field
+ * instead of indexing `metrics`. `columns.tsx`'s win-rate column id and any
+ * caller's "valid sort keys" set both reference this same constant, never a
+ * re-typed literal.
+ */
+export const WIN_RATE_SORT_KEY = "winRate";
+
+/** The numeric value `sortTeamRows` compares for a given row and key — `TeamRow.winRate` for the reserved sentinel, otherwise the published metric's value. A `null` win rate (zero-match team) is treated as absent for sorting purposes, same as a missing metric key. */
+function sortValueFor(row: TeamRow, key: string): number | undefined {
+  if (key === WIN_RATE_SORT_KEY) {
+    return row.winRate ?? undefined;
+  }
+  return row.metrics[key]?.value;
+}
+
+/**
  * `buildTeamRows(artifact, algorithmId)`: maps each published row to a
  * `TeamRow`, computing `winRate` and `rank` once. `algorithmId` is part of
  * this function's contract (mirroring `columns.tsx`'s `buildColumns`) even
@@ -102,8 +121,8 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
 export function sortTeamRows(rows: readonly TeamRow[], key: string, direction: SortDirection): TeamRow[] {
   const sign = direction === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const valueA = a.metrics[key]?.value;
-    const valueB = b.metrics[key]?.value;
+    const valueA = sortValueFor(a, key);
+    const valueB = sortValueFor(b, key);
     if (valueA === undefined && valueB === undefined) return byTeamNumberAscending(a, b);
     if (valueA === undefined) return 1;
     if (valueB === undefined) return -1;

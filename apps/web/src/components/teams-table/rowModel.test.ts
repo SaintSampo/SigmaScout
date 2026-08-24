@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
-import { buildTeamRows, sortTeamRows, winRate } from "./rowModel.js";
+import { buildTeamRows, sortTeamRows, winRate, WIN_RATE_SORT_KEY } from "./rowModel.js";
 
 type ArtifactTeam = TeamsArtifact["teams"][number];
 
@@ -184,5 +184,29 @@ describe("sortTeamRows", () => {
       ["frc2", 2],
       ["frc1", 1],
     ]);
+  });
+
+  it("sorts by WIN_RATE_SORT_KEY using TeamRow.winRate, not the metrics record", () => {
+    const rows = buildTeamRows(
+      artifact([
+        team({ teamKey: "frc1", teamNumber: 1, record: { wins: 1, losses: 9, ties: 0 } }),
+        team({ teamKey: "frc2", teamNumber: 2, record: { wins: 9, losses: 1, ties: 0 } }),
+      ]),
+      "sigma1",
+    );
+    const sorted = sortTeamRows(rows, WIN_RATE_SORT_KEY, "desc").map((row) => row.teamKey);
+    expect(sorted).toEqual(["frc2", "frc1"]);
+  });
+
+  it("treats a null win rate (zero matches) as absent for WIN_RATE_SORT_KEY sorting, sorting it last regardless of direction", () => {
+    const rows = buildTeamRows(
+      artifact([
+        team({ teamKey: "frc1", teamNumber: 1, record: { wins: 0, losses: 0, ties: 0 } }),
+        team({ teamKey: "frc2", teamNumber: 2, record: { wins: 3, losses: 1, ties: 0 } }),
+      ]),
+      "sigma1",
+    );
+    expect(sortTeamRows(rows, WIN_RATE_SORT_KEY, "desc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
+    expect(sortTeamRows(rows, WIN_RATE_SORT_KEY, "asc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
   });
 });
