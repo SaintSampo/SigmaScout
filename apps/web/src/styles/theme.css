@@ -1,13 +1,33 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
  * Design tokens transcribed from 05-UI-SPEC.md's Color/Spacing/Typography
  * tables. D-06 requires every color to exist as a token from the first
  * component — never a hardcoded hex literal in component code. This file is
  * the whole point of that discipline.
+ *
+ * DERIVATION DIRECTION (05-03-PLAN.md Task 2): the UI contract's own token
+ * names (`--color-bg-page`, `--color-bg-surface`, `--color-accent`,
+ * `--color-destructive`, `--color-text-muted`, `--color-text-primary`) are
+ * the single source of truth. shadcn's own semantic variable names
+ * (`--color-background`, `--color-primary`, `--color-secondary`,
+ * `--color-muted`, `--color-border`, `--color-ring`, `--color-popover`, …,
+ * used by every generated `src/components/ui/*` primitive) are declared
+ * below as `var(--color-*)` ALIASES of the contract's tokens, never the
+ * other way around. A future dark pass only ever edits the contract block;
+ * the shadcn alias block never needs to change.
+ *
+ * Accent reuse (UI-SPEC "Color" > "Accent reserved for"): the contract
+ * names exactly one accent token, `--color-accent` (indigo-600), used at
+ * full strength for `--color-primary`/`--color-ring` (CTA buttons, focus
+ * rings, the active ribbon indicator) and at 10% opacity via Tailwind's own
+ * `/10` modifier — never a second baked color — for the one reserved-for
+ * case that wants a tint rather than a fill (the search dropdown's
+ * keyboard-highlighted row; see `select.tsx`'s `focus:bg-accent/10`).
  */
 @theme {
-  /* Color — 05-UI-SPEC.md "Color" table */
+  /* Color — 05-UI-SPEC.md "Color" table (the four contract roles) */
   --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50 */
   --color-bg-surface: #f1f5f9; /* Secondary (30%) — slate-100 */
   --color-accent: #4f46e5; /* Accent (10%) — indigo-600 */
@@ -24,6 +44,46 @@
   --color-text-muted: #475569;
   --color-text-primary: #0f172a; /* slate-900 — body/heading text, not itself in the UI-SPEC table but needed for any text render */
 
+  /*
+   * --color-border / --color-input: not specified by the UI-SPEC (another
+   * open gap, same discretion as --color-text-muted above). Chosen:
+   * Tailwind's slate-300 (#cbd5e1) — a standard, visually distinguishable
+   * form-control border against both --color-bg-page and --color-bg-surface
+   * without introducing a third gray into the palette. Not a WCAG
+   * text-contrast case (no requirement is stated for non-text borders in
+   * this contract), so no ratio is claimed here the way it is for
+   * --color-text-muted above.
+   */
+  --color-border: #cbd5e1;
+  --color-input: var(--color-border);
+
+  /*
+   * shadcn semantic aliases — every one of these is a `var(--color-*)`
+   * reference back to a contract token above, never an independent value.
+   * Names match what the eight generated `src/components/ui/*` primitives
+   * (Task 1) actually reference (confirmed by grep across that directory).
+   */
+  --color-background: var(--color-bg-page);
+  --color-foreground: var(--color-text-primary);
+  --color-primary: var(--color-accent);
+  /*
+   * --color-primary-foreground: text painted on top of a solid
+   * --color-accent fill (the "Apply filters" CTA). White text on
+   * indigo-600 measures ~6.3:1 contrast, clearing WCAG AA's 4.5:1 floor.
+   * A literal, not a token reference, because no existing contract token
+   * names "white text on a colored fill" — declared once, here, same
+   * discretion as --color-text-muted and --color-border above.
+   */
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-bg-surface);
+  --color-secondary-foreground: var(--color-text-primary);
+  --color-accent-foreground: var(--color-text-primary);
+  --color-muted: var(--color-bg-surface);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-popover: var(--color-bg-surface);
+  --color-popover-foreground: var(--color-text-primary);
+  --color-ring: var(--color-accent);
+
   /* Spacing Scale — 05-UI-SPEC.md "Spacing Scale" table (multiples of 4) */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
@@ -33,7 +93,15 @@
   --spacing-2xl: 48px;
   --spacing-3xl: 64px;
 
-  /* Radius — 05-UI-SPEC.md "Design System" table, shadcn preset (0.375rem / 6px) */
+  /*
+   * Radius — 05-UI-SPEC.md "Design System" table, shadcn preset (0.375rem
+   * / 6px). Tailwind v4's own built-in default theme already defines
+   * --radius-sm/md/lg (the scale every generated `rounded-[min(var(--radius-md),…)]`
+   * arbitrary value in src/components/ui/* resolves against) at exactly
+   * this same 0.375rem "md" step — the preset was chosen to match, so no
+   * override of Tailwind's own radius scale is declared here. --radius
+   * itself is this contract's own single named value, reachable by name.
+   */
   --radius: 0.375rem;
 }
 
@@ -42,7 +110,63 @@ body {
   color: var(--color-text-primary);
 }
 
-/* Digit columns (rank, team #, metric values, win rate) align vertically — 05-UI-SPEC.md "Design System" Font row. */
+/*
+ * Digit columns (rank, team #, metric values, win rate, week number) align
+ * vertically — 05-UI-SPEC.md "Design System" Font row.
+ */
 .numeric-cell {
   font-feature-settings: "tnum";
+}
+
+/*
+ * Tap target — 05-UI-SPEC.md "Spacing Scale" exception: 44×44px minimum for
+ * every icon-only control on mobile (search trigger, filter-sheet trigger,
+ * sort-direction toggle, column-scroll affordance), WCAG 2.5.5/2.5.8.
+ * Expressed as minimums, not visible padding, so a small glyph can sit
+ * inside a large hit area without looking oversized.
+ */
+.tap-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/*
+ * Typography — 05-UI-SPEC.md "Typography" table. Two weights only: 400
+ * (regular) and 600 (semibold) — no 500 or 700 anywhere in this file.
+ */
+.text-role-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.text-role-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.text-role-heading {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.text-role-display {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/*
+ * Sigma spread suffix — 05-UI-SPEC.md Typography "Sigma display format":
+ * the one deliberate exception, Body's weight (400) at Label's size (12px).
+ * Consumed by MetricValue.tsx (Task 3) for the " ± {spread}" suffix; the
+ * suffix's color resolves through --color-text-muted (via the
+ * text-muted-foreground utility, which aliases it above), never a literal.
+ */
+.text-role-spread-suffix {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
 }
