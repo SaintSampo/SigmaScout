@@ -1,8 +1,26 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Harness for 05-04-PLAN.md Task 1's D-04 touch-scroll proof
- * (`e2e/touch-scroll.spec.ts` against `src/spike/TableSpike.tsx`).
+ * Harness for the phase's real-artifact E2E specs (05-08-PLAN.md Task 3):
+ * `e2e/touch-scroll.spec.ts` (D-04's touch-scroll proof, RETARGETED at the
+ * real `TeamsTable` — its own throwaway spike, `src/spike/TableSpike.tsx`,
+ * was deleted by this task) and `e2e/deep-link.spec.ts` (NAV-05's pasted-URL
+ * proof).
+ *
+ * `baseURL` points at the CANONICAL DEPLOYED apex (D-17a), never a local dev
+ * server — two independent reasons converge on this, not one:
+ *  1. `e2e/deep-link.spec.ts`'s own instruction: prove the PRODUCTION build's
+ *     router and SPA fallback, not a dev server's.
+ *  2. `05-06-SUMMARY.md`'s documented finding: `https://data.sigmascout.org`'s
+ *     R2 CORS policy allow-lists only the site's real origins (D-18) —
+ *     `localhost`/`*.pages.dev` are NOT in that list, so a local `vite
+ *     preview` server's artifact fetches fail CORS entirely. Since
+ *     `touch-scroll.spec.ts` now drags a REAL, fully-populated Teams table
+ *     (not spike-fabricated rows), it needs the real artifact to actually
+ *     load — which only the deployed origin can serve without a CORS error.
+ * There is therefore no local `webServer` here at all: both specs assume the
+ * current build is ALREADY DEPLOYED before `playwright test` runs (this
+ * task's own action deploys it as part of closing the phase).
  *
  * Two projects use Playwright's built-in device descriptors for a recent
  * iPhone and a recent Pixel (`hasTouch: true` on both, already set by each
@@ -23,21 +41,7 @@ export default defineConfig({
   reporter: "list",
   timeout: 30_000,
   use: {
-    // `localhost`, not `127.0.0.1` — `vite preview` binds only the IPv6
-    // loopback (`[::1]`) on this machine, so an IPv4-literal URL never
-    // connects and the webServer health check times out silently.
-    baseURL: "http://localhost:4319",
-  },
-  webServer: {
-    // `npx` rather than a bare `vite`/local `.bin` path — the webServer child
-    // process is spawned via the OS shell (`cmd.exe` on Windows), which does
-    // not inherit this package's `node_modules/.bin` on PATH the way a
-    // `pnpm run` script does; `npx` reliably resolves the locally-installed
-    // binary regardless of the spawning shell.
-    command: "npx vite build && npx vite preview --port 4319 --strictPort",
-    url: "http://localhost:4319/spike",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    baseURL: "https://sigmascout.org",
   },
   projects: [
     {

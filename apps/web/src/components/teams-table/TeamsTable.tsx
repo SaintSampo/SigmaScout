@@ -1,12 +1,12 @@
 /**
  * The single-scroll-container virtualized, pinned Teams table (Task 2,
- * 05-06-PLAN.md), built on the composition plan 05-04's spike proved under
- * real touch input (`apps/web/src/spike/TableSpike.tsx`,
- * `apps/web/e2e/touch-scroll.spec.ts`): TanStack Table's column pinning
- * composed with TanStack Virtual's row virtualizer over exactly ONE native
- * scrolling element, which is also the virtualizer's scroll element. A
- * second scrolling region anywhere in this file is the D-04 failure shape —
- * do not introduce one.
+ * 05-06-PLAN.md), built on the composition plan 05-04's throwaway touch spike
+ * proved under real touch input before it was removed (05-08-PLAN.md Task 3;
+ * see `apps/web/e2e/touch-scroll.spec.ts`, retargeted at this real table):
+ * TanStack Table's column pinning composed with TanStack Virtual's row
+ * virtualizer over exactly ONE native scrolling element, which is also the
+ * virtualizer's scroll element. A second scrolling region anywhere in this
+ * file is the D-04 failure shape — do not introduce one.
  *
  * This component is CONTROLLED for sort: it renders rows in whatever order
  * the caller passes (`routes/teams.tsx`, Task 3, resolves the sort key and
