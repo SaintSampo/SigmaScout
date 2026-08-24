@@ -273,13 +273,27 @@ Plans:
 **Plans**: 8 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 05-01-PLAN.md — Tracer: provision Pages and R2 CORS, scaffold `apps/web`, render real published team rows end to end on the live origin
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02-PLAN.md — Amend the Phase 4 events artifact with name, week, country, state and district, then re-ingest and republish
 - [ ] 05-03-PLAN.md — Design system: shadcn primitives, the D-06 token layer, shared state views, and the `MetricValue` display primitive
 - [ ] 05-04-PLAN.md — Retire the two empirical risks: the two-axis touch spike and the NAV-06 first-paint measurement
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 05-05-PLAN.md — Site shell: ribbon, year and algorithm dropdowns, typed URL search params, and the shared sort-key resolver
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 05-06-PLAN.md — Teams page: virtualized pinned table with algorithm-derived columns, rank, record and win rate (TEAM-01)
 - [ ] 05-07-PLAN.md — Events page: list plus week, country, state and district filters, inline on desktop and in a sheet on phone (EVNT-01)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 05-08-PLAN.md — Search across teams and events, deep-link end-to-end proof, deferred measurements, spike removal, human sign-off
 
 **UI hint**: yes

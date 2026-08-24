@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 5
 current_phase_name: Site Shell — Navigation & Browsing
-status: planning
-stopped_at: Phase 3.2 context gathered
-last_updated: "2026-08-23T17:43:06.569Z"
+status: executing
+stopped_at: Phase 5 UI-SPEC approved
+last_updated: "2026-08-24T04:03:28.417Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 04 complete, transitioned to Phase 5
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
-  total_plans: 39
+  total_plans: 47
   completed_plans: 39
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 5 — Site Shell — Navigation & Browsing
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-23 — Phase 04 complete, transitioned to Phase 5
 
 Progress: [██████████] 100%
@@ -216,6 +216,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T04:48:30.699Z
-Stopped at: Phase 3.2 context gathered
-Resume file: .planning/phases/03.2-swap-opr-to-event-scoped-and-re-issue-affected-figures/03.2-CONTEXT.md
+Last session: 2026-08-23T19:59:19.468Z
+Stopped at: Phase 5 UI-SPEC approved
+Resume file: .planning/phases/05-site-shell-navigation-browsing/05-UI-SPEC.md
