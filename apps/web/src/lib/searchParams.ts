@@ -119,3 +119,67 @@ export function applyYearChange<S extends YearChangeableSearch>(current: S, newY
     sort: current.sort === undefined ? undefined : resolveSortKey(current.sort, metricKeysFor(current.algorithm, newYear)),
   };
 }
+
+/**
+ * The events list's sortable columns — 05-07-PLAN.md Task 3. Unlike
+ * `TeamsSearchSchema`'s `sort` (typed as a plain string because the valid
+ * metric-key SET depends on the selected algorithm/season pair), the
+ * Events page's sortable columns are a small, fixed, algorithm-independent
+ * set, so validating against a closed enum here is the more honest
+ * T-05-02 mitigation: an invalid or hand-edited sort value cannot reach
+ * render logic at all, it falls back to the default via `.catch()`.
+ *
+ * This list is a deliberate, small, documented mirror of
+ * `apps/web/src/components/events-list/filterModel.ts`'s `EventSortKey`
+ * type — kept here rather than imported so `searchParams.ts` (a `lib`
+ * module) does not depend on a `components` module for a six-string
+ * literal tuple. If a future plan adds or renames a sortable column, both
+ * lists must be updated together.
+ */
+const EVENT_SORT_KEYS = ["name", "week", "startDate", "teamCount", "matchCount", "playedMatchCount"] as const;
+
+/** EVNT-01's default sort — "Events sort by start date ascending... so two events starting the same day order deterministically." */
+const DEFAULT_EVENT_SORT_KEY = "startDate";
+
+/**
+ * Extends `RootSearchSchema` with EVNT-01's four filter dimensions plus the
+ * list's own sort key/direction (D-14: "the active filters and the sort are
+ * encoded in the URL alongside year and algorithm").
+ *
+ * `eventSort`/`eventSortDir` — deliberately NOT named `sort`/`sortDir`
+ * (Rule 1 bug fix, found running this task): `applyYearChange` (above) is
+ * the ONE shared D-11 year-change handler every route's year control calls,
+ * including this route (`YearSelect.tsx` is mounted once at the root layout
+ * and reads/writes via `YearChangeableSearch`, which is structurally
+ * satisfied by ANY search object carrying an optional `sort`/`sortDir`
+ * field). Its `sort` re-resolution unconditionally runs
+ * `resolveSortKey(current.sort, metricKeysFor(current.algorithm, newYear))`
+ * — a TEAMS-specific metric-key check. Events' sort values ("startDate",
+ * "week", ...) are never members of any algorithm's metric-key set, so had
+ * this schema named its field `sort`, every year change on `/events` would
+ * silently fall back through to `TOTAL_KEY` ("total") — not even a valid
+ * `EventSortKey` — defeating this plan's own must-have truth ("a year
+ * change preserves the active filters and the sort"). `applyYearChange`
+ * only touches the literal key `sort`; a differently-named field passes
+ * through its `...current` spread completely untouched, so year changes on
+ * `/events` correctly preserve `eventSort`/`eventSortDir` with zero changes
+ * needed to the shared function or to `YearSelect.tsx`.
+ *
+ * `week` coerces to an integer; `country`/`state`/`district` stay plain
+ * optional strings — their valid value SET is data-dependent (this year's
+ * distinct values, per `filterModel.ts`'s `filterOptions`), not a closed
+ * enum this static schema could know. A value that matches no real option
+ * is not an error (T-05-02): it reaches `applyEventFilters` as an ordinary
+ * filter value that happens to match nothing, yielding the Events list's
+ * own empty state rather than an undefined page state.
+ */
+export const EventsSearchSchema = RootSearchSchema.extend({
+  week: z.coerce.number().int().optional().catch(undefined),
+  country: z.string().optional().catch(undefined),
+  state: z.string().optional().catch(undefined),
+  district: z.string().optional().catch(undefined),
+  eventSort: z.enum(EVENT_SORT_KEYS).catch(DEFAULT_EVENT_SORT_KEY),
+  eventSortDir: z.enum(["asc", "desc"]).catch("asc"),
+});
+
+export type EventsSearch = z.infer<typeof EventsSearchSchema>;
