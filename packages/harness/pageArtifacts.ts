@@ -336,6 +336,13 @@ export type TeamSeasonArtifact = z.infer<typeof TeamSeasonArtifactSchema>;
 // EventsArtifactSchema — v1/events/{year}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
+/**
+ * plan 05-02 (EVNT-01): `country`, `stateProv` and `districtKey` are new
+ * here. PAGE_ARTIFACT_SCHEMA_VERSION is deliberately NOT bumped for this —
+ * additive nullable fields on one page kind are backward-compatible for any
+ * reader, and this phase is the artifact's only consumer. A decision, not
+ * an oversight.
+ */
 const EventsListRowSchema = z.object({
   eventKey: z.string().min(1),
   name: z.string(),
@@ -348,6 +355,12 @@ const EventsListRowSchema = z.object({
   matchCount: z.number().int().nonnegative(),
   /** Together with `matchCount`, makes an in-progress event visible without a separate liveness field. */
   playedMatchCount: z.number().int().nonnegative(),
+  /** From TBA's `country` field (plan 05-02, EVNT-01); `null` means the event genuinely has no recorded country. */
+  country: z.string().nullable(),
+  /** From TBA's `state_prov` field (plan 05-02, EVNT-01); `null` means the event genuinely has no recorded state/province. */
+  stateProv: z.string().nullable(),
+  /** From TBA's `district.abbreviation` field (plan 05-02, EVNT-01); `null` means the event genuinely is not part of a district. */
+  districtKey: z.string().nullable(),
 });
 
 export const EventsArtifactSchema = AlgorithmScopedPreambleSchema.extend({

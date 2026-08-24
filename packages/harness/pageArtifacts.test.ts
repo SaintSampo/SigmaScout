@@ -116,6 +116,9 @@ function validEventsFixture() {
         teamCount: 40,
         matchCount: 80,
         playedMatchCount: 80,
+        country: "USA" as string | null,
+        stateProv: "CA" as string | null,
+        districtKey: null as string | null,
       },
     ],
   };
@@ -207,6 +210,31 @@ describe("valid-fixture parse — one per schema", () => {
 
   it("CompareArtifactSchema parses a valid fixture", () => {
     expect(() => CompareArtifactSchema.parse(validCompareFixture())).not.toThrow();
+  });
+});
+
+describe("EventsListRowSchema — country/stateProv/districtKey (EVNT-01, plan 05-02)", () => {
+  it("parses a row carrying all three location values", () => {
+    const fixture = validEventsFixture();
+    fixture.events[0]!.country = "USA";
+    fixture.events[0]!.stateProv = "MI";
+    fixture.events[0]!.districtKey = "fim";
+    expect(() => EventsArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("parses a row carrying null for all three location values", () => {
+    const fixture = validEventsFixture();
+    fixture.events[0]!.country = null;
+    fixture.events[0]!.stateProv = null;
+    fixture.events[0]!.districtKey = null;
+    expect(() => EventsArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("rejects a row omitting one of the three keys entirely — required keys, not optional ones", () => {
+    const fixture = validEventsFixture();
+    const { districtKey, ...rowWithoutDistrictKey } = fixture.events[0]!;
+    const badFixture = { ...fixture, events: [rowWithoutDistrictKey] };
+    expect(() => EventsArtifactSchema.parse(badFixture)).toThrow();
   });
 });
 
