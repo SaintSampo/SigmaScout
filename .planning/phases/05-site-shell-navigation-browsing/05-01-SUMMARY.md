@@ -209,13 +209,30 @@ Each task was committed atomically:
 
 ## User Setup Required
 
-**One external, dashboard-only step remains** to fully satisfy this plan's original objective (D-17):
+**None — resolved 2026-08-24, after this plan's SUMMARY was first written.**
 
-1. In the Cloudflare dashboard, open the `sigmascout-web` Pages project's **Custom domains** panel.
-2. Attach `www.sigmascout.org`.
-3. Re-run the verification already proven against the alias: `curl -sS -o /dev/null -w "%{http_code}" https://www.sigmascout.org/teams` should print `200` (allow a few minutes for DNS/SSL provisioning).
+The original outstanding item was attaching `www.sigmascout.org` via the Cloudflare
+dashboard (wrangler 4.125.0 has no Pages custom-domain subcommand). While walking that
+step, a gap in D-17 surfaced: the apex `https://sigmascout.org` was serving a Cloudflare
+404 to anyone typing it, because R2 serves objects by path and the bucket has no `/` or
+`/teams` object. D-17 had been framed as "where do artifacts live" and never asked what a
+human typing the domain would see.
 
-No `.env`/secret configuration is needed — this is purely a dashboard action on an already-owned zone.
+Resolved by **D-17a** (see `05-CONTEXT.md`): the apex now serves the site, and artifacts
+moved to the R2 custom domain `https://data.sigmascout.org`. Phase 4 D-25 is unaffected —
+it specifies "an R2 custom domain with no compute in the path" and names no hostname.
+
+Live state, verified end to end via headless Chromium against `https://sigmascout.org/teams`:
+
+- Artifact fetched cross-origin from `https://data.sigmascout.org` — HTTP 200,
+  `Content-Type: application/json`
+- 100 real 2024 team rows rendered (rank 1 = 6328 Mechanical Advantage, `63.07 ± 2.27`)
+- Zero console errors
+- `sigmascout.org`, `www.sigmascout.org` and `sigmascout-web.pages.dev` all return 200
+- CORS returns an exact-match origin for each of the three site origins, and **no**
+  `Access-Control-Allow-Origin` at all for an unlisted origin — D-18's narrow scoping
+  confirmed against a negative case, not just a positive one
+- The no-Origin artifact path still returns 200 (Phase 4's read path unaffected)
 
 ## Next Phase Readiness
 
