@@ -44,7 +44,7 @@ for the full baseline-change narrative.
 
 ### Teams
 
-- [ ] **TEAM-01**: User can view all teams for the selected year ranked by the selected algorithm's metric, with columns: team number, name, rank, metric(s), record, win rate
+- [x] **TEAM-01**: User can view all teams for the selected year ranked by the selected algorithm's metric, with columns: team number, name, rank, metric(s), record, win rate
 - [ ] **TEAM-02**: User can open a team page showing team name, robot image for that year, and a link to the team's TBA page
 - [ ] **TEAM-03**: Team page shows current season stats: record, win rate, and metrics
 - [ ] **TEAM-04**: Team page shows a section per attended/upcoming event; finished events show metrics as captured at the moment the event ended
@@ -53,7 +53,7 @@ for the full baseline-change narrative.
 
 ### Events
 
-- [ ] **EVNT-01**: User can view all events for the selected year, sortable/filterable by week, country, state, and district
+- [x] **EVNT-01**: User can view all events for the selected year, sortable/filterable by week, country, state, and district
 - [ ] **EVNT-02**: Event Insights tab ranks the event's teams with the same columns as the Teams page
 - [ ] **EVNT-03**: Event Breakdown tab shows score-component breakdowns for the event's teams
 - [ ] **EVNT-04**: Event Quals tab lists qualification matches with predictions vs actuals
@@ -67,12 +67,12 @@ for the full baseline-change narrative.
 
 ### Navigation & UI
 
-- [ ] **NAV-01**: Top ribbon navigates to Teams, Events, and Compare
-- [ ] **NAV-02**: Prominent global dropdowns select the prediction algorithm and the year, re-slicing every page
-- [ ] **NAV-03**: Search bar finds teams and events
-- [ ] **NAV-04**: All pages are usable on mobile and desktop
-- [ ] **NAV-05**: URLs are deep-linkable: year, algorithm, and current team/event view are encoded in the shareable URL
-- [ ] **NAV-06**: Pages render from precomputed artifacts with fast load as the top priority — no season statistics are recomputed in the browser
+- [x] **NAV-01**: Top ribbon navigates to Teams, Events, and Compare
+- [x] **NAV-02**: Prominent global dropdowns select the prediction algorithm and the year, re-slicing every page
+- [x] **NAV-03**: Search bar finds teams and events
+- [x] **NAV-04**: All pages are usable on mobile and desktop
+- [x] **NAV-05**: URLs are deep-linkable: year, algorithm, and current team/event view are encoded in the shareable URL
+- [x] **NAV-06**: Pages render from precomputed artifacts with fast load as the top priority — no season statistics are recomputed in the browser
 
 ## v2 Requirements
 
@@ -124,13 +124,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALGO-06 | Phase 3 | Complete |
 | ALGO-07 | Phase 2 | Complete |
 | ALGO-08 | Phase 3 | Complete |
-| TEAM-01 | Phase 5 | Pending |
+| TEAM-01 | Phase 5 | Complete |
 | TEAM-02 | Phase 6 | Pending |
 | TEAM-03 | Phase 6 | Pending |
 | TEAM-04 | Phase 6 | Pending |
 | TEAM-05 | Phase 6 | Pending |
 | TEAM-06 | Phase 6 | Pending |
-| EVNT-01 | Phase 5 | Pending |
+| EVNT-01 | Phase 5 | Complete |
 | EVNT-02 | Phase 7 | Pending |
 | EVNT-03 | Phase 7 | Pending |
 | EVNT-04 | Phase 7 | Pending |
@@ -138,12 +138,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVNT-06 | Phase 7 | Pending |
 | EVNT-07 | Phase 8 | Pending |
 | COMP-01 | Phase 8 | Pending |
-| NAV-01 | Phase 5 | Pending |
-| NAV-02 | Phase 5 | Pending |
-| NAV-03 | Phase 5 | Pending |
-| NAV-04 | Phase 5 | Pending |
-| NAV-05 | Phase 5 | Pending |
-| NAV-06 | Phase 5 | Pending |
+| NAV-01 | Phase 5 | Complete |
+| NAV-02 | Phase 5 | Complete |
+| NAV-03 | Phase 5 | Complete |
+| NAV-04 | Phase 5 | Complete |
+| NAV-05 | Phase 5 | Complete |
+| NAV-06 | Phase 5 | Complete |
 
 **Coverage:**
 
