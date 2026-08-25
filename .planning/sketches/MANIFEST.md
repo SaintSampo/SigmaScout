@@ -61,7 +61,15 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
   A miss then reads as distance on a scale you can trust across rows.
 - **Layout must be rendered and looked at, not reasoned about.** 003's first draft had label collisions in
   all three real matches — they only separate when the alliances differ, which is precisely the case the
-  chart exists to show.
+  chart exists to show. A later draft had every actual dot mis-centred on its band, because the dot's
+  position was a separate hand-tuned constant rather than derived from the band's.
+- **Derive coupled geometry, never hand-tune both ends.** Any two marks that must line up should share
+  one computed source; two independent magic numbers silently drift.
+- **Grouping is proximity, not labelling.** Two marks belonging to the same row must be markedly closer
+  to each other than to the neighbouring row — 003 needed ~4x (12px within vs 47px between) before the
+  pairing read correctly.
+- **Grey the loser.** On any predicted-vs-actual view, colouring only the winner lets the reader answer
+  "who won" from the numbers alone.
 
 **Colour (computed, not eyeballed)**
 

@@ -26,12 +26,14 @@
   .mt th { font-size:var(--text-label); font-weight:600; color:var(--color-text-muted);
            padding:8px 12px; background:var(--color-chrome); text-align:left; white-space:nowrap;
            border-bottom:1px solid var(--color-border); vertical-align:bottom; }
-  .mt td { padding:9px 12px; border-bottom:1px solid var(--color-border); vertical-align:middle; }
+  .mt td { padding:11px 12px; border-bottom:1px solid var(--color-border); vertical-align:middle; }
+  .mt tbody tr:nth-child(even) td { background:#FBFCFE; }
   .mt tr:last-child td { border-bottom:0; }
-  .mt tr:hover td { background:#FAFCFE; }
+  .mt tbody tr:hover td { background:#F1F5F9; }
   .m-key { font-weight:600; font-size:13px; line-height:1.25; white-space:nowrap; }
   .m-teams { font-variant-numeric:tabular-nums; font-size:12.5px; line-height:1.45; white-space:nowrap; }
   .red-ink { color:#B91C1C; } .blue-ink { color:#1D4ED8; }
+  .loser-ink { color:#94A3B8; font-weight:600; }
   .plot { position:relative; padding:0 !important; }
   .actualcol { font-variant-numeric:tabular-nums; font-weight:600; text-align:right; white-space:nowrap; font-size:13.5px; }
   .callcol { text-align:center; font-size:15px; width:44px; }
@@ -113,15 +115,47 @@ function gridlines() {
 
 /* One alliance: soft +/-1sigma band, a solid predicted tick, and the actual as a
    ringed dot. The dot is a donut rather than a plain disc so it stays visible when
-   it lands on top of the band it belongs to. */
-function alliance(mean, sd, actual, color, soft, yBand, yDot) {
+   it lands on top of the band it belongs to.
+ *
+ * Every y is DERIVED from yBand and the shared geometry constants below — the dot's
+ * top used to be passed in as its own hand-tuned number, which drifted out of
+ * alignment with the band (red sat 4.5px high, blue 1.5px low). Deriving it means the
+ * two cannot disagree again.
+ *
+ * The losing alliance's dot goes grey: on a page whose whole job is "was the call
+ * right", the winner is the fact worth seeing, and two equally saturated dots make
+ * the reader work out the answer that the Call column already knows.
+ */
+/* Within-match geometry. The two alliances of ONE match must read as a pair before
+ * anything else, so their vertical separation is deliberately much smaller than the
+ * separation between matches:
+ *
+ *   within a match   band centres 12px apart   (dots just touch, never overlap)
+ *   between matches  ~39px of clear space      (plot padding + cell padding + border)
+ *
+ * The first draft had 17px within against a 44px row, which is close enough to the
+ * between-match gap that a dot landing far from its partner horizontally read as
+ * belonging to whichever row it was nearest. Proximity has to do the grouping.
+ */
+var BAND_H = 8;
+var DOT_H = 12;   /* 6px box + 3px border each side — 12 apart means edge-to-edge, no overlap */
+var TICK_H = 14;
+var Y_RED = 12, Y_BLUE = 24;
+var PLOT_H = 44;
+var GREY = '#94A3B8';
+
+function alliance(mean, sd, actual, color, soft, yBand, won) {
   var lo = x(mean - sd), hi = x(mean + sd);
+  var centre = yBand + BAND_H / 2;
+  var dotTop = centre - DOT_H / 2;
+  var tickTop = centre - TICK_H / 2;
+  var dotColor = won ? color : GREY;
   return '<div style="position:absolute;left:' + lo.toFixed(1) + 'px;width:' + Math.max(5, hi - lo).toFixed(1) +
-           'px;top:' + yBand + 'px;height:9px;border-radius:5px;background:' + soft + ';"></div>' +
-         '<div style="position:absolute;left:' + (x(mean) - 1).toFixed(1) + 'px;top:' + (yBand - 3) +
-           'px;width:2px;height:15px;background:' + color + ';border-radius:1px;"></div>' +
-         '<div style="position:absolute;left:' + (x(actual) - 7).toFixed(1) + 'px;top:' + yDot +
-           'px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + color + ';"></div>';
+           'px;top:' + yBand + 'px;height:' + BAND_H + 'px;border-radius:' + (BAND_H / 2) + 'px;background:' + soft + ';"></div>' +
+         '<div style="position:absolute;left:' + (x(mean) - 1).toFixed(1) + 'px;top:' + tickTop.toFixed(1) +
+           'px;width:2px;height:' + TICK_H + 'px;background:' + color + ';border-radius:1px;"></div>' +
+         '<div style="position:absolute;left:' + (x(actual) - DOT_H / 2).toFixed(1) + 'px;top:' + dotTop.toFixed(1) +
+           'px;width:' + DOT_H + 'px;height:' + DOT_H + 'px;border-radius:50%;background:#fff;border:3px solid ' + dotColor + ';"></div>';
 }
 
 document.getElementById('warn-c').innerHTML =
@@ -149,13 +183,17 @@ document.getElementById('table-c').innerHTML =
         '<td class="m-key">' + m.lvl + '<br>' + m.key + '</td>' +
         '<td class="m-teams"><span class="red-ink">' + m.red.join(' · ') + '</span><br>' +
                             '<span class="blue-ink">' + m.blue.join(' · ') + '</span></td>' +
-        '<td class="plot"><div style="position:relative;height:44px;width:' + PLOT_W + 'px;">' +
+        '<td class="plot"><div style="position:relative;height:' + PLOT_H + 'px;width:' + PLOT_W + 'px;">' +
           gridlines() +
-          alliance(m.pr, m.sr, m.ar, RED, RED_SOFT, 9, 2) +
-          alliance(m.pb, m.sb, m.ab, BLUE, BLUE_SOFT, 26, 25) +
+          alliance(m.pr, m.sr, m.ar, RED, RED_SOFT, Y_RED, m.aw === 'red') +
+          alliance(m.pb, m.sb, m.ab, BLUE, BLUE_SOFT, Y_BLUE, m.aw === 'blue') +
         '</div></td>' +
-        '<td class="actualcol"><span class="red-ink">' + m.ar + '</span>' +
-          '<span class="muted">–</span><span class="blue-ink">' + m.ab + '</span></td>' +
+        /* Winner in alliance colour, loser greyed — same rule as the dots, so the
+           column and the plot tell the same story rather than two. */
+        '<td class="actualcol">' +
+          '<span class="' + (m.aw === 'red' ? 'red-ink' : 'loser-ink') + '">' + m.ar + '</span>' +
+          '<span class="muted">–</span>' +
+          '<span class="' + (m.aw === 'blue' ? 'blue-ink' : 'loser-ink') + '">' + m.ab + '</span></td>' +
         '<td class="callcol ' + (correct ? 'ok' : 'bad') + '" title="' +
           (correct ? 'predicted winner was correct' : 'predicted the other alliance') + '">' +
           (correct ? '✓' : '✗') + '</td>' +
@@ -165,7 +203,8 @@ document.getElementById('table-c').innerHTML =
     '<div class="legend" style="border:1px solid var(--color-border);border-top:0;border-radius:0 0 10px 10px;margin-top:-1px">' +
       '<span><span class="sw" style="width:26px;height:9px;border-radius:5px;background:' + RED_SOFT + '"></span>&plusmn;1&sigma; predicted</span>' +
       '<span><span class="sw" style="width:2px;height:14px;background:' + RED + '"></span> predicted</span>' +
-      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></span> actual (alliance colour)</span>' +
+      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></span> actual &mdash; winner</span>' +
+      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + GREY + '"></span> actual &mdash; loser</span>' +
       '<span style="flex:1"></span><span>one scale for the whole event</span>' +
     '</div>';
 
