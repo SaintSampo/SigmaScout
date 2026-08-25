@@ -139,6 +139,22 @@ Used exclusively in the match table: soft band = predicted ±1σ per alliance, s
 
 ---
 
+## Visual Hierarchy
+
+Declared explicitly so the executor reads the focal order here rather than inferring it from the type scale.
+
+**Primary focal point — the team number.** Display 28/600 in the season header; the largest type on the page and its only use of Display scale outside the wordmark. A visitor arriving from search or the Teams table should confirm "yes, this is team 1114" before reading anything else.
+
+**Secondary — the tier-boxed metric grid** (D-17), immediately below the number. This is the only place on the page where color carries meaning *at rest*, so it draws the eye second without competing on size.
+
+**Tertiary — event section headings** (Heading 20/600). These set the page's scan rhythm; a visitor skimming for one event navigates by these, not by match rows.
+
+**Deliberately quiet — match table rows** (Body 14/400 throughout). Their visual interest comes from the alliance-colored band/tick/dot marks on the shared axis, not from type weight or size. The marks *are* the content; type emphasis competing with them would flatten the very comparison the table exists to make. The single exception is D-07's alliance marking (this team's three team numbers bolded), which encodes identity, not emphasis.
+
+**The accent (`#4F46E5`) never marks a focal point.** It marks interactivity only, per the reserved-for list in Color above — the hero number is not a link and carries no accent.
+
+---
+
 ## Copywriting Contract
 
 | Element | Copy |
@@ -155,6 +171,7 @@ Used exclusively in the match table: soft band = predicted ±1σ per alliance, s
 |---------|------|
 | Robot-photo fallback tile | No visible text (the tile is decorative chrome; the team identity is already stated in the adjacent header text). `role="img"` `aria-label="No robot photo available for team {teamNumber}"` on the tile itself |
 | Event section badge (D-D-04, "Upcoming") | `Upcoming` — same `Badge` component/token as Phase 5's `Offseason` badge, shown only when an event section has zero played matches; omitted entirely (no badge) once any match in that event has a result |
+| Zero-events data gap (E5 `empty`, decided 2026-08-25) | "No event data for {Nickname} in {year} yet." / "This usually means results haven't published yet. Check back shortly." Rendered in the page body below a normally-rendered season header (identity, record, and TBA link all still show). **Deliberately distinct from the D-19 empty state** — D-19's copy asserts the team didn't compete, which would be a false claim when the real situation is a missing artifact for a year they did play. No Retry button: the fetch succeeded, so retrying returns the same empty artifact |
 | Scheduled-match Actual column (D-08) | `{weekday short} {h:mm AM/PM}` — e.g. `Sat 10:32 AM` — rendered in place of scores; the Call column shows an em-dash, not a wrong/right glyph, since there is no result yet |
 | Chart tab — loading | No text; a chart-shaped `Skeleton` placeholder only, matching the existing skeleton-not-text pattern used elsewhere in the app |
 | Chart tab — load failure | "Chart failed to load" / "Check your connection and try again." with **Retry** (re-attempts the dynamic `import()`, distinct from a data-fetch failure since the artifact itself already loaded with the page per D-07) |
@@ -173,55 +190,132 @@ Used exclusively in the match table: soft band = predicted ±1σ per alliance, s
 > Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
 > state coverage and REFERENCES those rows rather than restating the copy (de-dup).
 
-**Probe result:** 58 applicable considerations across 9 surfaces — **41 covered**, **9 backstop**, **8 dismissed** (category cannot occur for that surface), **0 unresolved**.
+**Probe result** (`ui-consideration-probe.cjs`, 11 surfaces, run 2026-08-25): **79 applicable** — **44 covered**, **9 backstop**, **26 dismissed** (category cannot occur for that surface), **0 unresolved**.
 
-| Surface | Category | Status | Resolution / Reason |
-|---------|----------|--------|---------------------|
-| Season header (identity, robot image, TBA link) | empty | ✅ covered | Robot image field null (~25% of teams, D-03's measured rate) renders the fallback tile — see Copywriting Contract row. |
-| Season header | loading | ✅ covered | D-16-style skeleton: name/number placeholder plus a square skeleton block for the image, matching the existing Skeletons.tsx family. |
-| Season header | error | ✅ covered | Reuses the canonical Error-state copy with "team {teamNumber}" substituted, plus Retry — same failure surfaces the whole page (single team artifact fetch, D-07). |
-| Season header | populated | ✅ covered | Name, team number (Display 28/600), robot image (or fallback), "View on TBA" link, record, win rate, tier-boxed metric grid (D-17). |
-| Season header | overflow | 🧪 backstop | Long team nicknames (sponsor-heavy names, same class Phase 5's Teams table already handles) truncate with ellipsis; full text via `title` attribute. Needs a rendering test against a real long-nickname fixture, matching the Teams table's existing precedent. |
-| Season header | long-text | 🧪 backstop | Same as overflow above — nickname truncation is the only long-text surface in the header. |
-| Season header metric grid | partial | ✅ covered | A component metric absent for this algorithm/season renders a single em-dash cell — never blank, never coerced 0 (same rule as `MetricValue`'s existing empty case). OPR/EPA rows carry no spread at all — bare value, no `±` suffix, no placeholder dash (D-07, unchanged). |
-| Season header metric grid | zero-one-many | — dismissed | The component set is derived from `metricKeysFor(algorithmId, season)` (existing utility) — always a fixed, known-size list for a given algorithm/season pair, never a variable-count collection. |
-| Year dropdown (team-scoped, D-18) | empty | 🧪 backstop | Bootstrap edge (D-05's named wrinkle): `activeYears` is only known after the current year's fetch succeeds, so a freshly-loaded team page cannot yet constrain the dropdown before that fetch resolves. Needs a test proving the dropdown does not flash an unconstrained-then-constrained option list in a way that shifts the trigger's selected value. |
-| Year dropdown (team-scoped) | loading | ✅ covered | Renders the global (Phase 5) unconstrained year list until this team's `activeYears` resolves, then narrows in place — same "upgrade in place, never remount" pattern the Algorithm dropdown already uses for its manifest fetch (05-UI-SPEC precedent). |
-| Year dropdown (team-scoped) | error | ✅ covered | On artifact-fetch failure the dropdown falls back to the global unconstrained year list rather than blocking navigation — consistent with the algorithm dropdown's own graceful-degradation rule. |
-| Year dropdown (team-scoped) | populated | ✅ covered | Lists only the years in `activeYears`, descending, matching the global dropdown's existing sort order. |
-| Year dropdown (team-scoped) | zero-one-many | ✅ covered | A rookie team with exactly one active year renders a one-option dropdown (still a `Select`, not a disabled control) — no special-cased singular layout needed since the trigger already just shows the one selected year. |
-| Year-mismatch empty state (D-19) | empty | ✅ covered | Full-page empty body per the Copywriting Contract's Empty-state rows; header identity chrome (name, image, TBA link — none of which are year-scoped) still renders normally above it. |
-| Year-mismatch empty state | zero-one-many | ✅ covered | The active-year link-chip row reads correctly whether the team has one active year or many (D-05's `activeYears` array, rendered as one chip per entry, no special one-year phrasing needed). |
-| Event sections list | empty | 🧪 backstop | A valid team-year with zero events (data gap, not a wrong-year case) is distinct from D-19's empty state and currently has no named copy. Needs the planner to either fold this into D-19's copy or add a dedicated line — flagged rather than silently assumed identical. |
-| Event sections list | loading | ✅ covered | D-16 skeleton pattern: 2-3 skeleton event-section cards (header bar + a few skeleton match rows each) rather than a single full-page spinner, so the page's overall shape is visible immediately. |
-| Event sections list | error | ✅ covered | Same single-fetch failure as the season header (D-07: one artifact, whole page) — identical Error-state copy and Retry. |
-| Event sections list | populated | ✅ covered | One section per event, ordered chronologically by `startDate`; each section header shows event name + date, with an `Upcoming` badge per the Copywriting Contract row when applicable. |
-| Event sections list | partial | — dismissed | `TeamSeasonEventSchema`'s `eventKey`/`eventName`/`startDate` are all required, non-optional fields — an event section can never be missing its own identity. |
-| Event sections list | overflow | 🧪 backstop | D-05 names a measured 292-match outlier team-season as the artifact's own second at-risk case. A team with many events (full district season + district champs + worlds) needs the section list to stay a plain vertical scroll with no pagination/virtualization — confirmed acceptable at this volume (low tens of sections, not thousands of rows like the Teams table), but needs a real render-time measurement against that specific team fixture before assuming it's fine unvirtualized. |
-| Event sections list | zero-one-many | ✅ covered | One event (a team's first competition, or an offseason-only team) renders as an ordinary single-section page, no special-cased layout; many renders as the ordinary vertical list above. |
-| Event sections list | long-text | 🧪 backstop | Long event names (same class as the Events list page) truncate with ellipsis in the section header, full text via `title`. Needs a fixture test against a real long-name event, matching the Events list's existing precedent. |
-| Match table — played match row | populated | ✅ covered | Full D-06/D-07/D-08 anatomy: per-alliance soft band (±1σ predicted) + solid tick (predicted mean) + ringed donut dot (actual, alliance-colored) on one shared per-event-per-team axis; Actual column text with the loser greyed (`--loser-ink`); Call column ✓/✗ in plain ink. This team's own alliance is marked by **bolding its three team numbers** (Claude's discretion resolution of D-07's open choice — bolding was preferred over a row background tint because a tint risks visually competing with the alliance-color bands already present in that same row, and the app's existing semibold weight already carries an "emphasis" meaning elsewhere with no new color introduced). |
-| Match table — played match row | partial | ✅ covered | OPR and EPA rows have no `spread`/variance field at all (D-13) — the band and predicted-RP-variance simply do not render for those rows; no explanatory note, no placeholder. |
-| Match table — scheduled/upcoming match row | populated | ✅ covered | D-08's rule: both alliance bands and ticks draw at full weight (never dimmed — the prediction is the interesting content pre-match), no actual dot; Actual column shows the scheduled time per the Copywriting Contract row; Call column shows an em-dash. |
-| Match table — scheduled/upcoming match row | empty | ✅ covered | "Empty" here means "no actual result yet," which is exactly the populated case above for this row type — there is no further-degraded empty state for a scheduled match. |
-| Match table (both row types) | overflow | 🧪 backstop | **The single highest-risk item in this phase (D-10, explicitly named as such in CONTEXT.md).** Mobile: horizontal scroll on the shared-axis region, matching the Teams table's pinned-column pattern (D-04 precedent) — a leading pinned column (Match #, both alliances' team numbers as links) stays fixed while the axis/Actual/Call region scrolls horizontally in its own DOM region, so vertical page-scroll and horizontal axis-scroll never compete for the same touch gesture. This resolves the sketch findings' open "likely needs a compact two-row form" question in favor of the pinned-column pattern already proven in Phase 5 rather than a new stacked layout — **but it recurs once per event section on this page (not once per page, as on the Teams table)**, which is a materially different risk profile the planner must test explicitly, not assume solved by precedent alone. Needs a real touch-interaction test at phone width with at least two adjacent event sections both scrolled. |
-| Match table (both row types) | zero-one-many | — dismissed | Row count is whatever `TeamSeasonEventSchema.matches` contains for that event — no zero case (an event section with zero matches would not be rendered at all, folding into the Event sections list's own empty/dismissed handling above). |
-| Match table (both row types) | long-text | — dismissed | All match-table content is short, bounded numeric/glyph output (team numbers, scores, RP counts, times, ✓/✗) — no field in this table can produce unbounded text. |
-| Match table axis (shared per event, D-06) | empty | — dismissed | The axis domain is computed from the full team-season match set (D-06's implementation note: including scheduled matches), so it is never itself empty once any event section renders at all. |
-| Match table axis | populated | ✅ covered | Domain is this team's own full-season range (played + scheduled), labelled per the sketch findings' "interval axes must be labelled, never zero-anchored" rule; drawn once in the table header per event, not per row. |
-| Tabs (Overview / Metric History, D-16) | loading | ✅ covered | Both tabs are present and clickable from first render (they gate content, not their own existence) — `?tab=` in the URL determines which panel renders; default is Overview when the param is absent. |
-| Tabs | populated | ✅ covered | Two tabs, typed via TanStack Router search params (D-16), back/forward-navigable between them. |
-| Tabs | error | — dismissed | Tab switching has no fetch of its own (the underlying artifact is already loaded per D-07) — any failure state belongs to the season header/event list or the chart, not the tab control itself. |
-| Metric-history chart | empty | ✅ covered | A team-year with zero played matches (all scheduled, or a mid-season rookie with no history yet) renders an empty-chart state — plain axis, no line — distinct from the Chart tab's load-failure state below. |
-| Metric-history chart | loading | ✅ covered | Reuses the Chart tab loading row from the Copywriting Contract (skeleton, no text) — covers both the Recharts dynamic-import wait and, if applicable, any brief render delay on a large dataset. |
-| Metric-history chart | error | ✅ covered | Reuses the Chart tab load-failure row from the Copywriting Contract — a dynamic `import()` failure, not a data failure (the metric-history array already arrived with the page artifact per D-07). |
-| Metric-history chart | populated | ✅ covered | X-axis is this team's own match sequence (1…n, evenly spaced per D-12 — never `metricHistory[].matchIndex` directly, which is season-wide and would leave gaps), Total-only line (D-11), with a variance band only where `spread` is present (D-13). Event boundaries marked by alternating tinted vertical bands (`--color-bg-surface` at reduced opacity, per-event) with a truncating event-name label at the top of each band — Claude's discretion resolution of D-12's "exact form of the marker" question, chosen over a plain divider line because the chart-craft reference's own "zebra tint reinforces grouping" lesson (learned from the match table) transfers directly here: matches within one event are already grouped by proximity on the x-axis, and a tinted band reinforces that grouping rather than just marking its edge. |
-| Metric-history chart | partial | ✅ covered | On OPR (Total only, no spread) and EPA (no spread on any metric) the band silently does not draw — reuses the Copywriting Contract's "no explanatory copy" rule (D-13, locked). |
-| Metric-history chart | overflow | 🧪 backstop | A team with a long season (many matches across several events, same volume class as the Event sections overflow row above) produces a dense x-axis. Needs a real render against a high-match-count team fixture to confirm point/label density stays legible before assuming Recharts' default tick behavior is sufficient — the sketch findings' "render it and look at it, the validator checks colour not layout" rule applies directly here. |
-| Metric-history chart | zero-one-many | ✅ covered | One played match renders as a single point (no line to draw between); many renders the ordinary line-plus-band. |
-| Metric-history chart | long-text | 🧪 backstop | Event-name labels on the boundary bands need the same truncate-plus-title treatment as the event section headers — needs a fixture test against a long event name inside the chart specifically, since Recharts' label rendering is a different code path than the plain-HTML event section header even though the copy rule is identical. |
-| Search box → team route (integration) | populated | ✅ covered | `SearchBox.tsx`'s team-hit navigation target changes from `/teams` to `/team/{teamNumber}`; `SearchNavigate`'s narrow union type at line 52 widens to include the new route — no new UI surface, an existing one repointed. |
-| Teams table → team route (integration) | populated | ✅ covered | Team number and nickname cells in `teams-table/columns.tsx` become links to `/team/{teamNumber}` — carries the currently-selected year and algorithm as search params, per D-15/D-16's URL-shareability rule. |
+**Classifier override applied (user-confirmed):** the probe's prose classifier read the metric-history chart (E9) as `static-content` only, raising just `overflow`/`long-text`. Re-run with an authored `elements: ["static-content","list-collection"]` override, raising all 8 categories — the chart has real empty, loading, error and partial states (dynamic-import failure, zero played matches, D-13's absent spread) that a static-content read would have left outside counted coverage.
+
+### E1 — Season header (nickname, team number, robot image, TBA link, record, win rate)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | Robot image field null (~25% of teams, D-03's measured rate) renders the fallback tile — see Copywriting Contract row. |
+| loading | ✅ covered | D-16-style skeleton: name/number placeholder plus a square skeleton block for the image, matching the existing `Skeletons.tsx` family. |
+| error | ✅ covered | Reuses the canonical Error-state copy with "team {teamNumber}" substituted, plus Retry — this failure surfaces the whole page (single team-artifact fetch, D-07). |
+| populated | ✅ covered | Name, team number (Display 28/600), robot image (or fallback), "View on TBA" link, record, win rate, tier-boxed metric grid (D-17). |
+| partial | ✅ covered | A team with a null/absent nickname (TBA permits it) renders `Team {teamNumber}` in the nickname slot rather than a blank line or a duplicated number; the number itself is always present, so the header can never lose its identity anchor. |
+| overflow | 🧪 backstop | Long team nicknames (sponsor-heavy names, same class Phase 5's Teams table already handles) truncate with ellipsis; full text via `title`. Needs a rendering test against a real long-nickname fixture, matching the Teams table's existing precedent. |
+| zero-one-many | — dismissed | The header is a single fixed identity block, not a collection — it renders exactly once per page. The grid's own zero-one-many question is E2's. |
+| long-text | 🧪 backstop | Same surface as overflow above — the nickname is the header's only unbounded string; one fixture covers both rows. |
+
+### E2 — Season-header metric grid (D-17 tier boxes)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | An algorithm/season pair with no published metrics renders the grid with every cell as an em-dash rather than removing the grid — the page keeps its shape and the absence is legible as absence. |
+| loading | ✅ covered | Grid-shaped skeleton nested inside the header skeleton (same `Skeletons.tsx` family as E1's loading row); no separate spinner. |
+| error | ✅ covered | Inherits the page-level error state — the grid has no fetch of its own (D-07: one artifact for the whole page). |
+| populated | ✅ covered | One cell per `metricKeysFor(algorithmId, season)` key using the existing `X ± Y` primitive, tier-boxed by per-metric percentile (D-04/D-17), with the tier key row rendered once above the grid. |
+| partial | ✅ covered | A component metric absent for this algorithm/season renders a single em-dash cell — never blank, never coerced 0 (same rule as `MetricValue`'s existing empty case). OPR/EPA rows carry no spread at all — bare value, no `±` suffix, no placeholder dash (D-07, unchanged). |
+| overflow | ✅ covered | The grid reflows to fewer columns at narrow widths (responsive grid, not a scroll region) — cell contents are bounded numerics, so no cell can force a horizontal scrollbar. Deliberately *not* the pinned-column pattern used for the match table (E6): this grid has no axis to preserve. |
+| zero-one-many | — dismissed | The component set is derived from `metricKeysFor(algorithmId, season)` (existing utility) — always a fixed, known-size list for a given algorithm/season pair, never a variable-count collection. |
+
+### E3 — Year dropdown, team-scoped (D-18)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | 🧪 backstop | Bootstrap edge (D-05's named wrinkle): `activeYears` is only known after the current year's fetch succeeds, so a freshly-loaded team page cannot yet constrain the dropdown before that fetch resolves. Needs a test proving the dropdown does not flash an unconstrained-then-constrained option list in a way that shifts the trigger's selected value. |
+| loading | ✅ covered | Renders the global (Phase 5) unconstrained year list until this team's `activeYears` resolves, then narrows in place — same "upgrade in place, never remount" pattern the Algorithm dropdown already uses for its manifest fetch (05-UI-SPEC precedent). |
+| error | ✅ covered | On artifact-fetch failure the dropdown falls back to the global unconstrained year list rather than blocking navigation — consistent with the algorithm dropdown's own graceful-degradation rule. |
+| populated | ✅ covered | Lists only the years in `activeYears`, descending, matching the global dropdown's existing sort order. |
+| partial | ✅ covered | When the routed year is *not* in `activeYears` (the D-19 case), that year still shows as the trigger's selected value so the control and the URL never disagree; the option list itself stays constrained, and the empty state below explains the mismatch. |
+| overflow | — dismissed | Option count is bounded by the number of FRC seasons (low tens at most) and the `Select` popover scrolls natively — there is no overflow condition this phase can produce. |
+| zero-one-many | ✅ covered | A rookie team with exactly one active year renders a one-option dropdown (still a `Select`, not a disabled control) — no special-cased singular layout needed since the trigger already just shows the one selected year. |
+| long-text | — dismissed | Every option is a 4-character year string. |
+
+### E4 — Year-mismatch empty state (D-19)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | Full-page empty body per the Copywriting Contract's Empty-state rows; header identity chrome (name, image, TBA link — none of which are year-scoped) still renders normally above it. |
+| loading | — dismissed | This state is *derived* from an already-resolved artifact, so it never has a pending phase of its own — the page-level skeleton (E1/E5) covers the wait before it can be decided. |
+| error | — dismissed | No fetch of its own; a fetch failure routes to the page-level error state instead of this one. |
+| populated | ✅ covered | Heading, body, and the accent-styled active-year link-chip row per the Copywriting Contract. |
+| partial | ✅ covered | If `activeYears` is itself absent or empty, the heading still renders and the chip row is omitted entirely — never a dangling "This team's active seasons:" label with nothing after it. |
+| overflow | — dismissed | The chip row wraps; each chip is a bounded 4-character year. |
+| zero-one-many | ✅ covered | The active-year link-chip row reads correctly whether the team has one active year or many (D-05's `activeYears` array, one chip per entry, no special one-year phrasing needed). |
+
+### E5 — Event sections list
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | **Resolved this pass (user decision, 2026-08-25).** A valid team-year whose artifact carries zero events is an upstream data gap, *not* D-19's "didn't compete" case, and gets its own copy — see the Copywriting Contract's "Zero-events data gap" row. The header, record, and TBA link still render above it. Deliberately not folded into D-19: that copy would assert the team didn't compete when the truth is that we don't have the data. |
+| loading | ✅ covered | D-16 skeleton pattern: 2–3 skeleton event-section cards (header bar + a few skeleton match rows each) rather than a single full-page spinner, so the page's overall shape is visible immediately. |
+| error | ✅ covered | Same single-fetch failure as the season header (D-07: one artifact, whole page) — identical Error-state copy and Retry. |
+| populated | ✅ covered | One section per event, ordered chronologically by `startDate`; each section header shows event name + date, with an `Upcoming` badge per the Copywriting Contract row when applicable. |
+| partial | — dismissed | `TeamSeasonEventSchema`'s `eventKey`/`eventName`/`startDate` are all required, non-optional fields — an event section can never be missing its own identity. |
+| overflow | 🧪 backstop | D-05 names a measured 292-match outlier team-season as the artifact's own second at-risk case. A team with many events (full district season + district champs + worlds) needs the section list to stay a plain vertical scroll with no pagination/virtualization — confirmed acceptable at this volume (low tens of sections, not thousands of rows like the Teams table), but needs a real render-time measurement against that specific team fixture before assuming it's fine unvirtualized. |
+| zero-one-many | ✅ covered | One event (a team's first competition, or an offseason-only team) renders as an ordinary single-section page, no special-cased layout; many renders as the ordinary vertical list above. |
+| long-text | 🧪 backstop | Long event names (same class as the Events list page) truncate with ellipsis in the section header, full text via `title`. Needs a fixture test against a real long-name event, matching the Events list's existing precedent. |
+
+### E6 — Match table (played and scheduled rows)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | "Empty" for a scheduled row means "no actual result yet," which is exactly its populated case below — there is no further-degraded empty state. An event with zero matches is never rendered as a section at all, folding into E5's own empty handling. |
+| loading | ✅ covered | Skeleton match rows inside E5's skeleton event-section card; the table has no fetch of its own. |
+| error | ✅ covered | Inherits the page-level error (D-07, single artifact) — a match table cannot fail independently of its page. |
+| populated | ✅ covered | Full D-06/D-07/D-08 anatomy: per-alliance soft band (±1σ predicted) + solid tick (predicted mean) + ringed donut dot (actual, alliance-colored) on one shared per-event-per-team axis; Actual column text with the loser greyed (`--loser-ink`); Call column ✓/✗ in plain ink. This team's own alliance is marked by **bolding its three team numbers** (Claude's discretion resolution of D-07's open choice — bolding was preferred over a row background tint because a tint risks visually competing with the alliance-color bands already present in that same row, and the app's existing semibold weight already carries an "emphasis" meaning elsewhere with no new color introduced). Scheduled rows follow D-08: both alliance bands and ticks draw at full weight (never dimmed — the prediction is the interesting content pre-match), no actual dot, scheduled time in the Actual column, em-dash in the Call column. |
+| partial | ✅ covered | OPR and EPA rows have no `spread`/variance field at all (D-13) — the band and predicted-RP variance simply do not render for those rows; no explanatory note, no placeholder. |
+| overflow | 🧪 backstop | **The single highest-risk item in this phase (D-10, explicitly named as such in CONTEXT.md).** Mobile: horizontal scroll on the shared-axis region, matching the Teams table's pinned-column pattern (D-04 precedent) — a leading pinned column (Match #, both alliances' team numbers as links) stays fixed while the axis/Actual/Call region scrolls horizontally in its own DOM region, so vertical page-scroll and horizontal axis-scroll never compete for the same touch gesture. This resolves the sketch findings' open "likely needs a compact two-row form" question in favor of the pinned-column pattern already proven in Phase 5 rather than a new stacked layout — **but it recurs once per event section on this page (not once per page, as on the Teams table)**, which is a materially different risk profile the planner must test explicitly, not assume solved by precedent alone. Needs a real touch-interaction test at phone width with at least two adjacent event sections both scrolled. |
+| zero-one-many | — dismissed | Row count is whatever `TeamSeasonEventSchema.matches` contains for that event — no zero case (an event section with zero matches would not be rendered at all, folding into E5 above), and all row content is short, bounded numeric/glyph output. |
+
+### E7 — Match table shared score axis (D-06)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | — dismissed | The axis domain is computed from the full team-season match set (D-06's implementation note: including scheduled matches), so it is never itself empty once any event section renders at all. |
+| loading | ✅ covered | The axis is part of E5's event-section skeleton; it has no separate pending state. |
+| error | ✅ covered | No fetch of its own — the page-level error applies. |
+| populated | ✅ covered | Domain is this team's own full-season range (played + scheduled), labelled per the sketch findings' "interval axes must be labelled, never zero-anchored" rule; drawn once in the table header per event, not per row. |
+| partial | ✅ covered | When every match in an event lacks predictive variance (OPR/EPA per D-13), the axis still draws at its full labelled domain — the axis is a *score* domain, not a variance domain, so a missing spread degrades the marks inside it and never the axis itself. |
+| overflow | 🧪 backstop | The axis sits inside E6's mobile horizontal-scroll region, so its tick labels must stay readable at phone width *while scrolled*. Folded into the D-10 touch-interaction test above rather than given a separate one — same test, with an explicit assertion on axis-label legibility added. |
+| zero-one-many | ✅ covered | The axis is drawn once per event section regardless of that section's match count — a single-match event still gets the full labelled axis, not a degenerate or omitted one. |
+
+### E8 — Tabs (Overview / Metric History, D-16)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| loading | ✅ covered | Both tabs are present and clickable from first render (they gate content, not their own existence) — `?tab=` in the URL determines which panel renders; default is Overview when the param is absent. Two tabs, typed via TanStack Router search params, back/forward-navigable between them. |
+| error | — dismissed | Tab switching has no fetch of its own (the underlying artifact is already loaded per D-07) — any failure state belongs to the season header, event list, or chart, not the tab control itself. |
+| overflow | — dismissed | Exactly two fixed tabs; the row cannot exceed any supported viewport width. |
+| long-text | — dismissed | Labels are the fixed strings `Overview` and `Metric History` (Copywriting Contract) — not data-driven, so unbounded text is impossible. |
+
+### E9 — Metric-history chart *(classifier override applied — see note above)*
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| empty | ✅ covered | A team-year with zero played matches (all scheduled, or a mid-season rookie with no history yet) renders an empty-chart state — plain labelled axis, no line — distinct from the load-failure state below. |
+| loading | ✅ covered | Reuses the Chart tab loading row from the Copywriting Contract (skeleton, no text) — covers both the Recharts dynamic-import wait and any brief render delay on a large dataset. |
+| error | ✅ covered | Reuses the Chart tab load-failure row from the Copywriting Contract — a dynamic `import()` failure, not a data failure (the metric-history array already arrived with the page artifact per D-07), so Retry re-attempts the import rather than the fetch. |
+| populated | ✅ covered | X-axis is this team's own match sequence (1…n, evenly spaced per D-12 — never `metricHistory[].matchIndex` directly, which is season-wide and would leave gaps), Total-only line (D-11), with a variance band only where `spread` is present (D-13). Event boundaries marked by alternating tinted vertical bands (`--color-bg-surface` at reduced opacity, per-event) with a truncating event-name label at the top of each band — Claude's discretion resolution of D-12's "exact form of the marker" question, chosen over a plain divider line because the chart-craft reference's own "zebra tint reinforces grouping" lesson (learned from the match table) transfers directly here: matches within one event are already grouped by proximity on the x-axis, and a tinted band reinforces that grouping rather than just marking its edge. |
+| partial | ✅ covered | On OPR (Total only, no spread) and EPA (no spread on any metric) the band silently does not draw — reuses the Copywriting Contract's "no explanatory copy" rule (D-13, locked). |
+| overflow | 🧪 backstop | A team with a long season (many matches across several events, same volume class as E5's overflow row) produces a dense x-axis. Needs a real render against a high-match-count team fixture to confirm point/label density stays legible before assuming Recharts' default tick behavior is sufficient — the sketch findings' "render it and look at it, the validator checks colour not layout" rule applies directly here. |
+| zero-one-many | ✅ covered | One played match renders as a single point (no line to draw between); many renders the ordinary line-plus-band. |
+| long-text | 🧪 backstop | Event-name labels on the boundary bands need the same truncate-plus-title treatment as the event section headers — needs a fixture test against a long event name inside the chart specifically, since Recharts' label rendering is a different code path than the plain-HTML event section header even though the copy rule is identical. |
+
+### E10 — Search box → team route (integration point)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| populated | ✅ covered | `SearchBox.tsx`'s team-hit navigation target changes from `/teams` to `/team/{teamNumber}`; `SearchNavigate`'s narrow union type at line 52 widens to include the new route, carrying the selected year and algorithm as search params (D-15/D-16). |
+| empty · loading · error · partial · overflow · zero-one-many · long-text | — dismissed (7 categories) | This phase repoints an existing Phase 5 surface; it does not create one. The search box's own no-results, suggestion-loading, failure, truncation, and result-count states are Phase 5's contract and are unchanged here — re-resolving them in this file would fork a contract that already exists rather than extend it. |
+
+### E11 — Teams table → team route (integration point)
+
+| Category | Status | Resolution / Reason |
+|---|---|---|
+| populated | ✅ covered | Team number and nickname cells in `teams-table/columns.tsx` become links to `/team/{teamNumber}` — carrying the currently-selected year and algorithm as search params, per D-15/D-16's URL-shareability rule. |
+| empty · loading · error · partial · overflow · zero-one-many | — dismissed (6 categories) | As with E10: the Teams table's own empty, loading, error, virtualization/overflow, and row-count states are Phase 5's shipped contract. This phase changes what two cells link to, not how the table behaves in any of those states. |
 
 <!-- Status vocabulary (locked by probe-core projectTruths):
      ✅ covered   → a plain truth string lifted into must_haves.truths
@@ -243,14 +337,14 @@ Used exclusively in the match table: soft band = predicted ±1σ per alliance, s
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS *(returned FLAG — focal point implied, not declared; addressed post-verification by the `## Visual Hierarchy` section above)*
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED 2026-08-25 by gsd-ui-checker — 5 PASS, 1 non-blocking FLAG (Dimension 2), FLAG since addressed. UI-consideration probe run post-approval: 79 applicable, 44 covered, 9 backstop, 26 dismissed, 0 unresolved.
 
 **Planner obligations carried from this file:**
 - Sequence the D-01…D-05 publisher/schema/republish work (see "Data Dependencies" above) before any component that reads `robotImageUrl`, per-metric percentile, `activeYears`, per-alliance own variance, or actual RP.
