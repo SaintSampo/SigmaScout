@@ -226,6 +226,24 @@ anywhere. This phase creates `apps/web` from nothing.
   deferred; this is about JS bundle size.
   — **Reversibility:** reversible (a build-config and import-shape change).
   — *Decided by the user at an execution checkpoint after the breach was measured.*
+
+  **OUTCOME (2026-08-24, D-19 closed as NOT ACHIEVED — recorded, not quietly dropped).**
+  The split was implemented (`51ad41d6`) and **reverted** (`29364417`). It did reduce eager JS,
+  but a real-network A/B — both builds served identically, driven through Chromium with CDP
+  network + 4x CPU throttling, median of three runs, no simulator — showed Teams is **slower with
+  the split on every profile and faster on none**: +80 ms on a congested-venue link, +44 ms on
+  LTE, +12 ms on wifi. The reason is that on the Teams route the split defers only ~11 KB, because
+  the weight lives in the shared vendor chunk rather than the route, and it buys a serialized
+  round trip. Full data: `docs/first-paint-measurement.md`, fourth entry.
+
+  **NAV-06's 2.5 s threshold is therefore still not met on the congested-venue profile (~4.06 s),
+  and Phase 5 closes with that open.** The diagnosis is now precise enough to act on: this is a
+  pure client-rendered SPA, so **nothing paints until ~600 KB of JS executes** — the LCP element
+  is the ribbon wordmark, which cannot render before React hydrates. Splitting was the wrong
+  lever; it reshuffles which JS blocks the paint but cannot make paint independent of JS. The
+  lever that works is static shell markup in `index.html`, logged as
+  `.planning/todos/pending/static-shell-first-paint.md` for scoped work with before/after
+  measurement on the same method.
 </decisions>
 
 <constraints>
