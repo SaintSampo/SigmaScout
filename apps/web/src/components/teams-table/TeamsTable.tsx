@@ -1,12 +1,12 @@
 /**
  * The single-scroll-container virtualized, pinned Teams table (Task 2,
- * 05-06-PLAN.md), built on the composition plan 05-04's spike proved under
- * real touch input (`apps/web/src/spike/TableSpike.tsx`,
- * `apps/web/e2e/touch-scroll.spec.ts`): TanStack Table's column pinning
- * composed with TanStack Virtual's row virtualizer over exactly ONE native
- * scrolling element, which is also the virtualizer's scroll element. A
- * second scrolling region anywhere in this file is the D-04 failure shape —
- * do not introduce one.
+ * 05-06-PLAN.md), built on the composition plan 05-04's throwaway touch spike
+ * proved under real touch input before it was removed (05-08-PLAN.md Task 3;
+ * see `apps/web/e2e/touch-scroll.spec.ts`, retargeted at this real table):
+ * TanStack Table's column pinning composed with TanStack Virtual's row
+ * virtualizer over exactly ONE native scrolling element, which is also the
+ * virtualizer's scroll element. A second scrolling region anywhere in this
+ * file is the D-04 failure shape — do not introduce one.
  *
  * This component is CONTROLLED for sort: it renders rows in whatever order
  * the caller passes (`routes/teams.tsx`, Task 3, resolves the sort key and
@@ -15,7 +15,7 @@
  * itself. That keeps the URL (D-14) as the single source of truth for sort
  * state, rather than a second, driftable copy living in table state.
  */
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SkeletonRows } from "@/components/Skeletons";
@@ -27,7 +27,17 @@ import type { SortDirection, TeamRow } from "./rowModel";
 const ROW_HEIGHT_PX = 44;
 const VIRTUAL_OVERSCAN = 8;
 const SKELETON_ROW_COUNT = 12;
-const SCROLL_CONTAINER_HEIGHT = "min(70vh, 720px)";
+/**
+ * The scroll viewport fills everything below the table's own top edge rather
+ * than a fixed fraction of the viewport (was `min(70vh, 720px)`, which left
+ * dead space under the table on any tall screen — raised at plan 05-08's
+ * real-device sign-off). Measured at runtime because the space above the
+ * table is not a constant: the ribbon wraps to two rows on a phone, and the
+ * page heading and filter row differ per route. `100dvh` (not `vh`) so a
+ * mobile browser's collapsing URL bar does not leave a gap.
+ */
+const SCROLL_VIEWPORT_BOTTOM_GAP_PX = 24;
+const SCROLL_CONTAINER_MIN_HEIGHT_PX = 320;
 
 export type TeamsTableStatus = "loading" | "empty" | "error" | "success";
 
@@ -89,6 +99,27 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
     return <ErrorState resource="teams" year={season} onRetry={onRetry} />;
   }
 
+  // Fill the viewport below wherever the table actually starts. Recomputed on
+  // resize and orientation change; falls back to a sane min so the table is
+  // never collapsed to nothing while measuring.
+  const [scrollHeight, setScrollHeight] = useState<number>(SCROLL_CONTAINER_MIN_HEIGHT_PX);
+  useLayoutEffect(() => {
+    const measure = (): void => {
+      const el = parentRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const available = window.innerHeight - top - SCROLL_VIEWPORT_BOTTOM_GAP_PX;
+      setScrollHeight(Math.max(SCROLL_CONTAINER_MIN_HEIGHT_PX, Math.floor(available)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, []);
+
   const isLoading = status === "loading";
   const virtualItems = isLoading ? [] : rowVirtualizer.getVirtualItems();
 
@@ -96,9 +127,9 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
     <div
       ref={parentRef}
       data-testid="teams-table-scroll"
-      style={{ overflow: "auto", height: SCROLL_CONTAINER_HEIGHT, width: "100%", position: "relative" }}
+      style={{ overflow: "auto", height: scrollHeight, width: "100%", position: "relative" }}
     >
-      <table style={{ width: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+      <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader style={{ position: "sticky", top: 0, zIndex: 3 }}>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
@@ -142,6 +173,17 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
                   </TableHead>
                 );
               })}
+              {/*
+                Trailing filler so the table can stretch to the full page width
+                without the browser redistributing slack across the real columns.
+                That distinction matters: pinned offsets come from
+                `header.getStart("start")`, which is derived from column sizes,
+                so widening a pinned column would silently desync the sticky
+                `left` values from the cells they pin. Absorbing the slack in a
+                sizeless trailing cell leaves every real column at exactly
+                `getSize()`. Hidden from assistive tech — it carries no data.
+              */}
+              <TableHead aria-hidden="true" style={{ padding: 0, background: "var(--color-bg-surface)" }} />
             </TableRow>
           ))}
         </TableHeader>
@@ -179,6 +221,8 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
                       </TableCell>
                     );
                   })}
+                  {/* Matches the header's trailing filler — see the note there. */}
+                  <TableCell aria-hidden="true" style={{ padding: 0 }} />
                 </TableRow>
               );
             })

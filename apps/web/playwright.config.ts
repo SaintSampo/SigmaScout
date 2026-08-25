@@ -1,19 +1,50 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Harness for 05-04-PLAN.md Task 1's D-04 touch-scroll proof
- * (`e2e/touch-scroll.spec.ts` against `src/spike/TableSpike.tsx`).
+ * Harness for the phase's real-artifact E2E specs (05-08-PLAN.md Task 3):
+ * `e2e/touch-scroll.spec.ts` (D-04's touch-scroll proof, RETARGETED at the
+ * real `TeamsTable` — its own throwaway spike, `src/spike/TableSpike.tsx`,
+ * was deleted by this task) and `e2e/deep-link.spec.ts` (NAV-05's pasted-URL
+ * proof).
  *
- * Two projects use Playwright's built-in device descriptors for a recent
- * iPhone and a recent Pixel (`hasTouch: true` on both, already set by each
- * descriptor). The iPhone project pins `browserName: "chromium"` rather
- * than the descriptor's own WebKit default — the spec drives a real
- * multi-point touch drag via `Input.dispatchTouchEvent` over a Chromium
- * CDP session (`e2e/touch-scroll.spec.ts`'s `touchDrag` helper), and
- * `context.newCDPSession()` only exists for Chromium; WebKit's public
- * surface here is `page.touchscreen.tap()` alone, which cannot express a
- * drag. The iPhone descriptor's viewport, user agent, `hasTouch` and
- * `isMobile` flags are unaffected by the engine override.
+ * `baseURL` points at the CANONICAL DEPLOYED apex (D-17a), never a local dev
+ * server — two independent reasons converge on this, not one:
+ *  1. `e2e/deep-link.spec.ts`'s own instruction: prove the PRODUCTION build's
+ *     router and SPA fallback, not a dev server's.
+ *  2. `05-06-SUMMARY.md`'s documented finding: `https://data.sigmascout.org`'s
+ *     R2 CORS policy allow-lists only the site's real origins (D-18) —
+ *     `localhost`/`*.pages.dev` are NOT in that list, so a local `vite
+ *     preview` server's artifact fetches fail CORS entirely. Since
+ *     `touch-scroll.spec.ts` now drags a REAL, fully-populated Teams table
+ *     (not spike-fabricated rows), it needs the real artifact to actually
+ *     load — which only the deployed origin can serve without a CORS error.
+ * There is therefore no local `webServer` here at all: both specs assume the
+ * current build is ALREADY DEPLOYED before `playwright test` runs (this
+ * task's own action deploys it as part of closing the phase).
+ *
+ * Three projects, matched to each spec by `testMatch` — these are NOT
+ * interchangeable and each spec runs on exactly one project family:
+ *  - `desktop`: `e2e/deep-link.spec.ts` only. NAV-05's deep-link promise is
+ *    viewport-agnostic — it is about the URL restoring STATE, not about
+ *    touch gestures — and a real desktop width is what lets the assertions
+ *    stay simple and honest: at phone width, `EventFilters` renders the D-15
+ *    collapsed Sheet (no visible `Week`/`District` comboboxes at all until
+ *    the sheet is opened) and the Teams table's non-pinned columns sit
+ *    almost entirely off-screen behind the pinned group, needing an extra,
+ *    unrelated horizontal-scroll step before a sort header is even
+ *    clickable. Running this spec at 1440x900 keeps it testing exactly what
+ *    it says it tests.
+ *  - `iphone-17`/`pixel-10`: `e2e/touch-scroll.spec.ts` only, using
+ *    Playwright's built-in device descriptors for a recent iPhone and a
+ *    recent Pixel (`hasTouch: true` on both, already set by each
+ *    descriptor). The iPhone project pins `browserName: "chromium"` rather
+ *    than the descriptor's own WebKit default — the spec drives a real
+ *    multi-point touch drag via `Input.dispatchTouchEvent` over a Chromium
+ *    CDP session (`e2e/touch-scroll.spec.ts`'s `touchDrag` helper), and
+ *    `context.newCDPSession()` only exists for Chromium; WebKit's public
+ *    surface here is `page.touchscreen.tap()` alone, which cannot express a
+ *    drag. The iPhone descriptor's viewport, user agent, `hasTouch` and
+ *    `isMobile` flags are unaffected by the engine override.
  */
 export default defineConfig({
   testDir: "e2e",
@@ -23,29 +54,22 @@ export default defineConfig({
   reporter: "list",
   timeout: 30_000,
   use: {
-    // `localhost`, not `127.0.0.1` — `vite preview` binds only the IPv6
-    // loopback (`[::1]`) on this machine, so an IPv4-literal URL never
-    // connects and the webServer health check times out silently.
-    baseURL: "http://localhost:4319",
-  },
-  webServer: {
-    // `npx` rather than a bare `vite`/local `.bin` path — the webServer child
-    // process is spawned via the OS shell (`cmd.exe` on Windows), which does
-    // not inherit this package's `node_modules/.bin` on PATH the way a
-    // `pnpm run` script does; `npx` reliably resolves the locally-installed
-    // binary regardless of the spawning shell.
-    command: "npx vite build && npx vite preview --port 4319 --strictPort",
-    url: "http://localhost:4319/spike",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    baseURL: "https://sigmascout.org",
   },
   projects: [
     {
+      name: "desktop",
+      testMatch: /deep-link\.spec\.ts/,
+      use: { viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "iphone-17",
+      testMatch: /touch-scroll\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium" },
     },
     {
       name: "pixel-10",
+      testMatch: /touch-scroll\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
   ],

@@ -1,7 +1,8 @@
 /**
  * Column definitions for the real Teams table (Task 2, 05-06-PLAN.md),
  * against the REAL `@tanstack/react-table@9.1.2` v9 API surface documented in
- * `apps/web/src/spike/TableSpike.tsx` and 05-04-SUMMARY.md — `useTable`,
+ * 05-04-SUMMARY.md (the throwaway touch spike that proved this composition,
+ * removed by 05-08-PLAN.md Task 3) — `useTable`,
  * `tableFeatures({ columnPinningFeature, columnSizingFeature })`,
  * `createColumnHelper`, logical `'start'`/`'end'` pinning. Do NOT copy
  * 05-RESEARCH.md's Pattern 2 example; it targets v8.

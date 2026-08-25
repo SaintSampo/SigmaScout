@@ -202,3 +202,208 @@ own additional page code will make MORE relevant, not less), not a virtualizatio
 row-rendering-cost question — the parse-to-paint marks and low TBT rule that out directly. D-03's
 deferred search-index split remains a separate, still-deferred question; this LCP regression is
 about JS bundle size, not artifact size.
+
+---
+
+## Deferred secondary gate — search keystroke latency (05-08-PLAN.md Task 3, D-10)
+
+`05-VALIDATION.md`'s Measurement Gate set a keystroke-to-updated-results target of **< 100 ms**
+(RAIL model), deferred by plan 05-04 because no search box existed yet, and restated by the first
+entry above ("05-08... exists now. Measure it as that gate specifies"). It exists now.
+
+**Method:** `SearchBox.tsx`'s `handleValueChange` calls `performance.mark("search-keystroke")` at
+the very start of the `onChange` handler (`lib/perfMarks.ts`); a `useEffect` keyed on the rendered
+results calls `performance.mark("search-results-rendered")` once the new dropdown content has
+committed, then `performance.measure(...)` between the two marks and logs a structured
+`{"event":"search-keystroke-to-render","durationMs":...}` console line — the same pattern
+`routes/teams.tsx`'s `teams-parse-to-paint` line already established. A headless-Chromium script
+(Playwright's own `chromium.launch()`) navigates to the deployed
+`https://sigmascout.org/teams?year=2024&algorithm=sigma1&sort=total&sortDir=desc`, applies
+**`Emulation.setCPUThrottlingRate({ rate: 4 })`** via a CDP session — 4x CPU slowdown, the same
+multiplier Lighthouse's mobile preset applies under `--throttling-method=simulate`, i.e. "the same
+throttled-CPU profile the first-paint gate uses" — fills the search input with `"1114"` (one
+`onChange` firing, mirroring one real keystroke), and reads the logged duration back off the page's
+own console.
+
+**Measured (9 runs total, 3 sets of 3, run at different times to check stability rather than
+cherry-picking a favorable set):**
+
+| Set | Run 1 (ms) | Run 2 (ms) | Run 3 (ms) | Set median (ms) |
+|-----|-----------:|-----------:|-----------:|-----------------:|
+| 1   | 137.5      | 75.7       | 102.3      | 102.3            |
+| 2   | 53.1       | 65.4       | 98.6       | 65.4             |
+| 3   | 82.0       | 57.0       | 72.5       | 72.5             |
+
+All 9 measurements sorted: 53.1, 57.0, 65.4, 72.5, 75.7, 82.0, 98.6, 102.3, 137.5.
+
+**Median across all 9 runs: 75.7 ms.**
+
+**Verdict: 75.7 ms is UNDER the 100 ms threshold — a pass**, though the per-set medians (102.3,
+65.4, 72.5) show real run-to-run variance on this machine, with one of three sets landing just over
+threshold. The predicate itself (`lib/search-index.ts`'s `matchTeams`/`matchEvents`, plain
+`.startsWith()`/`.includes()` over the resident ~3,750-row Teams artifact) does no regex compilation
+and completes in low single-digit milliseconds per `search-index.test.ts`'s own timed adversarial
+case — the measured 53–138 ms range here is dominated by React's re-render/commit cost under 4x CPU
+throttling, not the matching predicate itself. Recorded honestly with the variance visible rather
+than reporting only the most flattering set; no debouncing or D-03-style split is being built here,
+per this task's own instruction, since the median clears the threshold.
+
+---
+
+## Third measurement — D-19 route-level code splitting (05-08-PLAN.md, added scope)
+
+**This is a third, later measurement, appended below the first two per this document's own
+established practice.** D-19 (`05-CONTEXT.md`, decided by the user at an execution checkpoint) was
+added specifically because three prior measurements on identical methodology told a worsening
+story: **2448 ms** (05-04, tracer table) → **2851 ms** (05-06, shipped table, second entry above) →
+**3099 ms** (orchestrator, after 05-06+05-07 merged) against the locked **2500 ms** threshold. The
+fix D-19 specified: split the Teams route's heavy dependencies (`@tanstack/react-table` +
+`@tanstack/react-virtual`) behind a route-level dynamic `import()` so the ribbon's wordmark — the
+LCP element in every prior measurement — is not gated on parsing/executing that code before it can
+paint.
+
+### What was done
+
+`vite.config.ts`: `tanstackRouter({ ..., autoCodeSplitting: true })` — TanStack Router's own
+officially-supported route-level split. Each route's `component` is emitted as its own chunk,
+fetched only once the router actually matches that route, rather than eagerly imported by
+`routeTree.gen.ts` into the single main bundle. No route file was manually restructured into the
+`.lazy.tsx` convention.
+
+**Verified in the build output:** the main eager payload dropped from one 602.07 KB / 183.27 KB
+gzip bundle to a 273.90 KB / 87.43 KB gzip main chunk plus a 265.67 KB / 82.24 KB gzip shared
+vendor chunk (both `modulepreload`ed from `index.html`) — combined ≈ 539.6 KB / 169.7 KB gzip eager
+payload, alongside a separate, NOT preloaded `teams-*.js` chunk (71.17 KB / 20.46 KB gzip)
+containing `@tanstack/react-table`/`@tanstack/react-virtual`. Grepping the built chunks confirmed
+the isolation directly: `react-table`/`useVirtualizer`/`columnPinningFeature` strings appear ONLY in
+the `teams-*.js` chunk, never in the main or shared chunks.
+
+### Run metadata
+
+- **Date:** 2026-08-24
+- **Command (run three times, output paths varied only):**
+  ```
+  npx lighthouse "https://sigmascout.org/teams?year=2024&algorithm=sigma1&sort=total&sortDir=desc" \
+    --preset=perf --emulated-form-factor=mobile --throttling-method=simulate \
+    --output=json --output-path=./lh-runN.json --chrome-flags="--headless"
+  ```
+  Lighthouse 13.4.1, `CHROME_PATH` pointed at Playwright's own managed Chromium
+  (`node -e "const {chromium}=require('@playwright/test');console.log(chromium.executablePath())"`),
+  same methodology as the first two entries.
+- **Deployed URL measured:** `https://sigmascout.org/teams?year=2024&algorithm=sigma1&sort=total&sortDir=desc`
+  — the canonical apex (D-17a). Confirmed serving this exact build immediately before measuring:
+  `sigmascout.org`/`www.sigmascout.org` both returned `200` and served `assets/index-CFq26DIg.js`,
+  byte-identical to this worktree's own `dist/` output.
+- **Search box included:** the deployed page carries plan 05-08's shipped `SearchBox` in the ribbon
+  on every route, per this task's own instruction ("re-measure... with the search box included").
+
+### Median LCP
+
+| Run | LCP (ms) | TBT (ms) |
+|-----|---------:|---------:|
+| 1   | 3245.475 | 103      |
+| 2   | 3232.192 | 106      |
+| 3   | 3188.639 | 110.5    |
+
+Sorted: 3188.639, 3232.192, 3245.475 ms.
+
+**Median LCP: 3232.192 ms (3.2 s).**
+
+Threshold (unchanged): **≤ 2.5 s**. 3232.192 ms is **over** the threshold by about 732 ms (~29%) —
+**worse than the 3099 ms this task set out to fix**, not better.
+
+### Diagnosis — reported plainly, not tuned away
+
+The LCP element is still the ribbon's wordmark (`lcp-breakdown-insight`'s node identity, all three
+runs) — unchanged from the second entry's finding. The OBSERVED (unthrottled-trace) breakdown also
+stayed in the same order of magnitude as before: `elementRenderDelay` 220–278 ms across the three
+runs here, against 216–276 ms in the second entry — the split did not make the real, observed paint
+path meaningfully worse or better.
+
+What changed is the **network dependency chain Lighthouse's simulator scores**, read directly off
+the observed request timeline (`network-requests` audit): before the split, one JS bundle satisfied
+the whole page. After the split, `teams-*.js` is only requested AFTER the main chunk has executed
+enough to resolve the current route (observed: `index-*.js` finishes around 230 ms into the trace;
+`teams-*.js` does not start until ~259 ms, a genuinely new SEQUENTIAL hop that did not exist before).
+Lighthouse's `--throttling-method=simulate` model scales each hop in the observed critical-request
+chain by the simulated Slow-4G RTT/throughput, so one additional serialized network round trip —
+however cheap it is in reality (the observed gap here is ~30 ms) — is amplified substantially under
+simulation. The net effect: less JS needs parsing before paint (a real win, confirmed in the build
+output above), but the route now depends on an additional network round trip it did not need before
+(a real cost), and on THIS measurement methodology the cost outweighs the win.
+
+**Verdict: the split does NOT get Teams under the 2.5 s threshold. Recorded plainly, per this task's
+own instruction, rather than tuned further** — no additional splitting, prefetching, or
+`pendingComponent` work was attempted to chase a passing number. Brotli compression was re-confirmed
+active on the main JS asset regardless of this result (`Content-Encoding: br`), so this is not a
+missing-compression regression. A human should decide the next step: keep the split for its real
+parse-time benefit despite the worse Lighthouse score, revert it, add an explicit
+`pendingComponent`/prefetch strategy to remove the newly-introduced sequential hop, or reconsider
+whether Lighthouse's simulated model is the right instrument for judging a route-split architecture
+at all — none of those decisions belongs to this task.
+
+---
+
+## Fourth measurement — real-network A/B of the split, and its reversal (orchestrator, D-19 close-out)
+
+**Why this entry exists.** The third entry recorded that route-level code splitting scored *worse*
+under Lighthouse (3232 ms vs 3099 ms) and correctly declined to tune the number. That left an open
+question the Lighthouse simulator cannot answer on its own: is the split actually worse for a real
+user, or is the simulator over-penalizing one extra request hop? This entry answers it by measuring
+both builds directly, with no simulator in the loop.
+
+### Method
+
+Both builds were produced from the same worktree — `autoCodeSplitting: true` and
+`autoCodeSplitting: false` — and served from identical local static servers on adjacent ports, so
+the only variable is the split itself. Chromium was driven via Playwright with **real CDP
+throttling** (`Network.emulateNetworkConditions` + `Emulation.setCPUThrottlingRate`, 4x CPU on every
+profile), LCP read from a `PerformanceObserver` registered before navigation. Median of three runs
+per cell.
+
+### Results — Teams route
+
+| Network profile | With split | Without split | Split costs |
+|---|---:|---:|---:|
+| Congested venue (1.6 Mbps / 150 ms) | 4144 ms | 4064 ms | **+80 ms** |
+| Decent LTE (10 Mbps / 40 ms) | 1144 ms | 1100 ms | **+44 ms** |
+| Good wifi (40 Mbps / 15 ms) | 668 ms | 656 ms | **+12 ms** |
+
+**The split is consistently slower on Teams across every profile, and never faster.** Lighthouse's
+simulator exaggerated the effect but did not invent it.
+
+### Why — the size table explains it
+
+| | Eager JS | Route chunk | Total on Teams |
+|---|---|---|---|
+| With split | 539.6 KB (`index` 273.9 + vendor 265.7) | + 71.2 KB `teams` | 610.8 KB, **two serial stages** |
+| Without split | 622.1 KB | — | 622.1 KB, **one stage** |
+
+On the Teams route the split saves about **11 KB** and buys an extra serialized round trip. Most of
+the bundle's weight lives in the *shared* vendor chunk that every route loads regardless, so there is
+very little route-specific weight for a route-level split to defer. It does help Events (~552 KB
+eager) and Compare, but not the page users land on and the one NAV-06 is measured against.
+
+### Decision — reverted
+
+`autoCodeSplitting` was reverted (`29364417` reverts `51ad41d6`). It measurably costs more than it
+saves on the flagship page and adds build complexity in exchange. D-19's intent — get Teams under
+2.5 s — is **not** satisfied, and is explicitly left open rather than declared closed.
+
+### What is actually slow (the real finding, logged for a scoped follow-up)
+
+The LCP element is the ribbon's wordmark, and this is a pure client-rendered SPA: **nothing paints
+at all until ~600 KB of JS downloads, parses and executes.** That is why every profile above scales
+with bundle size, and why reshuffling which JS blocks the paint cannot fix it. Splitting was the
+wrong lever.
+
+The lever that would work is putting real markup — a static shell or skeleton — into `index.html`,
+so first paint is independent of JS entirely. On the congested-venue profile that is the difference
+between ~4 s of blank screen and an immediate shell. That is a structural change to the app shell
+and deserves its own plan with before/after measurement on this same method, not a late
+in-phase edit.
+
+Worth recording for whoever picks this up: Lighthouse's Slow-4G preset sits close to the
+"congested venue" row above, and SigmaScout's users are in arenas with thousands of people sharing
+wifi. The 2.5 s threshold is not an arbitrary target for this audience — the ~4 s measured there is
+a real problem, and the gate is measuring something that matters.

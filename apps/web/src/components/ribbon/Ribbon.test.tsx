@@ -113,12 +113,36 @@ describe("Ribbon", () => {
     expect(compareLink?.getAttribute("data-status")).not.toBe("active");
   });
 
-  it("the icon-only search trigger exposes an accessible name and a 44px minimum tap-target class", async () => {
+  it("desktop renders the search box itself (an input), not an icon-only trigger — 05-08-PLAN.md Task 2", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
 
-    const trigger = screen.getByRole("button", { name: "Open search" });
-    expect(trigger.className).toContain("tap-target");
+    expect(screen.getByPlaceholderText("Search teams or events (e.g. 1114 or Simbotics)")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Open search" })).toBeNull();
+  });
+
+  it("mobile renders the icon-only search trigger, exposing an accessible name and a 44px minimum tap-target class", async () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: true, // simulates a phone-width viewport
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList;
+
+    try {
+      await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
+      const trigger = screen.getByRole("button", { name: "Open search" });
+      expect(trigger.className).toContain("tap-target");
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it("selecting the already-selected YEAR performs no navigation (YearSelect's NAV-02 adjacency edge)", async () => {

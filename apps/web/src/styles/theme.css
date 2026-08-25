@@ -203,3 +203,17 @@ body {
   font-weight: 400;
   line-height: 1.3;
 }
+
+/*
+ * Primary navigation. 05-UI-SPEC.md's usage map assigned Label (12/600) to
+ * "the ribbon's active-page indicator text", and the ribbon links were built
+ * against that reading — but at plan 05-08's real-device sign-off 12px was
+ * judged too small for the site's primary navigation. This is Body's size at
+ * Label's weight, so it introduces no new size or weight: the scale stays
+ * 14/20/28 and the two-weight rule (400/600) holds.
+ */
+.text-role-nav {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
