@@ -41,8 +41,7 @@ wall clock, 54,673 PUTs, 5.47% of one month's free-tier Class-A allowance**
 (`docs/publish-budget.md`). Doing them as one batch rather than five runs is the
 point of grouping them here.
 
-- **D-01: Each alliance's OWN predicted-score variance is published separately.**
-  Today only the red+blue **sum** is saved (`Prediction.variance`), because that sum
+- **D-01: Each alliance's OWN predicted-score variance is published separately.** Today only the red+blue **sum** is saved (`Prediction.variance`), because that sum
   is the win-probability denominator. The user's stated requirement drove this: a
   match display must show *"not just the total probability of a match win, but
   separately, the predicted scores for each alliance ± 1 SD — an alliance of three
@@ -70,8 +69,7 @@ point of grouping them here.
   breakdowns are already in the corpus — this is a carry-through, not new collection.
   — **Reversibility:** costly — published-schema field.
 
-- **D-03: The robot image URL is resolved by the pipeline and published on the team
-  artifact.** Ingest calls TBA's `/team/{key}/media/{year}`, picks the `preferred`
+- **D-03: The robot image URL is resolved by the pipeline and published on the team artifact.** Ingest calls TBA's `/team/{key}/media/{year}`, picks the `preferred`
   entry where flagged and otherwise the first photo, and publishes the URL.
 
   **Measured before deciding** (20 sampled real 2024 teams): 15/20 have a robot photo,
@@ -137,8 +135,7 @@ its mark" rule.
   positions never move. Rejected: putting this team's alliance on top, which reads
   "us vs them" instantly but swaps colour positions between rows.
 
-- **D-08: A scheduled match uses the same row — both bands and the tick drawn, no
-  actual dot.** The Actual column shows the scheduled time instead. The prediction is
+- **D-08: A scheduled match uses the same row — both bands and the tick drawn, no actual dot.** The Actual column shows the scheduled time instead. The prediction is
   the interesting part before a match, so it is drawn at full weight; dimming was
   rejected because it de-emphasises the row a user at a competition most wants, and
   the sketch findings already warn against greying marks that carry alliance identity.
@@ -158,8 +155,7 @@ its mark" rule.
   — **Reversibility:** costly — loosening a published schema is easy; re-tightening it
   later requires every already-published artifact to satisfy the stricter shape.
 
-- **D-10: Mobile uses horizontal scroll, matching the Teams table's D-04.** The plot
-  needs ~470px against a ~390px phone. **This inherits Phase 5 D-04's declared risk
+- **D-10: Mobile uses horizontal scroll, matching the Teams table's D-04.** The plot needs ~470px against a ~390px phone. **This inherits Phase 5 D-04's declared risk
   verbatim:** a horizontal scroll region nested inside a vertical list makes the two
   touch gestures compete — and here it repeats once per event section rather than once
   per page. Phase 5 called this "a known implementation risk for research to solve, not
@@ -172,8 +168,7 @@ its mark" rule.
   (`apps/web/src/lib/metricKeys.ts`); ten lines is spaghetti. Per-component
   trajectories are deferred, not rejected — see Deferred Ideas.
 
-- **D-12: X-axis is the team's own match sequence (1…n, evenly spaced), with event
-  boundaries marked** by a labelled divider or tinted band. Note for the planner:
+- **D-12: X-axis is the team's own match sequence (1…n, evenly spaced), with event boundaries marked** by a labelled divider or tinted band. Note for the planner:
   `metricHistory[].matchIndex` is the team's position in the **season-wide**
   chronological stream, not a per-team counter — plotting against it directly leaves
   large gaps and is not what this decision means.
@@ -183,8 +178,7 @@ its mark" rule.
   OPR (Total only) and EPA (components, no spread) have no band to draw. The band
   simply does not appear. Rejected: an explanatory note, and hiding the tab entirely.
 
-- **D-14 (charting): Recharts, dynamically imported so it loads only when the chart tab
-  opens.** Keeps the stack's chosen library out of the overview tab's first paint.
+- **D-14 (charting): Recharts, dynamically imported so it loads only when the chart tab opens.** Keeps the stack's chosen library out of the overview tab's first paint.
 
   **This is not a repeat of D-19's failed route split.** That split deferred only ~11 KB
   on Teams because the weight sat in the shared vendor chunk, and it cost a serialized
@@ -206,16 +200,14 @@ its mark" rule.
   shareable lives in the URL, typed via TanStack Router. The chart tab is linkable and
   back/forward move between tabs.
 
-- **D-17 (header): Total plus every component, tier-boxed.** The same numbers the Teams
-  table showed, so nothing changes meaning on click-through. **The tier tint earns its
+- **D-17 (header): Total plus every component, tier-boxed.** The same numbers the Teams table showed, so nothing changes meaning on click-through. **The tier tint earns its
   place specifically here:** the sketch findings concluded tiers are redundant on a
   sorted column (adjacent rows share a tier by construction) but valuable on component
   columns — and a single team's components genuinely span tiers. Their own worked
   example is team 3313, *Rare overall but Epic in Hub Auto*. A one-team view is where
   that signal is visible and a sorted table is where it is not.
 
-- **D-18 (constrained year dropdown — user-originated): on a team page, the global year
-  dropdown lists only the years that team actually competed.** Raised by the user while
+- **D-18 (constrained year dropdown — user-originated): on a team page, the global year dropdown lists only the years that team actually competed.** Raised by the user while
   reviewing the empty-state question. This removes the *common* route to a
   wrong-year team page entirely; what remains is a shared/bookmarked link or a
   hand-edited URL. Depends on D-05's `activeYears`.

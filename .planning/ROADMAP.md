@@ -313,14 +313,28 @@ Plans:
 **Plans**: 9 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 06-01-PLAN.md — Tracer: `/team/{number}` end to end against live data, tab shell, page states
 - [ ] 06-02-PLAN.md — Published schema for D-01…D-05 and D-09; Sigma1 returns per-alliance own variance
 - [ ] 06-03-PLAN.md — Robot-photo ingest: `team_media` corpus table, TBA media call, photo-type allowlist
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-04-PLAN.md — Publisher wiring: event-name fix, own variance, actual RP, scheduled rows, percentiles, activeYears, robot image
 - [ ] 06-05-PLAN.md — Metric-history chart tab (Recharts, measured dynamic import) + search box and Teams table integration
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 06-06-PLAN.md — The single full republish and the payload-budget re-measure
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 06-07-PLAN.md — Season header, rarity tiers, team-scoped year dropdown
 - [ ] 06-08-PLAN.md — Event sections and the predicted-vs-actual match table on one shared axis
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 06-09-PLAN.md — Static-shell first paint (re-measured) and the UI polish pass
 
 **UI hint**: yes
