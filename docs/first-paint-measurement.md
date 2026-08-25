@@ -501,3 +501,139 @@ as every prior entry's compression check has already confirmed for this stack.
 This measurement is route-scoped to the team page's Overview tab and does not re-open D-19's Teams
 route question, which remains closed at "reverted" per the fourth entry above — no route-level code
 splitting was used or re-attempted anywhere in this entry.
+
+---
+
+## Sixth measurement — the static shell, Teams route (06-09-PLAN.md Task 2)
+
+**Why this entry exists.** `static-shell-first-paint.md`'s acceptance criterion is binding: re-measure
+with the fourth entry's method verbatim (both builds, real CDP throttling, 4x CPU on every profile,
+median of three runs) and record a before/after. The fourth entry's own closing section named the real
+lever — "putting real markup — a static shell or skeleton — into `index.html`, so first paint is
+independent of JS entirely" — and 06-09-PLAN.md Task 1 built exactly that (`apps/web/index.html` now
+ships the ribbon frame, wordmark and a neutral body placeholder inside `#root`, with critical CSS
+inlined). This entry answers whether it actually moves the congested-venue number, the row the todo
+names as the one that has to move. **Two routes are measured** (this entry: Teams, the route the
+2.5 s threshold is measured against and the one the earlier entries used; the next entry: the new team
+route) per this task's own instruction.
+
+### Method
+
+Two full local builds were produced from this same worktree: **with-shell** (`apps/web/index.html` as
+committed by Task 1) and **without-shell** (`apps/web/index.html` temporarily swapped for the file's
+pre-Task-1 content via `git show HEAD~1:apps/web/index.html`, then restored to the real, committed
+shell immediately after both builds were captured — the shipped file was never left in the bare-shell
+state). Both builds (`vite build --outDir dist-with-shell` / `dist-without-shell`) were served from
+identical local static file servers on adjacent ports (4911 "with-shell", 4912 "without-shell"), with
+SPA fallback to `index.html` so TanStack Router's client-side routes resolve. Chromium was driven via
+Playwright with **real CDP throttling** — `Network.emulateNetworkConditions` +
+`Emulation.setCPUThrottlingRate` at 4x CPU on every profile, matching the fourth/fifth entries' method
+exactly — navigating to `/teams?year=2024&algorithm=sigma1`. LCP was read from a `PerformanceObserver`
+registered via `page.addInitScript` before navigation. Median of three runs per cell, three network
+profiles, matching every prior entry's own three rows.
+
+Both builds attempt the same real fetch to `https://data.sigmascout.org`; per Phase 5 D-18, R2's CORS
+policy does not allow-list `localhost`, so that fetch is blocked identically in both variants. This
+does not affect the measurement — the LCP element in every build measured so far, with or without the
+shell, is chrome that renders with no data dependency (the shell's own markup, or once mounted, the
+real Ribbon's wordmark, which per its own header comment has "no fetch of its own").
+
+### Results — Teams route
+
+| Network profile | With shell | Without shell | Shell saves |
+|---|---:|---:|---:|
+| Congested venue (1.6 Mbps / 150 ms) | **1012 ms** | 4360 ms | **3348 ms** |
+| Decent LTE (10 Mbps / 40 ms) | 280 ms | 1080 ms | 800 ms |
+| Good wifi (40 Mbps / 15 ms) | 156 ms | 596 ms | 440 ms |
+
+Nine runs per variant (three profiles × three runs), sorted per cell before taking the median:
+
+- Congested venue, with shell: 992, 1012, 1056 → median 1012. Without shell: 4356, 4360, 4360 →
+  median 4360.
+- Decent LTE, with shell: 264, 280, 292 → median 280. Without shell: 1076, 1080, 1092 → median 1080.
+- Good wifi, with shell: 140, 156, 160 → median 156. Without shell: 592, 596, 632 → median 596.
+
+**The shell is faster on every profile, and the margin is largest on exactly the profile that
+matters — congested venue, this audience's representative case.** The without-shell numbers here
+(4360 ms) land close to the fourth entry's own reverted-split "without split" baseline (4064 ms) —
+the small remaining gap is expected build-to-build noise (different chunk hashes, a different day's
+machine load), not a methodology change; both are the same "nothing paints until ~600 KB of JS
+executes" condition the fourth entry diagnosed.
+
+### Why — what actually changed
+
+Unlike the fourth entry's route split (which only moved which JS blocked paint) or the fifth entry's
+lazy import (which deferred JS weight off the eager path), this change does not reduce or defer any
+JavaScript at all — the built JS is byte-identical between the two variants (`index-*.js`: 657.73 KB /
+198.94 KB gzip in both). What changed is **what the LCP element depends on**: without the shell, the
+wordmark cannot paint until the JS bundle downloads, parses, executes and React mounts; with the
+shell, the wordmark is literal HTML text in the initial document response, so it paints as soon as the
+document itself is parsed — no script dependency at all. `dist/index.html` grew from 0.39 KB to
+5.75 KB (2.39 KB gzip) to carry the inlined shell markup and critical CSS; this is a trivial cost
+against the ~3.3 s it removes from the congested-venue critical path. (The built CSS asset also
+differs by roughly 11 KB between the two variants — observed but not fully attributed to the shell
+markup itself, most likely Tailwind's content-scanning/rule-grouping producing a slightly different
+minified ordering across the two separate builds; flagged honestly rather than asserted, and it does
+not change the mechanism above, since the CSS `<link>` is not the LCP-blocking resource in either
+variant.)
+
+### Verdict — the congested-venue threshold is now cleared
+
+**Median LCP with the shell, congested venue: 1012 ms.** The 2.5 s (2500 ms) threshold, locked since
+`05-VALIDATION.md`, is now cleared by **1488 ms (~60% under threshold)** — a wide margin, not a close
+pass. This is the row `static-shell-first-paint.md`'s acceptance criterion names as the one that has
+to move, and it moved from ~4064–4360 ms (every prior measurement of this route without a shell) to
+1012 ms. See the next entry for the team route's own numbers before this todo is closed.
+
+---
+
+## Seventh measurement — the static shell, Team route (06-09-PLAN.md Task 2)
+
+**Why this entry exists.** The sixth entry above measured the Teams route, the one the 2.5 s threshold
+has always been measured against. This entry measures the **new team route** (`/team/{number}`) —
+this phase's own page, which per D-14 also carries a chart library in a deferred chunk — using the
+identical method, so the shell's effect is confirmed on the route this phase actually shipped, not
+only on the pre-existing one.
+
+### Method
+
+Identical to the sixth entry's method in every respect (same two builds, same two local servers on
+ports 4911/4912, same real CDP throttling at 4x CPU, same `PerformanceObserver`-sourced LCP, same
+median-of-three), navigating instead to `/team/1114?year=2024&algorithm=sigma1` — the Overview tab
+(the tab that paints first, matching the fifth entry's own route target for this same page).
+
+### Results — Team route
+
+| Network profile | With shell | Without shell | Shell saves |
+|---|---:|---:|---:|
+| Congested venue (1.6 Mbps / 150 ms) | **1028 ms** | 4240 ms | **3212 ms** |
+| Decent LTE (10 Mbps / 40 ms) | 268 ms | 1012 ms | 744 ms |
+| Good wifi (40 Mbps / 15 ms) | 140 ms | 536 ms | 396 ms |
+
+Nine runs per variant, sorted per cell before taking the median:
+
+- Congested venue, with shell: 1020, 1028, 1032 → median 1028. Without shell: 4232, 4240, 4248 →
+  median 4240.
+- Decent LTE, with shell: 264, 268, 272 → median 268. Without shell: 1004, 1012, 1016 → median 1012.
+- Good wifi, with shell: 128, 140, 160 → median 140. Without shell: 528, 536, 556 → median 536.
+
+**Same result as the Teams route, within run-to-run noise** — the shell is faster on every profile,
+with the largest absolute win on congested venue. The team route's without-shell numbers (4240 ms) are
+close to but slightly under the Teams route's (4360 ms) — both routes ship the same eager JS bundle
+(the same `index-*.js`, since the chart tab's Recharts weight is deferred behind D-14's lazy import per
+the fifth entry and never part of either route's eager path), so the two routes' without-shell numbers
+being close to each other is expected, not a discrepancy to explain away.
+
+### Verdict — the team route also clears the threshold, and the todo is resolved
+
+**Median LCP with the shell, congested venue: 1028 ms** — under the 2.5 s threshold by **1472 ms
+(~59% under threshold)**. Both routes measured for this todo (Teams: 1012 ms, Team: 1028 ms) clear
+the threshold by a wide margin, using the exact real-network A/B method the fourth entry established
+specifically to answer this class of question without trusting a simulator alone.
+
+**`static-shell-first-paint.md` is resolved.** Its own acceptance criterion — "re-measure with the
+same method as the fourth entry... and record a before/after; the congested-venue profile is the one
+that has to move" — is met: congested-venue LCP moved from ~4064–4360 ms (every prior route-agnostic
+measurement without a shell) to 1012–1028 ms with the shell, clearing the 2500 ms threshold on both
+routes measured. No route-level code splitting was used or re-attempted anywhere in this entry, per
+the todo's own explicit prohibition.
