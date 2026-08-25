@@ -8,7 +8,7 @@ import { teamQueryOptions } from "../lib/api/team.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { ErrorState } from "../components/StateViews.js";
-import { EventSectionSkeleton, TeamHeaderSkeleton } from "../components/Skeletons.js";
+import { EventSectionSkeleton, SeasonHeaderSkeleton } from "../components/Skeletons.js";
 import { MetricHistoryTab } from "../components/team/MetricHistoryTab.js";
 import { OverviewTab } from "../components/team/OverviewTab.js";
 import { SeasonHeader } from "../components/team/SeasonHeader.js";
@@ -104,7 +104,7 @@ function TeamPage() {
     if (isPending || data === undefined) {
       return (
         <div className="flex flex-col gap-[var(--spacing-xl)]">
-          <TeamHeaderSkeleton />
+          <SeasonHeaderSkeleton />
           {Array.from({ length: PENDING_EVENT_SECTION_SKELETON_COUNT }, (_, index) => (
             <EventSectionSkeleton key={index} />
           ))}
