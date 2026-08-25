@@ -10,6 +10,10 @@
  *     matches. Always bypasses the ETag cache, the same way --force does,
  *     because a 304 carries no body and a body is exactly what's needed to
  *     fill the new name/week/country/stateProv/districtKey columns.)
+ *   pnpm ingest:media --years 2022-2026   (TEAM-02, plan 06-03: resolves each
+ *     team's robot photo via /team/{key}/media/{year} and stores the result
+ *     in team_media. Uses the corpus's existing ETag cache, so a repeat run
+ *     costs the same request count but less bandwidth.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -25,17 +29,21 @@ import {
   openCorpus,
   readEtag,
   recordIngestRun,
+  selectTeamKeysForYear,
   upsertEvent,
   upsertMatch,
   upsertTeam,
+  upsertTeamMedia,
   writeEtag,
   type Corpus,
 } from "../corpus/db.js";
+import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
 import {
   tbaEventListSchema,
   tbaEventSchema,
   tbaMatchListSchema,
+  tbaMediaListSchema,
   tbaStatusSchema,
   tbaTeamListSchema,
 } from "./schemas.js";
@@ -45,6 +53,7 @@ import {
   fetchEventMatches,
   fetchEventsList,
   fetchStatus,
+  fetchTeamMedia,
   TbaRequestCounter,
   type TbaClientContext,
 } from "./tbaClient.js";
@@ -66,6 +75,8 @@ interface CliOptions {
   force: boolean;
   /** EVNT-01 (plan 05-02): refresh only /events/{year} for the requested season range. */
   eventsOnly: boolean;
+  /** TEAM-02 (plan 06-03): resolve/refresh only team_media for the requested season range. */
+  mediaOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -89,21 +100,37 @@ function parseCliOptions(): CliOptions {
       event: { type: "string" },
       force: { type: "boolean", default: false },
       "events-only": { type: "boolean", default: false },
+      "media-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
+  const mediaOnly = values["media-only"] ?? false;
 
   if (values.event) {
-    return { seasonStart: 0, seasonEnd: 0, eventKey: values.event, force: values.force ?? false, eventsOnly };
+    return {
+      seasonStart: 0,
+      seasonEnd: 0,
+      eventKey: values.event,
+      force: values.force ?? false,
+      eventsOnly,
+      mediaOnly,
+    };
   }
   if (values.years) {
     const [seasonStart, seasonEnd] = parseYearsRange(values.years);
-    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly };
+    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly, mediaOnly };
   }
   if (values.year) {
     const year = Number(values.year);
     if (!Number.isInteger(year)) throw new Error(`--year must be an integer, got "${values.year}"`);
-    return { seasonStart: year, seasonEnd: year, eventKey: undefined, force: values.force ?? false, eventsOnly };
+    return {
+      seasonStart: year,
+      seasonEnd: year,
+      eventKey: undefined,
+      force: values.force ?? false,
+      eventsOnly,
+      mediaOnly,
+    };
   }
   throw new Error("One of --years, --year, or --event is required");
 }
@@ -203,6 +230,49 @@ async function ingestSeasonEventsOnly(db: Corpus, ctx: TbaClientContext, year: n
   console.log(`Season ${year}: ${rawEvents.length} events (events-only refresh)`);
 }
 
+/**
+ * TEAM-02 (plan 06-03): resolves each team's robot photo for one season via
+ * TBA's `/team/{key}/media/{year}`, offline, and stores the result — a URL
+ * or an honest null — in `team_media`. Scope matches
+ * `selectTeamKeysForYear`'s own `excludeOffseason` default so the media
+ * pass and the publish pass agree on which teams count. Uses the corpus's
+ * existing generic `http_cache` ETag table (`readEtag`/`writeEtag`) — no
+ * new caching mechanism.
+ */
+async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const teamKeys = selectTeamKeysForYear(db, year, { excludeOffseason: true });
+  let freshCount = 0;
+  let cacheHitCount = 0;
+  let resolvedCount = 0;
+
+  for (const teamKey of teamKeys) {
+    const mediaUrl = `/team/${teamKey}/media/${year}`;
+    const result = await fetchTeamMedia(ctx, teamKey, year, cachedEtagFor(db, mediaUrl, force));
+    if (result.status === 304) {
+      cacheHitCount++;
+      continue;
+    }
+
+    freshCount++;
+    const rawMedia = tbaMediaListSchema.parse(result.body);
+    const picked = pickRobotPhotoUrl(rawMedia);
+    if (picked) resolvedCount++;
+    upsertTeamMedia(db, {
+      teamKey,
+      year,
+      imageUrl: picked?.imageUrl ?? null,
+      mediaType: picked?.mediaType ?? null,
+      fetchedAt: new Date().toISOString(),
+    });
+    if (result.etag) writeEtag(db, mediaUrl, result.etag);
+  }
+
+  console.log(
+    `Season ${year}: ${teamKeys.length} teams, ${freshCount} fresh / ${cacheHitCount} cache hits, ` +
+      `${resolvedCount} resolved photos (${teamKeys.length > 0 ? ((resolvedCount / teamKeys.length) * 100).toFixed(1) : "0.0"}%)`
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -262,6 +332,20 @@ async function main(): Promise<void> {
     } else if (options.eventsOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonEventsOnly(db, ctx, year);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.mediaOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonMediaOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,
