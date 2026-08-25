@@ -122,9 +122,10 @@ function gridlines() {
  * alignment with the band (red sat 4.5px high, blue 1.5px low). Deriving it means the
  * two cannot disagree again.
  *
- * The losing alliance's dot goes grey: on a page whose whole job is "was the call
- * right", the winner is the fact worth seeing, and two equally saturated dots make
- * the reader work out the answer that the Call column already knows.
+ * The DOT always carries alliance colour — on the plot its job is identity ("which
+ * alliance is this"), and greying half of them breaks that. The winner/loser
+ * distinction lives in the Actual column instead, where the numbers are the outcome
+ * rather than the alliance.
  */
 /* Within-match geometry. The two alliances of ONE match must read as a pair before
  * anything else, so their vertical separation is deliberately much smaller than the
@@ -142,20 +143,18 @@ var DOT_H = 12;   /* 6px box + 3px border each side — 12 apart means edge-to-e
 var TICK_H = 14;
 var Y_RED = 12, Y_BLUE = 24;
 var PLOT_H = 44;
-var GREY = '#94A3B8';
 
-function alliance(mean, sd, actual, color, soft, yBand, won) {
+function alliance(mean, sd, actual, color, soft, yBand) {
   var lo = x(mean - sd), hi = x(mean + sd);
   var centre = yBand + BAND_H / 2;
   var dotTop = centre - DOT_H / 2;
   var tickTop = centre - TICK_H / 2;
-  var dotColor = won ? color : GREY;
   return '<div style="position:absolute;left:' + lo.toFixed(1) + 'px;width:' + Math.max(5, hi - lo).toFixed(1) +
            'px;top:' + yBand + 'px;height:' + BAND_H + 'px;border-radius:' + (BAND_H / 2) + 'px;background:' + soft + ';"></div>' +
          '<div style="position:absolute;left:' + (x(mean) - 1).toFixed(1) + 'px;top:' + tickTop.toFixed(1) +
            'px;width:2px;height:' + TICK_H + 'px;background:' + color + ';border-radius:1px;"></div>' +
          '<div style="position:absolute;left:' + (x(actual) - DOT_H / 2).toFixed(1) + 'px;top:' + dotTop.toFixed(1) +
-           'px;width:' + DOT_H + 'px;height:' + DOT_H + 'px;border-radius:50%;background:#fff;border:3px solid ' + dotColor + ';"></div>';
+           'px;width:' + DOT_H + 'px;height:' + DOT_H + 'px;border-radius:50%;background:#fff;border:3px solid ' + color + ';"></div>';
 }
 
 document.getElementById('warn-c').innerHTML =
@@ -185,11 +184,11 @@ document.getElementById('table-c').innerHTML =
                             '<span class="blue-ink">' + m.blue.join(' · ') + '</span></td>' +
         '<td class="plot"><div style="position:relative;height:' + PLOT_H + 'px;width:' + PLOT_W + 'px;">' +
           gridlines() +
-          alliance(m.pr, m.sr, m.ar, RED, RED_SOFT, Y_RED, m.aw === 'red') +
-          alliance(m.pb, m.sb, m.ab, BLUE, BLUE_SOFT, Y_BLUE, m.aw === 'blue') +
+          alliance(m.pr, m.sr, m.ar, RED, RED_SOFT, Y_RED) +
+          alliance(m.pb, m.sb, m.ab, BLUE, BLUE_SOFT, Y_BLUE) +
         '</div></td>' +
-        /* Winner in alliance colour, loser greyed — same rule as the dots, so the
-           column and the plot tell the same story rather than two. */
+        /* Winner in alliance colour, loser greyed. Column only — the dots stay in
+           alliance colour because on the plot their job is identity, not outcome. */
         '<td class="actualcol">' +
           '<span class="' + (m.aw === 'red' ? 'red-ink' : 'loser-ink') + '">' + m.ar + '</span>' +
           '<span class="muted">–</span>' +
@@ -203,8 +202,7 @@ document.getElementById('table-c').innerHTML =
     '<div class="legend" style="border:1px solid var(--color-border);border-top:0;border-radius:0 0 10px 10px;margin-top:-1px">' +
       '<span><span class="sw" style="width:26px;height:9px;border-radius:5px;background:' + RED_SOFT + '"></span>&plusmn;1&sigma; predicted</span>' +
       '<span><span class="sw" style="width:2px;height:14px;background:' + RED + '"></span> predicted</span>' +
-      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></span> actual &mdash; winner</span>' +
-      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + GREY + '"></span> actual &mdash; loser</span>' +
+      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></span> actual (alliance colour)</span>' +
       '<span style="flex:1"></span><span>one scale for the whole event</span>' +
     '</div>';
 

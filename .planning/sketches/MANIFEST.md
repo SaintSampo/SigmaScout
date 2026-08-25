@@ -68,8 +68,10 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 - **Grouping is proximity, not labelling.** Two marks belonging to the same row must be markedly closer
   to each other than to the neighbouring row — 003 needed ~4x (12px within vs 47px between) before the
   pairing read correctly.
-- **Grey the loser.** On any predicted-vs-actual view, colouring only the winner lets the reader answer
-  "who won" from the numbers alone.
+- **Grey the loser's NUMBER, never its mark.** On a predicted-vs-actual view, greying the losing score
+  in the results column lets the reader answer "who won" from the numbers alone. Do NOT extend it to the
+  plotted marks: there, colour carries alliance *identity*, and greying half the dots breaks that
+  encoding to restate what the Call column already says. Same device, different jobs.
 
 **Colour (computed, not eyeballed)**
 

@@ -92,11 +92,12 @@ miss reads as **distance** rather than as a word.
    separately from its band, and the two had drifted — red sat 4.5px high, blue 1.5px low. Fixed by
    *deriving* every y from the band position and shared geometry constants, so they cannot disagree
    again. Verified programmatically: 0 misaligned across all rows.
-2. **The losing alliance is now grey** — both the dot and its number in the Actual column, so the plot
-   and the text tell the same story. On a page whose job is "was the call right", the winner is the
-   fact worth seeing; two equally saturated dots made the reader derive an answer the page already
-   knows. Side effect worth having: the Actual column alone now answers "who won" without the Call
-   column.
+2. **The loser's NUMBER is grey — the dots are not.** First attempt greyed both; the user corrected it,
+   and the correction is right. The two marks have different jobs: on the plot a dot carries *identity*
+   ("which alliance is this"), so greying half of them breaks the encoding while duplicating what the
+   Call column already says. In the Actual column the numbers are the *outcome*, so greying the loser
+   there is doing real work — the column alone now answers "who won". Same visual device, different
+   jobs; apply it where it matches the job.
 3. **The two alliances of one match now group.** They were 12px apart in a 44px row against a similar
    between-match gap, so a dot landing far from its partner horizontally read as belonging to whichever
    row it was nearest. Tightened to **12px within a match against 47.3px between** (a 3.94× ratio), dot
