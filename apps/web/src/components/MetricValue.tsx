@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import type { Tier } from "@/lib/tiers";
 
 /**
  * The published `TeamMetric` shape (`packages/harness/pageArtifacts.ts`'s
@@ -24,17 +25,25 @@ export interface DisplayMetric {
  * pipeline already rounded once, and re-rounding or rescaling the value
  * here would make the site's number disagree with the harness's, which is
  * the exact class of drift this project's failure log names.
+ *
+ * `tier` (D-17, 06-07-PLAN.md Task 1) is an optional presentation-only prop:
+ * `undefined` or `"common"` render EXACTLY as before this prop existed — no
+ * `.metric-tier` wrapper, no digit change. Any other tier wraps the same
+ * value/spread output in the `.metric-tier`/`.metric-tier--{tier}` box
+ * (`theme.css`) via `cn()`, changing only background/foreground/padding —
+ * never the type scale, never a re-round of either number.
  */
-export function MetricValue({ metric, className }: { metric?: DisplayMetric; className?: string }) {
+export function MetricValue({ metric, tier, className }: { metric?: DisplayMetric; tier?: Tier; className?: string }) {
   if (metric === undefined) {
     return <span className={cn("numeric-cell whitespace-nowrap", className)}>{"—"}</span>;
   }
 
   const valueText = metric.value.toFixed(2);
   const hasSpread = metric.spread !== undefined;
+  const boxed = tier !== undefined && tier !== "common";
 
   return (
-    <span className={cn("numeric-cell whitespace-nowrap", className)}>
+    <span className={cn("numeric-cell whitespace-nowrap", boxed && "metric-tier", boxed && `metric-tier--${tier}`, className)}>
       <span className="text-role-body">{valueText}</span>
       {hasSpread && (
         <span className="text-role-spread-suffix text-muted-foreground">{` ± ${metric.spread?.toFixed(2)}`}</span>

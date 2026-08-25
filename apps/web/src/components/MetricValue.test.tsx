@@ -63,4 +63,40 @@ describe("MetricValue", () => {
     expect(suffix).not.toBeUndefined();
     expect(suffix?.className).toMatch(/text-muted/);
   });
+
+  // D-17 (06-07-PLAN.md Task 1): the tier prop is presentation-only — it may
+  // never change a digit, only wrap the SAME output in `.metric-tier`.
+  describe("tier prop (D-17)", () => {
+    it("wraps the value in the epic modifier class when tier='epic'", () => {
+      const { container } = render(<MetricValue metric={{ value: 76.23, spread: 2.85 }} tier="epic" />);
+
+      const outer = container.firstElementChild;
+      expect(outer?.className).toMatch(/metric-tier\b/);
+      expect(outer?.className).toMatch(/metric-tier--epic/);
+    });
+
+    it("renders no metric-tier class at all when tier='common' — identical to no tier prop", () => {
+      const { container } = render(<MetricValue metric={{ value: 76.23, spread: 2.85 }} tier="common" />);
+
+      const outer = container.firstElementChild;
+      expect(outer?.className).not.toMatch(/metric-tier/);
+    });
+
+    it("renders byte-identical numeric text whether tiered or untiered", () => {
+      const untiered = render(<MetricValue metric={{ value: 88.2, spread: 3.1 }} />);
+      const tiered = render(<MetricValue metric={{ value: 88.2, spread: 3.1 }} tier="legendary" />);
+
+      expect(tiered.container.textContent).toBe(untiered.container.textContent);
+      expect(tiered.container.textContent).toBe("88.20 ± 3.10");
+    });
+
+    it("renders no metric-tier class when tier is undefined (the default, unchanged behaviour)", () => {
+      const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
+
+      const outer = container.firstElementChild;
+      expect(outer?.className).not.toMatch(/metric-tier/);
+      expect(container.textContent).toBe("88.20");
+      expect(container.textContent?.includes("±")).toBe(false);
+    });
+  });
 });

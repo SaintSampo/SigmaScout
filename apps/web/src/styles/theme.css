@@ -76,6 +76,33 @@
   --loser-ink: #94A3B8;
 
   /*
+   * Rarity-tier tokens (D-04/D-17, Phase 6 plan 06-07) — the
+   * sketch-findings-sigmascout skill's `colour-and-tiers.md` decided
+   * palette for `MetricValue.tsx`'s boxed metric cells (`tiers.ts`'s
+   * `tierForPercentile`). Common (0-50th percentile) deliberately has NO
+   * matching token pair here — it renders as a plain, untreated cell so
+   * colour appears only where it carries information and roughly half the
+   * field stays quiet.
+   *
+   * THE RARE PAIR'S IDENTITY HUE IS SKY (`#0EA5E9` for legends/chips; the
+   * tinted `--tier-rare-bg` below is its light-fill counterpart) — this is
+   * LOAD-BEARING, not a style choice. Against the epic purple pair, an
+   * ordinary/classic card-game blue measures ΔE 1.3 under deuteranopia,
+   * making Rare and Epic — 45% of the field combined — the same colour to
+   * roughly 6% of male users. This was tested and rejected once already
+   * (`colour-and-tiers.md`'s "THE BLUE MUST STAY SKY" section) — do not
+   * "fix" it back toward a more conventional blue. Any future change to
+   * either value must be re-validated with the dataviz skill's palette
+   * validator before shipping.
+   */
+  --tier-rare-bg: #E0F2FE;
+  --tier-rare-fg: #0369A1;
+  --tier-epic-bg: #F3E8FF;
+  --tier-epic-fg: #7E22CE;
+  --tier-legendary-bg: #FEF3C7;
+  --tier-legendary-fg: #B45309;
+
+  /*
    * shadcn semantic aliases — every one of these is a `var(--color-*)`
    * reference back to a contract token above, never an independent value.
    * Names match what the eight generated `src/components/ui/*` primitives
@@ -235,3 +262,35 @@ body {
   font-weight: 600;
   line-height: 1.3;
 }
+
+/*
+ * D-17's rarity-tier box (06-07-PLAN.md Task 1) — the `.metric-tier` shape
+ * and its three colour modifiers, applied by `MetricValue.tsx`'s `tier`
+ * prop and `TierKeyRow.tsx`'s key row via `cn()`. Geometry (padding,
+ * radius, min-width — the min-width keeps a column of boxes aligned
+ * despite varying digit counts) is shared by every tier; colour comes only
+ * from the modifier class, never a component-level literal (D-06's token
+ * discipline). Pattern copied verbatim from `colour-and-tiers.md`'s "CSS
+ * Patterns" section.
+ */
+.metric-tier {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  min-width: 80px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.metric-tier--rare {
+  background: var(--tier-rare-bg);
+  color: var(--tier-rare-fg);
+}
+.metric-tier--epic {
+  background: var(--tier-epic-bg);
+  color: var(--tier-epic-fg);
+}
+.metric-tier--legendary {
+  background: var(--tier-legendary-bg);
+  color: var(--tier-legendary-fg);
+}
+/* .metric-tier--common intentionally has no rule — plain, untreated cell. */
