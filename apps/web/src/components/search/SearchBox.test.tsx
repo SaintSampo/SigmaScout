@@ -38,7 +38,10 @@ function manifestResponse(): Response {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+      algorithms: [
+        { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+        { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
+      ],
     }),
     { status: 200 },
   );
@@ -219,7 +222,28 @@ describe("SearchBox", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({ to: "/teams" }));
+    expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({ to: "/team/$teamNumber", params: { teamNumber: "1114" } }));
+  });
+
+  it("a team-hit selection navigates to the real team route, carrying the selected team's number, current year and algorithm (D-15/D-16)", async () => {
+    mockSearch = { year: 2023, algorithm: "epa" };
+    global.fetch = baseFetchMock({
+      teams: [team({ teamNumber: 1114, nickname: "Simbotics" })],
+      eventsFetch: () => Promise.resolve(new Response(JSON.stringify(makeEventsArtifact([])), { status: 200 })),
+    });
+    render(<SearchBox />, { wrapper });
+
+    const input = await screen.findByPlaceholderText(PLACEHOLDER);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "1114" } });
+    const teamOption = await screen.findByRole("option", { name: /1114/ });
+    fireEvent.click(teamOption);
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0]?.[0] as { to: string; params: { teamNumber: string }; search: (prev: Record<string, unknown>) => Record<string, unknown> };
+    expect(call.to).toBe("/team/$teamNumber");
+    expect(call.params).toEqual({ teamNumber: "1114" });
+    expect(call.search({ tab: "history" })).toEqual({ tab: "history", year: 2023, algorithm: "epa" });
   });
 
   it("nine matching team rows render exactly eight results (SEARCH_RESULT_CAP)", async () => {

@@ -14,9 +14,11 @@
  * disappears.
  */
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
+import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /** The three leading, frozen columns — the ONE list both the table and any test agree on (this plan's own `key_links`). */
 export const PINNED_COLUMN_IDS = ["rank", "teamNumber", "nickname"] as const;
@@ -63,20 +65,48 @@ function formatRecord(record: TeamRow["record"]): string {
  * record, then win rate. Truncation for long text (the nickname cell) is
  * done by the layout (a CSS class in `TeamsTable.tsx`), never by slicing the
  * string here — a multi-byte character can never be cut mid-codepoint.
+ *
+ * The team-number and nickname cells link to `/team/{teamNumber}` (06-05,
+ * D-15/D-16), carrying the CURRENTLY-SELECTED `algorithmId`/`season` this
+ * function is already called with — threaded straight through rather than a
+ * second cross-route search read, per 06-05-PLAN.md's own instruction to
+ * prefer threading since both values are already parameters here. `tab` is
+ * fixed to `"overview"`: D-16's own default, and there is no "previous team
+ * search" to preserve a tab choice from when arriving from a different route.
  */
 export function buildColumns(algorithmId: string, season: number) {
   const metricKeys = metricKeysFor(algorithmId, season);
+  // `algorithmId` reaching this function was already validated upstream
+  // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
+  // rendered — the same loose-cast escape hatch `SearchBox.tsx`/`YearSelect.tsx`
+  // already use for a value the type system widened to plain `string`
+  // crossing a component-prop boundary, not a new, unvalidated assumption.
+  const algorithm = algorithmId as PublishedAlgorithmId;
 
   return columnHelper.columns([
     columnHelper.accessor("rank", { header: "Rank", size: 56 }),
-    columnHelper.accessor("teamNumber", { header: "Team #", size: 88 }),
+    columnHelper.accessor("teamNumber", {
+      header: "Team #",
+      size: 88,
+      cell: (info) => (
+        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
+          {info.getValue()}
+        </Link>
+      ),
+    }),
     columnHelper.accessor("nickname", {
       header: "Nickname",
       size: 220,
       cell: (info) => (
-        <span title={info.getValue()} className="block max-w-full">
+        <Link
+          to="/team/$teamNumber"
+          params={{ teamNumber: String(info.row.original.teamNumber) }}
+          search={{ year: season, algorithm, tab: "overview" }}
+          title={info.getValue()}
+          className="block max-w-full"
+        >
           {info.getValue()}
-        </span>
+        </Link>
       ),
     }),
     ...metricKeys.map((key) =>

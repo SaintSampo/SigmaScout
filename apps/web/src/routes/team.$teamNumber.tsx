@@ -9,6 +9,7 @@ import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { ErrorState } from "../components/StateViews.js";
 import { EventSectionSkeleton, TeamHeaderSkeleton } from "../components/Skeletons.js";
+import { MetricHistoryTab } from "../components/team/MetricHistoryTab.js";
 import { OverviewTab } from "../components/team/OverviewTab.js";
 import { SeasonHeader } from "../components/team/SeasonHeader.js";
 import { NoEventDataState, YearMismatchEmptyState } from "../components/team/TeamStates.js";
@@ -151,9 +152,17 @@ function TeamPage() {
           {renderOverviewContent()}
         </TabsContent>
         <TabsContent value="history" className="mt-[var(--spacing-lg)]">
-          {/* plan 06-05 replaces this body with the real Recharts chart. */}
-          <div data-testid="metric-history-panel" className="text-role-body text-[var(--color-text-muted)]">
-            Metric history coming soon.
+          {/* Testid kept on this always-present wrapper (06-01-PLAN.md
+              Task 2's own test asserts it renders even before the artifact
+              resolves) — `MetricHistoryTab` mounts inside it only once a
+              real artifact is available; the pending/error/empty states
+              above already cover the Overview panel's equivalents, and the
+              chart's own dynamic-import loading/error states (D-14) are
+              MetricHistoryTab's job, not this wrapper's. */}
+          <div data-testid="metric-history-panel">
+            {data !== undefined && !is404 && !error ? (
+              <MetricHistoryTab artifact={data} algorithmId={algorithm} season={year} />
+            ) : null}
           </div>
         </TabsContent>
       </Tabs>
