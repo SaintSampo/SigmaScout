@@ -4,6 +4,7 @@
  * filter, and the single-writer lock. Each test opens a fresh temp SQLite
  * file so tests never share state.
  */
+import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,9 +17,12 @@ import {
   recordIngestRun,
   selectMatchesChronological,
   selectScheduledMatches,
+  selectTeamKeysForYear,
+  selectTeamMediaForYear,
   upsertEvent,
   upsertMatch,
   upsertTeam,
+  upsertTeamMedia,
   type Corpus,
 } from "./db.js";
 
@@ -580,5 +584,185 @@ describe("selectScheduledMatches (D-08, plan 04-02 Task 3)", () => {
 
   it("an event key that does not exist returns []", () => {
     expect(selectScheduledMatches(db, { eventKey: "2026nonexistent" })).toEqual([]);
+  });
+});
+
+describe("team_media — corpus table and accessors (plan 06-03 Task 1)", () => {
+  it("an existing corpus file created before this change gains the table on open, with 0 rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-team-media-migration-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    try {
+      // Simulate a corpus built from the schema text as it existed before
+      // this plan (no team_media table) — the additive CREATE TABLE IF NOT
+      // EXISTS in schema.sql must not require this corpus to be rebuilt.
+      const priorSchema = `
+        CREATE TABLE IF NOT EXISTS teams (
+          team_key TEXT PRIMARY KEY,
+          team_number INTEGER NOT NULL,
+          nickname TEXT
+        );
+        CREATE TABLE IF NOT EXISTS events (
+          event_key TEXT PRIMARY KEY,
+          year INTEGER NOT NULL,
+          event_type INTEGER NOT NULL,
+          is_offseason INTEGER NOT NULL,
+          start_date TEXT NOT NULL,
+          name TEXT, week INTEGER, country TEXT, state_prov TEXT, district_key TEXT
+        );
+        CREATE TABLE IF NOT EXISTS matches (
+          match_key TEXT PRIMARY KEY,
+          event_key TEXT NOT NULL REFERENCES events(event_key),
+          comp_level TEXT NOT NULL, match_number INTEGER NOT NULL, set_number INTEGER NOT NULL,
+          sort_time INTEGER NOT NULL, red_teams TEXT NOT NULL, blue_teams TEXT NOT NULL,
+          red_surrogates TEXT NOT NULL, blue_surrogates TEXT NOT NULL,
+          red_dqs TEXT NOT NULL, blue_dqs TEXT NOT NULL,
+          winner TEXT, winner_imputed INTEGER NOT NULL DEFAULT 0,
+          red_score INTEGER, blue_score INTEGER, red_rp_earned INTEGER, blue_rp_earned INTEGER,
+          has_score_breakdown INTEGER NOT NULL, score_breakdown_raw TEXT,
+          replayed INTEGER NOT NULL DEFAULT 0, replay_detected_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS http_cache (
+          url TEXT PRIMARY KEY, etag TEXT NOT NULL, fetched_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ingest_runs (
+          run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT,
+          season_start INTEGER NOT NULL, season_end INTEGER NOT NULL,
+          request_count INTEGER NOT NULL DEFAULT 0, cache_hit_count INTEGER NOT NULL DEFAULT 0,
+          completed INTEGER NOT NULL DEFAULT 0
+        );
+      `;
+      expect(priorSchema).not.toContain("team_media");
+      const rawDb = new Database(freshPath);
+      rawDb.pragma("foreign_keys = ON");
+      rawDb.exec(priorSchema);
+      rawDb.close();
+
+      const reopened = openCorpus(freshPath);
+      const row = reopened.prepare("SELECT count(*) as n FROM team_media").get() as { n: number };
+      expect(row.n).toBe(0);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("insert-then-read round trip", () => {
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs" });
+    upsertTeamMedia(db, {
+      teamKey: "frc254",
+      year: 2024,
+      imageUrl: "https://i.imgur.com/1kDEW6V.jpeg",
+      mediaType: "imgur",
+      fetchedAt: "2026-08-25T00:00:00Z",
+    });
+
+    const media = selectTeamMediaForYear(db, 2024);
+    expect(media.get("frc254")).toEqual({ imageUrl: "https://i.imgur.com/1kDEW6V.jpeg", mediaType: "imgur" });
+  });
+
+  it("upsert overwrite — a second call for the same (team_key, year) leaves exactly one row with the second call's value", () => {
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs" });
+    upsertTeamMedia(db, {
+      teamKey: "frc254",
+      year: 2024,
+      imageUrl: "https://i.imgur.com/first.jpeg",
+      mediaType: "imgur",
+      fetchedAt: "2026-08-25T00:00:00Z",
+    });
+    upsertTeamMedia(db, {
+      teamKey: "frc254",
+      year: 2024,
+      imageUrl: "https://i.imgur.com/second.jpeg",
+      mediaType: "imgur",
+      fetchedAt: "2026-08-25T01:00:00Z",
+    });
+
+    const count = db.prepare("SELECT COUNT(*) as n FROM team_media").get() as { n: number };
+    expect(count.n).toBe(1);
+    const media = selectTeamMediaForYear(db, 2024);
+    expect(media.get("frc254")?.imageUrl).toBe("https://i.imgur.com/second.jpeg");
+  });
+
+  it("a null imageUrl round-trips as null, not an empty string — a photoless team is present with imageUrl: null", () => {
+    upsertTeam(db, { teamKey: "frc1", teamNumber: 1, nickname: null });
+    upsertTeamMedia(db, {
+      teamKey: "frc1",
+      year: 2024,
+      imageUrl: null,
+      mediaType: null,
+      fetchedAt: "2026-08-25T00:00:00Z",
+    });
+
+    const media = selectTeamMediaForYear(db, 2024);
+    expect(media.has("frc1")).toBe(true);
+    expect(media.get("frc1")?.imageUrl).toBeNull();
+  });
+
+  it("selectTeamKeysForYear returns the union of both alliances across two events, sorted, no duplicates", () => {
+    upsertEvent(db, event({ eventKey: "2024aaaa" }));
+    upsertEvent(db, event({ eventKey: "2024bbbb" }));
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2024aaaa_qm1",
+        eventKey: "2024aaaa",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2024bbbb_qm1",
+        eventKey: "2024bbbb",
+        redTeams: ["frc1", "frc7", "frc8"], // frc1 shared with the first event
+        blueTeams: ["frc9", "frc10", "frc11"],
+      })
+    );
+
+    const keys = selectTeamKeysForYear(db, 2024);
+    expect(keys).toEqual([
+      "frc1",
+      "frc10",
+      "frc11",
+      "frc2",
+      "frc3",
+      "frc4",
+      "frc5",
+      "frc6",
+      "frc7",
+      "frc8",
+      "frc9",
+    ]);
+  });
+
+  it("selectTeamKeysForYear excludes offseason events when excludeOffseason is set", () => {
+    upsertEvent(db, event({ eventKey: "2024normal", eventType: 0, isOffseason: false }));
+    upsertEvent(db, event({ eventKey: "2024off", eventType: 99, isOffseason: true }));
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2024normal_qm1",
+        eventKey: "2024normal",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+    upsertMatch(
+      db,
+      match({
+        matchKey: "2024off_qm1",
+        eventKey: "2024off",
+        redTeams: ["frc20", "frc21", "frc22"],
+        blueTeams: ["frc23", "frc24", "frc25"],
+      })
+    );
+
+    const withOffseason = selectTeamKeysForYear(db, 2024);
+    expect(withOffseason).toContain("frc20");
+
+    const withoutOffseason = selectTeamKeysForYear(db, 2024, { excludeOffseason: true });
+    expect(withoutOffseason).not.toContain("frc20");
+    expect(withoutOffseason).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
   });
 });

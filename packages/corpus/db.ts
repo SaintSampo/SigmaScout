@@ -672,3 +672,106 @@ export function findIncompleteIngestRuns(db: Corpus): IngestRunRecord[] {
     completed: row.completed === 1,
   }));
 }
+
+export interface CorpusTeamMedia {
+  teamKey: string;
+  year: number;
+  /** NULL is a real, stored answer: "checked, none found" (D-03, TEAM-02). */
+  imageUrl: string | null;
+  mediaType: string | null;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts a team's resolved robot-photo answer for a year (TEAM-02, plan
+ * 06-03). Overwrites every non-key column on conflict, so a re-run with a
+ * newly-uploaded photo replaces the prior answer. `imageUrl: null` is
+ * written as SQL NULL, never skipped — recording "checked, none found" is
+ * what stops every subsequent run from treating a photoless team as
+ * unchecked.
+ */
+export function upsertTeamMedia(db: Corpus, media: CorpusTeamMedia): void {
+  db.prepare(
+    `INSERT INTO team_media (team_key, year, image_url, media_type, fetched_at)
+     VALUES (@teamKey, @year, @imageUrl, @mediaType, @fetchedAt)
+     ON CONFLICT(team_key, year) DO UPDATE SET
+       image_url = excluded.image_url,
+       media_type = excluded.media_type,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    teamKey: media.teamKey,
+    year: media.year,
+    imageUrl: media.imageUrl,
+    mediaType: media.mediaType,
+    fetchedAt: media.fetchedAt,
+  });
+}
+
+interface TeamMediaRow {
+  team_key: string;
+  image_url: string | null;
+  media_type: string | null;
+}
+
+/**
+ * Every stored team-media answer for a season, keyed by team key (TEAM-02,
+ * plan 06-03). This is the shape plan 06-04's publisher pass consumes. A
+ * photoless team's entry is present with `imageUrl: null`, not absent.
+ */
+export function selectTeamMediaForYear(
+  db: Corpus,
+  year: number
+): Map<string, { imageUrl: string | null; mediaType: string | null }> {
+  const rows = db
+    .prepare(`SELECT team_key, image_url, media_type FROM team_media WHERE year = ?`)
+    .all(year) as TeamMediaRow[];
+  const result = new Map<string, { imageUrl: string | null; mediaType: string | null }>();
+  for (const row of rows) {
+    result.set(row.team_key, { imageUrl: row.image_url, mediaType: row.media_type });
+  }
+  return result;
+}
+
+export interface SelectTeamKeysForYearOptions {
+  /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause (plan 06-03). */
+  excludeOffseason?: boolean;
+}
+
+interface TeamKeysRow {
+  red_teams: string;
+  blue_teams: string;
+}
+
+/**
+ * The sorted, distinct set of team keys appearing on any match (played or
+ * scheduled) in a season (plan 06-03) — the media pass's scope, so it
+ * agrees with the publish pass's own scope on which teams count.
+ */
+export function selectTeamKeysForYear(
+  db: Corpus,
+  year: number,
+  options: SelectTeamKeysForYearOptions = {}
+): string[] {
+  const clauses: string[] = ["e.year = @year"];
+  const params: Record<string, string | number> = { year };
+
+  if (options.excludeOffseason === true) {
+    clauses.push("e.is_offseason = 0");
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT m.red_teams, m.blue_teams
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE ${clauses.join(" AND ")}`
+    )
+    .all(params) as TeamKeysRow[];
+
+  const teamKeys = new Set<string>();
+  for (const row of rows) {
+    for (const key of JSON.parse(row.red_teams) as string[]) teamKeys.add(key);
+    for (const key of JSON.parse(row.blue_teams) as string[]) teamKeys.add(key);
+  }
+  return [...teamKeys].sort();
+}

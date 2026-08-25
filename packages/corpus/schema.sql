@@ -74,3 +74,17 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
   cache_hit_count INTEGER NOT NULL DEFAULT 0,  -- 304 responses
   completed INTEGER NOT NULL DEFAULT 0
 );
+
+-- TEAM-02 (plan 06-03): the pipeline's resolved answer to "this team's robot
+-- photo for this year" — a URL, or an honest NULL when no usable photo was
+-- found (~25% of teams). Additive CREATE TABLE IF NOT EXISTS, matching the
+-- EVNT-01 columns' precedent, not winner_imputed's rebuild guard: an
+-- existing corpus gains this table on its next openCorpus with no rebuild.
+CREATE TABLE IF NOT EXISTS team_media (
+  team_key TEXT NOT NULL REFERENCES teams(team_key),
+  year INTEGER NOT NULL,
+  image_url TEXT,        -- NULL is a real, stored answer: "checked, none found"
+  media_type TEXT,        -- which allowlisted type the URL came from (provenance)
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (team_key, year)
+);
