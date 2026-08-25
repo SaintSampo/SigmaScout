@@ -18,6 +18,11 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
   you compare; a tier gives you a name you can say out loud.
 - **Interval axes** (001-C) are wanted, and wanted *more widely* — extended to match predictions in
   sketch 003 at the user's request.
+- **DECIDED (004-B): rarity tiers, Common unboxed.** Rare `#E0F2FE`/`#0369A1`, Epic
+  `#F3E8FF`/`#7E22CE`, Legendary `#FEF3C7`/`#B45309`; 0–50 renders plain. Identity hues are sky
+  `#0EA5E9` / purple `#9333EA` / amber `#F59E0B` — **sky, never true blue**, for the CVD reason
+  below. This supersedes 002 entirely and largely answers D-05: the palette is neither Statbotics
+  blue nor the shipped indigo.
 
 **Constraints carried in from Phase 5:**
 - `05-UI-SPEC.md` locked 60/30/10: slate-50 / slate-100 / indigo-600, accent for interactive-or-active
@@ -35,7 +40,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 |---|------|----------|--------|------|
 | 001 | teams-table-polish | How much colour, carrying what meaning — and is D-05 still right? | A's shading + C's axis (partial) | teams-table, palette, ribbon, density, uncertainty |
 | 002 | palette-options | Which hue carries percentile shading? | **rejected** — superseded by 004 | palette, teams-table, sequential |
-| 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | _pending_ | palette, percentile, rarity, accessibility |
+| 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | **B — Common unboxed** | palette, percentile, rarity, accessibility |
 | 003 | alliance-axes | Shared axis or one per alliance, for match predictions? | _pending_ | match-prediction, uncertainty, phase-6, phase-7 |
 
 ## Findings so far

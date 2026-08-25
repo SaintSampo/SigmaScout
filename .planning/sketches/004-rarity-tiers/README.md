@@ -2,7 +2,7 @@
 sketch: 004
 name: rarity-tiers
 question: "Do Statbotics-style percentile boxes with card-game rarity colours work — and where do the tiers actually earn their place?"
-winner: null
+winner: B — tinted boxes, Common unboxed
 tags: [palette, teams-table, percentile, rarity, accessibility]
 ---
 
@@ -67,6 +67,31 @@ Rare while Hub Auto and Hub Endgame vary — team 3313 is Rare overall but **Epi
 120 is Epic in Hub Endgame. That is real signal ("unusually good at auto for its level") that a bare
 number does not carry, and it is exactly what a scout is looking for. So the tiers earn their place
 on the Teams page too — just on the *component* columns rather than the sorted one.
+
+## DECISION — variant B (2026-08-25)
+
+> "I love B. this is just what this app needed"
+
+**Common (0–50) renders as a plain cell; Rare / Epic / Legendary get tinted boxes.** This matches the
+Statbotics reference the idea came from, whose 25–75 band is white, and it means colour appears only
+where it carries information — roughly half the field stays quiet so the eye goes straight to Rare
+and above.
+
+Locked with this decision:
+
+| Tier | Band | Box fill | Text |
+|---|---|---|---|
+| Common | 0–50 | *(none — plain cell)* | inherit |
+| Rare | 50–75 | `#E0F2FE` | `#0369A1` |
+| Epic | 75–95 | `#F3E8FF` | `#7E22CE` |
+| Legendary | 95–100 | `#FEF3C7` | `#B45309` |
+
+Identity hues are `#0EA5E9` / `#9333EA` / `#F59E0B` — **sky, not true blue**, because true blue
+against purple is ΔE 1.3 under deuteranopia. Do not "correct" the blue back toward `#3B82F6`; that
+regression is invisible to anyone with normal colour vision and breaks the tier for ~6% of males.
+
+Still open from this sketch: questions 2–5 below (whether to box the sorted column, what the
+percentile is computed against, and where the percentile data comes from).
 
 ## Variants
 
