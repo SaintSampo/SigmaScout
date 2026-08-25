@@ -1,8 +1,8 @@
 ---
 sketch: 003
 name: alliance-axes
-question: "Does the interval-axis idea from 001-C extend to match predictions — and does each alliance want its own axis or a shared one?"
-winner: null
+question: "How should match predictions with uncertainty be laid out — and at what scale?"
+winner: C — event table on one shared scale
 tags: [match-prediction, uncertainty, phase-6, phase-7, alliance]
 ---
 
@@ -56,15 +56,46 @@ probabilities shown alongside are computed from the correct variance internally.
 it, any interval display of a match prediction is either wrong or has to be dropped. Cheap to add — the
 number already exists at compute time.
 
+## DECISION — variant C (2026-08-25)
+
+The first two drafts (per-match cards: both alliances on one axis, or one row each) were **both
+rejected**. The user sketched the replacement, and the reason it is better is specific:
+
+> "I dont like A or B. do something like this" — with a table: Match | Alliances | plot | Actual | Call,
+> a single axis drawn once in the header, and *"one scale for the whole event"*.
+
+**The drafts gave every match its own zoomed domain.** That made each row readable in isolation and
+made every row incomparable to its neighbours — QM 13 (predicted 295/116) and QM 5 (147/165) rendered
+at visually similar positions despite being ~150 points apart. A shared event-wide scale restores the
+comparison: a high-scoring match sits visibly right of a low-scoring one, and a wide band is wide
+relative to every other band on the page rather than only to itself.
+
+It is also a **table, not a stack of cards** — far denser, and consistent with how the rest of the app
+reads. Variant A is kept in the file for contrast so the reasoning stays legible.
+
+What the layout encodes:
+
+| Element | Meaning |
+|---|---|
+| Soft bar | predicted ±1σ for that alliance |
+| Solid tick | predicted score |
+| Ringed dot | actual score, in alliance colour |
+| Actual column | the same numbers as text, for anyone not reading the plot |
+| Call column | ✓ / ✗ — did the predicted winner match |
+
+The overlap between the two bands still *is* the win probability, drawn rather than asserted, and a
+miss reads as **distance** rather than as a word.
+
 ## Variants
 
-| | Direction | Trade |
+| | Direction | Status |
 |---|---|---|
-| **A** | Both alliances on one shared axis | The overlap *is* the win probability, drawn rather than asserted. Compact. Reading each alliance's own range is slightly harder |
-| **B** | One row per alliance, common scale | Easier per-alliance reading, natural place to hang team chips / component breakdown / predicted RP. Costs vertical room; the overlap must be inferred |
+| **C** | Event table, one shared scale | **Selected** |
+| **A** | Per-match cards, per-match domain | Superseded — kept for contrast |
+| ~~B~~ | One row per alliance | Rejected with A |
 
-Both keep a **single shared scale**. Two independent scales would be a dual-axis chart — equal-looking
-bands would mean different things, which is the most common charting mistake and is explicitly disallowed.
+A single shared scale is also the correct call structurally: two independent scales would be a
+dual-axis chart, where equal-looking bands mean different things — the most common charting mistake.
 
 ## Colour note (checked, not assumed)
 
@@ -75,8 +106,8 @@ numbers are still colour-coded *and* positionally grouped, so identity never res
 
 ## Open questions for the reviewer
 
-1. **A or B?** A makes the differentiator legible; B scales better as more per-alliance detail arrives in
-   Phases 6–7.
+1. **Where does the shared domain come from?** Currently min/max across the visible matches. For a live
+   event it should probably be fixed per season (so it does not shift as matches complete) — an open call.
 2. **Should the actual result appear on the same axis?** It is drawn here as a triangle under the axis.
    It makes misses obvious — arguably the most honest thing on the page, and arguably noise for upcoming
    matches where there is no actual yet.

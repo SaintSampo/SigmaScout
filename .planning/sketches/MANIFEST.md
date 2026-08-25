@@ -41,7 +41,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 001 | teams-table-polish | How much colour, carrying what meaning — and is D-05 still right? | A's shading + C's axis (partial) | teams-table, palette, ribbon, density, uncertainty |
 | 002 | palette-options | Which hue carries percentile shading? | **rejected** — superseded by 004 | palette, teams-table, sequential |
 | 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | **B — Common unboxed** | palette, percentile, rarity, accessibility |
-| 003 | alliance-axes | Shared axis or one per alliance, for match predictions? | _pending_ | match-prediction, uncertainty, phase-6, phase-7 |
+| 003 | alliance-axes | How should match predictions with uncertainty be laid out, at what scale? | **C — event table, one shared scale** | match-prediction, uncertainty, phase-6, phase-7 |
 
 ## Findings so far
 
@@ -55,6 +55,10 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 - **Interval visualisations need a zoomed axis.** Anchored at zero, spreads of 5–11 against totals of
   274–418 collapse to invisible. Trade: bar *length* then stops encoding magnitude, so the axis must be
   labelled.
+- **…but zoom PER VIEW, never per row.** 003's first two drafts gave each match its own domain, which
+  made rows readable alone and incomparable to each other — two matches ~150 points apart rendered at
+  similar positions. **DECIDED (003-C): one shared scale per event**, axis drawn once in a table header.
+  A miss then reads as distance on a scale you can trust across rows.
 - **Layout must be rendered and looked at, not reasoned about.** 003's first draft had label collisions in
   all three real matches — they only separate when the alliances differ, which is precisely the case the
   chart exists to show.

@@ -1,10 +1,11 @@
-// Real match predictions from v1/event/2025new/sigma1@2.0.0+tuned-2026-08.json,
-// fetched 2026-08-25. sd = sqrt(sum of component variances) from the published
-// per-component mean/variance. Actual scores are the real results.
+// Real match predictions from v1/event/2025new/sigma1@2.0.0+tuned-2026-08.json, fetched 2026-08-25.
+// A mixed slate: tossups, locks, and misses, spanning the event score range.
+// sd = sqrt(sum of published component variances) -- see the caveat banner in index.html;
+// this is NOT D-10 full predictive variance, which the artifact does not publish.
 const MATCHES = [
  {
-  "key": "sf10m1",
-  "lvl": "sf",
+  "key": "10m1",
+  "lvl": "SF",
   "red": [
    "5468",
    "7426",
@@ -26,8 +27,31 @@ const MATCHES = [
   "pw": "blue"
  },
  {
-  "key": "qm13",
-  "lvl": "qm",
+  "key": "9m1",
+  "lvl": "SF",
+  "red": [
+   "624",
+   "6459",
+   "4499"
+  ],
+  "blue": [
+   "3538",
+   "1388",
+   "5406"
+  ],
+  "p": 0.5108,
+  "pr": 246.64,
+  "pb": 246.11,
+  "sr": 4.637887450122092,
+  "sb": 4.652956049652737,
+  "ar": 233,
+  "ab": 174,
+  "aw": "red",
+  "pw": "red"
+ },
+ {
+  "key": "13",
+  "lvl": "QM",
   "red": [
    "5406",
    "2910",
@@ -49,26 +73,142 @@ const MATCHES = [
   "pw": "red"
  },
  {
-  "key": "qm43",
-  "lvl": "qm",
+  "key": "42",
+  "lvl": "QM",
   "red": [
-   "4091",
-   "148",
-   "6431"
+   "868",
+   "188",
+   "1323"
   ],
   "blue": [
-   "4905",
-   "2468",
-   "5535"
+   "930",
+   "3044",
+   "360"
   ],
-  "p": 0.005,
-  "pr": 126.47,
-  "pb": 200.46,
-  "sr": 5.736723803705386,
-  "sb": 5.3563046963368315,
-  "ar": 154,
-  "ab": 132,
+  "p": 0.9991,
+  "pr": 286.77,
+  "pb": 189.9,
+  "sr": 5.382378656319156,
+  "sb": 5.496362433464519,
+  "ar": 261,
+  "ab": 195,
+  "aw": "red",
+  "pw": "red"
+ },
+ {
+  "key": "5",
+  "lvl": "QM",
+  "red": [
+   "6665",
+   "7563",
+   "8590"
+  ],
+  "blue": [
+   "1710",
+   "6940",
+   "5843"
+  ],
+  "p": 0.1846,
+  "pr": 146.92,
+  "pb": 164.66,
+  "sr": 4.724404724407086,
+  "sb": 5.1903757089443925,
+  "ar": 174,
+  "ab": 149,
   "aw": "red",
   "pw": "blue"
+ },
+ {
+  "key": "16",
+  "lvl": "QM",
+  "red": [
+   "930",
+   "6328",
+   "10014"
+  ],
+  "blue": [
+   "1825",
+   "4905",
+   "8590"
+  ],
+  "p": 0.8897,
+  "pr": 178.05,
+  "pb": 149.8,
+  "sr": 5.85576638878294,
+  "sb": 5.976621118993574,
+  "ar": 156,
+  "ab": 178,
+  "aw": "blue",
+  "pw": "red"
+ },
+ {
+  "key": "21",
+  "lvl": "QM",
+  "red": [
+   "3847",
+   "2429",
+   "7415"
+  ],
+  "blue": [
+   "948",
+   "2910",
+   "449"
+  ],
+  "p": 0.0008,
+  "pr": 139.48,
+  "pb": 235.32,
+  "sr": 6.208059278067503,
+  "sb": 5.756735185849702,
+  "ar": 153,
+  "ab": 242,
+  "aw": "blue",
+  "pw": "blue"
+ },
+ {
+  "key": "22",
+  "lvl": "QM",
+  "red": [
+   "1807",
+   "294",
+   "360"
+  ],
+  "blue": [
+   "1778",
+   "5535",
+   "5026"
+  ],
+  "p": 0.0093,
+  "pr": 173.42,
+  "pb": 233.87,
+  "sr": 5.918614702783076,
+  "sb": 5.837807807730569,
+  "ar": 216,
+  "ab": 237,
+  "aw": "blue",
+  "pw": "blue"
+ },
+ {
+  "key": "23",
+  "lvl": "QM",
+  "red": [
+   "4909",
+   "1502",
+   "2974"
+  ],
+  "blue": [
+   "6996",
+   "6147",
+   "5468"
+  ],
+  "p": 0.5307,
+  "pr": 197.99,
+  "pb": 196.32,
+  "sr": 5.782732917920384,
+  "sb": 6.06630035524124,
+  "ar": 218,
+  "ab": 229,
+  "aw": "blue",
+  "pw": "red"
  }
 ];
+const EVENT_DOMAIN = [100, 320];
