@@ -22,18 +22,20 @@ import { defineConfig, devices } from "@playwright/test";
  * current build is ALREADY DEPLOYED before `playwright test` runs (this
  * task's own action deploys it as part of closing the phase).
  *
- * Three projects, matched to each spec by `testMatch` — these are NOT
+ * Four projects, matched to each spec by `testMatch` — these are NOT
  * interchangeable and each spec runs on exactly one project family:
- *  - `desktop`: `e2e/deep-link.spec.ts` only. NAV-05's deep-link promise is
- *    viewport-agnostic — it is about the URL restoring STATE, not about
- *    touch gestures — and a real desktop width is what lets the assertions
- *    stay simple and honest: at phone width, `EventFilters` renders the D-15
- *    collapsed Sheet (no visible `Week`/`District` comboboxes at all until
- *    the sheet is opened) and the Teams table's non-pinned columns sit
+ *  - `desktop`: `e2e/deep-link.spec.ts` and `e2e/team-page.spec.ts` (06-01-PLAN.md
+ *    Task 1's tracer proof, added this phase). Neither needs a touch gesture
+ *    or a phone viewport — NAV-05's deep-link promise is viewport-agnostic
+ *    (it is about the URL restoring STATE, not about touch gestures), and
+ *    the team-page tracer only needs a rendered nickname/record, not any
+ *    layout-dependent assertion — a real desktop width keeps both specs'
+ *    assertions simple and honest. (At phone width, `EventFilters` renders
+ *    the D-15 collapsed Sheet and the Teams table's non-pinned columns sit
  *    almost entirely off-screen behind the pinned group, needing an extra,
  *    unrelated horizontal-scroll step before a sort header is even
- *    clickable. Running this spec at 1440x900 keeps it testing exactly what
- *    it says it tests.
+ *    clickable — irrelevant to either spec here, but why 1440x900 was
+ *    chosen originally.)
  *  - `iphone-17`/`pixel-10`: `e2e/touch-scroll.spec.ts` only, using
  *    Playwright's built-in device descriptors for a recent iPhone and a
  *    recent Pixel (`hasTouch: true` on both, already set by each
@@ -59,7 +61,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testMatch: /deep-link\.spec\.ts/,
+      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
