@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Alliance axes on match predictions</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; } .variant.active { display:block; }
+  .page { max-width:1060px; margin:0 auto; padding:16px var(--space-md) var(--space-lg); }
+  .caption { max-width:1060px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+  .muted { color:var(--color-text-muted); }
+  .warn { border:1px solid #FCD34D; background:#FFFBEB; color:#78350F; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin:0 0 16px; }
+
+  .mt { width:100%; border-collapse:separate; border-spacing:0; background:#fff;
+        border:1px solid var(--color-border); border-radius:10px; overflow:hidden; }
+  .mt th { font-size:var(--text-label); font-weight:600; color:var(--color-text-muted);
+           padding:8px 12px; background:var(--color-chrome); text-align:left; white-space:nowrap;
+           border-bottom:1px solid var(--color-border); vertical-align:bottom; }
+  .mt td { padding:11px 12px; border-bottom:1px solid var(--color-border); vertical-align:middle; }
+  .mt tbody tr:nth-child(even) td { background:#FBFCFE; }
+  .mt tr:last-child td { border-bottom:0; }
+  .mt tbody tr:hover td { background:#F1F5F9; }
+  .m-key { font-weight:600; font-size:13px; line-height:1.25; white-space:nowrap; }
+  .m-teams { font-variant-numeric:tabular-nums; font-size:12.5px; line-height:1.45; white-space:nowrap; }
+  .red-ink { color:#B91C1C; } .blue-ink { color:#1D4ED8; }
+  .loser-ink { color:#94A3B8; font-weight:600; }
+  .plot { position:relative; padding:0 !important; }
+  .actualcol { font-variant-numeric:tabular-nums; font-weight:600; text-align:right; white-space:nowrap; font-size:13.5px; }
+  .callcol { text-align:center; font-size:15px; width:44px; }
+  .ok { color:#059669; } .bad { color:#DC2626; }
+  .axhead { position:relative; height:22px; }
+  .axhead span { position:absolute; top:0; font-size:11px; color:var(--color-text-muted);
+                 transform:translateX(-50%); font-variant-numeric:tabular-nums; }
+  .gridline { position:absolute; top:0; bottom:0; width:1px; background:var(--color-border); opacity:.55; }
+  .legend { display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px;
+            color:var(--color-text-muted); padding:9px 12px; background:var(--color-chrome);
+            border-top:1px solid var(--color-border); }
+  .legend .sw { display:inline-block; vertical-align:middle; margin-right:5px; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('c', this)">C: Event table, one shared scale</button>
+  <button class="variant-tab" onclick="show('a', this)">A: Per-match cards (superseded)</button>
+  <span class="spacer"></span>
+  <span class="note">Real 2025new predictions vs real results</span>
+</div>
+
+<div id="variant-c" class="variant active">
+  <div class="page">
+    <h1 style="font-size:var(--text-heading);margin:0 0 4px;">2025 New England &mdash; Qualification &amp; playoff matches</h1>
+    <p class="muted" style="margin:0 0 14px;font-size:13px;">Sigma1 2.0.0 &middot; predicted score &plusmn;1&sigma; against the actual result</p>
+    <div class="warn" id="warn-c"></div>
+    <div id="table-c"></div>
+  </div>
+  <p class="caption"><b>One scale for the whole event.</b> Every row is plotted on the same axis, drawn once
+  in the header, so matches are comparable to each other &mdash; a high-scoring match sits visibly right of a
+  low-scoring one, and a wide band is wide relative to every other band on the page. Per-match scales
+  (the earlier drafts) made each row self-contained but destroyed that comparison entirely. The overlap
+  between the two bands still <em>is</em> the win probability, and the actual result sits on the same axis
+  as a filled dot, so a miss is visible as distance rather than stated in words.</p>
+</div>
+
+<div id="variant-a" class="variant">
+  <div class="page">
+    <h1 style="font-size:var(--text-heading);margin:0 0 4px;">Match predictions</h1>
+    <p class="muted" style="margin:0 0 14px;font-size:13px;">Superseded &mdash; kept for contrast</p>
+    <div id="list-a"></div>
+  </div>
+  <p class="caption"><b>The earlier per-match card layout.</b> Each match got its own zoomed domain, which
+  made a single row easy to read in isolation and made every row incomparable to its neighbours &mdash; QM 13
+  and QM 43 look similarly positioned despite being ~150 points apart. Rejected in favour of C. Kept here
+  so the reason is legible rather than remembered.</p>
+</div>
+
+<script src="data.js"></script>
+<script>
+function show(id, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('variant-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+var RED = '#DC2626', BLUE = '#2563EB';
+var RED_SOFT = 'rgba(220,38,38,.30)', BLUE_SOFT = 'rgba(37,99,235,.30)';
+var PLOT_W = 470;                 /* the plot column's inner width */
+var D = EVENT_DOMAIN;             /* ONE domain for every row */
+function x(v) { return ((v - D[0]) / (D[1] - D[0])) * PLOT_W; }
+
+/* Tick values on a 40-point step across the shared domain. */
+var TICKS = (function () {
+  var out = [], step = 40;
+  for (var v = Math.ceil(D[0] / step) * step; v <= D[1]; v += step) out.push(v);
+  return out;
+})();
+
+function gridlines() {
+  return TICKS.map(function (v) {
+    return '<div class="gridline" style="left:' + x(v).toFixed(1) + 'px"></div>';
+  }).join('');
+}
+
+/* One alliance: soft +/-1sigma band, a solid predicted tick, and the actual as a
+   ringed dot. The dot is a donut rather than a plain disc so it stays visible when
+   it lands on top of the band it belongs to.
+ *
+ * Every y is DERIVED from yBand and the shared geometry constants below — the dot's
+ * top used to be passed in as its own hand-tuned number, which drifted out of
+ * alignment with the band (red sat 4.5px high, blue 1.5px low). Deriving it means the
+ * two cannot disagree again.
+ *
+ * The DOT always carries alliance colour — on the plot its job is identity ("which
+ * alliance is this"), and greying half of them breaks that. The winner/loser
+ * distinction lives in the Actual column instead, where the numbers are the outcome
+ * rather than the alliance.
+ */
+/* Within-match geometry. The two alliances of ONE match must read as a pair before
+ * anything else, so their vertical separation is deliberately much smaller than the
+ * separation between matches:
+ *
+ *   within a match   band centres 12px apart   (dots just touch, never overlap)
+ *   between matches  ~39px of clear space      (plot padding + cell padding + border)
+ *
+ * The first draft had 17px within against a 44px row, which is close enough to the
+ * between-match gap that a dot landing far from its partner horizontally read as
+ * belonging to whichever row it was nearest. Proximity has to do the grouping.
+ */
+var BAND_H = 8;
+var DOT_H = 12;   /* 6px box + 3px border each side — 12 apart means edge-to-edge, no overlap */
+var TICK_H = 14;
+var Y_RED = 12, Y_BLUE = 24;
+var PLOT_H = 44;
+
+function alliance(mean, sd, actual, color, soft, yBand) {
+  var lo = x(mean - sd), hi = x(mean + sd);
+  var centre = yBand + BAND_H / 2;
+  var dotTop = centre - DOT_H / 2;
+  var tickTop = centre - TICK_H / 2;
+  return '<div style="position:absolute;left:' + lo.toFixed(1) + 'px;width:' + Math.max(5, hi - lo).toFixed(1) +
+           'px;top:' + yBand + 'px;height:' + BAND_H + 'px;border-radius:' + (BAND_H / 2) + 'px;background:' + soft + ';"></div>' +
+         '<div style="position:absolute;left:' + (x(mean) - 1).toFixed(1) + 'px;top:' + tickTop.toFixed(1) +
+           'px;width:2px;height:' + TICK_H + 'px;background:' + color + ';border-radius:1px;"></div>' +
+         '<div style="position:absolute;left:' + (x(actual) - DOT_H / 2).toFixed(1) + 'px;top:' + dotTop.toFixed(1) +
+           'px;width:' + DOT_H + 'px;height:' + DOT_H + 'px;border-radius:50%;background:#fff;border:3px solid ' + color + ';"></div>';
+}
+
+document.getElementById('warn-c').innerHTML =
+  '<b>Band widths are knowingly wrong.</b> They are <code>sqrt(sum of published component variances)</code>, ' +
+  'not D-10’s full predictive variance (estimate uncertainty <em>plus</em> performance spread). The harness ' +
+  'computes the right number to produce <code>pRedWin</code>, but <code>EventMatchSchema</code> never publishes ' +
+  'it — so the widest honest band a client can draw today is the wrong one, and the actual dots land far ' +
+  'outside their bands as a result. Judge the layout, not the widths. Fix is a pipeline change: see ' +
+  '<code>.planning/todos/pending/publish-match-predictive-variance.md</code>.';
+
+document.getElementById('table-c').innerHTML =
+  '<table class="mt">' +
+    '<thead><tr>' +
+      '<th style="width:64px">Match</th>' +
+      '<th style="width:132px">Alliances</th>' +
+      '<th style="width:' + PLOT_W + 'px;padding-bottom:0">' +
+        '<div class="axhead">' + TICKS.map(function (v) {
+          return '<span style="left:' + x(v).toFixed(1) + 'px">' + v + '</span>'; }).join('') + '</div></th>' +
+      '<th style="text-align:right">Actual</th>' +
+      '<th class="callcol">Call</th>' +
+    '</tr></thead><tbody>' +
+    MATCHES.map(function (m) {
+      var correct = m.pw === m.aw;
+      return '<tr>' +
+        '<td class="m-key">' + m.lvl + '<br>' + m.key + '</td>' +
+        '<td class="m-teams"><span class="red-ink">' + m.red.join(' · ') + '</span><br>' +
+                            '<span class="blue-ink">' + m.blue.join(' · ') + '</span></td>' +
+        '<td class="plot"><div style="position:relative;height:' + PLOT_H + 'px;width:' + PLOT_W + 'px;">' +
+          gridlines() +
+          alliance(m.pr, m.sr, m.ar, RED, RED_SOFT, Y_RED) +
+          alliance(m.pb, m.sb, m.ab, BLUE, BLUE_SOFT, Y_BLUE) +
+        '</div></td>' +
+        /* Winner in alliance colour, loser greyed. Column only — the dots stay in
+           alliance colour because on the plot their job is identity, not outcome. */
+        '<td class="actualcol">' +
+          '<span class="' + (m.aw === 'red' ? 'red-ink' : 'loser-ink') + '">' + m.ar + '</span>' +
+          '<span class="muted">–</span>' +
+          '<span class="' + (m.aw === 'blue' ? 'blue-ink' : 'loser-ink') + '">' + m.ab + '</span></td>' +
+        '<td class="callcol ' + (correct ? 'ok' : 'bad') + '" title="' +
+          (correct ? 'predicted winner was correct' : 'predicted the other alliance') + '">' +
+          (correct ? '✓' : '✗') + '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>' +
+    '<div class="legend" style="border:1px solid var(--color-border);border-top:0;border-radius:0 0 10px 10px;margin-top:-1px">' +
+      '<span><span class="sw" style="width:26px;height:9px;border-radius:5px;background:' + RED_SOFT + '"></span>&plusmn;1&sigma; predicted</span>' +
+      '<span><span class="sw" style="width:2px;height:14px;background:' + RED + '"></span> predicted</span>' +
+      '<span><span class="sw" style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></span> actual (alliance colour)</span>' +
+      '<span style="flex:1"></span><span>one scale for the whole event</span>' +
+    '</div>';
+
+/* ---- A: the superseded per-match card layout, kept for contrast ---- */
+document.getElementById('list-a').innerHTML = MATCHES.slice(0, 4).map(function (m) {
+  var lo = Math.min(m.pr - 2 * m.sr, m.pb - 2 * m.sb, m.ar, m.ab);
+  var hi = Math.max(m.pr + 2 * m.sr, m.pb + 2 * m.sb, m.ar, m.ab);
+  var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  var xl = function (v) { return ((v - lo) / (hi - lo)) * 560; };
+  return '<div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:12px 14px;margin-bottom:10px;">' +
+    '<div style="display:flex;gap:10px;align-items:baseline;margin-bottom:8px;">' +
+      '<b>' + m.lvl + ' ' + m.key + '</b>' +
+      '<span class="m-teams red-ink">' + m.red.join(' · ') + '</span><span class="muted">vs</span>' +
+      '<span class="m-teams blue-ink">' + m.blue.join(' · ') + '</span>' +
+      '<span style="flex:1"></span><span class="muted" style="font-size:12px">own scale: ' +
+        lo.toFixed(0) + '–' + hi.toFixed(0) + '</span></div>' +
+    '<div style="position:relative;height:40px;width:560px;">' +
+      '<div style="position:absolute;left:0;top:19px;height:1px;width:560px;background:var(--color-border)"></div>' +
+      '<div style="position:absolute;left:' + xl(m.pr - m.sr).toFixed(1) + 'px;width:' + Math.max(5, xl(m.pr + m.sr) - xl(m.pr - m.sr)).toFixed(1) + 'px;top:7px;height:9px;border-radius:5px;background:' + RED_SOFT + '"></div>' +
+      '<div style="position:absolute;left:' + xl(m.pb - m.sb).toFixed(1) + 'px;width:' + Math.max(5, xl(m.pb + m.sb) - xl(m.pb - m.sb)).toFixed(1) + 'px;top:24px;height:9px;border-radius:5px;background:' + BLUE_SOFT + '"></div>' +
+      '<div style="position:absolute;left:' + (xl(m.ar) - 6).toFixed(1) + 'px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid ' + RED + '"></div>' +
+      '<div style="position:absolute;left:' + (xl(m.ab) - 6).toFixed(1) + 'px;top:24px;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid ' + BLUE + '"></div>' +
+    '</div></div>';
+}).join('');
+</script>
+</body>
+</html>

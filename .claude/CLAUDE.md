@@ -223,7 +223,12 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 
 ## Project Skills
 
-No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+- **Sketch findings for SigmaScout** (validated design decisions, palette tokens, CSS patterns, chart craft rules) → `Skill("sketch-findings-sigmascout")`
+
+  Load this before building or changing any UI. It carries the decided rarity-tier palette and its
+  accessibility constraints, the uncertainty/interval display rules, and a set of chart-craft
+  mechanics each learned by getting it wrong in a sketch first. It also records two pipeline gaps
+  (per-metric percentiles, match-level predictive variance) that block building on those decisions.
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
