@@ -27,3 +27,39 @@ export function SkeletonRows({ rows, columns }: { rows: number; columns: number 
     </>
   );
 }
+
+/**
+ * The team page's pending-state header block (06-01-PLAN.md Task 3, joining
+ * the `Skeletons.tsx` family) — a name/number placeholder plus a square
+ * block standing in for the robot image (D-03, wired by plan 06-07). Shown
+ * instead of a single full-page spinner (06-UI-SPEC.md E1 loading).
+ */
+export function TeamHeaderSkeleton() {
+  return (
+    <div className="flex items-center gap-[var(--spacing-md)]">
+      <Skeleton className="h-16 w-16 shrink-0 rounded-[var(--radius)]" />
+      <div className="flex flex-1 flex-col gap-[var(--spacing-sm)]">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One event-section-shaped skeleton card (06-01-PLAN.md Task 3) — a header
+ * bar plus a few skeleton rows, joining `SkeletonRows`' family. The route
+ * renders 2-3 of these during the pending state (06-UI-SPEC.md E5 loading)
+ * so the page's overall shape is visible immediately rather than a single
+ * spinner.
+ */
+export function EventSectionSkeleton() {
+  return (
+    <div data-testid="event-section-skeleton" className="flex flex-col gap-[var(--spacing-sm)]">
+      <Skeleton className="h-5 w-64" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-3/4" />
+    </div>
+  );
+}

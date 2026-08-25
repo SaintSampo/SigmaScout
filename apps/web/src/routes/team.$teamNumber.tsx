@@ -1,19 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { TEAM_TABS, TeamSearchSchema } from "../lib/searchParams.js";
 import { toTeamKey } from "../lib/teamKey.js";
 import { teamQueryOptions } from "../lib/api/team.js";
+import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { ErrorState } from "../components/StateViews.js";
+import { EventSectionSkeleton, TeamHeaderSkeleton } from "../components/Skeletons.js";
 import { OverviewTab } from "../components/team/OverviewTab.js";
+import { SeasonHeader } from "../components/team/SeasonHeader.js";
+import { NoEventDataState, YearMismatchEmptyState } from "../components/team/TeamStates.js";
 
 /**
  * The `/team/{number}` route (06-01-PLAN.md). Task 1's tracer proved the
- * single artifact-fetch path; this task adds D-16's tab shell — a typed
- * `?tab=` search param — and the two frozen composition seams
- * (`SeasonHeader`, `EventSectionList`, via `OverviewTab`) plans 06-07/06-08
- * fill without touching this file or each other's.
+ * single artifact-fetch path; Task 2 added D-16's tab shell; this task adds
+ * the page's four non-populated states (loading, error, D-19 year-mismatch,
+ * E5 zero-events).
  */
 export const Route = createFileRoute("/team/$teamNumber")({
   validateSearch: TeamSearchSchema,
@@ -23,7 +27,23 @@ export const Route = createFileRoute("/team/$teamNumber")({
 /** A route param that is not a bare positive-integer string never fires a fetch — D-19's "explain, don't silently redirect" rule, applied one level up from D-19's own year mismatch (this is the path segment itself being nonsense). */
 const TEAM_NUMBER_PATTERN = /^\d+$/;
 
+/** How many event-section skeleton cards render during the pending state (06-UI-SPEC.md E5 loading: "2-3 skeleton event-section cards"). */
+const PENDING_EVENT_SECTION_SKELETON_COUNT = 3;
+
 type TeamTab = (typeof TEAM_TABS)[number];
+
+/**
+ * D-05's `activeYears` is published only once plan 06-02's schema wave
+ * lands; this worktree's copy of `pageArtifacts.ts` predates it (both plans
+ * run in the same wave with no `depends_on` between them, per 06-01-PLAN.md's
+ * frontmatter). This local, optional-field intersection is the same
+ * "loose cast + graceful fallback" escape hatch `YearSelect.tsx`/
+ * `AlgorithmSelect.tsx` already use for a cross-route search cast — it reads
+ * correctly once the real field lands (an optional field intersected onto a
+ * type that later gains it is a no-op) and degrades to `undefined` (the
+ * schema's own "unknown" case, per D-05's bootstrap wrinkle) until then.
+ */
+type TeamSeasonArtifactWithActiveYears = TeamSeasonArtifact & { activeYears?: readonly number[] };
 
 function TeamPage() {
   const { teamNumber: teamNumberParam } = Route.useParams();
@@ -62,6 +82,58 @@ function TeamPage() {
     void navigate({ search: (prev) => ({ ...prev, tab: nextTab }) });
   }
 
+  // A 404 means "no artifact was ever published for this team-year" — D-05's
+  // own bootstrap wrinkle (06-CONTEXT.md): the year the team did not play.
+  // Every OTHER fetch failure (500, network error, a validation failure)
+  // stays the ordinary page-level error.
+  const is404 = error instanceof ArtifactFetchError && error.status === 404;
+
+  function renderOverviewContent() {
+    if (is404) {
+      // No artifact means no identity was ever learned for this query —
+      // `YearMismatchEmptyState`'s own `nickname=""` fallback renders
+      // "Team {teamNumber}", an honest degrade rather than a guess.
+      return <YearMismatchEmptyState teamNumber={teamNumber} nickname="" year={year} activeYears={undefined} />;
+    }
+
+    if (error) {
+      return <ErrorState resource={`team ${teamNumber}`} year={year} onRetry={() => void refetch()} />;
+    }
+
+    if (isPending || data === undefined) {
+      return (
+        <div className="flex flex-col gap-[var(--spacing-xl)]">
+          <TeamHeaderSkeleton />
+          {Array.from({ length: PENDING_EVENT_SECTION_SKELETON_COUNT }, (_, index) => (
+            <EventSectionSkeleton key={index} />
+          ))}
+        </div>
+      );
+    }
+
+    if (data.events.length === 0) {
+      const artifact = data as TeamSeasonArtifactWithActiveYears;
+      const activeYears = artifact.activeYears;
+      const yearMismatch = activeYears !== undefined && !activeYears.includes(year);
+
+      return (
+        <div className="flex flex-col gap-[var(--spacing-xl)]">
+          {/* The identity chrome (name, number — image/TBA link join once
+              plan 06-07 wires D-03) is not year-scoped and renders normally
+              above the empty body, per D-19/E5's own instruction. */}
+          <SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} />
+          {yearMismatch ? (
+            <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
+          ) : (
+            <NoEventDataState teamNumber={teamNumber} nickname={data.nickname} year={year} />
+          )}
+        </div>
+      );
+    }
+
+    return <OverviewTab artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} />;
+  }
+
   // Both tabs render from first paint regardless of query state
   // (06-UI-SPEC.md E8) — they gate CONTENT, never their own existence.
   return (
@@ -76,16 +148,7 @@ function TeamPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" data-testid="overview-panel" className="mt-[var(--spacing-lg)]">
-          {error ? (
-            <ErrorState resource={`team ${teamNumber}`} year={year} onRetry={() => void refetch()} />
-          ) : isPending || data === undefined ? (
-            // Task 3 replaces this with a shaped skeleton (header block +
-            // 2-3 event-section skeleton cards) per the UI-SPEC's E1/E5
-            // loading rows.
-            <p className="text-role-body text-[var(--color-text-muted)]">Loading…</p>
-          ) : (
-            <OverviewTab artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} />
-          )}
+          {renderOverviewContent()}
         </TabsContent>
         <TabsContent value="history" className="mt-[var(--spacing-lg)]">
           {/* plan 06-05 replaces this body with the real Recharts chart. */}
