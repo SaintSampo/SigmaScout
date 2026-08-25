@@ -175,6 +175,16 @@ export function fetchMatchDetail(
   return tbaFetch(`/match/${matchKey}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
+/** `GET /team/{key}/media/{year}` (D-03, TEAM-02, plan 06-03) — the robot-photo source array for a team's season. */
+export function fetchTeamMedia(
+  ctx: TbaClientContext,
+  teamKey: string,
+  year: number,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/team/${teamKey}/media/${year}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
 /**
  * `GET /teams/{year}/{page}` — teams-list with page traversal. The last
  * page returns an empty array. Deliberately un-conditional (no ETag): a

@@ -83,3 +83,26 @@ export const tbaMatchSchema = z.object({
 export type TbaMatch = z.infer<typeof tbaMatchSchema>;
 
 export const tbaMatchListSchema = z.array(tbaMatchSchema);
+
+/**
+ * `GET /team/{key}/media/{year}` element (D-03, TEAM-02, plan 06-03). Per
+ * TBA's own OpenAPI spec only `type`, `foreign_key` and `team_keys` are
+ * required — `preferred`, `direct_url` and `view_url` are all optional, and
+ * the `avatar` variant carries an inline base64 image under `details`
+ * instead of a URL. `type` is modelled as a plain `z.string()`, not an
+ * enum: an unknown future type must degrade to "not allowlisted" in
+ * `media.ts`'s picker, never to a parse failure that aborts an ingest run
+ * (T-06-11). Every other field is passed through loosely — this schema
+ * exists to validate shape, not to constrain TBA's evolving vocabulary.
+ */
+export const tbaMediaSchema = z.object({
+  type: z.string(),
+  foreign_key: z.string(),
+  team_keys: z.array(z.string()),
+  preferred: z.boolean().optional(),
+  direct_url: z.string().optional(),
+  view_url: z.string().optional(),
+});
+export type TbaMedia = z.infer<typeof tbaMediaSchema>;
+
+export const tbaMediaListSchema = z.array(tbaMediaSchema);

@@ -13,6 +13,7 @@ import {
   fetchMatchDetail,
   fetchStatus,
   fetchTeamDetail,
+  fetchTeamMedia,
   TbaRequestCounter,
   tbaFetch,
   THROTTLE_INTERVAL_MS,
@@ -160,5 +161,14 @@ describe("capability surface", () => {
     expect(pages).toHaveLength(3);
     expect(pages[2]?.body).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("fetchTeamMedia issues /team/{key}/media/{year} and forwards a cached ETag as a conditional request header (plan 06-03 Task 2)", async () => {
+    await fetchTeamMedia(ctx, "frc254", 2024, "\"cached-media-etag\"");
+
+    const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/api/v3/team/frc254/media/2024");
+    const headers = requestInit.headers as Record<string, string>;
+    expect(headers["If-None-Match"]).toBe("\"cached-media-etag\"");
   });
 });
