@@ -30,6 +30,7 @@ import {
   readEtag,
   recordIngestRun,
   selectTeamKeysForYear,
+  selectTeamMediaForYear,
   upsertEvent,
   upsertMatch,
   upsertTeam,
@@ -243,11 +244,27 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
   const teamKeys = selectTeamKeysForYear(db, year, { excludeOffseason: true });
   let freshCount = 0;
   let cacheHitCount = 0;
-  let resolvedCount = 0;
+  let notFoundCount = 0;
 
   for (const teamKey of teamKeys) {
     const mediaUrl = `/team/${teamKey}/media/${year}`;
-    const result = await fetchTeamMedia(ctx, teamKey, year, cachedEtagFor(db, mediaUrl, force));
+    let result: Awaited<ReturnType<typeof fetchTeamMedia>>;
+    try {
+      result = await fetchTeamMedia(ctx, teamKey, year, cachedEtagFor(db, mediaUrl, force));
+    } catch (err) {
+      // A placeholder/unregistered alliance slot (e.g. TBA's own "frc0"
+      // stand-in on an event with an unresolved playoff bracket match) 404s
+      // against a real team key. Treat this as "no media for this team-year"
+      // and continue the season rather than aborting the whole run on one
+      // team the corpus has no `teams` row for — a genuine 404 here is not
+      // TBA schema drift, it's an honest "nothing to fetch" answer.
+      if (err instanceof Error && /HTTP 404/.test(err.message)) {
+        notFoundCount++;
+        console.log(`  ${mediaUrl}: 404 Not Found, skipping (no corpus teams row for this key)`);
+        continue;
+      }
+      throw err;
+    }
     if (result.status === 304) {
       cacheHitCount++;
       continue;
@@ -256,7 +273,6 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
     freshCount++;
     const rawMedia = tbaMediaListSchema.parse(result.body);
     const picked = pickRobotPhotoUrl(rawMedia);
-    if (picked) resolvedCount++;
     upsertTeamMedia(db, {
       teamKey,
       year,
@@ -267,9 +283,22 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
     if (result.etag) writeEtag(db, mediaUrl, result.etag);
   }
 
+  // Read the true resolved-photo state back from the corpus rather than
+  // reporting resolvedCount/freshCount alone: an interrupted-then-resumed
+  // season (T-01-06) mixes 304 cache hits (already resolved by an earlier
+  // partial run, not counted by resolvedCount above) with this run's fresh
+  // 200s, so only a fresh read of every stored row for the season gives an
+  // accurate rate — this run's own in-memory tally would silently
+  // under-report on any resume.
+  const storedMedia = selectTeamMediaForYear(db, year);
+  const totalStored = storedMedia.size;
+  const totalWithPhoto = [...storedMedia.values()].filter((m) => m.imageUrl !== null).length;
+
   console.log(
-    `Season ${year}: ${teamKeys.length} teams, ${freshCount} fresh / ${cacheHitCount} cache hits, ` +
-      `${resolvedCount} resolved photos (${teamKeys.length > 0 ? ((resolvedCount / teamKeys.length) * 100).toFixed(1) : "0.0"}%)`
+    `Season ${year}: ${teamKeys.length} teams (${notFoundCount} 404s skipped), ` +
+      `${freshCount} fresh / ${cacheHitCount} cache hits this run, ` +
+      `${totalWithPhoto}/${totalStored} resolved photos in corpus ` +
+      `(${totalStored > 0 ? ((totalWithPhoto / totalStored) * 100).toFixed(1) : "0.0"}%)`
   );
 }
 

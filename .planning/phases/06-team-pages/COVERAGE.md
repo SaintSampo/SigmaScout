@@ -47,8 +47,19 @@ capability decision because each has a different (or absent) usable-image contra
 ## The recurring cost this integration commits to
 
 `packages/ingest/tbaClient.ts`'s `THROTTLE_INTERVAL_MS = 100` applies per request unconditionally,
-including on cache-hit 304 responses. The distinct (team, year) pair count across 2022–2026 is
-**17,231** (51,693 published `team/{teamKey}/{year}` objects ÷ 3 algorithms — media is not
-algorithm-scoped). That is **≈28.7 minutes added to every full ingest run**, not only the first —
-ETag caching saves bandwidth, not request count or throttle wait. This is stated here rather than
-assumed negligible.
+including on cache-hit 304 responses. The distinct (team, year) pair count across 2022–2026,
+**measured from a real full 2022–2026 run (plan 06-03 Task 3, 2026-08-25): 17,231** (matches the
+51,693 ÷ 3 projection to within 2 — two requests hit a genuinely non-existent placeholder team key,
+`frc0`, on a single 2024 event with an unresolved playoff bracket match; both 404 and are skipped,
+never stored). ETag caching saves bandwidth, not request count or throttle wait — a second
+immediate run over 2022 and 2026 measured 0 fresh / 100% cache hits, confirming this.
+
+**The ≈28.7-minute projection assumed the 100ms throttle floor with zero added network latency.**
+Real per-season measurements show that assumption understates the true cost: observed per-request
+time ranged from ~118ms to ~217ms (18–117% above the 100ms floor) depending on live network/API
+conditions at run time — e.g. season 2025 (3,691 requests) measured 7.2 minutes (~117ms/request)
+while season 2026 (3,710 requests) measured 13.4 minutes (~217ms/request) in the same run. Summed
+across a real 5-season first-pass run (including retry overhead from a Rule-1 bug found and fixed
+mid-run — see `06-03-SUMMARY.md`), total wall clock was **~44 minutes**, roughly 1.5× the original
+projection. Budget **30–60 minutes** for a full `pnpm ingest:media --years 2022-2026` run, not a
+fixed 28.7 minutes.
