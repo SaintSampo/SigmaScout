@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { tierForPercentile } from "@/lib/tiers";
-import { TierKeyRow } from "./TierKeyRow";
+import { TierKeyRow } from "./TierKeyRow.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
