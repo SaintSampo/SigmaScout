@@ -407,3 +407,97 @@ Worth recording for whoever picks this up: Lighthouse's Slow-4G preset sits clos
 "congested venue" row above, and SigmaScout's users are in arenas with thousands of people sharing
 wifi. The 2.5 s threshold is not an arbitrary target for this audience — the ~4 s measured there is
 a real problem, and the gate is measuring something that matters.
+
+---
+
+## Fifth measurement — the chart tab's dynamic import (06-05-PLAN.md Task 2, D-14)
+
+**Why this entry exists.** D-14 requires Recharts to be dynamically imported behind the Metric
+History tab, and its own text is explicit that this must be *measured*, not assumed real — D-19's
+own reverted route split (the fourth entry above) is the cautionary precedent: that split deferred
+only ~11 KB because the weight sat in the shared vendor chunk, cost one extra serialized network
+hop, and measured slower on every profile. Recharts is different in kind: it is pulled in by
+exactly one component (`MetricHistoryChart.tsx`) used by exactly one tab, and nothing else in the
+app imports it — so unlike the Teams-route split, there is no shared-chunk overlap diluting the
+deferral. This entry measures whether that structural difference actually produces a faster real
+result, using the same method the fourth entry established specifically to answer this class of
+question without trusting Lighthouse's simulator alone.
+
+### Method
+
+Two builds were produced from this same worktree by temporarily swapping
+`MetricHistoryTab.tsx`'s real `React.lazy(() => import("./MetricHistoryChart.js"))` boundary for a
+plain static `import MetricHistoryChartStatic from "./MetricHistoryChart.js"` (measurement-only;
+the file was restored to its real, shipped lazy-boundary content immediately after both builds were
+captured — the shipped code was never left in the static-import state). Both builds
+(`pnpm --filter web build`) were served from identical local static file servers on adjacent ports
+(4801 "with-lazy-import", 4802 "without-lazy-import"), with SPA fallback to `index.html` so
+TanStack Router's client-side routes resolve. Chromium was driven via Playwright with **real CDP
+throttling** (`Network.emulateNetworkConditions` + `Emulation.setCPUThrottlingRate` at 4x CPU on
+every profile, matching the fourth entry's method exactly), navigating to
+`/team/1114?year=2024&algorithm=sigma1&tab=overview` — the Overview tab, the tab that should be
+unaffected by the chart's own deferred code, exactly as this task's own instruction specifies. LCP
+was read from a `PerformanceObserver` registered via `page.addInitScript` before navigation (so it
+observes from the very start of the page's lifecycle, not from whenever the script happened to
+attach). Median of three runs per cell, three network profiles, matching the fourth entry's own
+three rows.
+
+Both builds attempt the same real fetch to `https://data.sigmascout.org` for the algorithm manifest
+and team artifact; per Phase 5 D-18, R2's CORS policy does not allow-list `localhost`, so that fetch
+is blocked identically in both variants. This does not affect the measurement: as the fourth entry's
+own diagnosis established, the LCP element on every route measured so far is the ribbon's wordmark
+(or, on a route whose data never resolves, the loading skeleton's first painted block) — paint
+timing that is gated on the JS bundle downloading, parsing and executing, not on the data fetch
+succeeding. The team page's own loading-state chrome renders identically regardless of whether the
+artifact fetch ultimately succeeds, so a CORS-blocked fetch does not change what is being timed.
+
+### Results — team page Overview tab
+
+| Network profile | With lazy import | Without lazy import | Lazy import saves |
+|---|---:|---:|---:|
+| Congested venue (1.6 Mbps / 150 ms) | 4384 ms | 6096 ms | **1712 ms** |
+| Decent LTE (10 Mbps / 40 ms) | 1140 ms | 1504 ms | **364 ms** |
+| Good wifi (40 Mbps / 15 ms) | 672 ms | 816 ms | **144 ms** |
+
+Nine runs per variant (three profiles × three runs), sorted per cell before taking the median:
+
+- Congested venue, with lazy: 4340, 4384, 4404 → median 4384. Without lazy: 6072, 6096, 6176 →
+  median 6096.
+- Decent LTE, with lazy: 1132, 1140, 1144 → median 1140. Without lazy: 1464, 1504, 1512 → median
+  1504.
+- Good wifi, with lazy: 660, 672, 672 → median 672. Without lazy: 808, 816, 816 → median 816.
+
+**The lazy import is consistently faster on every profile, and never slower** — the opposite outcome
+from the fourth entry's Teams-route finding, and the margin scales with the network's own
+congestion (largest absolute win on the profile that matters most for this audience, per the fourth
+entry's own closing note about arena wifi).
+
+### Why — the size table explains it, same method as the fourth entry
+
+| | Eager JS | Deferred chunk | Total |
+|---|---|---|---|
+| With lazy import | `index-BIX9PNoZ.js`: 641.93 KB (194.81 KB gzip) | `MetricHistoryChart-Bni4eoGf.js`: 331.49 KB (96.60 KB gzip), never referenced by a `<script>` tag in `dist/index.html` | 973.42 KB, **two independently-fetched stages, second stage only on tab open** |
+| Without lazy import | `index-DF44MkV8.js`: 971.58 KB (290.99 KB gzip) | — | 971.58 KB, **one stage, always fetched** |
+
+Unlike the Teams-route split (which deferred only ~11 KB because the weight sat in a *shared*
+vendor chunk every route already paid for), Recharts here is used by exactly one component and
+nothing else — the deferred chunk is almost the entire cost of adding it (331.49 KB, essentially
+the same as the ~1.84 KB difference between the two "Total" rows, which is pure chunk-boundary
+overhead). The eager path shrinks by roughly a third (641.93 KB vs 971.58 KB, ~194.81 KB vs
+~290.99 KB gzip) on every route that is not the Metric History tab, and the Metric History tab
+itself pays that cost exactly once, only when actually opened — never as a tax on every page load.
+
+### Decision — kept, confirmed by measurement rather than assumed
+
+**The lazy import is real and it wins on every profile.** `MetricHistoryTab.tsx` keeps its
+`React.lazy(() => import("./MetricHistoryChart.js"))` boundary exactly as shipped — no reversion,
+matching what this entry measured. Brotli/gzip compression was not independently re-verified for
+this entry (the local static server does not negotiate `Content-Encoding` the way Cloudflare's edge
+does), so the gzip figures above are the JS's post-minification, pre-Brotli size — a same-methodology
+comparison between the two variants, not a claim about the production wire size. The production wire
+size will be smaller than both raw numbers once Cloudflare's Brotli compression is in front of it,
+as every prior entry's compression check has already confirmed for this stack.
+
+This measurement is route-scoped to the team page's Overview tab and does not re-open D-19's Teams
+route question, which remains closed at "reverted" per the fourth entry above — no route-level code
+splitting was used or re-attempted anywhere in this entry.
