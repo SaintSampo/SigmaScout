@@ -68,6 +68,26 @@ function renderTeamRoute(initialEntry: string) {
   return router;
 }
 
+describe("/team/$teamNumber route — invalid team number (06-01-PLAN.md Task 1)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the invalid-team-number message and fires no team artifact fetch", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(manifestResponse()));
+    global.fetch = fetchMock;
+
+    renderTeamRoute("/team/notateam?year=2024&algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByText('"notateam" is not a valid team number.')).toBeDefined());
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/team/"))).toBe(false);
+  });
+});
+
 describe("/team/$teamNumber route — tab shell (06-01-PLAN.md Task 2)", () => {
   const originalFetch = global.fetch;
 
