@@ -32,8 +32,8 @@ const NAV_LINKS = [
  * list: "the active ribbon link's underline/indicator"). The accent token
  * appears NOWHERE else in this component.
  */
-const ACTIVE_LINK_CLASS = "text-role-label text-[var(--color-accent)] border-b-2 border-[var(--color-accent)] pb-[2px]";
-const INACTIVE_LINK_CLASS = "text-role-label border-b-2 border-transparent pb-[2px] text-[var(--color-text-primary)]";
+const ACTIVE_LINK_CLASS = "text-role-nav text-[var(--color-accent)] border-b-2 border-[var(--color-accent)] pb-[2px]";
+const INACTIVE_LINK_CLASS = "text-role-nav border-b-2 border-transparent pb-[2px] text-[var(--color-text-primary)]";
 
 /**
  * `Link`'s typed `search` updater expects the TARGET route's fully-required
