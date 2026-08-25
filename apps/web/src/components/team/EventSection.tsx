@@ -48,7 +48,10 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const metricKeys = metricKeysFor(algorithmId, season);
 
   return (
-    <section data-testid={`event-section-${event.eventKey}`} className="flex min-w-0 flex-col gap-[var(--spacing-sm)]">
+    <section
+      data-testid={`event-section-${event.eventKey}`}
+      className="event-card shadow-sm flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-lg)]"
+    >
       <div className="flex min-w-0 items-center gap-[var(--spacing-sm)]">
         <h2 title={event.eventName} className="text-role-heading min-w-0 truncate text-[var(--color-text-primary)]">
           {event.eventName}

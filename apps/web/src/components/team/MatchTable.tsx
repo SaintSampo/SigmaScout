@@ -143,6 +143,18 @@ function AxisHeader({ domain }: { domain: AxisDomain }) {
   );
 }
 
+/**
+ * The Confidence column's predicted-winner chip — exactly two possible
+ * values, reusing the SAME `--alliance-*` tokens the plotted band/tick/dot
+ * marks already use (`.alliance-chip--{side}`, theme.css), rather than a
+ * bare "Red"/"Blue" string sitting alone (06-09-PLAN.md Task 3's polish
+ * pass, "chips for bounded categorical values where a bare string sits
+ * today").
+ */
+function AllianceChip({ side }: { side: "red" | "blue" }) {
+  return <span className={cn("alliance-chip", side === "red" ? "alliance-chip--red" : "alliance-chip--blue")}>{side === "red" ? "Red" : "Blue"}</span>;
+}
+
 function PredictedRpCell({ pmf }: { pmf: readonly number[] | undefined }) {
   const moments = rpMoments(pmf);
   if (moments === undefined) return null;
@@ -175,7 +187,7 @@ function ActualScoreLine({
   );
 }
 
-function MatchRow({ match, domain, teamKey }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string }) {
+function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string; tinted: boolean }) {
   const played = match.actualWinner !== undefined;
   const teamIsRed = match.redTeams.includes(teamKey);
   const teamIsBlue = match.blueTeams.includes(teamKey);
@@ -187,8 +199,8 @@ function MatchRow({ match, domain, teamKey }: { match: TeamSeasonMatch; domain: 
   const blueLoses = played && match.actualWinner === "red";
 
   return (
-    <tr data-testid={`match-row-${match.matchKey}`}>
-      <td className="sticky left-0 z-[1] bg-[var(--color-bg-page)] p-[var(--spacing-sm)] align-top">
+    <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted && "match-row-tint")}>
+      <td className={cn("sticky left-0 z-[1] p-[var(--spacing-sm)] align-top", tinted ? "match-row-tint" : "bg-[var(--color-bg-surface)]")}>
         <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
@@ -235,8 +247,11 @@ function MatchRow({ match, domain, teamKey }: { match: TeamSeasonMatch; domain: 
           />
         </div>
       </td>
-      <td data-testid={`confidence-${match.matchKey}`} className="numeric-cell text-role-body whitespace-nowrap p-[var(--spacing-sm)] align-top text-[var(--color-text-primary)]">
-        {match.predictedWinner === "red" ? "Red" : "Blue"} {Math.round(confidence * 100)}%
+      <td data-testid={`confidence-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
+        <span className="flex items-center gap-[var(--spacing-xs)]">
+          <AllianceChip side={match.predictedWinner} />
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
+        </span>
       </td>
       <td data-testid={`predicted-rp-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
         <div className="flex flex-col gap-[var(--spacing-xs)]">
@@ -288,8 +303,8 @@ export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
         </tr>
       </thead>
       <tbody>
-        {matches.map((match) => (
-          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} />
+        {matches.map((match, index) => (
+          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} tinted={index % 2 === 1} />
         ))}
       </tbody>
     </table>

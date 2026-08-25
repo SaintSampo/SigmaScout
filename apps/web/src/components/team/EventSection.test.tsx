@@ -137,6 +137,14 @@ describe("EventSection", () => {
     expect(heading.textContent).toBe(longName);
   });
 
+  it("carries an elevation class and a surface class distinct from the page background (06-09-PLAN.md Task 3 polish pass)", () => {
+    render(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />);
+    const section = screen.getByTestId("event-section-2024casj");
+    expect(section.className).toContain("shadow-sm");
+    expect(section.className).toContain("event-card");
+    expect(section.className).not.toContain("bg-[var(--color-bg-page)]");
+  });
+
   it("gives two sections distinct scroller test ids", () => {
     render(
       <>

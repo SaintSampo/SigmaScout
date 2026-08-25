@@ -176,6 +176,30 @@ describe("MatchTable", () => {
     expect(screen.getAllByTestId("axis-tick").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("renders alternating row tints — adjacent rows carry differing background classes (06-09-PLAN.md Task 3 polish pass)", () => {
+    render(
+      <MatchTable
+        matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" }), makeMatch({ matchKey: "m3" })]}
+        domain={DOMAIN}
+        teamKey="frc118"
+      />,
+    );
+    const row1 = screen.getByTestId("match-row-m1");
+    const row2 = screen.getByTestId("match-row-m2");
+    const row3 = screen.getByTestId("match-row-m3");
+    expect(row1.className).not.toContain("match-row-tint");
+    expect(row2.className).toContain("match-row-tint");
+    expect(row3.className).not.toContain("match-row-tint");
+    expect(row1.className).not.toBe(row2.className);
+  });
+
+  it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {
+    render(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118" />);
+    const confidence = screen.getByTestId("confidence-m1");
+    const chip = within(confidence).getByText("Blue");
+    expect(chip.className).toContain("alliance-chip--blue");
+  });
+
   it("renders matches in the exact order passed, never re-sorted", () => {
     render(
       <MatchTable

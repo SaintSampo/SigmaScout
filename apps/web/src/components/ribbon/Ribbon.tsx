@@ -95,7 +95,7 @@ export function Ribbon() {
 
   if (isMobile) {
     return (
-      <header className="w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+      <header className="shadow-sm w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
         <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
@@ -115,7 +115,7 @@ export function Ribbon() {
   }
 
   return (
-    <header className="w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+    <header className="shadow-sm w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
       <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
         {wordmark}
         <NavLinks />
