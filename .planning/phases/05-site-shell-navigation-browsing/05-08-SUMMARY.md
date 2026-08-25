@@ -262,3 +262,58 @@ All 10 files listed in `key-files` (created + modified) confirmed present on dis
 spike files (`apps/web/src/spike/TableSpike.tsx`, `apps/web/src/routes/spike.tsx`) confirmed
 absent; all 7 commit hashes (`4f326d8c`, `b8eac6b6`, `b3de7a6d`, `15d5554e`, `51ad41d6`,
 `2484d932`, `cacff553`) confirmed present in `git log --oneline --all`.
+
+
+## Task 4 — real-device sign-off (resolved 2026-08-24)
+
+Verified by the user on a real phone. **Passed:** vertical drag, horizontal drag,
+deliberate diagonal drag (one axis wins cleanly), no frozen-column bleed-through,
+algorithm switching, and the events filter sheet's behaviour.
+
+**Four issues raised, all fixed and re-verified on the deployed build:**
+
+1. **Nav links read too small.** They used `text-role-label` (12px), which
+   `05-UI-SPEC.md`'s usage map does assign to the ribbon — so the spec was wrong
+   here, not just the implementation. Added `text-role-nav` at 14/600: Body's
+   size at Label's weight, introducing no new size or weight. (`917dbe8d`)
+
+2. **The Teams table did not fill the page.** Two distinct causes. Vertically it
+   was pinned to `min(70vh, 720px)`, leaving dead space on tall screens — now
+   measured at runtime and filled to a 24px gap, measured rather than a constant
+   because the ribbon wraps to two rows on a phone. Horizontally it was exactly
+   `getTotalSize()`, so OPR rendered ~668px of table in a 1392px container — now
+   stretches, with slack absorbed by a trailing filler cell rather than by the
+   real columns, because pinned offsets derive from `getStart("start")` and
+   widening a pinned column would desync the sticky `left` values. (`917dbe8d`)
+
+3. **The page panned sideways on mobile, and the table appeared to show less
+   data than desktop.** One bug, not two: on a 390px phone the document was
+   459px wide, so horizontal drags panned the page and never reached the table's
+   scroller — all 18 columns were rendering the whole time but were unreachable.
+   Cause was flex children refusing to shrink below content (`min-width: auto`).
+   Fixed with `min-w-0`/`shrink` on the ribbon's children plus `overflow-x-hidden`
+   on the root as a structural guard. (`d8a508e1`)
+
+4. **The events filter sheet clipped its controls.** The week select fell off the
+   right because the sheet spans the body and inherited the same 459px width —
+   fixed by (3). "Clear filters" fell below the fold separately: `max-h-[80vh]`
+   measures against the URL-bar-collapsed viewport on a phone, so the sheet could
+   extend past the visible area. Now `max-h-[85dvh]` plus
+   `pb-[env(safe-area-inset-bottom)]` and `min-h-0` on the scroll region.
+   (`d8a508e1`)
+
+Added `apps/web/e2e/no-page-pan.spec.ts` — asserts the page never scrolls
+horizontally on three routes while the table still does. It pins the observable
+invariant rather than the specific CSS, so it survives a layout rewrite.
+
+Verified on the deployed build at 390x844: all routes 390/390 with no pan;
+sigma1 scroller 1988/342 and OPR 668/342 both still scroll; sheet 390px with
+nothing clipped. At 1440x900: nav computes to 14px/600, OPR fills 1392/1392.
+
+**One item raised that was NOT a defect and was deliberately not "fixed":** the
+user found the UI "too minimal... there should be a little bit of color." That is
+`05-UI-SPEC.md`'s 60/30/10 palette working as specified (D-05/D-06), not an
+incomplete implementation. Rather than improvise a palette change at a closing
+gate, it is logged as `.planning/todos/pending/ui-polish-pass.md` for a dedicated
+UI pass, at the user's direction. D-06's token discipline held throughout the
+phase, so a future palette change is a token swap, not a component sweep.
