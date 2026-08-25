@@ -13,8 +13,9 @@ deliberately avoided their blue-dominant chrome so SigmaScout would read as its 
 put both sides side by side; sketch 002 turns it into a concrete choice.
 
 **Settled so far:**
-- **Percentile shading of metric cells** (001-A's mechanic) is the direction — user liked it. Hue is
-  still open; that is sketch 002.
+- **Discrete percentile tiers, not continuous shading** — the user rejected all four ramps in 002 and
+  proposed Statbotics-style banded boxes with card-game rarity colours (sketch 004). A gradient makes
+  you compare; a tier gives you a name you can say out loud.
 - **Interval axes** (001-C) are wanted, and wanted *more widely* — extended to match predictions in
   sketch 003 at the user's request.
 
@@ -33,7 +34,8 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | # | Name | Question | Winner | Tags |
 |---|------|----------|--------|------|
 | 001 | teams-table-polish | How much colour, carrying what meaning — and is D-05 still right? | A's shading + C's axis (partial) | teams-table, palette, ribbon, density, uncertainty |
-| 002 | palette-options | Which hue carries percentile shading? | _pending_ | palette, teams-table, sequential |
+| 002 | palette-options | Which hue carries percentile shading? | **rejected** — superseded by 004 | palette, teams-table, sequential |
+| 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | _pending_ | palette, percentile, rarity, accessibility |
 | 003 | alliance-axes | Shared axis or one per alliance, for match predictions? | _pending_ | match-prediction, uncertainty, phase-6, phase-7 |
 
 ## Findings so far
@@ -60,6 +62,16 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
   lightness**.
 - Structural argument for a non-red, non-blue chrome hue: red and blue are spoken for by alliances, so a
   chrome that avoids both never competes with alliance colour on match pages.
+- **Classic card-game rarity colours fail CVD.** Rarity blue `#3B82F6` vs purple `#9333EA` → ΔE 1.3
+  deutan: the two middle tiers are the same colour to ~6% of males. Pushing blue toward CYAN fixes it —
+  `#0EA5E9` vs `#9333EA` → ΔE 14.1 deutan / 26.5 normal. Same vocabulary, readable.
+- **Sorted columns cannot carry tier information.** Adjacent rows in a sorted table share a tier by
+  construction, so the box restates the rank. Tiers earn their place on mixed sets (Event, Team,
+  Compare) and — importantly — on the *unsorted component columns* of the Teams table, where "Rare
+  overall but Epic in Hub Auto" is real scouting signal.
+- **Mock against the real distribution, not the visible rows.** 004's first build computed percentiles
+  within its 14-row sample and looked great; against the true 3,709-team field the top of the table is
+  uniformly Legendary. The flattering version would have shipped a wrong conclusion.
 
 **Pipeline gap uncovered by sketching (actionable)**
 
