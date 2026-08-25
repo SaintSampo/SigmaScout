@@ -2,7 +2,7 @@
 id: publish-match-predictive-variance
 created: 2026-08-25
 source: sketch 003-alliance-axes
-resolves_phase:
+resolves_phase: 6
 priority: high
 ---
 
