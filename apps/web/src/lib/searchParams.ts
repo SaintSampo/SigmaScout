@@ -183,3 +183,22 @@ export const EventsSearchSchema = RootSearchSchema.extend({
 });
 
 export type EventsSearch = z.infer<typeof EventsSearchSchema>;
+
+/**
+ * The team page's two tabs (D-16, 06-CONTEXT.md) — Overview and Metric
+ * History. `?tab=` is the shareable, back/forward-navigable URL state; the
+ * default (absent or malformed) resolves to Overview via `.catch()`, same
+ * T-06-01 discipline every other field on this schema already follows.
+ */
+export const TEAM_TABS = ["overview", "history"] as const;
+
+/**
+ * Extends `RootSearchSchema` with exactly one field, `tab` — per D-16, the
+ * team page has no sortable table, so `sort`/`sortDir` are deliberately NOT
+ * extended in here (unlike `TeamsSearchSchema`).
+ */
+export const TeamSearchSchema = RootSearchSchema.extend({
+  tab: z.enum(TEAM_TABS).catch("overview"),
+});
+
+export type TeamSearch = z.infer<typeof TeamSearchSchema>;
