@@ -334,7 +334,7 @@ export interface BuildTeamSeasonArtifactParams {
   readonly season: number;
   readonly algorithmId: string;
   readonly algorithmVersion: string;
-  readonly seasonStats: { record: { wins: number; losses: number; ties: number }; metrics: Record<string, TeamMetric> };
+  readonly seasonStats: { record: { wins: number; losses: number; ties: number }; metrics: Record<string, TeamMetricWithPercentile> };
   readonly events: readonly TeamSeasonEventInput[];
   readonly metricHistory: readonly MetricHistoryRow[];
   readonly generation: string;

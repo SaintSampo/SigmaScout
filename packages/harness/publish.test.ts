@@ -456,6 +456,44 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(row?.actualRedRp).toBeUndefined();
     expect(row?.actualBlueRp).toBeUndefined();
   });
+
+  it("plan 06-04 Task 3: every field this phase added at once — own variance, actual RP, percentile, robot image, active years, a played and a scheduled match in the same event — parses as one artifact", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      seasonStats: {
+        record: { wins: 1, losses: 0, ties: 0 },
+        metrics: { total: { value: 45.6, spread: 3.1, percentile: 82.4 } },
+      },
+      robotImageUrl: "https://i.imgur.com/example.jpg",
+      activeYears: [2024, 2025, 2026],
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "Sacramento Regional",
+          startDate: "2026-03-01",
+          matches: [
+            {
+              match: fixtureMatch({ redRpEarned: 2, blueRpEarned: 0 }),
+              prediction: fixturePrediction({ redScoreVarianceOwn: 15.4321, blueScoreVarianceOwn: 11.2233 }),
+            },
+            { match: fixtureUpcoming(), prediction: fixturePrediction({ redScoreVarianceOwn: 14.1, blueScoreVarianceOwn: 10.2 }) },
+          ],
+        },
+      ],
+    });
+
+    expect(artifact.robotImageUrl).toBe("https://i.imgur.com/example.jpg");
+    expect(artifact.activeYears).toEqual([2024, 2025, 2026]);
+    expect(artifact.seasonStats.metrics.total?.percentile).toBe(82.4);
+    expect(artifact.events).toHaveLength(1);
+    expect(artifact.events[0]?.matches).toHaveLength(2);
+    const playedRow = artifact.events[0]?.matches.find((m) => m.actualWinner !== undefined);
+    const scheduledRow = artifact.events[0]?.matches.find((m) => m.actualWinner === undefined);
+    expect(playedRow?.redScoreVarianceOwn).toBe(15.4321);
+    expect(playedRow?.actualRedRp).toBe(2);
+    expect(scheduledRow?.redScoreVarianceOwn).toBe(14.1);
+    expect(scheduledRow?.actualRedScore).toBeUndefined();
+  });
 });
 
 describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus (plan 06-04 Task 1)", () => {
