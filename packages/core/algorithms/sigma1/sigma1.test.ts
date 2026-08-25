@@ -11,6 +11,7 @@ import {
   sigma1,
   sigma1NormalCdf,
   sigma1SeasonSd,
+  teamTotalVariance,
   type Sigma1State,
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
@@ -18,6 +19,8 @@ import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import { FOULS_COMMITTED_COMPONENT } from "../breakdown/index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 import { emptyInnovationStats } from "./adaptation.js";
+import { opr } from "../opr.js";
+import { epa } from "../epa.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -218,6 +221,85 @@ describe("sigma1.predict — shape", () => {
     expect(prediction.redScore).toBe(0);
     expect(prediction.blueScore).toBe(0);
     expect(prediction.pRedWin).toBe(0.5);
+  });
+});
+
+describe("sigma1.predict — D-01 own-variance publish (Phase 6)", () => {
+  it("returns redScoreVarianceOwn/blueScoreVarianceOwn as finite numbers equal to each alliance's own posterior + covariance total, computed independently", () => {
+    let state = sigma1.initState([]);
+    state = sigma1.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["T1", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redScore: UNIFORM_TOTAL,
+        blueScore: UNIFORM_TOTAL,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm2",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 2,
+      redTeams: ["T1", "T4", "T7"],
+      blueTeams: ["T2", "T5", "T8"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 0,
+    };
+    const prediction = sigma1.predict(state, upcoming);
+
+    expect(typeof prediction.redScoreVarianceOwn).toBe("number");
+    expect(typeof prediction.blueScoreVarianceOwn).toBe("number");
+    expect(Number.isFinite(prediction.redScoreVarianceOwn)).toBe(true);
+    expect(Number.isFinite(prediction.blueScoreVarianceOwn)).toBe(true);
+
+    // Independently recompute each alliance's posterior + covariance total
+    // straight from `state`, rather than reading back predict()'s own
+    // expression — a schema-shape assertion alone would pass even if the
+    // field were populated with the wrong number (or left permanently 0).
+    const posteriorSum = (teams: readonly string[]): number =>
+      teams.reduce((sum, team) => {
+        const beliefs = state.teams.get(team)?.beliefs;
+        if (!beliefs) return sum;
+        return sum + Object.values(beliefs).reduce((s, b) => s + b.variance, 0);
+      }, 0);
+    const covarianceSum = (teams: readonly string[]): number =>
+      teams.reduce((sum, team) => sum + teamTotalVariance(state.teams.get(team)?.covariance ?? []), 0);
+
+    const expectedRed = posteriorSum(["T1", "T4", "T7"]) + covarianceSum(["T1", "T4", "T7"]);
+    const expectedBlue = posteriorSum(["T2", "T5", "T8"]) + covarianceSum(["T2", "T5", "T8"]);
+
+    expect(Math.abs(prediction.redScoreVarianceOwn! - expectedRed)).toBeLessThan(1e-9);
+    expect(Math.abs(prediction.blueScoreVarianceOwn! - expectedBlue)).toBeLessThan(1e-9);
+  });
+
+  it("opr.predict and epa.predict both leave redScoreVarianceOwn/blueScoreVarianceOwn undefined — neither models an alliance-level own variance", () => {
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm1",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 1,
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 0,
+    };
+
+    const oprPrediction = opr.predict(opr.initState([]), upcoming);
+    expect(oprPrediction.redScoreVarianceOwn).toBeUndefined();
+    expect(oprPrediction.blueScoreVarianceOwn).toBeUndefined();
+
+    const epaPrediction = epa.predict(epa.initState([]), upcoming);
+    expect(epaPrediction.redScoreVarianceOwn).toBeUndefined();
+    expect(epaPrediction.blueScoreVarianceOwn).toBeUndefined();
   });
 });
 

@@ -77,8 +77,28 @@ export interface Prediction {
   pRedWin: number;
   redScore: number;
   blueScore: number;
-  /** Optional variance channel — left unpopulated by OPR, populated by later algorithms. */
+  /**
+   * Optional variance channel — left unpopulated by OPR, populated by later
+   * algorithms. This is the red+blue SUM (the win-probability denominator),
+   * NOT either alliance's own variance — see `redScoreVarianceOwn`/
+   * `blueScoreVarianceOwn` below for that.
+   */
   variance?: number;
+  /**
+   * D-01 (Phase 6): each alliance's OWN predicted-score variance — that
+   * alliance's posterior (estimate uncertainty) plus covariance (performance
+   * spread) total, the exact D-10 predictive-variance quantity Sigma1
+   * already computes to build its RP pmf. This is NOT the same quantity as
+   * `variance` above (which sums both alliances for the win-probability
+   * denominator) and NOT the same quantity as `TeamMetric.spread`'s D-09
+   * match-to-match consistency — a later reader must never conflate any of
+   * these three. Optional, following the same convention as `variance`
+   * above: populated by Sigma1, left `undefined` by OPR and EPA, neither of
+   * which models an alliance-level own variance.
+   */
+  redScoreVarianceOwn?: number;
+  /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+  blueScoreVarianceOwn?: number;
   /** D-24: full component vectors, present only for algorithms that decompose scores (EPA, Sigma1). */
   redComponents?: Record<string, ComponentPrediction>;
   blueComponents?: Record<string, ComponentPrediction>;

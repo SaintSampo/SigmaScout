@@ -725,6 +725,14 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
     redScore,
     blueScore,
     variance,
+    // D-01 (Phase 6): each alliance's OWN predicted-score variance, already
+    // computed above (as `redScoreVarianceOwn`/`blueScoreVarianceOwn`) to
+    // build the RP pmf below — never recomputed here, just attached to the
+    // returned Prediction so the published artifact can carry it (see
+    // `types.ts`'s `Prediction.redScoreVarianceOwn` doc comment for why this
+    // is a different quantity from `variance` above).
+    redScoreVarianceOwn,
+    blueScoreVarianceOwn,
     redComponents,
     blueComponents,
     // D-10: omitted entirely (never an empty array) when
