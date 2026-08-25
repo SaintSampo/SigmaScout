@@ -87,15 +87,18 @@ const PAGE_KINDS = ["teams", "team", "events", "event", "compare"] as const;
  *
  * Both bounds come from the real full 2022-2026 publish run recorded in
  * `docs/publish-budget.md` (`pnpm publish:seasons`, completed
- * 2026-08-22T06:45:49Z, 54,671 page objects across 5 seasons × 3
- * algorithms):
+ * 2026-08-25T19:10:49Z — plan 06-06's authorized republish carrying D-01..D-05's
+ * team-artifact fields — 54,671 page objects across 5 seasons × 3 algorithms):
  *   - teams: measured max 2,721,887 bytes (`v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json`,
  *     the committed `budgetMaxBytes` is 3,500,000) — this bound (5,000,000) sits well above
  *     that committed ceiling, so raising `budgetMaxBytes` for ordinary season-to-season growth
- *     does not also require touching this test.
- *   - team: measured max 287,264 bytes (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`,
+ *     does not also require touching this test. Unchanged by plan 06-06's run — Phase 6's new
+ *     fields land only on the per-team artifact, not this one (06-RESEARCH.md Open Question 2).
+ *   - team: measured max 304,862 bytes (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`,
  *     the committed `budgetMaxBytes` is 375,000) — this bound (600,000) gives the same clear
- *     headroom above the committed ceiling.
+ *     headroom above the committed ceiling. Moved from a pre-Phase-6 287,264-byte baseline
+ *     (+17,598 bytes, +6.13%) by D-01..D-05's own-variance/actual-RP/percentile/robotImageUrl/
+ *     activeYears additions; still 70,138 bytes (18.70%) under the committed budget.
  */
 const TEAMS_PAGE_ABSOLUTE_MAX_BYTES = 5_000_000;
 const TEAM_PAGE_ABSOLUTE_MAX_BYTES = 600_000;

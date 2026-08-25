@@ -19,17 +19,25 @@ algorithms (opr, epa, sigma1):
 ```
 pnpm publish:seasons
 ```
+(equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
+directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-Run completed 2026-08-24, `21:59Z`-`22:24Z` (~25 min wall clock), producing 54,671
-page objects plus 2 manifests (54,673 total `PUT`s), 2,274,389,691 bytes (≈2.12 GiB). This run
-re-measured `events/{year}` after plan 05-02 added five location and calendar fields to that
-artifact (EVNT-01); every other page kind's distribution came back byte-identical to the
-2026-08-22 run, so only the `events/{year}` row moved.
+**Latest run — 2026-08-25, `18:49:10Z`-`19:10:49Z` (21 min 39 sec wall clock),** producing 54,671
+page objects plus 2 manifests (54,673 total `PUT`s), 2,454,511,888 bytes (≈2.29 GiB) of page-object
+payload. This is the real republish plan 06-06 was authorized to spend, carrying every D-01…D-05
+team-artifact field (own predicted-score variance, actual RP, per-metric percentile, robot image
+URL, `activeYears`, scheduled-match rows, and the `eventName` defect fix) live for the first time.
+Object count landed exactly on the prior run's 54,671 page objects + 2 manifests — confirming the
+new fields changed bytes, not object count, as the plan's own acceptance criteria required. Because
+D-01…D-05 only touch the per-team artifact (`team/{teamKey}/{year}`) — the `teams/{year}` artifact
+deliberately keeps reading the unwidened `metricsByTeam` per 06-RESEARCH.md's Open Question 2 scope
+boundary, and `events/{year}`/`event/{eventKey}` are untouched by this phase — only the
+`team/{teamKey}/{year}` row below moved versus the 2026-08-24 run; every other row is byte-identical.
 
 | Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key |
 |---|---:|---:|---:|---:|---|
 | `teams/{year}` | 15 | 1,361,992 | 2,721,887 | 2,721,887 | `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json` |
-| `team/{teamKey}/{year}` | 51,693 | 30,228 | 98,239 | 287,264 | `v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json` |
+| `team/{teamKey}/{year}` | 51,693 | 33,303 | 106,063 | 304,862 | `v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json` |
 | `events/{year}` | 15 | 75,106 | 83,752 | 83,752 | `v1/events/2025/sigma1@2.0.0+tuned-2026-08.json` |
 | `event/{eventKey}` | 2,943 | 81,358 | 169,830 | 276,105 | `v1/event/2024new/sigma1@2.0.0+tuned-2026-08.json` |
 | `compare/{year}` | 5 | 14,017 | — | 14,121 | `v1/compare/2026.json` |
@@ -44,33 +52,60 @@ D-05 names two artifacts explicitly as the ones most at risk of a payload regres
 load speed is this project's top stated UX priority:
 
 - **The year-wide teams table** (`teams/{year}`) topped out at **2,721,887 bytes** (≈2.60 MiB),
-  for `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json` — Sigma1's richer per-team metric set (value
-  + spread per component, more components than OPR/EPA) makes it the heaviest of the three
-  algorithms' teams files for the same season.
-- **The 292-match team page** (`team/{teamKey}/{year}`) topped out at **287,264 bytes** (≈281
+  for `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json` — unchanged by this run, since Phase 6
+  deliberately did not widen this artifact's published surface (see the scope-boundary note above).
+- **The 292-match team page** (`team/{teamKey}/{year}`) topped out at **304,862 bytes** (≈298
   KiB), for `v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json` — frc118, a long-running,
   high-activity team, consistent with 04-CONTEXT.md's measured "max 292 matches per team per
-  season" fact.
+  season" fact. This is the artifact D-01…D-05 actually grew — see "Team-page delta (D-01…D-05,
+  plan 06-06)" below.
 
-**Compressed figures — a genuine finding, not an omission.** `curl -I -H "Accept-Encoding: br,
-gzip"` against the largest teams file returned `HTTP/1.1 200`, `Content-Length: 2721887`, and **no
-`Content-Encoding` header at all** — the plain `r2.dev` public URL used for this measurement does
-not apply in-transit compression; `%{size_download}` measured with `Accept-Encoding` sent was
-identical to the raw byte count (2,721,887 bytes both ways). D-25's eventual custom-domain
-deployment, proxied through Cloudflare's edge, may compress these objects in transit the way a
-zone-proxied domain does — that figure is **unmeasured** until a custom domain is actually in
-front of this bucket, and should be re-measured then rather than assumed. What this run confirms
-is that the RAW byte counts in the table above are exactly what a client fetches today.
+### Team-page delta (D-01…D-05, plan 06-06)
+
+The 292-match team page's measured maximum moved from the recorded **287,264-byte baseline**
+(2026-08-24 run, pre-Phase-6) to **304,862 bytes** (this run) — a **+17,598 byte (+6.13%)**
+increase, carrying D-01's own-variance pair, D-02's actual RP, D-04's percentile, D-03's
+`robotImageUrl`, and D-05's `activeYears` for the first time. This exactly matches plan 06-04's
+dry-run projection (also 304,862 bytes) against the same corpus, since both runs exercise the
+identical assembly code path over unchanged underlying data.
+
+Remaining headroom under the `budgetMaxBytes: 375,000` budget: **70,138 bytes (18.70%)** — no
+overage; `budgetMaxBytes` was left untouched per the plan's explicit instruction not to raise a
+budget to fit a measurement.
+
+**Compressed figures — re-measured against the real custom domain, and the finding changed.**
+`curl -I -H "Accept-Encoding: br, gzip"` against `https://data.sigmascout.org` (D-25's live custom
+domain, proxied through Cloudflare's edge — not the plain `r2.dev` URL the 2026-08-24 baseline
+measured) now returns `HTTP/1.1 200` **with `Content-Encoding: br`** on every page kind checked:
+
+| Object | Raw bytes (`Accept-Encoding: identity`) | Brotli-compressed bytes (`Accept-Encoding: br, gzip`) | Reduction |
+|---|---:|---:|---:|
+| `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json` | 2,721,887 | 347,596 | −87.2% |
+| `v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json` | 304,862 | 40,529 | −86.7% |
+
+This **reverses the 2026-08-24 finding** ("no `Content-Encoding` header at all") — that measurement
+was taken against the plain `r2.dev` public URL, which genuinely does not compress in transit. Once
+D-25's custom domain sits in front of the bucket, Cloudflare's edge applies Brotli automatically, so
+a real client fetching `data.sigmascout.org` today downloads roughly an eighth to a seventh of the
+raw byte counts in the table above — the RAW byte counts remain the correct figures for the
+budget/`payloadBudget.test.ts` gate (they bound worst-case parse/memory cost, not wire cost), but a
+reader estimating real-world network transfer should use the compressed column, not the raw one.
 
 ## Storage and write volume (DATA-05)
 
-One full publish (`pnpm publish:seasons`, this run):
+One full publish (`pnpm publish:seasons`, latest run — 2026-08-25, plan 06-06's authorized
+republish):
 
 | Metric | Local counter (this run) | Free-tier allowance | Headroom |
 |---|---:|---:|---|
 | Objects written | 54,673 (54,671 page objects + 2 manifests) | — | — |
-| Bytes written | 2,274,047,079 (≈2.12 GiB) | 10 GB storage | ≈78.9% of the allowance unused after this run |
+| Bytes written | 2,454,511,888 (≈2.29 GiB) | 10 GB storage | ≈77.1% of the allowance unused after this run |
 | Class-A operations (PUTs) | 54,673 | 1,000,000/month | ≈5.47% of one month's allowance for one full publish |
+
+**Prior run for comparison** (2026-08-24, pre-Phase-6): 2,274,047,079 bytes (≈2.12 GiB), same
+54,673-object count, ≈78.9% storage headroom. The byte-count increase this run (+180,464,809 bytes,
+≈+7.9%) is entirely attributable to D-01…D-05's new team-artifact fields landing across all 51,693
+`team/{teamKey}/{year}` objects — consistent with the per-object team-page delta measured above.
 
 **These are the LOCAL counter's numbers, not the Cloudflare dashboard's.** Per
 `04-VALIDATION.md`'s own Manual-Only Verifications table, R2 storage total and Class-A operation
@@ -430,8 +465,8 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-24T22:24:00Z",
-  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026)",
+  "measuredAt": "2026-08-25T19:10:49Z",
+  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026) -- plan 06-06's authorized republish carrying D-01..D-05",
   "pages": {
     "teams": {
       "count": 15,
@@ -443,9 +478,9 @@ rendering of these same numbers, not a second source.
     },
     "team": {
       "count": 51693,
-      "medianBytes": 30228,
-      "p95Bytes": 98239,
-      "maxBytes": 287264,
+      "medianBytes": 33303,
+      "p95Bytes": 106063,
+      "maxBytes": 304862,
       "budgetMaxBytes": 375000,
       "largestKey": "v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json"
     },
