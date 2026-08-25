@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Palette options</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px;
+    border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; } .variant.active { display:block; }
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:var(--text-body); }
+  th { text-align:left; font-size:var(--text-label); font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:9px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  .team-no { font-variant-numeric:tabular-nums; font-weight:600; }
+  .spread { color:var(--color-text-muted); font-size:var(--text-label); }
+  .muted { color:var(--color-text-muted); }
+  .ramp { display:flex; gap:0; margin:0 0 4px; border-radius:4px; overflow:hidden; width:220px; }
+  .ramp span { flex:1; height:16px; }
+  .swatchrow { display:flex; gap:var(--space-lg); flex-wrap:wrap; align-items:flex-end; margin-bottom:12px; }
+  .swatchrow div small { color:var(--color-text-muted); font-size:11px; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('indigo', this)">Indigo (current identity)</button>
+  <button class="variant-tab" onclick="show('teal', this)">Teal</button>
+  <button class="variant-tab" onclick="show('amber', this)">Amber</button>
+  <button class="variant-tab" onclick="show('slate', this)">Slate (most restrained)</button>
+  <span class="spacer"></span>
+  <span class="note">Same shading mechanic as 001-A &middot; only the hue changes</span>
+</div>
+
+<div id="wrap"></div>
+
+<script src="data.js"></script>
+<script>
+var RAMPS = {
+  indigo: { name:'Indigo', steps:['#EEF2FF','#C7D2FE','#A5B4FC','#818CF8','#4F46E5'], ink:'#3730A3',
+    note:'Keeps D-05’s identity decision intact — this is the accent already shipped, extended into a ramp. Familiar to nobody in FRC, which was the point: it does not read as Statbotics or TBA.' },
+  teal: { name:'Teal', steps:['#F0FDFA','#CCFBF1','#5EEAD4','#2DD4BF','#0D9488'], ink:'#0F766E',
+    note:'Furthest from every other FRC tool while still reading as a serious data instrument. Teal also carries no alliance meaning — red and blue are spoken for in this domain, and a chrome that avoids both never competes with alliance colour.' },
+  amber: { name:'Amber', steps:['#FFFBEB','#FEF3C7','#FCD34D','#F59E0B','#B45309'], ink:'#92400E',
+    note:'The warmest and most energetic. Reads closer to a sports product than a spreadsheet. The risk: amber is conventionally a caution signal, so using it for “good” inverts an expectation — and it collides with the uncertainty colour used in sketch 001-C.' },
+  slate: { name:'Slate', steps:['#F8FAFC','#E2E8F0','#CBD5E1','#94A3B8','#475569'], ink:'#334155',
+    note:'Shading with no hue at all — density alone carries magnitude, and colour stays completely free for meaning (alliance, win/loss, confidence). The most restrained option and the one that scales best if later phases add more colour-coded dimensions.' }
+};
+
+var fmt = function (n) { return n.toFixed(2); };
+var totals = TEAMS.map(function (t) { return t.total; });
+var autos  = TEAMS.map(function (t) { return t.hubAuto; });
+var ends   = TEAMS.map(function (t) { return t.hubEndgame; });
+
+function shadeOf(v, arr, steps) {
+  var mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr);
+  var p = (v - mn) / ((mx - mn) || 1);
+  var i = Math.min(steps.length - 1, Math.floor(p * steps.length));
+  return steps[i];
+}
+
+function build(key) {
+  var R = RAMPS[key];
+  var rampHtml = R.steps.map(function (s) { return '<span style="background:' + s + '"></span>'; }).join('');
+  var rows = TEAMS.map(function (t) {
+    return '<tr>' +
+      '<td class="num muted">' + t.rank + '</td>' +
+      '<td class="num team-no" style="color:' + R.ink + '">' + t.n + '</td><td>' + t.nick + '</td>' +
+      '<td class="num" style="background:' + shadeOf(t.total, totals, R.steps) + ';font-weight:600">' + fmt(t.total) + '<span class="spread"> &plusmn; ' + fmt(t.spread) + '</span></td>' +
+      '<td class="num" style="background:' + shadeOf(t.hubAuto, autos, R.steps) + '">' + fmt(t.hubAuto) + '<span class="spread"> &plusmn; ' + fmt(t.hubAutoS) + '</span></td>' +
+      '<td class="num" style="background:' + shadeOf(t.hubEndgame, ends, R.steps) + '">' + fmt(t.hubEndgame) + '<span class="spread"> &plusmn; ' + fmt(t.hubEndgameS) + '</span></td>' +
+      '<td class="num muted">' + t.w + '-' + t.l + '</td></tr>';
+  }).join('');
+
+  return '<div id="v-' + key + '" class="variant">' +
+    '<header style="background:var(--color-chrome);padding:12px 16px;">' +
+      '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+        '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;">SigmaScout</span>' +
+        '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;">' +
+          '<span style="border-bottom:2px solid ' + R.ink + ';color:' + R.ink + ';padding-bottom:2px;">Teams</span>' +
+          '<span class="muted">Events</span><span class="muted">Compare</span></nav>' +
+        '<span style="flex:1"></span><span style="font-size:13px" class="muted">2026 &middot; Sigma1 2.0.0</span>' +
+      '</div></header>' +
+    '<div class="page" style="padding-top:16px;">' +
+      '<div class="swatchrow">' +
+        '<div><div class="ramp">' + rampHtml + '</div><small>' + R.name + ' &middot; low &rarr; high percentile</small></div>' +
+      '</div>' +
+      '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 2px;">Teams &mdash; 2026</h1>' +
+      '<p class="muted" style="margin:0 0 12px;font-size:13px;">3,709 teams &middot; ranked by Total</p>' +
+      '<div class="tablewrap"><table>' +
+        '<thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+        '<th class="num">Total</th><th class="num">Hub Auto</th><th class="num">Hub Endgame</th><th class="num">Record</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div>' +
+    '</div>' +
+    '<p class="caption"><b>' + R.name + '.</b> ' + R.note + '</p>' +
+  '</div>';
+}
+
+document.getElementById('wrap').innerHTML =
+  Object.keys(RAMPS).map(build).join('');
+document.getElementById('v-indigo').classList.add('active');
+
+function show(key, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('v-' + key).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+</script>
+</body>
+</html>

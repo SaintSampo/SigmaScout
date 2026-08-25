@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Alliance axes on match predictions</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; } .variant.active { display:block; }
+  .page { max-width:900px; margin:0 auto; padding:16px var(--space-md) var(--space-lg); }
+  .caption { max-width:900px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+  .match { background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:14px 16px; margin-bottom:14px; }
+  .mhead { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+  .mkey { font-weight:600; font-size:15px; }
+  .muted { color:var(--color-text-muted); }
+  .teams { font-variant-numeric:tabular-nums; font-size:13px; }
+  .red-ink { color:#B91C1C; } .blue-ink { color:#1D4ED8; }
+  .axis { position:relative; height:46px; margin:2px 0; }
+  .axis-line { position:absolute; left:0; right:0; top:22px; height:1px; background:var(--color-border); }
+  .tick { position:absolute; top:16px; width:1px; height:6px; background:var(--color-border); }
+  .ticklab { position:absolute; top:26px; font-size:10px; color:var(--color-text-muted); transform:translateX(-50%); font-variant-numeric:tabular-nums; }
+  .band { position:absolute; top:6px; height:14px; border-radius:7px; }
+  .mean { position:absolute; top:2px; width:2px; height:22px; }
+  .actual { position:absolute; top:0; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; }
+  .lab { position:absolute; top:-2px; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .row2 { display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:13px; margin-top:6px; }
+  .pbar { height:8px; border-radius:4px; overflow:hidden; display:flex; width:220px; border:1px solid var(--color-border); }
+  .verdict { font-size:12px; padding:2px 8px; border-radius:99px; font-weight:600; }
+  .ok { background:#ECFDF5; color:#065F46; } .bad { background:#FEF2F2; color:#991B1B; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('a', this)">A: Shared axis (overlap = uncertainty)</button>
+  <button class="variant-tab" onclick="show('b', this)">B: Split axes (one per alliance)</button>
+  <span class="spacer"></span>
+  <span class="note">Real 2025new predictions vs real results</span>
+</div>
+
+<div style="max-width:900px;margin:16px auto 0;padding:12px 14px;border:1px solid #FCD34D;background:#FFFBEB;
+            border-radius:8px;font-size:13px;line-height:1.6;color:#78350F;">
+  <b>The band widths on this page are wrong, and knowingly so.</b> They are
+  <code>sqrt(sum of published component variances)</code>, which is <em>not</em> D-10's quantity. D-10 defines a
+  match prediction's &plusmn; as the <b>full predictive variance</b> — estimate uncertainty <em>plus</em>
+  performance spread (<code>P + Q + R</code>). The harness computes exactly that in
+  <code>linkFunctions.ts</code> to produce <code>pRedWin</code>, but <b><code>EventMatchSchema</code> does not
+  publish it</b> — the artifact carries scores, <code>pRedWin</code>, and per-component mean/variance, and
+  nothing else. So the widest honest band available to a client today is the wrong one.
+  <br><br>
+  It shows: in all three real matches below the actual result lands far outside the drawn band (SF10m1 red is
+  ~7&sigma; out, QM13 blue ~10&sigma;). That is an artifact of the missing term, not evidence the model is
+  broken — the win probabilities themselves are computed from the correct variance internally.
+  <b>The fix is a pipeline change, not a design change:</b> publish match-level predictive variance on the
+  event artifact. Judge the layout here, not the widths.
+</div>
+
+<div id="variant-a" class="variant active">
+  <div class="page"><h1 style="font-size:var(--text-heading);margin:0 0 4px;">Match predictions</h1>
+  <p class="muted" style="margin:0 0 16px;font-size:13px;">2025 New England &middot; Sigma1 2.0.0 &middot; predicted score &plusmn;1&sigma; against the actual result</p>
+  <div id="list-a"></div></div>
+  <p class="caption"><b>Both alliances on one shared axis.</b> The overlap between the two bands
+  <em>is</em> the win probability, drawn rather than asserted &mdash; heavy overlap means a coin flip, separation
+  means a lock. Sharing one scale is what makes that readable, and it is why this is one axis rather than
+  two: two independent scales would let equal-looking bands mean different things.</p>
+</div>
+
+<div id="variant-b" class="variant">
+  <div class="page"><h1 style="font-size:var(--text-heading);margin:0 0 4px;">Match predictions</h1>
+  <p class="muted" style="margin:0 0 16px;font-size:13px;">2025 New England &middot; Sigma1 2.0.0 &middot; each alliance on its own row, common scale</p>
+  <div id="list-b"></div></div>
+  <p class="caption"><b>One row per alliance, still a common scale.</b> Easier to read each alliance's own
+  range and to hang per-alliance detail off later (team chips, component breakdown, predicted RP). Costs
+  vertical room and makes the overlap &mdash; the thing that explains the win probability &mdash; something you
+  infer rather than see. Same data, different emphasis.</p>
+</div>
+
+<script src="data.js"></script>
+<script>
+function show(id, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('variant-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+var RED = '#DC2626', BLUE = '#2563EB';
+var W = 620;
+
+function domain(m) {
+  var lo = Math.min(m.pr - 2 * m.sr, m.pb - 2 * m.sb, m.ar, m.ab);
+  var hi = Math.max(m.pr + 2 * m.sr, m.pb + 2 * m.sb, m.ar, m.ab);
+  var pad = (hi - lo) * 0.08;
+  return [lo - pad, hi + pad];
+}
+function mk(m) {
+  var d = domain(m);
+  return function (v) { return ((v - d[0]) / (d[1] - d[0])) * W; };
+}
+function ticks(m) {
+  var d = domain(m), out = '';
+  var step = Math.pow(10, Math.floor(Math.log10((d[1] - d[0]) / 4)));
+  if ((d[1] - d[0]) / step > 8) step *= 2;
+  var x = mk(m);
+  for (var v = Math.ceil(d[0] / step) * step; v <= d[1]; v += step) {
+    out += '<div class="tick" style="left:' + x(v).toFixed(1) + 'px"></div>' +
+           '<div class="ticklab" style="left:' + x(v).toFixed(1) + 'px">' + Math.round(v) + '</div>';
+  }
+  return out;
+}
+function header(m) {
+  var correct = m.pw === m.aw;
+  return '<div class="mhead">' +
+    '<span class="mkey">' + m.lvl.toUpperCase() + ' ' + m.key.replace(/^(qm|sf|f)/, '') + '</span>' +
+    '<span class="teams red-ink">' + m.red.join(' · ') + '</span>' +
+    '<span class="muted">vs</span>' +
+    '<span class="teams blue-ink">' + m.blue.join(' · ') + '</span>' +
+    '<span style="flex:1"></span>' +
+    '<span class="verdict ' + (correct ? 'ok' : 'bad') + '">' + (correct ? 'called it' : 'missed it') + '</span>' +
+  '</div>';
+}
+function probRow(m) {
+  var pr = Math.round(m.p * 100);
+  return '<div class="row2">' +
+    '<div class="pbar"><div style="width:' + pr + '%;background:' + RED + '"></div>' +
+      '<div style="width:' + (100 - pr) + '%;background:' + BLUE + '"></div></div>' +
+    '<span class="muted">win probability</span>' +
+    '<span style="font-variant-numeric:tabular-nums"><span class="red-ink">' + pr + '%</span> · <span class="blue-ink">' + (100 - pr) + '%</span></span>' +
+    '<span style="flex:1"></span>' +
+    '<span class="muted">actual</span><span style="font-variant-numeric:tabular-nums;font-weight:600">' +
+      '<span class="red-ink">' + m.ar + '</span> – <span class="blue-ink">' + m.ab + '</span></span>' +
+  '</div>';
+}
+/* One band + mean tick + actual marker. Labels sit above the band, never on it. */
+function band(x, mean, sd, color, label, top) {
+  var lo = x(mean - sd), hi = x(mean + sd);
+  return '<div class="band" style="left:' + lo.toFixed(1) + 'px;width:' + (hi - lo).toFixed(1) + 'px;background:' + color + ';opacity:.30;top:' + top + 'px"></div>' +
+         '<div class="mean" style="left:' + (x(mean) - 1).toFixed(1) + 'px;background:' + color + ';top:' + (top - 4) + 'px"></div>' +
+         '<div class="lab" style="left:' + (x(mean) + 8).toFixed(1) + 'px;color:' + color + ';top:' + (top - 14) + 'px">' + label + '</div>';
+}
+function actualMark(x, v, color) {
+  return '<div class="actual" style="left:' + (x(v) - 5).toFixed(1) + 'px;border-top:7px solid ' + color + ';top:38px"></div>';
+}
+
+/* ---- A: shared axis ----
+ * Layout is banded into fixed horizontal lanes so nothing can collide: label
+ * lane, band lane, band lane, label lane, then the axis with its ticks at the
+ * very bottom. The first render put tick labels between the two bands and the
+ * value labels floating at each mean, which collided in every one of the three
+ * real matches — the numbers only separate when the alliances differ, which is
+ * exactly the case this chart exists to show.
+ * Each band carries a 2px surface ring so the overlap region reads as overlap
+ * rather than as a third colour.
+ */
+function laneBand(x, mean, sd, color, top) {
+  var lo = x(mean - sd), hi = x(mean + sd);
+  return '<div class="band" style="left:' + lo.toFixed(1) + 'px;width:' + Math.max(4, hi - lo).toFixed(1) +
+           'px;background:' + color + ';opacity:.32;top:' + top + 'px;box-shadow:0 0 0 2px #fff"></div>' +
+         '<div class="mean" style="left:' + (x(mean) - 1).toFixed(1) + 'px;background:' + color +
+           ';top:' + (top - 3) + 'px;height:20px"></div>';
+}
+document.getElementById('list-a').innerHTML = MATCHES.map(function (m) {
+  var x = mk(m);
+  var redLab  = 'RED ' + m.pr.toFixed(0) + ' ± ' + m.sr.toFixed(1);
+  var blueLab = 'BLUE ' + m.pb.toFixed(0) + ' ± ' + m.sb.toFixed(1);
+  // Keep each label inside the plot even when its band sits near the right edge.
+  var clamp = function (v, w) { return Math.max(0, Math.min(v, W - w)); };
+  return '<div class="match">' + header(m) +
+    '<div class="axis" style="height:104px">' +
+      // lane 1 — red label
+      '<div class="lab" style="top:0;left:' + clamp(x(m.pr - m.sr), 120).toFixed(1) + 'px;color:' + RED + '">' + redLab + '</div>' +
+      // lane 2 — red band
+      laneBand(x, m.pr, m.sr, RED, 16) +
+      // lane 3 — blue band
+      laneBand(x, m.pb, m.sb, BLUE, 38) +
+      // lane 4 — blue label
+      '<div class="lab" style="top:58px;left:' + clamp(x(m.pb - m.sb), 126).toFixed(1) + 'px;color:' + BLUE + '">' + blueLab + '</div>' +
+      // lane 5 — axis, ticks, and the two actual-result markers
+      '<div class="axis-line" style="top:82px"></div>' +
+      ticks(m).replace(/top:16px/g, 'top:76px').replace(/top:26px/g, 'top:88px') +
+      '<div class="actual" style="left:' + (x(m.ar) - 5).toFixed(1) + 'px;border-bottom:7px solid ' + RED + ';top:74px"></div>' +
+      '<div class="actual" style="left:' + (x(m.ab) - 5).toFixed(1) + 'px;border-bottom:7px solid ' + BLUE + ';top:74px"></div>' +
+    '</div>' + probRow(m) + '</div>';
+}).join('');
+
+/* ---- B: split axes ---- */
+document.getElementById('list-b').innerHTML = MATCHES.map(function (m) {
+  var x = mk(m);
+  function rowFor(color, teams, mean, sd, actual, name) {
+    return '<div style="display:flex;align-items:center;gap:10px;margin:4px 0;">' +
+      '<span class="teams" style="width:118px;color:' + color + ';font-weight:600">' + teams.join(' · ') + '</span>' +
+      '<div class="axis" style="flex:1;height:30px;">' +
+        '<div class="axis-line" style="top:15px"></div>' +
+        band(x, mean, sd, color, '', 8) +
+        actualMark(x, actual, color).replace('top:38px', 'top:22px') +
+      '</div>' +
+      '<span style="width:112px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px;">' +
+        '<b>' + mean.toFixed(0) + '</b> ± ' + sd.toFixed(1) + ' <span class="muted">→ ' + actual + '</span></span>' +
+    '</div>';
+  }
+  return '<div class="match">' + header(m) +
+    rowFor(RED, m.red, m.pr, m.sr, m.ar, 'Red') +
+    rowFor(BLUE, m.blue, m.pb, m.sb, m.ab, 'Blue') +
+    '<div class="axis" style="height:18px;margin-left:128px;margin-right:112px;">' + ticks(m) + '</div>' +
+    probRow(m) + '</div>';
+}).join('');
+</script>
+</body>
+</html>
