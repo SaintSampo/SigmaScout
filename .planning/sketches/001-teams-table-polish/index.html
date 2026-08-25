@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Teams table polish</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; font-family:var(--font-sans); }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px;
+    border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; }
+  .variant.active { display:block; }
+
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md);
+    color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:var(--text-body); }
+  th { text-align:left; font-size:var(--text-label); font-weight:600; color:var(--color-text-muted);
+    padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:9px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  .team-no { font-variant-numeric:tabular-nums; font-weight:600; }
+  .spread { color:var(--color-text-muted); font-size:var(--text-label); }
+  .muted { color:var(--color-text-muted); }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="showVariant('now', this)">0: As shipped</button>
+  <button class="variant-tab" onclick="showVariant('a', this)">A: Familiar (TBA/Statbotics)</button>
+  <button class="variant-tab" onclick="showVariant('b', this)">B: Colour as information</button>
+  <button class="variant-tab" onclick="showVariant('c', this)">C: Uncertainty forward</button>
+  <span class="spacer"></span>
+  <span class="note">Real 2026 Sigma1 data &middot; narrow the window to test mobile</span>
+</div>
+
+<div id="variant-now" class="variant active">
+  <div id="chrome-now"></div>
+  <div class="page"><div class="tablewrap"><table id="t-now"></table></div></div>
+  <p class="caption"><b>What is live right now</b> &mdash; reproduced honestly, not flattered. 60/30/10 with
+  accent reserved for interactive and active states only. Everything reads at one visual weight: rank 1 and
+  rank 3,709 look identical, and a team at &plusmn;2.09 looks the same as one at &plusmn;91.14. Included so
+  the comparison is against reality rather than memory.</p>
+</div>
+
+<div id="variant-a" class="variant">
+  <div id="chrome-a"></div>
+  <div class="page"><div class="tablewrap"><table id="t-a"></table></div></div>
+  <p class="caption"><b>Borrows the conventions your users already know.</b> TBA/Statbotics blue chrome, and
+  metric cells shaded by percentile the way Statbotics and FanGraphs shade theirs &mdash; darker means better
+  within that column, so you read the table by scanning density rather than digits. Lowest learning curve of
+  the three. The cost is exactly what D-05 warned about: side by side with Statbotics this reads as a sibling
+  rather than as its own tool.</p>
+</div>
+
+<div id="variant-b" class="variant">
+  <div id="chrome-b"></div>
+  <div class="page"><div class="tablewrap"><table id="t-b"></table></div></div>
+  <p class="caption"><b>Keeps SigmaScout&rsquo;s indigo identity and adds meaning.</b> A rank-tier stripe
+  (elite / strong / solid / field), win&ndash;loss coloured by outcome, and a confidence bar showing how
+  trustworthy the number is. Every colour answers a question and nothing is decorative, so D-05&rsquo;s
+  &ldquo;own identity&rdquo; reasoning survives intact while the page stops reading flat.</p>
+</div>
+
+<div id="variant-c" class="variant">
+  <div id="chrome-c"></div>
+  <div class="page"><div class="tablewrap"><table id="t-c"></table></div></div>
+  <p class="caption"><b>Makes the differentiator the visual hero.</b> Every total renders as an interval
+  rather than a point &mdash; bar width is the &plusmn;1&sigma; range on a shared scale. Look at <b>4414</b>:
+  a 70&ndash;2 record but &plusmn;11.15, so its bar is visibly wider than <b>1690</b>&rsquo;s &plusmn;5.22
+  directly above it. That difference is invisible in every other FRC tool, and in variant 0. The risk is
+  density &mdash; the bar costs horizontal room the metric columns want.</p>
+</div>
+
+<script src="data.js"></script>
+<script>
+function showVariant(id, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('variant-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+var fmt = function (n) { return n.toFixed(2); };
+var maxTotal = Math.max.apply(null, TEAMS.map(function (t) { return t.total; }));
+var minSpread = Math.min.apply(null, TEAMS.map(function (t) { return t.spread; }));
+var maxSpread = Math.max.apply(null, TEAMS.map(function (t) { return t.spread; }));
+
+function chrome(target, mode) {
+  var blue = mode === 'tba';
+  var bg = blue ? 'var(--tba-blue)' : 'var(--color-chrome)';
+  var fg = blue ? '#fff' : 'var(--color-text)';
+  var sub = blue ? 'rgba(255,255,255,.78)' : 'var(--color-text-muted)';
+  var navSize = mode === 'shipped' ? '12px' : '14px';
+  var activeCol = blue ? '#fff' : 'var(--color-primary)';
+  document.getElementById(target).innerHTML =
+    '<header style="background:' + bg + ';color:' + fg + ';padding:12px 16px;">' +
+      '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+        '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;">SigmaScout</span>' +
+        '<nav style="display:flex;gap:16px;font-size:' + navSize + ';font-weight:600;">' +
+          '<span style="border-bottom:2px solid ' + activeCol + ';color:' + activeCol + ';padding-bottom:2px;">Teams</span>' +
+          '<span style="color:' + sub + ';">Events</span>' +
+          '<span style="color:' + sub + ';">Compare</span>' +
+        '</nav>' +
+        '<span style="flex:1"></span>' +
+        '<span style="font-size:13px;color:' + sub + ';">2026 &middot; Sigma1 2.0.0</span>' +
+      '</div>' +
+    '</header>' +
+    '<div class="page" style="padding-top:16px;">' +
+      '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 2px;">Teams &mdash; 2026</h1>' +
+      '<p class="muted" style="margin:0 0 12px;font-size:13px;">3,709 teams &middot; ranked by Total</p>' +
+    '</div>';
+}
+
+/* ---------- 0: as shipped ---------- */
+chrome('chrome-now', 'shipped');
+document.getElementById('t-now').innerHTML =
+  '<thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+  '<th class="num">Total</th><th class="num">Hub Auto</th><th class="num">Hub Endgame</th><th class="num">Record</th></tr></thead><tbody>' +
+  TEAMS.map(function (t) {
+    return '<tr><td class="num">' + t.rank + '</td><td class="num team-no">' + t.n + '</td><td>' + t.nick + '</td>' +
+      '<td class="num">' + fmt(t.total) + '<span class="spread"> &plusmn; ' + fmt(t.spread) + '</span></td>' +
+      '<td class="num">' + fmt(t.hubAuto) + '<span class="spread"> &plusmn; ' + fmt(t.hubAutoS) + '</span></td>' +
+      '<td class="num">' + fmt(t.hubEndgame) + '<span class="spread"> &plusmn; ' + fmt(t.hubEndgameS) + '</span></td>' +
+      '<td class="num muted">' + t.w + '-' + t.l + '</td></tr>';
+  }).join('') + '</tbody>';
+
+/* ---------- A: familiar, percentile shading ---------- */
+chrome('chrome-a', 'tba');
+function shade(v, arr) {
+  var mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr);
+  var p = (v - mn) / ((mx - mn) || 1);
+  return 'background:rgba(63,81,181,' + (0.05 + p * 0.30).toFixed(3) + ');';
+}
+var totals = TEAMS.map(function (t) { return t.total; });
+var autos  = TEAMS.map(function (t) { return t.hubAuto; });
+var ends   = TEAMS.map(function (t) { return t.hubEndgame; });
+document.getElementById('t-a').innerHTML =
+  '<thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+  '<th class="num">Total</th><th class="num">Hub Auto</th><th class="num">Hub Endgame</th><th class="num">Record</th></tr></thead><tbody>' +
+  TEAMS.map(function (t) {
+    return '<tr><td class="num muted">' + t.rank + '</td>' +
+      '<td class="num team-no" style="color:var(--tba-blue-dark)">' + t.n + '</td><td>' + t.nick + '</td>' +
+      '<td class="num" style="' + shade(t.total, totals) + 'font-weight:600">' + fmt(t.total) + '<span class="spread"> &plusmn; ' + fmt(t.spread) + '</span></td>' +
+      '<td class="num" style="' + shade(t.hubAuto, autos) + '">' + fmt(t.hubAuto) + '<span class="spread"> &plusmn; ' + fmt(t.hubAutoS) + '</span></td>' +
+      '<td class="num" style="' + shade(t.hubEndgame, ends) + '">' + fmt(t.hubEndgame) + '<span class="spread"> &plusmn; ' + fmt(t.hubEndgameS) + '</span></td>' +
+      '<td class="num muted">' + t.w + '-' + t.l + '</td></tr>';
+  }).join('') + '</tbody>';
+
+/* ---------- B: colour as information ---------- */
+chrome('chrome-b', 'ss');
+function tierOf(r) { return r <= 3 ? 1 : r <= 6 ? 2 : r <= 10 ? 3 : 4; }
+var tierNames = ['', 'Elite', 'Strong', 'Solid', 'Field'];
+document.getElementById('t-b').innerHTML =
+  '<thead><tr><th style="width:6px;padding:0"></th><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+  '<th class="num">Total</th><th style="width:100px">Confidence</th><th class="num">Hub Auto</th><th class="num">Record</th></tr></thead><tbody>' +
+  TEAMS.map(function (t) {
+    var tier = tierOf(t.rank);
+    var conf = 1 - (t.spread - minSpread) / ((maxSpread - minSpread) || 1);
+    var cc = conf > 0.66 ? 'var(--certain)' : conf > 0.33 ? 'var(--tier-3)' : 'var(--uncertain)';
+    return '<tr>' +
+      '<td style="padding:0;background:var(--tier-' + tier + ');" title="' + tierNames[tier] + '"></td>' +
+      '<td class="num muted">' + t.rank + '</td>' +
+      '<td class="num team-no">' + t.n + '</td><td>' + t.nick + '</td>' +
+      '<td class="num" style="font-weight:600">' + fmt(t.total) + '<span class="spread"> &plusmn; ' + fmt(t.spread) + '</span></td>' +
+      '<td><div style="height:6px;border-radius:3px;background:var(--color-border);overflow:hidden;">' +
+        '<div style="height:100%;width:' + (conf * 100).toFixed(0) + '%;background:' + cc + ';"></div></div></td>' +
+      '<td class="num">' + fmt(t.hubAuto) + '<span class="spread"> &plusmn; ' + fmt(t.hubAutoS) + '</span></td>' +
+      '<td class="num"><span style="color:var(--win);font-weight:600">' + t.w + '</span>' +
+        '<span class="muted">&ndash;</span><span style="color:var(--loss)">' + t.l + '</span></td>' +
+    '</tr>';
+  }).join('') + '</tbody>';
+
+/* ---------- C: uncertainty forward ----------
+ * The axis is zoomed to the visible rows, NOT anchored at zero. Drawn from zero
+ * the intervals collapse to a few pixels and the whole point is lost: totals
+ * here span 274-418 while spreads are only 5-11, so a 0-max axis renders every
+ * team as an identical tick. Zooming to [min(total-spread), max(total+spread)]
+ * is what makes 4414's +/-11.15 visibly wider than 1690's +/-5.22. The trade is
+ * that bar LENGTH no longer encodes total magnitude, only position does, so this
+ * axis must be labelled if it ships.
+ */
+chrome('chrome-c', 'ss');
+var BAR = 260;
+var domainLo = Math.min.apply(null, TEAMS.map(function (t) { return t.total - t.spread; }));
+var domainHi = Math.max.apply(null, TEAMS.map(function (t) { return t.total + t.spread; }));
+var pad = (domainHi - domainLo) * 0.04;
+domainLo -= pad; domainHi += pad;
+var px = function (v) { return ((v - domainLo) / (domainHi - domainLo)) * BAR; };
+document.getElementById('t-c').innerHTML =
+  '<thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+  '<th style="width:' + (BAR + 130) + 'px">Total &plusmn;1&sigma; <span style="font-weight:400;text-transform:none">(' +
+    domainLo.toFixed(0) + '&ndash;' + domainHi.toFixed(0) + ')</span></th>' +
+  '<th class="num">Hub Auto</th><th class="num">Record</th></tr></thead><tbody>' +
+  TEAMS.map(function (t) {
+    var lo = px(t.total - t.spread);
+    var hi = px(t.total + t.spread);
+    var wide = t.spread > 8;
+    var col = wide ? 'var(--uncertain)' : 'var(--certain)';
+    return '<tr>' +
+      '<td class="num muted">' + t.rank + '</td>' +
+      '<td class="num team-no">' + t.n + '</td><td>' + t.nick + '</td>' +
+      '<td><div style="position:relative;height:20px;">' +
+        '<div style="position:absolute;left:0;top:9px;height:2px;width:' + BAR + 'px;background:var(--color-border);"></div>' +
+        '<div style="position:absolute;left:' + lo.toFixed(1) + 'px;width:' + Math.max(4, hi - lo).toFixed(1) + 'px;top:4px;height:12px;border-radius:6px;background:' + col + ';opacity:.35;"></div>' +
+        '<div style="position:absolute;left:' + (px(t.total) - 1).toFixed(1) + 'px;top:1px;width:2px;height:18px;background:' + col + ';"></div>' +
+        '<span style="position:absolute;left:' + (BAR + 10) + 'px;top:2px;font-size:var(--text-label);font-variant-numeric:tabular-nums;white-space:nowrap;">' +
+          fmt(t.total) + '<span class="spread"> &plusmn; ' + fmt(t.spread) + '</span></span>' +
+      '</div></td>' +
+      '<td class="num">' + fmt(t.hubAuto) + '<span class="spread"> &plusmn; ' + fmt(t.hubAutoS) + '</span></td>' +
+      '<td class="num muted">' + t.w + '-' + t.l + '</td>' +
+    '</tr>';
+  }).join('') + '</tbody>';
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+/*
+ * Shared sketch theme — the visual vocabulary all SigmaScout sketches draw on.
+ * Custom properties only: no component styles, no layout rules.
+ *
+ * The `--ss-*` block is the palette Phase 5 actually shipped (05-UI-SPEC.md's
+ * 60/30/10). It is here so a sketch can show the current state honestly next to
+ * a proposal, rather than a flattering reconstruction of it.
+ */
+:root {
+  /* --- shipped Phase 5 palette (05-UI-SPEC.md) --- */
+  --ss-bg: #F8FAFC;          /* slate-50  — 60% */
+  --ss-surface: #F1F5F9;     /* slate-100 — 30% */
+  --ss-accent: #4F46E5;      /* indigo-600 — 10%, interactive/active only */
+  --ss-danger: #DC2626;
+  --ss-text: #0F172A;
+  --ss-text-muted: #64748B;
+  --ss-border: #E2E8F0;
+
+  /* --- sketch working palette --- */
+  --color-bg: var(--ss-bg);
+  --color-surface: #FFFFFF;
+  --color-chrome: var(--ss-surface);
+  --color-border: var(--ss-border);
+  --color-text: var(--ss-text);
+  --color-text-muted: var(--ss-text-muted);
+  --color-primary: var(--ss-accent);
+
+  /* Information colours — meaning, never decoration */
+  --tier-1: #0D9488;   /* teal-600  — elite */
+  --tier-2: #0891B2;   /* cyan-600  */
+  --tier-3: #6366F1;   /* indigo-500 */
+  --tier-4: #94A3B8;   /* slate-400 — the long tail */
+  --win: #059669;      /* emerald-600 */
+  --loss: #E11D48;     /* rose-600 */
+  --certain: #0D9488;  /* tight spread */
+  --uncertain: #D97706;/* wide spread — amber-600 */
+
+  /* TBA / Statbotics reference blue, for the familiar-chrome variant */
+  --tba-blue: #3F51B5;
+  --tba-blue-dark: #303F9F;
+
+  /* Type */
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --text-nav: 14px;
+  --text-body: 14px;
+  --text-label: 12px;
+  --text-heading: 20px;
+  --text-display: 28px;
+
+  /* Space */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --radius: 6px;
+}
