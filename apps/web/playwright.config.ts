@@ -61,7 +61,17 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts/,
+      // Widened by 06-09-PLAN.md Task 1 (Rule 3 - blocking, matching
+      // 06-05/06-07's identical precedent below for no-page-pan.spec.ts):
+      // static-shell.spec.ts existed on disk but matched no project's
+      // testMatch at all, so this plan's own literal verify command
+      // (`test:e2e -- static-shell`) reported "no tests found" regardless
+      // of any code change. No viewport-specific behavior is asserted (the
+      // shell's JS-disabled/enabled cases are viewport-agnostic), so the
+      // existing 1440x900 desktop project is the natural home — `baseURL`
+      // itself is UNCHANGED, per this plan's own instruction not to repoint
+      // e2e at anything other than the canonical deployed origin.
+      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
