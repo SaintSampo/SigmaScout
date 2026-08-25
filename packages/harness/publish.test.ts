@@ -11,9 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import { opr } from "../core/algorithms/opr.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { openCorpus, selectScheduledMatches, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { PredictionRecord } from "./replay.js";
+import type { TeamSeasonArtifact } from "./pageArtifacts.js";
 import {
   buildCompareArtifact,
   buildEventArtifact,
@@ -22,6 +24,7 @@ import {
   buildTeamSeasonArtifact,
   computeSizeStats,
   OUTCOME_KEYS,
+  publishSeasons,
   type PublishedObjectRecord,
 } from "./publish.js";
 import { ROUNDING_RULE } from "./rounding.js";
@@ -346,6 +349,226 @@ describe("buildTeamSeasonArtifact", () => {
     });
     expect(artifact.events).toEqual([]);
     expect(artifact.metricHistory).toEqual([]);
+  });
+});
+
+describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fields (plan 06-04 Task 1)", () => {
+  const baseParams = {
+    teamKey: "frc254",
+    teamNumber: 254,
+    nickname: "The Cheesy Poofs",
+    season: 2026,
+    algorithmId: "opr",
+    algorithmVersion: "3.0.0+baseline",
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    metricHistory: [],
+    generation: "test-generation-1",
+    computedAt: "2026-08-22T00:00:00.000Z",
+  } as const;
+
+  it("D-01: rounds a Sigma1-shaped prediction's own-variance fields to 4 decimals; an OPR-shaped prediction leaves both undefined", () => {
+    const sigma1Artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [
+            { match: fixtureMatch(), prediction: fixturePrediction({ redScoreVarianceOwn: 12.345678, blueScoreVarianceOwn: 9.876543 }) },
+          ],
+        },
+      ],
+    });
+    const sigma1Row = sigma1Artifact.events[0]?.matches[0];
+    expect(sigma1Row?.redScoreVarianceOwn).toBe(12.3457);
+    expect(sigma1Row?.blueScoreVarianceOwn).toBe(9.8765);
+
+    const oprArtifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: fixtureMatch(), prediction: fixturePrediction() }],
+        },
+      ],
+    });
+    const oprRow = oprArtifact.events[0]?.matches[0];
+    expect(oprRow?.redScoreVarianceOwn).toBeUndefined();
+    expect(oprRow?.blueScoreVarianceOwn).toBeUndefined();
+  });
+
+  it("D-02: actualRedRp/actualBlueRp round-trip an integer RP from MatchResult.redRpEarned/blueRpEarned", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: fixtureMatch({ redRpEarned: 2, blueRpEarned: 0 }), prediction: fixturePrediction() }],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.actualRedRp).toBe(2);
+    expect(row?.actualBlueRp).toBe(0);
+  });
+
+  it("D-02: a null redRpEarned publishes as null — never coerced to 0, never omitted", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: fixtureMatch({ redRpEarned: null }), prediction: fixturePrediction() }],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row).toBeDefined();
+    expect("actualRedRp" in (row as object)).toBe(true);
+    expect(row?.actualRedRp).toBeNull();
+  });
+
+  it("D-08/D-09: a scheduled match publishes predicted fields with every actual field undefined, and the row parses", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: fixtureUpcoming(), prediction: fixturePrediction() }],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.predictedRedScore).toBeDefined();
+    expect(row?.predictedBlueScore).toBeDefined();
+    expect(row?.actualWinner).toBeUndefined();
+    expect(row?.actualRedScore).toBeUndefined();
+    expect(row?.actualBlueScore).toBeUndefined();
+    expect(row?.actualRedRp).toBeUndefined();
+    expect(row?.actualBlueRp).toBeUndefined();
+  });
+});
+
+describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus (plan 06-04 Task 1)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-team-corpus-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
+    return {
+      eventKey: "2026casj",
+      year: 2026,
+      eventType: 0,
+      isOffseason: false,
+      startDate: "2026-03-01",
+      name: "2026casj",
+      week: null,
+      country: null,
+      stateProv: null,
+      districtKey: null,
+      ...overrides,
+    };
+  }
+
+  function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
+    return {
+      matchKey: "2026casj_qm1",
+      eventKey: "2026casj",
+      compLevel: "qm",
+      matchNumber: 1,
+      setNumber: 1,
+      sortTime: 1_000,
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      redDqs: [],
+      blueDqs: [],
+      winner: "red",
+      winnerImputed: false,
+      redScore: 100,
+      blueScore: 80,
+      redRpEarned: 2,
+      blueRpEarned: 0,
+      hasScoreBreakdown: false,
+      scoreBreakdownRaw: null,
+      ...overrides,
+    };
+  }
+
+  function findTeamArtifact(teamKey: string): TeamSeasonArtifact {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/2026/`));
+    expect(call, `expected a v1/team/${teamKey}/2026/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string) as TeamSeasonArtifact;
+  }
+
+  it("fixes the eventName defect (real name published, null-column corpus degrades to the event key) and keeps an event with only a scheduled match as its own section, not dropped", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional" }));
+    upsertMatch(db, seasonMatch());
+
+    upsertEvent(db, seasonEvent({ eventKey: "2026null", name: "will be nulled" }));
+    // Simulate an un-refreshed corpus (pre-EVNT-01) whose name column is null.
+    db.prepare(`UPDATE events SET name = NULL WHERE event_key = ?`).run("2026null");
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026null_qm1",
+        eventKey: "2026null",
+        sortTime: 5_000,
+        winner: null,
+        redScore: null,
+        blueScore: null,
+        redRpEarned: null,
+        blueRpEarned: null,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findTeamArtifact("frc1");
+    const casj = artifact.events.find((e) => e.eventKey === "2026casj");
+    const nulled = artifact.events.find((e) => e.eventKey === "2026null");
+
+    expect(casj?.eventName).toBe("Sacramento Regional");
+    expect(nulled, "an event with only a scheduled match must still produce its own section").toBeDefined();
+    expect(nulled?.eventName).toBe("2026null");
+    expect(nulled?.matches).toHaveLength(1);
+    expect(nulled?.matches[0]?.predictedRedScore).toBeDefined();
+    expect(nulled?.matches[0]?.actualWinner).toBeUndefined();
+  });
+
+  it("orders a team's matches within an event by sortTime, then compLevel/setNumber/matchNumber/matchKey tie-breaks, independent of insertion order", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026ord", name: "Ordering Event" }));
+    // Inserted highest matchNumber first, to prove the sort is applied and not incidental to insertion order.
+    upsertMatch(db, seasonMatch({ matchKey: "2026ord_qm2", eventKey: "2026ord", matchNumber: 2, sortTime: 5_000 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026ord_qm1", eventKey: "2026ord", matchNumber: 1, sortTime: 5_000 }));
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findTeamArtifact("frc1");
+    const ordEvent = artifact.events.find((e) => e.eventKey === "2026ord");
+    expect(ordEvent?.matches.map((m) => m.matchNumber)).toEqual([1, 2]);
   });
 });
 

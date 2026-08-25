@@ -43,6 +43,7 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import type {
   AlgorithmModule,
+  CompLevel,
   ComponentPrediction,
   MatchResult,
   Prediction,
@@ -299,7 +300,14 @@ export interface TeamSeasonEventInput {
   readonly eventKey: string;
   readonly eventName: string;
   readonly startDate: string;
-  readonly matches: readonly PredictionRecord[];
+  /**
+   * Phase 6 (D-08/D-09): a played match (`PredictionRecord`, `match` is a
+   * `MatchResult` carrying outcome fields) or a not-yet-played one
+   * (`UpcomingPredictionRecord`, `match` is an `UpcomingMatch` that omits
+   * outcome fields entirely) — `buildTeamSeasonArtifact` discriminates via
+   * `"winner" in match`, never a caller-supplied flag.
+   */
+  readonly matches: readonly (PredictionRecord | UpcomingPredictionRecord)[];
 }
 
 export interface BuildTeamSeasonArtifactParams {
@@ -314,6 +322,13 @@ export interface BuildTeamSeasonArtifactParams {
   readonly metricHistory: readonly MetricHistoryRow[];
   readonly generation: string;
   readonly computedAt?: string;
+  /**
+   * D-08 (Phase 6): `match_key` -> `sort_time`, from `selectScheduledMatchTimes`
+   * — looked up per match to populate `TeamSeasonMatchSchema.sortTime`.
+   * Omitted (undefined map, or a missing entry) simply leaves a row's
+   * `sortTime` absent — never a synthetic default.
+   */
+  readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
 }
 
 /** D-07/D-05's second at-risk artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning (T-04-22). */
@@ -322,31 +337,63 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     eventKey: e.eventKey,
     eventName: e.eventName,
     startDate: e.startDate,
-    matches: e.matches.map(({ match, prediction }) => ({
-      matchKey: match.matchKey,
-      season: params.season,
-      eventKey: match.eventKey,
-      compLevel: match.compLevel,
-      algorithmId: params.algorithmId,
-      algorithmVersion: params.algorithmVersion,
-      predictedWinner: prediction.winner,
-      pRedWin: roundProbability(prediction.pRedWin),
-      predictedRedScore: roundMetric(prediction.redScore),
-      predictedBlueScore: roundMetric(prediction.blueScore),
-      // TeamSeasonMatchSchema requires these present (mirrors predictions.ts's
-      // PredictionRecordSchema: empty {} for an algorithm like OPR that does
-      // not decompose its prediction, never omitted).
-      redComponents: roundComponents(prediction.redComponents) ?? {},
-      blueComponents: roundComponents(prediction.blueComponents) ?? {},
-      variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
-      redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-      blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-      actualWinner: match.winner,
-      actualRedScore: match.redScore,
-      actualBlueScore: match.blueScore,
-      redTeams: [...match.redTeams],
-      blueTeams: [...match.blueTeams],
-    })),
+    matches: e.matches.map((record) => {
+      const { match, prediction } = record;
+      const sortTime = params.sortTimeByMatchKey?.get(match.matchKey);
+      const row = {
+        matchKey: match.matchKey,
+        season: params.season,
+        eventKey: match.eventKey,
+        compLevel: match.compLevel,
+        algorithmId: params.algorithmId,
+        algorithmVersion: params.algorithmVersion,
+        predictedWinner: prediction.winner,
+        pRedWin: roundProbability(prediction.pRedWin),
+        predictedRedScore: roundMetric(prediction.redScore),
+        predictedBlueScore: roundMetric(prediction.blueScore),
+        // TeamSeasonMatchSchema requires these present (mirrors predictions.ts's
+        // PredictionRecordSchema: empty {} for an algorithm like OPR that does
+        // not decompose its prediction, never omitted).
+        redComponents: roundComponents(prediction.redComponents) ?? {},
+        blueComponents: roundComponents(prediction.blueComponents) ?? {},
+        variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
+        // D-01 (Phase 6): each alliance's OWN predicted-score variance —
+        // reuses ROUNDING_RULE.variance unchanged (same physical quantity as
+        // `variance` above). OPR/EPA never set these on `Prediction`, so both
+        // stay undefined for them, matching `variance`'s own convention.
+        redScoreVarianceOwn:
+          prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
+        blueScoreVarianceOwn:
+          prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
+        redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
+        blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+        // D-08 (Phase 6): the Match column's human label, published directly
+        // instead of re-derived client-side from the opaque matchKey.
+        setNumber: match.setNumber,
+        matchNumber: match.matchNumber,
+        sortTime,
+        redTeams: [...match.redTeams],
+        blueTeams: [...match.blueTeams],
+      };
+      // D-09 (Phase 6): discriminate on the presence of the outcome fields
+      // themselves — a scheduled match's `UpcomingMatch` never carries
+      // `winner` at all (not merely `undefined`), so `"winner" in match` is
+      // the correct, flag-free discriminant `buildSeasonStream`'s leak-proof
+      // convention already establishes elsewhere in this codebase.
+      if ("winner" in match) {
+        return {
+          ...row,
+          actualWinner: match.winner,
+          actualRedScore: match.redScore,
+          actualBlueScore: match.blueScore,
+          // D-02 (Phase 6): never coerced null -> 0 — see TeamSeasonMatchSchema's
+          // actualRedRp/actualBlueRp doc comment for the full null contract.
+          actualRedRp: match.redRpEarned,
+          actualBlueRp: match.blueRpEarned,
+        };
+      }
+      return row;
+    }),
   }));
 
   const candidate = {
@@ -710,6 +757,68 @@ function selectEventMeta(db: Corpus, season: number): EventMetaRow[] {
     .all(season) as EventMetaRow[];
 }
 
+interface MatchTimeRow {
+  match_key: string;
+  sort_time: number;
+}
+
+/**
+ * D-08 (Phase 6): `match_key` -> `sort_time` for EVERY match in a season,
+ * played or not — `selectScheduledMatches` (packages/corpus/db.ts) orders by
+ * `sort_time` but does not return it, and `UpcomingMatch` deliberately
+ * carries no time field (widening it would touch the leak-proof `predict()`
+ * input surface). This module-local query is the correct seam instead,
+ * mirroring `selectEventMeta`'s own local-helper style. Scoping
+ * (`excludeOffseason`) mirrors the season loop's own scope so this map never
+ * disagrees with which matches the rest of the run counts.
+ */
+function selectScheduledMatchTimes(db: Corpus, season: number, options: { excludeOffseason?: boolean } = {}): Map<string, number> {
+  const clauses: string[] = ["e.year = @year"];
+  const params: Record<string, string | number> = { year: season };
+  if (options.excludeOffseason === true) {
+    clauses.push("e.is_offseason = 0");
+  }
+  const rows = db
+    .prepare(
+      `SELECT m.match_key, m.sort_time
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE ${clauses.join(" AND ")}`
+    )
+    .all(params) as MatchTimeRow[];
+  const map = new Map<string, number>();
+  for (const row of rows) map.set(row.match_key, row.sort_time);
+  return map;
+}
+
+/** D-08 (Phase 6): the same comp-level play-order `selectScheduledMatches`'s own `CASE` clause uses, mirrored here so the two orderings cannot drift. */
+const COMP_LEVEL_RANK: Record<CompLevel, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
+
+/**
+ * D-08/TEAM-05 (Phase 6): sorts one event's played+scheduled records by
+ * `sortTime` ascending, with `compLevel` rank, `setNumber`, `matchNumber`
+ * and finally `matchKey` as successive tie-breaks — the same chain
+ * `selectScheduledMatches` uses, so the two orderings cannot drift apart. A
+ * match absent from `sortTimeByMatchKey` (should not happen for a real
+ * corpus row, but defensive against a hand-built test fixture) sorts last.
+ */
+function sortTeamSeasonMatches(
+  matches: readonly (PredictionRecord | UpcomingPredictionRecord)[],
+  sortTimeByMatchKey: ReadonlyMap<string, number>
+): (PredictionRecord | UpcomingPredictionRecord)[] {
+  return [...matches].sort((a, b) => {
+    const aTime = sortTimeByMatchKey.get(a.match.matchKey) ?? Number.POSITIVE_INFINITY;
+    const bTime = sortTimeByMatchKey.get(b.match.matchKey) ?? Number.POSITIVE_INFINITY;
+    if (aTime !== bTime) return aTime - bTime;
+    const aRank = COMP_LEVEL_RANK[a.match.compLevel];
+    const bRank = COMP_LEVEL_RANK[b.match.compLevel];
+    if (aRank !== bRank) return aRank - bRank;
+    if (a.match.setNumber !== b.match.setNumber) return a.match.setNumber - b.match.setNumber;
+    if (a.match.matchNumber !== b.match.matchNumber) return a.match.matchNumber - b.match.matchNumber;
+    return a.match.matchKey.localeCompare(b.match.matchKey);
+  });
+}
+
 /**
  * Widens the 04-01 tracer into the full offline publisher (D-01 through
  * D-08, D-25/D-26). Mirrors `cli.ts`'s `runSeasons` orchestration (season
@@ -747,6 +856,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     );
     const eventMeta = selectEventMeta(db, season);
     const offseasonEventKeys = new Set(eventMeta.filter((e) => e.is_offseason === 1).map((e) => e.event_key));
+    // D-08 (Phase 6): match_key -> sort_time for every match this season,
+    // played or not — feeds both TeamSeasonMatchSchema.sortTime and the
+    // per-event match ordering below (sortTeamSeasonMatches).
+    const sortTimeByMatchKey = selectScheduledMatchTimes(db, season, { excludeOffseason: !includeOffseason });
 
     const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === coldStartSeason };
     let initialStates: ReadonlyMap<string, unknown> | undefined;
@@ -857,6 +970,34 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
 
+      // D-08 (Phase 6): scheduled-match predictions for THIS algorithm,
+      // computed once per event key here and shared by both the event
+      // branch's `upcoming` array below and the team branch's per-team
+      // grouping — a single `algorithm.predict(state, match)` call per
+      // scheduled match, not one per (event, team) pairing.
+      const scheduledPredictionsByEvent = new Map<string, UpcomingPredictionRecord[]>();
+      if (state !== undefined) {
+        for (const [eventKey, matchesForEvent] of scheduledByEvent) {
+          scheduledPredictionsByEvent.set(
+            eventKey,
+            matchesForEvent.map((match) => ({ match, prediction: algorithm.predict(state, match) }))
+          );
+        }
+      }
+      // D-08/TEAM-04 (Phase 6): the per-team counterpart, grouped from the
+      // same predictions above — so a team scheduled at an event it has not
+      // yet played still produces its own event section.
+      const scheduledTeamMatches = new Map<string, UpcomingPredictionRecord[]>();
+      for (const eventRecords of scheduledPredictionsByEvent.values()) {
+        for (const record of eventRecords) {
+          for (const teamKey of new Set([...record.match.redTeams, ...record.match.blueTeams])) {
+            const list = scheduledTeamMatches.get(teamKey) ?? [];
+            list.push(record);
+            scheduledTeamMatches.set(teamKey, list);
+          }
+        }
+      }
+
       // --- teams/{year}/{algorithm}@{version}.json ---
       const teamsRows: TeamsArtifactTeamInput[] = teamsThisSeason.map((teamKey) => {
         const info = teamInfoOrFallback(teamInfo, teamKey);
@@ -924,8 +1065,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       for (const e of eventMeta) {
         const predictions = eventMatchesForAlgo.get(e.event_key) ?? [];
         const scheduledForEvent = scheduledByEvent.get(e.event_key) ?? [];
-        const upcoming: UpcomingPredictionRecord[] =
-          state !== undefined ? scheduledForEvent.map((match) => ({ match, prediction: algorithm.predict(state, match) })) : [];
+        const upcoming: UpcomingPredictionRecord[] = scheduledPredictionsByEvent.get(e.event_key) ?? [];
         const eventTeamKeys = Array.from(
           new Set([...predictions.flatMap((p) => [...p.match.redTeams, ...p.match.blueTeams]), ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
         );
@@ -950,15 +1090,25 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const teamPending: Promise<void>[] = [];
       for (const teamKey of teamsThisSeason) {
         const info = teamInfoOrFallback(teamInfo, teamKey);
-        const teamMatches = teamMatchesForAlgo.get(teamKey) ?? [];
+        // D-08/D-09 (Phase 6): played AND scheduled matches grouped together,
+        // so an event this team is only scheduled to attend still produces
+        // its own section rather than being omitted.
+        const teamMatches: (PredictionRecord | UpcomingPredictionRecord)[] = [
+          ...(teamMatchesForAlgo.get(teamKey) ?? []),
+          ...(scheduledTeamMatches.get(teamKey) ?? []),
+        ];
         const byEvent = groupByEvent(teamMatches);
         const events: TeamSeasonEventInput[] = Array.from(byEvent.entries()).map(([eventKey, matches]) => {
           const meta = eventMeta.find((e) => e.event_key === eventKey);
           return {
             eventKey,
-            eventName: eventKey, // corpus has no event-name column — see events-row comment above
+            // The event-name defect fix: `meta` (the same lookup the sibling
+            // eventsRows builder above already uses) is in scope here — the
+            // key-as-name fallback survives only when a corpus row's `name`
+            // column is genuinely null (an un-refreshed corpus).
+            eventName: meta?.name ?? eventKey,
             startDate: meta?.start_date ?? "",
-            matches,
+            matches: sortTeamSeasonMatches(matches, sortTimeByMatchKey),
           };
         });
         const stats = teamStats.get(teamKey);
@@ -975,6 +1125,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           },
           events,
           metricHistory: metricHistoryForAlgo.get(teamKey) ?? [],
+          sortTimeByMatchKey,
           generation,
           computedAt,
         });
