@@ -168,3 +168,94 @@ test("a pinned cell's background is opaque, not transparent", async ({ page }) =
   expect(background).not.toBe("transparent");
   expect(background).not.toBe("rgba(0, 0, 0, 0)");
 });
+
+/**
+ * The team page's per-event-section gesture contract (06-08-PLAN.md Task 3,
+ * D-10 — this phase's own highest-risk item, since the pattern recurs once
+ * per event section instead of once per page). Same team-year fixture
+ * `no-page-pan.spec.ts` uses (frc118/2024, D-05's 292-match outlier), chosen
+ * because it is already the phase's own named at-risk fixture with a
+ * confirmed multi-section render, not an arbitrary pick.
+ *
+ * These drive Chromium's (or a Chromium-engined WebKit-viewport project's)
+ * touch dispatcher via the SAME `touchDrag` CDP helper the Teams table
+ * cases above use — they are NOT evidence of real iOS Safari gesture
+ * arbitration, which has documented historical gaps for a directional
+ * `touch-action` inside a different-axis outer scroller
+ * (06-RESEARCH.md Pitfall 6). See this plan's SUMMARY.md for the still-
+ * outstanding real-device human check.
+ */
+test.describe("team page — per-event-section touch scroll (D-10)", () => {
+  const TEAM_URL = "/team/118?year=2024&algorithm=sigma1";
+  const SCROLLER_TESTID_PATTERN = '[data-testid^="match-table-scroll-"]';
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto(TEAM_URL);
+    await page.locator(SCROLLER_TESTID_PATTERN).first().waitFor({ state: "visible", timeout: 15_000 });
+  });
+
+  test("a horizontal drag inside the FIRST section's scroller advances only that scroller, and leaves the document's horizontal scroll at zero", async ({
+    page,
+  }) => {
+    const scrollers = page.locator(SCROLLER_TESTID_PATTERN);
+    const first = scrollers.nth(0);
+    const second = scrollers.nth(1);
+    const firstBefore = await first.evaluate((el) => el.scrollLeft);
+    const secondBefore = await second.evaluate((el) => el.scrollLeft);
+    const documentLeftBefore = await page.evaluate(() => document.documentElement.scrollLeft);
+
+    const box = await first.boundingBox();
+    if (!box) throw new Error("first scroller has no bounding box");
+    await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
+
+    const firstAfter = await first.evaluate((el) => el.scrollLeft);
+    const secondAfter = await second.evaluate((el) => el.scrollLeft);
+    const documentLeftAfter = await page.evaluate(() => document.documentElement.scrollLeft);
+
+    expect(firstAfter).toBeGreaterThan(firstBefore);
+    // The SECOND section's scroll-left is unchanged by the first section's drag.
+    expect(secondAfter).toBe(secondBefore);
+    expect(documentLeftAfter).toBe(documentLeftBefore);
+    expect(documentLeftAfter).toBe(0);
+  });
+
+  test("a vertical drag anywhere over a match table advances the page's vertical scroll", async ({ page }) => {
+    const first = page.locator(SCROLLER_TESTID_PATTERN).first();
+    const box = await first.boundingBox();
+    if (!box) throw new Error("first scroller has no bounding box");
+    const before = await page.evaluate(() => document.documentElement.scrollTop);
+
+    await touchDrag(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 200 }, { x: box.x + box.width / 2, y: box.y + box.height / 2 - 200 });
+
+    const after = await page.evaluate(() => document.documentElement.scrollTop);
+    expect(after).toBeGreaterThan(before);
+  });
+
+  test("after both a horizontal and a vertical drag, the document still has no horizontal overflow", async ({ page }) => {
+    const first = page.locator(SCROLLER_TESTID_PATTERN).first();
+    const box = await first.boundingBox();
+    if (!box) throw new Error("first scroller has no bounding box");
+
+    await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
+    await touchDrag(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 200 }, { x: box.x + box.width / 2, y: box.y + box.height / 2 - 200 });
+
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+  });
+
+  test("an axis tick label stays in the viewport and non-empty while the region is scrolled", async ({ page }) => {
+    const first = page.locator(SCROLLER_TESTID_PATTERN).first();
+    const box = await first.boundingBox();
+    if (!box) throw new Error("first scroller has no bounding box");
+
+    await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
+
+    const tick = first.getByTestId("axis-tick").first();
+    await expect(tick).toBeVisible();
+    const text = await tick.innerText();
+    expect(text.trim().length).toBeGreaterThan(0);
+  });
+});

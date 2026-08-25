@@ -1,4 +1,6 @@
+import { useEffect, useRef } from "react";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { markFirstRowsRendered, measureParseToPaint } from "../../lib/perfMarks.js";
 import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
 
@@ -30,6 +32,20 @@ export function EventSectionList({ artifact, algorithmId, season }: EventSection
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   const domain = computeAxisDomain(artifact.events);
+
+  // Reuses `teams.tsx`'s own `artifact-parsed` -> `first-rows-rendered`
+  // parse-to-paint pair (`perfMarks.ts`) rather than inventing a second mark
+  // name — this is the LAST thing painted in the Overview tab (06-08-PLAN.md
+  // Task 3's many-section render-time measurement), guarded on the specific
+  // `artifact` reference so it fires once per load, never on every re-render.
+  const markedArtifactRef = useRef<typeof artifact>(undefined);
+  useEffect(() => {
+    if (markedArtifactRef.current === artifact) return;
+    markedArtifactRef.current = artifact;
+    markFirstRowsRendered();
+    const durationMs = measureParseToPaint();
+    console.log(JSON.stringify({ event: "team-parse-to-paint", teamKey: artifact.teamKey, season: artifact.season, eventCount: events.length, durationMs }));
+  }, [artifact, events.length]);
 
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-2xl)]">
