@@ -153,6 +153,18 @@ const AlgorithmScopedPreambleSchema = PagePreambleSchema.extend({
 const TeamMetricSchema = z.object({
   value: z.number(),
   spread: z.number().optional(),
+  /**
+   * D-04 (Phase 6): this team's percentile rank, in the closed interval
+   * [0, 100], on THIS metric among the full season team pool for this
+   * (algorithm, season) pair — never over a visible subset (e.g. a sorted
+   * table's currently-rendered page, or an event's roster). Optional:
+   * omitted until the pipeline's percentile pass (`publish.ts`, plan
+   * 06-04) actually populates it, and permanently absent for any metric a
+   * future algorithm adds that the pass has not been extended to cover.
+   * Feeds `colour-and-tiers.md`'s rarity-tier boxes (Common 0-50 / Rare
+   * 50-75 / Epic 75-95 / Legendary 95-100).
+   */
+  percentile: z.number().min(0).max(100).optional(),
 });
 
 /** Component name -> that team's metric, per `AlgorithmModule.teamMetrics` (D-27). */
@@ -245,7 +257,20 @@ const EventTeamSchema = z.object({
   metrics: MetricsRecordSchema,
 });
 
-/** The prediction-vs-actual fields from `packages/harness/predictions.ts`'s `PredictionRecordSchema`, reconstructed locally (that schema is a `ZodEffects` from its own `.refine()` calls and cannot be `.extend()`-ed) plus `redTeams`/`blueTeams`, since a team-season artifact's per-match row needs the alliance rosters `PredictionRecordSchema` itself does not carry. */
+/**
+ * The prediction-vs-actual fields from `packages/harness/predictions.ts`'s
+ * `PredictionRecordSchema`, reconstructed locally (that schema is a
+ * `ZodEffects` from its own `.refine()` calls and cannot be `.extend()`-ed)
+ * plus `redTeams`/`blueTeams`, since a team-season artifact's per-match row
+ * needs the alliance rosters `PredictionRecordSchema` itself does not carry.
+ *
+ * Phase 6 (D-01/D-02/D-09, TEAM-04/TEAM-05) widens this row for the team
+ * page: every field added below is `.optional()`, so a team artifact
+ * published before this phase's republish still parses (see this file's
+ * header rule and the D-09 note directly below). None of the new fields is
+ * rounded a second time here — rounding happens once, at
+ * `packages/harness/publish.ts`'s publish boundary.
+ */
 const TeamSeasonMatchSchema = z
   .object({
     matchKey: z.string().min(1),
@@ -261,11 +286,79 @@ const TeamSeasonMatchSchema = z
     redComponents: z.record(z.string(), ComponentPredictionSchema),
     blueComponents: z.record(z.string(), ComponentPredictionSchema),
     variance: z.number().optional(),
+    /**
+     * D-01 (Phase 6): each alliance's OWN predicted-score variance —
+     * mirrors `packages/core/algorithms/types.ts`'s `Prediction.
+     * redScoreVarianceOwn`/`blueScoreVarianceOwn`. This is NOT the same
+     * quantity as `variance` above (the red+blue SUM, the win-probability
+     * denominator) and NOT the same quantity as a `TeamMetric.spread`
+     * elsewhere in this file (D-09's match-to-match consistency) — the two
+     * ± stay separate published quantities per this file's header rule.
+     * Populated by Sigma1, left `undefined` by OPR/EPA (neither models an
+     * alliance-level own variance), following `variance`'s own optional
+     * convention above. Reuses `ROUNDING_RULE.variance` unchanged at the
+     * publish boundary — same physical quantity, same existing rule, no
+     * new rounding rule needed.
+     */
+    redScoreVarianceOwn: z.number().optional(),
+    /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+    blueScoreVarianceOwn: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
-    actualWinner: z.enum(["red", "blue", "tie"]),
-    actualRedScore: z.number(),
-    actualBlueScore: z.number(),
+    // D-09 (Phase 6): relaxed from required to optional so an unplayed
+    // (scheduled but not yet played) match is structurally representable —
+    // TEAM-04's "section per attended OR UPCOMING event" is otherwise
+    // unbuildable. The type-level "a match always has a result" guarantee
+    // this relaxation removes is replaced below by a cross-field `.refine()`
+    // (not deleted): a row carrying any one of these three must carry all
+    // three; a row carrying none of them is a valid unplayed match. See
+    // `06-CONTEXT.md` D-09 and `06-02-PLAN.md`'s Task 3 for the test that
+    // proves this rule actually fires when removed.
+    actualWinner: z.enum(["red", "blue", "tie"]).optional(),
+    actualRedScore: z.number().optional(),
+    actualBlueScore: z.number().optional(),
+    /**
+     * D-02 (Phase 6): actual bonus ranking points, sourced from
+     * `MatchResult.redRpEarned`/`blueRpEarned` (`packages/core/algorithms/
+     * types.ts`). Resolved null contract (RESEARCH.md A5, verified against
+     * `packages/ingest/normalize.ts`'s `extractRp`, NOT `rp/constants.ts` —
+     * this field is populated at ingest time from TBA's raw
+     * `score_breakdown.{color}.rp`, before Sigma1's RP rule modules ever
+     * see the match): `null` means "not derivable from the available data"
+     * — either the match has no `score_breakdown` at all
+     * (`hasScoreBreakdown: false`, e.g. an unplayed match) or a present
+     * breakdown is missing the `rp`/`tba_rpEarned` field entirely. It is
+     * NEVER coerced from `null` to `0`, and it does NOT mean "this event
+     * tier has no RP rules" — TBA reports a real `rp` value (commonly `0`)
+     * for every played match regardless of tier, including elimination
+     * matches (`ELIMINATION_RP_TOTAL`, `rp/constants.ts`). A genuine
+     * integer `0` is therefore a meaningfully different, more informative
+     * value than `null` and must never be conflated with it. Bonus RP is
+     * always a non-negative integer count, never rounded at the publish
+     * boundary (asserted by a schema-level `.int()` rather than a new
+     * `ROUNDING_RULE` entry).
+     */
+    actualRedRp: z.number().int().nullable().optional(),
+    /** D-02 (Phase 6): the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full null contract. */
+    actualBlueRp: z.number().int().nullable().optional(),
+    /**
+     * D-08/TEAM-04 (Phase 6): the Match column's human label — today
+     * derivable only by parsing the opaque `matchKey`, the same class of
+     * mistake `eventName: eventKey` already shipped (06-RESEARCH.md
+     * Pitfall 1). Published directly instead of re-derived client-side.
+     */
+    setNumber: z.number().int().optional(),
+    /** D-08/TEAM-04 (Phase 6): see `setNumber`'s doc comment. */
+    matchNumber: z.number().int().optional(),
+    /**
+     * D-08 (Phase 6): this match's chronological sort key, in epoch
+     * seconds — used for ORDERING every row (played and unplayed alike),
+     * and additionally DISPLAYED as the Actual column's value for an
+     * unplayed row only (a played row's Actual column instead shows
+     * `actualRedScore`/`actualBlueScore`). For a played row this is the
+     * match's actual start time, not its scheduled time.
+     */
+    sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
     blueTeams: z.array(z.string()),
   })
@@ -276,7 +369,21 @@ const TeamSeasonMatchSchema = z
   .refine((row) => isValidPmf(row.blueRpPmf), {
     message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
     path: ["blueRpPmf"],
-  });
+  })
+  .refine(
+    (row) => {
+      const defined = [row.actualWinner !== undefined, row.actualRedScore !== undefined, row.actualBlueScore !== undefined];
+      const definedCount = defined.filter(Boolean).length;
+      // All three defined (a played match) or none defined (a valid
+      // unplayed match) — anything in between is an inconsistent row.
+      return definedCount === 0 || definedCount === 3;
+    },
+    {
+      message:
+        "a played match (any one of actualWinner/actualRedScore/actualBlueScore defined) must carry all three; an unplayed match must carry none of them",
+      path: ["actualWinner"],
+    }
+  );
 
 // ---------------------------------------------------------------------------
 // TeamsArtifactSchema — v1/teams/{year}/{algorithmId}@{version}.json
@@ -328,6 +435,27 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   events: z.array(TeamSeasonEventSchema),
   /** D-28: the team's metric-history series, one row per match, using `MetricHistoryRowSchema`'s own field names (reused directly, not re-derived) so the team page's plot never has to translate between the sidecar and the published file. */
   metricHistory: z.array(MetricHistoryRowSchema),
+  /**
+   * D-03 (Phase 6, TEAM-02): the pipeline-resolved robot image URL for this
+   * team/season, from TBA's `/team/{key}/media/{year}` — a `preferred`
+   * photo-bearing entry where flagged, otherwise the first photo-bearing
+   * entry (never TBA's `avatar` media kind, which carries an inline
+   * `base64Image`, not a usable `direct_url`). Optional: measured ~25% of
+   * real teams have no eligible photo at all, and the client must render a
+   * fallback tile for both that case and any not-yet-republished artifact.
+   */
+  robotImageUrl: z.string().url().optional(),
+  /**
+   * D-05 (Phase 6, D-18): the seasons this team is known to have competed
+   * in, feeding the team page's constrained year dropdown. Optional and
+   * deliberately NOT relied upon as if always present: its absence (a
+   * not-yet-republished artifact, or a genuinely never-populated team) is a
+   * valid state the client must handle by falling back to the
+   * unconstrained global year list — this is what keeps a partial artifact
+   * from wrongly narrowing the dropdown (D-19's empty-state bootstrap
+   * note).
+   */
+  activeYears: z.array(z.number().int()).optional(),
 });
 
 export type TeamSeasonArtifact = z.infer<typeof TeamSeasonArtifactSchema>;
