@@ -151,3 +151,17 @@ describe("ROUNDING_RULE — plain data, quotable by name", () => {
     expect(ROUNDING_RULE.metric).toBe(2);
   });
 });
+
+describe("ROUNDING_RULE.percentile — Phase 6, D-04 (plan 06-02 Task 3)", () => {
+  it("is exactly 1 decimal, matching colour-and-tiers.md's worked precision", () => {
+    expect(ROUNDING_RULE.percentile).toBe(1);
+  });
+
+  it("roundTo(74.44, ROUNDING_RULE.percentile) yields 74.4, exercising the documented half-away-from-zero tie-break", () => {
+    expect(roundTo(74.44, ROUNDING_RULE.percentile)).toBe(74.4);
+  });
+
+  it("Object.keys(ROUNDING_RULE) gained exactly one entry versus the pre-Phase-6 set", () => {
+    expect(Object.keys(ROUNDING_RULE).sort()).toEqual(["metric", "percentile", "pmf", "probability", "score", "variance"].sort());
+  });
+});

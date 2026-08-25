@@ -37,6 +37,18 @@
  * |                                                           |          | shows to 2 decimals; rounding it as |
  * |                                                           |          | coarsely as the spread would visibly |
  * |                                                           |          | distort the derived `±`. |
+ * | Percentile (Phase 6, D-04)                                 | 1        | Matches `colour-and-tiers.md`'s own |
+ * |                                                           |          | worked precision (p50=39.2, not |
+ * |                                                           |          | p50=39.20000001). |
+ *
+ * Phase 6's D-01 own-variance fields (`redScoreVarianceOwn`/
+ * `blueScoreVarianceOwn`) reuse `ROUNDING_RULE.variance` unchanged above —
+ * same physical quantity (an alliance-total predictive variance) as the
+ * existing combined `variance` field, so no new rounding rule is added for
+ * them. D-02's actual RP fields are integral by construction
+ * (`packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema.actualRedRp`/
+ * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
+ * `ROUNDING_RULE` entry for RP either.
  *
  * TIE-BREAKING (roundTo): half-away-from-zero, implemented explicitly —
  * take the sign, scale, `Math.round` the magnitude, unscale, restore the
@@ -65,6 +77,8 @@ export const ROUNDING_RULE = {
   probability: 4,
   pmf: 5,
   variance: 4,
+  /** Phase 6, D-04: percentile, matching `colour-and-tiers.md`'s worked precision. */
+  percentile: 1,
 } as const;
 
 export class NonFiniteRoundError extends Error {
