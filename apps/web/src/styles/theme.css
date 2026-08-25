@@ -58,6 +58,24 @@
   --color-input: var(--color-border);
 
   /*
+   * FRC alliance colours + the match-table "loser ink" (06-UI-SPEC.md
+   * Color section; sketch-findings-sigmascout skill's
+   * `uncertainty-display.md`, validated ΔE 29.9 protan — safe as-is).
+   * This is FRC domain vocabulary (what an alliance IS), not a palette
+   * choice, and is NOT part of the 60/30/10 accent split above — do not
+   * adjust these to match the site's accent or any future palette pass.
+   * Defined here (06-01-PLAN.md, wave 1) rather than in the plan that first
+   * renders them (06-08, wave 4) because 06-07 also edits this same file in
+   * that same wave; landing both blocks up front keeps wave 4's two plans
+   * from touching one another's file.
+   */
+  --alliance-red: #DC2626;
+  --alliance-red-soft: rgba(220, 38, 38, 0.3);
+  --alliance-blue: #2563EB;
+  --alliance-blue-soft: rgba(37, 99, 235, 0.3);
+  --loser-ink: #94A3B8;
+
+  /*
    * shadcn semantic aliases — every one of these is a `var(--color-*)`
    * reference back to a contract token above, never an independent value.
    * Names match what the eight generated `src/components/ui/*` primitives
