@@ -53,7 +53,9 @@ export function SeasonHeader({ artifact, teamNumber }: SeasonHeaderProps) {
         </h1>
       </div>
       <div className="flex items-center gap-[var(--spacing-md)]">
-        <span className="numeric-cell text-role-body text-[var(--color-text-primary)]">{formatRecord(record)}</span>
+        <span data-testid="team-record" className="numeric-cell text-role-body text-[var(--color-text-primary)]">
+          {formatRecord(record)}
+        </span>
         <span className="numeric-cell text-role-body text-[var(--color-text-muted)]">{formatWinRate(winRateOf(record))}</span>
       </div>
     </div>
