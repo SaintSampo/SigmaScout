@@ -68,3 +68,37 @@ is cheaper now than it looks.
 - `.planning/phases/05-site-shell-navigation-browsing/05-UI-SPEC.md` — the contract
 - D-05, D-06 in that phase's `05-CONTEXT.md`
 - Dark theme is separately deferred (D-06) and is a token swap, not "more colour"
+
+## Progress note (2026-08-25, 06-09-PLAN.md Task 3)
+
+**Question 1 (depth within the current system) partially addressed** — the team page's
+surfaces, not yet every page in Phases 5-8:
+
+- **Alternating row tints on the match table** — `.match-row-tint` (theme.css), reusing
+  `--color-bg-page` inside an `.event-card` surface, per the chart-craft reference's own
+  zebra-tint-reinforces-grouping finding.
+- **Elevation on event section cards** — `.event-card` (bg-surface + border + radius) plus
+  Tailwind's `shadow-sm`, so each event section reads as a distinct object.
+- **Spacing rhythm between sections** — already correct as of plan 06-08
+  (`EventSectionList.tsx`'s `gap-[var(--spacing-2xl)]`, the 48px major-break token); the card
+  treatment above is what makes that existing gap actually *read* as separation.
+- **Chips for a bounded categorical value** — the match table's Confidence column now wraps
+  the predicted winner ("Red"/"Blue" — exactly two values) in an `.alliance-chip`, reusing the
+  same `--alliance-*` tokens the plotted marks already use, rather than a bare string.
+- **A slightly stronger surface distinction** — the ribbon itself gained `shadow-sm`
+  (Ribbon.tsx), separating it visually from the page content below.
+
+Before/after screenshots (desktop 1440px, phone 390px), real data (frc118/2024):
+`.planning/phases/06-team-pages/screenshots/{before,after}-{desktop,phone}.png`.
+
+**Not addressed here — "rank treatment for leading teams" and "subtle chips for week/district"**
+from question 1's own list are Teams-table/Events-list surfaces, out of this plan's declared
+file scope (`EventSection.tsx`, `MatchTable.tsx`, `Ribbon.tsx`, `theme.css` only) — left open
+for whichever future plan next touches those surfaces.
+
+**Question 2 (the base palette itself) remains explicitly deferred and unaddressed.** No
+`--color-*`, `--accent`, `--alliance-*` or `--tier-*` value was added, removed or changed —
+verified mechanically by this plan's own additive-only diff gate. The 60/30/10 split, the
+accent hex, and every domain-vocabulary colour (alliance, tier) are exactly what they were
+before this plan. That question still touches every component in Phases 5-8 and still wants
+designing, not improvising.

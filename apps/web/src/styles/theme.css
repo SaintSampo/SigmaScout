@@ -294,3 +294,68 @@ body {
   color: var(--tier-legendary-fg);
 }
 /* .metric-tier--common intentionally has no rule — plain, untreated cell. */
+
+/*
+ * Polish pass (06-09-PLAN.md Task 3, folded todo `ui-polish-pass.md`
+ * question 1 — "depth within the current system," permitted today and
+ * unexplored). Every rule below is ADDITIVE ONLY: new classes built
+ * entirely from tokens already declared above; no existing `--color-*`,
+ * `--accent`, `--alliance-*` or `--tier-*` VALUE is added, removed or
+ * changed (this plan's own diff gate enforces that mechanically). The base
+ * palette itself — `ui-polish-pass.md`'s separate question 2 — stays
+ * untouched and deferred; nothing here is a new hue or a re-tint of a
+ * decided token.
+ */
+
+/*
+ * Event section cards (`EventSection.tsx`) — a surface genuinely distinct
+ * from the page background (not just a border on the same colour), paired
+ * with Tailwind's own `shadow-sm` utility applied at the call site for
+ * elevation, so each event reads as a separate object rather than a
+ * run-on list. The 48px `--spacing-2xl` gap between sections (already in
+ * place since plan 06-08's `EventSectionList.tsx`) is what this card
+ * treatment makes actually *read* as separation, rather than a change to
+ * that gap value itself.
+ */
+.event-card {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+/*
+ * Alternating match-row tint (`MatchTable.tsx`) — the "existing secondary
+ * surface band" the chart-craft reference's own zebra-tint lesson calls
+ * for on this exact table (`sketch-findings-sigmascout` skill,
+ * `chart-craft.md`: "A zebra tint on alternate rows reinforces the
+ * block"). Applied INSIDE an `.event-card`, so the untinted row quietly
+ * inherits the card's own `--color-bg-surface` and this tint's
+ * `--color-bg-page` is the one that visibly pops — same two existing
+ * tokens as everywhere else in this file, no third shade invented.
+ */
+.match-row-tint {
+  background-color: var(--color-bg-page);
+}
+
+/*
+ * A bounded-categorical alliance chip (`MatchTable.tsx`'s Confidence
+ * column) — the predicted winner is exactly one of two values, currently
+ * a bare "Red"/"Blue" string; wrapping it in a small chip using the SAME
+ * `--alliance-*` tokens the plotted band/tick/dot marks already use
+ * reinforces the identical alliance-colour encoding the row's own marks
+ * carry, rather than introducing a new colour system for a new job.
+ */
+.alliance-chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px var(--spacing-xs);
+  font-variant-numeric: tabular-nums;
+}
+.alliance-chip--red {
+  background-color: var(--alliance-red-soft);
+  color: var(--alliance-red);
+}
+.alliance-chip--blue {
+  background-color: var(--alliance-blue-soft);
+  color: var(--alliance-blue);
+}

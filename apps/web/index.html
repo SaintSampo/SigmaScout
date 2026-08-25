@@ -4,9 +4,128 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SigmaScout</title>
+    <!--
+      Static shell first paint (06-09-PLAN.md Task 1, folded todo
+      static-shell-first-paint.md). `apps/web` is a pure client-rendered SPA
+      (CLAUDE.md) — nothing painted at all until ~600 KB of JS downloaded,
+      parsed and executed, and the LCP element (the ribbon's wordmark) sat
+      behind that whole chain. Route-level code splitting was already tried
+      and reverted for this exact problem (docs/first-paint-measurement.md's
+      fourth entry, D-19) — it reshuffles which JS blocks paint, it cannot
+      make paint independent of JS. The fix here is the one that entry named
+      as the real lever: authored markup shipped as part of the static HTML
+      document, so the ribbon frame and wordmark paint before any script runs.
+
+      This block is INLINED (not a linked stylesheet) so the shell paints
+      with zero additional network round trips, even though `apps/web`'s
+      built stylesheet is already a render-blocking <link> in <head> — on the
+      congested-venue profile (docs/first-paint-measurement.md), every extra
+      hop is real latency. Every token value below is a literal copy of the
+      matching `--color-*`/`--spacing-*`/`--font-sans` custom property in
+      `src/styles/theme.css` — copy, not derivation, so a diff there does not
+      silently drift from this block; re-run the acceptance grep after any
+      future theme.css edit to confirm they still match.
+
+      Font: per theme.css's own documented fix, a PLAIN `body { font-family:
+      'Inter Variable', ... }` rule (an unquoted two-word family name as a
+      literal property value) is silently dropped by Vite's production CSS
+      minifier. The token-override approach below — declaring `--font-sans`
+      as a custom property, then referencing it via `font-family:
+      var(--font-sans)` — is the same fix theme.css already uses and does not
+      reproduce that bug (the property's value is a `var()` reference, not
+      the literal family-list token stream the minifier mishandled).
+    -->
+    <style>
+      :root {
+        --shell-color-bg-page: #f8fafc;
+        --shell-color-bg-surface: #f1f5f9;
+        --shell-color-text-primary: #0f172a;
+        --shell-spacing-sm: 8px;
+        --shell-spacing-md: 16px;
+        --shell-spacing-lg: 24px;
+        --shell-font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        background-color: var(--shell-color-bg-page);
+        color: var(--shell-color-text-primary);
+        font-family: var(--shell-font-sans);
+      }
+      .shell-ribbon {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        box-sizing: border-box;
+        background-color: var(--shell-color-bg-surface);
+        padding: var(--shell-spacing-md) var(--shell-spacing-lg);
+      }
+      .shell-ribbon-row {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--shell-spacing-md);
+      }
+      .shell-wordmark {
+        flex-shrink: 0;
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--shell-color-text-primary);
+      }
+      /* Neutral placeholder standing in for the dropdowns/search box on the
+         ribbon's right edge on every viewport, so the row's own height (the
+         tallest flex child) does not visibly change once React replaces it —
+         approximates the shadcn Select trigger's default ~36px height. */
+      .shell-ribbon-chrome {
+        height: 36px;
+        flex-shrink: 0;
+      }
+      /* The mobile ribbon (Ribbon.tsx's isMobile branch) adds a second row
+         below the first (nav links + the 44px tap-target search trigger,
+         05-UI-SPEC.md's mobile tap-target minimum) — reproduced here behind
+         the SAME 767px boundary `useIsMobile`/`breakpoints.ts`'s
+         `MOBILE_BREAKPOINT_PX` uses, so the shell and the real, JS-driven
+         layout can never disagree about which one applies for a given
+         viewport width. */
+      .shell-ribbon-second-row {
+        display: none;
+      }
+      @media (max-width: 767px) {
+        .shell-ribbon-second-row {
+          display: block;
+          margin-top: var(--shell-spacing-sm);
+          height: 44px;
+        }
+      }
+      /* A neutral placeholder for the page body below the ribbon — not an
+         attempt to fake any one route's real content shape (Teams table,
+         team page, etc. all differ), just enough painted surface that the
+         viewport is not blank white beneath the ribbon during the JS
+         download. */
+      .shell-body-placeholder {
+        margin: var(--shell-spacing-lg);
+        height: 120px;
+        border-radius: 6px;
+        background-color: var(--shell-color-bg-surface);
+        opacity: 0.5;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <header class="shell-ribbon">
+        <div class="shell-ribbon-row">
+          <span class="shell-wordmark">SigmaScout</span>
+          <div class="shell-ribbon-chrome" aria-hidden="true"></div>
+        </div>
+        <div class="shell-ribbon-second-row" aria-hidden="true"></div>
+      </header>
+      <div class="shell-body-placeholder" aria-hidden="true"></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
