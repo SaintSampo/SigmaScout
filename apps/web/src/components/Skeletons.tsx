@@ -29,19 +29,44 @@ export function SkeletonRows({ rows, columns }: { rows: number; columns: number 
 }
 
 /**
- * The team page's pending-state header block (06-01-PLAN.md Task 3, joining
- * the `Skeletons.tsx` family) — a name/number placeholder plus a square
- * block standing in for the robot image (D-03, wired by plan 06-07). Shown
- * instead of a single full-page spinner (06-UI-SPEC.md E1 loading).
+ * The tier-boxed metric grid's own pending shape (06-07-PLAN.md Task 2),
+ * nested inside `SeasonHeaderSkeleton` below (06-UI-SPEC.md E2 loading) — a
+ * fixed handful of placeholder cells, not sized off a real column count
+ * (the real count is algorithm/season-dependent and unknown before the
+ * artifact resolves).
  */
-export function TeamHeaderSkeleton() {
+const METRIC_GRID_SKELETON_CELL_COUNT = 6;
+
+export function MetricGridSkeleton() {
   return (
-    <div className="flex items-center gap-[var(--spacing-md)]">
-      <Skeleton className="h-16 w-16 shrink-0 rounded-[var(--radius)]" />
-      <div className="flex flex-1 flex-col gap-[var(--spacing-sm)]">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-4 w-32" />
+    <div data-testid="metric-grid-skeleton" className="grid grid-cols-2 gap-[var(--spacing-sm)] sm:grid-cols-3 md:grid-cols-6">
+      {Array.from({ length: METRIC_GRID_SKELETON_CELL_COUNT }, (_, index) => (
+        <Skeleton key={index} className="h-6 w-full" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The team page's pending-state header block (06-01-PLAN.md Task 3 first
+ * shipped this as `TeamHeaderSkeleton`; 06-07-PLAN.md Task 2 supersedes it
+ * with this richer shape now that the real header has grown a robot image,
+ * a TBA link, a tier key row and D-17's metric grid) — a name/number
+ * placeholder, a square block standing in for the robot image (D-03), and a
+ * nested `MetricGridSkeleton`. Shown instead of a single full-page spinner
+ * (06-UI-SPEC.md E1 loading).
+ */
+export function SeasonHeaderSkeleton() {
+  return (
+    <div data-testid="season-header-skeleton" className="flex flex-col gap-[var(--spacing-md)]">
+      <div className="flex items-center gap-[var(--spacing-md)]">
+        <Skeleton className="h-16 w-16 shrink-0 rounded-[var(--radius)]" />
+        <div className="flex flex-1 flex-col gap-[var(--spacing-sm)]">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
       </div>
+      <MetricGridSkeleton />
     </div>
   );
 }

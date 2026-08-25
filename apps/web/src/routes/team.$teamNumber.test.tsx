@@ -163,6 +163,9 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
     renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
 
     await waitFor(() => expect(screen.getAllByTestId("event-section-skeleton").length).toBeGreaterThanOrEqual(2));
+    // 06-07-PLAN.md Task 2: the route's pending branch renders
+    // `SeasonHeaderSkeleton`, not the retired `TeamHeaderSkeleton`.
+    expect(screen.getByTestId("season-header-skeleton")).toBeDefined();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
