@@ -310,7 +310,7 @@ Plans:
   3. Each event section lists that team's matches with both alliances' teams, predicted winner, confidence, predicted scores, and predicted RP ± variance, alongside actual scores and actual RP.
   4. A second tab plots the team's metrics across the season with matches on the x-axis, including a variance band for Sigma metrics.
 
-**Plans**: 3/9 plans executed
+**Plans**: 5/9 plans executed
 
 Plans:
 **Wave 1**
@@ -321,8 +321,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-04-PLAN.md — Publisher wiring: event-name fix, own variance, actual RP, scheduled rows, percentiles, activeYears, robot image
-- [ ] 06-05-PLAN.md — Metric-history chart tab (Recharts, measured dynamic import) + search box and Teams table integration
+- [x] 06-04-PLAN.md — Publisher wiring: event-name fix, own variance, actual RP, scheduled rows, percentiles, activeYears, robot image
+- [x] 06-05-PLAN.md — Metric-history chart tab (Recharts, measured dynamic import) + search box and Teams table integration
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -383,7 +383,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
 | 4. Publish & Live Update Pipeline | 8/8 | Complete    | 2026-08-23 |
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
-| 6. Team Pages | 3/9 | In Progress|  |
+| 6. Team Pages | 5/9 | In Progress|  |
 | 7. Event Pages | 0/TBD | Not started | - |
 | 8. Simulation & Compare | 0/TBD | Not started | - |
 
