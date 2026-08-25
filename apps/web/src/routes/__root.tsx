@@ -21,7 +21,7 @@ import { Ribbon } from "../components/ribbon/Ribbon.js";
  */
 function RootLayout() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <Ribbon />
       <Outlet />
     </div>

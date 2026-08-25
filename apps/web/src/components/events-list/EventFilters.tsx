@@ -178,11 +178,21 @@ function MobileFilterSheet({ options, filters, onFiltersChange, onClearFilters }
         </SheetTrigger>
         <ActiveFilterChips filters={filters} />
       </div>
-      <SheetContent side="bottom" className="flex max-h-[80vh] flex-col">
+      <SheetContent
+        side="bottom"
+        /*
+         * `dvh`, not `vh`: on a phone `vh` is measured against the viewport
+         * with the URL bar collapsed, so an 80vh sheet can extend past the
+         * visible area while the bar is showing — which is how "Clear filters"
+         * ended up below the fold at plan 05-08 sign-off. `pb-[env(safe-area-inset-bottom)]`
+         * keeps the footer clear of the home indicator on a notched device.
+         */
+        className="flex max-h-[85dvh] w-full max-w-full flex-col overflow-x-hidden pb-[env(safe-area-inset-bottom)]"
+      >
         <SheetHeader>
           <SheetTitle>Filters</SheetTitle>
         </SheetHeader>
-        <div className="flex flex-1 flex-col gap-[var(--spacing-sm)] overflow-y-auto px-[var(--spacing-md)]">
+        <div className="flex min-h-0 flex-1 flex-col gap-[var(--spacing-sm)] overflow-y-auto px-[var(--spacing-md)]">
           <DimensionControls options={options} filters={draft} onDimensionChange={handleDimensionChange} />
           {countActive(draft) > 0 && (
             <Button type="button" variant="link" onClick={handleClear} className="w-fit p-0">

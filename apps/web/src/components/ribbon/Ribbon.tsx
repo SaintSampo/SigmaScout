@@ -75,7 +75,7 @@ function NavLinks() {
 
 function GlobalSelects() {
   return (
-    <div className="flex items-center gap-[var(--spacing-sm)]">
+    <div className="flex min-w-0 shrink items-center gap-[var(--spacing-sm)]">
       <YearSelect />
       <AlgorithmSelect />
     </div>
@@ -91,12 +91,12 @@ export function Ribbon() {
   // side of the line they are on.
   const isMobile = useIsMobile();
 
-  const wordmark = <span className="text-role-display text-[var(--color-text-primary)]">SigmaScout</span>;
+  const wordmark = <span className="text-role-display shrink-0 truncate text-[var(--color-text-primary)]">SigmaScout</span>;
 
   if (isMobile) {
     return (
-      <header className="bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
-        <div className="flex items-center justify-between gap-[var(--spacing-md)]">
+      <header className="w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+        <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
         </div>
@@ -106,7 +106,7 @@ export function Ribbon() {
             branches, only the surrounding layout reflows. `SearchBox`
             renders as the 44x44 icon trigger here (`useIsMobile()` inside it
             resolves the same way this component's own `isMobile` did). */}
-        <div className="mt-[var(--spacing-sm)] flex items-center justify-between gap-[var(--spacing-md)]">
+        <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           <NavLinks />
           <SearchBox />
         </div>
@@ -115,8 +115,8 @@ export function Ribbon() {
   }
 
   return (
-    <header className="bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
-      <div className="flex items-center justify-between gap-[var(--spacing-md)]">
+    <header className="w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+      <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
         {wordmark}
         <NavLinks />
         <GlobalSelects />
