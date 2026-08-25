@@ -1,0 +1,297 @@
+import { cn } from "@/lib/utils";
+import { teamNumberFromKey } from "../../lib/teamKey.js";
+import { rpMoments } from "./rpMoments.js";
+import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
+
+/**
+ * The band/tick/dot row anatomy on one shared axis, drawn once per event
+ * section (06-08-PLAN.md Task 2). Sketch 003 variant C, selected in
+ * `uncertainty-display.md` — the overlap between the two alliance bands IS
+ * the win probability, drawn rather than asserted. Every vertical position
+ * comes from `matchAxis.ts`'s `allianceMarkPositions` — no `top` literal is
+ * ever written in this file (enforced by `06-08-PLAN.md`'s own grep
+ * acceptance criterion).
+ */
+export interface MatchTableProps {
+  matches: readonly TeamSeasonMatch[];
+  domain: AxisDomain;
+  teamKey: string;
+}
+
+/** The plot's own fixed pixel width — not one of `MATCH_GEOMETRY`'s locked constants (those are heights/offsets), but a real, deliberate ~470px per `06-CONTEXT.md` D-10's own framing ("the plot needs ~470px against a ~390px phone" — the reason this table needs its own horizontal scroll region at all). */
+const PLOT_W = 470;
+
+const COMP_LEVEL_LABELS: Record<TeamSeasonMatch["compLevel"], string> = {
+  qm: "Qual",
+  ef: "Eighths",
+  qf: "Quarterfinal",
+  sf: "Semifinal",
+  f: "Final",
+};
+
+/**
+ * The Match column's human label. Prefers the published `setNumber`/
+ * `matchNumber`; falls back to the opaque `matchKey`'s own suffix only when
+ * those are absent — deriving a display string by parsing an opaque key is
+ * the same class of mistake `eventName: eventKey` already shipped
+ * (06-RESEARCH.md Pitfall 1), so the fallback exists but is never the
+ * primary path.
+ */
+export function matchLabel(match: Pick<TeamSeasonMatch, "compLevel" | "setNumber" | "matchNumber" | "matchKey">): string {
+  const levelLabel = COMP_LEVEL_LABELS[match.compLevel];
+  if (match.setNumber !== undefined && match.matchNumber !== undefined) {
+    if (match.compLevel === "qm") {
+      return `${levelLabel} ${match.matchNumber}`;
+    }
+    return `${levelLabel} ${match.setNumber}-${match.matchNumber}`;
+  }
+  const separatorIndex = match.matchKey.lastIndexOf("_");
+  return separatorIndex === -1 ? match.matchKey : match.matchKey.slice(separatorIndex + 1);
+}
+
+/** `Sat 10:32 AM` in the viewer's own locale/timezone, from an epoch-seconds `sortTime` (D-08's scheduled-match Actual column). */
+function formatScheduledTime(sortTime: number): string {
+  const date = new Date(sortTime * 1000);
+  const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(date);
+  return `${weekday} ${time}`;
+}
+
+function teamNumberLabel(teamKey: string): string {
+  try {
+    return `${teamNumberFromKey(teamKey)}`;
+  } catch {
+    return teamKey;
+  }
+}
+
+interface AllianceRowProps {
+  matchKey: string;
+  side: "red" | "blue";
+  predicted: number;
+  sd: number | undefined;
+  actual: number | undefined;
+  yBand: number;
+  domain: AxisDomain;
+  colorVar: string;
+  softVar: string;
+}
+
+/** One alliance's band + tick + dot inside a single match's plot cell — every top from `allianceMarkPositions`, every left from `scaleToPlot`. */
+function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, colorVar, softVar }: AllianceRowProps) {
+  const pos = allianceMarkPositions(yBand);
+  const tickCentre = scaleToPlot(predicted, domain, PLOT_W);
+  const testIdBase = `alliance-mark-${matchKey}-${side}`;
+
+  let bandLeft: number | undefined;
+  let bandWidth: number | undefined;
+  if (sd !== undefined) {
+    const lowLeft = scaleToPlot(predicted - sd, domain, PLOT_W);
+    const highLeft = scaleToPlot(predicted + sd, domain, PLOT_W);
+    bandLeft = lowLeft;
+    bandWidth = highLeft - lowLeft;
+  }
+
+  const dotCentre = actual !== undefined ? scaleToPlot(actual, domain, PLOT_W) : undefined;
+
+  return (
+    <>
+      {bandLeft !== undefined && bandWidth !== undefined && (
+        <div
+          data-testid={`${testIdBase}-band`}
+          className="absolute rounded-sm"
+          style={{ top: pos.bandTop, left: bandLeft, width: bandWidth, height: MATCH_GEOMETRY.BAND_H, background: softVar }}
+        />
+      )}
+      <div
+        data-testid={`${testIdBase}-tick`}
+        className="absolute"
+        style={{ top: pos.tickTop, left: tickCentre - 1, width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
+      />
+      {dotCentre !== undefined && (
+        <div
+          data-testid={`${testIdBase}-dot`}
+          className="absolute rounded-full bg-white"
+          style={{
+            top: pos.dotTop,
+            left: dotCentre - MATCH_GEOMETRY.DOT_H / 2,
+            width: MATCH_GEOMETRY.DOT_H,
+            height: MATCH_GEOMETRY.DOT_H,
+            border: `3px solid ${colorVar}`,
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function AxisHeader({ domain }: { domain: AxisDomain }) {
+  const ticks = axisTicks(domain);
+  return (
+    <div data-testid="axis-ticks" className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.TICK_H }}>
+      {ticks.map((tick) => (
+        <span
+          key={tick}
+          data-testid="axis-tick"
+          className="numeric-cell text-role-label absolute -translate-x-1/2 text-[var(--color-text-muted)]"
+          style={{ left: scaleToPlot(tick, domain, PLOT_W) }}
+        >
+          {tick}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PredictedRpCell({ pmf }: { pmf: readonly number[] | undefined }) {
+  const moments = rpMoments(pmf);
+  if (moments === undefined) return null;
+  return (
+    <span className="numeric-cell whitespace-nowrap">
+      {moments.mean.toFixed(1)}
+      <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${moments.sd.toFixed(1)}`}</span>
+    </span>
+  );
+}
+
+function ActualScoreLine({
+  matchKey,
+  side,
+  score,
+  rp,
+  isLoser,
+}: {
+  matchKey: string;
+  side: "red" | "blue";
+  score: number;
+  rp: number | null | undefined;
+  isLoser: boolean;
+}) {
+  return (
+    <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
+      {score}
+      {rp !== null && rp !== undefined ? ` (${rp} RP)` : ""}
+    </span>
+  );
+}
+
+function MatchRow({ match, domain, teamKey }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string }) {
+  const played = match.actualWinner !== undefined;
+  const teamIsRed = match.redTeams.includes(teamKey);
+  const teamIsBlue = match.blueTeams.includes(teamKey);
+
+  const confidence = match.predictedWinner === "red" ? match.pRedWin : 1 - match.pRedWin;
+  const winnerCorrect = played && match.predictedWinner === match.actualWinner;
+
+  const redLoses = played && match.actualWinner === "blue";
+  const blueLoses = played && match.actualWinner === "red";
+
+  return (
+    <tr data-testid={`match-row-${match.matchKey}`}>
+      <td className="sticky left-0 z-[1] bg-[var(--color-bg-page)] p-[var(--spacing-sm)] align-top">
+        <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+          <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+            {match.redTeams.map((key, index) => (
+              <span key={key} className={cn(teamIsRed && "font-semibold")}>
+                {index > 0 ? " " : ""}
+                {teamNumberLabel(key)}
+              </span>
+            ))}
+          </span>
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+            {match.blueTeams.map((key, index) => (
+              <span key={key} className={cn(teamIsBlue && "font-semibold")}>
+                {index > 0 ? " " : ""}
+                {teamNumberLabel(key)}
+              </span>
+            ))}
+          </span>
+        </div>
+      </td>
+      <td className="p-[var(--spacing-sm)] align-top">
+        <div className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.PLOT_H }}>
+          <AllianceRow
+            matchKey={match.matchKey}
+            side="red"
+            predicted={match.predictedRedScore}
+            sd={match.redScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, match.redScoreVarianceOwn)) : undefined}
+            actual={match.actualRedScore}
+            yBand={MATCH_GEOMETRY.Y_RED}
+            domain={domain}
+            colorVar="var(--alliance-red)"
+            softVar="var(--alliance-red-soft)"
+          />
+          <AllianceRow
+            matchKey={match.matchKey}
+            side="blue"
+            predicted={match.predictedBlueScore}
+            sd={match.blueScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, match.blueScoreVarianceOwn)) : undefined}
+            actual={match.actualBlueScore}
+            yBand={MATCH_GEOMETRY.Y_BLUE}
+            domain={domain}
+            colorVar="var(--alliance-blue)"
+            softVar="var(--alliance-blue-soft)"
+          />
+        </div>
+      </td>
+      <td data-testid={`confidence-${match.matchKey}`} className="numeric-cell text-role-body whitespace-nowrap p-[var(--spacing-sm)] align-top text-[var(--color-text-primary)]">
+        {match.predictedWinner === "red" ? "Red" : "Blue"} {Math.round(confidence * 100)}%
+      </td>
+      <td data-testid={`predicted-rp-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
+        <div className="flex flex-col gap-[var(--spacing-xs)]">
+          <PredictedRpCell pmf={match.redRpPmf} />
+          <PredictedRpCell pmf={match.blueRpPmf} />
+        </div>
+      </td>
+      <td data-testid={`actual-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
+        {played ? (
+          <div className="flex flex-col gap-[var(--spacing-xs)]">
+            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} rp={match.actualRedRp} isLoser={redLoses} />
+            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} rp={match.actualBlueRp} isLoser={blueLoses} />
+          </div>
+        ) : (
+          <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : "—"}
+          </span>
+        )}
+      </td>
+      <td data-testid={`call-${match.matchKey}`} className="text-role-body p-[var(--spacing-sm)] align-top text-[var(--color-text-primary)]">
+        {!played ? (
+          <span aria-hidden="true">{"—"}</span>
+        ) : winnerCorrect ? (
+          <span aria-label="Prediction correct">{"✓"}</span>
+        ) : (
+          <span aria-label="Prediction incorrect">{"✗"}</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
+export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
+  return (
+    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+      <thead>
+        <tr>
+          <th className="sticky left-0 z-[2] bg-[var(--color-bg-page)] p-[var(--spacing-sm)] text-left">
+            <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
+          </th>
+          <th className="p-[var(--spacing-sm)] text-left">
+            <AxisHeader domain={domain} />
+          </th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Conf.</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. RP</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
+        </tr>
+      </thead>
+      <tbody>
+        {matches.map((match) => (
+          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
