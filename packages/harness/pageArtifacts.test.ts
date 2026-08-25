@@ -307,6 +307,139 @@ describe("artifactKey — all five shapes, including the compare exception", () 
   });
 });
 
+describe("D-09 replacement guarantee — played-match validation rule (Phase 6, plan 06-02 Task 3)", () => {
+  /** A team-season fixture whose one event carries exactly one match row, so a test can freely mutate that single row. */
+  function fixtureWithMatchRow(row: Record<string, unknown>) {
+    const fixture = validTeamSeasonFixture();
+    fixture.events[0]!.matches = [row as ReturnType<typeof validMatchRowFixture>];
+    return fixture;
+  }
+
+  it("a played match carrying all three actual fields parses", () => {
+    const row = validMatchRowFixture(); // carries actualWinner/actualRedScore/actualBlueScore
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithMatchRow(row))).not.toThrow();
+  });
+
+  it("a played match missing actualWinner fails, naming the played-match rule", () => {
+    const { actualWinner, ...row } = validMatchRowFixture();
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow(row));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must carry all three"))).toBe(true);
+    }
+  });
+
+  it("a played match missing actualRedScore fails, naming the played-match rule", () => {
+    const { actualRedScore, ...row } = validMatchRowFixture();
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow(row));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must carry all three"))).toBe(true);
+    }
+  });
+
+  it("a played match missing actualBlueScore fails, naming the played-match rule", () => {
+    const { actualBlueScore, ...row } = validMatchRowFixture();
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow(row));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must carry all three"))).toBe(true);
+    }
+  });
+
+  it("an unplayed match carrying none of the three actual fields parses", () => {
+    const { actualWinner, actualRedScore, actualBlueScore, ...row } = validMatchRowFixture();
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithMatchRow(row))).not.toThrow();
+  });
+
+  it("a row carrying only actualRedScore (not actualWinner or actualBlueScore) fails", () => {
+    const { actualWinner, actualBlueScore, ...row } = validMatchRowFixture();
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow(row));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must carry all three"))).toBe(true);
+    }
+  });
+});
+
+describe("TeamSeasonMatchSchema — D-01 own-variance and D-02 actual RP fields (Phase 6, plan 06-02 Task 3)", () => {
+  function fixtureWithMatchRow(row: Record<string, unknown>) {
+    const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
+    const events = fixture.events as Array<Record<string, unknown>>;
+    events[0]!.matches = [row];
+    return fixture;
+  }
+
+  it("parses a row with redScoreVarianceOwn set and variance unset — the two are different quantities, neither implies the other", () => {
+    const { variance, ...row } = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, redScoreVarianceOwn: 12.5 }))).not.toThrow();
+  });
+
+  it("parses a row with both variance and redScoreVarianceOwn/blueScoreVarianceOwn present at once", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const parsed = TeamSeasonArtifactSchema.parse(
+      fixtureWithMatchRow({ ...row, variance: 30, redScoreVarianceOwn: 12.5, blueScoreVarianceOwn: 14.1 })
+    );
+    const parsedMatch = parsed.events[0]!.matches[0] as unknown as { variance?: number; redScoreVarianceOwn?: number };
+    expect(parsedMatch.variance).toBe(30);
+    expect(parsedMatch.redScoreVarianceOwn).toBe(12.5);
+  });
+
+  it("rejects a non-integer actualRedRp — bonus RP is an integer count by contract", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, actualRedRp: 1.5 }))).toThrow();
+  });
+
+  it("accepts null for actualRedRp/actualBlueRp — 'not derivable from available data', distinct from a real 0", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const parsed = TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, actualRedRp: null, actualBlueRp: 0 }));
+    const parsedMatch = parsed.events[0]!.matches[0] as unknown as { actualRedRp?: number | null; actualBlueRp?: number | null };
+    expect(parsedMatch.actualRedRp).toBeNull();
+    expect(parsedMatch.actualBlueRp).toBe(0);
+  });
+});
+
+describe("TeamMetricSchema.percentile — D-04 boundary (Phase 6, plan 06-02 Task 3)", () => {
+  function fixtureWithTotalPercentile(percentile: number) {
+    const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
+    const seasonStats = fixture.seasonStats as Record<string, unknown>;
+    seasonStats.metrics = { total: { value: 45.2, spread: 3.1, percentile } };
+    return fixture;
+  }
+
+  it("accepts percentile 0", () => {
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithTotalPercentile(0))).not.toThrow();
+  });
+
+  it("accepts percentile 100", () => {
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithTotalPercentile(100))).not.toThrow();
+  });
+
+  it("rejects percentile -0.1", () => {
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithTotalPercentile(-0.1))).toThrow();
+  });
+
+  it("rejects percentile 100.1", () => {
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithTotalPercentile(100.1))).toThrow();
+  });
+});
+
+describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears (D-03/D-05, Phase 6, plan 06-02 Task 3)", () => {
+  it("parses a fixture with no robotImageUrl and no activeYears", () => {
+    expect(() => TeamSeasonArtifactSchema.parse(validTeamSeasonFixture())).not.toThrow();
+  });
+
+  it("fails when robotImageUrl is not a URL", () => {
+    const fixture = { ...validTeamSeasonFixture(), robotImageUrl: "not-a-url" };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("parses a fixture with a valid robotImageUrl and activeYears", () => {
+    const fixture = { ...validTeamSeasonFixture(), robotImageUrl: "https://i.imgur.com/1kDEW6V.jpeg", activeYears: [2024, 2025, 2026] };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
+  });
+});
+
 describe("empty-input edge (D-05/D-07) — a team with no matches is a valid empty artifact", () => {
   it("TeamSeasonArtifactSchema accepts events: [] and metricHistory: []", () => {
     const fixture = { ...validTeamSeasonFixture(), events: [], metricHistory: [] };
