@@ -61,6 +61,8 @@ import {
   openCorpusReadOnly,
   selectMatchesChronological,
   selectScheduledMatches,
+  selectTeamKeysForYear,
+  selectTeamMediaForYear,
   type Corpus,
 } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionRecord } from "./replay.js";
@@ -80,6 +82,7 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
+import { withPercentiles, type TeamMetricWithPercentile } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
@@ -110,11 +113,25 @@ function roundComponents(
   return result;
 }
 
-/** Rounds a `TeamMetrics`-shaped record's `value`/`spread` at `ROUNDING_RULE.metric` — used for `EventTeamSchema.metrics`, `TeamsTableRowSchema.metrics`, and `RecordAndMetricsSchema.metrics`. */
-function roundTeamMetricRecord(metrics: Record<string, TeamMetric>): Record<string, TeamMetric> {
-  const result: Record<string, TeamMetric> = {};
+/**
+ * Rounds a `TeamMetrics`-shaped record's `value`/`spread` at
+ * `ROUNDING_RULE.metric` — used for `EventTeamSchema.metrics`,
+ * `TeamsTableRowSchema.metrics`, and `RecordAndMetricsSchema.metrics`.
+ * `percentile` (D-04, Phase 6), when present on the input metric, passes
+ * through UNCHANGED — it is already rounded once, at
+ * `percentiles.ts`'s `withPercentiles`, and is never re-rounded here. A
+ * plain `TeamMetric` (no `percentile`) is a valid input too, so every
+ * existing call site — which never had a percentile to carry — is
+ * unaffected.
+ */
+function roundTeamMetricRecord(metrics: Record<string, TeamMetricWithPercentile>): Record<string, TeamMetricWithPercentile> {
+  const result: Record<string, TeamMetricWithPercentile> = {};
   for (const [key, m] of Object.entries(metrics)) {
-    result[key] = { value: roundMetric(m.value), ...(m.spread !== undefined ? { spread: roundMetric(m.spread) } : {}) };
+    result[key] = {
+      value: roundMetric(m.value),
+      ...(m.spread !== undefined ? { spread: roundMetric(m.spread) } : {}),
+      ...(m.percentile !== undefined ? { percentile: m.percentile } : {}),
+    };
   }
   return result;
 }
@@ -329,6 +346,10 @@ export interface BuildTeamSeasonArtifactParams {
    * `sortTime` absent — never a synthetic default.
    */
   readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
+  /** D-03 (Phase 6): the pipeline-resolved robot image URL for this team/season, from `selectTeamMediaForYear` — omitted (never `null`) when the corpus has no eligible photo for this team-year. */
+  readonly robotImageUrl?: string;
+  /** D-05 (Phase 6): the seasons this team is known to have competed in, from the `activeYearsByTeam` pre-pass — feeds the team page's constrained year dropdown (D-18). */
+  readonly activeYears?: readonly number[];
 }
 
 /** D-07/D-05's second at-risk artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning (T-04-22). */
@@ -409,6 +430,8 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     seasonStats: { record: params.seasonStats.record, metrics: roundTeamMetricRecord(params.seasonStats.metrics) },
     events,
     metricHistory: params.metricHistory.map(roundMetricHistoryRow),
+    robotImageUrl: params.robotImageUrl,
+    activeYears: params.activeYears ? [...params.activeYears] : undefined,
   };
   return TeamSeasonArtifactSchema.parse(candidate);
 }
@@ -845,6 +868,32 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const seedFiles: string[] = [];
   const manifestKeys: string[] = [];
 
+  // D-05 (Phase 6): activeYears cross-season pre-pass, run once over EVERY
+  // requested season before the season loop below (which only ever touches
+  // one season at a time) — inverts `selectTeamKeysForYear` per season into
+  // teamKey -> the sorted list of seasons that team is known to have
+  // competed in. A run narrower than the full published range under-reports
+  // this by construction (it can only know about the seasons it was asked
+  // to touch), so that narrowing is logged explicitly rather than silently
+  // shipped — a silently under-reported activeYears would wrongly hide real
+  // years from the team page's year dropdown (D-18).
+  const activeYearsByTeam = new Map<string, number[]>();
+  for (const activeYearsSeason of seasonsSorted) {
+    const teamKeysThisSeason = selectTeamKeysForYear(db, activeYearsSeason, { excludeOffseason: !includeOffseason });
+    for (const teamKey of teamKeysThisSeason) {
+      const years = activeYearsByTeam.get(teamKey) ?? [];
+      years.push(activeYearsSeason);
+      activeYearsByTeam.set(teamKey, years);
+    }
+  }
+  for (const years of activeYearsByTeam.values()) years.sort((a, b) => a - b);
+  if (seasonsSorted.length < 5) {
+    console.log(
+      `publish: this run's season set (${seasonsSorted.join(", ")}) is narrower than the full published range — ` +
+        `activeYears will reflect only these seasons, not a team's full competition history.`
+    );
+  }
+
   let liveStatesAcrossSeasons = new Map<string, unknown>();
   let finalSeasonStates = new Map<string, unknown>();
 
@@ -860,6 +909,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // played or not — feeds both TeamSeasonMatchSchema.sortTime and the
     // per-event match ordering below (sortTeamSeasonMatches).
     const sortTimeByMatchKey = selectScheduledMatchTimes(db, season, { excludeOffseason: !includeOffseason });
+    // D-03 (Phase 6): the robot-photo lookup, once per season (media is not
+    // algorithm-scoped) — plan 06-03's team_media table, filled offline by
+    // the media ingest pass. A null stored `imageUrl` (or no row at all) is
+    // the resolved "this team has no usable photo this year" answer, so it
+    // is passed through as `undefined` below, never fetched or guessed here.
+    const teamMediaForSeason = selectTeamMediaForYear(db, season);
 
     const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === coldStartSeason };
     let initialStates: ReadonlyMap<string, unknown> | undefined;
@@ -966,6 +1021,15 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const state = records.finalStates.get(algorithm.id);
       const version = algorithm.version;
       const metricsByTeam = state !== undefined ? algorithm.teamMetrics(state, teamsThisSeason) : {};
+      // D-04 (Phase 6): the mid-rank percentile pass, run exactly once per
+      // (algorithm, season) at this single reuse point — before either
+      // downstream consumer reads `metricsByTeam`. Only the per-team
+      // artifact's `seasonStats.metrics` below consumes the widened result
+      // this phase; `teamsRows` (the teams/{year} artifact) deliberately
+      // keeps reading the unwidened `metricsByTeam` — see percentiles.ts's
+      // file header and 06-RESEARCH.md's Open Question 2 for why widening
+      // the teams artifact's published surface is out of this phase's scope.
+      const metricsByTeamWithPercentiles = withPercentiles(metricsByTeam, teamsThisSeason);
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
@@ -1121,11 +1185,18 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           algorithmVersion: version,
           seasonStats: {
             record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-            metrics: metricsByTeam[teamKey] ?? {},
+            // D-04 (Phase 6): the percentile-widened record — the ONLY
+            // consumer of `metricsByTeamWithPercentiles` this phase wires.
+            metrics: metricsByTeamWithPercentiles[teamKey] ?? {},
           },
           events,
           metricHistory: metricHistoryForAlgo.get(teamKey) ?? [],
           sortTimeByMatchKey,
+          // D-03 (Phase 6): omitted entirely when the corpus has no row, or
+          // the stored value is null — never fetched, never guessed.
+          robotImageUrl: teamMediaForSeason.get(teamKey)?.imageUrl ?? undefined,
+          // D-05 (Phase 6): from the activeYears pre-pass above.
+          activeYears: activeYearsByTeam.get(teamKey),
           generation,
           computedAt,
         });

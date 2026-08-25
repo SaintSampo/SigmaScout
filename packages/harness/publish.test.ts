@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
-import { openCorpus, selectScheduledMatches, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
+import { openCorpus, selectScheduledMatches, upsertEvent, upsertMatch, upsertTeam, upsertTeamMedia, type Corpus } from "../corpus/db.js";
 import type { PredictionRecord } from "./replay.js";
 import type { TeamSeasonArtifact } from "./pageArtifacts.js";
 import {
@@ -515,9 +515,9 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     };
   }
 
-  function findTeamArtifact(teamKey: string): TeamSeasonArtifact {
-    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/2026/`));
-    expect(call, `expected a v1/team/${teamKey}/2026/... putObject call`).toBeDefined();
+  function findTeamArtifact(teamKey: string, year = 2026): TeamSeasonArtifact {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/${year}/`));
+    expect(call, `expected a v1/team/${teamKey}/${year}/... putObject call`).toBeDefined();
     return JSON.parse(call![2] as string) as TeamSeasonArtifact;
   }
 
@@ -569,6 +569,65 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     const artifact = findTeamArtifact("frc1");
     const ordEvent = artifact.events.find((e) => e.eventKey === "2026ord");
     expect(ordEvent?.matches.map((m) => m.matchNumber)).toEqual([1, 2]);
+  });
+
+  it("D-04/D-03/D-05: percentile, robotImageUrl and activeYears all reach the team artifact from their respective single insertion points", async () => {
+    // 2025: frc1 plays a match, no team_media row (no photo resolved for this team-year).
+    upsertEvent(db, seasonEvent({ eventKey: "2025casj", year: 2025, name: "2025 Event" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2025casj_qm1", eventKey: "2025casj", sortTime: 1_000 }));
+
+    // 2026: frc1 plays a match, and HAS a team_media row with a resolved photo.
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", year: 2026, name: "2026 Event" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026casj_qm1", eventKey: "2026casj", sortTime: 2_000 }));
+    upsertTeam(db, { teamKey: "frc1", teamNumber: 1, nickname: "" });
+    upsertTeamMedia(db, {
+      teamKey: "frc1",
+      year: 2026,
+      imageUrl: "https://i.imgur.com/example.jpg",
+      mediaType: "imgur",
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await publishSeasons(db, { seasons: [2025, 2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact2026 = findTeamArtifact("frc1", 2026);
+    const artifact2025 = findTeamArtifact("frc1", 2025);
+
+    // D-04: percentile present, bounded [0, 100], at most one decimal place.
+    const pct = artifact2026.seasonStats.metrics.total?.percentile;
+    expect(pct).toBeDefined();
+    expect(pct!).toBeGreaterThanOrEqual(0);
+    expect(pct!).toBeLessThanOrEqual(100);
+    expect(Number.isInteger(pct! * 10)).toBe(true);
+
+    // D-03: robotImageUrl present when the corpus has a URL, absent when the corpus row's value is null (here: no row at all for 2025).
+    expect(artifact2026.robotImageUrl).toBe("https://i.imgur.com/example.jpg");
+    expect(artifact2025.robotImageUrl).toBeUndefined();
+
+    // D-05: activeYears is a sorted ascending integer array containing exactly the seasons frc1 appears in, published on BOTH year's artifacts.
+    expect(artifact2026.activeYears).toEqual([2025, 2026]);
+    expect(artifact2025.activeYears).toEqual([2025, 2026]);
+  });
+
+  it("logs a warning naming the seasons in scope when the run's season set is narrower than the full published range (D-05 under-reporting guard)", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
+    upsertMatch(db, seasonMatch());
+
+    const originalLog = console.log;
+    const captured: unknown[][] = [];
+    console.log = (...args: unknown[]) => {
+      captured.push(args);
+    };
+    try {
+      await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    } finally {
+      console.log = originalLog;
+    }
+
+    const warned = captured.some(
+      ([msg]) => typeof msg === "string" && msg.includes("2026") && msg.toLowerCase().includes("activeyears")
+    );
+    expect(warned).toBe(true);
   });
 });
 
