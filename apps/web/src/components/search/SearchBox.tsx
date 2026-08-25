@@ -41,15 +41,22 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
  * route, and TanStack Router's typed `navigate()` has no single type that
  * means "any route in the tree, carrying forward whatever the CURRENT
  * route's search happens to hold." Unlike those two callers, this one's
- * TARGET route genuinely varies (a team match navigates to `/teams`, an
- * event match to `/events`), which is exactly why a plain `<Link>` cannot
+ * TARGET route genuinely varies (a team match navigates to `/team/{number}`,
+ * an event match to `/events`), which is exactly why a plain `<Link>` cannot
  * express it and an imperative, narrowly-typed `navigate()` cast is used
  * instead. At RUNTIME every search updater below only ever reads/writes
  * known fields, so an unrecognized field silently passing through the
  * spread is stripped by the TARGET route's own `validateSearch` (T-05-02) —
- * never a crash, never a stray param reaching a component.
+ * never a crash, never a stray param reaching a component. `params` is
+ * optional on the option object — only the team destination's route has a
+ * path param to carry (D-15's plain team number, not the internal `frc{n}`
+ * key).
  */
-type SearchNavigate = (opts: { to: "/teams" | "/events"; search: (prev: Record<string, unknown>) => Record<string, unknown> }) => Promise<void>;
+type SearchNavigate = (opts: {
+  to: "/teams" | "/events" | "/team/$teamNumber";
+  params?: { teamNumber: string };
+  search: (prev: Record<string, unknown>) => Record<string, unknown>;
+}) => Promise<void>;
 
 const SEARCH_PLACEHOLDER = "Search teams or events (e.g. 1114 or Simbotics)";
 
@@ -210,15 +217,18 @@ export function SearchBox() {
     setDialogOpen(false);
   }
 
-  function handleSelectTeam(_team: TeamMatch) {
-    // Team/event DETAIL pages are Phase 6/7 (05-CONTEXT.md "Out of scope").
-    // INTERIM TARGET: land on the Teams page for the current year/algorithm.
-    // `_team` is accepted (not yet used) so the per-row call site already
-    // carries the matched team through — Phase 6 changes this ONE
-    // destination (and can restore true scroll-to-row/highlight behaviour
-    // against a real per-team page) rather than every future reader
-    // rediscovering this decision.
-    void navigate({ to: "/teams", search: (prev) => ({ ...prev, year: search.year, algorithm: search.algorithm }) });
+  function handleSelectTeam(team: TeamMatch) {
+    // The real per-team destination (06-CONTEXT.md D-15/D-16), replacing
+    // Phase 5's interim Teams-page landing. The route takes the plain team
+    // number, not the internal `frc{number}` corpus key (`team.teamKey`) —
+    // that split is D-15's whole point, so the number is what crosses this
+    // boundary. year/algorithm carry forward exactly as handleSelectEvent's
+    // own updater does.
+    void navigate({
+      to: "/team/$teamNumber",
+      params: { teamNumber: String(team.teamNumber) },
+      search: (prev) => ({ ...prev, year: search.year, algorithm: search.algorithm }),
+    });
     closeAndReset();
   }
 

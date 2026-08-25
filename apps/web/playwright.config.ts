@@ -66,12 +66,20 @@ export default defineConfig({
     },
     {
       name: "iphone-17",
-      testMatch: /touch-scroll\.spec\.ts/,
+      // Widened by 06-05-PLAN.md Task 3 (Rule 3 - blocking, matching
+      // 06-01-PLAN.md's identical precedent for team-page.spec.ts):
+      // no-page-pan.spec.ts existed on disk but matched NO project's
+      // testMatch at all, so this plan's own literal verify command
+      // (`test:e2e -- no-page-pan`) reported "no tests found" regardless of
+      // any code change. The spec's own header names the bug's origin as
+      // "on a 390px phone" — a mobile-viewport project is where it's
+      // actually meaningful, not desktop's 1440x900.
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium" },
     },
     {
       name: "pixel-10",
-      testMatch: /touch-scroll\.spec\.ts/,
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
   ],
