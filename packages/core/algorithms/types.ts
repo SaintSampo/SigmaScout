@@ -117,6 +117,25 @@ export interface Prediction {
   redRpPmf?: readonly number[];
   /** D-10: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
   blueRpPmf?: readonly number[];
+  /**
+   * Plan 06.1-02 (F-06-1): predicted per-bonus MARGINAL probabilities.
+   * Entry `i` is the predicted probability this alliance earns the bonus at
+   * the same index of `rpRuleModuleForSeason(season).bonusNames` — a
+   * positional array, not a record, so a reader must always index against
+   * `bonusNames` rather than assume field order. This is a per-bonus
+   * MARGINAL, not a distribution: entries do NOT sum to 1 and must never be
+   * passed through `roundPmf` (PD-05, 06.1-02-PLAN.md). It is a DIFFERENT
+   * quantity from `redRpPmf` above, which is a distribution over the RP
+   * TOTAL — never conflate the two. Optional, following the same
+   * omitted-entirely convention as `redRpPmf`: absent (never an empty or
+   * all-zero array) when the Monte Carlo does not run for this prediction
+   * (RP-ineligible event type, non-qualification `compLevel`, or zero
+   * `rpMonteCarloDraws`). Populated by Sigma1 only — OPR and EPA neither
+   * carry this field, since neither models ranking points.
+   */
+  redBonusRp?: readonly number[];
+  /** The blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
+  blueBonusRp?: readonly number[];
 }
 
 /** D-27: one team's named metric — a value with an optional consistency/uncertainty spread. */

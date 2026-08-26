@@ -718,6 +718,11 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
         params,
       })
     : { redPmf: [], bluePmf: [] };
+  // Plan 06.1-02 (F-06-1): the RP-ineligible fallback above carries no
+  // bonus arrays either -- `rpResult.redBonusProbabilities` stays
+  // `undefined`, so the conditional spreads below omit `redBonusRp`/
+  // `blueBonusRp` from the returned Prediction exactly as they omit
+  // `redRpPmf`/`blueRpPmf`.
 
   return {
     // margin === 0 gives pRedWin exactly 0.5 through every link mode's own
@@ -744,6 +749,17 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
     // "omitted entirely, never an empty array" optional-field convention.
     ...(rpResult.redPmf.length > 0 ? { redRpPmf: rpResult.redPmf } : {}),
     ...(rpResult.bluePmf.length > 0 ? { blueRpPmf: rpResult.bluePmf } : {}),
+    // Plan 06.1-02 (F-06-1): reuses the same presence test the pmf spreads
+    // above already use (defined and non-empty) rather than inventing a
+    // second convention -- `redBonusProbabilities` is `undefined` on both
+    // `rpPmfForMatch` short-circuit branches (Task 1) and on the
+    // RP-ineligible fallback object above.
+    ...(rpResult.redBonusProbabilities && rpResult.redBonusProbabilities.length > 0
+      ? { redBonusRp: rpResult.redBonusProbabilities }
+      : {}),
+    ...(rpResult.blueBonusProbabilities && rpResult.blueBonusProbabilities.length > 0
+      ? { blueBonusRp: rpResult.blueBonusProbabilities }
+      : {}),
   };
 }
 
