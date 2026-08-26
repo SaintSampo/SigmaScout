@@ -362,7 +362,7 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 4/7 plans executed
+**Plans:** 5/7 plans executed
 
 Plans:
 **Wave 1**
@@ -377,7 +377,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06.1-05-PLAN.md — The publish boundary: four new match fields, algorithm-independent actual bonus flags, and season-final percentiles on every history row
+- [x] 06.1-05-PLAN.md — The publish boundary: four new match fields, algorithm-independent actual bonus flags, and season-final percentiles on every history row
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
