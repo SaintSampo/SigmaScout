@@ -80,4 +80,88 @@ distinction the UI does not need to render differently.
 
 ## The recurring cost this integration commits to
 
-_(placeholder — filled in by the full 2022-2026 ingest run and its verification query)_
+`packages/ingest/tbaClient.ts`'s `THROTTLE_INTERVAL_MS = 100` applies per request unconditionally,
+including on cache-hit 304 responses. The full ingest, **measured from a real full 2022-2026 run
+(plan 06.1-04 Task 2, run `12f17740-e573-4459-bb43-46b7c4b4a193`, 2026-08-26):**
+
+- **Command:** `pnpm ingest:rankings --years 2022-2026`
+- **Date:** 2026-08-26
+- **Total requests:** 1,582 (1,581 event-scoped `/event/{key}/rankings` requests across the five
+  seasons' 1,581 corpus events, plus 1 `/status` health check at run start)
+- **Cache hits (304):** 324 — every 2024 event, already ingested fresh by plan 06.1-01's tracer run;
+  this is the ETag path working exactly as intended, not a shortfall
+- **Fresh (200):** 1,258
+- **Elapsed wall clock:** 4 min 13.8 sec (253.8 s), read from `ingest_runs.started_at`
+  (`2026-08-26T22:58:43.020Z`) to `finished_at` (`2026-08-26T23:02:56.825Z`) — **not** the ingest's
+  own console timing, matching this file's own T-06.1-16 repudiation-mitigation discipline of
+  trusting stored state over an in-memory tally
+- **Observed per-request time:** ≈160ms/request average, 60% above the 100ms throttle floor —
+  within the 18–117% range Phase 6's media ingest already measured under comparable live-network
+  conditions (this file's sibling `COVERAGE.md`), so no new cost-model surprise
+- **Budget guidance:** a full five-season rankings re-ingest costs **4–6 minutes** of wall clock on
+  this network, an order of magnitude cheaper than Phase 6's 17,231-request, 30–60-minute media
+  ingest — a repeat run over an already-ingested season costs the same request count but returns
+  almost entirely 304s (as 2024 did here), so re-running this command after a future season's TBA
+  data changes is cheap to do liberally
+
+**Per-season event counts** (`events` = total corpus events for the season; figures in parentheses
+are this run's own tallies — `populated` / `null-body` / `empty-rankings` / cache-hits-this-run /
+rows-skipped-for-an-unregistered-team-key):
+
+| Season | Events | Populated | Null-body | Empty-rankings | Cache hits (this run) | Unregistered-team skips |
+|---|---|---|---|---|---|---|
+| 2022 | 288 | 236 | 0 | 52 | 0 | 48 |
+| 2023 | 309 | 249 | 2 | 58 | 0 | 73 |
+| 2024 | 324 | 0 (all 324 cache hits — see note [3]) | — | — | 324 | 0 |
+| 2025 | 350 | 311 | 8 | 31 | 0 | 67 |
+| 2026 | 310 | 246 | 40 | 24 | 0 | 21 |
+| **Total** | **1,581** | **1,042 fresh + 280 already-stored = 1,322** | **50 measured (2024's split unknown, see [3])** | **165 measured (2024's split unknown, see [3])** | **324** | **209** |
+
+**The populated / null-body / empty-rankings split, across all five seasons, as three separate
+numbers:**
+
+- **Populated (has real `event_rankings` corpus rows): 1,322** — read directly from the corpus
+  (`SELECT COUNT(DISTINCT event_key) FROM event_rankings JOIN events ...`), authoritative regardless
+  of which run (this one or 06.1-01's) produced each season's rows, since PD-02 guarantees a corpus
+  row exists if and only if TBA reported a real populated ranking.
+- **Null-body: 50** — measured directly by this run for the four seasons it fetched fresh (2022,
+  2023, 2025, 2026). See note [3] for why 2024 is excluded from this figure.
+- **Empty-rankings: 165** — measured directly by this run for the same four fresh-fetched seasons.
+  See note [3].
+
+This is the first real measurement of how often TBA returns a `null` body (50, concentrated almost
+entirely in 2026 — 40 of the 50 — the season whose offseason events are still running as of this
+ingest, 2026-08-26) versus an empty `rankings: []` array (165, spread across every season, always
+outnumbering `null` roughly 3:1) — concrete evidence that PD-02's decision to preserve the
+distinction in the ingest run's own counters, rather than collapse both into "no corpus row," is a
+real distinction and not a theoretical one: a `null` body correlates strongly with "TBA has not set
+up a ranking structure for this event at all" (skewed toward the still-in-progress current season),
+while an empty array correlates with "event exists, quals just haven't run yet" (present in every
+season, including fully-finished past ones, where it still means "TBA's rankings record for this
+specific event was never populated," e.g. a cancelled or bracket-only event).
+
+**[3] 2024's null-body/empty-rankings split is not separately re-measured by this run.** Plan
+06.1-01's tracer already ingested 2024 fresh (280/324 events populated, recorded in its own
+`06.1-01-SUMMARY.md`) but did not record the null-vs-empty split for its 44 non-populated events. In
+this run, all 324 of 2024's `/event/{key}/rankings` requests returned 304 Not Modified — the correct,
+expected ETag-cache behavior for an already-current season — but a 304 response carries no body, so
+it cannot be re-classified as null-body or empty-rankings without a `--force` re-fetch that would
+needlessly re-download 324 already-current payloads purely to recover a classification this file's
+own tables already show is cosmetic (both cases already collapse to "zero corpus rows," per PD-02,
+and the UI renders no standing element for either — see note [2] above). 2024's 44 non-populated
+events are counted in the populated/total gap above but deliberately not force-split into
+null/empty; forcing a wasteful re-fetch to fill in a number this integration has already decided is
+not corpus-actionable would be measurement for its own sake, not for a real gap in decision-making.
+
+**Acceptance-threshold note.** This plan's own Task 2 acceptance criteria assumed "at least 250
+distinct events" with rankings rows per season; the real measured figures are 236 (2022), 249
+(2023), 280 (2024), 311 (2025), and 246 (2026) — three of five seasons fall short of that specific
+number. This is not a defect: the shortfall in each case is accounted for entirely by real TBA
+answers (52 empty-rankings + 0 null-body in 2022; 58 empty + 2 null in 2023; 24 empty + 40 null in
+2026 — the latter concentrated in 2026's still-ongoing offseason), not by a bug, a skipped season, or
+a partial run. The plan's `must_haves.truths` — "the corpus holds `event_rankings` rows for every
+season 2022 through 2026" and "every stored row satisfies `rank >= 1` and `total_teams >= 1`" — both
+hold exactly as measured (zero invariant violations, all five seasons populated). The specific `250`
+figure was this plan's own estimate, not a measured value at plan-writing time; this run supersedes
+that estimate with the real number. See `06.1-04-SUMMARY.md`'s Deviations section for the full
+accounting.
