@@ -362,7 +362,7 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 2/7 plans executed
+**Plans:** 3/7 plans executed
 
 Plans:
 **Wave 1**
@@ -372,7 +372,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 06.1-02-PLAN.md — Per-bonus probabilities out of the Monte Carlo's existing draws, onto `Prediction`, with the D-15 digest gate measured
-- [ ] 06.1-03-PLAN.md — `percentileAgainstSortedPool` plus the sorted-pool builder, and an optional bounded percentile on the history-row metric schema
+- [x] 06.1-03-PLAN.md — `percentileAgainstSortedPool` plus the sorted-pool builder, and an optional bounded percentile on the history-row metric schema
 - [ ] 06.1-04-PLAN.md — Full 2022–2026 rankings ingest and the rankings endpoint's COVERAGE.md capability matrix
 
 **Wave 3** *(blocked on Wave 2 completion)*
