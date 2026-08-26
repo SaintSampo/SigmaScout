@@ -21,6 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers (completed 2026-08-23)
 - [x] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings (completed 2026-08-24)
 - [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot
+- [ ] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data
 - [ ] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs
 - [ ] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table
 
@@ -338,6 +339,34 @@ Plans:
 - [x] 06-09-PLAN.md — Static-shell first paint (re-measured) and the UI polish pass
 
 **UI hint**: yes
+
+### Phase 06.1: Match and event data enrichment (INSERTED)
+
+**Goal**: The team page's per-match and per-event detail is backed by real published data instead of placeholders — bonus RP resolved per bonus, event standing shown per event, and the per-event metric line tiered like every other metric
+**Depends on**: Phase 6
+**Requirements**: TEAM-04 (extends), plus F-06-1 / F-06-3 from 06-UAT.md
+**Success Criteria** (what must be TRUE):
+
+  1. Each bonus-RP dot on a match row renders solid when that specific bonus was earned (actual) or is predicted to be earned, and hollow when it was not — no dot remains in the `unknown` state for a played match in a season with registered RP rules.
+  2. Each event section states the team's standing at that event in the form "Rank 5 of 32", sourced from real ranking data rather than derived client-side.
+  3. The per-event metric line carries the same rarity tiers as the season header and the Teams table, from a published percentile rather than a season-final rank applied to an as-of-event value.
+  4. The D-15 digest-reproducibility gate still passes: every committed algorithm version reproduces its recorded prediction-stream digest bitwise.
+
+**Why this is a phase and not Phase 6 gap closure**: Phase 6 built the team page and its UI for all three of these; what is missing is *published data*, which requires changes in `packages/core` (per-bonus probabilities out of the Monte Carlo), `packages/ingest` (a TBA endpoint this project has never called), the artifact schema, and a full artifact republish. That is pipeline work, not team-page work, and folding it into Phase 6 would mean Phase 6 never closes.
+
+**Known scope, with the blocking fact for each:**
+
+  - **F-06-1 — per-bonus RP.** The artifact publishes only aggregate RP (`redRpPmf`/`blueRpPmf` over the RP *total*, `actualRedRp`/`actualBlueRp` as one integer), so no individual bonus is recoverable — a 2026 total of 1 does not say whether it was Energized, Supercharged or Traversal. The data exists upstream: each season's rule module already computes per-bonus `bonusFlags`, and `distribution.ts`'s Monte Carlo already evaluates every bonus per draw; `RpPmfResult` discards it. UI is already built and takes a `states[]` prop.
+  - **Event rank.** No ranking data exists anywhere in the corpus. Needs TBA's `/event/{key}/rankings` — a new third-party endpoint, so it also needs a COVERAGE.md capability decision — plus ingest, corpus migration, and a schema field on `TeamSeasonEventSchema`.
+  - **F-06-3 — per-event rarity tiers.** `MetricHistoryRowSchema.metrics` publishes `{value, spread}` only. The percentile pass ranks season-final values, so tiering an as-of-event value with a season-final percentile would colour a number by a rank it does not have. Two honest ranking schemes are recorded in 06-UAT.md; pick one during planning.
+
+**Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 06.1 to break down)
 
 ### Phase 7: Event Pages
 
