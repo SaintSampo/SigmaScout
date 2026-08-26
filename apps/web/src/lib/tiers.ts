@@ -19,6 +19,8 @@
  * confidently wrong colour (see this file's own STRIDE entry, T-06-02).
  */
 
+import { publishedTierForPercentile } from "../../../../packages/harness/pageArtifacts.js";
+
 export type Tier = "common" | "rare" | "epic" | "legendary";
 
 export interface TierBand {
@@ -46,11 +48,15 @@ export const TIER_BANDS: readonly TierBand[] = [
   { tier: "legendary", min: 95, max: 100, label: "Legendary" },
 ];
 
+/**
+  * Delegates the cuts to `publishedTierForPercentile`, the same function the
+  * pipeline uses to stamp `tier` onto the teams artifact — so a tier derived
+  * here from a percentile and a tier published there can never disagree.
+  * The only difference is this one names Common explicitly, where the
+  * published field omits it (Common renders unboxed either way).
+  */
 export function tierForPercentile(percentile: number | undefined): Tier | undefined {
   if (percentile === undefined) return undefined;
   if (percentile < 0 || percentile > 100) return undefined;
-  if (percentile >= 95) return "legendary";
-  if (percentile >= 75) return "epic";
-  if (percentile >= 50) return "rare";
-  return "common";
+  return publishedTierForPercentile(percentile) ?? "common";
 }

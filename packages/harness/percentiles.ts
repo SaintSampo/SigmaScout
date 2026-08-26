@@ -31,7 +31,14 @@ import { roundTo, ROUNDING_RULE } from "./rounding.js";
  * `TeamMetric` itself — it is a publish-time-only derived quantity, not
  * something any `AlgorithmModule` computes.
  */
-export type TeamMetricWithPercentile = TeamMetric & { percentile?: number };
+/**
+ * `tier` rides along here because `roundTeamMetricRecord` rebuilds each
+ * metric field-by-field and must be able to name it — the teams artifact
+ * carries the compact `tier` instead of `percentile` (see
+ * `pageArtifacts.ts`'s `tier` doc for the measured size reason). Both are
+ * optional and no record carries both.
+ */
+export type TeamMetricWithPercentile = TeamMetric & { percentile?: number; tier?: "rare" | "epic" | "legendary" };
 
 /** The `TeamMetrics`-shaped record `withPercentiles` returns — every team's metric record, each metric optionally carrying `percentile`. */
 export type TeamMetricsWithPercentile = Record<string, Record<string, TeamMetricWithPercentile>>;

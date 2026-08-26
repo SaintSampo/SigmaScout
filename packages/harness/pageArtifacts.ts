@@ -165,10 +165,49 @@ const TeamMetricSchema = z.object({
    * 50-75 / Epic 75-95 / Legendary 95-100).
    */
   percentile: z.number().min(0).max(100).optional(),
+  /**
+   * The rarity tier this metric falls in — the compact alternative to
+   * `percentile`, and the ONLY one the teams-table artifact carries.
+   *
+   * Both express the same fact, and that duplication is a deliberate,
+   * measured size decision rather than an oversight. The teams artifact is
+   * this project's largest (2024/sigma1: ~369KB gzipped over the wire), and
+   * page-load speed is the top stated UX priority. Measured on that exact
+   * artifact: adding `percentile` to every metric costs +42% gzipped;
+   * adding `tier` instead, omitted for Common, costs +10% — for an
+   * identical rendered result, because the table only ever consumes the
+   * tier. The per-team artifact is small and keeps the full `percentile`,
+   * which the team page needs anyway.
+   *
+   * OMITTED for Common (percentile < 50), which is deliberately unboxed —
+   * so absence means "Common or unranked", exactly the cases that render no
+   * tier box. Never write "common" explicitly; that is pure payload for a
+   * no-op.
+   */
+  tier: z.enum(["rare", "epic", "legendary"]).optional(),
 });
 
 /** Component name -> that team's metric, per `AlgorithmModule.teamMetrics` (D-27). */
 const MetricsRecordSchema = z.record(z.string(), TeamMetricSchema);
+
+/**
+ * The single definition of the D-17 rarity cuts (Common 0-50 / Rare 50-75 /
+ * Epic 75-95 / Legendary 95-100). `apps/web/src/lib/tiers.ts` delegates to
+ * this rather than restating the thresholds, so the tier the pipeline
+ * publishes and the tier the client derives from a percentile can never
+ * disagree.
+ *
+ * Returns `undefined` for Common and for any out-of-range or absent input —
+ * every case that renders no tier box.
+ */
+export function publishedTierForPercentile(percentile: number | undefined): "rare" | "epic" | "legendary" | undefined {
+  if (percentile === undefined) return undefined;
+  if (percentile < 0 || percentile > 100) return undefined;
+  if (percentile >= 95) return "legendary";
+  if (percentile >= 75) return "epic";
+  if (percentile >= 50) return "rare";
+  return undefined;
+}
 
 /** Win/loss/tie counts as three integer fields, never a formatted string. */
 const RecordSchema = z.object({

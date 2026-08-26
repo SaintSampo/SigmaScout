@@ -16,7 +16,6 @@
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
-import { tierForPercentile } from "@/lib/tiers";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -116,10 +115,12 @@ export function buildColumns(algorithmId: string, season: number) {
         header: metricLabel(key),
         size: 120,
         // D-17's rarity tiers, the same ones the team page's metric grid
-        // applies, from the same published percentile and the same
-        // `.metric-tier--*` tokens — so a number does not change meaning
-        // between the Teams table and the team page it links to.
-        cell: (info) => <MetricValue metric={info.getValue()} tier={tierForPercentile(info.getValue()?.percentile)} />,
+        // applies and the same `.metric-tier--*` tokens — so a number does
+        // not change meaning between the Teams table and the team page it
+        // links to. Read from the artifact's own `tier` field rather than
+        // derived from a percentile: the teams artifact deliberately carries
+        // the compact tier instead (see pageArtifacts.ts's `tier` doc).
+        cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier} />,
       }),
     ),
     columnHelper.accessor("record", {

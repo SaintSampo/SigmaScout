@@ -72,6 +72,7 @@ import {
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
+  publishedTierForPercentile,
   TeamsArtifactSchema,
   TeamSeasonArtifactSchema,
   type CompareArtifact,
@@ -131,6 +132,11 @@ function roundTeamMetricRecord(metrics: Record<string, TeamMetricWithPercentile>
       value: roundMetric(m.value),
       ...(m.spread !== undefined ? { spread: roundMetric(m.spread) } : {}),
       ...(m.percentile !== undefined ? { percentile: m.percentile } : {}),
+      // `tier` passes through unchanged, exactly like `percentile`. It is a
+      // categorical label, not a number, so there is nothing to round — but
+      // it must be copied explicitly: this function rebuilds each metric
+      // field-by-field, so anything not named here is silently dropped.
+      ...(m.tier !== undefined ? { tier: m.tier } : {}),
     };
   }
   return result;
@@ -638,6 +644,24 @@ function teamInfoOrFallback(teamInfo: ReadonlyMap<string, TeamInfo>, teamKey: st
   return teamInfo.get(teamKey) ?? { teamNumber: fallbackTeamNumber(teamKey), nickname: "" };
 }
 
+/**
+ * Replaces each metric's `percentile` with the compact `tier` the teams
+ * table actually consumes. Common is omitted entirely (it renders unboxed),
+ * so absence means "Common or unranked".
+ */
+function withPublishedTiers(metrics: Record<string, { value: number; spread?: number; percentile?: number }>): Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> {
+  const out: Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> = {};
+  for (const [key, metric] of Object.entries(metrics)) {
+    const tier = publishedTierForPercentile(metric.percentile);
+    out[key] = {
+      value: metric.value,
+      ...(metric.spread !== undefined ? { spread: metric.spread } : {}),
+      ...(tier !== undefined ? { tier } : {}),
+    };
+  }
+  return out;
+}
+
 /** Builds an event's D-07 standings-style team list from a season/event-scoped `TeamMetrics` map (already computed once per algorithm per season — see `publishSeasons`). */
 function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
@@ -1071,7 +1095,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           teamNumber: info.teamNumber,
           nickname: info.nickname,
           record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-          metrics: metricsByTeam[teamKey] ?? {},
+          // Carries the D-17 rarity TIER, not the raw percentile (was the
+          // unwidened `metricsByTeam`, scoped out in Phase 6 as
+          // 06-RESEARCH.md Open Question 2). The Teams table now applies the
+          // same tiers the team page does, so a number does not change
+          // meaning between the table and the page it links to.
+          //
+          // Measured on 2024/sigma1, the largest teams artifact: publishing
+          // `percentile` costs +42% gzipped (369KB -> 525KB); publishing
+          // `tier` with Common omitted costs +10% (369KB -> 405KB), for an
+          // identical rendered result. Page-load speed is the top stated UX
+          // priority, so the table gets the cheap representation and the
+          // small per-team artifact keeps the full percentile.
+          metrics: withPublishedTiers(metricsByTeamWithPercentiles[teamKey] ?? {}),
           eventCount: stats?.eventKeys.size ?? 0,
           matchCount: stats?.matchCount ?? 0,
         };
