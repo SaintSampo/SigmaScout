@@ -6,16 +6,28 @@
  * network, no corpus. The real full 2022-2026 run is recorded in the
  * SUMMARY, not re-run on every `pnpm test`.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
+import { epa } from "../core/algorithms/epa.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
-import { openCorpus, selectScheduledMatches, upsertEvent, upsertMatch, upsertTeam, upsertTeamMedia, type Corpus } from "../corpus/db.js";
-import type { PredictionRecord } from "./replay.js";
+import {
+  openCorpus,
+  openCorpusReadOnly,
+  selectScheduledMatches,
+  upsertEvent,
+  upsertMatch,
+  upsertTeam,
+  upsertTeamMedia,
+  type Corpus,
+} from "../corpus/db.js";
+import { buildSeasonStream, WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import type { TeamSeasonArtifact } from "./pageArtifacts.js";
+import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import {
   actualBonusFlagsForSeason,
   buildCompareArtifact,
@@ -26,12 +38,14 @@ import {
   computeSizeStats,
   OUTCOME_KEYS,
   publishSeasons,
+  withHistoryPercentiles,
   type ActualBonusFlags,
   type PublishedObjectRecord,
 } from "./publish.js";
 import { ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
+import { percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
 
 vi.mock("./r2Client.js", () => ({
   putObject: vi.fn(async () => undefined),
@@ -742,6 +756,159 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
     expect(oprRow?.actualRedBonusRp).toEqual(sigma1Row?.actualRedBonusRp);
     expect(oprRow?.actualBlueBonusRp).toEqual(sigma1Row?.actualBlueBonusRp);
   });
+});
+
+function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow {
+  return {
+    matchKey: "2026casj_qm1",
+    season: 2026,
+    eventKey: "2026casj",
+    algorithmId: "sigma1",
+    teamKey: "frc254",
+    matchIndex: 0,
+    metrics: { [TOTAL_METRIC_KEY]: { value: 10 } },
+    ...overrides,
+  };
+}
+
+describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A)", () => {
+  it("attaches a percentile to an allowlisted metric with a pool entry, agreeing exactly with percentileAgainstSortedPool", () => {
+    const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
+    const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
+    const result = withHistoryPercentiles(rows, pool);
+    const expected = percentileAgainstSortedPool(pool.get(TOTAL_METRIC_KEY)!, 10);
+    expect(result[0]?.metrics[TOTAL_METRIC_KEY]?.percentile).toBe(expected);
+  });
+
+  it("a metric name outside the allowlist receives no percentile key, even when a pool exists for it", () => {
+    const pool = new Map([["autoPoints", [1, 2, 3]]]);
+    const rows = [historyRow({ metrics: { autoPoints: { value: 2 } } })];
+    const result = withHistoryPercentiles(rows, pool);
+    expect(result[0]?.metrics.autoPoints).not.toHaveProperty("percentile");
+  });
+
+  it("a metric name in the allowlist with no pool entry receives no percentile key, and the call does not throw", () => {
+    const pool = new Map<string, number[]>(); // no entry for TOTAL_METRIC_KEY at all
+    const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
+    expect(() => withHistoryPercentiles(rows, pool)).not.toThrow();
+    const result = withHistoryPercentiles(rows, pool);
+    expect(result[0]?.metrics[TOTAL_METRIC_KEY]).not.toHaveProperty("percentile");
+  });
+
+  it("does not mutate the input rows or their nested metric objects", () => {
+    const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
+    const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
+    const clone = structuredClone(rows);
+    withHistoryPercentiles(rows, pool);
+    expect(rows).toEqual(clone);
+  });
+
+  it("preserves row order exactly, and two rows with equal values at different positions receive equal percentiles", () => {
+    const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
+    const rows = [
+      historyRow({ matchKey: "m1", matchIndex: 0, metrics: { [TOTAL_METRIC_KEY]: { value: 20 } } }),
+      historyRow({ matchKey: "m2", matchIndex: 1, metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } }),
+      historyRow({ matchKey: "m3", matchIndex: 2, metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } }),
+    ];
+    const result = withHistoryPercentiles(rows, pool);
+    expect(result.map((r) => r.matchKey)).toEqual(["m1", "m2", "m3"]);
+    expect(result[1]?.metrics[TOTAL_METRIC_KEY]?.percentile).toBe(result[2]?.metrics[TOTAL_METRIC_KEY]?.percentile);
+  });
+});
+
+/** The metric name this suite's real-corpus invariant case checks — always present via `HISTORY_PERCENTILE_METRIC_KEYS` and computed independently per team by `epa` (no cross-team coupling in `epa.update`/`teamMetrics`, unlike OPR's shared least-squares solve — see this file's own doc comment above). */
+const INVARIANT_SEASON = 2022;
+const INVARIANT_MIN_TEAM_COUNT = 50;
+const CORPUS_PATH = "data/corpus.sqlite";
+const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
+
+describe("withHistoryPercentiles — real-corpus season-final agreement invariant (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A)", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} is absent — run pnpm ingest --years 2022-2026 first`, () => {});
+    return;
+  }
+
+  let corpus: Corpus;
+  try {
+    corpus = openCorpusReadOnly(CORPUS_PATH);
+  } catch (err) {
+    it.skip(`skipped: could not open ${CORPUS_PATH} read-only — ${err instanceof Error ? err.message : String(err)}`, () => {});
+    return;
+  }
+
+  // Replays the real ${INVARIANT_SEASON} season for `epa` only — mirrors
+  // `publish.ts`'s own season-loop shape (buildSeasonStream, onMatchComplete
+  // metric-history collection, teamMetrics(finalState, teamsThisSeason))
+  // at a scale that stays well inside this suite's feedback ceiling
+  // (measured ~8s for the full non-offseason 2022 season, 14,677 matches,
+  // 3,062 teams — mirrors `payloadBudget.test.ts`'s own real-slice
+  // precedent). `epa` chosen deliberately: its `update()`/`teamMetrics()`
+  // are per-team-independent (no cross-team coupling like OPR's shared
+  // least-squares solve), so a team's LAST metricHistory row IS its
+  // season-final metric for every team that plays at least once — this is
+  // what makes the filtered-set floor trivially satisfiable while still
+  // being a genuine, unconditional-on-luck real-corpus proof.
+  const stream = buildSeasonStream(corpus, INVARIANT_SEASON, { includeOffseason: false });
+  const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+  const matchIndexByKey = new Map(stream.map((m, i) => [m.matchKey, i]));
+  const historyByTeam = new Map<string, MetricHistoryRow[]>();
+  const onMatchComplete = (match: MatchResult, algorithmId: string, state: unknown): void => {
+    const involved = [...match.redTeams, ...match.blueTeams];
+    const metrics = epa.teamMetrics(state as Parameters<typeof epa.teamMetrics>[0], involved);
+    for (const teamKey of involved) {
+      const row: MetricHistoryRow = {
+        matchKey: match.matchKey,
+        season: INVARIANT_SEASON,
+        eventKey: match.eventKey,
+        algorithmId,
+        teamKey,
+        matchIndex: matchIndexByKey.get(match.matchKey) ?? 0,
+        metrics: metrics[teamKey] ?? {},
+      };
+      const list = historyByTeam.get(teamKey) ?? [];
+      list.push(row);
+      historyByTeam.set(teamKey, list);
+    }
+  };
+  const simulator = new WalkForwardSimulator(stream);
+  const records = simulator.runAll([epa], teams, undefined, onMatchComplete);
+  const finalState = records.finalStates.get(epa.id);
+  const metricsByTeam = finalState !== undefined ? epa.teamMetrics(finalState as Parameters<typeof epa.teamMetrics>[0], teams) : {};
+  const sortedPools = sortedPoolsByMetric(metricsByTeam, teams);
+
+  it(`the real ${INVARIANT_SEASON} season replay produces a non-vacuous team pool (>= ${INVARIANT_MIN_TEAM_COUNT} teams)`, () => {
+    expect(teams.length).toBeGreaterThanOrEqual(INVARIANT_MIN_TEAM_COUNT);
+  });
+
+  it(`for every team whose last metricHistory row's ${TOTAL_METRIC_KEY} value equals its season-final value, withHistoryPercentiles's row percentile equals the season-final percentile exactly (filtered-set floor: ${INVARIANT_MIN_TEAM_COUNT})`, () => {
+    const filteredTeamKeys: string[] = [];
+    for (const teamKey of teams) {
+      const rows = historyByTeam.get(teamKey);
+      if (!rows || rows.length === 0) continue;
+      const lastRow = rows[rows.length - 1]!;
+      const lastValue = lastRow.metrics[TOTAL_METRIC_KEY]?.value;
+      const finalValue = metricsByTeam[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+      if (lastValue === undefined || finalValue === undefined) continue;
+      if (lastValue === finalValue) filteredTeamKeys.push(teamKey);
+    }
+    expect(
+      filteredTeamKeys.length,
+      `expected at least ${INVARIANT_MIN_TEAM_COUNT} teams satisfying the value-equality precondition, found ${filteredTeamKeys.length}`
+    ).toBeGreaterThanOrEqual(INVARIANT_MIN_TEAM_COUNT);
+
+    for (const teamKey of filteredTeamKeys) {
+      const rows = historyByTeam.get(teamKey)!;
+      const [widenedLastRow] = withHistoryPercentiles([rows[rows.length - 1]!], sortedPools);
+      const rowPercentile = widenedLastRow?.metrics[TOTAL_METRIC_KEY]?.percentile;
+      const seasonFinalPercentile = percentileAgainstSortedPool(
+        sortedPools.get(TOTAL_METRIC_KEY)!,
+        metricsByTeam[teamKey]![TOTAL_METRIC_KEY]!.value
+      );
+      expect(rowPercentile, `team ${teamKey}: row percentile should equal season-final percentile exactly`).toBe(seasonFinalPercentile);
+    }
+  });
+
+  corpus.close();
 });
 
 describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus (plan 06-04 Task 1)", () => {

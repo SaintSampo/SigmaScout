@@ -86,7 +86,13 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
-import { withPercentiles, type TeamMetricWithPercentile } from "./percentiles.js";
+import {
+  HISTORY_PERCENTILE_METRIC_KEYS,
+  percentileAgainstSortedPool,
+  sortedPoolsByMetric,
+  withPercentiles,
+  type TeamMetricWithPercentile,
+} from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
@@ -148,6 +154,45 @@ function roundTeamMetricRecord(metrics: Record<string, TeamMetricWithPercentile>
 /** Rounds one `MetricHistoryRow.metrics` entry the same way. */
 function roundMetricHistoryRow(row: MetricHistoryRow): MetricHistoryRow {
   return { ...row, metrics: roundTeamMetricRecord(row.metrics) };
+}
+
+/**
+ * D-06.1-A (Phase 06.1, plan 06.1-05 Task 3): attaches a `percentile` to
+ * every ALLOWLISTED metric on every history row, ranked against the
+ * SEASON-FINAL pool `sortedPools` was built from
+ * (`percentiles.ts`'s `sortedPoolsByMetric`) — never a pool assembled from
+ * the history rows themselves, and never a pool restricted to this team's
+ * own events. This reads as "where this team stood at that point, against
+ * the final field" — deliberately not "the field as of that match index",
+ * the more expensive option 06-UAT.md records as rejected.
+ *
+ * Returns a NEW array of NEW row objects, each carrying a NEW metrics
+ * record — `rows` (and every nested metric object) is never mutated, since
+ * `metricHistoryForAlgo`'s rows are reused across the per-team loop this is
+ * called inside. Row order is preserved exactly; a row's percentile depends
+ * only on its own value and the pool, never its position in `rows`.
+ *
+ * A metric attaches a percentile only when BOTH its name is in
+ * `HISTORY_PERCENTILE_METRIC_KEYS` AND `sortedPools` has an entry for that
+ * name (a metric name no team in the pool has at all is omitted from
+ * `sortedPools` entirely, per `sortedPoolsByMetric`'s PD-07 contract) —
+ * otherwise the metric is copied through unchanged, with no percentile key
+ * and no thrown error.
+ *
+ * Exported (like `computeSizeStats`/`OUTCOME_KEYS` above it in this file)
+ * for direct unit testing of its allowlist/pool/immutability/order-
+ * independence behavior — an internal pipeline helper, not part of the
+ * published artifact's own public surface.
+ */
+export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], sortedPools: ReadonlyMap<string, number[]>): MetricHistoryRow[] {
+  return rows.map((row) => {
+    const newMetrics: MetricHistoryRow["metrics"] = {};
+    for (const [name, metric] of Object.entries(row.metrics)) {
+      const pool = HISTORY_PERCENTILE_METRIC_KEYS.includes(name) ? sortedPools.get(name) : undefined;
+      newMetrics[name] = pool !== undefined ? { ...metric, percentile: percentileAgainstSortedPool(pool, metric.value) } : { ...metric };
+    }
+    return { ...row, metrics: newMetrics };
+  });
 }
 
 /**
@@ -1183,6 +1228,16 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // file header and 06-RESEARCH.md's Open Question 2 for why widening
       // the teams artifact's published surface is out of this phase's scope.
       const metricsByTeamWithPercentiles = withPercentiles(metricsByTeam, teamsThisSeason);
+      // D-06.1-A (Phase 06.1, plan 06.1-05 Task 3): the season-final sorted
+      // pool per metric name, built exactly ONCE per (algorithm, season)
+      // here — never once per team — from the SAME pool membership list
+      // (`teamsThisSeason`) `withPercentiles` above is given, so the two
+      // rankings can never disagree about who is in the field. This ranks
+      // an as-of-that-match metricHistory value against the SEASON-FINAL
+      // field ("where this team stood at that point, against the final
+      // field"), deliberately not "the field as of that match index" — the
+      // more expensive option 06-UAT.md records as rejected.
+      const sortedPools = sortedPoolsByMetric(metricsByTeam, teamsThisSeason);
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
@@ -1361,7 +1416,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             metrics: metricsByTeamWithPercentiles[teamKey] ?? {},
           },
           events,
-          metricHistory: metricHistoryForAlgo.get(teamKey) ?? [],
+          metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], sortedPools),
           sortTimeByMatchKey,
           actualBonusFlagsByMatchKey,
           // D-03 (Phase 6): omitted entirely when the corpus has no row, or
