@@ -23,6 +23,15 @@ export {
   type ParsedComponents,
   type SeasonComponentMap,
 } from "./constants.js";
+export {
+  COMPONENT_GROUP_IDS,
+  COMPONENT_GROUP_METRIC_KEYS,
+  componentGroupsForSeason,
+  componentsInGroup,
+  UNGROUPED_COMPONENTS,
+  type ComponentGroupId,
+  type SeasonComponentGroups,
+} from "./groups.js";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
 import { ZodError } from "zod";
 

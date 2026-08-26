@@ -35,6 +35,42 @@ export function teamTotalVariance(covariance: readonly (readonly number[])[]): n
 }
 
 /**
+ * The variance of a SUBSET of components summed together — the same
+ * quadratic form `teamTotalVariance` computes, restricted to `indices`.
+ *
+ * Var(sum of X_i for i in S) = sum over i,j in S of Cov(X_i, X_j)
+ *
+ * This is what makes a phase group's `X ± Y` honest. The off-diagonal terms
+ * are the whole point and are decidedly non-zero — this file exists because
+ * a team good at auto tends also to be good at teleop — so a client summing
+ * published per-component spreads (which carry no covariance) could not
+ * reproduce this number, in quadrature or otherwise.
+ *
+ * `teamTotalVariance` is exactly this function over every index, and is
+ * kept as its own named entry point because `allianceTotalPredictiveVariance`
+ * and the D-10 link function both read as "the team's total", not as "a
+ * subset that happens to be everything".
+ *
+ * Out-of-range indices are ignored rather than throwing: a season whose
+ * grouping names a component the covariance matrix does not carry (an
+ * unregistered season, or a component order still empty before the first
+ * update) contributes nothing instead of producing NaN.
+ */
+export function subsetVariance(covariance: readonly (readonly number[])[], indices: readonly number[]): number {
+  let total = 0;
+  for (const i of indices) {
+    const row = covariance[i];
+    if (row === undefined) continue;
+    for (const j of indices) {
+      const value = row[j];
+      if (value === undefined) continue;
+      total += value;
+    }
+  }
+  return total;
+}
+
+/**
  * D-03/D-10: the alliance's total predictive-variance contribution from its
  * teammates' own component covariances, summed across teammates under the
  * independent-teams assumption (Pattern 2) — never a cross-team joint

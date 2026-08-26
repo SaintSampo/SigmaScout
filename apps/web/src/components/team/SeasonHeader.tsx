@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
-import { groupedMetric, METRIC_GROUPS } from "@/lib/metricGroups";
+import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -66,8 +66,11 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
   // it shows the single Total tile rather than three tiles that could never
   // be anything but an em-dash.
   const publishesComponents = metricKeys.length > 1;
+  // Each phase group is a published metric in its own right, carrying its
+  // own value, spread and percentile — read straight from the artifact, never
+  // summed here (see lib/metricGroups.ts).
   const groupTiles = publishesComponents
-    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: groupedMetric(season, group.id, metrics) }))
+    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
   const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] }];
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
@@ -136,12 +139,6 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
           {tiles.map((tile) => (
             <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
               <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-              {/*
-                Only Total carries a percentile, so only Total gets a rarity
-                tier box. A phase group's percentile is a rank against the
-                season pool for one specific metric and is not any function
-                of its parts' percentiles — see `metricGroups.ts`.
-              */}
               <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
             </div>
           ))}

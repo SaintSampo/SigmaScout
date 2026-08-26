@@ -128,12 +128,15 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
 describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   afterEach(() => cleanup());
 
-  it("renders four phase tiles — Auto, Teleop, Endgame, Total — summing each group's components", () => {
-    // 2026's auto group is autoTower + hubAuto (`lib/metricGroups.ts`).
+  it("renders four phase tiles — Auto, Teleop, Endgame, Total — read straight from the published group metrics", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
-      autoTower: { value: 10 },
-      hubAuto: { value: 2.34 },
-      total: { value: 60.5, percentile: 96 },
+      // The pipeline publishes each phase group as a first-class metric with
+      // its own spread and percentile (`breakdown/groups.ts`); the client
+      // never sums components to produce these.
+      phaseAuto: { value: 12.34, spread: 1.5, percentile: 80 },
+      phaseTeleop: { value: 30, spread: 2, percentile: 40 },
+      phaseEndgame: { value: 18.16, spread: 1.1, percentile: 60 },
+      total: { value: 60.5, spread: 2.5, percentile: 96 },
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
@@ -144,18 +147,16 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
 
     const autoCell = cells.at(0);
-    const totalCell = cells.at(3);
-    if (autoCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
-
-    // The group's value is the exact sum of its components.
+    if (autoCell === undefined) throw new Error("expected four grid cells");
     expect(autoCell.textContent).toContain("12.34");
   });
 
-  it("tiers only Total — a phase group has no percentile, so it can carry no rarity box and no plus-minus", () => {
+  it("gives every phase group its own plus-minus and rarity tier, not just Total", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
-      autoTower: { value: 10, percentile: 99 },
-      hubAuto: { value: 2.34, percentile: 99 },
-      total: { value: 60.5, percentile: 96 },
+      phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
+      phaseTeleop: { value: 30, spread: 2, percentile: 20 },
+      phaseEndgame: { value: 18.16, spread: 1.1, percentile: 60 },
+      total: { value: 60.5, spread: 2.5, percentile: 96 },
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
@@ -163,15 +164,17 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     const autoCell = cells.at(0);
+    const teleopCell = cells.at(1);
     const totalCell = cells.at(3);
-    if (autoCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
+    if (autoCell === undefined || teleopCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
 
+    // A group's spread is real published data (the covariance quadratic form
+    // over its own component indices), so it renders like any other metric.
+    expect(autoCell.textContent).toContain("±");
+    expect(autoCell.querySelector(".metric-tier--legendary")).not.toBeNull();
     expect(totalCell.querySelector(".metric-tier--legendary")).not.toBeNull();
-    // Even though BOTH of Auto's components are 99th percentile, the group
-    // itself gets no tier — a sum's percentile is not a function of its
-    // parts' percentiles and is never invented client-side.
-    expect(autoCell.querySelector('[class*="metric-tier"]')).toBeNull();
-    expect(autoCell.textContent?.includes("±")).toBe(false);
+    // 20th percentile is Common, which is deliberately unboxed.
+    expect(teleopCell.querySelector('[class*="metric-tier"]')).toBeNull();
   });
 
   it("renders four em-dash tiles when metrics is empty", () => {

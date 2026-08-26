@@ -322,12 +322,30 @@ describe("teamMetrics — D-27 contract shape", () => {
     const metrics = sigma1.teamMetrics(state, ["frc254"]);
     expect(Object.keys(metrics)).toEqual(["frc254"]);
     const frc254 = metrics["frc254"]!;
-    expect(Object.keys(frc254).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1); // + total
+    // One entry per component, plus total, plus the three phase groups
+    // (phaseAuto/phaseTeleop/phaseEndgame) — see breakdown/groups.ts.
+    expect(Object.keys(frc254).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1 + 3);
     for (const metric of Object.values(frc254)) {
       expect(metric.spread).toBeDefined();
       expect(Number.isFinite(metric.spread)).toBe(true);
     }
     expect(frc254["total"]).toBeDefined();
+
+    // Each group carries a real spread of its own, derived from the
+    // covariance quadratic form over its component indices — never a sum of
+    // the per-component spreads, which would ignore the off-diagonal terms.
+    for (const groupKey of ["phaseAuto", "phaseTeleop", "phaseEndgame"]) {
+      const group = frc254[groupKey];
+      expect(group, `${groupKey} must be published`).toBeDefined();
+      expect(Number.isFinite(group!.value)).toBe(true);
+      expect(Number.isFinite(group!.spread)).toBe(true);
+    }
+
+    // The group values partition the components, so together with the
+    // ungrouped ones they must reconstruct total exactly.
+    const groupSum = frc254["phaseAuto"]!.value + frc254["phaseTeleop"]!.value + frc254["phaseEndgame"]!.value;
+    const ungroupedSum = (frc254["adjust"]?.value ?? 0) + (frc254["foulsCommitted"]?.value ?? 0);
+    expect(groupSum + ungroupedSum).toBeCloseTo(frc254["total"]!.value, 9);
   });
 
   it("with no team filter, returns every team the state knows", () => {

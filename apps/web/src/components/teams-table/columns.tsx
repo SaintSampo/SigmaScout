@@ -16,6 +16,7 @@
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
+import { tierForPercentile } from "@/lib/tiers";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -114,7 +115,11 @@ export function buildColumns(algorithmId: string, season: number) {
         id: key,
         header: metricLabel(key),
         size: 120,
-        cell: (info) => <MetricValue metric={info.getValue()} />,
+        // D-17's rarity tiers, the same ones the team page's metric grid
+        // applies, from the same published percentile and the same
+        // `.metric-tier--*` tokens — so a number does not change meaning
+        // between the Teams table and the team page it links to.
+        cell: (info) => <MetricValue metric={info.getValue()} tier={tierForPercentile(info.getValue()?.percentile)} />,
       }),
     ),
     columnHelper.accessor("record", {

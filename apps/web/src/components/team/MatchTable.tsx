@@ -164,12 +164,27 @@ function AllianceChip({ side }: { side: "red" | "blue" }) {
  * whose own uncertainty is already drawn as the interval band in the plot
  * column, so a decimal here implies a precision the band explicitly denies.
  */
-function PredictedScoreLine({ matchKey, side, score, season }: { matchKey: string; side: "red" | "blue"; score: number; season: number }) {
+function PredictedScoreLine({
+  matchKey,
+  side,
+  score,
+  variance,
+  season,
+}: {
+  matchKey: string;
+  side: "red" | "blue";
+  score: number;
+  /** This alliance's OWN predicted-score variance (D-01). Published by Sigma1; absent for OPR/EPA, which model no alliance-level own variance — those rows then show a bare score, never a fabricated ±. */
+  variance: number | undefined;
+  season: number;
+}) {
+  const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
   return (
     <span className="flex flex-col gap-[1px]">
       <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
+        {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}
       </span>
     </span>
   );
@@ -179,23 +194,23 @@ function ActualScoreLine({
   matchKey,
   side,
   score,
-  rp,
   isLoser,
   season,
 }: {
   matchKey: string;
   side: "red" | "blue";
   score: number;
-  rp: number | null | undefined;
   isLoser: boolean;
   season: number;
 }) {
   return (
     <span className="flex flex-col gap-[1px]">
       <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} />
+      {/* The RP total is deliberately not printed here — bonus RP is the dots
+          above, and win/tie RP is already carried by the Confidence chip and
+          the Call column. */}
       <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
         {score}
-        {rp !== null && rp !== undefined ? ` (${rp} RP)` : ""}
       </span>
     </span>
   );
@@ -269,15 +284,15 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} season={season} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} season={season} />
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redScoreVarianceOwn} season={season} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueScoreVarianceOwn} season={season} />
         </div>
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played ? (
           <div className="flex flex-col gap-[2px]">
-            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} rp={match.actualRedRp} isLoser={redLoses} season={season} />
-            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} rp={match.actualBlueRp} isLoser={blueLoses} season={season} />
+            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} />
+            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">

@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
-import { groupedMetric, METRIC_GROUPS } from "../../lib/metricGroups.js";
+import { METRIC_GROUPS } from "../../lib/metricGroups.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
@@ -63,7 +63,6 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
 
       {snapshot !== undefined && (
         <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-wrap items-baseline gap-[var(--spacing-md)]">
-          <span className="text-role-label whitespace-nowrap text-[var(--color-text-muted)]">{"As of this event's end:"}</span>
           {/*
             Same four-way grouping as the season header: this line previously
             spilled all 13 of 2024's raw components across three wrapped rows.
@@ -72,7 +71,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
             ...METRIC_GROUPS.map((group) => ({
               key: group.id,
               label: group.label,
-              metric: metricKeys.length > 1 ? groupedMetric(season, group.id, snapshot.metrics) : undefined,
+              metric: metricKeys.length > 1 ? snapshot.metrics[group.metricKey] : undefined,
             })),
             { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
           ].map((tile) => {
@@ -80,6 +79,14 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
             return (
               <span key={tile.key} className="flex items-baseline gap-[var(--spacing-xs)]">
                 <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
+                {/*
+                  No rarity tier here yet. `MetricHistoryRowSchema.metrics`
+                  publishes only { value, spread } — a history row carries no
+                  percentile, because the percentile pass ranks SEASON-FINAL
+                  values. Tiering an as-of-this-event value with the
+                  season-final percentile would colour a number by a rank it
+                  does not have. See F-06-3.
+                */}
                 <MetricValue metric={tile.metric} />
               </span>
             );

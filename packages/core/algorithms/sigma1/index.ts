@@ -33,7 +33,10 @@
  */
 import { ratingEligibleTeams } from "../opr.js";
 import {
+  COMPONENT_GROUP_IDS,
+  COMPONENT_GROUP_METRIC_KEYS,
   FOULS_COMMITTED_COMPONENT,
+  componentGroupsForSeason,
   componentMapForSeason,
   assertFiniteComponents,
   tryParseBreakdownPair,
@@ -57,7 +60,7 @@ import {
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
-import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, teamTotalVariance } from "./covariance.js";
+import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, subsetVariance, teamTotalVariance } from "./covariance.js";
 import { foldConsistency, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
@@ -981,6 +984,37 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
 
     const totalVariance = Math.max(params.minConsistencyVariance, teamTotalVariance(teamState.covariance));
     perTeam[TOTAL_METRIC_KEY] = { value: total, spread: Math.sqrt(totalVariance) };
+
+    // Phase groups (Auto/Teleop/Endgame) published as first-class metrics.
+    //
+    // The VALUE is a plain sum of component means — exact, since expectation
+    // is linear however the components covary. The SPREAD is the quadratic
+    // form of this team's own component covariance restricted to the group's
+    // indices, which is why it has to be computed HERE: it needs the
+    // off-diagonal Cov(auto_i, auto_j) terms, and those are never published,
+    // so no client could reconstruct this number from per-component spreads.
+    // `teamTotalVariance` above is the same computation over every index.
+    const groups = state.season === undefined || state.season === null ? undefined : componentGroupsForSeason(state.season);
+    if (groups !== undefined) {
+      for (const groupId of COMPONENT_GROUP_IDS) {
+        const indices: number[] = [];
+        let groupValue = 0;
+        let present = false;
+        for (const name of groups[groupId]) {
+          const index = state.componentOrder.indexOf(name);
+          if (index === -1) continue;
+          indices.push(index);
+          groupValue += teamState.beliefs[name]?.mean ?? 0;
+          present = true;
+        }
+        // A group whose components are all absent from this season's resolved
+        // component order publishes nothing, rather than a spurious 0 ± floor.
+        if (!present) continue;
+        const groupVariance = Math.max(params.minConsistencyVariance, subsetVariance(teamState.covariance, indices));
+        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue, spread: Math.sqrt(groupVariance) };
+      }
+    }
+
     result[team] = perTeam;
   }
   return result;
