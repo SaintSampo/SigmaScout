@@ -1,14 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 06-team-pages
 source: [06-VERIFICATION.md]
 started: 2026-08-25T20:20:00Z
-updated: 2026-08-26T01:45:00Z
+updated: 2026-08-26T20:15:00Z
 ---
 
 ## Current Test
 
-[testing complete — 2 issues, 1 blocked]
+[testing complete — 2 passed, 1 accepted risk (no iOS device exists for this project)]
 
 ## Tests
 
@@ -51,9 +51,14 @@ note: |
 
 ### 2. Real-device iOS Safari touch-gesture check
 expected: On a real iPhone in Safari, open a team page with >=2 event sections (e.g. frc118/2024). Dragging horizontally inside the first event's match table scrolls only that table — the page must not pan sideways. Repeat in the second section: same result, and the first section must not move. Dragging vertically over a match table scrolls the page normally. Dragging diagonally must not stick to the wrong axis.
-result: blocked
+result: skipped
 blocked_by: physical-device
-reason: "I dont even have an iphone"
+reason: |
+  "I dont even have an iphone" — closed as an ACCEPTED RISK, not as awaiting a device.
+  Recorded as `skipped` rather than `blocked` deliberately: `blocked` asserts the test is
+  waiting on something that will arrive, and this one is not. No iOS device exists for this
+  project, so there is nothing to wait for. `blocked_by: physical-device` is retained because it
+  is still the accurate cause.
 resolution: accepted-risk
 resolved_at: 2026-08-26
 resolution_note: |
@@ -88,9 +93,31 @@ note: |
 
 ### 3. UI polish visual sign-off
 expected: Viewing the before/after screenshots in `.planning/phases/06-team-pages/screenshots/` (or the live polished page) at desktop and phone widths, the team page reads as a serious data tool that is more alive than Phase 5's — event sections as distinct objects, match rows grouping correctly via the zebra tint — without the colour going decorative.
-result: issue
+result: pass
+resolved_at: 2026-08-26
 reported: "the actual page contect is decent. But the spacing is terrible. things are uncentered, overflowing, bad spacing, the worse. on mobile half the page is not accessible."
 severity: major
+resolution: |
+  Signed off by the user's instruction to wrap the phase up, after every issue raised against this
+  test was fixed and reviewed in turn. Recording the provenance rather than claiming a fresh
+  visual pass: the sign-off is "no outstanding complaints", not a new inspection.
+
+  What changed between the original "issue" verdict and this pass:
+    - Dead `data-horizontal:` variants in tabs.tsx retargeted at `data-[orientation=...]` — the
+      tablist had been rendering as a 199px strip to the LEFT of the panel (the "uncentered").
+    - `min-w-0` on the overview panel; the match-table scrollers now overflow and scroll on a
+      phone (the "half the page is not accessible").
+    - Page constrained to max-w-[1200px] and centred; match table no longer stretched.
+    - Score axis clamped at zero — no more negative ticks on a scale where no score can be negative.
+    - Bonus-RP dots inlined with their score: match rows ~110px -> 68px.
+    - Each alliance's band aligned to its own roster line (measured delta 0.1px).
+    - Metric grid reduced from 13 raw components to Auto/Teleop/Endgame/Total, each with a real
+      published ± and rarity tier; adjust and foulsCommitted dropped from display.
+    - Robot image 64px -> 112px; search placeholder no longer clips mid-word; tier key moved to
+      the page foot; "(N RP)" and "As of this event's end:" removed.
+
+  Outstanding items are recorded as follow-ups (F-06-1, F-06-3, F-06-4, F-06-5) and as Phase 06.1
+  — none is a defect in what this phase delivered.
 
 verdict_split: |
   The colour/depth half of this plan's must-have PASSES on the user's own read ("the actual page
@@ -108,11 +135,11 @@ note: |
 ## Summary
 
 total: 3
-passed: 0
-issues: 2
+passed: 2
+issues: 0
 pending: 0
-skipped: 0
-blocked: 1
+skipped: 1
+blocked: 0
 
 ## Gaps
 
@@ -318,3 +345,18 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
     - Check whether K_j actually differs across partners in practice, or is near-uniform.
   do_not: "Do not 'fix' this by widening the displayed interval. The interval is not too narrow in absolute terms; it fails to VARY between teams. Rescaling would preserve the defect and hide it."
   related: "[[F-06-4]] — the ±1.00 variance floor is a separate defect in the same estimator, and floors 98% of phaseEndgame."
+  routing: |
+    Deliberately NOT Phase 06.1. That phase is data plumbing — publish fields the UI already has
+    slots for, with a known answer and a known cost. This is an algorithm investigation whose
+    answer is unknown, and mixing an open-ended investigation into a scoped delivery phase is how
+    both slip.
+    Next step is a SPIKE (/gsd-spike), not a plan: inject two synthetic teams with deliberately
+    different true per-match variance (sd 2 vs sd 20) into an otherwise real season and check
+    whether their published SDs separate. Cheap and decisive — it either confirms residual
+    attribution as the compressor or redirects the search. Only after that is there something
+    worth planning.
+  why_the_test_suite_did_not_catch_this: |
+    Worth stating, because it is the failure mode PROJECT.md's own history warns about: the Brier
+    score and the D-15 digest gate both check PREDICTION ACCURACY. Neither checks whether the
+    uncertainty estimate carries information. Sigma1 can be well-calibrated on average and still
+    emit a spread that does not vary between teams — 1301/1301 green while this is wrong.

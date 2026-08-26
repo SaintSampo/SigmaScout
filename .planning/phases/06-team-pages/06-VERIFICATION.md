@@ -1,17 +1,20 @@
 ---
 phase: 06-team-pages
 verified: 2026-08-25T20:10:00Z
-status: human_needed
+status: passed
 score: 4/4 roadmap truths verified (36/36 plan-level must-haves verified in code; 0 failed)
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "On a real iPhone in Safari, open a team page with >=2 event sections (e.g. frc118/2024). Drag horizontally inside the first event's match table — only that table should scroll, the page must not pan sideways. Repeat inside the second section — same result, and the first section must not move. Drag vertically over a match table — the page should scroll normally. Drag diagonally — the gesture must not stick to the wrong axis."
     expected: "Each event section's horizontal scroll is independent and gesture-isolated from page vertical scroll on real iOS Safari, not just under Chromium's CDP touch emulation."
     why_human: "06-RESEARCH.md Pitfall 6 documents historical iOS Safari gaps for directional touch-action inside a different-axis outer scroller. This is the phase's own named highest-risk item (D-10); no iOS device was available during execution (06-08-SUMMARY.md coverage D6, still `status: pending`). A passing Chromium/CDP test is not evidence of real-device behavior."
+
   - test: "Re-run `pnpm --filter web test:e2e -- team-page`, `-- no-page-pan`, `-- touch-scroll`, and `-- static-shell` against the deployed origin after this branch is pushed to `origin/main` and Cloudflare Pages redeploys."
     expected: "All four specs pass against the real deployed build carrying Phase 6's route, match tables, and static shell."
     why_human: "Confirmed during this verification: local `main` (HEAD `5c8af78c`) is NOT pushed to `origin/main` (still at `79ca50be`, the Phase 5 HEAD), and a live fetch of `https://sigmascout.org/` shows the OLD empty-`#root` `index.html` with no static-shell markup. `apps/web/playwright.config.ts` has no local `webServer` and targets the deployed origin exclusively (R2 CORS does not allow-list localhost), so these specs structurally cannot pass until this code ships. Every plan's own SUMMARY (06-01, 06-05, 06-08, 06-09) already recorded this as a `human_judgment: true` coverage item — confirmed independently here, not merely repeated from the SUMMARYs."
+
   - test: "Look at the before/after screenshots in `.planning/phases/06-team-pages/screenshots/` (or the live polished page) at desktop and phone widths."
     expected: "The team page reads as a serious data tool that is more alive than Phase 5's — event sections as distinct objects, match rows grouping correctly via the zebra tint — without the color going decorative."
     why_human: "06-09-PLAN.md's own must-have states this is judged by looking, not by a token diff. The mechanical gates (additive-only theme.css diff, zero hex literals, elevation/tint component tests) all pass, but the qualitative call is explicitly deferred to a human per the plan's own text."
@@ -132,7 +135,6 @@ No must-have truths, artifacts, or key links failed. Every claim in the nine pla
 _Verified: 2026-08-25T20:10:00Z_
 _Verifier: Claude (gsd-verifier)_
 
-
 ## Accepted Gaps
 
 Recorded 2026-08-26, by explicit decision, so Phase 6 can close with the gap visible in the
@@ -150,12 +152,15 @@ the wrong axis.
 discharged by scheduling it later. `06-UAT.md` test 2 is `blocked_by: physical-device`.
 
 **What IS verified, and what that is worth:**
+
 - `e2e/touch-scroll.spec.ts` and `e2e/no-page-pan.spec.ts` pass on both the `iphone-17` and
   `pixel-10` projects against the deployed origin (40/40 suite).
+
 - Those projects drive Chromium's touch dispatcher over CDP — the `iphone-17` project explicitly
   pins `browserName: "chromium"` because `context.newCDPSession()` does not exist for WebKit.
   They exercise the iPhone's viewport, user agent and `hasTouch` flag, NOT WebKit's gesture
   arbitration.
+
 - `06-RESEARCH.md` Pitfall 6 documents historical iOS Safari gaps for a directional
   `touch-action` inside a different-axis outer scroller. A green Chromium suite is not evidence
   about that, and re-running it never becomes evidence.
@@ -167,3 +172,32 @@ spec — so this is a demonstrated failure mode, not a theoretical one.
 **Routes that would close it, if it later matters:** a hosted real-device session
 (BrowserStack/Sauce Labs); a borrowed iPhone or iPad (same WebKit gesture engine); or a
 deliberate re-scope of D-10 away from per-section horizontal scrolling.
+
+
+## Completion exception
+
+Phase 6 is being closed with the shared completion predicate returning `passed: false`. Recording
+that plainly rather than editing the UAT until the gate agrees.
+
+```
+gsd-tools phase uat-passed 06 --require-verification
+  passed: false
+  blockers: ["06-UAT.md: test 2 (skipped)"]
+```
+
+**Why the gate objects:** it requires every UAT test to carry `result: pass`. Test 2 is the
+real-device iOS Safari check, which carries `result: skipped` under the accepted-risk decision
+above. The gate is behaving correctly — a real-device check genuinely did not happen.
+
+**Why it is closed anyway:** the gap is an explicit, recorded decision (see "## Accepted Gaps"),
+not an oversight. No iOS device exists for this project, so the test cannot be discharged by
+waiting.
+
+**What was deliberately NOT done:** test 2 was not marked `pass`. That would assert a real-device
+verification succeeded, which is false, and it would erase the one honest signal that this
+interaction is unverified on the platform it was written for. `skipped` was chosen over `blocked`
+on accuracy grounds — `blocked` implies a prerequisite that will eventually arrive — and it does
+NOT satisfy the gate either, so it was not a way around it.
+
+**Standing consequence:** an iOS-only regression in per-section touch scrolling would land
+unobserved. That remains true after this phase closes, and closing the phase does not retire it.

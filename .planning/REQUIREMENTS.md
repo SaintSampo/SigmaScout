@@ -45,11 +45,11 @@ for the full baseline-change narrative.
 ### Teams
 
 - [x] **TEAM-01**: User can view all teams for the selected year ranked by the selected algorithm's metric, with columns: team number, name, rank, metric(s), record, win rate
-- [ ] **TEAM-02**: User can open a team page showing team name, robot image for that year, and a link to the team's TBA page
-- [ ] **TEAM-03**: Team page shows current season stats: record, win rate, and metrics
-- [ ] **TEAM-04**: Team page shows a section per attended/upcoming event; finished events show metrics as captured at the moment the event ended
-- [ ] **TEAM-05**: Each event section lists that team's matches with both alliances' teams, predicted winner, confidence, predicted scores, predicted RP ± variance, actual scores, and actual RP
-- [ ] **TEAM-06**: Team page has a second tab plotting the team's metrics over the season with matches on the x-axis, including a variance band for Sigma metrics
+- [x] **TEAM-02**: User can open a team page showing team name, robot image for that year, and a link to the team's TBA page
+- [x] **TEAM-03**: Team page shows current season stats: record, win rate, and metrics
+- [x] **TEAM-04**: Team page shows a section per attended/upcoming event; finished events show metrics as captured at the moment the event ended
+- [x] **TEAM-05**: Each event section lists that team's matches with both alliances' teams, predicted winner, confidence, predicted scores, predicted RP ± variance, actual scores, and actual RP
+- [x] **TEAM-06**: Team page has a second tab plotting the team's metrics over the season with matches on the x-axis, including a variance band for Sigma metrics
 
 ### Events
 
@@ -125,11 +125,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALGO-07 | Phase 2 | Complete |
 | ALGO-08 | Phase 3 | Complete |
 | TEAM-01 | Phase 5 | Complete |
-| TEAM-02 | Phase 6 | Pending |
-| TEAM-03 | Phase 6 | Pending |
-| TEAM-04 | Phase 6 | Pending |
-| TEAM-05 | Phase 6 | Pending |
-| TEAM-06 | Phase 6 | Pending |
+| TEAM-02 | Phase 6 | Complete |
+| TEAM-03 | Phase 6 | Complete |
+| TEAM-04 | Phase 6 | Complete |
+| TEAM-05 | Phase 6 | Complete |
+| TEAM-06 | Phase 6 | Complete |
 | EVNT-01 | Phase 5 | Complete |
 | EVNT-02 | Phase 7 | Pending |
 | EVNT-03 | Phase 7 | Pending |

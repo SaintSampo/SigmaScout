@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3.2: Swap OPR to event-scoped and re-issue affected figures** (INSERTED) - OPR becomes event-scoped everywhere, matching TBA and Statbotics; affected figures re-run and the retired baseline preserved in the record (completed 2026-08-21)
 - [x] **Phase 4: Publish & Live Update Pipeline** - Precomputed artifacts published and refreshed within ~1–3 minutes on free tiers (completed 2026-08-23)
 - [x] **Phase 5: Site Shell — Navigation & Browsing** - Ribbon, global year/algorithm selectors, search, Teams and Events listings (completed 2026-08-24)
-- [ ] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot
+- [x] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot (completed 2026-08-26)
 - [ ] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data
 - [ ] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs
 - [ ] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table
@@ -412,7 +412,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 3.1 Address Phase 1-3 review warnings and doc drift (INSERTED) | 5/5 | Complete    | 2026-08-20 |
 | 4. Publish & Live Update Pipeline | 8/8 | Complete    | 2026-08-23 |
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
-| 6. Team Pages | 9/9 | In Progress|  |
+| 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 0/TBD | Not started | - |
 | 8. Simulation & Compare | 0/TBD | Not started | - |
 
