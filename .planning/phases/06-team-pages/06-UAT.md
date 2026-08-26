@@ -186,6 +186,14 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
   note: "Crosses the digest-reproducibility gate — this is algorithm output, so it wants the harness rigor, not a quick patch."
 
 - id: F-06-2
+  status: RESOLVED 2026-08-26
+  resolved_by: |
+    Sigma1 now publishes phaseAuto/phaseTeleop/phaseEndgame as first-class metrics with real
+    spread and percentile. The spread is `covariance.ts`'s new `subsetVariance` — the same
+    quadratic form `teamTotalVariance` already used for total, restricted to the group's own
+    component indices, so the off-diagonal covariances are included rather than assumed away.
+    Percentiles came free: `withPercentiles` discovers metric names from the record itself.
+    The client-side grouping was deleted; `lib/metricGroups.ts` computes nothing now.
   title: "Publish group-level variance and percentile for the Auto/Teleop/Endgame tiles"
   deferred_at: 2026-08-26
   why: |
@@ -204,3 +212,22 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
   work_required:
     - "publish per-group variance (and percentile) from the pipeline's existing percentile pass"
     - "apps/web/src/lib/metricGroups.ts — GroupedMetric.spread/percentile are typed `undefined` today; widen once published"
+
+- id: F-06-3
+  title: "Rarity tiers on the per-event metric line"
+  deferred_at: 2026-08-26
+  requested: "use rarity marking for those 4 metrics [in each event section]"
+  why_not_done: |
+    `MetricHistoryRowSchema.metrics` publishes only { value, spread } — a history row carries no
+    percentile. The percentile pass ranks SEASON-FINAL values, so applying a season-final
+    percentile to an as-of-this-event value would colour a number by a rank it does not have,
+    which is the same class of quiet inaccuracy F-06-2 was fixed to avoid. The season header's
+    four tiles and the Teams table DO now carry tiers, because those are season-final values
+    ranked against a season-final pool.
+  two_honest_options:
+    - "Rank each history value against the SEASON-FINAL distribution for that metric — well-defined and cheap (the sorted arrays already exist in the percentile pass), and reads as 'where this team stood at that point, against the final field'."
+    - "Rank each history value against the pool AT THAT MATCH INDEX — more truly 'as of then', but needs every team's state at every index, which is a much larger pass."
+  work_required:
+    - "packages/harness/metricHistorySchema.ts — add optional percentile to MetricValueSchema"
+    - "packages/harness/publish.ts — populate it in the chosen ranking scheme"
+    - "apps/web/src/components/team/EventSection.tsx — pass tierForPercentile(tile.metric.percentile); the call site is already commented with this reference"
