@@ -85,6 +85,24 @@ describe("computeAxisDomain", () => {
     expect(domain.min).toBeGreaterThan(0);
   });
 
+  it("never runs below zero — no FRC alliance score can be negative", () => {
+    // A low-scoring team: the raw minimum is 3, and MIN_DOMAIN_PADDING (10)
+    // would otherwise carry the domain to -7, labelling a stretch of plot no
+    // mark can ever reach. This is the real defect seen on frc118/2024, whose
+    // axis started at -14.
+    const domain = computeAxisDomain([
+      {
+        matches: [
+          { predictedRedScore: 3, predictedBlueScore: 8, actualRedScore: 0, actualBlueScore: 12 },
+          { predictedRedScore: 40, predictedBlueScore: 55, actualRedScore: 44, actualBlueScore: 60 },
+        ],
+      },
+    ] as never);
+
+    expect(domain.min).toBe(0);
+    expect(domain.max).toBeGreaterThan(60);
+  });
+
   it("includes each alliance's own predicted-score variance band, not just the point prediction", () => {
     const domain = computeAxisDomain([
       makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redScoreVarianceOwn: 400, blueScoreVarianceOwn: 100 })]),

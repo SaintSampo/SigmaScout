@@ -247,7 +247,7 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
           />
         </div>
       </td>
-      <td data-testid={`confidence-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
+      <td data-testid={`confidence-${match.matchKey}`} className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] align-top">
         <span className="flex items-center gap-[var(--spacing-xs)]">
           <AllianceChip side={match.predictedWinner} />
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
@@ -287,16 +287,16 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
 export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
   return (
-    <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
-          <th className="sticky left-0 z-[2] bg-[var(--color-bg-page)] p-[var(--spacing-sm)] text-left">
+          <th className="sticky left-0 z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="p-[var(--spacing-sm)] text-left">
             <AxisHeader domain={domain} />
           </th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Conf.</th>
+          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Conf.</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. RP</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>

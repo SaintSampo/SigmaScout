@@ -75,6 +75,19 @@ const DOMAIN_PADDING_RATIO = 0.05;
 const MIN_DOMAIN_PADDING = 10;
 
 /**
+ * The domain's hard floor. An FRC alliance score cannot be negative, so the
+ * padding below `min` must never carry the axis past zero — a tick reading
+ * "-14" labels a region of the plot that no mark can ever occupy, and it
+ * costs real plot width to draw. Clamping here (rather than at the tick
+ * layer) keeps `scaleToPlot` and `axisTicks` honest: they map the domain
+ * they are given, and the domain itself is now always physically reachable.
+ * Note this does NOT zero-anchor the axis — a team whose lowest padded
+ * extent is 70 still gets a domain starting at 70, per D-06's zoomed axis.
+ * It only prevents the axis from running below what a score can be.
+ */
+const DOMAIN_FLOOR = 0;
+
+/**
  * The shared score domain for the WHOLE team-season — every event, every
  * match, played AND scheduled (D-06's implementation note: computed across
  * the whole season so the axis is stable once the schedule is known, rather
@@ -117,7 +130,7 @@ export function computeAxisDomain(events: readonly TeamSeasonEvent[]): AxisDomai
 
   const range = max - min;
   const padding = Math.max(range * DOMAIN_PADDING_RATIO, MIN_DOMAIN_PADDING);
-  return { min: min - padding, max: max + padding };
+  return { min: Math.max(DOMAIN_FLOOR, min - padding), max: max + padding };
 }
 
 /** The single value-to-x mapping every mark and tick position goes through. */
