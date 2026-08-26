@@ -2,10 +2,25 @@
  * D-04 (Phase 6, plan 06-04 Task 2) coverage for the mid-rank percentile
  * pass — `percentileRanks`'s formula in isolation, then `withPercentiles`'s
  * merge/immutability/pool-scoping contract.
+ *
+ * Plan 06.1-03 Tasks 1-2 (D-06.1-A, F-06-3) extend this suite with
+ * `percentileAgainstSortedPool`, `sortedPoolsByMetric`,
+ * `HISTORY_PERCENTILE_METRIC_KEYS`, and the `MetricValueSchema.percentile`
+ * round-trip cases — kept in this one suite per the plan's own instruction
+ * to keep the phase's percentile assertions together.
  */
 import { describe, expect, it } from "vitest";
-import type { TeamMetrics } from "../core/algorithms/types.js";
-import { percentileRanks, withPercentiles } from "./percentiles.js";
+import { COMPONENT_GROUP_METRIC_KEYS } from "../core/algorithms/breakdown/index.js";
+import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
+import { MetricHistoryRowSchema, MetricValueSchema } from "./metricHistorySchema.js";
+import {
+  EmptyPoolError,
+  HISTORY_PERCENTILE_METRIC_KEYS,
+  percentileAgainstSortedPool,
+  percentileRanks,
+  sortedPoolsByMetric,
+  withPercentiles,
+} from "./percentiles.js";
 
 describe("percentileRanks", () => {
   it("mid-rank convention on distinct values (D-04)", () => {
@@ -107,5 +122,138 @@ describe("withPercentiles", () => {
     const pct = result.frc0?.total?.percentile;
     expect(pct).toBeDefined();
     expect(Number.isInteger(pct! * 10)).toBe(true);
+  });
+});
+
+describe("percentileAgainstSortedPool (D-06.1-A, plan 06.1-03 Task 1)", () => {
+  const POOL_SHAPES: Record<string, number[]> = {
+    "all-distinct": [1, 2, 3, 4, 5, 6, 7],
+    "one tie group": [1, 2, 2, 2, 5, 8],
+    "two tie groups": [1, 1, 4, 9, 9, 9, 10],
+    "all-identical": [3, 3, 3, 3],
+  };
+
+  for (const [label, pool] of Object.entries(POOL_SHAPES)) {
+    it(`exactly agrees with percentileRanks at every index for a ${label} pool (strict equality, not toBeCloseTo)`, () => {
+      const sorted = [...pool].sort((a, b) => a - b);
+      const expected = percentileRanks(pool);
+      pool.forEach((value, i) => {
+        expect(percentileAgainstSortedPool(sorted, value)).toBe(expected[i]);
+      });
+    });
+  }
+
+  it("a query value strictly below every pool member returns a non-negative percentile strictly less than the smallest member's percentile — never negative", () => {
+    // Reuses percentileRanks's exact formula (countStrictlyBelow=0, countEqual=0 for a
+    // value matching no pool member), which yields exactly 0 here — well-defined, never
+    // negative, and strictly below the smallest member's own mid-rank percentile.
+    const sorted = [10, 20, 30, 40];
+    const smallestPct = percentileRanks(sorted)[0]!;
+    const result = percentileAgainstSortedPool(sorted, 0);
+    expect(result).toBeGreaterThanOrEqual(0);
+    expect(result).toBeLessThan(smallestPct);
+  });
+
+  it("a query value strictly above every pool member returns exactly 100", () => {
+    const sorted = [10, 20, 30, 40];
+    expect(percentileAgainstSortedPool(sorted, 1000)).toBe(100);
+  });
+
+  it("throws a named error for an empty sorted pool rather than returning 0", () => {
+    expect(() => percentileAgainstSortedPool([], 5)).toThrow(EmptyPoolError);
+    expect(() => percentileAgainstSortedPool([], 5)).toThrow();
+  });
+
+  it("a single-member pool returns 50 for the member's own value, matching percentileRanks([7])", () => {
+    expect(percentileAgainstSortedPool([7], 7)).toBe(50);
+    expect(percentileAgainstSortedPool([7], 7)).toBe(percentileRanks([7])[0]);
+  });
+
+  it("rounds to ROUNDING_RULE.percentile decimals — a repeating decimal surfaces as one decimal number", () => {
+    // 1 of 3 sorted-below out of pool size 3 -> 1/3 * 100 = 33.333...
+    const sorted = [10, 20, 30];
+    const result = percentileAgainstSortedPool(sorted, 15);
+    expect(Number.isInteger(result * 10)).toBe(true);
+  });
+});
+
+describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
+  function fixtureMetrics(): TeamMetrics {
+    return {
+      frc1: { total: { value: 10 }, auto: { value: 5 } },
+      frc2: { total: { value: 20 } },
+      frc3: { total: { value: 30 }, auto: { value: 15 } },
+    };
+  }
+
+  it("returns one ascending array per metric name at least one team in teamKeys has a value for", () => {
+    const pools = sortedPoolsByMetric(fixtureMetrics(), ["frc1", "frc2", "frc3"]);
+    expect(pools.get("total")).toEqual([10, 20, 30]);
+    expect(pools.get("auto")).toEqual([5, 15]);
+  });
+
+  it("omits a metric name entirely when no team in teamKeys has a value for it (PD-07) — has() returns false, not an equality against []", () => {
+    const metrics: TeamMetrics = { frc1: { total: { value: 1 } } };
+    const pools = sortedPoolsByMetric(metrics, ["frc1"]);
+    expect(pools.has("auto")).toBe(false);
+  });
+
+  it("scopes strictly to teamKeys, never Object.keys(metricsByTeam) — a team outside teamKeys must not widen the pool", () => {
+    const metrics = fixtureMetrics();
+    const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2"]); // frc3 excluded
+    expect(pools.get("total")).toEqual([10, 20]);
+    expect(pools.get("auto")).toEqual([5]);
+  });
+
+  it("tolerates a teamKeys entry absent from metricsByTeam", () => {
+    const metrics = fixtureMetrics();
+    const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2", "frc3", "frc4"]);
+    expect(pools.get("total")).toEqual([10, 20, 30]);
+  });
+
+  it("does not mutate metricsByTeam or any nested metric object", () => {
+    const metrics = fixtureMetrics();
+    const snapshot = structuredClone(metrics);
+    sortedPoolsByMetric(metrics, ["frc1", "frc2", "frc3"]);
+    expect(metrics).toEqual(snapshot);
+  });
+});
+
+describe("HISTORY_PERCENTILE_METRIC_KEYS (PD-06, plan 06.1-03 Task 1)", () => {
+  it("contains exactly the three COMPONENT_GROUP_METRIC_KEYS values plus TOTAL_METRIC_KEY", () => {
+    const expected = new Set([...Object.values(COMPONENT_GROUP_METRIC_KEYS), TOTAL_METRIC_KEY]);
+    expect(new Set(HISTORY_PERCENTILE_METRIC_KEYS)).toEqual(expected);
+    expect(HISTORY_PERCENTILE_METRIC_KEYS).toHaveLength(4);
+  });
+});
+
+describe("MetricValueSchema.percentile (F-06-3, plan 06.1-03 Task 2)", () => {
+  it("accepts a metric with no percentile key at all — a pre-phase artifact still parses unchanged", () => {
+    const parsed = MetricValueSchema.parse({ value: 1 });
+    expect("percentile" in parsed).toBe(false);
+  });
+
+  it("accepts a percentile of exactly 0 and of exactly 100", () => {
+    expect(MetricValueSchema.parse({ value: 1, percentile: 0 }).percentile).toBe(0);
+    expect(MetricValueSchema.parse({ value: 1, percentile: 100 }).percentile).toBe(100);
+  });
+
+  it("rejects a percentile below 0 and one above 100", () => {
+    expect(() => MetricValueSchema.parse({ value: 1, percentile: -0.1 })).toThrow();
+    expect(() => MetricValueSchema.parse({ value: 1, percentile: 100.1 })).toThrow();
+  });
+
+  it("MetricHistoryRowSchema round-trips a row whose metrics carry percentiles", () => {
+    const row = {
+      matchKey: "2024test_qm1",
+      season: 2024,
+      eventKey: "2024test",
+      algorithmId: "sigma1",
+      teamKey: "frc1",
+      matchIndex: 0,
+      metrics: { total: { value: 42, percentile: 87.5 } },
+    };
+    const parsed = MetricHistoryRowSchema.parse(row);
+    expect(parsed.metrics["total"]?.percentile).toBe(87.5);
   });
 });
