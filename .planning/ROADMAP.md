@@ -362,11 +362,17 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 06.1 to break down)
+- [ ] 06.1-01-PLAN.md — TRACER: event standing end to end for one season, TBA endpoint through corpus, publish and artifact schema to a rendered "Rank N of M" line
+- [ ] 06.1-02-PLAN.md — Per-bonus probabilities out of the Monte Carlo's existing draws, onto `Prediction`, with the D-15 digest gate measured
+- [ ] 06.1-03-PLAN.md — `percentileAgainstSortedPool` plus the sorted-pool builder, and an optional bounded percentile on the history-row metric schema
+- [ ] 06.1-04-PLAN.md — Full 2022–2026 rankings ingest and the rankings endpoint's COVERAGE.md capability matrix
+- [ ] 06.1-05-PLAN.md — The publish boundary: four new match fields, algorithm-independent actual bonus flags, and season-final percentiles on every history row
+- [ ] 06.1-06-PLAN.md — UI: real bonus-dot states, per-event rarity tiers, and the visible statement of what those tiers rank against
+- [ ] 06.1-07-PLAN.md — The phase's one full republish: byte projection, the run, and both standing gates
 
 ### Phase 7: Event Pages
 
