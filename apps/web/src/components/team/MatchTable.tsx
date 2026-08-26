@@ -287,7 +287,7 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
 export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
   return (
-    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+    <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
           <th className="sticky left-0 z-[2] bg-[var(--color-bg-page)] p-[var(--spacing-sm)] text-left">

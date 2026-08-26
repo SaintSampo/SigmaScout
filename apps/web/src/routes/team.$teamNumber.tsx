@@ -138,7 +138,15 @@ function TeamPage() {
   // Both tabs render from first paint regardless of query state
   // (06-UI-SPEC.md E8) — they gate CONTENT, never their own existence.
   return (
-    <div className="p-[var(--spacing-lg)]">
+    // The match table's plot column is a deliberate fixed ~470px (D-10), so
+    // the table's natural width is ~905px and it can never fill a 1440px
+    // card — an unconstrained page left ~455px of dead space to the right of
+    // every match table and stretched the metric tiles across the full
+    // viewport. Constraining the content column (rather than stretching the
+    // table) is what closes that gap, and it centres the page on wide
+    // displays. 1200px leaves the 905px table comfortable margins without
+    // shrinking the 6-up metric grid below a readable tile width.
+    <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList variant="line" className="border-b border-[var(--color-border)]">
           <TabsTrigger value="overview" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
@@ -148,7 +156,7 @@ function TeamPage() {
             Metric History
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="overview" data-testid="overview-panel" className="mt-[var(--spacing-lg)]">
+        <TabsContent value="overview" data-testid="overview-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderOverviewContent()}
         </TabsContent>
         <TabsContent value="history" className="mt-[var(--spacing-lg)]">
