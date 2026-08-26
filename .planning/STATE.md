@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 06.1
 current_phase_name: match-and-event-data-enrichment
 status: executing
-stopped_at: Completed 06.1-01-PLAN.md
-last_updated: "2026-08-26T22:25:30.037Z"
+stopped_at: Completed 06.1-02-PLAN.md
+last_updated: "2026-08-26T22:44:24.698Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 06.1 execution started
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 63
-  completed_plans: 57
+  completed_plans: 58
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 06.1 (match-and-event-data-enrichment) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 06.1 execution started
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -90,6 +90,7 @@ Progress: [█████████░] 90%
 | Phase 03.1 P03 | 7min | 2 tasks | 2 files |
 | Phase 03.1 P05 | 35min | 2 tasks | 7 files |
 | Phase 06.1 P01 | 35min | 3 tasks | 15 files |
+| Phase 06.1 P02 | 25min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06.1 P01]: PD-01/PD-02/PD-03 applied as written — offseason events in event_rankings ingest scope, null-body vs empty-rankings distinguished only in ingest-run counters, standing line is plain text not a Badge
 - [Phase ?]: [Phase 06.1 P01]: Rule 1 fix — event_rankings ingest skips (and counts separately) a ranking row for a team key with no corpus teams row, rather than fail the whole event's upsert or fabricate a teams row; discovered live against 2024's remote-league events (2024azrl1..5), which report standings for synthetic second-robot team keys TBA's own /team/{key} 404s on
 - [Phase ?]: [Phase 06.1 P01]: publish.ts's event assembly conditionally spreads rank/totalTeams rather than assigning them directly, so an omitted field is genuinely absent from the parsed artifact (asserted via not.toHaveProperty) — Zod's object parse otherwise keeps a key present-with-undefined-value
+- [Phase ?]: [Phase 06.1 P02]: PD-04/PD-05 applied as written -- per-bonus RP data travels as a positional array indexed to bonusNames (not a Record), never passed through roundPmf; both saved for plan 06.1-05's publish boundary
 
 ### Pending Todos
 
@@ -222,6 +224,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-26T22:25:29.995Z
-Stopped at: Completed 06.1-01-PLAN.md
+Last session: 2026-08-26T22:44:24.658Z
+Stopped at: Completed 06.1-02-PLAN.md
 Resume file: None
