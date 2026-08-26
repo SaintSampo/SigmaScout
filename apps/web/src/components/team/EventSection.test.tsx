@@ -160,6 +160,59 @@ describe("EventSection", () => {
     expect(standing.textContent).toBe("Rank 5 of 32");
   });
 
+  it("renders no standing element when the event fixture carries neither rank nor totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
+    render(
+      <EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />,
+    );
+    expect(screen.queryByTestId("event-standing-2024casj")).toBeNull();
+  });
+
+  it("renders no standing element when only rank is present (a half-present pair never renders a partial standing)", () => {
+    render(
+      <EventSection
+        event={makeEvent({ rank: 5, totalTeams: undefined })}
+        domain={DOMAIN}
+        teamKey="frc118"
+        algorithmId="sigma1"
+        season={2024}
+        metricHistory={[]}
+      />,
+    );
+    expect(screen.queryByTestId("event-standing-2024casj")).toBeNull();
+  });
+
+  it("renders no standing element when only totalTeams is present — the mirror half-present case", () => {
+    render(
+      <EventSection
+        event={makeEvent({ rank: undefined, totalTeams: 32 })}
+        domain={DOMAIN}
+        teamKey="frc118"
+        algorithmId="sigma1"
+        season={2024}
+        metricHistory={[]}
+      />,
+    );
+    expect(screen.queryByTestId("event-standing-2024casj")).toBeNull();
+  });
+
+  it("places the standing element inside the same paragraph as startDate, which still renders unchanged", () => {
+    render(
+      <EventSection
+        event={makeEvent({ rank: 5, totalTeams: 32, startDate: "2024-03-01" })}
+        domain={DOMAIN}
+        teamKey="frc118"
+        algorithmId="sigma1"
+        season={2024}
+        metricHistory={[]}
+      />,
+    );
+    const standing = screen.getByTestId("event-standing-2024casj");
+    const paragraph = standing.closest("p");
+    expect(paragraph).not.toBeNull();
+    expect(paragraph!.textContent).toContain("2024-03-01");
+    expect(paragraph!.textContent).toContain("Rank 5 of 32");
+  });
+
   it("gives two sections distinct scroller test ids", () => {
     render(
       <>

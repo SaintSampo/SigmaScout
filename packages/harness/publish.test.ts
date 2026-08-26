@@ -496,6 +496,41 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
   });
 });
 
+describe("buildTeamSeasonArtifact — TEAM-04/F-06-3 event rank (plan 06.1-01 Task 3)", () => {
+  const baseParams = {
+    teamKey: "frc254",
+    teamNumber: 254,
+    nickname: "The Cheesy Poofs",
+    season: 2024,
+    algorithmId: "opr",
+    algorithmVersion: "3.0.0+baseline",
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    metricHistory: [],
+    generation: "test-generation-1",
+    computedAt: "2026-08-26T00:00:00.000Z",
+  } as const;
+
+  it("copies rank/totalTeams from TeamSeasonEventInput onto the parsed artifact's matching event when present", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [{ eventKey: "2024casj", eventName: "Sacramento Regional", startDate: "2024-03-01", matches: [], rank: 5, totalTeams: 32 }],
+    });
+    const publishedEvent = artifact.events[0];
+    expect(publishedEvent?.rank).toBe(5);
+    expect(publishedEvent?.totalTeams).toBe(32);
+  });
+
+  it("omits rank and totalTeams entirely (not merely undefined) from the parsed artifact's event when the input omits them", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [{ eventKey: "2024casj", eventName: "Sacramento Regional", startDate: "2024-03-01", matches: [] }],
+    });
+    const publishedEvent = artifact.events[0] as object;
+    expect(publishedEvent).not.toHaveProperty("rank");
+    expect(publishedEvent).not.toHaveProperty("totalTeams");
+  });
+});
+
 describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus (plan 06-04 Task 1)", () => {
   let dir: string;
   let db: Corpus;

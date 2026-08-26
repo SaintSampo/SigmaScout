@@ -14,6 +14,7 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly, selectEventRankingsForSeason, type Corpus } from "../corpus/db.js";
+import type { MatchResult, Prediction } from "../core/algorithms/types.js";
 import { buildTeamSeasonArtifact } from "./publish.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -21,7 +22,34 @@ const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 const SEASON = 2024;
 const MIN_EVENT_COUNT = 250;
 
-describe("event standing — corpus-backed end-to-end tracer (plan 06.1-01, Task 1)", () => {
+/** A minimal, valid PredictionRecord match for the deterministically-chosen (event, team) pair — just enough to satisfy TeamSeasonMatchSchema. */
+function minimalMatch(eventKey: string, teamKey: string): MatchResult {
+  return {
+    matchKey: `${eventKey}_qm1`,
+    eventKey,
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 1,
+    redTeams: [teamKey],
+    blueTeams: ["frc0"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 0,
+    winner: "red",
+    redScore: 1,
+    blueScore: 0,
+    redRpEarned: null,
+    blueRpEarned: null,
+    hasScoreBreakdown: false,
+    scoreBreakdownRaw: null,
+  };
+}
+
+function minimalPrediction(): Prediction {
+  return { winner: "red", pRedWin: 0.5, redScore: 1, blueScore: 0 };
+}
+
+describe("event standing — corpus-backed end-to-end tracer (plan 06.1-01, Tasks 1 & 3)", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(
       `skipped: ${CORPUS_PATH} is absent — run pnpm ingest --year 2024 then pnpm ingest:rankings --year 2024 first`,
@@ -70,7 +98,7 @@ describe("event standing — corpus-backed end-to-end tracer (plan 06.1-01, Task
           eventKey: eventKey!,
           eventName: eventKey!,
           startDate: "",
-          matches: [],
+          matches: [{ match: minimalMatch(eventKey!, teamKey!), prediction: minimalPrediction() }],
           rank: corpusRanking.rank,
           totalTeams: corpusRanking.totalTeams,
         },
