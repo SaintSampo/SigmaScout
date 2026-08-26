@@ -24,3 +24,12 @@ apps/web/src/routeTree.gen.ts
 apps/web/test-results/
 apps/web/playwright-report/
 
+
+# GSD executor worktrees. Created under .claude/worktrees/ during phase
+# execution and normally removed by the cleanup wave — but removal fails on
+# Windows whenever an executor left a dev/preview server running inside the
+# tree, which is how 11 orphaned worktrees (1.1GB) accumulated through Phase 6.
+# Ignoring them keeps a failed cleanup from showing up as ~1200 untracked
+# files. They hold no unmerged work: the cleanup wave strips the .git file
+# before it fails, so anything committed there is already merged.
+.claude/worktrees/
