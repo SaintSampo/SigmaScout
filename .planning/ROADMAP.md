@@ -362,12 +362,12 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 06.1-01-PLAN.md — TRACER: event standing end to end for one season, TBA endpoint through corpus, publish and artifact schema to a rendered "Rank N of M" line
+- [x] 06.1-01-PLAN.md — TRACER: event standing end to end for one season, TBA endpoint through corpus, publish and artifact schema to a rendered "Rank N of M" line
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
