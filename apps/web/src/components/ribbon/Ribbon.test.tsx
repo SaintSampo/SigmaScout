@@ -117,7 +117,7 @@ describe("Ribbon", () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
 
-    expect(screen.getByPlaceholderText("Search teams or events (e.g. 1114 or Simbotics)")).toBeDefined();
+    expect(screen.getByPlaceholderText("Search teams or events")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Open search" })).toBeNull();
   });
 

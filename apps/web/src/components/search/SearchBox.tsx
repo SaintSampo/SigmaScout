@@ -58,7 +58,15 @@ type SearchNavigate = (opts: {
   search: (prev: Record<string, unknown>) => Record<string, unknown>;
 }) => Promise<void>;
 
-const SEARCH_PLACEHOLDER = "Search teams or events (e.g. 1114 or Simbotics)";
+/**
+ * Kept short deliberately. The box is `w-64` (256px) and the previous
+ * placeholder — "Search teams or events (e.g. 1114 or Simbotics)" — is 46
+ * characters, so it was always clipped mid-example ("...(e.g. 11"), which
+ * reads as a broken input rather than as a hint. Widening the box instead
+ * was the wrong trade: the ribbon also carries the wordmark, nav, the year
+ * select and the now-wider algorithm select.
+ */
+const SEARCH_PLACEHOLDER = "Search teams or events";
 
 /** The highlighted-row token (05-UI-SPEC.md's "Accent reserved for" list: "highlighted row background, at 10% opacity tint, not solid fill") — applied as a Tailwind arbitrary-value opacity modifier over the CSS custom property, never a literal hex value. */
 const HIGHLIGHT_CLASS = "data-selected:bg-[var(--color-accent)]/10 data-selected:text-[var(--color-text-primary)]";

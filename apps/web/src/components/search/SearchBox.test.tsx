@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, TeamsArtifactSchema, type EventsArtifact, type TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SearchBox } from "./SearchBox.js";
 
-const PLACEHOLDER = "Search teams or events (e.g. 1114 or Simbotics)";
+const PLACEHOLDER = "Search teams or events";
 
 const mockNavigate = vi.fn();
 let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "sigma1" };
