@@ -236,4 +236,180 @@ describe("MatchTable", () => {
     expect(rows[0]?.getAttribute("data-testid")).toBe("match-row-z-last");
     expect(rows[1]?.getAttribute("data-testid")).toBe("match-row-a-first");
   });
+
+  /**
+   * Plan 06.1-06, Task 2 (F-06-1): real dot states on every eligible match
+   * row. Closes success criterion 1 — no dot remains `unknown` for a played
+   * qualification match with published per-bonus data.
+   */
+  describe("real bonus-RP dot states (plan 06.1-06, F-06-1)", () => {
+    function collectDotStates(groupTestId: string): (string | null)[] {
+      const group = screen.getByTestId(groupTestId);
+      return Array.from(group.querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-state"));
+    }
+
+    it("resolves every predicted and every actual dot to earned or missed — none unknown — for a two-bonus season (2024)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.7, 0.2],
+              blueBonusRp: [0.1, 0.9],
+              actualRedBonusRp: [true, false],
+              actualBlueBonusRp: [false, true],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      expect(predictedRed).toHaveLength(2);
+      expect(predictedBlue).toHaveLength(2);
+      expect(actualRed).toHaveLength(2);
+      expect(actualBlue).toHaveLength(2);
+
+      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
+      expect(allStates.every((state) => state === "earned" || state === "missed")).toBe(true);
+      expect(allStates).not.toContain("unknown");
+    });
+
+    it("resolves every predicted and every actual dot to earned or missed — none unknown — for a three-bonus season (2025)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              season: 2025,
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.7, 0.2, 0.55],
+              blueBonusRp: [0.1, 0.9, 0.4],
+              actualRedBonusRp: [true, false, true],
+              actualBlueBonusRp: [false, true, false],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2025}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      expect(predictedRed).toHaveLength(3);
+      expect(predictedBlue).toHaveLength(3);
+      expect(actualRed).toHaveLength(3);
+      expect(actualBlue).toHaveLength(3);
+
+      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
+      expect(allStates.every((state) => state === "earned" || state === "missed")).toBe(true);
+      expect(allStates).not.toContain("unknown");
+    });
+
+    it("renders every actual dot unknown when actual bonus arrays are null, while predicted dots still resolve", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.7, 0.2],
+              blueBonusRp: [0.1, 0.9],
+              actualRedBonusRp: null,
+              actualBlueBonusRp: null,
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      expect(predictedRed).not.toContain("unknown");
+      expect(predictedBlue).not.toContain("unknown");
+      expect(actualRed.every((state) => state === "unknown")).toBe(true);
+      expect(actualBlue.every((state) => state === "unknown")).toBe(true);
+    });
+
+    it("renders every dot unknown when a match carries none of the four bonus fields (pre-phase behaviour preserved)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: undefined,
+              blueBonusRp: undefined,
+              actualRedBonusRp: undefined,
+              actualBlueBonusRp: undefined,
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      expect(predictedRed.every((state) => state === "unknown")).toBe(true);
+      expect(predictedBlue.every((state) => state === "unknown")).toBe(true);
+      expect(actualRed.every((state) => state === "unknown")).toBe(true);
+      expect(actualBlue.every((state) => state === "unknown")).toBe(true);
+    });
+
+    it("reads each alliance's own data only — red and blue never cross-read, given deliberately different arrays", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.9, 0.9],
+              blueBonusRp: [0.1, 0.1],
+              actualRedBonusRp: [true, true],
+              actualBlueBonusRp: [false, false],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+
+      expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "earned"]);
+      expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["missed", "missed"]);
+      expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "earned"]);
+      expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "missed"]);
+    });
+  });
 });
