@@ -33,16 +33,29 @@ capability decision because each has a different (or absent) usable-image contra
 | capability | decision | reason |
 |---|---|---|
 | `imgur` | INTEGRATE | carries a `direct_url` to a robot photo — the primary case (measured: 15/20 sampled 2024 teams have a robot photo at an opaque imgur/instagram key) |
-| `cdphotothread` | INTEGRATE | Chief Delphi photo thread; carries a robot photo. `direct_url` is optional per the spec and the variant also carries `details.image_partial` — the picker requires a non-empty `direct_url` and skips the entry otherwise rather than reconstructing a URL from `image_partial` (RESEARCH A4 was not resolved against a live response; skipping is the conservative branch and degrades to the next candidate, never to a broken `<img src>`) |
+| `cdphotothread` | INTEGRATE | Chief Delphi photo thread; carries a robot photo. The picker requires a non-empty `direct_url` and skips the entry otherwise — see note [1] |
 | `instagram-image` | INTEGRATE | a still image with a `direct_url` |
 | `preferred` flag honoured as the ranking key | INTEGRATE | D-03's stated selection rule: preferred-where-flagged, else first (measured: 14/20 sampled teams carry a `preferred` flag) |
-| `avatar` | **OPT-OUT** | not a robot photo — a 40×40 team logo whose variant carries `details.base64Image` inline instead of a `direct_url`. Rendering it as the robot image would misrepresent the page's own claim, and rendering a base64 blob into an `<img src>` attribute is the data-shape risk `06-RESEARCH.md`'s Security Domain names (threat T-06-04) |
+| `avatar` | **OPT-OUT** | not a robot photo — a small team logo whose variant carries `details.base64Image` inline instead of a `direct_url` — see note [2] |
 | `youtube`, `youtube-channel` | OPT-OUT | video, not a still robot photo |
-| `facebook-profile`, `twitter-profile`, `github-profile`, `instagram-profile`, `periscope-profile`, `gitlab-profile` | OPT-OUT | social profile links — no image URL at all |
+| `facebook-profile`, `twitter-profile`, `github-profile` | OPT-OUT | social profile links — no image URL at all |
+| `instagram-profile`, `periscope-profile`, `gitlab-profile` | OPT-OUT | social profile links — no image URL at all |
 | `grabcad`, `onshape` | OPT-OUT | CAD models, not photos |
 | `external-link`, `cd-thread` | OPT-OUT | plain links — no image URL |
 | `view_url` (the media's *page* URL, on any type) | OPT-OUT | the team page needs a direct image URL for `<img src>`; `direct_url` is the field that provides it, and a page URL rendered as an image source is a guaranteed broken image |
 | `team_keys` (multi-team media) | OPT-OUT | the fetch is already scoped to one team key; a media item's other team associations are not displayed anywhere this phase |
+
+### Notes on the two condensed rows above
+
+**[1] `cdphotothread`.** `direct_url` is optional per the spec and the variant also carries
+`details.image_partial`. The picker requires a non-empty `direct_url` and skips the entry rather
+than reconstructing a URL from `image_partial` — RESEARCH A4 was not resolved against a live
+response, so skipping is the conservative branch: it degrades to the next candidate, never to a
+broken `<img src>`.
+
+**[2] `avatar`.** The avatar is a 40×40 team logo, not a robot photo. Rendering it as the robot
+image would misrepresent the page's own claim, and rendering a base64 blob into an `<img src>`
+attribute is the data-shape risk `06-RESEARCH.md`'s Security Domain names (threat T-06-04).
 
 ## The recurring cost this integration commits to
 
