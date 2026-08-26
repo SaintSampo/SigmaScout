@@ -14,6 +14,10 @@
  *     team's robot photo via /team/{key}/media/{year} and stores the result
  *     in team_media. Uses the corpus's existing ETag cache, so a repeat run
  *     costs the same request count but less bandwidth.)
+ *   pnpm ingest:rankings --year 2024   (TEAM-04/F-06-3, plan 06.1-01: resolves
+ *     every team's standing at each of the season's events via
+ *     /event/{key}/rankings and stores the result in event_rankings. One
+ *     request per event, not per team; includes offseason events (PD-01).)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -32,6 +36,7 @@ import {
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   upsertEvent,
+  upsertEventRanking,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -40,8 +45,10 @@ import {
 } from "../corpus/db.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
+import { normalizeEventRankings } from "./rankings.js";
 import {
   tbaEventListSchema,
+  tbaEventRankingsResponseSchema,
   tbaEventSchema,
   tbaMatchListSchema,
   tbaMediaListSchema,
@@ -52,6 +59,7 @@ import {
   fetchAllTeams,
   fetchEventDetail,
   fetchEventMatches,
+  fetchEventRankings,
   fetchEventsList,
   fetchStatus,
   fetchTeamMedia,
@@ -78,6 +86,8 @@ interface CliOptions {
   eventsOnly: boolean;
   /** TEAM-02 (plan 06-03): resolve/refresh only team_media for the requested season range. */
   mediaOnly: boolean;
+  /** TEAM-04/F-06-3 (plan 06.1-01): resolve/refresh only event_rankings for the requested season range. */
+  rankingsOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -102,10 +112,12 @@ function parseCliOptions(): CliOptions {
       force: { type: "boolean", default: false },
       "events-only": { type: "boolean", default: false },
       "media-only": { type: "boolean", default: false },
+      "rankings-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
   const mediaOnly = values["media-only"] ?? false;
+  const rankingsOnly = values["rankings-only"] ?? false;
 
   if (values.event) {
     return {
@@ -115,11 +127,12 @@ function parseCliOptions(): CliOptions {
       force: values.force ?? false,
       eventsOnly,
       mediaOnly,
+      rankingsOnly,
     };
   }
   if (values.years) {
     const [seasonStart, seasonEnd] = parseYearsRange(values.years);
-    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly, mediaOnly };
+    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly, mediaOnly, rankingsOnly };
   }
   if (values.year) {
     const year = Number(values.year);
@@ -131,6 +144,7 @@ function parseCliOptions(): CliOptions {
       force: values.force ?? false,
       eventsOnly,
       mediaOnly,
+      rankingsOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -302,6 +316,107 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
   );
 }
 
+/**
+ * TEAM-04/F-06-3 (plan 06.1-01): resolves every team's standing for one
+ * season via TBA's `/event/{key}/rankings`, one request per event (Pitfall
+ * 5 — never a per-team loop), and stores the result in `event_rankings`.
+ * Iterates the corpus's OWN `events` table for the season — the
+ * `ingestSeasonEventsOnly` iteration shape, not `ingestSeasonMediaOnly`'s
+ * team-key loop — and deliberately does NOT filter offseason events (PD-01):
+ * TBA computes rankings for offseason events too, and TEAM-04's "attended...
+ * event" is not scoped to in-season only. Tallies four separate counts
+ * (populated / null-body / empty-rankings / cache hits this run) so a null
+ * TBA response body stays distinguishable from a genuine empty rankings
+ * array at the layer where that distinction is actionable (PD-02).
+ *
+ * Rule 1 fix (discovered running the real `pnpm ingest:rankings --year
+ * 2024` command against the live corpus): some multi-robot remote-league
+ * events (e.g. `2024azrl1`..`5`) report a ranking for a synthetic
+ * second-robot team key (`frc1165B`, `frc1165C`, ...) that has no
+ * corresponding `/team/{key}` record at all (confirmed live: 404) and
+ * therefore no row in this corpus's `teams` table — `event_rankings.
+ * team_key REFERENCES teams(team_key)` would otherwise fail the whole
+ * event's upsert on a single unregistered slot, mirroring
+ * `ingestSeasonMediaOnly`'s existing "frc0"/placeholder-slot 404 precedent.
+ * Rather than fabricating a `teams` row for an entity this corpus has no
+ * real record of, that one team's ranking row is skipped and counted
+ * separately (`unknownTeamCount`) — `totalTeams` on every OTHER team's row
+ * for that event is unaffected, since it is `response.rankings.length`,
+ * the true pool size TBA reported, not a count of rows this corpus chose
+ * to store.
+ */
+async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const eventKeys = (
+    db.prepare(`SELECT event_key FROM events WHERE year = ?`).all(year) as { event_key: string }[]
+  ).map((r) => r.event_key);
+  const knownTeamKeys = new Set(
+    (db.prepare(`SELECT team_key FROM teams`).all() as { team_key: string }[]).map((r) => r.team_key)
+  );
+
+  let populatedCount = 0;
+  let nullBodyCount = 0;
+  let emptyRankingsCount = 0;
+  let cacheHitCount = 0;
+  let unknownTeamCount = 0;
+
+  for (const eventKey of eventKeys) {
+    const rankingsUrl = `/event/${eventKey}/rankings`;
+    let result: Awaited<ReturnType<typeof fetchEventRankings>>;
+    try {
+      result = await fetchEventRankings(ctx, eventKey, cachedEtagFor(db, rankingsUrl, force));
+    } catch (err) {
+      // Mirrors ingestSeasonMediaOnly's 404 handling: a placeholder/
+      // unregistered event key 404ing is an honest "nothing to fetch" for
+      // this event, not TBA schema drift — skip and continue the season.
+      if (err instanceof Error && /HTTP 404/.test(err.message)) {
+        console.log(`  ${rankingsUrl}: 404 Not Found, skipping`);
+        continue;
+      }
+      throw err;
+    }
+    if (result.status === 304) {
+      cacheHitCount++;
+      continue;
+    }
+
+    const parsed = tbaEventRankingsResponseSchema.parse(result.body);
+    if (parsed === null) {
+      nullBodyCount++;
+    } else if (parsed.rankings.length === 0) {
+      emptyRankingsCount++;
+    } else {
+      populatedCount++;
+    }
+
+    const normalized = normalizeEventRankings(parsed);
+    const fetchedAt = new Date().toISOString();
+    for (const ranking of normalized) {
+      if (!knownTeamKeys.has(ranking.teamKey)) {
+        // See this function's header comment (Rule 1 fix) — a real TBA
+        // ranking entry for a team key this corpus has no /team/{key}
+        // record for. Skip this one row rather than fail the whole event's
+        // upsert or fabricate a teams row.
+        unknownTeamCount++;
+        continue;
+      }
+      upsertEventRanking(db, {
+        eventKey,
+        teamKey: ranking.teamKey,
+        rank: ranking.rank,
+        totalTeams: ranking.totalTeams,
+        fetchedAt,
+      });
+    }
+    if (result.etag) writeEtag(db, rankingsUrl, result.etag);
+  }
+
+  console.log(
+    `Season ${year}: ${eventKeys.length} events (${populatedCount} populated, ${nullBodyCount} null-body, ` +
+      `${emptyRankingsCount} empty-rankings, ${cacheHitCount} cache hits this run, ` +
+      `${unknownTeamCount} rows skipped for an unregistered team key)`
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -375,6 +490,20 @@ async function main(): Promise<void> {
     } else if (options.mediaOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonMediaOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.rankingsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonRankingsOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,

@@ -457,6 +457,21 @@ const TeamSeasonEventSchema = z.object({
   eventName: z.string(),
   startDate: z.string(),
   matches: z.array(TeamSeasonMatchSchema),
+  /**
+   * TEAM-04/F-06-3 (plan 06.1-01): this team's TBA-computed standing at this
+   * event, sourced from `event_rankings` (`packages/corpus/db.ts`'s
+   * `selectEventRankingsForSeason`, filled by TBA's
+   * `/event/{key}/rankings`). Optional, following `robotImageUrl`'s own
+   * convention: an artifact published before this phase's republish must
+   * still parse. Absence means no ranking data was published for this
+   * event — never synthesised, never zero. `rank`/`totalTeams` always
+   * appear together or not at all (enforced at the ingest/publish
+   * boundary, not by a schema-level `.refine()` here — the render layer
+   * additionally treats a half-present pair as absent).
+   */
+  rank: z.number().int().positive().optional(),
+  /** TEAM-04/F-06-3 (plan 06.1-01): the size of the ranked pool `rank` is drawn from — see `rank`'s doc comment for the full contract. */
+  totalTeams: z.number().int().positive().optional(),
 });
 
 /**

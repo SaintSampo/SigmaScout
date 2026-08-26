@@ -732,6 +732,75 @@ export function selectTeamMediaForYear(
   return result;
 }
 
+export interface CorpusEventRanking {
+  eventKey: string;
+  teamKey: string;
+  rank: number;
+  totalTeams: number;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts one team's TBA-computed standing at one event (TEAM-04, F-06-3,
+ * plan 06.1-01). Mirrors `upsertTeamMedia`'s upsert-on-conflict shape:
+ * overwrites every non-key column on conflict, so a re-run over an
+ * already-ingested event refreshes `rank`/`totalTeams`/`fetchedAt` in place
+ * rather than duplicating rows (the `(event_key, team_key)` primary key
+ * makes this idempotent).
+ */
+export function upsertEventRanking(db: Corpus, ranking: CorpusEventRanking): void {
+  db.prepare(
+    `INSERT INTO event_rankings (event_key, team_key, rank, total_teams, fetched_at)
+     VALUES (@eventKey, @teamKey, @rank, @totalTeams, @fetchedAt)
+     ON CONFLICT(event_key, team_key) DO UPDATE SET
+       rank = excluded.rank,
+       total_teams = excluded.total_teams,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    eventKey: ranking.eventKey,
+    teamKey: ranking.teamKey,
+    rank: ranking.rank,
+    totalTeams: ranking.totalTeams,
+    fetchedAt: ranking.fetchedAt,
+  });
+}
+
+interface EventRankingRow {
+  event_key: string;
+  team_key: string;
+  rank: number;
+  total_teams: number;
+}
+
+/**
+ * Every stored event ranking for a season, nested `event_key -> team_key ->
+ * {rank, totalTeams}` (TEAM-04, F-06-3, plan 06.1-01) — the shape
+ * `packages/harness/publish.ts`'s per-team artifact assembly looks up by
+ * key, never by array position (this plan's `must_haves.truths`: SQLite's
+ * row order is never load-bearing). Joins `events` to filter by season,
+ * mirroring `selectTeamKeysForYear`'s join-to-`events` shape, since
+ * `event_rankings` itself carries no `year` column.
+ */
+export function selectEventRankingsForSeason(
+  db: Corpus,
+  season: number
+): Map<string, Map<string, { rank: number; totalTeams: number }>> {
+  const rows = db
+    .prepare(
+      `SELECT er.event_key, er.team_key, er.rank, er.total_teams
+       FROM event_rankings er
+       JOIN events e ON e.event_key = er.event_key
+       WHERE e.year = ?`
+    )
+    .all(season) as EventRankingRow[];
+  const result = new Map<string, Map<string, { rank: number; totalTeams: number }>>();
+  for (const row of rows) {
+    if (!result.has(row.event_key)) result.set(row.event_key, new Map());
+    result.get(row.event_key)!.set(row.team_key, { rank: row.rank, totalTeams: row.total_teams });
+  }
+  return result;
+}
+
 export interface SelectTeamKeysForYearOptions {
   /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause (plan 06-03). */
   excludeOffseason?: boolean;

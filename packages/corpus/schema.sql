@@ -88,3 +88,21 @@ CREATE TABLE IF NOT EXISTS team_media (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (team_key, year)
 );
+
+-- TEAM-04 / F-06-3 event rank ingest (plan 06.1-01): a team's TBA-computed
+-- standing at one event, one row per (event_key, team_key). Additive
+-- CREATE TABLE IF NOT EXISTS, matching team_media's precedent exactly above
+-- -- not winner_imputed's rebuild guard (packages/corpus/db.ts's
+-- openCorpus): this is a brand-new table, no prior rows, no migration
+-- needed. rank/total_teams are NOT NULL because a row is only ever written
+-- for a real populated TBA ranking entry (PD-02): a null response body or
+-- an empty rankings array writes zero rows for that event, rather than a
+-- placeholder row with a fabricated rank.
+CREATE TABLE IF NOT EXISTS event_rankings (
+  event_key TEXT NOT NULL REFERENCES events(event_key),
+  team_key TEXT NOT NULL REFERENCES teams(team_key),
+  rank INTEGER NOT NULL,
+  total_teams INTEGER NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (event_key, team_key)
+);

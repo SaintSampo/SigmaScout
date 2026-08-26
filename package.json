@@ -11,6 +11,7 @@
     "recon:tba": "tsx --env-file=.env scripts/recon-tba-fields.ts",
     "ingest": "tsx --env-file=.env packages/ingest/cli.ts",
     "ingest:media": "tsx --env-file=.env packages/ingest/cli.ts --media-only",
+    "ingest:rankings": "tsx --env-file=.env packages/ingest/cli.ts --rankings-only",
     "harness": "tsx --env-file=.env packages/harness/cli.ts",
     "identifiability": "tsx packages/harness/identifiability.ts",
     "event-scope-diagnostic": "tsx packages/harness/eventScopeDiagnostic.ts",

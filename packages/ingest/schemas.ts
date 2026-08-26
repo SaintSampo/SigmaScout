@@ -106,3 +106,44 @@ export const tbaMediaSchema = z.object({
 export type TbaMedia = z.infer<typeof tbaMediaSchema>;
 
 export const tbaMediaListSchema = z.array(tbaMediaSchema);
+
+/**
+ * `GET /event/{key}/rankings` element (TEAM-04, F-06-3, plan 06.1-01). Field
+ * set confirmed live against 7 real events spanning 2022-2026 (06.1-RESEARCH.md
+ * Code Examples). `qual_average`/`sort_orders`/`extra_stats` are `.nullable()`
+ * because TBA has observed-null `qual_average` in every 2022-2026 sample and
+ * `sort_orders`/`extra_stats` genuinely vary by season (Pitfall 3) — this
+ * schema models the shape without constraining vocabulary this phase never
+ * reads (only `rank`/`team_key` and the response's own `rankings.length` are
+ * used; see `rankings.ts`).
+ */
+export const tbaEventRankingSchema = z.object({
+  rank: z.number(),
+  team_key: z.string(),
+  matches_played: z.number(),
+  dq: z.number(),
+  qual_average: z.number().nullable(),
+  sort_orders: z.array(z.number()).nullable(),
+  extra_stats: z.array(z.number()).nullable(),
+  record: z.object({ wins: z.number(), losses: z.number(), ties: z.number() }),
+});
+export type TbaEventRanking = z.infer<typeof tbaEventRankingSchema>;
+
+/**
+ * `GET /event/{key}/rankings` — the whole response, which TBA can return as a
+ * bare HTTP 200 `null` body for an event with no ranking structure set up at
+ * all (confirmed live against `2026scsc`, 06.1-RESEARCH.md Pitfall 2). The
+ * top-level `.nullable()` is load-bearing and non-negotiable — without it, a
+ * genuine TBA `null` response throws here instead of being handled as a real,
+ * distinct answer by `rankings.ts`'s `normalizeEventRankings` and
+ * `packages/ingest/cli.ts`'s `ingestSeasonRankingsOnly` (PD-02, threat
+ * T-06.1-02).
+ */
+export const tbaEventRankingsResponseSchema = z
+  .object({
+    rankings: z.array(tbaEventRankingSchema),
+    sort_order_info: z.array(z.object({ name: z.string(), precision: z.number() })),
+    extra_stats_info: z.array(z.object({ name: z.string(), precision: z.number() })),
+  })
+  .nullable();
+export type TbaEventRankingsResponse = z.infer<typeof tbaEventRankingsResponseSchema>;

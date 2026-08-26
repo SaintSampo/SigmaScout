@@ -59,6 +59,7 @@ import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
+  selectEventRankingsForSeason,
   selectMatchesChronological,
   selectScheduledMatches,
   selectTeamKeysForYear,
@@ -331,6 +332,10 @@ export interface TeamSeasonEventInput {
    * `"winner" in match`, never a caller-supplied flag.
    */
   readonly matches: readonly (PredictionRecord | UpcomingPredictionRecord)[];
+  /** TEAM-04/F-06-3 (plan 06.1-01): from `selectEventRankingsForSeason(db, season).get(eventKey)?.get(teamKey)` — see `TeamSeasonEventSchema.rank`'s doc comment for the full contract. Omitted when the corpus has no ranking for this (event, team) pair. */
+  readonly rank?: number;
+  /** TEAM-04/F-06-3 (plan 06.1-01): see `rank`'s doc comment. */
+  readonly totalTeams?: number;
 }
 
 export interface BuildTeamSeasonArtifactParams {
@@ -364,6 +369,13 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     eventKey: e.eventKey,
     eventName: e.eventName,
     startDate: e.startDate,
+    // TEAM-04/F-06-3 (plan 06.1-01): conditionally spread, never assigned
+    // `undefined` directly — an omitted input must produce a candidate
+    // object with the key genuinely ABSENT (not present-with-undefined-
+    // value), which is what lets a caller assert `not.toHaveProperty`
+    // rather than `toBeUndefined` on the parsed artifact.
+    ...(e.rank !== undefined ? { rank: e.rank } : {}),
+    ...(e.totalTeams !== undefined ? { totalTeams: e.totalTeams } : {}),
     matches: e.matches.map((record) => {
       const { match, prediction } = record;
       const sortTime = params.sortTimeByMatchKey?.get(match.matchKey);
@@ -939,6 +951,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // the resolved "this team has no usable photo this year" answer, so it
     // is passed through as `undefined` below, never fetched or guessed here.
     const teamMediaForSeason = selectTeamMediaForYear(db, season);
+    // TEAM-04/F-06-3 (plan 06.1-01): the event-standing lookup, once per
+    // season (like teamMediaForSeason above, this is not algorithm-scoped)
+    // — event_key -> team_key -> {rank, totalTeams}, filled offline by the
+    // rankings ingest pass (`pnpm ingest:rankings`). A missing outer or
+    // inner entry leaves both fields undefined at the per-team assembly
+    // site below — never fetched, never guessed, never zero.
+    const eventRankingsForSeason = selectEventRankingsForSeason(db, season);
 
     const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === coldStartSeason };
     let initialStates: ReadonlyMap<string, unknown> | undefined;
@@ -1200,6 +1219,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         const byEvent = groupByEvent(teamMatches);
         const events: TeamSeasonEventInput[] = Array.from(byEvent.entries()).map(([eventKey, matches]) => {
           const meta = eventMeta.find((e) => e.event_key === eventKey);
+          // TEAM-04/F-06-3 (plan 06.1-01): looked up by key (event, then
+          // team), never by array position — a missing outer or inner
+          // entry leaves both fields undefined.
+          const ranking = eventRankingsForSeason.get(eventKey)?.get(teamKey);
           return {
             eventKey,
             // The event-name defect fix: `meta` (the same lookup the sibling
@@ -1208,6 +1231,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             // column is genuinely null (an un-refreshed corpus).
             eventName: meta?.name ?? eventKey,
             startDate: meta?.start_date ?? "",
+            rank: ranking?.rank,
+            totalTeams: ranking?.totalTeams,
             matches: sortTeamSeasonMatches(matches, sortTimeByMatchKey),
           };
         });

@@ -186,6 +186,21 @@ export function fetchTeamMedia(
 }
 
 /**
+ * `GET /event/{key}/rankings` (TEAM-04, F-06-3, plan 06.1-01) — every team's
+ * standing for one event, in one response. Event-scoped, not team-scoped
+ * (06.1-RESEARCH.md Pitfall 5) — mirrors `fetchEventMatches`'s shape exactly,
+ * never `fetchTeamMedia`'s team-key-loop shape: one request per event covers
+ * every team at it.
+ */
+export function fetchEventRankings(
+  ctx: TbaClientContext,
+  eventKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/event/${eventKey}/rankings`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
  * `GET /teams/{year}/{page}` — teams-list with page traversal. The last
  * page returns an empty array. Deliberately un-conditional (no ETag): a
  * cached 304 response carries no body, so pagination can't reliably detect

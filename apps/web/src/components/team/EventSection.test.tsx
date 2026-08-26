@@ -145,6 +145,21 @@ describe("EventSection", () => {
     expect(section.className).not.toContain("bg-[var(--color-bg-page)]");
   });
 
+  it("renders 'Rank 5 of 32' when the event fixture carries rank and totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
+    render(
+      <EventSection
+        event={makeEvent({ rank: 5, totalTeams: 32 })}
+        domain={DOMAIN}
+        teamKey="frc118"
+        algorithmId="sigma1"
+        season={2024}
+        metricHistory={[]}
+      />,
+    );
+    const standing = screen.getByTestId("event-standing-2024casj");
+    expect(standing.textContent).toBe("Rank 5 of 32");
+  });
+
   it("gives two sections distinct scroller test ids", () => {
     render(
       <>

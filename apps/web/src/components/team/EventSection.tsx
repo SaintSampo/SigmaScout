@@ -59,7 +59,25 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
         </h2>
         {isUpcoming && <Badge variant="secondary">Upcoming</Badge>}
       </div>
-      <p className="text-role-body text-[var(--color-text-muted)]">{event.startDate}</p>
+      <p className="flex items-center gap-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">
+        <span>{event.startDate}</span>
+        {/*
+          TEAM-04/F-06-3 (plan 06.1-01): the standing line, rendered ONLY
+          when BOTH rank and totalTeams are present — a half-present pair
+          (TeamSeasonEventSchema declares them independently optional) never
+          renders a partial standing. No Badge (PD-03): a rank is data, not
+          status. No fallback, no client-derived rank, no zero default — see
+          this plan's must_haves.prohibitions.
+        */}
+        {event.rank !== undefined && event.totalTeams !== undefined && (
+          <>
+            <span aria-hidden="true">&middot;</span>
+            <span data-testid={`event-standing-${event.eventKey}`} className="text-[var(--color-text-primary)]">
+              Rank {event.rank} of {event.totalTeams}
+            </span>
+          </>
+        )}
+      </p>
 
       {snapshot !== undefined && (
         <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-wrap items-baseline gap-[var(--spacing-md)]">
