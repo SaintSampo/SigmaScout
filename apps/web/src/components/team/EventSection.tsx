@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
 import { METRIC_GROUPS } from "../../lib/metricGroups.js";
+import { tierForPercentile } from "../../lib/tiers.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
@@ -48,6 +49,26 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
 
+  /**
+   * D-06.1-A (plan 06.1-06, Task 3): the per-event metric line's tiles, plus
+   * whether any of them carries a published `percentile`. Computed once here
+   * (rather than inline in the render below) so the basis caption's render
+   * condition and the tiles themselves are built from the exact same list —
+   * they cannot disagree about which tiles exist.
+   */
+  const tiles =
+    snapshot === undefined
+      ? []
+      : [
+          ...METRIC_GROUPS.map((group) => ({
+            key: group.id,
+            label: group.label,
+            metric: metricKeys.length > 1 ? snapshot.metrics[group.metricKey] : undefined,
+          })),
+          { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
+        ];
+  const hasTieredTile = tiles.some((tile) => tile.metric !== undefined && tile.metric.percentile !== undefined);
+
   return (
     <section
       data-testid={`event-section-${event.eventKey}`}
@@ -85,30 +106,37 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
             Same four-way grouping as the season header: this line previously
             spilled all 13 of 2024's raw components across three wrapped rows.
           */}
-          {[
-            ...METRIC_GROUPS.map((group) => ({
-              key: group.id,
-              label: group.label,
-              metric: metricKeys.length > 1 ? snapshot.metrics[group.metricKey] : undefined,
-            })),
-            { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
-          ].map((tile) => {
+          {tiles.map((tile) => {
             if (tile.metric === undefined) return null;
             return (
               <span key={tile.key} className="flex items-baseline gap-[var(--spacing-xs)]">
                 <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
                 {/*
-                  No rarity tier here yet. `MetricHistoryRowSchema.metrics`
-                  publishes only { value, spread } — a history row carries no
-                  percentile, because the percentile pass ranks SEASON-FINAL
-                  values. Tiering an as-of-this-event value with the
-                  season-final percentile would colour a number by a rank it
-                  does not have. See F-06-3.
+                  D-06.1-A (plan 06.1-06, Task 3): the tier comes from THIS
+                  history row's own published percentile
+                  (`MetricValueSchema.percentile`, plan 06.1-03/06.1-05) —
+                  which ranks this as-of-this-event value against the
+                  SEASON-FINAL field for that metric — never from the team's
+                  season-final `TeamMetricSchema.percentile`/`tier`. That
+                  substitution (an as-of-then value tiered by an as-of-then
+                  rank) is exactly the defect F-06-3 was filed to prevent.
+                  The basis caption below states what the tier is ranked
+                  against, so a reader cannot misread this colour as an
+                  as-of-that-event rank.
                 */}
-                <MetricValue metric={tile.metric} />
+                <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
               </span>
             );
           })}
+          {hasTieredTile && (
+            <span
+              data-testid={`event-tier-basis-${event.eventKey}`}
+              title="The rarity tiers on this line rank this team's values as of the end of this event against the season-final distribution for each metric (D-06.1-A) — where this team stood at that point against the final field, not the field as of this event."
+              className="text-role-label text-[var(--color-text-muted)]"
+            >
+              vs season-final field
+            </span>
+          )}
         </div>
       )}
 

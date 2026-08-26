@@ -213,6 +213,105 @@ describe("EventSection", () => {
     expect(paragraph!.textContent).toContain("Rank 5 of 32");
   });
 
+  /**
+   * Plan 06.1-06, Task 3 (D-06.1-A/F-06-3): rarity tiers on the per-event
+   * metric line, sourced from each history row's own published percentile,
+   * with a visible on-page statement of what those tiers are ranked
+   * against.
+   */
+  describe("per-event metric tiers and basis caption (plan 06.1-06, D-06.1-A/F-06-3)", () => {
+    it("renders a tier box carrying the epic modifier class for a snapshot metric with a percentile in the Epic band", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
+    });
+
+    it("renders no tier box class for a snapshot metric with a percentile in the Common band", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 20 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+    });
+
+    it("renders identically to the pre-change output — no tier box class — for a snapshot metric with no percentile", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+      expect(snapshot.textContent).toContain("61.40");
+    });
+
+    it("renders the basis caption with visible text naming season-final and a title stating where this team stood at that point, when a rendered tile carries a percentile", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+        />,
+      );
+      const caption = screen.getByTestId("event-tier-basis-2024casj");
+      expect(caption.textContent).toContain("season-final");
+      expect(caption.getAttribute("title")).toContain("where this team stood at that point");
+    });
+
+    it("renders no basis caption when no rendered tile carries a percentile", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+        />,
+      );
+      expect(screen.queryByTestId("event-tier-basis-2024casj")).toBeNull();
+    });
+
+    it("tiers a per-event metric from the history row's OWN percentile — this component receives no season-final metric record at all, so it structurally cannot substitute one", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="sigma1"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 97 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier--legendary")).not.toBeNull();
+    });
+  });
+
   it("gives two sections distinct scroller test ids", () => {
     render(
       <>
