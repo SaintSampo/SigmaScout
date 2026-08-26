@@ -18,11 +18,10 @@ export function TierKeyRow() {
       <span className="flex flex-wrap items-center gap-[var(--spacing-xs)]">
         {TIER_BANDS.map((band) => (
           <span key={band.tier} className={cn("metric-tier", band.tier !== "common" && `metric-tier--${band.tier}`)}>
-            {`${band.min}–${band.max}${band.tier === "common" ? " · no box" : ""}`}
+            {`${band.min}–${band.max}`}
           </span>
         ))}
       </span>
-      <span>{TIER_BANDS.map((band) => band.label).join(" · ")}</span>
     </div>
   );
 }

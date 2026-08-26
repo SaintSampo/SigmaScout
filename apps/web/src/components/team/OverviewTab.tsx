@@ -1,6 +1,7 @@
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SeasonHeader } from "./SeasonHeader.js";
 import { EventSectionList } from "./EventSectionList.js";
+import { TierKeyRow } from "./TierKeyRow.js";
 
 /**
  * The Overview panel's composition seam (06-01-PLAN.md Task 2). Mounts
@@ -20,6 +21,13 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber }: Overv
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
       <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
       <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
+      {/*
+        The tier key is a legend, not a headline: it explains the colour
+        banding used by the metric grid above and by every match row, so it
+        reads as a footnote at the end of the page rather than as a band
+        wedged between the team's identity and its numbers.
+      */}
+      <TierKeyRow />
     </div>
   );
 }

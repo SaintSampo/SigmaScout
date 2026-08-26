@@ -177,9 +177,9 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(oprCell.textContent?.includes("±")).toBe(false);
   });
 
-  it("renders exactly one TierKeyRow", () => {
+  it("does not render the TierKeyRow — it lives at the foot of the Overview panel, not in the header", () => {
     render(<SeasonHeader artifact={baseArtifact()} algorithmId="sigma1" season={2026} teamNumber={1114} />);
 
-    expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1);
+    expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });
 });

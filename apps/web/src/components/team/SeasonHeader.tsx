@@ -2,7 +2,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { tierForPercentile } from "@/lib/tiers";
-import { TierKeyRow } from "./TierKeyRow.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -112,7 +111,6 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
       </div>
 
       <div className="flex flex-col gap-[var(--spacing-sm)]">
-        <TierKeyRow />
         {/*
           D-17's tier-boxed metric grid: one cell per declared metric key,
           Total included (unlike the Teams table's sorted, deliberately

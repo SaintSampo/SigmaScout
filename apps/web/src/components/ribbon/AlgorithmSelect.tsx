@@ -99,7 +99,7 @@ export function AlgorithmSelect() {
 
   return (
     <Select value={search.algorithm} onValueChange={handleChange}>
-      <SelectTrigger aria-label="Algorithm" className="min-w-0 max-w-[10rem] shrink">
+      <SelectTrigger aria-label="Algorithm" className="min-w-0 max-w-[18rem] shrink">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
