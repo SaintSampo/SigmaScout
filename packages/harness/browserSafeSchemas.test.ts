@@ -114,6 +114,16 @@ describe("browser-safe schema import graph", () => {
     expect(visited.has(resolve(HERE, "metricHistorySchema.ts"))).toBe(true);
   });
 
+  it("metricHistorySchema.ts specifically carries zero Node-only imports (plan 06.1-03 Task 2) — a future Node import there is caught by this named assertion, not a broken production build", () => {
+    const METRIC_HISTORY_SCHEMA = resolve(HERE, "metricHistorySchema.ts");
+    const { nodeBuiltinViolations, visited } = scan([METRIC_HISTORY_SCHEMA]);
+    expect(visited.has(METRIC_HISTORY_SCHEMA)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from metricHistorySchema.ts: ${detail}`);
+    }
+  });
+
   it("never reaches a Node built-in import from packages/core/algorithms/breakdown/index.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/)", () => {
     const { nodeBuiltinViolations, visited } = scan([BREAKDOWN_ENTRY_POINT]);
     // Sanity check the scan is not vacuous: it must actually visit the
