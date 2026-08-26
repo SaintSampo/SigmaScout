@@ -9,7 +9,7 @@ import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../params.js";
 import { makeSigma1, type Sigma1State } from "../index.js";
 import { opr } from "../../opr.js";
 import { epa } from "../../epa.js";
-import { rpRuleModuleForSeason } from "./rules.js";
+import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "./rules.js";
 import type { RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
 import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "./distribution.js";
@@ -205,6 +205,18 @@ describe("rpPmfForMatch — per-bonus probabilities (plan 06.1-02 Task 1, F-06-1
     const result = rpPmfForMatch(input);
     expect(result.redBonusProbabilities![0]).toBe(result.redPmf[1]);
   });
+});
+
+describe("rpPmfForMatch — per-bonus array length matches bonusNames for every registered season (plan 06.1-02 Task 3)", () => {
+  it.each(RP_REGISTERED_SEASONS)(
+    "season %i: redBonusProbabilities/blueBonusProbabilities length equals rpRuleModuleForSeason(season).bonusNames.length",
+    (season) => {
+      const ruleModule = rpRuleModuleForSeason(season);
+      const result = rpPmfForMatch(baseInput({ ruleModule, eventType: 0, matchKey: `${season}lengthcheck_qm1` }));
+      expect(result.redBonusProbabilities).toHaveLength(ruleModule.bonusNames.length);
+      expect(result.blueBonusProbabilities).toHaveLength(ruleModule.bonusNames.length);
+    }
+  );
 });
 
 describe("rpPmfForMatch — degenerate alliance (no rated teams, ALGO-08 empty edge)", () => {
