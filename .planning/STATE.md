@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 06.1
 current_phase_name: match-and-event-data-enrichment
 status: executing
-stopped_at: Completed 06.1-05-PLAN.md
-last_updated: "2026-08-26T23:42:06.321Z"
+stopped_at: Completed 06.1-06-PLAN.md
+last_updated: "2026-08-26T23:52:11.373Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 06.1 execution started
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 63
-  completed_plans: 61
+  completed_plans: 62
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 06.1 (match-and-event-data-enrichment) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 06.1 execution started
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [██████████] 97%
 | Phase 06.1 P03 | 25min | 2 tasks | 4 files |
 | Phase 06.1 P04 | 20min | 2 tasks | 1 files |
 | Phase 06.1 P05 | ~35min | 3 tasks | 4 files |
+| Phase 06.1 P06 | ~40min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06.1 P05]: actualBonusFlagsForSeason reuses sigma1/index.ts's own RP-fold skip predicates (isRpEligibleEventType + breakdown-parse-failure) rather than a second, independently-drifting eligibility rule
 - [Phase ?]: [Phase 06.1 P05]: withHistoryPercentiles/actualBonusFlagsForSeason exported (matching publish.ts's own computeSizeStats/OUTCOME_KEYS precedent) so their precise multi-branch behavior contracts get direct unit tests
 - [Phase ?]: [Phase 06.1 P05]: corpus-backed percentile invariant replays real 2022 season with epa (per-team-independent state) rather than opr/sigma1 -- measured all 3,062 teams satisfy the value-equality precondition, 0 mismatches, floor of 50 required
+- [Phase ?]: [Phase 06.1 P06]: PD-11/PD-12/PD-13/PD-14 and D-06.1-A applied exactly as written -- bonusDotLabel is the single source of a dot's title and aria-label; the per-event metric line's tier comes from the history row's own published percentile (EventSection.tsx never receives season-final data at all, so it structurally cannot substitute it)
 
 ### Pending Todos
 
@@ -233,6 +235,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-26T23:42:06.277Z
-Stopped at: Completed 06.1-05-PLAN.md
+Last session: 2026-08-26T23:52:11.332Z
+Stopped at: Completed 06.1-06-PLAN.md
 Resume file: None

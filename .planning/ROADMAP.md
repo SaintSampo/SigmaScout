@@ -362,7 +362,7 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -381,7 +381,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 06.1-06-PLAN.md — UI: real bonus-dot states, per-event rarity tiers, and the visible statement of what those tiers rank against
+- [x] 06.1-06-PLAN.md — UI: real bonus-dot states, per-event rarity tiers, and the visible statement of what those tiers rank against
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
