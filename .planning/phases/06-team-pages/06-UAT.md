@@ -54,6 +54,13 @@ expected: On a real iPhone in Safari, open a team page with >=2 event sections (
 result: blocked
 blocked_by: physical-device
 reason: "I dont even have an iphone"
+resolution: accepted-risk
+resolved_at: 2026-08-26
+resolution_note: |
+  Closed as an ACCEPTED RISK by explicit decision, not as a pass and not as a deferral. The full
+  reasoning — what is verified, what a Chromium/CDP pass is and is not evidence of, the specific
+  exposure, and the routes that would close it later — is recorded under "## Accepted Gaps" in
+  06-VERIFICATION.md. Phase 6 closes with this gap visible in the record.
 
 blocked_detail: |
   Not a scheduling problem — the hardware is not available to this project at all, so this check

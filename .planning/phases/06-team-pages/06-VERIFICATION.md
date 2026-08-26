@@ -131,3 +131,39 @@ No must-have truths, artifacts, or key links failed. Every claim in the nine pla
 
 _Verified: 2026-08-25T20:10:00Z_
 _Verifier: Claude (gsd-verifier)_
+
+
+## Accepted Gaps
+
+Recorded 2026-08-26, by explicit decision, so Phase 6 can close with the gap visible in the
+record rather than closed by silence.
+
+### D-10 real-device iOS Safari gesture arbitration — ACCEPTED RISK
+
+**Status:** permanently unverifiable by this project as currently equipped. Not "deferred".
+
+**What is unverified:** that a horizontal drag inside a team page's per-event match table scrolls
+only that table on real iOS Safari, without the page panning sideways or the gesture sticking to
+the wrong axis.
+
+**Why it cannot be closed:** no iOS device is available to this project, so the check cannot be
+discharged by scheduling it later. `06-UAT.md` test 2 is `blocked_by: physical-device`.
+
+**What IS verified, and what that is worth:**
+- `e2e/touch-scroll.spec.ts` and `e2e/no-page-pan.spec.ts` pass on both the `iphone-17` and
+  `pixel-10` projects against the deployed origin (40/40 suite).
+- Those projects drive Chromium's touch dispatcher over CDP — the `iphone-17` project explicitly
+  pins `browserName: "chromium"` because `context.newCDPSession()` does not exist for WebKit.
+  They exercise the iPhone's viewport, user agent and `hasTouch` flag, NOT WebKit's gesture
+  arbitration.
+- `06-RESEARCH.md` Pitfall 6 documents historical iOS Safari gaps for a directional
+  `touch-action` inside a different-axis outer scroller. A green Chromium suite is not evidence
+  about that, and re-running it never becomes evidence.
+
+**The specific exposure:** an iOS-only regression in this interaction would land unobserved. The
+defect class already shipped once in this phase and was caught at real-device sign-off, not by any
+spec — so this is a demonstrated failure mode, not a theoretical one.
+
+**Routes that would close it, if it later matters:** a hosted real-device session
+(BrowserStack/Sauce Labs); a borrowed iPhone or iPad (same WebKit gesture engine); or a
+deliberate re-scope of D-10 away from per-section horizontal scrolling.
