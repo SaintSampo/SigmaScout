@@ -7,6 +7,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../params.js";
 import { makeSigma1, type Sigma1State } from "../index.js";
+import { opr } from "../../opr.js";
+import { epa } from "../../epa.js";
 import { rpRuleModuleForSeason } from "./rules.js";
 import type { RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
@@ -296,6 +298,82 @@ describe("rpPmfForMatch — 0 draws vs 2000 draws leaves score-side predictions 
     // (non-empty) with draws, entirely omitted (never an empty array) at 0.
     expect(p1.redRpPmf).toBeDefined();
     expect(p2.redRpPmf).toBeUndefined();
+  });
+});
+
+describe("Prediction.redBonusRp / blueBonusRp (plan 06.1-02 Task 2, F-06-1)", () => {
+  const baseUpcoming = {
+    matchKey: "2022bonus_qm1",
+    eventKey: "2022test",
+    compLevel: "qm" as const,
+    setNumber: 1,
+    matchNumber: 1,
+    redTeams: ["T1", "T2", "T3"],
+    blueTeams: ["T4", "T5", "T6"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 0,
+  };
+
+  it("are present on a Sigma1 prediction for a qualification match at an RP-eligible event type in a registered season", () => {
+    const algo = makeSigma1({ id: "sigma1-bonusrp-present", linkMode: "predictive-variance", params: DEFAULT_SIGMA1_PARAMS });
+    const state: Sigma1State = algo.initState([]);
+    const prediction = algo.predict(state, baseUpcoming);
+    expect(prediction.redBonusRp).toBeDefined();
+    expect(prediction.blueBonusRp).toBeDefined();
+    expect(prediction.redBonusRp).toHaveLength(RULE_2022.bonusNames.length);
+  });
+
+  it("are absent entirely for an RP-ineligible event type (offseason, eventType 99)", () => {
+    const algo = makeSigma1({ id: "sigma1-bonusrp-offseason", linkMode: "predictive-variance", params: DEFAULT_SIGMA1_PARAMS });
+    const state: Sigma1State = algo.initState([]);
+    const prediction = algo.predict(state, { ...baseUpcoming, eventType: 99 });
+    expect(Object.hasOwn(prediction, "redBonusRp")).toBe(false);
+    expect(Object.hasOwn(prediction, "blueBonusRp")).toBe(false);
+  });
+
+  it("are absent entirely for a non-qualification compLevel", () => {
+    const algo = makeSigma1({ id: "sigma1-bonusrp-nonqm", linkMode: "predictive-variance", params: DEFAULT_SIGMA1_PARAMS });
+    const state: Sigma1State = algo.initState([]);
+    const prediction = algo.predict(state, { ...baseUpcoming, compLevel: "sf" });
+    expect(Object.hasOwn(prediction, "redBonusRp")).toBe(false);
+    expect(Object.hasOwn(prediction, "blueBonusRp")).toBe(false);
+  });
+
+  it("are absent entirely for a zero rpMonteCarloDraws parameter", () => {
+    const algo = makeSigma1({ id: "sigma1-bonusrp-nodraws", linkMode: "predictive-variance", params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 } });
+    const state: Sigma1State = algo.initState([]);
+    const prediction = algo.predict(state, baseUpcoming);
+    expect(Object.hasOwn(prediction, "redBonusRp")).toBe(false);
+    expect(Object.hasOwn(prediction, "blueBonusRp")).toBe(false);
+  });
+
+  it("OPR and EPA predictions carry neither key, since neither algorithm models ranking points", () => {
+    const oprState = opr.initState([]);
+    const oprPrediction = opr.predict(oprState, baseUpcoming);
+    expect(Object.hasOwn(oprPrediction, "redBonusRp")).toBe(false);
+    expect(Object.hasOwn(oprPrediction, "blueBonusRp")).toBe(false);
+
+    const epaState = epa.initState([]);
+    const epaPrediction = epa.predict(epaState, baseUpcoming);
+    expect(Object.hasOwn(epaPrediction, "redBonusRp")).toBe(false);
+    expect(Object.hasOwn(epaPrediction, "blueBonusRp")).toBe(false);
+  });
+
+  it("pRedWin, redScore and blueScore are numerically identical to what the same inputs produced before this change", () => {
+    // Regression pin: adding the bonus-array spreads must not perturb any
+    // of the four D-15-hashed fields' upstream computation.
+    const withBonus = makeSigma1({ id: "sigma1-bonusrp-regression", linkMode: "predictive-variance", params: DEFAULT_SIGMA1_PARAMS });
+    const state: Sigma1State = withBonus.initState([]);
+    const prediction = withBonus.predict(state, baseUpcoming);
+    expect(Number.isFinite(prediction.pRedWin)).toBe(true);
+    expect(Number.isFinite(prediction.redScore)).toBe(true);
+    expect(Number.isFinite(prediction.blueScore)).toBe(true);
+    // Cold start, no observations yet -- deterministic literal expectation,
+    // matching opr.test.ts's own "literal-zero cold start (D-02)" pattern.
+    expect(prediction.redScore).toBe(0);
+    expect(prediction.blueScore).toBe(0);
+    expect(prediction.pRedWin).toBe(0.5);
   });
 });
 
