@@ -196,6 +196,22 @@ export interface RpPmfInput {
 export interface RpPmfResult {
   readonly redPmf: readonly number[];
   readonly bluePmf: readonly number[];
+  /**
+   * Plan 06.1-02 (F-06-1): per-bonus MARGINAL probabilities, tallied from
+   * the SAME per-draw loop that produces `redPmf` — index `i` corresponds
+   * to `ruleModule.bonusNames[i]`, read by name (never by iterating the
+   * `bonusFlags` record's own key order) so the positional contract is
+   * anchored to `bonusNames`, the same array `apps/web/src/lib/bonusRp.ts`
+   * indexes against. These are independent per-bonus marginals, NOT a
+   * distribution — they do not sum to 1 and must never be passed through
+   * `roundPmf` (PD-05). Omitted entirely (never an empty array, never an
+   * all-zero array standing in for absent data) on both short-circuit
+   * branches below — the same "absence is honest, a fabricated zero is a
+   * false claim" convention `redPmf` documents for itself.
+   */
+  readonly redBonusProbabilities?: readonly number[];
+  /** The blue alliance's counterpart to `redBonusProbabilities` — see its doc comment for the full contract. */
+  readonly blueBonusProbabilities?: readonly number[];
 }
 
 /** `P(RP=0)=1` — the degenerate single-value pmf for a non-qualification match (Pitfall 3, `ELIMINATION_RP_TOTAL`) or for `params.rpMonteCarloDraws === 0` before any bonus RP is added, though the latter returns `[]` instead (see `rpPmfForMatch`). */
@@ -360,6 +376,12 @@ export function rpPmfForMatch(input: RpPmfInput): RpPmfResult {
 
   const redBuckets = new Array(ruleModule.maxRp + 1).fill(0);
   const blueBuckets = new Array(ruleModule.maxRp + 1).fill(0);
+  // Plan 06.1-02 (F-06-1): per-bonus tally, one counter per
+  // `ruleModule.bonusNames` entry, incremented from the SAME
+  // `predictThresholds` results the loop already computes below -- no new
+  // draws, no second loop, no second RNG stream.
+  const redBonusCounts = new Array(ruleModule.bonusNames.length).fill(0);
+  const blueBonusCounts = new Array(ruleModule.bonusNames.length).fill(0);
 
   for (let draw = 0; draw < params.rpMonteCarloDraws; draw++) {
     const sample = drawJoint(model, rng);
@@ -370,6 +392,12 @@ export function rpPmfForMatch(input: RpPmfInput): RpPmfResult {
 
     const redPrediction = ruleModule.predictThresholds(redValues, eventType);
     const bluePrediction = ruleModule.predictThresholds(blueValues, eventType);
+
+    for (let i = 0; i < ruleModule.bonusNames.length; i++) {
+      const bonusName = ruleModule.bonusNames[i]!;
+      if (redPrediction.bonusFlags[bonusName]) redBonusCounts[i]! += 1;
+      if (bluePrediction.bonusFlags[bonusName]) blueBonusCounts[i]! += 1;
+    }
 
     const redWon = redScore > blueScore;
     const blueWon = blueScore > redScore;
@@ -387,6 +415,8 @@ export function rpPmfForMatch(input: RpPmfInput): RpPmfResult {
 
   const redPmf = redBuckets.map((count) => count / params.rpMonteCarloDraws);
   const bluePmf = blueBuckets.map((count) => count / params.rpMonteCarloDraws);
+  const redBonusProbabilities = redBonusCounts.map((count) => count / params.rpMonteCarloDraws);
+  const blueBonusProbabilities = blueBonusCounts.map((count) => count / params.rpMonteCarloDraws);
 
-  return { redPmf, bluePmf };
+  return { redPmf, bluePmf, redBonusProbabilities, blueBonusProbabilities };
 }
