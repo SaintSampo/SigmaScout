@@ -54,6 +54,7 @@ describe("MatchTable", () => {
         matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, actualRedRp: 2, actualBlueRp: 0 })]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
@@ -78,6 +79,7 @@ describe("MatchTable", () => {
         matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     const winner = screen.getByTestId("actual-m1-red");
@@ -89,7 +91,9 @@ describe("MatchTable", () => {
   it("renders a scheduled row with four marks, zero dots, a weekday/time string in Actual, and an em-dash in Call", () => {
     // 2026-01-03 is a Saturday.
     const sortTime = Math.floor(new Date("2026-01-03T18:30:00Z").getTime() / 1000);
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1", sortTime })]} domain={DOMAIN} teamKey="frc118" />);
+    render(<MatchTable matches={[makeMatch({ matchKey: "m1", sortTime })]} domain={DOMAIN} teamKey="frc118"
+        season={2024}
+      />);
 
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
@@ -105,7 +109,7 @@ describe("MatchTable", () => {
     expect(call.textContent).toBe("—");
   });
 
-  it("renders ticks but zero band elements, and no plus-minus character in the predicted-RP cell, for an OPR row (no own-variance, no pmf)", () => {
+  it("renders ticks but zero band elements, and a bare whole-number predicted score, for an OPR row (no own-variance, no pmf)", () => {
     render(
       <MatchTable
         matches={[
@@ -120,6 +124,7 @@ describe("MatchTable", () => {
         ]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
@@ -127,8 +132,16 @@ describe("MatchTable", () => {
     expect(screen.queryByTestId("alliance-mark-m1-red-band")).toBeNull();
     expect(screen.queryByTestId("alliance-mark-m1-blue-band")).toBeNull();
 
-    const predictedRp = screen.getByTestId("predicted-rp-m1");
-    expect(predictedRp.textContent).not.toContain("±");
+    // The predicted-RP column was removed entirely: bonus RP is now the
+    // per-bonus dots, and win/tie RP is already carried by the Confidence
+    // chip and the Call column.
+    expect(screen.queryByTestId("predicted-rp-m1")).toBeNull();
+
+    // The predicted SCORE that replaced it carries neither a ± nor a decimal
+    // — its uncertainty is the interval band in the plot column.
+    const predictedScore = screen.getByTestId("predicted-score-m1");
+    expect(predictedScore.textContent).not.toContain("±");
+    expect(predictedScore.textContent).not.toContain(".");
   });
 
   it("positions red's marks above blue's in every row, regardless of which alliance this team is on", () => {
@@ -140,6 +153,7 @@ describe("MatchTable", () => {
         ]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     for (const matchKey of ["m1", "m2"]) {
@@ -151,7 +165,9 @@ describe("MatchTable", () => {
 
   it("renders this team's own three numbers at semibold and the opposing three at regular weight, with no row background class difference", () => {
     render(
-      <MatchTable matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]} domain={DOMAIN} teamKey="frc118" />,
+      <MatchTable matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]} domain={DOMAIN} teamKey="frc118"
+        season={2024}
+      />,
     );
     const row = screen.getByTestId("match-row-m1");
     const ownNumber = within(row).getByText("118");
@@ -163,7 +179,9 @@ describe("MatchTable", () => {
   });
 
   it("renders the axis header exactly once, with at least two labelled ticks, and never labels the lowest tick 0 for a 180-floor fixture", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={{ min: 180, max: 300 }} teamKey="frc118" />);
+    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={{ min: 180, max: 300 }} teamKey="frc118"
+        season={2024}
+      />);
     const axes = screen.getAllByTestId("axis-ticks");
     expect(axes).toHaveLength(1);
     const ticks = screen.getAllByTestId("axis-tick");
@@ -172,7 +190,9 @@ describe("MatchTable", () => {
   });
 
   it("still renders the full labelled axis for a single-match event", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" />);
+    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118"
+        season={2024}
+      />);
     expect(screen.getAllByTestId("axis-tick").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -182,6 +202,7 @@ describe("MatchTable", () => {
         matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" }), makeMatch({ matchKey: "m3" })]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -194,7 +215,9 @@ describe("MatchTable", () => {
   });
 
   it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118" />);
+    render(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118"
+        season={2024}
+      />);
     const confidence = screen.getByTestId("confidence-m1");
     const chip = within(confidence).getByText("Blue");
     expect(chip.className).toContain("alliance-chip--blue");
@@ -206,6 +229,7 @@ describe("MatchTable", () => {
         matches={[makeMatch({ matchKey: "z-last" }), makeMatch({ matchKey: "a-first" })]}
         domain={DOMAIN}
         teamKey="frc118"
+        season={2024}
       />,
     );
     const rows = screen.getAllByTestId(/^match-row-/);

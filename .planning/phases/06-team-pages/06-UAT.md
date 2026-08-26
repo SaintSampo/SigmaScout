@@ -156,3 +156,51 @@ blocked: 1
     The ceremony was pointed at the wrong risk. See the conversation following this UAT for the
     scope-split decision (keep the harness rigor for algorithm/pipeline work; drop to a tight
     render-and-look loop for UI).
+
+## Deferred Follow-Ups
+
+Both are PIPELINE gaps, not UI gaps: the UI for each is built and shipped, and each renders a
+deliberately honest "no data" state until the pipeline publishes what it needs. Neither is a
+blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closure plans).
+
+- id: F-06-1
+  title: "Publish per-bonus RP so the match-table dots can be real"
+  deferred_at: 2026-08-26
+  requested: "do the dots in the UI but they will just all be empty. note to fix the data later"
+  why: |
+    The artifact publishes only AGGREGATE ranking points — `redRpPmf`/`blueRpPmf` over the RP
+    TOTAL, and `actualRedRp`/`actualBlueRp` as a single integer. Neither can say WHICH bonus was
+    earned or predicted: a 2026 total of 1 does not distinguish Energized from Supercharged from
+    Traversal. Every dot therefore renders in the `unknown` state (dashed, muted) rather than
+    hollow, because a hollow dot asserts "will not earn this bonus" — a claim the data cannot
+    support.
+  the_data_exists_upstream: |
+    Each season's rule module already declares `bonusNames` and computes per-bonus `bonusFlags`
+    during `parse()`, and `distribution.ts`'s Monte Carlo already evaluates every bonus per
+    draw. `RpPmfResult` just discards the per-bonus detail, returning `redPmf`/`bluePmf` only.
+  work_required:
+    - "packages/core/algorithms/sigma1/rp/distribution.ts — accumulate and return per-bonus probabilities alongside the pmf"
+    - "packages/harness/pageArtifacts.ts — publish per-bonus predicted probability and per-bonus actual flags on TeamSeasonMatch"
+    - "republish artifacts across 2022-2026 (corpus is present locally, 339MB)"
+    - "apps/web/src/components/team/BonusRpDots.tsx — pass real states; no structural change, it already takes a states[] prop"
+  note: "Crosses the digest-reproducibility gate — this is algorithm output, so it wants the harness rigor, not a quick patch."
+
+- id: F-06-2
+  title: "Publish group-level variance and percentile for the Auto/Teleop/Endgame tiles"
+  deferred_at: 2026-08-26
+  why: |
+    The headline grid now shows four tiles (Auto, Teleop, Endgame, Total) instead of one per raw
+    component. Group VALUES are exact — expectation is linear, so a sum of means is the mean of
+    the sum however the components covary. Group ± and group percentile are NOT derivable
+    client-side:
+      - spread would need the covariance between components, which is not published. Components
+        within a match are plainly correlated (a strong auto and a strong teleop share the same
+        robot), so a quadrature sum would misstate the interval. A wrong `X ± Y` is worse for
+        this project than no Y.
+      - percentile is a rank against the season pool for one specific metric; the percentile of a
+        sum is not any function of its parts' percentiles.
+    Consequence today: the three phase tiles show a bare value with no ± and no rarity-tier box.
+    Only Total, which the algorithm publishes directly, carries both.
+  work_required:
+    - "publish per-group variance (and percentile) from the pipeline's existing percentile pass"
+    - "apps/web/src/lib/metricGroups.ts — GroupedMetric.spread/percentile are typed `undefined` today; widen once published"

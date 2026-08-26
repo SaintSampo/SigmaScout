@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { MetricValue } from "@/components/MetricValue";
-import { metricKeysFor } from "../../lib/metricKeys.js";
+import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
+import { groupedMetric, METRIC_GROUPS } from "../../lib/metricGroups.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
@@ -63,13 +64,23 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       {snapshot !== undefined && (
         <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-wrap items-baseline gap-[var(--spacing-md)]">
           <span className="text-role-label whitespace-nowrap text-[var(--color-text-muted)]">{"As of this event's end:"}</span>
-          {metricKeys.map((key) => {
-            const metric = snapshot.metrics[key];
-            if (metric === undefined) return null;
+          {/*
+            Same four-way grouping as the season header: this line previously
+            spilled all 13 of 2024's raw components across three wrapped rows.
+          */}
+          {[
+            ...METRIC_GROUPS.map((group) => ({
+              key: group.id,
+              label: group.label,
+              metric: metricKeys.length > 1 ? groupedMetric(season, group.id, snapshot.metrics) : undefined,
+            })),
+            { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
+          ].map((tile) => {
+            if (tile.metric === undefined) return null;
             return (
-              <span key={key} className="flex items-baseline gap-[var(--spacing-xs)]">
-                <span className="text-role-label text-[var(--color-text-muted)]">{key}</span>
-                <MetricValue metric={metric} />
+              <span key={tile.key} className="flex items-baseline gap-[var(--spacing-xs)]">
+                <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
+                <MetricValue metric={tile.metric} />
               </span>
             );
           })}
@@ -77,7 +88,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       )}
 
       <div data-testid={`match-table-scroll-${event.eventKey}`} className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
-        <MatchTable matches={event.matches} domain={domain} teamKey={teamKey} />
+        <MatchTable matches={event.matches} domain={domain} teamKey={teamKey} season={season} />
       </div>
     </section>
   );

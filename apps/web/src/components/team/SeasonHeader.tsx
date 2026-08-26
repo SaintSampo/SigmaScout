@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { groupedMetric, METRIC_GROUPS } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -57,6 +58,18 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
   // inspecting `metrics` itself — a row missing a declared component
   // renders an em-dash cell and the cell never disappears (D-17/E2 empty).
   const metricKeys = metricKeysFor(algorithmId, season);
+  // The headline grid shows four tiles — Auto, Teleop, Endgame, Total —
+  // rather than one per raw component (13 in 2024, 11 in 2026). OPR
+  // publishes only Total and has no components to group, so it keeps its
+  // single tile and the phase groups resolve to `undefined` (em-dash).
+  // An algorithm publishing only Total (OPR) has no components to group, so
+  // it shows the single Total tile rather than three tiles that could never
+  // be anything but an em-dash.
+  const publishesComponents = metricKeys.length > 1;
+  const groupTiles = publishesComponents
+    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: groupedMetric(season, group.id, metrics) }))
+    : [];
+  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] }];
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -119,16 +132,19 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
           is a bounded numeric, so nothing can force horizontal overflow
           (06-UI-SPEC.md E2 overflow).
         */}
-        <div data-testid="season-header-metric-grid" className="grid grid-cols-2 gap-[var(--spacing-sm)] sm:grid-cols-3 md:grid-cols-6">
-          {metricKeys.map((key) => {
-            const metric = metrics[key];
-            return (
-              <div key={key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
-                <span className="text-role-label text-[var(--color-text-muted)]">{metricLabel(key)}</span>
-                <MetricValue metric={metric} tier={tierForPercentile(metric?.percentile)} />
-              </div>
-            );
-          })}
+        <div data-testid="season-header-metric-grid" className="grid grid-cols-2 gap-[var(--spacing-sm)] md:grid-cols-4">
+          {tiles.map((tile) => (
+            <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+              <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
+              {/*
+                Only Total carries a percentile, so only Total gets a rarity
+                tier box. A phase group's percentile is a rank against the
+                season pool for one specific metric and is not any function
+                of its parts' percentiles — see `metricGroups.ts`.
+              */}
+              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
+            </div>
+          ))}
         </div>
       </div>
     </div>

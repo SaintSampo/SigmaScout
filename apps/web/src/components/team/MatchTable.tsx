@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
+import { BonusRpDots } from "./BonusRpDots.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
-import { rpMoments } from "./rpMoments.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 
 /**
@@ -16,6 +16,8 @@ export interface MatchTableProps {
   matches: readonly TeamSeasonMatch[];
   domain: AxisDomain;
   teamKey: string;
+  /** Selects the season's bonus-RP set for the per-match dots — two bonuses for 2022–2024, three for 2025–2026. */
+  season: number;
 }
 
 /** The plot's own fixed pixel width — not one of `MATCH_GEOMETRY`'s locked constants (those are heights/offsets), but a real, deliberate ~470px per `06-CONTEXT.md` D-10's own framing ("the plot needs ~470px against a ~390px phone" — the reason this table needs its own horizontal scroll region at all). */
@@ -155,13 +157,20 @@ function AllianceChip({ side }: { side: "red" | "blue" }) {
   return <span className={cn("alliance-chip", side === "red" ? "alliance-chip--red" : "alliance-chip--blue")}>{side === "red" ? "Red" : "Blue"}</span>;
 }
 
-function PredictedRpCell({ pmf }: { pmf: readonly number[] | undefined }) {
-  const moments = rpMoments(pmf);
-  if (moments === undefined) return null;
+/**
+ * One alliance's predicted score with its bonus-RP dots above it.
+ *
+ * The score is rounded to a whole number: a predicted score is an estimate
+ * whose own uncertainty is already drawn as the interval band in the plot
+ * column, so a decimal here implies a precision the band explicitly denies.
+ */
+function PredictedScoreLine({ matchKey, side, score, season }: { matchKey: string; side: "red" | "blue"; score: number; season: number }) {
   return (
-    <span className="numeric-cell whitespace-nowrap">
-      {moments.mean.toFixed(1)}
-      <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${moments.sd.toFixed(1)}`}</span>
+    <span className="flex flex-col gap-[1px]">
+      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} />
+      <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
+        {Math.round(score)}
+      </span>
     </span>
   );
 }
@@ -172,22 +181,27 @@ function ActualScoreLine({
   score,
   rp,
   isLoser,
+  season,
 }: {
   matchKey: string;
   side: "red" | "blue";
   score: number;
   rp: number | null | undefined;
   isLoser: boolean;
+  season: number;
 }) {
   return (
-    <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
-      {score}
-      {rp !== null && rp !== undefined ? ` (${rp} RP)` : ""}
+    <span className="flex flex-col gap-[1px]">
+      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} />
+      <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
+        {score}
+        {rp !== null && rp !== undefined ? ` (${rp} RP)` : ""}
+      </span>
     </span>
   );
 }
 
-function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string; tinted: boolean }) {
+function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string; tinted: boolean; season: number }) {
   const played = match.actualWinner !== undefined;
   const teamIsRed = match.redTeams.includes(teamKey);
   const teamIsBlue = match.blueTeams.includes(teamKey);
@@ -200,8 +214,8 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
 
   return (
     <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted && "match-row-tint")}>
-      <td className={cn("sticky left-0 z-[1] p-[var(--spacing-sm)] align-top", tinted ? "match-row-tint" : "bg-[var(--color-bg-surface)]")}>
-        <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+      <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "bg-[var(--color-bg-surface)]")}>
+        <div className="flex min-w-0 flex-col gap-[1px]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             {match.redTeams.map((key, index) => (
@@ -221,7 +235,7 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
           </span>
         </div>
       </td>
-      <td className="p-[var(--spacing-sm)] align-top">
+      <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.PLOT_H }}>
           <AllianceRow
             matchKey={match.matchKey}
@@ -247,23 +261,23 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
           />
         </div>
       </td>
-      <td data-testid={`confidence-${match.matchKey}`} className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] align-top">
+      <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         <span className="flex items-center gap-[var(--spacing-xs)]">
           <AllianceChip side={match.predictedWinner} />
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
         </span>
       </td>
-      <td data-testid={`predicted-rp-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
-        <div className="flex flex-col gap-[var(--spacing-xs)]">
-          <PredictedRpCell pmf={match.redRpPmf} />
-          <PredictedRpCell pmf={match.blueRpPmf} />
+      <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        <div className="flex flex-col gap-[2px]">
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} season={season} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} season={season} />
         </div>
       </td>
-      <td data-testid={`actual-${match.matchKey}`} className="p-[var(--spacing-sm)] align-top">
+      <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played ? (
-          <div className="flex flex-col gap-[var(--spacing-xs)]">
-            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} rp={match.actualRedRp} isLoser={redLoses} />
-            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} rp={match.actualBlueRp} isLoser={blueLoses} />
+          <div className="flex flex-col gap-[2px]">
+            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} rp={match.actualRedRp} isLoser={redLoses} season={season} />
+            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} rp={match.actualBlueRp} isLoser={blueLoses} season={season} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
@@ -271,7 +285,7 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
           </span>
         )}
       </td>
-      <td data-testid={`call-${match.matchKey}`} className="text-role-body p-[var(--spacing-sm)] align-top text-[var(--color-text-primary)]">
+      <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!played ? (
           <span aria-hidden="true">{"—"}</span>
         ) : winnerCorrect ? (
@@ -285,7 +299,7 @@ function MatchRow({ match, domain, teamKey, tinted }: { match: TeamSeasonMatch; 
 }
 
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
-export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
+export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps) {
   return (
     <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
@@ -297,14 +311,14 @@ export function MatchTable({ matches, domain, teamKey }: MatchTableProps) {
             <AxisHeader domain={domain} />
           </th>
           <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Conf.</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. RP</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. Score</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
         </tr>
       </thead>
       <tbody>
         {matches.map((match, index) => (
-          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} tinted={index % 2 === 1} />
+          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} tinted={index % 2 === 1} season={season} />
         ))}
       </tbody>
     </table>

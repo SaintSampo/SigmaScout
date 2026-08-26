@@ -128,37 +128,59 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
 describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   afterEach(() => cleanup());
 
-  it("renders exactly metricKeysFor('sigma1', 2026).length grid cells, tiering only the percentile-95+ cell", () => {
-    const keys = metricKeysFor("sigma1", 2026);
-    const firstKey = keys.at(0);
-    const secondKey = keys.at(1);
-    if (firstKey === undefined || secondKey === undefined) throw new Error("sigma1/2026 must declare at least two metric keys");
+  it("renders four phase tiles — Auto, Teleop, Endgame, Total — summing each group's components", () => {
+    // 2026's auto group is autoTower + hubAuto (`lib/metricGroups.ts`).
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
-      [firstKey]: { value: 12.34, percentile: 96 },
-      [secondKey]: { value: 5.5, percentile: 20 },
+      autoTower: { value: 10 },
+      hubAuto: { value: 2.34 },
+      total: { value: 60.5, percentile: 96 },
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
     render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    expect(cells).toHaveLength(keys.length);
+    expect(cells).toHaveLength(4);
+    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
 
-    const legendaryCell = cells.at(0);
-    const commonCell = cells.at(1);
-    if (legendaryCell === undefined || commonCell === undefined) throw new Error("expected at least two grid cells");
-    expect(legendaryCell.querySelector(".metric-tier--legendary")).not.toBeNull();
-    expect(commonCell.querySelector('[class*="metric-tier"]')).toBeNull();
+    const autoCell = cells.at(0);
+    const totalCell = cells.at(3);
+    if (autoCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
+
+    // The group's value is the exact sum of its components.
+    expect(autoCell.textContent).toContain("12.34");
   });
 
-  it("renders the same cell count with every cell an em-dash when metrics is empty", () => {
-    const keys = metricKeysFor("sigma1", 2026);
+  it("tiers only Total — a phase group has no percentile, so it can carry no rarity box and no plus-minus", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      autoTower: { value: 10, percentile: 99 },
+      hubAuto: { value: 2.34, percentile: 99 },
+      total: { value: 60.5, percentile: 96 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const autoCell = cells.at(0);
+    const totalCell = cells.at(3);
+    if (autoCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
+
+    expect(totalCell.querySelector(".metric-tier--legendary")).not.toBeNull();
+    // Even though BOTH of Auto's components are 99th percentile, the group
+    // itself gets no tier — a sum's percentile is not a function of its
+    // parts' percentiles and is never invented client-side.
+    expect(autoCell.querySelector('[class*="metric-tier"]')).toBeNull();
+    expect(autoCell.textContent?.includes("±")).toBe(false);
+  });
+
+  it("renders four em-dash tiles when metrics is empty", () => {
     const artifact = baseArtifact({ seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} } });
 
     render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    expect(cells).toHaveLength(keys.length);
+    expect(cells).toHaveLength(4);
     for (const cell of cells) {
       expect(cell.textContent).toContain("—");
     }
