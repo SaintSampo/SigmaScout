@@ -276,3 +276,45 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
     full histories — a different failure mode than it was built for.
   suggested_direction: "Make the floor scale-relative (a fraction of that metric's league-wide spread) rather than an absolute 1 point^2, so it still protects thin histories without swamping small-range metrics."
   caution: "Phase 3 hyperparameter feeding published algorithm output and the D-15 digest gate — this is tuning work with a re-baseline, not an edit."
+
+- id: F-06-5
+  title: "Sigma1's per-team consistency SD barely discriminates between teams"
+  deferred_at: 2026-08-26
+  severity: "goes to the product's core value — an interval that cannot separate a metronomic team from an erratic one is not decision-useful"
+  found_by: "user: 2026 end-of-season total SD sits between ±5 and ±10 for most teams; expected some teams near-identical every match and others much streakier"
+  confirmed: |
+    Live 2026 sigma1 artifact, 3,709 teams. Published total:
+      VALUE   p10 12.4   median 39.2   p90 130.2   -> p90/p10 = 10.5x
+      SPREAD  p10 3.63   median 5.57   p90 8.44    -> p90/p10 =  2.3x
+    Teams differ ~10x in how much they score and only ~2.3x in how consistent they are modelled to
+    be. The user's read is correct, not a perception artifact.
+  ruled_out_shrinkage: |
+    The obvious suspect was empirical-Bayes shrinkage toward the league mean
+    (SIGMA1_SHRINKAGE_PRIOR_MATCHES = 8, so own-data weight = mc/(mc+8)). If that were the cause,
+    teams with more matches would spread OUT. Measured by matchCount bucket:
+      1-10     n=264   own-weight 41%   p90/p10 2.18x
+      10-20    n=705   own-weight 65%   p90/p10 2.09x
+      20-40    n=1674  own-weight 79%   p90/p10 2.06x
+      40-70    n=1021  own-weight 87%   p90/p10 1.95x
+      70-200   n=45    own-weight 94%   p90/p10 1.43x
+    The ratio falls monotonically as own-data weight rises. Shrinkage is NOT the cause; the
+    distribution gets MORE compressed the more a team's own history dominates.
+  leading_hypothesis: |
+    Residual attribution. covariance.ts's own header records it as a stated modeling choice: a
+    per-team residual is never observed, because a Kalman update sees an alliance SUM. Team j's
+    residual is attributed as `K_j * innovation` — a gain-weighted share of the SAME innovation
+    all three partners receive. If partners' gains are similar, all three book near-identical
+    residuals for that match, so a team's "consistency" largely measures ALLIANCE-level score
+    noise (common to everyone) rather than its own variability. That predicts both the compression
+    and its worsening with more matches, since more matches average further toward the shared
+    noise level.
+  status: HYPOTHESIS — compression is confirmed and shrinkage is excluded; the attribution mechanism is not yet demonstrated to be the cause.
+  how_to_test: |
+    - Simulate: inject two synthetic teams with deliberately different true per-match variance
+      (e.g. sd 2 vs sd 20) into an otherwise real season and check whether the published SDs
+      separate. If they do not, attribution is confirmed as the compressor.
+    - Compare published SD against a partner-controlled empirical estimate of each team's own
+      variability, rather than raw alliance-score SD (which partners dominate).
+    - Check whether K_j actually differs across partners in practice, or is near-uniform.
+  do_not: "Do not 'fix' this by widening the displayed interval. The interval is not too narrow in absolute terms; it fails to VARY between teams. Rescaling would preserve the defect and hide it."
+  related: "[[F-06-4]] — the ±1.00 variance floor is a separate defect in the same estimator, and floors 98% of phaseEndgame."
