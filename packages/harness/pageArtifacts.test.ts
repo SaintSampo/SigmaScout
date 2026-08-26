@@ -465,6 +465,89 @@ describe("EventArtifactSchema.upcoming — D-08's real shape", () => {
   });
 });
 
+describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 1)", () => {
+  function fixtureWithMatchRow(row: Record<string, unknown>) {
+    const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
+    const events = fixture.events as Array<Record<string, unknown>>;
+    events[0]!.matches = [row];
+    return fixture;
+  }
+
+  it("a row with no bonus keys at all parses — every artifact published before this phase still validates", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() => TeamSeasonArtifactSchema.parse(fixtureWithMatchRow(row))).not.toThrow();
+  });
+
+  it("a row with a predicted bonus array of two probabilities in [0, 1] parses", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() =>
+      TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, redBonusRp: [0.1, 0.9], blueBonusRp: [0.2, 0.8] }))
+    ).not.toThrow();
+  });
+
+  it("a predicted bonus probability below 0 fails", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow({ ...row, redBonusRp: [-0.1, 0.9], blueBonusRp: [0.2, 0.8] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("a predicted bonus probability above 1 fails", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow({ ...row, redBonusRp: [0.1, 1.1], blueBonusRp: [0.2, 0.8] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("a predicted bonus array present but empty fails — absence, not emptiness, represents absent data", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow({ ...row, redBonusRp: [], blueBonusRp: [0.2, 0.8] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("mismatched predicted bonus array lengths across alliances fails", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow({ ...row, redBonusRp: [0.1, 0.9], blueBonusRp: [0.2] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("a row with actual bonus flag arrays of booleans parses", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() =>
+      TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, actualRedBonusRp: [true, false], actualBlueBonusRp: [false, true] }))
+    ).not.toThrow();
+  });
+
+  it("a row with both actual bonus arrays set to null parses, and the parsed result's actual fields are null rather than absent", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const parsed = TeamSeasonArtifactSchema.parse(fixtureWithMatchRow({ ...row, actualRedBonusRp: null, actualBlueBonusRp: null }));
+    const parsedMatch = parsed.events[0]!.matches[0] as unknown as { actualRedBonusRp?: boolean[] | null; actualBlueBonusRp?: boolean[] | null };
+    expect(parsedMatch.actualRedBonusRp).toBeNull();
+    expect(parsedMatch.actualBlueBonusRp).toBeNull();
+  });
+
+  it("an empty actual bonus array fails", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(fixtureWithMatchRow({ ...row, actualRedBonusRp: [], actualBlueBonusRp: [false, true] }));
+    expect(result.success).toBe(false);
+  });
+
+  it("mismatched non-null actual bonus array lengths across alliances fails", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    const result = TeamSeasonArtifactSchema.safeParse(
+      fixtureWithMatchRow({ ...row, actualRedBonusRp: [true, false], actualBlueBonusRp: [false] })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("a row with a predicted array present and the actual pair null parses — a scheduled-but-predicted or unparseable-breakdown match", () => {
+    const row = validMatchRowFixture() as unknown as Record<string, unknown>;
+    expect(() =>
+      TeamSeasonArtifactSchema.parse(
+        fixtureWithMatchRow({ ...row, redBonusRp: [0.1, 0.9], blueBonusRp: [0.2, 0.8], actualRedBonusRp: null, actualBlueBonusRp: null })
+      )
+    ).not.toThrow();
+  });
+});
+
 describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped field", () => {
   const COMPARISON_PATTERN = /delta|beats|better|rankChange/i;
 

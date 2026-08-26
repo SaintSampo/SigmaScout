@@ -381,6 +381,48 @@ const TeamSeasonMatchSchema = z
     /** D-02 (Phase 6): the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full null contract. */
     actualBlueRp: z.number().int().nullable().optional(),
     /**
+     * Phase 06.1 (F-06-1, PD-04): each entry is the predicted PROBABILITY
+     * that the red alliance earns the bonus at the SAME INDEX of that
+     * season's bonus-name list (`RpRuleModule.bonusNames`) — a positional
+     * array pinned client-side by an existing passing test, not a keyed
+     * record (measured payload cost: ~124 bytes/match row for the array vs
+     * ~238 for the record, plan 06.1-02's PD-04). These are independent
+     * per-bonus MARGINALS: they do NOT sum to 1, and must never be routed
+     * through `isValidPmf`/the pmf rounding path below — that redistribution
+     * is only meaningful for a distribution required to sum to 1. This is a
+     * DIFFERENT quantity from `redRpPmf` above, which is a distribution over
+     * the RP TOTAL, not a per-bonus marginal. Omitted entirely (never
+     * published as an empty array) when the Monte Carlo did not run for
+     * this match — a non-qualification competition level, a
+     * zero-`rpMonteCarloDraws` configuration, an RP-ineligible event type,
+     * or an algorithm that does not model ranking points at all. Rounded
+     * exactly once, at the publish boundary, at `ROUNDING_RULE.probability`.
+     */
+    redBonusRp: z.array(z.number().min(0).max(1)).optional(),
+    /** Phase 06.1 (F-06-1): the blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
+    blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
+    /**
+     * Phase 06.1 (F-06-3, PD-10): the algorithm-independent ACTUAL per-bonus
+     * outcome, positionally aligned to the same season bonus-name list
+     * `redBonusRp` uses. Three distinct published states, never conflated:
+     *   - the key **absent** entirely: this artifact predates the field, or
+     *     the season has no registered RP rule module (no bonus vocabulary
+     *     to publish at all).
+     *   - an explicit **`null`**: the pipeline looked and the fact is not
+     *     derivable — the match has no `score_breakdown`, its breakdown
+     *     threw on parse, or its event type is RP-ineligible.
+     *   - a **present array**: a real per-bonus answer, one boolean per
+     *     entry of that season's bonus-name list.
+     * `null` is NEVER coerced to an all-false array — an all-false array
+     * would be a POSITIVE claim that every bonus was missed, which the data
+     * does not support when the true answer is simply unknown. This is the
+     * exact same reason `actualRedRp` above is never coerced from `null` to
+     * `0`.
+     */
+    actualRedBonusRp: z.array(z.boolean()).nullable().optional(),
+    /** Phase 06.1 (F-06-3): the blue alliance's counterpart to `actualRedBonusRp` — see its doc comment for the full three-state contract. */
+    actualBlueBonusRp: z.array(z.boolean()).nullable().optional(),
+    /**
      * D-08/TEAM-04 (Phase 6): the Match column's human label — today
      * derivable only by parsing the opaque `matchKey`, the same class of
      * mistake `eventName: eventKey` already shipped (06-RESEARCH.md
@@ -421,6 +463,43 @@ const TeamSeasonMatchSchema = z
       message:
         "a played match (any one of actualWinner/actualRedScore/actualBlueScore defined) must carry all three; an unplayed match must carry none of them",
       path: ["actualWinner"],
+    }
+  )
+  .refine(
+    (row) => {
+      const arrays = [row.redBonusRp, row.blueBonusRp, row.actualRedBonusRp, row.actualBlueBonusRp];
+      // Absence, not emptiness, is the representation for absent data — any
+      // of the four per-bonus arrays, when present (including a present
+      // `null`, which is not an array and is skipped here), must be
+      // non-empty.
+      return arrays.every((array) => array === undefined || array === null || array.length > 0);
+    },
+    {
+      message:
+        "redBonusRp/blueBonusRp/actualRedBonusRp/actualBlueBonusRp, when present as an array, must be non-empty — absence (an omitted key), not emptiness, represents absent data",
+      path: ["redBonusRp"],
+    }
+  )
+  .refine(
+    (row) => {
+      if (row.redBonusRp === undefined || row.blueBonusRp === undefined) return true;
+      return row.redBonusRp.length === row.blueBonusRp.length;
+    },
+    {
+      message: "redBonusRp and blueBonusRp, when both present, must have equal length — both alliances share one season's bonus set",
+      path: ["redBonusRp"],
+    }
+  )
+  .refine(
+    (row) => {
+      if (row.actualRedBonusRp === undefined || row.actualRedBonusRp === null) return true;
+      if (row.actualBlueBonusRp === undefined || row.actualBlueBonusRp === null) return true;
+      return row.actualRedBonusRp.length === row.actualBlueBonusRp.length;
+    },
+    {
+      message:
+        "actualRedBonusRp and actualBlueBonusRp, when both present and non-null, must have equal length — both alliances share one season's bonus set",
+      path: ["actualRedBonusRp"],
     }
   );
 
