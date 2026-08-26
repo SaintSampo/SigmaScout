@@ -238,3 +238,41 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
     - "packages/harness/metricHistorySchema.ts — add optional percentile to MetricValueSchema"
     - "packages/harness/publish.ts — populate it in the chosen ranking scheme"
     - "apps/web/src/components/team/EventSection.tsx — pass tierForPercentile(tile.metric.percentile); the call site is already commented with this reference"
+
+- id: F-06-4
+  title: "The consistency-variance floor is scale-blind and has become a constant for low-variance metrics"
+  deferred_at: 2026-08-26
+  found_by: "user noticed adjust shows the identical ±1.00 for every team on the Teams page"
+  mechanism: |
+    `SIGMA1_MIN_CONSISTENCY_VARIANCE = 1` (consistency.ts) floors every shrunk consistency
+    VARIANCE, and display spread is sqrt(variance) — so the smallest ± any metric can ever show is
+    exactly ±1.00. `adjust` is TBA's `adjustPoints`, ~0 in nearly every match, so its observed
+    residual variance falls under the floor and is clamped.
+  measured: |
+    Share of the 3,479 teams in the live 2024 sigma1 artifact whose spread is pinned at exactly
+    1.00, with the metric's largest absolute value anywhere in the league for scale:
+      endGamePark            99%   (max |value| 1.86)
+      phaseEndgame           98%   (max |value| 8.99)
+      adjust                 97%   (max |value| 19.85)
+      phaseAuto              70%   (max |value| 21.42)
+      foulsCommitted         27%   (max |value| 14.97)
+      endGameSpotLightBonus  20%   (max |value| 0.81)
+      total                   1%   (max |value| 63.07)
+  why_it_matters: |
+    A floor of 1 point^2 is an ABSOLUTE constant applied across metrics on wildly different scales.
+    For `total` (range ~63) it is negligible. For `endGameSpotLightBonus`, whose largest value in
+    the entire league is 0.81, the floor emits a ± larger than the metric's whole range.
+
+    The constant's own doc comment argues a documented FLOOR is permitted by PROJECT.md's
+    honest-uncertainty rule where a substituted constant VALUE would not be. That distinction holds
+    at 5% pinned. At 97-99% the floor IS the value for those metrics, which is the thing the rule
+    forbids.
+
+    It also lands on Phase 6's own output: phaseEndgame is 98% pinned, so the Endgame tile's ± is
+    near-meaningless for almost every team.
+  root_cause_note: |
+    The floor was designed to stop a thin-HISTORY team reporting an implausibly tiny spread
+    (consistency.ts's own header). It is instead binding on low-VARIANCE components for teams with
+    full histories — a different failure mode than it was built for.
+  suggested_direction: "Make the floor scale-relative (a fraction of that metric's league-wide spread) rather than an absolute 1 point^2, so it still protects thin histories without swamping small-range metrics."
+  caution: "Phase 3 hyperparameter feeding published algorithm output and the D-15 digest gate — this is tuning work with a re-baseline, not an edit."
