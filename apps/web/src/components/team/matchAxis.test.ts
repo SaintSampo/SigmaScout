@@ -50,7 +50,7 @@ describe("MATCH_GEOMETRY / allianceMarkPositions", () => {
     expect(pos.centre - pos.bandTop).toBe(MATCH_GEOMETRY.BAND_H / 2);
   });
 
-  it("positions red and blue 12px apart at centre, per Y_RED/Y_BLUE", () => {
+  it("separates red and blue by exactly Y_BLUE - Y_RED at centre, matching the roster line spacing", () => {
     const red = allianceMarkPositions(MATCH_GEOMETRY.Y_RED);
     const blue = allianceMarkPositions(MATCH_GEOMETRY.Y_BLUE);
     expect(blue.centre - red.centre).toBe(MATCH_GEOMETRY.Y_BLUE - MATCH_GEOMETRY.Y_RED);

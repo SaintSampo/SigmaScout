@@ -16,21 +16,45 @@ export type TeamSeasonEvent = TeamSeasonArtifact["events"][number];
 export type TeamSeasonMatch = TeamSeasonEvent["matches"][number];
 
 /**
- * Locked pixel values, NOT derived from the 4px spacing scale — carried
- * verbatim from `uncertainty-display.md`/`chart-craft.md` and
- * `06-UI-SPEC.md`'s Spacing Scale exceptions. `Y_RED`/`Y_BLUE` are the two
- * alliances' band-top offsets within one 44px-tall match row: 12px apart
- * (between alliance centres, within a match) against a measured ~47px gap
- * between matches — the ~4x proximity ratio `chart-craft.md` found necessary
- * before the pairing read correctly. Do not re-derive any of these.
+ * Locked pixel values, NOT derived from the 4px spacing scale — carried from
+ * `uncertainty-display.md`/`chart-craft.md` and `06-UI-SPEC.md`'s Spacing
+ * Scale exceptions.
+ *
+ * `Y_RED`/`Y_BLUE` are the two alliances' band-top offsets within one match
+ * row. They are set so each alliance's band sits on the SAME BASELINE as that
+ * alliance's team-number line in the Match column: red band centre 27 and
+ * blue band centre 49, measured from the plot's top, against roster line
+ * centres measured at 27.1 and 49.1 in the rendered row. A reader can then
+ * track straight across from "4587 118 4328" to the red band.
+ *
+ * REVISED 2026-08-26, deliberately, from the sketch-003 values (PLOT_H 44,
+ * Y_RED 12, Y_BLUE 24). That draft put the alliance centres 12px apart to buy
+ * a ~4x proximity ratio against the ~47px between-match gap, because
+ * `chart-craft.md`'s "grouping is proximity" finding showed a dot landing far
+ * from its partner horizontally would otherwise pair with the wrong row. The
+ * text lines are 22px apart, so 12px could never align with them — the two
+ * constraints are mutually exclusive and one had to give.
+ *
+ * What changed since that finding, and why the weaker ratio (~2.1x) is
+ * acceptable now:
+ *  1. The zebra tint per match row exists (06-09). `chart-craft.md` names it
+ *     itself: "A zebra tint on alternate rows reinforces the block." It did
+ *     not exist when sketch 003 was drawn, so proximity was carrying the
+ *     grouping alone.
+ *  2. Baseline alignment is a STRONGER pairing cue than proximity, not a
+ *     weaker one: the band now shares a horizontal baseline with its own
+ *     roster text, so the pairing is readable by row position rather than
+ *     inferred from spacing.
+ * If a future change removes the zebra tint, this trade collapses and the
+ * proximity ratio has to be re-argued — do not treat these as free values.
  */
 export const MATCH_GEOMETRY = {
   BAND_H: 8,
   DOT_H: 12,
   TICK_H: 14,
-  PLOT_H: 44,
-  Y_RED: 12,
-  Y_BLUE: 24,
+  PLOT_H: 60,
+  Y_RED: 23,
+  Y_BLUE: 45,
 } as const;
 
 export interface AllianceMarkPositions {
