@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../params.js";
 import { makeSigma1, type Sigma1State } from "../index.js";
 import { rpRuleModuleForSeason } from "./rules.js";
+import type { RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
 import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "./distribution.js";
 
@@ -117,6 +118,90 @@ describe("rpPmfForMatch — determinism (D-16)", () => {
     const a = rpPmfForMatch(baseInput({ matchKey: "2022aaaa_qm1", red: varied, blue }));
     const b = rpPmfForMatch(baseInput({ matchKey: "2022bbbb_qm1", red: varied, blue }));
     expect(a.redPmf).not.toEqual(b.redPmf);
+  });
+});
+
+describe("rpPmfForMatch — fixed-seed golden pmf (plan 06.1-02 Task 1 — proves the per-bonus widening consumes no extra randomness)", () => {
+  /**
+   * Recorded BEFORE the per-bonus tally was added to `rpPmfForMatch`, by
+   * running this exact fixture against the pre-widening production code.
+   * If this case ever goes red, the draw sequence moved — the whole basis
+   * of this plan's claim that adding the per-bonus tally is a read-only
+   * aggregation over draws the loop already takes.
+   */
+  it("redPmf and bluePmf match the literal golden arrays recorded before the per-bonus widening", () => {
+    const input = baseInput({
+      red: moments({ scoreMean: 60, scoreVariance: 25, meanVector: [10, 1, 10] }),
+      blue: moments({ scoreMean: 40, scoreVariance: 25, meanVector: [5, 0, 5] }),
+      matchKey: "2022golden_qm1",
+    });
+    const result = rpPmfForMatch(input);
+    expect(result.redPmf).toEqual([0.0055, 0, 0.9945, 0, 0]);
+    expect(result.bluePmf).toEqual([0.9945, 0, 0.0055, 0, 0]);
+  });
+});
+
+describe("rpPmfForMatch — per-bonus probabilities (plan 06.1-02 Task 1, F-06-1)", () => {
+  it("redBonusProbabilities has the same length as ruleModule.bonusNames, every entry in [0, 1]", () => {
+    const result = rpPmfForMatch(baseInput());
+    expect(result.redBonusProbabilities).toHaveLength(RULE_2022.bonusNames.length);
+    expect(result.blueBonusProbabilities).toHaveLength(RULE_2022.bonusNames.length);
+    for (const v of [...result.redBonusProbabilities!, ...result.blueBonusProbabilities!]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a non-qualification compLevel omits redBonusProbabilities/blueBonusProbabilities entirely (never an empty array)", () => {
+    const result = rpPmfForMatch(baseInput({ compLevel: "sf" }));
+    expect(Object.hasOwn(result, "redBonusProbabilities")).toBe(false);
+    expect(Object.hasOwn(result, "blueBonusProbabilities")).toBe(false);
+  });
+
+  it("a zero rpMonteCarloDraws parameter omits redBonusProbabilities/blueBonusProbabilities entirely (never an empty array)", () => {
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 };
+    const result = rpPmfForMatch(baseInput({ params }));
+    expect(Object.hasOwn(result, "redBonusProbabilities")).toBe(false);
+    expect(Object.hasOwn(result, "blueBonusProbabilities")).toBe(false);
+  });
+
+  it("two calls with the same seed and inputs produce deeply equal bonus probability arrays (deterministic, like the pmf)", () => {
+    const input = baseInput({
+      red: moments({ scoreMean: 55, scoreVariance: 25, meanVector: [15, 0, 20] }),
+      blue: moments({ scoreMean: 50, scoreVariance: 25, meanVector: [5, 0, 0] }),
+      matchKey: "2022bonusdeterm_qm1",
+    });
+    const first = rpPmfForMatch(input);
+    const second = rpPmfForMatch(input);
+    expect(first.redBonusProbabilities).toEqual(second.redBonusProbabilities);
+    expect(first.blueBonusProbabilities).toEqual(second.blueBonusProbabilities);
+  });
+
+  it("for a synthetic single-bonus rule module with zero win/tie RP, redBonusProbabilities[0] equals redPmf[1] exactly", () => {
+    // A single-bonus module with winRp/tieRp both 0 means the ONLY way to
+    // earn a ranking point is the bonus itself -- P(bonus) and P(RP=1) are
+    // the identical event.
+    const singleBonusModule: RpRuleModule = {
+      season: 2022,
+      thresholdVariables: [{ name: "matchCargoTotal", unit: "count" }],
+      bonusNames: ["cargoBonus"],
+      maxRp: 1,
+      winRp: 0,
+      tieRp: 0,
+      parse: RULE_2022.parse,
+      predictThresholds: (values) => {
+        const achieved = (values["matchCargoTotal"] ?? 0) >= 20;
+        return { bonusFlags: { cargoBonus: achieved }, totalRp: achieved ? 1 : 0 };
+      },
+    };
+    const input = baseInput({
+      ruleModule: singleBonusModule,
+      red: moments({ scoreMean: 55, scoreVariance: 25, meanVector: [15], varianceBlock: [[25]], scoreCrossCovariance: [10], variableNames: ["matchCargoTotal"] }),
+      blue: moments({ scoreMean: 50, scoreVariance: 25, meanVector: [5], varianceBlock: [[25]], scoreCrossCovariance: [0], variableNames: ["matchCargoTotal"] }),
+      matchKey: "2022singlebonus_qm1",
+    });
+    const result = rpPmfForMatch(input);
+    expect(result.redBonusProbabilities![0]).toBe(result.redPmf[1]);
   });
 });
 
