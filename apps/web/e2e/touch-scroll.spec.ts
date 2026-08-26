@@ -200,13 +200,25 @@ test.describe("team page — per-event-section touch scroll (D-10)", () => {
     const scrollers = page.locator(SCROLLER_TESTID_PATTERN);
     const first = scrollers.nth(0);
     const second = scrollers.nth(1);
+    // The scroller holds every match row, so it is ~1400px tall and starts
+    // ~1300px down the page — its OWN midpoint (box.y + box.height / 2) lands
+    // around y=2039 on a 681px-tall viewport, i.e. far below the fold, and a
+    // touch dispatched there hits nothing at all. Scroll it into view and drag
+    // through the midpoint of the band that is actually visible. This masked
+    // itself for as long as the deployed origin was stale: the spec could
+    // never pass, so its own bad coordinate never surfaced.
+    await first.scrollIntoViewIfNeeded();
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("no viewport size");
+    const box = await first.boundingBox();
+    if (!box) throw new Error("first scroller has no bounding box");
+    const visibleY = (Math.max(box.y, 0) + Math.min(box.y + box.height, viewport.height)) / 2;
+
     const firstBefore = await first.evaluate((el) => el.scrollLeft);
     const secondBefore = await second.evaluate((el) => el.scrollLeft);
     const documentLeftBefore = await page.evaluate(() => document.documentElement.scrollLeft);
 
-    const box = await first.boundingBox();
-    if (!box) throw new Error("first scroller has no bounding box");
-    await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
+    await touchDrag(page, { x: box.x + box.width - 20, y: visibleY }, { x: box.x + 20, y: visibleY });
 
     const firstAfter = await first.evaluate((el) => el.scrollLeft);
     const secondAfter = await second.evaluate((el) => el.scrollLeft);
