@@ -90,7 +90,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: Seas
           an accessible label naming the team (06-UI-SPEC.md Copywriting
           Contract).
         */}
-        <Avatar className="size-16 shrink-0 rounded-[var(--radius)] after:rounded-[var(--radius)]">
+        <Avatar className="size-28 shrink-0 rounded-[var(--radius)] after:rounded-[var(--radius)]">
           {artifact.robotImageUrl !== undefined && (
             <AvatarImage src={artifact.robotImageUrl} alt={`${nickname} robot photo`} className="rounded-[var(--radius)]" />
           )}

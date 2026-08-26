@@ -180,7 +180,7 @@ function PredictedScoreLine({
 }) {
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
   return (
-    <span className="flex flex-col gap-[1px]">
+    <span className="flex items-center gap-[var(--spacing-xs)]">
       <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
@@ -204,11 +204,11 @@ function ActualScoreLine({
   season: number;
 }) {
   return (
-    <span className="flex flex-col gap-[1px]">
+    <span className="flex items-center gap-[var(--spacing-xs)]">
       <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} />
       {/* The RP total is deliberately not printed here — bonus RP is the dots
-          above, and win/tie RP is already carried by the Confidence chip and
-          the Call column. */}
+          beside it, and win/tie RP is already carried by the Confidence chip
+          and the Call column. */}
       <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
         {score}
       </span>
