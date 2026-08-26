@@ -14,9 +14,16 @@ updated: 2026-08-26T01:45:00Z
 
 ### 1. Push and deploy, then re-run the four deployed-origin e2e specs
 expected: After pushing local `main` to `origin/main` and letting Cloudflare Pages redeploy, re-run `pnpm --filter web test:e2e -- team-page`, `-- no-page-pan`, `-- touch-scroll`, and `-- static-shell`. All four pass against the real deployed build.
-result: issue
-reported: "Deployed 14001324 to Cloudflare Pages and ran the suite against the live apex. team-page (2/2) and static-shell (2/2) pass. no-page-pan:84 and touch-scroll:197 fail on BOTH iphone-17 and pixel-10 — the team page's per-event-section match tables cannot scroll horizontally on a phone, leaving most of each table unreachable."
-severity: major
+result: pass
+resolved_at: 2026-08-26
+resolution: |
+  PASSES now — full suite 40/40 against the deployed origin. Getting there took two real fixes,
+  both recorded below; the original run was 36/40.
+    - App: three compounding layout defects (dead data-orientation variants in tabs.tsx, missing
+      min-w-0 on the overview panel, no page max-width). See G-06-1.
+    - Spec: touch-scroll.spec.ts:197 dragged at y=2039 on a 681px viewport — its own coordinate
+      bug, invisible for as long as the deploy was stale.
+first_run: "36 passed / 4 failed — no-page-pan:84 and touch-scroll:197 on both iphone-17 and pixel-10"
 
 deploy_correction: |
   The premise of this test was wrong. There is NO git-integrated deploy for sigmascout.org:
@@ -104,7 +111,10 @@ blocked: 1
 
 - gap_id: G-06-1
   truth: "All four deployed-origin e2e specs pass against the real deployed build"
-  status: failed
+  status: resolved
+  resolved_at: 2026-08-26
+  resolved_by: "direct fix (no gap-closure plan) — commits 'fix(06): repair team page layout' and 'test(06): drag through the scroller's visible band'"
+  verified_by: "full e2e suite 40/40 against https://sigmascout.org after redeploy"
   reason: "User reported: no-page-pan:84 and touch-scroll:197 fail on both iphone-17 and pixel-10 — per-event-section match tables cannot scroll horizontally on a phone"
   severity: major
   test: 1
