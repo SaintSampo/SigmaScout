@@ -17,6 +17,7 @@ import { openCorpus, selectScheduledMatches, upsertEvent, upsertMatch, upsertTea
 import type { PredictionRecord } from "./replay.js";
 import type { TeamSeasonArtifact } from "./pageArtifacts.js";
 import {
+  actualBonusFlagsForSeason,
   buildCompareArtifact,
   buildEventArtifact,
   buildEventsArtifact,
@@ -25,10 +26,12 @@ import {
   computeSizeStats,
   OUTCOME_KEYS,
   publishSeasons,
+  type ActualBonusFlags,
   type PublishedObjectRecord,
 } from "./publish.js";
 import { ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
+import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 
 vi.mock("./r2Client.js", () => ({
   putObject: vi.fn(async () => undefined),
@@ -528,6 +531,216 @@ describe("buildTeamSeasonArtifact — TEAM-04/F-06-3 event rank (plan 06.1-01 Ta
     const publishedEvent = artifact.events[0] as object;
     expect(publishedEvent).not.toHaveProperty("rank");
     expect(publishedEvent).not.toHaveProperty("totalTeams");
+  });
+});
+
+/** A real-shaped 2022 (Rapid React) score_breakdown, satisfying rp2022's Rp2022Schema for both alliances. */
+function rawBreakdown2022(): unknown {
+  const side = { matchCargoTotal: 25, autoCargoTotal: 2, endgamePoints: 20, cargoBonusRankingPoint: true, hangarBonusRankingPoint: true, quintetAchieved: false };
+  return { red: side, blue: { ...side, matchCargoTotal: 5, endgamePoints: 0, cargoBonusRankingPoint: false, hangarBonusRankingPoint: false } };
+}
+
+/** A real-shaped 2024 (Crescendo) score_breakdown, satisfying rp2024's Rp2024Schema for both alliances. */
+function rawBreakdown2024(): unknown {
+  const side = {
+    autoAmpNoteCount: 2,
+    autoSpeakerNoteCount: 2,
+    teleopAmpNoteCount: 4,
+    teleopSpeakerNoteCount: 10,
+    teleopSpeakerNoteAmplifiedCount: 2,
+    endGameTotalStagePoints: 12,
+    endGameRobot1: "StageLeft",
+    endGameRobot2: "StageRight",
+    endGameRobot3: "None",
+    coopertitionBonusAchieved: false,
+    melodyBonusAchieved: true,
+    ensembleBonusAchieved: true,
+    melodyBonusThresholdCoop: 15,
+    melodyBonusThresholdNonCoop: 18,
+    ensembleBonusStagePointsThreshold: 10,
+    ensembleBonusOnStageRobotsThreshold: 2,
+  };
+  return { red: side, blue: { ...side, autoAmpNoteCount: 0, teleopAmpNoteCount: 0, teleopSpeakerNoteCount: 0, endGameTotalStagePoints: 0, endGameRobot1: "None", endGameRobot2: "None", melodyBonusAchieved: false, ensembleBonusAchieved: false } };
+}
+
+describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-09)", () => {
+  it("2022: a played qm match at an RP-eligible event type with a parseable breakdown produces arrays matching rp2022's own parse result, bonus by bonus", () => {
+    const match = fixtureMatch({ matchKey: "2022casj_qm1", eventType: 0, scoreBreakdownRaw: JSON.stringify(rawBreakdown2022()) });
+    const result = actualBonusFlagsForSeason([match], 2022);
+    const flags = result.get(match.matchKey);
+    expect(flags).not.toBeNull();
+    const ruleModule = RP_RULE_MODULES[2022]!;
+    const rawJson = JSON.parse(match.scoreBreakdownRaw!);
+    const expectedRed = ruleModule.parse(rawJson, "red", match.eventType);
+    const expectedBlue = ruleModule.parse(rawJson, "blue", match.eventType);
+    expect((flags as ActualBonusFlags).red).toEqual(ruleModule.bonusNames.map((name) => expectedRed.bonusFlags[name]));
+    expect((flags as ActualBonusFlags).blue).toEqual(ruleModule.bonusNames.map((name) => expectedBlue.bonusFlags[name]));
+  });
+
+  it("2024: a played qm match at an RP-eligible event type with a parseable breakdown produces arrays matching rp2024's own parse result, bonus by bonus", () => {
+    const match = fixtureMatch({ matchKey: "2024casj_qm1", eventType: 0, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
+    const result = actualBonusFlagsForSeason([match], 2024);
+    const flags = result.get(match.matchKey);
+    expect(flags).not.toBeNull();
+    const ruleModule = RP_RULE_MODULES[2024]!;
+    const rawJson = JSON.parse(match.scoreBreakdownRaw!);
+    const expectedRed = ruleModule.parse(rawJson, "red", match.eventType);
+    const expectedBlue = ruleModule.parse(rawJson, "blue", match.eventType);
+    expect((flags as ActualBonusFlags).red).toEqual(ruleModule.bonusNames.map((name) => expectedRed.bonusFlags[name]));
+    expect((flags as ActualBonusFlags).blue).toEqual(ruleModule.bonusNames.map((name) => expectedBlue.bonusFlags[name]));
+  });
+
+  it("publishes null (strictly, not undefined) for an RP-ineligible event type", () => {
+    // eventType 99 (offseason) is not in EVENT_TYPE_TIERS — isRpEligibleEventType returns false.
+    const match = fixtureMatch({ matchKey: "2024off_qm1", eventType: 99, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
+    const result = actualBonusFlagsForSeason([match], 2024);
+    expect(result.get(match.matchKey)).toBeNull();
+  });
+
+  it("publishes null (strictly, not undefined) for a match with no score breakdown", () => {
+    const match = fixtureMatch({ matchKey: "2024casj_qm2", eventType: 0, hasScoreBreakdown: false, scoreBreakdownRaw: null });
+    const result = actualBonusFlagsForSeason([match], 2024);
+    expect(result.get(match.matchKey)).toBeNull();
+  });
+
+  it("publishes null (strictly, not undefined) for a match whose score breakdown throws on parse, rather than propagating the throw", () => {
+    const match = fixtureMatch({ matchKey: "2024casj_qm3", eventType: 0, scoreBreakdownRaw: JSON.stringify({ red: {}, blue: {} }) });
+    expect(() => actualBonusFlagsForSeason([match], 2024)).not.toThrow();
+    const result = actualBonusFlagsForSeason([match], 2024);
+    expect(result.get(match.matchKey)).toBeNull();
+  });
+
+  it("returns an empty map for a season with no registered RP rule module", () => {
+    const match = fixtureMatch({ matchKey: "2021casj_qm1", eventType: 0 });
+    const result = actualBonusFlagsForSeason([match], 2021);
+    expect(result.size).toBe(0);
+  });
+});
+
+describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 2, F-06-1/F-06-3)", () => {
+  const baseParams = {
+    teamKey: "frc254",
+    teamNumber: 254,
+    nickname: "The Cheesy Poofs",
+    season: 2024,
+    algorithmId: "sigma1",
+    algorithmVersion: "2.0.0+test",
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    metricHistory: [],
+    generation: "test-generation-1",
+    computedAt: "2026-08-26T00:00:00.000Z",
+  } as const;
+
+  it("a prediction carrying predicted bonus marginals publishes them rounded to exactly four decimals", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2024casj",
+          eventName: "2024casj",
+          startDate: "2024-03-01",
+          matches: [{ match: fixtureMatch(), prediction: fixturePrediction({ redBonusRp: [0.123456789, 0.987654321] }) }],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.redBonusRp).toEqual([0.1235, 0.9877]);
+  });
+
+  it("a prediction without predicted bonus marginals publishes no predicted bonus key", () => {
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2024casj",
+          eventName: "2024casj",
+          startDate: "2024-03-01",
+          matches: [{ match: fixtureMatch(), prediction: fixturePrediction() }],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    // Direct-assignment field (matches `redRpPmf`/`redScoreVarianceOwn`'s own
+    // existing convention above) — undefined, not genuinely absent; this
+    // still parses `TeamSeasonMatchSchema`'s `.optional()` field correctly.
+    expect(row?.redBonusRp).toBeUndefined();
+    expect(row?.blueBonusRp).toBeUndefined();
+  });
+
+  it("a missing map entry leaves both actual bonus keys absent (never a synthetic default)", () => {
+    const match = fixtureMatch();
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
+      actualBonusFlagsByMatchKey: new Map(),
+    });
+    const row = artifact.events[0]?.matches[0] as object;
+    expect(row).not.toHaveProperty("actualRedBonusRp");
+    expect(row).not.toHaveProperty("actualBlueBonusRp");
+  });
+
+  it("a null map entry publishes an explicit null for both actual bonus fields", () => {
+    const match = fixtureMatch();
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
+      actualBonusFlagsByMatchKey: new Map([[match.matchKey, null]]),
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.actualRedBonusRp).toBeNull();
+    expect(row?.actualBlueBonusRp).toBeNull();
+  });
+
+  it("a real map entry publishes the copied boolean arrays for both alliances", () => {
+    const match = fixtureMatch();
+    const flags: ActualBonusFlags = { red: [true, false], blue: [false, true] };
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
+      actualBonusFlagsByMatchKey: new Map([[match.matchKey, flags]]),
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.actualRedBonusRp).toEqual([true, false]);
+    expect(row?.actualBlueBonusRp).toEqual([false, true]);
+  });
+
+  it("an unplayed (scheduled) match's row has neither actual bonus key, even with a populated flag map", () => {
+    const upcoming = fixtureUpcoming();
+    const flags: ActualBonusFlags = { red: [true, false], blue: [false, true] };
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        { eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match: upcoming, prediction: fixturePrediction() }] },
+      ],
+      actualBonusFlagsByMatchKey: new Map([[upcoming.matchKey, flags]]),
+    });
+    const row = artifact.events[0]?.matches[0] as object;
+    expect(row).not.toHaveProperty("actualRedBonusRp");
+    expect(row).not.toHaveProperty("actualBlueBonusRp");
+  });
+
+  it("algorithm independence: the same match built into two artifacts under different algorithm ids carries identical actual bonus arrays", () => {
+    const match = fixtureMatch();
+    const flags: ActualBonusFlags = { red: [true, false], blue: [false, true] };
+    const flagMap = new Map([[match.matchKey, flags]]);
+    const oprArtifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
+      actualBonusFlagsByMatchKey: flagMap,
+    });
+    const sigma1Artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+test",
+      events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
+      actualBonusFlagsByMatchKey: flagMap,
+    });
+    const oprRow = oprArtifact.events[0]?.matches[0];
+    const sigma1Row = sigma1Artifact.events[0]?.matches[0];
+    expect(oprRow?.actualRedBonusRp).toEqual(sigma1Row?.actualRedBonusRp);
+    expect(oprRow?.actualBlueBonusRp).toEqual(sigma1Row?.actualBlueBonusRp);
   });
 });
 

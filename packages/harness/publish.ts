@@ -56,6 +56,8 @@ import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { sigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
+import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
+import { isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
@@ -320,6 +322,76 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
 // buildTeamSeasonArtifact — v1/team/{teamKey}/{year}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
+/** One match's algorithm-independent actual per-bonus outcome, positionally aligned to that season's `RpRuleModule.bonusNames` — see `actualBonusFlagsForSeason`'s doc comment for the full contract. */
+export interface ActualBonusFlags {
+  readonly red: readonly boolean[];
+  readonly blue: readonly boolean[];
+}
+
+/**
+ * Phase 06.1 (F-06-3, PD-09): the algorithm-independent ACTUAL per-bonus
+ * outcome for every match in `stream`, computed ONCE per season — never
+ * inside the per-algorithm loop below, because a match's raw score
+ * breakdown and its season's own RP rule module describe the MATCH, not a
+ * prediction, so computing this per algorithm would run `ruleModule.parse`
+ * three times per match for an identical result (PD-09).
+ *
+ * Returns an EMPTY map immediately when `season` has no entry in
+ * `RP_RULE_MODULES` — no registered bonus vocabulary means no bonus fact to
+ * publish, and the caller's missing-map-entry behavior (leaving a row's
+ * actual bonus keys absent) is already the correct representation.
+ *
+ * A match maps to `null` when its event type is not RP-eligible
+ * (`isRpEligibleEventType`), when it has no score breakdown
+ * (`!match.hasScoreBreakdown` / `match.scoreBreakdownRaw === null` — the two
+ * are kept in sync by `MatchResult`'s own contract), or when parsing the raw
+ * breakdown throws for any reason (malformed JSON, a schema mismatch on
+ * self-reported data — T-06.1-19: caught here so ONE bad match cannot abort
+ * a whole publish run). These are the SAME two predicates
+ * `packages/core/algorithms/sigma1/index.ts`'s `update()` already uses to
+ * decide whether to fold a match's RP observation at all (its `usedFallback
+ * || !isRpEligibleEventType(...)` skip condition) — so a match whose RP
+ * fold Sigma1 skips is EXACTLY a match whose actual flags this function
+ * publishes as `null`. Two independently-drifting eligibility rules is the
+ * exact failure mode `sigma1/index.ts`'s own comment there warns against;
+ * this correspondence is documented, not merely coincidental.
+ *
+ * A successfully-parsed match's boolean array is built by mapping the rule
+ * module's OWN `bonusNames` list, in order, to the boolean the parse
+ * produced for that name (T-06.1-20/T-06.1-09) — never by spreading or
+ * `Object.assign`-ing the parsed record, so a hostile or malformed extra key
+ * in third-party JSON cannot alter the published array's shape. A name the
+ * parse result did not produce defaults to `false` so the array's length
+ * always equals `bonusNames.length`.
+ */
+export function actualBonusFlagsForSeason(stream: readonly MatchResult[], season: number): Map<string, ActualBonusFlags | null> {
+  const result = new Map<string, ActualBonusFlags | null>();
+  const ruleModule = RP_RULE_MODULES[season];
+  if (ruleModule === undefined) return result; // no registered RP rule module for this season — no bonus vocabulary to publish at all
+
+  for (const match of stream) {
+    if (!isRpEligibleEventType(match.eventType) || !match.hasScoreBreakdown || match.scoreBreakdownRaw === null) {
+      result.set(match.matchKey, null);
+      continue;
+    }
+    try {
+      const rawJson: unknown = JSON.parse(match.scoreBreakdownRaw);
+      const redParsed = ruleModule.parse(rawJson, "red", match.eventType);
+      const blueParsed = ruleModule.parse(rawJson, "blue", match.eventType);
+      result.set(match.matchKey, {
+        red: ruleModule.bonusNames.map((name) => redParsed.bonusFlags[name] ?? false),
+        blue: ruleModule.bonusNames.map((name) => blueParsed.bonusFlags[name] ?? false),
+      });
+    } catch {
+      // T-06.1-19: a throw here (malformed JSON, or a raw breakdown that
+      // fails this season's RP schema) degrades this ONE match to null
+      // rather than escaping and aborting the whole ~22-minute publish run.
+      result.set(match.matchKey, null);
+    }
+  }
+  return result;
+}
+
 export interface TeamSeasonEventInput {
   readonly eventKey: string;
   readonly eventName: string;
@@ -357,6 +429,18 @@ export interface BuildTeamSeasonArtifactParams {
    * `sortTime` absent — never a synthetic default.
    */
   readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
+  /**
+   * Phase 06.1 (F-06-3, PD-09): `match_key` -> `ActualBonusFlags | null`,
+   * from `actualBonusFlagsForSeason` — looked up per played match to
+   * populate `TeamSeasonMatchSchema.actualRedBonusRp`/`actualBlueBonusRp`.
+   * Mirrors `sortTimeByMatchKey`'s own contract exactly: an omitted map, or
+   * a missing entry for a specific match key, simply leaves that row's
+   * actual bonus keys absent — never a synthetic default. A present `null`
+   * entry (as opposed to a missing one) publishes as an explicit `null`,
+   * not absence — see `TeamSeasonMatchSchema.actualRedBonusRp`'s three-state
+   * doc comment.
+   */
+  readonly actualBonusFlagsByMatchKey?: ReadonlyMap<string, ActualBonusFlags | null>;
   /** D-03 (Phase 6): the pipeline-resolved robot image URL for this team/season, from `selectTeamMediaForYear` — omitted (never `null`) when the corpus has no eligible photo for this team-year. */
   readonly robotImageUrl?: string;
   /** D-05 (Phase 6): the seasons this team is known to have competed in, from the `activeYearsByTeam` pre-pass — feeds the team page's constrained year dropdown (D-18). */
@@ -406,6 +490,13 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
         redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
         blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+        // Phase 06.1 (F-06-1): predicted per-bonus marginals — independent
+        // probabilities, never routed through roundPmf's residual
+        // redistribution (that is only meaningful for a distribution
+        // required to sum to 1). Rounded once, here, at
+        // ROUNDING_RULE.probability, matching pRedWin's own rounding.
+        redBonusRp: prediction.redBonusRp ? prediction.redBonusRp.map((p) => roundProbability(p)) : undefined,
+        blueBonusRp: prediction.blueBonusRp ? prediction.blueBonusRp.map((p) => roundProbability(p)) : undefined,
         // D-08 (Phase 6): the Match column's human label, published directly
         // instead of re-derived client-side from the opaque matchKey.
         setNumber: match.setNumber,
@@ -420,6 +511,14 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
       // the correct, flag-free discriminant `buildSeasonStream`'s leak-proof
       // convention already establishes elsewhere in this codebase.
       if ("winner" in match) {
+        // Phase 06.1 (F-06-3, PD-09/PD-10): looked up by match key, never by
+        // array position. A MISSING map entry (undefined) leaves both
+        // actual bonus keys genuinely absent from the row below (conditional
+        // spread, not `key: undefined`); a PRESENT `null` entry publishes an
+        // explicit null; a present array entry is copied (never aliased) so
+        // a later mutation of the source map's array cannot reach the
+        // published artifact.
+        const flags = params.actualBonusFlagsByMatchKey?.get(match.matchKey);
         return {
           ...row,
           actualWinner: match.winner,
@@ -429,6 +528,9 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           // actualRedRp/actualBlueRp doc comment for the full null contract.
           actualRedRp: match.redRpEarned,
           actualBlueRp: match.blueRpEarned,
+          ...(flags !== undefined
+            ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
+            : {}),
         };
       }
       return row;
@@ -958,6 +1060,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // inner entry leaves both fields undefined at the per-team assembly
     // site below — never fetched, never guessed, never zero.
     const eventRankingsForSeason = selectEventRankingsForSeason(db, season);
+    // Phase 06.1 (F-06-3, PD-09): the algorithm-independent actual per-bonus
+    // flag map, built ONCE per season here — outside the per-algorithm loop
+    // below — since the raw score breakdown and this season's RP rule
+    // module describe the match, not a prediction. See
+    // `actualBonusFlagsForSeason`'s own doc comment for the full null
+    // contract and its exact correspondence with `sigma1/index.ts`'s
+    // `update()` RP-fold skip predicate.
+    const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
 
     const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === coldStartSeason };
     let initialStates: ReadonlyMap<string, unknown> | undefined;
@@ -1253,6 +1363,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           events,
           metricHistory: metricHistoryForAlgo.get(teamKey) ?? [],
           sortTimeByMatchKey,
+          actualBonusFlagsByMatchKey,
           // D-03 (Phase 6): omitted entirely when the corpus has no row, or
           // the stored value is null — never fetched, never guessed.
           robotImageUrl: teamMediaForSeason.get(teamKey)?.imageUrl ?? undefined,
