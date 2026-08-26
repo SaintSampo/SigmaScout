@@ -1,52 +1,65 @@
-name: Build & deploy to GitHub Pages
+name: Build & deploy to Cloudflare Pages
 
-# Deploys via the Actions-based Pages source (not a branch), so generated data
-# artifacts never get committed and the git history stays clean.
+# Replaces the original v2-era workflow, which deployed to GITHUB Pages via
+# `npm ci` + `actions/deploy-pages`. That file had been failing on every push
+# since the pnpm-workspace rebuild: `actions/setup-node` with `cache: npm`
+# aborts in ~13s with "Dependencies lock file is not found ... Supported file
+# patterns: package-lock.json, npm-shrinkwrap.json, yarn.lock" because this
+# repo ships `pnpm-lock.yaml`. It therefore never reached its build step, and
+# it pointed at the wrong host besides — the live site (sigmascout.org) is a
+# CLOUDFLARE Pages project (`sigmascout-web`), which until now was only ever
+# updated by running `pnpm --filter web run deploy` by hand.
+#
+# Found during Phase 6 UAT: the deployed origin was 125 commits stale while
+# `origin/main` was current, which silently invalidated every one of
+# `apps/web/e2e`'s specs — they have no local `webServer` and assert against
+# the deployed apex exclusively (see apps/web/playwright.config.ts).
 on:
   push:
     branches: [main]
   workflow_dispatch:
-  # Later: a `schedule:` trigger here can refresh FRC data every ~30 min by
-  # running `npm run pipeline` before the build. (GitHub cron can be delayed and
-  # auto-disables after 60 days of repo inactivity — fine for this use.)
-  # schedule:
-  #   - cron: "*/30 * * * *"
 
+# Narrowest permission that satisfies actions/checkout. The GitHub-Pages-only
+# `pages: write` / `id-token: write` grants the old file carried are gone —
+# nothing here talks to GitHub Pages anymore.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Let a running deploy finish; queue at most one more.
+# Let a running deploy finish; queue at most one more. Never cancel in
+# progress: a half-finished Pages upload is worse than a slightly late one.
 concurrency:
-  group: pages
+  group: deploy-pages
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Same pattern as test.yml: no `version:` input, so pnpm/action-setup
+      # reads package.json's "packageManager" field ("pnpm@11.21.0") and
+      # cannot drift from what a future bump there specifies.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      # When data collection is wired up, uncomment to refresh artifacts:
-      # - run: npm run pipeline
-      #   env:
-      #     FIRST_API_KEY: ${{ secrets.FIRST_API_KEY }}
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
+          node-version: 24
+          cache: pnpm
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - run: pnpm install --frozen-lockfile
+
+      # Build only the web app. The pipeline/harness packages are offline
+      # tooling and are not part of the deployed bundle.
+      - run: pnpm --filter web build
+
+      # `--branch=main` is explicit rather than inferred: wrangler decides
+      # production-vs-preview from the branch it detects, and detection in a
+      # detached-HEAD Actions checkout is not something to leave to chance.
+      # `main` is this project's configured production branch.
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: pages deploy dist --project-name sigmascout-web --branch=main
