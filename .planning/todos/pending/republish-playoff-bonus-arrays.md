@@ -2,7 +2,7 @@
 id: republish-playoff-bonus-arrays
 created: 2026-08-27
 source: 06.1-08-PLAN.md PD-16
-resolves_phase: 06.1
+resolves_phase: 07
 priority: low
 ---
 
