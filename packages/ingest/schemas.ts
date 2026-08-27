@@ -118,7 +118,12 @@ export const tbaMediaListSchema = z.array(tbaMediaSchema);
  * used; see `rankings.ts`).
  */
 export const tbaEventRankingSchema = z.object({
-  rank: z.number(),
+  // `.int()`: every other boundary this value crosses treats it as strictly
+  // integral (`packages/corpus/schema.sql`'s `rank INTEGER NOT NULL`,
+  // `packages/harness/pageArtifacts.ts`'s `rank: z.number().int()...`) — a
+  // non-integral rank must throw here, at the fetch boundary, not silently
+  // persist into a SQLite INTEGER column (T-06.1-01).
+  rank: z.number().int(),
   team_key: z.string(),
   matches_played: z.number(),
   dq: z.number(),

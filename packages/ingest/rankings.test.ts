@@ -88,6 +88,11 @@ describe("tbaEventRankingsResponseSchema", () => {
     const drifted = { ...rankingsResponse(), rankings: [{ ...rankingEntry(), rank: "1" }] };
     expect(() => tbaEventRankingsResponseSchema.parse(drifted)).toThrow();
   });
+
+  it("throws on a drifted payload — rank is non-integral (WR-01, never silently coerced into a SQLite INTEGER column)", () => {
+    const drifted = { ...rankingsResponse(), rankings: [{ ...rankingEntry(), rank: 3.5 }] };
+    expect(() => tbaEventRankingsResponseSchema.parse(drifted)).toThrow();
+  });
 });
 
 describe("normalizeEventRankings", () => {
