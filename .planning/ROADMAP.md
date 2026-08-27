@@ -362,7 +362,7 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 8/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 **Wave 1**
