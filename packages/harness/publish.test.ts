@@ -629,6 +629,34 @@ describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-
     const result = actualBonusFlagsForSeason([match], 2021);
     expect(result.size).toBe(0);
   });
+
+  /**
+   * G-06.1-26 (plan 06.1-08, Task 3): the generalized invariant that
+   * prevents silent reintroduction — written over the FULL comp-level set
+   * (qm + all four playoff levels) in ONE mixed stream, so a future comp
+   * level or a reintroduced ungated form fails here, not just for `sf`.
+   * Non-vacuous: asserts the stream length (5) against the map size (1)
+   * rather than only the per-match membership checks.
+   */
+  it("G-06.1-26 (plan 06.1-08): a match maps into the result set IFF its compLevel is qm, asserted over one mixed stream containing all five comp levels", () => {
+    const compLevels = ["qm", "ef", "qf", "sf", "f"] as const;
+    const stream: MatchResult[] = compLevels.map((compLevel, index) =>
+      fixtureMatch({
+        matchKey: `2024casj_${compLevel}${index}`,
+        compLevel,
+        eventType: 0,
+        scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
+      }),
+    );
+    expect(stream).toHaveLength(5);
+
+    const result = actualBonusFlagsForSeason(stream, 2024);
+    expect(result.size).toBe(1);
+
+    for (const match of stream) {
+      expect(result.has(match.matchKey)).toBe(match.compLevel === "qm");
+    }
+  });
 });
 
 describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 2, F-06-1/F-06-3)", () => {
@@ -755,6 +783,52 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
     const sigma1Row = sigma1Artifact.events[0]?.matches[0];
     expect(oprRow?.actualRedBonusRp).toEqual(sigma1Row?.actualRedBonusRp);
     expect(oprRow?.actualBlueBonusRp).toEqual(sigma1Row?.actualBlueBonusRp);
+  });
+
+  /**
+   * G-06.1-26 (plan 06.1-08, Task 3): the cross-side invariant — pins
+   * predicted and actual to the SAME gating rule. Deliberately feeds a
+   * `Prediction` carrying populated bonus marginals AND a populated
+   * `actualBonusFlagsByMatchKey` entry for BOTH the qm and the sf match, so
+   * this proves `buildTeamSeasonArtifact` itself defends against a
+   * playoff-match input carrying either kind of per-bonus data — never
+   * merely that a well-behaved caller happens not to supply it.
+   */
+  it("G-06.1-26 (plan 06.1-08): a played sf row carries NEITHER predicted nor actual per-bonus keys, while a qm row in the same artifact carries all four", () => {
+    const qmMatch = fixtureMatch({ matchKey: "2024casj_qm1", compLevel: "qm" });
+    const sfMatch = fixtureMatch({ matchKey: "2024casj_sf1m1", compLevel: "sf" });
+    const bonusPrediction = fixturePrediction({ redBonusRp: [0.7, 0.2], blueBonusRp: [0.1, 0.9] });
+    const flags: ActualBonusFlags = { red: [true, false], blue: [false, true] };
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2024casj",
+          eventName: "2024casj",
+          startDate: "2024-03-01",
+          matches: [
+            { match: qmMatch, prediction: bonusPrediction },
+            { match: sfMatch, prediction: bonusPrediction },
+          ],
+        },
+      ],
+      actualBonusFlagsByMatchKey: new Map([
+        [qmMatch.matchKey, flags],
+        [sfMatch.matchKey, flags],
+      ]),
+    });
+    const qmRow = artifact.events[0]?.matches.find((m) => m.matchKey === qmMatch.matchKey) as object;
+    const sfRow = artifact.events[0]?.matches.find((m) => m.matchKey === sfMatch.matchKey) as object;
+
+    expect(qmRow).toHaveProperty("redBonusRp");
+    expect(qmRow).toHaveProperty("blueBonusRp");
+    expect(qmRow).toHaveProperty("actualRedBonusRp");
+    expect(qmRow).toHaveProperty("actualBlueBonusRp");
+
+    expect(sfRow).not.toHaveProperty("redBonusRp");
+    expect(sfRow).not.toHaveProperty("blueBonusRp");
+    expect(sfRow).not.toHaveProperty("actualRedBonusRp");
+    expect(sfRow).not.toHaveProperty("actualBlueBonusRp");
   });
 });
 

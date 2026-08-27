@@ -22,6 +22,16 @@
  * breaks the web build with a clear, named failure here rather than a
  * confusing bundler error far from its cause.
  *
+ * Plan 06.1-08 Task 3 (G-06.1-26) extends this with a FOURTH entry point:
+ * `packages/core/algorithms/sigma1/rp/constants.ts` —
+ * `apps/web/src/components/team/MatchTable.tsx` now imports
+ * `isBonusRpCompLevel` from it directly (PD-19), so the client bundles this
+ * module too. Like the breakdown entry point, this one legitimately LIVES
+ * under `packages/core/algorithms/` and is checked ONLY for Node built-in
+ * imports — at the time of writing it has zero runtime imports of its own
+ * (only a type-only `CompLevel` import), so this guard is what catches a
+ * future Node-only import added there before it reaches the web build.
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -33,6 +43,7 @@ import { describe, expect, it } from "vitest";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts")];
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
+const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "sigma1", "rp", "constants.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -133,6 +144,15 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/breakdown/index.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/algorithms/sigma1/rp/constants.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/, plan 06.1-08 Task 3, G-06.1-26)", () => {
+    const { nodeBuiltinViolations, visited } = scan([RP_CONSTANTS_ENTRY_POINT]);
+    expect(visited.has(RP_CONSTANTS_ENTRY_POINT)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/sigma1/rp/constants.ts: ${detail}`);
     }
   });
 });

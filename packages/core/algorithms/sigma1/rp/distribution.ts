@@ -39,7 +39,7 @@
  */
 import { CholeskyDecomposition, Matrix } from "ml-matrix";
 import type { CompLevel } from "../../types.js";
-import type { RpRuleModule } from "./constants.js";
+import { isBonusRpCompLevel, type RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
 import type { Sigma1Params } from "../params.js";
 
@@ -359,7 +359,12 @@ export function rpPmfForMatch(input: RpPmfInput): RpPmfResult {
 
   // 1. Non-qualification short-circuit (Pitfall 3, ELIMINATION_RP_TOTAL):
   // both alliances get the degenerate P(RP=0)=1 pmf, no draws, no cost.
-  if (compLevel !== "qm") {
+  // G-06.1-26 (plan 06.1-08): behaviour-identical refactor — the previous
+  // direct comp-level string comparison here is replaced by the single
+  // shared `isBonusRpCompLevel` predicate (`rp/constants.ts`), so this, the
+  // actual gate (`publish.ts`), and the client guard (`BonusRpDots.tsx`) are
+  // now the SAME function rather than three independently-drifting copies.
+  if (!isBonusRpCompLevel(compLevel)) {
     return { redPmf: degenerateZeroPmf(), bluePmf: degenerateZeroPmf() };
   }
 

@@ -554,13 +554,6 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
         redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
         blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-        // Phase 06.1 (F-06-1): predicted per-bonus marginals — independent
-        // probabilities, never routed through roundPmf's residual
-        // redistribution (that is only meaningful for a distribution
-        // required to sum to 1). Rounded once, here, at
-        // ROUNDING_RULE.probability, matching pRedWin's own rounding.
-        redBonusRp: prediction.redBonusRp ? prediction.redBonusRp.map((p) => roundProbability(p)) : undefined,
-        blueBonusRp: prediction.blueBonusRp ? prediction.blueBonusRp.map((p) => roundProbability(p)) : undefined,
         // D-08 (Phase 6): the Match column's human label, published directly
         // instead of re-derived client-side from the opaque matchKey.
         setNumber: match.setNumber,
@@ -568,6 +561,26 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
         sortTime,
         redTeams: [...match.redTeams],
         blueTeams: [...match.blueTeams],
+        // G-06.1-26 (plan 06.1-08): predicted per-bonus marginals —
+        // independent probabilities, never routed through roundPmf's
+        // residual redistribution (that is only meaningful for a
+        // distribution required to sum to 1). Rounded once, here, at
+        // ROUNDING_RULE.probability, matching pRedWin's own rounding.
+        // CONDITIONALLY spread (never assigned `undefined` directly, matching
+        // `rank`/`totalTeams`'s own convention above), gated on
+        // `isBonusRpCompLevel(match.compLevel)` — defence in depth at the
+        // artifact-assembly boundary, mirroring the actual-side gate a few
+        // lines below and the client guard (`BonusRpDots`'s `applicable`
+        // prop): a played PLAYOFF match's row must carry neither key even if
+        // a caller-supplied `Prediction` happens to carry populated arrays
+        // (sigma1's own `predict()` already never does this upstream, but
+        // this function does not trust that upstream discipline alone).
+        ...(isBonusRpCompLevel(match.compLevel) && prediction.redBonusRp
+          ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) }
+          : {}),
+        ...(isBonusRpCompLevel(match.compLevel) && prediction.blueBonusRp
+          ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) }
+          : {}),
       };
       // D-09 (Phase 6): discriminate on the presence of the outcome fields
       // themselves — a scheduled match's `UpcomingMatch` never carries
@@ -581,7 +594,12 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
         // spread, not `key: undefined`); a PRESENT `null` entry publishes an
         // explicit null; a present array entry is copied (never aliased) so
         // a later mutation of the source map's array cannot reach the
-        // published artifact.
+        // published artifact. G-06.1-26 (plan 06.1-08): ALSO gated on
+        // `isBonusRpCompLevel(match.compLevel)` — defence in depth against a
+        // caller-supplied map that (like the ~54,671 already-published
+        // artifacts, pre-fix) carries a populated entry for a playoff match;
+        // `actualBonusFlagsForSeason` itself now never produces one, but this
+        // function does not trust that upstream discipline alone either.
         const flags = params.actualBonusFlagsByMatchKey?.get(match.matchKey);
         return {
           ...row,
@@ -592,7 +610,7 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           // actualRedRp/actualBlueRp doc comment for the full null contract.
           actualRedRp: match.redRpEarned,
           actualBlueRp: match.blueRpEarned,
-          ...(flags !== undefined
+          ...(isBonusRpCompLevel(match.compLevel) && flags !== undefined
             ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
             : {}),
         };
