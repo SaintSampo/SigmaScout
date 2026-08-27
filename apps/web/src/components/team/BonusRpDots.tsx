@@ -22,6 +22,19 @@ export interface BonusRpDotsProps {
   /** "predicted" or "actual" — only used to disambiguate the testid and the accessible label. */
   kind: "predicted" | "actual";
   matchKey: string;
+  /**
+   * REQUIRED (G-06.1-26, plan 06.1-08, PD-18): whether bonus RP can exist at
+   * all for this match's `compLevel` — the caller passes
+   * `isBonusRpCompLevel(match.compLevel)` (`packages/core/algorithms/sigma1/rp/constants.ts`).
+   * When `false`, every dot renders `unknown` REGARDLESS of `states` — this
+   * is the client-side defence-in-depth guard against the ~54,671
+   * already-published artifacts that still carry actual per-bonus arrays on
+   * playoff rows (PD-16: no republish). Required, not optional, so a future
+   * call site that forgets to pass it fails `pnpm typecheck` rather than
+   * silently shipping a false earned/missed claim — the exact drift that
+   * produced this gap on the pipeline's actual side in the first place.
+   */
+  applicable: boolean;
 }
 
 /**
@@ -33,18 +46,21 @@ export interface BonusRpDotsProps {
  *
  * Solid means earned (actual) or predicted to be earned; hollow means not.
  * A third state, `unknown`, is drawn dashed and muted — see `bonusRp.ts`'s
- * `BonusRpState` for why that is not the same thing as hollow, and why every
- * dot is currently in it.
+ * `BonusRpState` for why that is not the same thing as hollow. Every dot is
+ * ALSO forced `unknown` when `applicable` is `false` (a playoff match — bonus
+ * RP is a qualification-only mechanic), regardless of what `states` carries.
  */
-export function BonusRpDots({ season, side, states, probabilities, kind, matchKey }: BonusRpDotsProps) {
+export function BonusRpDots({ season, side, states, probabilities, kind, matchKey, applicable }: BonusRpDotsProps) {
   const bonuses = bonusRpForSeason(season);
   if (bonuses.length === 0) return null;
 
   return (
     <span data-testid={`bonus-rp-${kind}-${matchKey}-${side}`} className="flex items-center gap-[2px]" role="group" aria-label={`${kind === "predicted" ? "Predicted" : "Actual"} bonus ranking points, ${side} alliance`}>
       {bonuses.map((bonus, index) => {
-        const state: BonusRpState = states?.[index] ?? "unknown";
-        const label = bonusDotLabel(bonus.label, state, kind, probabilities?.[index]);
+        const state: BonusRpState = applicable ? (states?.[index] ?? "unknown") : "unknown";
+        const label = applicable
+          ? bonusDotLabel(bonus.label, state, kind, probabilities?.[index])
+          : `${bonus.label}: not awarded outside qualification matches`;
         return (
           <span
             key={bonus.key}

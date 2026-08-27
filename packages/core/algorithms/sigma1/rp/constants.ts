@@ -20,6 +20,8 @@
  * `.totalPoints`, despite being numerically identical in sampled data).
  */
 
+import type { CompLevel } from "../../types.js";
+
 /**
  * One named scalar a season's RP rules threshold on, tracked in its own
  * units. Named "threshold variable", not "count" — see the file header.
@@ -248,3 +250,27 @@ export function assertFiniteThresholdVariables(vars: Record<string, number>, con
  * any non-`qm` `compLevel`, matching `score.ts`'s existing qual/elim split.
  */
 export const ELIMINATION_RP_TOTAL = 0;
+
+/**
+ * The SECOND of the two eligibility predicates for bonus RP — the sibling
+ * of `isRpEligibleEventType` above, which gates on event TYPE (regional vs.
+ * offseason etc.); this one gates on comp LEVEL. FRC awards bonus ranking
+ * points in qualification play only (`ELIMINATION_RP_TOTAL`'s own measured
+ * 0/N across every played elimination match, every season) — this predicate
+ * returns `true` for `"qm"` and `false` for every elimination `CompLevel`
+ * (`"ef" | "qf" | "sf" | "f"`).
+ *
+ * This is the SINGLE SOURCE of that rule (G-06.1-26, plan 06.1-08): the
+ * predicted gate (`rp/distribution.ts`'s `rpPmfForMatch`), the actual gate
+ * (`packages/harness/publish.ts`'s `actualBonusFlagsForSeason`), and the
+ * client guard (`apps/web/src/components/team/BonusRpDots.tsx`'s
+ * `applicable` prop) all call this one function. Before this plan those
+ * three carried INDEPENDENT copies of the rule, and two of them drifted:
+ * the actual side had no gate at all, so a played playoff match published
+ * (and rendered) earned/missed bonus dots for a ranking point FRC never
+ * awards there. Naming the rule once, here, is what makes that drift
+ * structurally impossible to reintroduce.
+ */
+export function isBonusRpCompLevel(compLevel: CompLevel): boolean {
+  return compLevel === "qm";
+}

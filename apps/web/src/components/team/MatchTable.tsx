@@ -3,6 +3,15 @@ import { BonusRpDots } from "./BonusRpDots.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
+// G-06.1-26 (plan 06.1-08, PD-19): imported directly from core rather than
+// copied into apps/web — `rp/constants.ts` has zero runtime imports of its
+// own, so (unlike `BONUS_RP_BY_SEASON` in `bonusRp.ts`) importing it does not
+// drag the Sigma1 RP implementation into the browser bundle. Precedent:
+// `apps/web/src/lib/metricKeys.ts` already imports directly from
+// `packages/core/algorithms/breakdown/index.ts`. Guarded as a browser-safe
+// entry point by `packages/harness/browserSafeSchemas.test.ts` (plan 06.1-08
+// Task 3).
+import { isBonusRpCompLevel } from "../../../../../packages/core/algorithms/sigma1/rp/constants.js";
 
 /**
  * The band/tick/dot row anatomy on one shared axis, drawn once per event
@@ -172,6 +181,7 @@ function PredictedScoreLine({
   variance,
   season,
   bonusRp,
+  compLevel,
 }: {
   matchKey: string;
   side: "red" | "blue";
@@ -181,13 +191,15 @@ function PredictedScoreLine({
   season: number;
   /** This alliance's own predicted per-bonus probabilities (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. Undefined when the Monte Carlo did not run for this match. */
   bonusRp: readonly number[] | undefined;
+  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop. */
+  compLevel: TeamSeasonMatch["compLevel"];
 }) {
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
   const bonusCount = bonusRpForSeason(season).length;
   const bonusStates = bonusStatesFromProbabilities(bonusRp, bonusCount);
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} states={bonusStates} probabilities={bonusRp} />
+      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} states={bonusStates} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
         {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}
@@ -203,6 +215,7 @@ function ActualScoreLine({
   isLoser,
   season,
   actualBonusRp,
+  compLevel,
 }: {
   matchKey: string;
   side: "red" | "blue";
@@ -211,12 +224,14 @@ function ActualScoreLine({
   season: number;
   /** This alliance's own actual per-bonus flags (`TeamSeasonMatchSchema.actualRedBonusRp`/`actualBlueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. `null` means the pipeline looked and the fact is not derivable; undefined means the artifact predates the field or the season has no registered RP rules. */
   actualBonusRp: readonly boolean[] | null | undefined;
+  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop — the defence-in-depth guard against already-published playoff rows that still carry populated actual per-bonus arrays. */
+  compLevel: TeamSeasonMatch["compLevel"];
 }) {
   const bonusCount = bonusRpForSeason(season).length;
   const bonusStates = bonusStatesFromFlags(actualBonusRp, bonusCount);
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} states={bonusStates} />
+      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} states={bonusStates} applicable={isBonusRpCompLevel(compLevel)} />
       {/* The RP total is deliberately not printed here — bonus RP is the dots
           beside it, and win/tie RP is already carried by the Confidence chip
           and the Call column. */}
@@ -295,15 +310,15 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redScoreVarianceOwn} season={season} bonusRp={match.redBonusRp} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueScoreVarianceOwn} season={season} bonusRp={match.blueBonusRp} />
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redScoreVarianceOwn} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueScoreVarianceOwn} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played ? (
           <div className="flex flex-col gap-[2px]">
-            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} />
-            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} />
+            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} compLevel={match.compLevel} />
+            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} compLevel={match.compLevel} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">

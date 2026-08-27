@@ -411,5 +411,81 @@ describe("MatchTable", () => {
       expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "earned"]);
       expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "missed"]);
     });
+
+    /**
+     * G-06.1-26 (plan 06.1-08, Task 2): a played playoff match must render
+     * every bonus dot `unknown` — never `earned`/`missed` — EVEN WHEN the
+     * artifact handed to the component still carries populated actual
+     * per-bonus arrays on that row (exactly the shape the 54,671
+     * already-published 2022-2026 artifacts carry, per PD-16/PD-18). This is
+     * the client-side defence-in-depth guard: it must hold with no
+     * republish.
+     */
+    it("greys every dot to unknown for a played sf row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2024 two-bonus season)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              compLevel: "sf",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.7, 0.2],
+              blueBonusRp: [0.1, 0.9],
+              actualRedBonusRp: [true, false],
+              actualBlueBonusRp: [false, true],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
+      expect(allStates.every((state) => state === "unknown")).toBe(true);
+      expect(allStates).not.toContain("earned");
+      expect(allStates).not.toContain("missed");
+    });
+
+    it("greys every dot to unknown for a played f row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2026 three-bonus season)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              season: 2026,
+              compLevel: "f",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redBonusRp: [0.7, 0.2, 0.55],
+              blueBonusRp: [0.1, 0.9, 0.4],
+              actualRedBonusRp: [true, false, true],
+              actualBlueBonusRp: [false, true, false],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2026}
+        />,
+      );
+
+      const predictedRed = collectDotStates("bonus-rp-predicted-m1-red");
+      const predictedBlue = collectDotStates("bonus-rp-predicted-m1-blue");
+      const actualRed = collectDotStates("bonus-rp-actual-m1-red");
+      const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
+
+      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
+      expect(allStates.every((state) => state === "unknown")).toBe(true);
+      expect(allStates).not.toContain("earned");
+      expect(allStates).not.toContain("missed");
+    });
   });
 });

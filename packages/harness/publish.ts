@@ -57,7 +57,7 @@ import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { sigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
-import { isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
+import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
@@ -386,6 +386,19 @@ export interface ActualBonusFlags {
  * publish, and the caller's missing-map-entry behavior (leaving a row's
  * actual bonus keys absent) is already the correct representation.
  *
+ * G-06.1-26 (plan 06.1-08, PD-17): a non-`qm` `compLevel` produces ABSENCE
+ * (no map entry at all) rather than `null`, checked FIRST — before every
+ * other eligibility check below — via the single shared
+ * `isBonusRpCompLevel` predicate (`rp/constants.ts`). `null` has a specific
+ * published meaning: "the pipeline looked at a match that COULD have bonus
+ * RP and could not derive it" (unparseable breakdown, offseason event
+ * type). A playoff match is not that — bonus RP is not a property it can
+ * have AT ALL, matching the predicted side's own `rpPmfForMatch`, which
+ * omits `redBonusRp`/`blueBonusRp` entirely for a non-`qm` match. Placing
+ * this check before the `null`-producing checks is load-bearing: placed
+ * after them, a playoff match at an offseason event would silently publish
+ * `null` instead of being correctly absent.
+ *
  * A match maps to `null` when its event type is not RP-eligible
  * (`isRpEligibleEventType`), when it has no score breakdown
  * (`!match.hasScoreBreakdown` / `match.scoreBreakdownRaw === null` — the two
@@ -415,6 +428,12 @@ export function actualBonusFlagsForSeason(stream: readonly MatchResult[], season
   if (ruleModule === undefined) return result; // no registered RP rule module for this season — no bonus vocabulary to publish at all
 
   for (const match of stream) {
+    // G-06.1-26 (plan 06.1-08, PD-17): bonus RP is a property of a
+    // qualification match and of nothing else — checked FIRST, before the
+    // null-producing checks below, so a playoff match produces ABSENCE
+    // (never `null`). See this function's doc comment for the full
+    // absence-vs-null contract.
+    if (!isBonusRpCompLevel(match.compLevel)) continue;
     if (!isRpEligibleEventType(match.eventType) || !match.hasScoreBreakdown || match.scoreBreakdownRaw === null) {
       result.set(match.matchKey, null);
       continue;
