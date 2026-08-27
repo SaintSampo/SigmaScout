@@ -60,3 +60,10 @@ all and is unaffected by this change.
   separate, already-accepted override, unrelated to this todo)
 - `06.1-07-SUMMARY.md` (the prior republish, whose scope-creep is why an
   unplanned republish is avoided here)
+
+## Scheduled
+
+**Included in Phase 7 (Event Pages)** — user decision at `/gsd-plan-phase 7` gate,
+2026-08-27. Supersedes this todo's own "no dedicated run needed" resolution: run
+it as part of the phase, but combined with the `EventMatchSchema` predictive-variance
+change from `publish-match-predictive-variance` so R2 is rewritten once, not twice.

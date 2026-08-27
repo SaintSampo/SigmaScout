@@ -2,7 +2,7 @@
 id: publish-match-predictive-variance
 created: 2026-08-25
 source: sketch 003-alliance-axes
-resolves_phase: 6
+resolves_phase: 7
 priority: high
 ---
 
@@ -55,3 +55,15 @@ Phase 7 alliance display that wants to show uncertainty.
 - D-09 / D-10 in `.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md`
 - D-12 (link function modes) — same variance feeds it
 - `.planning/sketches/003-alliance-axes/README.md` — the display that needs it
+
+## Scheduled
+
+**Folded into Phase 7 (Event Pages)** — user decision at `/gsd-plan-phase 7` gate,
+2026-08-27. The Quals/Elims tabs (EVNT-04, EVNT-06) render predicted scores next
+to actuals, and D-10's ± is the honest uncertainty those rows are supposed to
+carry, so the schema + publish change belongs inside this phase rather than
+ahead of it.
+
+Combine the resulting R2 republish with
+[[republish-playoff-bonus-arrays]] — both rewrite `team/{teamKey}/{year}` and
+event artifacts, and one ~23-min pass should serve both.
