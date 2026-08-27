@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06.1
 current_phase_name: match-and-event-data-enrichment
-status: executing
-stopped_at: Completed 06.1-06-PLAN.md
-last_updated: "2026-08-26T23:52:11.373Z"
+status: verifying
+stopped_at: Completed 06.1-07-PLAN.md
+last_updated: "2026-08-27T00:39:56.769Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 06.1 execution started
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 63
-  completed_plans: 62
+  completed_plans: 63
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 06.1 (match-and-event-data-enrichment) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-26 — Phase 06.1 execution started
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Progress: [██████████] 98%
 | Phase 06.1 P04 | 20min | 2 tasks | 1 files |
 | Phase 06.1 P05 | ~35min | 3 tasks | 4 files |
 | Phase 06.1 P06 | ~40min | 3 tasks | 7 files |
+| Phase 06.1 P07 | ~50min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -191,6 +192,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06.1 P05]: withHistoryPercentiles/actualBonusFlagsForSeason exported (matching publish.ts's own computeSizeStats/OUTCOME_KEYS precedent) so their precise multi-branch behavior contracts get direct unit tests
 - [Phase ?]: [Phase 06.1 P05]: corpus-backed percentile invariant replays real 2022 season with epa (per-team-independent state) rather than opr/sigma1 -- measured all 3,062 teams satisfy the value-equality precondition, 0 mismatches, floor of 50 required
 - [Phase ?]: [Phase 06.1 P06]: PD-11/PD-12/PD-13/PD-14 and D-06.1-A applied exactly as written -- bonusDotLabel is the single source of a dot's title and aria-label; the per-event metric line's tier comes from the history row's own published percentile (EventSection.tsx never receives season-final data at all, so it structurally cannot substitute it)
+- [Phase ?]: [Phase 06.1 P07]: The republish's payload-budget delta has five real contributing causes, not three -- two pre-06.1 Phase-6 commits (06f468ad phase-group metrics, bf1e3228 teams-artifact tier field) landed after the prior recorded run and were never republished until this run, swept in alongside this phase's own three items
+- [Phase ?]: [Phase 06.1 P07]: teams/{year}'s measured maximum (3,577,069 bytes) now exceeds its committed budgetMaxBytes ceiling (3,500,000), caused entirely by pre-06.1 Phase-6 work; ceiling deliberately NOT raised (this plan's own prohibition); payloadBudget.test.ts left genuinely red for this one page kind, logged to WINDOWS.md ledger #11 for a future developer decision
 
 ### Pending Todos
 
@@ -209,6 +212,7 @@ None yet.
 - ~~epa.ts's predict() may attribute foulsCommitted to the wrong side's score (sums a team's own learned foulsCommitted into its own score rather than the opponent's) -- unverified impact, logged to WINDOWS.md entry 3, not fixed by plan 02-04~~ **RESOLVED** (corrected 2026-08-20, phase 03.1 verification): this line was stale and contradicted its own cited source. `WINDOWS.md` ledger entry 3 has read `status: fixed` since 2026-08-14T06:40:51Z, and `packages/core/algorithms/epa.ts` implements the correct D-04 cross-alliance attribution at HEAD — an alliance's own `FOULS_COMMITTED_COMPONENT` is excluded from its offensive total and the OPPOSING alliance's is added instead (`redScore = redOffensiveTotal + blueComponents[FOULS_COMMITTED_COMPONENT]`), mirroring sigma1's handling. Fixed in `a0ec5d54` (`fix(02): EPA predict attributes foulsCommitted to the opposing alliance (D-04)`) with a regression test in `epa.test.ts`. STATE.md was simply never updated to match.
 - ~~packages/core/algorithms/breakdown/2024.ts's parseBreakdown() is called unconditionally at the top of sigma1's update() with no eventType/compLevel guard and no try/catch -- self-reported offseason score_breakdown JSON missing required fields (confirmed: 2024cafb_qm1, 2024wvrox_sf1m1) throws uncaught; logged WINDOWS.md #4/#5, not fixed (out of scope for 03-07)~~ **RESOLVED** by quick task 260818-inm: `tryParseBreakdownPair` narrows the failure to ZodError/SyntaxError only and degrades to the D-05 fallback with a counted `breakdownParseFailureCount`; both commands now exit 0 (1004 and 19 failures counted, never dropped). WINDOWS.md #4/#5 closed. ~~Security threat T-03-18b remains formally `open` in 03-SECURITY.md until `/gsd-secure-phase 3` is re-run.~~ **RESOLVED** (corrected 2026-08-20, phase 03.1 follow-up, per the 2026-08-19 milestone audit): `/gsd-secure-phase 3` was in fact re-run — `03-SECURITY.md` reads `status: verified`, `threats_open: 0`, `updated: 2026-08-19`. This line was stale, carried over unfixed from the prior audit; T-03-18b is closed.
 - Phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift) closed all nine review warnings carried forward from Phases 1 and 3 (six in `01-REVIEW.md`, three in `03-REVIEW.md`), each with a verifiable commit SHA recorded in the review file's own resolution subsection; corrected `01-VERIFICATION.md`'s stale human-verification item (closed by `01-UAT.md`, not still outstanding); and corrected this file's stale T-03-18b claim above. See `.planning/phases/03.1-address-phase-1-3-review-warnings-and-doc-drift/03.1-05-SUMMARY.md` for the full accounting.
+- teams/{year} artifact's measured maximum (3,577,069 bytes) exceeds its committed budgetMaxBytes ceiling (3,500,000 bytes) -- caused by pre-06.1 Phase-6 work (06f468ad/bf1e3228), not phase 06.1's own scope; payloadBudget.test.ts left red pending a developer decision (raise ceiling deliberately, or shrink the teams/{year} artifact). See WINDOWS.md ledger #11 and 06.1-07-SUMMARY.md.
 
 ### Quick Tasks Completed
 
@@ -235,6 +239,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-26T23:52:11.332Z
-Stopped at: Completed 06.1-06-PLAN.md
+Last session: 2026-08-27T00:39:56.721Z
+Stopped at: Completed 06.1-07-PLAN.md
 Resume file: None

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 8
 waived_count: 0
 fixed_count: 3
-total_count: 10
-last_updated: 2026-08-23T03:17:53.122Z
+total_count: 11
+last_updated: 2026-08-27T00:37:40.533Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-08-23T03:17:53.122Z
 | 8 | 04 | deviation | apps/worker/src/scheduled.ts |  | Phase B (artifact writes) is deliberately best-effort: a failure there does not change an event's 'advanced' outcome (state has genuinely advanced correctly), but a skipped artifact stays one tick stale until that team's next match at that event -- no future trigger re-attempts a partially-completed Phase B on its own | open |  | 2026-08-22T18:03:11.610Z |  |
 | 9 | 04 | deviation | docs/publish-budget.md |  | 3 published algorithms folded together for a single ordinary match exceed the deployed Worker's real per-tick subrequest budget (estimated cost 50 vs usable ~41); confirmed by repeated live observation, not fixed in this plan (Rule 4 -- architectural) | open |  | 2026-08-23T03:17:45.065Z |  |
 | 10 | 04 | unrun-verify | apps/worker/src/scheduled.ts |  | epa/sigma1 solo deployed-Worker freshness runs (plan 04-07 Task 2) never folded a single match within the poll window and were not diagnosed to root cause within the plan's session; opr's identical rig succeeded cleanly (6/6, digestMatch=true). Not reproduced in an isolated local call to the same algorithm code with the same real data. The CI-runnable offline equivalence test (scheduled.replay.test.ts) independently proves equivalence for all three algorithms and is unaffected. | open |  | 2026-08-23T03:17:53.122Z |  |
+| 11 | 06.1 | unmet-truth | docs/publish-budget.md |  | teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision | open |  | 2026-08-27T00:37:40.533Z |  |
 
 ````json
 [
@@ -146,6 +147,18 @@ last_updated: 2026-08-23T03:17:53.122Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-23T03:17:53.122Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "unmet-truth",
+    "phase": "06.1",
+    "file": "docs/publish-budget.md",
+    "line": null,
+    "description": "teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-27T00:37:40.533Z",
     "resolved_at": null
   }
 ]
