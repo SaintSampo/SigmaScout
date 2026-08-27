@@ -50,11 +50,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const metricKeys = metricKeysFor(algorithmId, season);
 
   /**
-   * D-06.1-A (plan 06.1-06, Task 3): the per-event metric line's tiles, plus
-   * whether any of them carries a published `percentile`. Computed once here
-   * (rather than inline in the render below) so the basis caption's render
-   * condition and the tiles themselves are built from the exact same list —
-   * they cannot disagree about which tiles exist.
+   * D-06.1-A (plan 06.1-06, Task 3): the per-event metric line's tiles.
    */
   const tiles =
     snapshot === undefined
@@ -67,7 +63,6 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
           })),
           { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
         ];
-  const hasTieredTile = tiles.some((tile) => tile.metric !== undefined && tile.metric.percentile !== undefined);
 
   return (
     <section
@@ -120,23 +115,21 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   season-final `TeamMetricSchema.percentile`/`tier`. That
                   substitution (an as-of-then value tiered by an as-of-then
                   rank) is exactly the defect F-06-3 was filed to prevent.
-                  The basis caption below states what the tier is ranked
-                  against, so a reader cannot misread this colour as an
-                  as-of-that-event rank.
+
+                  G-06.1-28 (plan 06.1-08, Task 1, option-a): the caption that
+                  used to state this basis on every event card was removed
+                  per user request (UAT test 28 — clutter, not disagreement
+                  with the tiers themselves). The basis is now DELIBERATELY
+                  NOT stated anywhere on this surface — a signed accepted
+                  risk (T-06.1-24, this plan's threat register), not an
+                  oversight. A future reader who wants to relocate the
+                  explanation should start there, not assume it was dropped
+                  by mistake.
                 */}
                 <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
               </span>
             );
           })}
-          {hasTieredTile && (
-            <span
-              data-testid={`event-tier-basis-${event.eventKey}`}
-              title="The rarity tiers on this line rank this team's values as of the end of this event against the season-final distribution for each metric (D-06.1-A) — where this team stood at that point against the final field, not the field as of this event."
-              className="text-role-label text-[var(--color-text-muted)]"
-            >
-              vs season-final field
-            </span>
-          )}
         </div>
       )}
 

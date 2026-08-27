@@ -266,7 +266,7 @@ describe("EventSection", () => {
       expect(snapshot.textContent).toContain("61.40");
     });
 
-    it("renders the basis caption with visible text naming season-final and a title stating where this team stood at that point, when a rendered tile carries a percentile", () => {
+    it("renders no per-event tier-basis caption even when a rendered tile carries a percentile (G-06.1-28, plan 06.1-08, option-a)", () => {
       render(
         <EventSection
           event={makeEvent()}
@@ -277,9 +277,7 @@ describe("EventSection", () => {
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
         />,
       );
-      const caption = screen.getByTestId("event-tier-basis-2024casj");
-      expect(caption.textContent).toContain("season-final");
-      expect(caption.getAttribute("title")).toContain("where this team stood at that point");
+      expect(screen.queryByTestId("event-tier-basis-2024casj")).toBeNull();
     });
 
     it("renders no basis caption when no rendered tile carries a percentile", () => {
