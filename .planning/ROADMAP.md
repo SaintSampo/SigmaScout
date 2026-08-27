@@ -398,8 +398,8 @@ Plans:
 **Requirements**: EVNT-02, EVNT-03, EVNT-04, EVNT-05, EVNT-06
 **Success Criteria** (what must be TRUE):
 
-  1. The Insights tab ranks the event's teams using the same columns as the Teams page for the selected algorithm.
-  2. The Breakdown tab shows score-component breakdowns for the event's teams.
+  1. The Insights tab lists the event's teams in official TBA event rank order, showing rank, record, ranking points and the auto/teleop/endgame metrics for the selected algorithm — falling back to the selected algorithm's own ordering, with that stated on the page, for the events that have no official ranking. *(Amended 2026-08-27 during Phase 7 discussion, D-19. Originally: "ranks the event's teams using the same columns as the Teams page for the selected algorithm." The full Teams-page column set moved to the Breakdown tab, sorted by the algorithm's rank — see SC-2 and `07-CONTEXT.md` D-07/D-11.)*
+  2. The Breakdown tab shows score-component breakdowns for the event's teams — every metric component, sorted by the selected algorithm's rank, carrying no official event rank.
   3. The Quals tab lists every qualification match with predicted winner, confidence, and predicted scores next to actual results.
   4. The Alliances tab shows each alliance's combined metrics.
   5. The Elims tab lists every elimination match with predictions next to actual results.
