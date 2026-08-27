@@ -362,7 +362,7 @@ Plans:
 
 **Sequencing note**: all three land in the same artifact republish (~16 min for 2022–2026 across three algorithms), so they are cheaper together than as three separate passes.
 
-**Plans:** 7/8 plans complete (plan 08 is gap closure — phase REOPENED 2026-08-27 by `06.1-UAT.md`)
+**Plans:** 8/8 plans executed
 
 Plans:
 **Wave 1**
@@ -389,7 +389,7 @@ Plans:
 
 **Wave 1 (gap closure)** *(independent — closes UAT gaps G-06.1-26 / G-06.1-28)*
 
-- [ ] 06.1-08-PLAN.md — Gate bonus RP to qualification matches on both the publish and render sides, and remove the per-event tier-basis caption
+- [x] 06.1-08-PLAN.md — Gate bonus RP to qualification matches on both the publish and render sides, and remove the per-event tier-basis caption
 
 ### Phase 7: Event Pages
 

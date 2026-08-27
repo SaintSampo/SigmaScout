@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 7
-current_phase_name: Event Pages
-status: planning
-stopped_at: Completed 06.1-07-PLAN.md
-last_updated: "2026-08-27T01:25:53.502Z"
+current_phase: 06.1
+current_phase_name: match-and-event-data-enrichment
+status: executing
+stopped_at: "Completed 06.1-08-PLAN.md (gap closure: G-06.1-26, G-06.1-28)"
+last_updated: "2026-08-27T04:10:28.362Z"
 last_activity: 2026-08-26
-last_activity_desc: Phase 06.1 complete, transitioned to Phase 7
+last_activity_desc: Phase 06.1 execution started
 progress:
   total_phases: 9
   completed_phases: 9
-  total_plans: 63
-  completed_plans: 63
+  total_plans: 64
+  completed_plans: 64
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 ## Current Position
 
-Phase: 7 — Event Pages
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-26 — Phase 06.1 complete, transitioned to Phase 7
+Phase: 06.1 (match-and-event-data-enrichment) — EXECUTING
+Plan: 2 of 8
+Status: Ready to execute
+Last activity: 2026-08-26 — Phase 06.1 execution started
 
 Progress: [██████████] 100%
 
@@ -97,6 +97,7 @@ Progress: [██████████] 100%
 | Phase 06.1 P05 | ~35min | 3 tasks | 4 files |
 | Phase 06.1 P06 | ~40min | 3 tasks | 7 files |
 | Phase 06.1 P07 | ~50min | 3 tasks | 1 files |
+| Phase 06.1 P08 | 55min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06.1 P06]: PD-11/PD-12/PD-13/PD-14 and D-06.1-A applied exactly as written -- bonusDotLabel is the single source of a dot's title and aria-label; the per-event metric line's tier comes from the history row's own published percentile (EventSection.tsx never receives season-final data at all, so it structurally cannot substitute it)
 - [Phase ?]: [Phase 06.1 P07]: The republish's payload-budget delta has five real contributing causes, not three -- two pre-06.1 Phase-6 commits (06f468ad phase-group metrics, bf1e3228 teams-artifact tier field) landed after the prior recorded run and were never republished until this run, swept in alongside this phase's own three items
 - [Phase ?]: [Phase 06.1 P07]: teams/{year}'s measured maximum (3,577,069 bytes) now exceeds its committed budgetMaxBytes ceiling (3,500,000), caused entirely by pre-06.1 Phase-6 work; ceiling deliberately NOT raised (this plan's own prohibition); payloadBudget.test.ts left genuinely red for this one page kind, logged to WINDOWS.md ledger #11 for a future developer decision
+- [Phase ?]: [Phase 06.1 P08]: T-06.1-24 re-dispositioned to accept (Task 1 option-a) -- per-event tier-basis caption removed with no replacement explanation anywhere; buildTeamSeasonArtifact's predicted+actual per-bonus fields switched to conditional spread and gated on isBonusRpCompLevel(match.compLevel) as defence-in-depth beyond the plan's literal per-task file list (Rule 2)
 
 ### Pending Todos
 
@@ -240,6 +242,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-27T00:39:56.721Z
-Stopped at: Completed 06.1-07-PLAN.md
+Last session: 2026-08-27T04:10:28.320Z
+Stopped at: Completed 06.1-08-PLAN.md (gap closure: G-06.1-26, G-06.1-28)
 Resume file: None
