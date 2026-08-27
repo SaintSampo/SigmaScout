@@ -1,7 +1,7 @@
 ---
 phase: 7
 slug: event-pages
-status: draft
+status: approved
 shadcn_initialized: true
 preset: "style: radix-nova, baseColor: neutral, cssVariables: true, prefix: none, radius: 0.375rem — unchanged from Phase 5/6 (apps/web/components.json confirmed on disk 2026-08-27), do not re-init"
 created: 2026-08-27
@@ -304,9 +304,25 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 > Empty-state and error-state COPY live in `## Copywriting Contract` above — this section covers
 > state coverage and REFERENCES those rows rather than restating the copy (de-dup).
 
-**Probe scope:** 7 surfaces on the new `/event/{eventKey}` route — event header, tab strip, Insights table, Breakdown table, Quals tab, Elims tab, Alliances tab. Applied the same 8-category shape (empty / loading / error / populated / partial / overflow / zero-one-many / long-text) Phases 5 and 6 used, with dismissals reasoned per-surface rather than run through the automated classifier (this phase's surfaces are close relatives of Phase 5/6 surfaces already probed — Insights/Breakdown are close relatives of the Teams table, Quals/Elims are close relatives of the team page's match table, so the reasoning below draws directly on those precedents rather than re-deriving from scratch).
+**Probe scope:** 7 surfaces on the new `/event/{eventKey}` route — event header (E1), tab strip (E2), Insights table (E3), Breakdown table (E4), Quals tab (E5), Elims tab (E6), Alliances tab (E7).
 
-**Result: 52 applicable — 31 covered, 15 backstop, 6 dismissed, 0 unresolved.**
+Run through the compiled `ui-consideration-probe.cjs` engine (Step 9.5, post-verification) with an authored `elements` override per surface, since the heuristic prose classifier is lossy and several of these surfaces are genuinely more than one element kind at once:
+
+| Surface | Element kinds (authored) | Engine-applicable categories |
+|---|---|---|
+| E1 Event header | `static-content`, `interactive-control` | 4 — loading, error, overflow, long-text |
+| E2 Tab strip | `nav`, `interactive-control` | 4 — loading, error, overflow, long-text |
+| E3 Insights table | `list-collection`, `static-content` | 8 — all |
+| E4 Breakdown table | `list-collection`, `static-content` | 8 — all |
+| E5 Quals tab | `list-collection`, `media`, `static-content` | 8 — all |
+| E6 Elims tab | `list-collection`, `media`, `static-content` | 8 — all |
+| E7 Alliances tab | `list-collection`, `static-content` | 8 — all |
+
+**Engine output: 48 applicable, 0 unclassified.** The tables below carry 55 rows — the 48 engine-applicable considerations plus 7 rows the engine deems non-applicable for that surface's element kinds (E1's empty/populated/partial/zero-one-many, E2's populated/partial, E7 already fully applicable) but which the researcher resolved anyway. Extra resolutions are kept: over-coverage is harmless, and dropping them to match the engine exactly would lose real reasoning.
+
+The engine surfaced **2 considerations the researcher's hand-reasoned pass had missed** — `long-text` on E5 and E6. Both were resolved at the Step 9.5 checkpoint (see those rows).
+
+**Result: 55 rows — 37 covered, 7 backstop, 11 dismissed, 0 unresolved.**
 
 ### E1 — Event header (name, dates, location, week, TBA link)
 
@@ -370,6 +386,7 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 | partial | ✅ covered | OPR/EPA rows carry no `redScoreVarianceOwn`/`blueScoreVarianceOwn` (D-13/06-UI-SPEC precedent) — band and predicted-RP variance simply don't render for those rows, no placeholder, same rule the team page already established. |
 | overflow | 🧪 backstop | **The highest-risk item on this tab**, directly inheriting 06-UI-SPEC.md's own "highest-risk item" framing for the team page's match table, now recurring on an event-wide roster rather than one team's matches — potentially many more rows per event than per team-season. Needs a real touch-interaction test at phone width against a high-match-count event (a full quals slate, ~60-100 matches), confirming the pinned Match column + horizontally-scrolling axis region still performs and reads correctly at that row count. |
 | zero-one-many | — dismissed | Row count is whatever the event's `matches`/`upcoming` (qm-filtered) total — an event with zero quals matches folds into the empty case above; all row content is short, bounded numeric/glyph output otherwise. |
+| long-text | — dismissed | *(Raised by the probe engine, resolved at the Step 9.5 checkpoint 2026-08-27.)* `matchLabel()` output is bounded by construction — a closed comp-level vocabulary (`Qual`/`Quarterfinal`/`Semifinal`/`Final`) plus small integers, with `Semifinal 3-2` at or near the maximum — so the Match column has no data-driven growth path. Every other cell on the row is short bounded numeric or glyph output. **Recorded residual:** this reason does NOT cover `formatScheduledTime()`, which renders through `Intl.DateTimeFormat(undefined, …)` in the *viewer's* locale and can be materially longer than `Sat 10:32 AM`; the dismissal was taken with that carve-out visible and accepted. |
 
 ### E6 — Elims tab
 
@@ -382,6 +399,7 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 | partial | ✅ covered | Bonus-RP dots always render `unknown`/greyed on every row (playoffs award none) — this is the tab's NORMAL state, not a degraded one, matching Phase 06.1's amended SC-1 wording exactly. OPR/EPA rows: same no-band rule as Quals. |
 | overflow | 🧪 backstop | Lower row-count risk than Quals (measured: 2022 tops out at ~29 playoff matches, 2024/2026 at ~22), but the same pinned-column pattern and the same touch-interaction test class applies — folded into the same test as E5 rather than a fully separate one, with an explicit assertion that the round-label column stays legible at this row density. |
 | zero-one-many | — dismissed | Same reasoning as E5 — the empty case is fully handled above; all other counts render the ordinary flat list. |
+| long-text | — dismissed | *(Raised by the probe engine, resolved at the Step 9.5 checkpoint 2026-08-27.)* Same bounded-by-construction reason as E5, and this tab is the case that motivated the question — its round labels (`Semifinal 3-2`, `Final 1-1`) are the longest `matchLabel()` output in the app. Still bounded: the vocabulary is closed and the set/match numbers are single- or double-digit. **Same recorded residual as E5** regarding locale-dependent `formatScheduledTime()` on upcoming elimination rows. |
 
 ### E7 — Alliances tab
 
@@ -416,19 +434,19 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED — gsd-ui-checker, 2026-08-27. All 6 dimensions PASS, no blocking issues, no revision loop required.
 
 **Planner obligations carried from this file:**
 - Sequence the D-18 items 1-8 publisher/schema/ingest/republish work (see "Data Dependencies" above) before any tab component that reads `EventArtifactSchema`'s new fields — this mirrors Phase 6's own sequencing obligation exactly.
 - Apply the cross-cutting VPR rename (D-04/D-05) and Teams-page rank-column rename (D-20) as part of this phase's plan, not as a follow-on — CONTEXT.md D-21 records these as deliberate, in-scope reaches beyond the roadmap fence.
 - Confirm ROADMAP.md SC-1's amendment (D-19) is present in the tree before claiming verification against it.
-- Wire evidence for all 15 backstop rows above, or they surface as `insufficient_spec` at verify time — prioritize E5/E6's mobile touch-interaction test (explicitly the highest-risk item, inheriting Phase 6's own framing) and E2's 5-tab horizontal-scroll test.
+- Wire evidence for all 7 backstop rows above, or they surface as `insufficient_spec` at verify time — prioritize E5/E6's mobile touch-interaction test (explicitly the highest-risk item, inheriting Phase 6's own framing) and E2's 5-tab horizontal-scroll test.
 - Rewrite `.claude/skills/sketch-findings-sigmascout/references/uncertainty-display.md`'s D-09/D-10 section per D-03 — this file's own binding reference set depends on that rewrite landing so a future reader of the skill is not pointed at a superseded rule.
 - Re-measure `docs/publish-budget.md` after the D-18 schema additions land (binding per CONTEXT.md, restated here since it directly gates whether this file's data assumptions hold in production).
