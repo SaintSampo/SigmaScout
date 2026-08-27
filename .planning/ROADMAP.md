@@ -347,7 +347,7 @@ Plans:
 **Requirements**: TEAM-04 (extends), plus F-06-1 / F-06-3 from 06-UAT.md
 **Success Criteria** (what must be TRUE):
 
-  1. Each bonus-RP dot on a match row renders solid when that specific bonus was earned (actual) or is predicted to be earned, and hollow when it was not — no dot remains in the `unknown` state for a played match in a season with registered RP rules.
+  1. Each bonus-RP dot on a played qualification match row renders solid when that specific bonus was earned (actual) or is predicted to be earned, and hollow when it was not — no dot remains in the `unknown` state for a played qualification match in a season with registered RP rules. Bonus-RP dots on playoff match rows (compLevel ef/qf/sf/f) are excluded from this criterion: FRC does not award bonus ranking points in playoff play (measured 0/N across the full played-elimination population, every season 2022–2026), so those dots correctly render `unknown` (greyed out) rather than resolving to solid/hollow — resolving them would assert a fact that does not exist. *(Wording corrected 2026-08-27 after plan 06.1-08 / gap G-06.1-26; see 06.1-VERIFICATION.md `recommended_roadmap_correction`. A documentation fix, not a scope reduction.)*
   2. Each event section states the team's standing at that event in the form "Rank 5 of 32", sourced from real ranking data rather than derived client-side.
   3. The per-event metric line carries the same rarity tiers as the season header and the Teams table, from a published percentile rather than a season-final rank applied to an as-of-event value.
   4. The D-15 digest-reproducibility gate still passes: every committed algorithm version reproduces its recorded prediction-stream digest bitwise.
