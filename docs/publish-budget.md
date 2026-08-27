@@ -458,6 +458,33 @@ dashboard's"). The `subrequestsUsed` figures above are the Worker's own self-rep
 as an account-level Cloudflare dashboard total. **This remains an open manual step**, tracked here
 rather than silently marked done, exactly as plan 04-04 tracked its own equivalent gap.
 
+## Pre-run projection — 2026-08-26 (plan 06.1-07 Task 1, NOT a measured run)
+
+Before spending this phase's one authorized republish, a dry-run projection (`tsx --env-file=.env
+packages/harness/publish.ts --seasons <year> --algorithm sigma1 --dry-run`, one season at a time)
+was run against every one of the five seasons, to confirm the per-team page kind's post-phase size
+stays under its 375,000-byte ceiling before the run is spent. This is a **projection**, not a
+measurement — no object was uploaded, and this row set is kept separate from the measured tables
+above; it is superseded by Task 3's real figures once the run below has actually happened.
+
+| Season | Projected per-team maximum bytes | Ceiling | Headroom |
+|---|---:|---:|---:|
+| 2022 | 177,138 | 375,000 | 197,862 (52.76%) |
+| 2023 | 244,471 | 375,000 | 130,529 (34.81%) |
+| 2024 | 335,659 | 375,000 | 39,341 (10.49%) |
+| 2025 | 249,517 | 375,000 | 125,483 (33.46%) |
+| 2026 | 339,198 | 375,000 | 35,802 (9.55%) |
+
+All five seasons project under the ceiling — no mitigation rung from PD-15's ladder was needed.
+**2026, not 2024, is the new projected maximum** (339,198 vs. 335,659 bytes) — this phase's
+per-bonus arrays cost more per match row on a three-bonus season (2025/2026 both carry three
+ranking-point bonuses) than on 2024's two, exactly the "measure rather than assume" warning PD-15
+itself named. Every season's projected delta against its own pre-phase baseline is attributable to
+this phase's three field groups (predicted/actual per-bonus RP arrays, history-row percentiles, and
+event rank/total) — no other change landed on the per-team artifact this phase.
+`packages/harness/payloadBudget.test.ts` passed against this unmodified document (10/10) with this
+projection in hand; no budget ceiling line was touched by this task.
+
 ## The machine-readable block
 
 `packages/harness/payloadBudget.test.ts` parses this exact block — the tables above are the human
