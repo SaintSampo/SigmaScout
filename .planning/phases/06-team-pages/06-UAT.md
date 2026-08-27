@@ -3,7 +3,7 @@ status: complete
 phase: 06-team-pages
 source: [06-VERIFICATION.md]
 started: 2026-08-25T20:20:00Z
-updated: 2026-08-26T20:15:00Z
+updated: 2026-08-26T21:00:00Z
 ---
 
 ## Current Test
@@ -198,6 +198,15 @@ deliberately honest "no data" state until the pipeline publishes what it needs. 
 blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closure plans).
 
 - id: F-06-1
+  status: RESOLVED 2026-08-26
+  resolved_by: |
+    Closed by Phase 06.1. `RpPmfResult` now accumulates per-bonus marginals from the Monte Carlo
+    draws it was already running and returns them as redBonusProbabilities/blueBonusProbabilities
+    (06.1-02); those surface as Prediction.redBonusRp/.blueBonusRp, publish as four optional
+    TeamSeasonMatchSchema fields — predicted probabilities plus actual per-bonus flags (06.1-05) —
+    and BonusRpDots now renders real predicted/actual states instead of the uniform unknown state
+    (06.1-06). The 2022-2026 republish in 06.1-07 put them in production. The D-15 digest gate was
+    measured passing throughout: promoted data/algorithm-versions/ is bit-identical.
   title: "Publish per-bonus RP so the match-table dots can be real"
   deferred_at: 2026-08-26
   requested: "do the dots in the UI but they will just all be empty. note to fix the data later"
@@ -248,6 +257,16 @@ blocking gap for Phase 6 (#1921 — recorded here so they do not spawn gap-closu
     - "apps/web/src/lib/metricGroups.ts — GroupedMetric.spread/percentile are typed `undefined` today; widen once published"
 
 - id: F-06-3
+  status: RESOLVED 2026-08-26
+  resolved_by: |
+    Closed by Phase 06.1 via the FIRST of the two honest options below — each history value is
+    ranked against the SEASON-FINAL distribution for that metric (decision D-06.1-A).
+    MetricValueSchema gained an optional percentile bounded to [0, 100] (06.1-03);
+    publish.ts fills it through withHistoryPercentiles, with a real-corpus invariant test
+    asserting exact agreement with the season-final percentile wherever the underlying values
+    agree, over 3,062 teams against a non-vacuity floor of 50 (06.1-05); EventSection passes
+    tierForPercentile and carries a visible "vs season-final field" basis caption so the
+    ranking scheme is disclosed rather than implied (06.1-06).
   title: "Rarity tiers on the per-event metric line"
   deferred_at: 2026-08-26
   requested: "use rarity marking for those 4 metrics [in each event section]"
