@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   hasEventLocationColumns,
+  hasEventRankingRecordColumns,
   hasWinnerImputedColumn,
   openCorpus,
   openCorpusReadOnly,
@@ -248,6 +249,91 @@ describe("corpus-backed integrity report (D-04)", () => {
       console.log(`corpus integrity: ${imputedWinnerCount} match(es) have a score-derived (imputed) winner`);
 
       expect(orphanCount).toBe(0);
+    } finally {
+      readDb.close();
+    }
+  });
+});
+
+/**
+ * D-18.6/D-18.7, plan 07-02 Task 3. This is the only place the
+ * non-destructiveness of this plan's schema change (the four
+ * `event_rankings` ALTER TABLE ADD COLUMN statements, plus the brand-new
+ * `event_alliances` table) against a populated, unrecoverable, gitignored
+ * ~359 MB database is checked. It runs only on a machine holding
+ * `data/corpus.sqlite` — corpus-gated behind `CORPUS_AVAILABLE`, skipping
+ * with an explicit named message when absent, never a silent pass, matching
+ * this file's own header discipline. It is a regression guard, not a
+ * one-shot script: re-running it after 07-05's ingest (which will populate
+ * `event_alliances` and refresh `event_rankings`' four new columns) must
+ * still pass.
+ */
+describe("event_alliances / event_rankings migration against the real corpus (plan 07-02 Task 3)", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
+    return;
+  }
+
+  it("migrates the real corpus in place: event_rankings row count is unchanged, event_alliances exists, and the four new columns are present", () => {
+    const beforeDb = openCorpusReadOnly(CORPUS_PATH);
+    const before = (beforeDb.prepare(`SELECT COUNT(*) as n FROM event_rankings`).get() as { n: number }).n;
+    beforeDb.close();
+
+    let db: Corpus | undefined;
+    try {
+      // This is the call that runs Task 2's ALTER TABLE block against the
+      // real corpus for the first time.
+      db = openCorpus(CORPUS_PATH);
+
+      expect(hasEventRankingRecordColumns(db)).toBe(true);
+
+      // The table exists after the migration — do not assert it is zero;
+      // 07-05 will populate it and this guard has to keep passing
+      // afterwards.
+      const allianceCount = (db.prepare(`SELECT COUNT(*) as n FROM event_alliances`).get() as { n: number }).n;
+      expect(typeof allianceCount).toBe("number");
+
+      const after = (db.prepare(`SELECT COUNT(*) as n FROM event_rankings`).get() as { n: number }).n;
+      expect(after).toBe(before);
+
+      // Floor deliberately below the measured 47,695-row baseline (rather
+      // than an exact match), since 07-05 re-runs the ingest and the count
+      // legitimately moves — this only guards against the equality above
+      // passing vacuously on an empty or truncated table.
+      expect(before).toBeGreaterThanOrEqual(40000);
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `corpus migration (plan 07-02 Task 3): event_rankings before=${before}, after=${after} (equal: ${before === after})`
+      );
+    } finally {
+      db?.close();
+    }
+  });
+
+  it("the migration did not corrupt columns it did not touch, and wrote no default value into the four new columns on existing rows", () => {
+    const readDb = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const invalidCount = (
+        readDb.prepare(`SELECT COUNT(*) as n FROM event_rankings WHERE rank < 1 OR total_teams < 1`).get() as {
+          n: number;
+        }
+      ).n;
+      expect(invalidCount).toBe(0);
+
+      const nullRows = readDb
+        .prepare(
+          `SELECT record_wins, record_losses, record_ties, ranking_score
+           FROM event_rankings
+           WHERE record_wins IS NULL AND record_losses IS NULL AND record_ties IS NULL AND ranking_score IS NULL
+           LIMIT 1`
+        )
+        .get() as { record_wins: null; record_losses: null; record_ties: null; ranking_score: null } | undefined;
+      expect(nullRows).toBeDefined();
+      expect(nullRows?.record_wins).toBeNull();
+      expect(nullRows?.record_losses).toBeNull();
+      expect(nullRows?.record_ties).toBeNull();
+      expect(nullRows?.ranking_score).toBeNull();
     } finally {
       readDb.close();
     }
