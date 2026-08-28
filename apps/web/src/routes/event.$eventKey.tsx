@@ -10,6 +10,7 @@ import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
+import { QualsTab } from "../components/event/QualsTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -33,7 +34,7 @@ export const Route = createFileRoute("/event/$eventKey")({
  * would otherwise hand Radix a value with no matching trigger or content —
  * an empty panel between waves.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals"];
 
 function resolveActiveTab(tab: EventTab): EventTab {
   return REGISTERED_EVENT_TABS.includes(tab) ? tab : DEFAULT_EVENT_TAB;
@@ -171,6 +172,24 @@ function EventPage() {
     });
   }
 
+  // TRACER SCOPE (07-12-PLAN.md Task 1): the pending renderer here is a
+  // placeholder — Task 3 replaces it with `QualsTabSkeleton` once that
+  // component exists, matching the shape `renderInsightsContent`/
+  // `renderBreakdownContent` already establish.
+  function renderQualsContent() {
+    return renderTabState({
+      is404,
+      error,
+      isPending,
+      data,
+      eventKey,
+      season,
+      onRetry: () => void refetch(),
+      renderPending: () => <BreakdownTabSkeleton algorithmId={algorithm} season={season} />,
+      renderPopulated: (artifact) => <QualsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+    });
+  }
+
   return (
     // Same `max-w-[1200px]` centred content column `team.$teamNumber.tsx`
     // uses, for the same stated reason (the fixed 470px plot width math the
@@ -191,6 +210,9 @@ function EventPage() {
             <TabsTrigger value="breakdown" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Breakdown
             </TabsTrigger>
+            <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+              Quals
+            </TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
@@ -198,6 +220,9 @@ function EventPage() {
         </TabsContent>
         <TabsContent value="breakdown" data-testid="breakdown-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderBreakdownContent()}
+        </TabsContent>
+        <TabsContent value="quals" data-testid="quals-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+          {renderQualsContent()}
         </TabsContent>
       </Tabs>
     </div>

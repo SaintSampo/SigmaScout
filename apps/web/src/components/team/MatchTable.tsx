@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { BonusRpDots } from "./BonusRpDots.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
-import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
+import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
 // G-06.1-26 (plan 06.1-08, PD-19): imported directly from core rather than
 // copied into apps/web — `rp/constants.ts` has zero runtime imports of its
@@ -29,9 +29,6 @@ export interface MatchTableProps {
   /** Selects the season's bonus-RP set for the per-match dots — two bonuses for 2022–2024, three for 2025–2026. */
   season: number;
 }
-
-/** The plot's own fixed pixel width — not one of `MATCH_GEOMETRY`'s locked constants (those are heights/offsets), but a real, deliberate ~470px per `06-CONTEXT.md` D-10's own framing ("the plot needs ~470px against a ~390px phone" — the reason this table needs its own horizontal scroll region at all). */
-const PLOT_W = 470;
 
 const COMP_LEVEL_LABELS: Record<TeamSeasonMatch["compLevel"], string> = {
   qm: "Qual",
@@ -61,8 +58,15 @@ export function matchLabel(match: Pick<TeamSeasonMatch, "compLevel" | "setNumber
   return separatorIndex === -1 ? match.matchKey : match.matchKey.slice(separatorIndex + 1);
 }
 
-/** `Sat 10:32 AM` in the viewer's own locale/timezone, from an epoch-seconds `sortTime` (D-08's scheduled-match Actual column). */
-function formatScheduledTime(sortTime: number): string {
+/**
+ * `Sat 10:32 AM` in the viewer's own locale/timezone, from an epoch-seconds
+ * `sortTime` (D-08's scheduled-match Actual column). Promoted to an export
+ * (07-12-PLAN.md Task 1, step 2a) so `EventMatchTable.tsx` renders the
+ * identical string for the identical instant rather than reimplementing the
+ * date-format construction, which would be free to drift in weekday
+ * abbreviation, hour cycle or separator.
+ */
+export function formatScheduledTime(sortTime: number): string {
   const date = new Date(sortTime * 1000);
   const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(date);

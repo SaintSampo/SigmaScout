@@ -87,6 +87,20 @@ export interface AxisDomain {
   max: number;
 }
 
+/**
+ * The plot's own fixed pixel width (07-12-PLAN.md Task 1, promoted from a
+ * `MatchTable.tsx`-private literal) — not one of `MATCH_GEOMETRY`'s locked
+ * constants (those are heights/offsets), but a real, deliberate ~470px per
+ * `06-CONTEXT.md` D-10's own framing ("the plot needs ~470px against a
+ * ~390px phone" — the reason this table needs its own horizontal scroll
+ * region at all). Deliberately NOT grouped into `MATCH_GEOMETRY`, which is
+ * heights/offsets only; this is the plot's horizontal extent, a different
+ * axis of geometry entirely, and merging the two groups for no gain would
+ * contradict this very comment. `EventMatchTable.tsx` imports this same
+ * constant rather than restating it (07-12's D-12/D-13 event-scoped table).
+ */
+export const PLOT_W = 470;
+
 /** Fallback domain for a team-season with literally zero matches in scope — never reached once any event section renders (E7's "empty — dismissed" row), kept only so this function is total. */
 const EMPTY_DOMAIN: AxisDomain = { min: 0, max: 1 };
 
@@ -110,6 +124,28 @@ const MIN_DOMAIN_PADDING = 10;
  * It only prevents the axis from running below what a score can be.
  */
 const DOMAIN_FLOOR = 0;
+
+/**
+ * The padding-and-floor policy (07-12-PLAN.md Task 1, extracted from
+ * `computeAxisDomain`'s own tail) shared by every axis-domain function in
+ * this app — the team-season domain above and `eventMatchAxis.ts`'s
+ * `computeEventAxisDomain`. What genuinely differs between the two callers
+ * is only how extents are gathered from differently-shaped rows; the 5%
+ * proportional pad, the 10-unit minimum pad and the zero floor are one
+ * policy in one place, so an event axis can never pad differently from a
+ * team axis. Returns `EMPTY_DOMAIN` when the raw extent is not finite (the
+ * zero-matches / zero-rows case), matching `computeAxisDomain`'s pre-existing
+ * behaviour exactly.
+ */
+export function padAxisDomain(min: number, max: number): AxisDomain {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return EMPTY_DOMAIN;
+  }
+
+  const range = max - min;
+  const padding = Math.max(range * DOMAIN_PADDING_RATIO, MIN_DOMAIN_PADDING);
+  return { min: Math.max(DOMAIN_FLOOR, min - padding), max: max + padding };
+}
 
 /**
  * The shared score domain for the WHOLE team-season — every event, every
@@ -148,13 +184,7 @@ export function computeAxisDomain(events: readonly TeamSeasonEvent[]): AxisDomai
     }
   }
 
-  if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    return EMPTY_DOMAIN;
-  }
-
-  const range = max - min;
-  const padding = Math.max(range * DOMAIN_PADDING_RATIO, MIN_DOMAIN_PADDING);
-  return { min: Math.max(DOMAIN_FLOOR, min - padding), max: max + padding };
+  return padAxisDomain(min, max);
 }
 
 /** The single value-to-x mapping every mark and tick position goes through. */
