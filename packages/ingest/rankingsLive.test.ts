@@ -242,3 +242,129 @@ describe("rankingsLive — the D-18.6 guard's premise against real TBA responses
     30000
   );
 });
+
+/**
+ * `event_rankings — record and ranking score after a forced ingest` (plan
+ * 07-04 Task 3). Gated on `CORPUS_AVAILABLE` ONLY — it makes NO network
+ * call and must not touch `LIVE_TBA_AVAILABLE`. It lives in this file
+ * rather than a new one because `cli.ts` calls `main()` at top level and
+ * therefore cannot be imported by any test: a fresh read-only query
+ * against the corpus the real `pnpm ingest:rankings --year 2022 --force`
+ * run actually wrote is the only available proof that the widened write
+ * path (`ingestSeasonRankingsOnly`'s new `upsertEventRanking` fields) works
+ * end-to-end, and this file is already the home of this plan's
+ * environment-gated evidence.
+ *
+ * Every assertion below reads the corpus fresh, never the ingest run's own
+ * in-memory console tally (T-07-04-06, 06.1-04's repudiation-resistance
+ * discipline).
+ */
+describe("event_rankings — record and ranking score after a forced ingest (plan 07-04 Task 3)", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
+    return;
+  }
+
+  // Measured immediately before this plan's Task 3 forced 2022 re-ingest
+  // ran (git history/commit message for provenance): the 2022 event_rankings
+  // row count already present in the corpus from prior ingest runs. The
+  // forced re-ingest refreshes rows in place and never deletes any, so the
+  // post-run count must be at least this floor.
+  const PRE_TASK3_2022_ROW_COUNT = 7890;
+
+  it("at least 200 distinct 2022 events have at least one event_rankings row with a non-NULL ranking_score", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT er.event_key) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022 AND er.ranking_score IS NOT NULL`
+        )
+        .get() as { n: number };
+      expect(row.n).toBeGreaterThanOrEqual(200);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("zero 2022 event_rankings rows have a NULL record_wins, record_losses, or record_ties", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022
+             AND (er.record_wins IS NULL OR er.record_losses IS NULL OR er.record_ties IS NULL)`
+        )
+        .get() as { n: number };
+      expect(row.n).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("zero 2022 rows carry a negative value in any of the three record columns, and at least 1000 rows carry record_wins greater than zero", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const negative = db
+        .prepare(
+          `SELECT COUNT(*) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022 AND (er.record_wins < 0 OR er.record_losses < 0 OR er.record_ties < 0)`
+        )
+        .get() as { n: number };
+      expect(negative.n).toBe(0);
+
+      const positiveWins = db
+        .prepare(
+          `SELECT COUNT(*) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022 AND er.record_wins > 0`
+        )
+        .get() as { n: number };
+      expect(positiveWins.n).toBeGreaterThanOrEqual(1000);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("at least one 2022 row carries a non-integral ranking_score, proving the REAL column type is exercised", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022 AND er.ranking_score IS NOT NULL AND er.ranking_score != CAST(er.ranking_score AS INTEGER)`
+        )
+        .get() as { n: number };
+      expect(row.n).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("the 2022 event_rankings row count is at least as large as the pre-Task-3 baseline — the forced re-ingest refreshes rows in place and never deletes any", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS n
+           FROM event_rankings er
+           JOIN events e ON e.event_key = er.event_key
+           WHERE e.year = 2022`
+        )
+        .get() as { n: number };
+      expect(row.n).toBeGreaterThanOrEqual(PRE_TASK3_2022_ROW_COUNT);
+    } finally {
+      db.close();
+    }
+  });
+});

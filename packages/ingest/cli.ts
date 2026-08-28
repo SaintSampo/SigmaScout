@@ -17,7 +17,15 @@
  *   pnpm ingest:rankings --year 2024   (TEAM-04/F-06-3, plan 06.1-01: resolves
  *     every team's standing at each of the season's events via
  *     /event/{key}/rankings and stores the result in event_rankings. One
- *     request per event, not per team; includes offseason events (PD-01).)
+ *     request per event, not per team; includes offseason events (PD-01).
+ *     Also fills record_wins/record_losses/record_ties and ranking_score
+ *     (D-18.6, plan 07-04) with TBA's own reported record and ranking-score
+ *     value.)
+ *   pnpm ingest:rankings --years 2022-2026 --force   (D-18.6, plan 07-04:
+ *     the flag is REQUIRED to backfill record_wins/record_losses/
+ *     record_ties/ranking_score onto an already-ingested season — an
+ *     un-forced re-run's cached-ETag 304s carry no body, so the four
+ *     columns stay NULL otherwise.)
  *   pnpm ingest:alliances --years 2022-2026   (EVNT-05, D-18.7, plan 07-03:
  *     resolves each event's playoff alliance selection via
  *     /event/{key}/alliances, one request per event, and stores the result
@@ -367,6 +375,29 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
  * for that event is unaffected, since it is `response.rankings.length`,
  * the true pool size TBA reported, not a count of rows this corpus chose
  * to store.
+ *
+ * D-18.6 (plan 07-04): also persists TBA's own authoritative `record`
+ * (wins/losses/ties) and the position-0 ranking-score value alongside
+ * `rank`/`totalTeams`, both read from `normalizeEventRankings`'s widened
+ * result. Both come from TBA's own computation, never a tally this
+ * pipeline derives from `matches` — TBA's record accounts for
+ * disqualifications and surrogate appearances that a match-derived count
+ * would misreport. `nullRankingScoreCount` tallies rows whose
+ * `rankingScore` is `null` (an absent or empty `sort_orders`); there is no
+ * corresponding counter for the sort-order-drift case, because drift
+ * throws — `RankingScoreSortOrderError` from `normalizeEventRankings` is
+ * deliberately NOT caught here. It propagates out of this function and
+ * aborts the season so a human sees the vocabulary drift, and a resumed
+ * run stays cheap: the failing event's own ETag was never written, so it
+ * is re-fetched (not re-walked from event 1) on the next attempt.
+ *
+ * WARNING — the single most likely way these four columns ship empty: a
+ * run WITHOUT `--force` writes nothing for any event whose cached ETag is
+ * still current, since a 304 carries no body and the 304 branch below
+ * `continue`s before any upsert. Backfilling these columns onto an
+ * already-ingested season therefore REQUIRES `--force`; 06.1-04 already
+ * measured all 324 of 2024's requests returning 304 on exactly such a
+ * re-run with no `--force`.
  */
 async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
   const eventKeys = (
@@ -381,6 +412,12 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
   let emptyRankingsCount = 0;
   let cacheHitCount = 0;
   let unknownTeamCount = 0;
+  // D-18.6 (plan 07-04): tallies rows stored with a null ranking_score (an
+  // absent or empty sort_orders). RESEARCH.md Question 1 found sort_orders
+  // non-null in every sampled populated row — this counter is how that
+  // expectation gets measured on the real corpus rather than assumed. No
+  // counter exists for the drift case: drift throws, it is never counted.
+  let nullRankingScoreCount = 0;
 
   for (const eventKey of eventKeys) {
     const rankingsUrl = `/event/${eventKey}/rankings`;
@@ -422,12 +459,17 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
         unknownTeamCount++;
         continue;
       }
+      if (ranking.rankingScore === null) nullRankingScoreCount++;
       upsertEventRanking(db, {
         eventKey,
         teamKey: ranking.teamKey,
         rank: ranking.rank,
         totalTeams: ranking.totalTeams,
         fetchedAt,
+        recordWins: ranking.recordWins,
+        recordLosses: ranking.recordLosses,
+        recordTies: ranking.recordTies,
+        rankingScore: ranking.rankingScore,
       });
     }
     if (result.etag) writeEtag(db, rankingsUrl, result.etag);
@@ -436,7 +478,8 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
   console.log(
     `Season ${year}: ${eventKeys.length} events (${populatedCount} populated, ${nullBodyCount} null-body, ` +
       `${emptyRankingsCount} empty-rankings, ${cacheHitCount} cache hits this run, ` +
-      `${unknownTeamCount} rows skipped for an unregistered team key)`
+      `${unknownTeamCount} rows skipped for an unregistered team key, ` +
+      `${nullRankingScoreCount} rows stored with a null ranking score)`
   );
 }
 
