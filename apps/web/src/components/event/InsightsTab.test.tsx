@@ -7,14 +7,67 @@
  *
  * This first describe-block set covers Task 1's pure data layer
  * (`buildInsightsRows`, `formatEventRecord`, `insightsFallbackNotice`) only.
- * Task 2 extends this same file with the rendered-table cases.
+ * Task 2 extends this same file with the rendered-table cases, reusing
+ * `BreakdownTab.test.tsx`'s own `TestHarness` router-context technique since
+ * the Team #/Nickname cells are real router `Link`s here too.
  */
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
+import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
+import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
+import { PINNED_COLUMN_IDS } from "@/components/teams-table/columns";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { buildInsightsRows, formatEventRecord, insightsFallbackNotice } from "./InsightsTab";
+import {
+  buildInsightsRows,
+  formatEventRecord,
+  insightsFallbackNotice,
+  InsightsTab,
+  InsightsTabSkeleton,
+} from "./InsightsTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
+
+const ChildrenContext = createContext<ReactNode>(null);
+
+function RouteBody() {
+  return <>{useContext(ChildrenContext)}</>;
+}
+
+function TestHarness({ children }: { children: ReactNode }) {
+  const [router] = useState(() => {
+    const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
+    const eventRoute = createRoute({ path: "/event/$eventKey", getParentRoute: () => rootRoute, component: RouteBody });
+    const teamRoute = createRoute({ path: "/team/$teamNumber", getParentRoute: () => rootRoute, validateSearch: TeamSearchSchema, component: () => null });
+    const routeTree = rootRoute.addChildren([eventRoute, teamRoute]);
+    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/event/2024casf"] }) });
+  });
+  return (
+    <ChildrenContext.Provider value={children}>
+      <RouterProvider router={router} />
+    </ChildrenContext.Provider>
+  );
+}
+
+/** A metrics record carrying every Insights group key plus Total, so column-set/tier tests have real data behind every column. */
+function fullInsightsMetrics(overrides: Record<string, { value: number; spread?: number; percentile?: number }> = {}) {
+  const record: ArtifactTeam["metrics"] = { [TOTAL_KEY]: { value: 10 } };
+  for (const group of METRIC_GROUPS) {
+    record[group.metricKey] = { value: 10 };
+  }
+  return { ...record, ...overrides };
+}
+
+function renderInsights(artifact: EventArtifact, algorithmId = "sigma1", season = 2024) {
+  return render(
+    <TestHarness>
+      <InsightsTab artifact={artifact} algorithmId={algorithmId} season={season} />
+    </TestHarness>,
+  );
+}
 
 function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
   return {
@@ -229,5 +282,513 @@ describe("insightsFallbackNotice (D-08 Copywriting Contract)", () => {
     const sentence = insightsFallbackNotice("Sigma1");
     expect(sentence.startsWith("This event has no official TBA ranking. Teams below are ordered by ")).toBe(true);
     expect(sentence).toContain("Sigma1");
+  });
+});
+
+describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
+  it("sigma1/2024: exactly eight headers, in the declared order", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact, "sigma1", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+  });
+
+  it("opr/2024: also exactly eight headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
+    });
+    renderInsights(artifact, "opr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+  });
+
+  it("column order is the fixed declared order even when the fixture's metrics literal declares phaseEndgame before phaseAuto", async () => {
+    const reversed: ArtifactTeam["metrics"] = {
+      [TOTAL_KEY]: { value: 10 },
+      phaseEndgame: { value: 3 },
+      phaseTeleop: { value: 2 },
+      phaseAuto: { value: 1 },
+    };
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: reversed }],
+    });
+    renderInsights(artifact, "sigma1", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+  });
+});
+
+describe("InsightsTab — D-08 fallback header and banner", () => {
+  function artifactWithRanks(teams: { rank?: number }[]) {
+    return EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: teams.map((overrides, index) => ({
+        teamKey: `frc${index + 1}`,
+        teamNumber: index + 1,
+        nickname: `Team ${index + 1}`,
+        metrics: fullInsightsMetrics(),
+        ...overrides,
+      })),
+    });
+  }
+
+  it("no ranks: fallback header contains the algorithm's display label and the word Rank, and the banner renders", async () => {
+    renderInsights(artifactWithRanks([{}, {}]), "sigma1", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    const rankHeader = screen.getAllByRole("columnheader")[0];
+    expect(rankHeader?.textContent).toContain(algorithmDisplayLabel("sigma1"));
+    expect(rankHeader?.textContent).toContain("Rank");
+
+    const banner = screen.getByTestId("insights-fallback-banner");
+    expect(banner.textContent?.startsWith("This event has no official TBA ranking.")).toBe(true);
+    expect(banner.querySelector("button")).toBeNull();
+    expect(banner.getAttribute("role")).toBeNull();
+  });
+
+  it("has ranks: the leading header is exactly the word Rank, and the banner does not exist at all", async () => {
+    renderInsights(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "sigma1", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    const rankHeader = screen.getAllByRole("columnheader")[0];
+    expect(rankHeader?.textContent).toBe("Rank");
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+  });
+});
+
+describe("InsightsTab — pinning (UI-SPEC E3 overflow, structural half)", () => {
+  it("Rank/Team #/Nickname carry data-pinned=true; Record/RP/Auto/Teleop/Endgame carry data-pinned=false", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getByTestId("insights-header-rank")).toBeDefined());
+    for (const columnId of PINNED_COLUMN_IDS) {
+      expect(screen.getByTestId(`insights-header-${columnId}`).getAttribute("data-pinned")).toBe("true");
+      expect(screen.getByTestId(`insights-cell-${columnId}`).getAttribute("data-pinned")).toBe("true");
+    }
+    for (const columnId of ["record", "rp", ...METRIC_GROUPS.map((group) => group.metricKey)]) {
+      expect(screen.getByTestId(`insights-header-${columnId}`).getAttribute("data-pinned")).toBe("false");
+      expect(screen.getByTestId(`insights-cell-${columnId}`).getAttribute("data-pinned")).toBe("false");
+    }
+  });
+});
+
+describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", () => {
+  function oneTeamArtifact(overrides: Partial<ArtifactTeam> = {}) {
+    return EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics(), ...overrides }],
+    });
+  }
+
+  it("a team publishing {wins:8, losses:3, ties:0} renders 8-3-0", async () => {
+    renderInsights(oneTeamArtifact({ record: { wins: 8, losses: 3, ties: 0 } }));
+    const cell = await screen.findByTestId("insights-cell-record");
+    expect(cell.textContent).toBe("8-3-0");
+  });
+
+  it("a team with no record renders an em-dash", async () => {
+    renderInsights(oneTeamArtifact());
+    const cell = await screen.findByTestId("insights-cell-record");
+    expect(cell.textContent).toBe("—");
+  });
+
+  it("a team publishing rp:3.6 renders 3.60", async () => {
+    renderInsights(oneTeamArtifact({ rp: 3.6 }));
+    const cell = await screen.findByTestId("insights-cell-rp");
+    expect(cell.textContent).toBe("3.60");
+  });
+
+  it("a team publishing rp:0 renders 0.00 (never an em-dash — a real zero is distinct from absence)", async () => {
+    renderInsights(oneTeamArtifact({ rp: 0 }));
+    const cell = await screen.findByTestId("insights-cell-rp");
+    expect(cell.textContent).toBe("0.00");
+  });
+
+  it("a team with no rp renders an em-dash", async () => {
+    renderInsights(oneTeamArtifact());
+    const cell = await screen.findByTestId("insights-cell-rp");
+    expect(cell.textContent).toBe("—");
+  });
+
+  it("the RP cell carries numeric-cell and never a metric-tier class, even when every phase metric is at percentile 99", async () => {
+    renderInsights(oneTeamArtifact({ rp: 12.34, metrics: fullInsightsMetrics({ [TOTAL_KEY]: { value: 10 }, phaseAuto: { value: 1, percentile: 99 }, phaseTeleop: { value: 1, percentile: 99 }, phaseEndgame: { value: 1, percentile: 99 } }) }));
+    const cell = await screen.findByTestId("insights-cell-rp");
+    expect(cell.className).toContain("numeric-cell");
+    expect(cell.querySelector('[class*="metric-tier"]')).toBeNull();
+  });
+
+  it("an unranked team inside a ranked event renders an em-dash Rank cell and its row is the last row", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [
+        { teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullInsightsMetrics() },
+        { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: fullInsightsMetrics() },
+      ],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(2));
+    const rows = screen.getAllByTestId("insights-row");
+    expect(rows[1]?.getAttribute("data-team-number")).toBe("2");
+    const lastRankCell = within(rows[1] as HTMLElement).getByTestId("insights-cell-rank");
+    expect(lastRankCell.textContent).toBe("—");
+  });
+});
+
+describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
+  async function renderWithAutoPercentile(percentile: number) {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics({ phaseAuto: { value: 10, percentile } }) }],
+    });
+    renderInsights(artifact);
+    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    const inner = cell.querySelector(".numeric-cell");
+    if (inner === null) throw new Error("MetricValue's numeric-cell span was not found inside the Insights Auto cell");
+    return inner as HTMLElement;
+  }
+
+  it("percentile 95 yields legendary", async () => {
+    expect((await renderWithAutoPercentile(95)).className).toContain("metric-tier--legendary");
+  });
+  it("percentile 94.9 yields epic", async () => {
+    expect((await renderWithAutoPercentile(94.9)).className).toContain("metric-tier--epic");
+  });
+  it("percentile 75 yields epic", async () => {
+    expect((await renderWithAutoPercentile(75)).className).toContain("metric-tier--epic");
+  });
+  it("percentile 74.9 yields rare", async () => {
+    expect((await renderWithAutoPercentile(74.9)).className).toContain("metric-tier--rare");
+  });
+  it("percentile 50 yields rare", async () => {
+    expect((await renderWithAutoPercentile(50)).className).toContain("metric-tier--rare");
+  });
+  it("percentile 49.9 yields no metric-tier class", async () => {
+    expect((await renderWithAutoPercentile(49.9)).className).not.toContain("metric-tier");
+  });
+
+  it("three consecutive rows all at percentile 96 render three legendary boxes — no de-duplication", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [1, 2, 3].map((n) => ({
+        teamKey: `frc${n}`,
+        teamNumber: n,
+        nickname: `Team ${n}`,
+        rank: n,
+        metrics: fullInsightsMetrics({ phaseAuto: { value: 10, percentile: 96 } }),
+      })),
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(3));
+    const legendaryBoxes = document.querySelectorAll("[data-testid='insights-cell-phaseAuto'] .metric-tier--legendary");
+    expect(legendaryBoxes).toHaveLength(3);
+  });
+
+  it("a metric with no percentile renders no metric-tier class", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    const inner = cell.querySelector(".numeric-cell");
+    expect(inner?.className).not.toContain("metric-tier");
+  });
+});
+
+describe("InsightsTab — partial phase-metric data", () => {
+  it("a team missing phaseTeleop renders an em-dash while the Teleop header stays present", async () => {
+    const metrics = fullInsightsMetrics();
+    delete metrics.phaseTeleop;
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics }],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getByTestId("insights-header-phaseTeleop")).toBeDefined());
+    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toBe("—");
+  });
+
+  it("an opr fixture whose team publishes none of the three phase keys renders three em-dash cells and all eight headers", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
+    });
+    renderInsights(artifact, "opr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    for (const group of METRIC_GROUPS) {
+      expect(screen.getByTestId(`insights-cell-${group.metricKey}`).textContent).toBe("—");
+    }
+  });
+});
+
+describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
+  it("teams: [] renders EmptyState naming the event and no table element", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getByText("No teams for 2024casf")).toBeDefined());
+    expect(document.querySelector("table")).toBeNull();
+  });
+
+  it("a one-team artifact and a 43-team artifact render identical header rows and body row counts of 1 and 43", async () => {
+    const oneTeamArtifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc1", teamNumber: 1, nickname: "One", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    const { unmount } = renderInsights(oneTeamArtifact);
+    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(1));
+    const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    unmount();
+
+    const manyTeams = Array.from({ length: 43 }, (_, index) => ({
+      teamKey: `frc${index + 1}`,
+      teamNumber: index + 1,
+      nickname: `Team ${index + 1}`,
+      rank: index + 1,
+      metrics: fullInsightsMetrics(),
+    }));
+    const manyTeamsArtifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: manyTeams,
+    });
+    renderInsights(manyTeamsArtifact);
+    await waitFor(() => expect(screen.getAllByTestId("insights-row")).toHaveLength(43));
+    const manyTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(manyTeamHeaders).toEqual(oneTeamHeaders);
+  });
+});
+
+describe("InsightsTab — long text (UI-SPEC E3 long-text)", () => {
+  it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", async () => {
+    const longNickname = "A".repeat(60);
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: longNickname, rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+
+    const cell = await screen.findByTestId("insights-cell-nickname");
+    expect(cell.className).toContain("truncate");
+    const link = within(cell).getByTitle(longNickname);
+    expect(link.textContent).toBe(longNickname);
+  });
+});
+
+describe("InsightsTab — tier key row, accessibility and scroll region", () => {
+  it("TierKeyRow renders exactly once", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
+  });
+
+  it("no columnheader contains a button, and no header carries aria-sort", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    for (const header of screen.getAllByRole("columnheader")) {
+      expect(header.querySelector("button")).toBeNull();
+      expect(header.getAttribute("aria-sort")).toBeNull();
+    }
+  });
+
+  it("exactly one element carries data-testid=insights-table-scroll", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+    });
+    renderInsights(artifact);
+
+    await waitFor(() => expect(screen.getAllByTestId("insights-table-scroll")).toHaveLength(1));
+  });
+});
+
+describe("InsightsTabSkeleton", () => {
+  it("renders the eight real headers with the bare Rank header, skeleton body rows, and zero progressbar elements", () => {
+    render(<InsightsTabSkeleton algorithmId="sigma1" season={2024} />);
+
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 });
