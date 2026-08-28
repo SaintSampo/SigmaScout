@@ -110,13 +110,26 @@ function isPlayed(match: TbaMatch): boolean {
   return red.score != null && red.score >= 0 && blue.score != null && blue.score >= 0;
 }
 
+/**
+ * Out-of-scope fix authorized at 07-17's checkpoint:decision (not part of
+ * that plan — see its own commit message): `2024orbb`/`2025orbb` (Oregon
+ * BunnyBots, an offseason event running a non-FRC custom game, event_type
+ * 99) self-report a `rp` field that is NOT a ranking-point count at all —
+ * observed values include `32.5`, `34.5`, `12.5` alongside `85`, `108` —
+ * nothing FRC-shaped, since BunnyBots has no RP rules to report against.
+ * Requiring `Number.isInteger` degrades this to `null` (D-02's established
+ * "not derivable" contract) rather than rounding/truncating a fabricated RP
+ * value into existence — mirrors `tryParseBreakdownPair`'s degrade-not-throw
+ * precedent for other self-reported offseason breakdown shapes
+ * (`packages/core/algorithms/breakdown/index.ts`).
+ */
 function extractRp(breakdown: unknown, color: "red" | "blue"): number | null {
   if (typeof breakdown !== "object" || breakdown === null) return null;
   const colorBreakdown = (breakdown as Record<string, unknown>)[color];
   if (typeof colorBreakdown !== "object" || colorBreakdown === null) return null;
   const fields = colorBreakdown as Record<string, unknown>;
   const rp = fields["rp"] ?? fields["tba_rpEarned"];
-  return typeof rp === "number" ? rp : null;
+  return typeof rp === "number" && Number.isInteger(rp) ? rp : null;
 }
 
 export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusMatch {

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 11
 waived_count: 0
 fixed_count: 3
-total_count: 13
-last_updated: 2026-08-28T05:45:22.023Z
+total_count: 14
+last_updated: 2026-08-28T17:50:41.285Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,7 @@ last_updated: 2026-08-28T05:45:22.023Z
 | 11 | 06.1 | unmet-truth | docs/publish-budget.md |  | teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision | open |  | 2026-08-27T00:37:40.533Z |  |
 | 12 | 07 | deviation | packages/corpus/integrity.test.ts | 314 | 07-05's mandated full-corpus rankings backfill (zero NULL record_wins/losses/ties/ranking_score corpus-wide) permanently falsifies this pre-existing 07-02 test's nullRows assertion, which expects to still find an event_rankings row with all four columns NULL; out of 07-05's declared scope (plan verification requires packages/corpus/ diff stay empty for the whole plan), so left unfixed and reported here for a future plan to update the stale assertion | resolved | Resolved by the phase-7 orchestrator after wave 5: the no-default assertion moved out of the corpus-backed block and onto a purpose-built pre-migration database (legacy-shaped event_rankings + a row, then opened through openCorpus so the real ALTER TABLE block runs). Phrased that way it tests the migration itself and no backfill can invalidate it. Proven non-vacuous by injecting DEFAULT 0 into the migration and observing exactly this assertion go RED. | 2026-08-28T04:38:17.003Z | 2026-08-28T05:57:27.078Z |  |
 | 13 | 07 | deviation | scripts/verifySubsetPublish.ts |  | 2025isios published alliances:[] against 07-10's committed expectAlliances:populated seed value; confirmed against live TBA (GET /event/2025isios/alliances -> 200, []) as real TBA state, a third D-17 empty-alliances event beyond RESEARCH.md's original two (2025bc, 2026wvrox) -- expectation left unedited per plan's first prohibition, routed to 07-14 | open |  | 2026-08-28T05:45:22.023Z |  |
+| 14 | 07 | deviation | packages/ingest/normalize.ts |  | 2024orbb/2025orbb (Oregon BunnyBots, offseason event_type 99 running a non-FRC custom game) self-reported a non-integer score_breakdown.{color}.rp value (e.g. 32.5, 34.5, 12.5) on 30 match rows across the two events -- not a real ranking-point count, same family as ledger #4/#5 (self-reported offseason breakdowns not matching the official schema), on the RP side rather than score-breakdown-parse. Blocked 07-17's --include-offseason full republish (TeamSeasonMatchSchema's actualRedRp/actualBlueRp .int() assertion threw). Fixed out-of-scope, authorized at 07-17's checkpoint:decision: normalize.ts's extractRp now requires Number.isInteger and degrades to null; publish.ts's actualRedRp/actualBlueRp assignment gained a toIntegerRpOrNull defence-in-depth guard against any value already sitting in the corpus; the two events were re-ingested (pnpm ingest --event 2024orbb/2025orbb --force), reducing non-integer rows in data/corpus.sqlite from 30 to 0. Tests added in normalize.test.ts and publish.test.ts. | open |  | 2026-08-28T17:50:41.285Z |  |
 
 ````json
 [
@@ -185,6 +186,18 @@ last_updated: 2026-08-28T05:45:22.023Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-28T05:45:22.023Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "packages/ingest/normalize.ts",
+    "line": null,
+    "description": "2024orbb/2025orbb (Oregon BunnyBots, offseason event_type 99 running a non-FRC custom game) self-reported a non-integer score_breakdown.{color}.rp value (e.g. 32.5, 34.5, 12.5) on 30 match rows across the two events -- not a real ranking-point count, same family as ledger #4/#5 (self-reported offseason breakdowns not matching the official schema), on the RP side rather than score-breakdown-parse. Blocked 07-17's --include-offseason full republish (TeamSeasonMatchSchema's actualRedRp/actualBlueRp .int() assertion threw). Fixed out-of-scope, authorized at 07-17's checkpoint:decision: normalize.ts's extractRp now requires Number.isInteger and degrades to null; publish.ts's actualRedRp/actualBlueRp assignment gained a toIntegerRpOrNull defence-in-depth guard against any value already sitting in the corpus; the two events were re-ingested (pnpm ingest --event 2024orbb/2025orbb --force), reducing non-integer rows in data/corpus.sqlite from 30 to 0. Tests added in normalize.test.ts and publish.test.ts.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-28T17:50:41.285Z",
     "resolved_at": null
   }
 ]

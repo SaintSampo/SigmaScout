@@ -1250,6 +1250,31 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(row?.actualRedRp).toBeNull();
   });
 
+  it("degrades a non-integer stored redRpEarned/blueRpEarned to null rather than failing TeamSeasonMatchSchema's .int() assertion (2024orbb/2025orbb regression)", () => {
+    // SQLite's loose type affinity does not enforce matches.red_rp_earned/
+    // blue_rp_earned as integers, so a non-integer value written before
+    // normalize.ts's extractRp guard existed (2024orbb/2025orbb's non-FRC
+    // self-reported `rp` field) can still reach this assignment from the
+    // corpus. Without the toIntegerRpOrNull defence-in-depth guard, this
+    // would throw at TeamSeasonArtifactSchema.parse() and abort the batch.
+    const artifact = buildTeamSeasonArtifact({
+      ...baseParams,
+      events: [
+        {
+          eventKey: "2024orbb",
+          eventName: "2024orbb",
+          startDate: "2024-12-14",
+          matches: [
+            { match: fixtureMatch({ redRpEarned: 32.5, blueRpEarned: 7.5 }), prediction: fixturePrediction() },
+          ],
+        },
+      ],
+    });
+    const row = artifact.events[0]?.matches[0];
+    expect(row?.actualRedRp).toBeNull();
+    expect(row?.actualBlueRp).toBeNull();
+  });
+
   it("D-08/D-09: a scheduled match publishes predicted fields with every actual field undefined, and the row parses", () => {
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,

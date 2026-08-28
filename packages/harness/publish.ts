@@ -113,6 +113,26 @@ const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa
 // Small local helpers shared by every assembly function below
 // ---------------------------------------------------------------------------
 
+/**
+ * Out-of-scope fix authorized at 07-17's checkpoint:decision (not part of
+ * that plan — see its own commit message). Defence-in-depth guard on
+ * `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s `.int()` assertion
+ * (pageArtifacts.ts): `MatchResult.redRpEarned`/`blueRpEarned` is sourced
+ * from the corpus's `matches.red_rp_earned`/`blue_rp_earned` columns, which
+ * SQLite's loose type affinity does NOT enforce as integers — a
+ * non-integer value written before `packages/ingest/normalize.ts`'s
+ * `extractRp` started rejecting one (2024orbb/2025orbb, Oregon BunnyBots'
+ * non-FRC `rp` field) would otherwise reach `.parse()` here and throw,
+ * aborting the whole publish batch. Degrades to `null` — D-02's established
+ * "not derivable" value — rather than rounding/truncating a fabricated RP
+ * into existence; this function does not trust `extractRp`'s own discipline
+ * alone, mirroring the `isBonusRpCompLevel` defence-in-depth precedent a
+ * few lines below.
+ */
+function toIntegerRpOrNull(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) ? value : null;
+}
+
 /** Rounds one component's mean/variance at `ROUNDING_RULE.metric` (D-06's "component means/variances" row) — `undefined` in, `undefined` out. */
 function roundComponents(
   components: Record<string, ComponentPrediction> | undefined
@@ -906,8 +926,10 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           actualBlueScore: match.blueScore,
           // D-02 (Phase 6): never coerced null -> 0 — see TeamSeasonMatchSchema's
           // actualRedRp/actualBlueRp doc comment for the full null contract.
-          actualRedRp: match.redRpEarned,
-          actualBlueRp: match.blueRpEarned,
+          // toIntegerRpOrNull: defence-in-depth against a non-integer value
+          // already sitting in the corpus (see that helper's doc comment).
+          actualRedRp: toIntegerRpOrNull(match.redRpEarned),
+          actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
           ...(isBonusRpCompLevel(match.compLevel) && flags !== undefined
             ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
             : {}),

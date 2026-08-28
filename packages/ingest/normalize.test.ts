@@ -364,4 +364,26 @@ describe("normalizeMatch — ranking points", () => {
     expect(result.redRpEarned).toBeNull();
     expect(result.blueRpEarned).toBeNull();
   });
+
+  it("degrades a non-integer self-reported 'rp' to null rather than rounding it (2024orbb/2025orbb regression)", () => {
+    // Oregon BunnyBots (2024orbb/2025orbb, event_type 99) runs a non-FRC
+    // custom game and self-reports a `rp` field with values like `32.5` —
+    // not a real ranking-point count. Rounding/truncating it would fabricate
+    // an RP value for a game that has none; the correct answer is "unknown".
+    const match = tbaMatch({ score_breakdown: { red: { rp: 32.5 }, blue: { rp: 7.5 } } });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.redRpEarned).toBeNull();
+    expect(result.blueRpEarned).toBeNull();
+  });
+
+  it("still reads a legitimate integer 'rp' of 0 (not confused with the non-integer guard)", () => {
+    const match = tbaMatch({ score_breakdown: { red: { rp: 0 }, blue: { rp: 3 } } });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.redRpEarned).toBe(0);
+    expect(result.blueRpEarned).toBe(3);
+  });
 });
