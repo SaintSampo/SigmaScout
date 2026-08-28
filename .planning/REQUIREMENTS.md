@@ -57,7 +57,7 @@ for the full baseline-change narrative.
 - [x] **EVNT-02**: Event Insights tab ranks the event's teams with the same columns as the Teams page
 - [x] **EVNT-03**: Event Breakdown tab shows score-component breakdowns for the event's teams
 - [x] **EVNT-04**: Event Quals tab lists qualification matches with predictions vs actuals
-- [ ] **EVNT-05**: Event Alliances tab shows each alliance's combined metrics
+- [x] **EVNT-05**: Event Alliances tab shows each alliance's combined metrics
 - [x] **EVNT-06**: Event Elims tab lists elimination matches with predictions vs actuals
 - [ ] **EVNT-07**: Simulation tab: user picks a start match; the remaining qual matches are simulated 1000× using predicted winners, confidence, and RP ± variance, producing a predicted rank distribution per team
 
@@ -134,7 +134,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVNT-02 | Phase 7 | Complete |
 | EVNT-03 | Phase 7 | Complete |
 | EVNT-04 | Phase 7 | Complete |
-| EVNT-05 | Phase 7 | Pending |
+| EVNT-05 | Phase 7 | Complete |
 | EVNT-06 | Phase 7 | Complete |
 | EVNT-07 | Phase 8 | Pending |
 | COMP-01 | Phase 8 | Pending |
