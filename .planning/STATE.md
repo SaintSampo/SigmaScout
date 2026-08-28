@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-08-28T01:49:52.564Z"
+stopped_at: Completed 07-06-PLAN.md
+last_updated: "2026-08-28T02:17:19.421Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 66
+  completed_plans: 67
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 3 of 20
+Plan: 4 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [████████░░] 79%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -100,6 +100,7 @@ Progress: [████████░░] 79%
 | Phase 06.1 P08 | 55min | 3 tasks | 12 files |
 | Phase 07 P01 | 22min | 3 tasks | 13 files |
 | Phase 07 P02 | 32min | 3 tasks | 4 files |
+| Phase 07 P06 | 45min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P02]: event_rankings' four new D-18.6 columns (recordWins/recordLosses/recordTies/rankingScore) are optional on CorpusEventRanking, not required -- verified live that packages/ingest/cli.ts and packages/harness/publish.ts both compile unchanged (git diff --stat empty), so 07-03/07-04 start from a green tree
 - [Phase ?]: [Phase 07 P02]: The real data/corpus.sqlite was migrated in place for the first time via openCorpus's new additive ALTER TABLE step -- event_rankings row count proven unchanged (47,695 before and after), event_alliances now exists (0 rows, expected until 07-05 populates it)
 - [Phase ?]: [Phase 07 P02]: EVNT-02/EVNT-05 intentionally NOT marked complete in REQUIREMENTS.md despite appearing in plan 07-02's frontmatter requirements list -- this plan ships only the storage-level half (corpus tables/columns/accessors); the tab-rendering surfaces that fulfill the requirement text (Insights tab ranking, Alliances tab combined metrics) are owned by 07-11 and 07-14, matching the ALGO-03/ALGO-04/06/08 precedent
+- [Phase ?]: [Phase 07 P06]: TeamMetric.spread redefined site-wide from sqrt(R) to sqrt(P+R) (D-01/D-02/D-03), proven by the alliance-additivity identity against predict()'s own redScoreVarianceOwn/blueScoreVarianceOwn; teamOwnComponentVarianceSum threads a seed accumulator through allianceComponentVarianceSum so predict()'s floating-point path stays bit-identical (digest.test.ts) despite the naive delegation shape flipping both committed digests
+- [Phase ?]: [Phase 07 P06]: Two extra stale two-quantity-model doc sites (adaptation.ts x2, rp/state.ts x1) found live by this plan's own sweep-gate grep, outside PD-02's enumerated 12 sites and outside files_modified -- corrected under Rule 2 since the plan's own acceptance criterion required a zero-match grep over the whole sigma1/ directory
+- [Phase ?]: [Phase 07 P06]: EVNT-02/EVNT-05 left Pending in REQUIREMENTS.md -- this plan changes the quantity those tabs display but does not own the tabs (07-11/07-14 do), matching the 07-02 precedent
 
 ### Pending Todos
 
@@ -252,6 +256,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T01:49:30.474Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-08-28T02:17:19.394Z
+Stopped at: Completed 07-06-PLAN.md
 Resume file: None
