@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-08-28T01:28:16.387Z"
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-08-28T01:49:52.564Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 65
+  completed_plans: 66
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 2 of 20
+Plan: 3 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
@@ -99,6 +99,7 @@ Progress: [████████░░] 77%
 | Phase 06.1 P07 | ~50min | 3 tasks | 1 files |
 | Phase 06.1 P08 | 55min | 3 tasks | 12 files |
 | Phase 07 P01 | 22min | 3 tasks | 13 files |
+| Phase 07 P02 | 32min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P01]: EventSearchSchema's tab enum stays over all five EVENT_TABS ids for URL-contract stability; route-local REGISTERED_EVENT_TABS narrows to the ids actually wired each wave, since z.enum's .catch() can't help when every id is a valid enum member
 - [Phase ?]: [Phase 07 P01]: Breakdown tab's columnPinningFeature/columnSizingFeature registered locally in BreakdownTab.tsx (not imported from teams-table/columns.tsx) since the column helper must be typed against BreakdownRow
 - [Phase ?]: [Phase 07 P01]: The tab strip and each tab's own table are three independent DOM-sibling overflow-x-auto scroll regions, never ancestor/descendant of one another
+- [Phase ?]: [Phase 07 P02]: RED commits for both TDD tasks contain only db.test.ts (implementation temporarily git-stashed to confirm real failure), GREEN commits add schema.sql/db.ts -- necessary since both tasks' tests and implementation land in the same pre-existing files
+- [Phase ?]: [Phase 07 P02]: event_rankings' four new D-18.6 columns (recordWins/recordLosses/recordTies/rankingScore) are optional on CorpusEventRanking, not required -- verified live that packages/ingest/cli.ts and packages/harness/publish.ts both compile unchanged (git diff --stat empty), so 07-03/07-04 start from a green tree
+- [Phase ?]: [Phase 07 P02]: The real data/corpus.sqlite was migrated in place for the first time via openCorpus's new additive ALTER TABLE step -- event_rankings row count proven unchanged (47,695 before and after), event_alliances now exists (0 rows, expected until 07-05 populates it)
+- [Phase ?]: [Phase 07 P02]: EVNT-02/EVNT-05 intentionally NOT marked complete in REQUIREMENTS.md despite appearing in plan 07-02's frontmatter requirements list -- this plan ships only the storage-level half (corpus tables/columns/accessors); the tab-rendering surfaces that fulfill the requirement text (Insights tab ranking, Alliances tab combined metrics) are owned by 07-11 and 07-14, matching the ALGO-03/ALGO-04/06/08 precedent
 
 ### Pending Todos
 
@@ -247,6 +252,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T01:28:16.357Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-08-28T01:49:30.474Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None

@@ -404,10 +404,10 @@ Plans:
   4. The Alliances tab shows each alliance's combined metrics.
   5. The Elims tab lists every elimination match with predictions next to actual results.
 
-**Plans**: 1/20 plans executed
+**Plans**: 2/20 plans executed
 
 - [x] 07-01-PLAN.md
-- [ ] 07-02-PLAN.md
+- [x] 07-02-PLAN.md
 - [ ] 07-03-PLAN.md
 - [ ] 07-04-PLAN.md
 - [ ] 07-05-PLAN.md
@@ -508,7 +508,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 4. Publish & Live Update Pipeline | 8/8 | Complete    | 2026-08-23 |
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
-| 7. Event Pages | 1/20 | In Progress|  |
+| 7. Event Pages | 2/20 | In Progress|  |
 | 8. Simulation & Compare | 0/TBD | Not started | - |
 
 ## Coverage
