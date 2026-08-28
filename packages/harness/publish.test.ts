@@ -25,6 +25,7 @@ import {
   selectScheduledMatches,
   upsertEvent,
   upsertEventAlliance,
+  upsertEventRanking,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -46,6 +47,7 @@ import {
   withHistoryPercentiles,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
+  type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
 import { roundTo, ROUNDING_RULE } from "./rounding.js";
@@ -194,6 +196,18 @@ function findTeamArtifact(teamKey: string, year = 2026): TeamSeasonArtifact {
   const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/${year}/`));
   expect(call, `expected a v1/team/${teamKey}/${year}/... putObject call`).toBeDefined();
   return JSON.parse(call![2] as string) as TeamSeasonArtifact;
+}
+
+/** Plan 07-08 Task 3: a complete `EventTeamRankingInput`, overridable field-by-field. */
+function seasonRankingRow(overrides: Partial<EventTeamRankingInput> = {}): EventTeamRankingInput {
+  return {
+    rank: 7,
+    recordWins: 9,
+    recordLosses: 1,
+    recordTies: 0,
+    rankingScore: 3.835,
+    ...overrides,
+  };
 }
 
 describe("buildEventArtifact", () => {
@@ -645,6 +659,166 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
 
     const artifact = findEventArtifact("2026noselect", sigma1.id);
     expect(artifact.alliances).toEqual([]);
+  });
+});
+
+/**
+ * Plan 07-08 Task 3 (D-18 item 6, D-07, D-08): official rank, TBA's
+ * authoritative record and ranking points on each team row, from the
+ * extended `event_rankings`. Every case asserts on a value read off the
+ * returned or published artifact.
+ */
+describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 07-08 Task 3)", () => {
+  it("Test 1 (D-08): a team with no rankings entry publishes none of rank/record/rp", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    const row = artifact.teams[0] as object;
+    expect(row).not.toHaveProperty("rank");
+    expect(row).not.toHaveProperty("record");
+    expect(row).not.toHaveProperty("rp");
+  });
+
+  it("Test 2: full round-trip", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ rank: 7, recordWins: 9, recordLosses: 1, recordTies: 0, rankingScore: 3.835 })]]) })
+    );
+    const row = artifact.teams[0]!;
+    expect(row.rank).toBe(7);
+    expect(row.record).toEqual({ wins: 9, losses: 1, ties: 0 });
+    expect(row.rp).toBe(roundTo(3.835, ROUNDING_RULE.rankingPoints));
+  });
+
+  it("Test 3 (PD-07): rp: 0 is a real, present ranking score, distinguishable from absent", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ rankingScore: 0 })]]) })
+    );
+    const row = artifact.teams[0] as object & { rp: unknown };
+    expect(row).toHaveProperty("rp");
+    expect(row.rp).toBe(0);
+  });
+
+  it("Test 4 (PD-06): a record missing any one of wins/losses/ties publishes no record key at all", () => {
+    const allNull = buildEventArtifact(
+      eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ rank: 4, recordWins: null, recordLosses: null, recordTies: null, rankingScore: null })]]) })
+    );
+    const allNullRow = allNull.teams[0] as object & { rank: unknown };
+    expect(allNullRow.rank).toBe(4);
+    expect(allNullRow).not.toHaveProperty("record");
+    expect(allNullRow).not.toHaveProperty("rp");
+
+    const partial = buildEventArtifact(
+      eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ recordWins: 9, recordLosses: 1, recordTies: null })]]) })
+    );
+    expect(partial.teams[0]).not.toHaveProperty("record");
+  });
+
+  it("Test 5: an all-zero record is published, distinct from the absent case", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ recordWins: 0, recordLosses: 0, recordTies: 0 })]]) })
+    );
+    expect(artifact.teams[0]?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
+  });
+
+  it("Test 6 (EVNT-02 adjacency): two teams sharing a rank value both publish it", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        teams: [
+          { teamKey: "frc1", teamNumber: 1, nickname: "A", metrics: {} },
+          { teamKey: "frc2", teamNumber: 2, nickname: "B", metrics: {} },
+        ],
+        rankings: new Map([
+          ["frc1", seasonRankingRow({ rank: 5 })],
+          ["frc2", seasonRankingRow({ rank: 5 })],
+        ]),
+      })
+    );
+    expect(artifact.teams[0]?.rank).toBe(5);
+    expect(artifact.teams[1]?.rank).toBe(5);
+  });
+
+  it("Test 7 (EVNT-02 ordering): teams publish in the caller's supplied order, not sorted by rank", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        teams: [
+          { teamKey: "frc1", teamNumber: 1, nickname: "A", metrics: {} },
+          { teamKey: "frc2", teamNumber: 2, nickname: "B", metrics: {} },
+        ],
+        rankings: new Map([
+          ["frc1", seasonRankingRow({ rank: 9 })],
+          ["frc2", seasonRankingRow({ rank: 1 })],
+        ]),
+      })
+    );
+    expect(artifact.teams.map((t) => t.teamKey)).toEqual(["frc1", "frc2"]);
+    expect(artifact.teams[0]?.rank).toBe(9);
+    expect(artifact.teams[1]?.rank).toBe(1);
+  });
+
+  it("Test 8 (T-07-08-01): populated metrics and absent standings keys coexist on one row when no rankings map is supplied", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics: { total: { value: 45.6, spread: 3.1 } } }] })
+    );
+    const row = artifact.teams[0] as object & { metrics: unknown };
+    expect(row.metrics).toBeDefined();
+    expect(row).not.toHaveProperty("rank");
+    expect(row).not.toHaveProperty("record");
+    expect(row).not.toHaveProperty("rp");
+  });
+});
+
+/** Plan 07-08 Task 3, Test 9: rank/record/rp through the real seeded-corpus `publishSeasons` path. */
+describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-event-ranking-corpus-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("Test 9a: rank/record/rp reach the published v1/event/... body for a ranked team", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
+    upsertMatch(db, seasonMatch());
+    upsertTeam(db, { teamKey: "frc1", teamNumber: 1, nickname: "" });
+    upsertEventRanking(db, {
+      eventKey: "2026casj",
+      teamKey: "frc1",
+      rank: 2,
+      totalTeams: 40,
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+      recordWins: 5,
+      recordLosses: 2,
+      recordTies: 0,
+      rankingScore: 2.71,
+    });
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026casj", sigma1.id);
+    const row = artifact.teams.find((t) => t.teamKey === "frc1");
+    expect(row?.rank).toBe(2);
+    expect(row?.record).toEqual({ wins: 5, losses: 2, ties: 0 });
+    expect(row?.rp).toBe(roundTo(2.71, ROUNDING_RULE.rankingPoints));
+  });
+
+  it("Test 9b (D-08): an event with no ranking rows publishes team rows with none of the three keys", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026norank" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026norank_qm1", eventKey: "2026norank" }));
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026norank", sigma1.id);
+    for (const row of artifact.teams) {
+      const r = row as object;
+      expect(r).not.toHaveProperty("rank");
+      expect(r).not.toHaveProperty("record");
+      expect(r).not.toHaveProperty("rp");
+    }
   });
 });
 

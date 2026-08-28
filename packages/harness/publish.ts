@@ -238,6 +238,32 @@ export interface EventTeamStandingInput {
 }
 
 /**
+ * D-18 item 6, D-07, D-08, plan 07-08: the fields consumed from
+ * `selectEventRankingsForSeason`'s inner map value (`packages/corpus/db.ts`),
+ * named identically to it. Two things recorded here that a later reader has
+ * no other source for. First, the naming hop: the corpus column is
+ * `ranking_score`, `selectEventRankingsForSeason`'s field is
+ * `rankingScore`, 07-04's ingest guards it with
+ * `sort_order_info[0].name === "Ranking Score"`, and the published field is
+ * `rp` — one quantity, four names, and the hop is now written down at every
+ * end so no two ends can drift. Second, the provenance constraint: D-08's
+ * fallback ordering is rendered by 07-11 and must NEVER be written into
+ * `rank`, because a model-derived position under a name that asserts
+ * official provenance is a false attribution the reader has no way to
+ * detect. `totalTeams` is deliberately NOT consumed here — 07-07 PD-06
+ * declined to add it to `EventTeamSchema`, and a field consumed but never
+ * published is a question about what happened to it.
+ * <!-- planner-discipline-allow: totalTeams -->
+ */
+export interface EventTeamRankingInput {
+  readonly rank: number;
+  readonly recordWins: number | null;
+  readonly recordLosses: number | null;
+  readonly recordTies: number | null;
+  readonly rankingScore: number | null;
+}
+
+/**
  * D-18 item 8, plan 07-08: mirrors `EventMetaRow`'s own field names and
  * nullability field-for-field, so a call site passes a corpus row's fields
  * straight through with no per-site logic. Composition (the
@@ -318,6 +344,72 @@ export interface BuildEventArtifactParams {
    * genuinely zero alliance rows publishes `[]`, never an omitted key.
    */
   readonly alliances?: readonly EventAllianceInput[];
+  /**
+   * D-18 item 6, D-07, D-08, plan 07-08: this event's official rank,
+   * authoritative record and ranking points, keyed by team key — sourced
+   * from the same once-per-season event-ranking read `TeamSeasonEventInput
+   * .rank`'s own call site already consumes for this data. Looked up by KEY
+   * inside `buildEventArtifact`, never by array position. A team key absent
+   * from this map publishes none of `rank`/`record`/`rp` — the real state
+   * of every event with no ranking rows (D-08's measured 259-of-1,581
+   * count).
+   */
+  readonly rankings?: ReadonlyMap<string, EventTeamRankingInput>;
+}
+
+/**
+ * D-18 item 6, D-07, D-08, plan 07-08: the conditionally-spread `rank`/
+ * `record`/`rp` fields for one team row, given that team's (possibly
+ * absent) ranking entry. Deliberately factored OUT of `buildEventArtifact`
+ * itself — a block-bodied `.map()` callback needing its own local `const`
+ * would need its own explicit `return`, which would leave
+ * `buildEventArtifact`'s own function range with TWO `return` statements
+ * instead of one, undermining the very literal single-return check
+ * T-07-08-02's mitigation rests on (a second return is syntactically
+ * harmless here but indistinguishable AT A GLANCE from the early return
+ * this file's parse-through-schema discipline guards against). This
+ * helper's own `return` lives outside that counted range.
+ *
+ * These three carry TBA's own reported values, which account for
+ * disqualifications and surrogate appearances — never a tally this
+ * pipeline counted from the match stream. They are independently optional
+ * and a half-present set is a REAL state (an `event_rankings` row written
+ * before 07-04's widened ingest carries a rank with a NULL record and a
+ * NULL ranking score), so there is deliberately no cross-field requirement
+ * here. `rp` is TBA's Ranking Score, a per-match average and therefore a
+ * real number rather than an integer count — explicitly NOT the same
+ * quantity as `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s integer
+ * bonus-RP counts, which share three letters with it and nothing else, and
+ * rounds through 07-07's own `ROUNDING_RULE.rankingPoints` key rather than
+ * the model-metric one, so a future change to model-display precision
+ * cannot silently move a number TBA reported.
+ * <!-- planner-discipline-allow: ROUNDING_RULE.metric -->
+ * D-08's fallback ordering (07-11's render) must NEVER be written into
+ * `rank` — this helper takes only a ranking entry, never a model metric, so
+ * a model-derived position cannot reach this TBA-provenance-asserting
+ * field (T-07-08-01).
+ */
+function eventTeamRankingFields(
+  ranking: EventTeamRankingInput | undefined
+): Partial<{ rank: number; record: { wins: number; losses: number; ties: number }; rp: number }> {
+  return {
+    // `rank` passed through unchanged; 07-07 typed it `.int().positive()`
+    // so a fabricated `0` is unrepresentable at the schema layer and must
+    // not be synthesized here either.
+    ...(ranking?.rank !== undefined ? { rank: ranking.rank } : {}),
+    // All-or-nothing (PD-06): a row missing any one of the three publishes
+    // no `record` key at all — never a partial record with a zero
+    // substituted for the gap. Every comparison is an explicit `!== null`
+    // (never truthiness), so a real `0` survives (PD-07).
+    ...(ranking !== undefined && ranking.recordWins !== null && ranking.recordLosses !== null && ranking.recordTies !== null
+      ? { record: { wins: ranking.recordWins, losses: ranking.recordLosses, ties: ranking.recordTies } }
+      : {}),
+    // `!== null` guard (never truthiness) so a real `0` ranking score
+    // survives (PD-07).
+    ...(ranking?.rankingScore !== null && ranking?.rankingScore !== undefined
+      ? { rp: roundTo(ranking.rankingScore, ROUNDING_RULE.rankingPoints) }
+      : {}),
+  };
 }
 
 /**
@@ -399,6 +491,17 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     teamKey: t.teamKey,
     teamNumber: t.teamNumber,
     nickname: t.nickname,
+    // D-18 item 6, D-07, D-08, plan 07-08: `eventTeamRankingFields` looks
+    // this team up by KEY, never by array position — matching the by-key
+    // discipline the team loop's own
+    // `eventRankingsForSeason.get(eventKey)?.get(teamKey)` lookup already
+    // establishes for this same data (`publishSeasons`). See that helper's
+    // own doc comment (declared above this function, deliberately, so
+    // `buildEventArtifact`'s own range keeps exactly one `return`
+    // statement — T-07-08-02) for the full rank/record/rp contract,
+    // including why the model's own per-team metrics (`t.metrics` below)
+    // can never reach these TBA-provenance-asserting fields (T-07-08-01).
+    ...eventTeamRankingFields(params.rankings?.get(t.teamKey)),
     metrics: roundTeamMetricRecord(t.metrics),
   }));
 
@@ -1575,6 +1678,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // call site always consulted the corpus, so the published key is
           // always present, meaning "zero rows" when the map has no entry.
           alliances: alliancesForSeason.get(e.event_key) ?? [],
+          // D-18 item 6, plan 07-08: the SAME once-per-season read the team
+          // loop's own `eventRankingsForSeason.get(eventKey)?.get(teamKey)`
+          // lookup already uses — no second read, no move of the existing
+          // one.
+          rankings: eventRankingsForSeason.get(e.event_key),
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         eventPending.push(uploader.publish("event", key, JSON.stringify(eventArtifact)));
@@ -1813,6 +1921,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     // throw.
     const eventMetaRow = selectEventMeta(db, season).find((e) => e.event_key === eventKey);
     const alliancesForEvent = selectEventAlliancesForSeason(db, season).get(eventKey) ?? [];
+    const rankingsForEvent = selectEventRankingsForSeason(db, season).get(eventKey);
 
     const validated = buildEventArtifact({
       eventKey,
@@ -1828,6 +1937,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
         ? { name: eventMetaRow.name, startDate: eventMetaRow.start_date, country: eventMetaRow.country, stateProv: eventMetaRow.state_prov, week: eventMetaRow.week }
         : undefined,
       alliances: alliancesForEvent,
+      rankings: rankingsForEvent,
     });
 
     const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });
