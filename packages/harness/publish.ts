@@ -4,7 +4,7 @@
  * 04-04 Task 1 into the full offline publisher). Two modes:
  *
  *   pnpm publish:artifacts --event <event_key> --algorithm opr [--bucket <name>] [--dry-run]
- *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,sigma1] [--bucket <name>]
+ *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,vpr] [--bucket <name>]
  *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
  *
  * `--event` is the single-event republish path (how a live-event artifact is
@@ -29,7 +29,7 @@
  *
  * Monte Carlo note (04-04-PLAN.md's "resolving a discretion item"): D-08's
  * scheduled-match RP pmf is produced by whatever `predict()` already
- * computes for the promoted Sigma1 module (`rpMonteCarloDraws` from its
+ * computes for the promoted VPR module (`rpMonteCarloDraws` from its
  * pinned params) — this file does not touch that computation. Changing it
  * would move the committed prediction-stream digest and require a new
  * promoted version (Phase 3 work), which is out of this phase's scope fence.
@@ -54,7 +54,7 @@ import type {
 } from "../core/algorithms/types.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
-import { sigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
+import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
@@ -105,8 +105,8 @@ const DEFAULT_BUCKET = "sigmascout-artifacts";
 const DEFAULT_CONCURRENCY = 16;
 const SEED_OUT_DIR = join("reports", "publish");
 
-/** D-03: the base (untuned/unpromoted) modules for the three published ids. `resolvePublishAlgorithms` swaps `sigma1` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). */
-const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, sigma1 };
+/** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the three published ids. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
+const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr };
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
@@ -870,7 +870,7 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
         // lines below and the client guard (`BonusRpDots`'s `applicable`
         // prop): a played PLAYOFF match's row must carry neither key even if
         // a caller-supplied `Prediction` happens to carry populated arrays
-        // (sigma1's own `predict()` already never does this upstream, but
+        // (vpr's own `predict()` already never does this upstream, but
         // this function does not trust that upstream discipline alone).
         ...(isBonusRpCompLevel(match.compLevel) && prediction.redBonusRp
           ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) }
@@ -1550,7 +1550,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // the stream is chronological (`buildSeasonStream`), so the last write
     // for one event key is that event's LAST match, regardless of how many
     // events run the same weekend. Every algorithm's `update` returns a NEW
-    // state object (`sigma1`/`epa` a fresh literal, `opr` a fresh
+    // state object (`vpr`/`epa` a fresh literal, `opr` a fresh
     // `{ perEvent, lastEventByTeam }` or the identical state on a genuine
     // non-`qm` no-op) — so storing the reference below is a genuine
     // snapshot, never an alias of the eventually-final state. Cost, from
@@ -1712,7 +1712,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // same tiers the team page does, so a number does not change
           // meaning between the table and the page it links to.
           //
-          // Measured on 2024/sigma1, the largest teams artifact: publishing
+          // Measured on 2024/sigma1, the largest teams artifact [pre-rename]: publishing
           // `percentile` costs +42% gzipped (369KB -> 525KB); publishing
           // `tier` with Common omitted costs +10% (369KB -> 405KB), for an
           // identical rendered result. Page-load speed is the top stated UX
@@ -1962,7 +1962,7 @@ function deriveSeasonFromEventKey(eventKey: string): number {
   return season;
 }
 
-/** D-03: resolves the requested `--algorithm` ids (default: all three published ids) against the base modules, then swaps in the promoted Sigma1 the same way `manifests.ts`/`cli.ts` do (T-04-16) — never a second, independent resolution. */
+/** D-03 (rename D-04/D-05, plan 07-16): resolves the requested `--algorithm` ids (default: `PIPELINE_ALGORITHM_IDS`, the publisher-side tier — PD-01) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`/`cli.ts` do (T-04-16) — never a second, independent resolution. */
 function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv

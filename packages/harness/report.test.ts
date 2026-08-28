@@ -234,9 +234,9 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
     brierScore: 0.201,
     winnerAccuracy: 0.701,
   };
-  const sigma1Slice2025Combined: ScoreSlice = {
+  const vprSlice2025Combined: ScoreSlice = {
     ...slice2025Combined,
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     brierScore: 0.119,
     winnerAccuracy: 0.83,
   };
@@ -252,9 +252,9 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
       algorithms: [
         { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
         { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
-        { id: "sigma1", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "vpr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
-      slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined, sigma1Slice2025Combined],
+      slices: [slice2024Qual, slice2024Elim, slice2025Combined, epaSlice2025Combined, vprSlice2025Combined],
       statboticsReferences: [],
     };
     return HarnessArtifactSchema.parse(candidate);
@@ -266,7 +266,7 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
 
     expect(html).toContain(">opr<");
     expect(html).toContain(">epa<");
-    expect(html).toContain(">sigma1<");
+    expect(html).toContain(">vpr<");
 
     const rowCount = (html.match(/<tr class="(?:holdout|tune)-row">/g) ?? []).length;
     expect(rowCount).toBe(artifact.slices.length);
@@ -280,12 +280,12 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
       schemaVersion: 2,
       provenance: { corpusIdentity: "data/corpus.sqlite", runTimestamp: "2026-08-13T00:00:00.000Z", seasonsCovered: [2025] },
       algorithms: [
-        { id: "sigma1", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
+        { id: "vpr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
         { id: "opr", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
         { id: "epa", version: "1.0.0", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
       slices: [
-        { ...slice2025Combined, algorithmId: "sigma1", brierScore: 0.119, winnerAccuracy: 0.83 },
+        { ...slice2025Combined, algorithmId: "vpr", brierScore: 0.119, winnerAccuracy: 0.83 },
         { ...slice2025Combined, algorithmId: "opr" },
         { ...slice2025Combined, algorithmId: "epa", brierScore: 0.201, winnerAccuracy: 0.701 },
       ],
@@ -293,12 +293,12 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
     });
 
     const html = renderHeadToHeadTable(artifact);
-    // Alphabetical algorithm order within the shared (season, view) group: epa, opr, sigma1.
+    // Alphabetical algorithm order within the shared (season, view) group: epa, opr, vpr.
     const epaIdx = html.indexOf(">epa<");
     const oprIdx = html.indexOf(">opr<");
-    const sigma1Idx = html.indexOf(">sigma1<");
+    const vprIdx = html.indexOf(">vpr<");
     expect(oprIdx).toBeGreaterThan(epaIdx);
-    expect(sigma1Idx).toBeGreaterThan(oprIdx);
+    expect(vprIdx).toBeGreaterThan(oprIdx);
   });
 
   it("computes no arithmetic difference between two algorithms' Brier scores — raw numbers only (D-21)", () => {

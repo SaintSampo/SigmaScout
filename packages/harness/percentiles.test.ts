@@ -248,7 +248,7 @@ describe("MetricValueSchema.percentile (F-06-3, plan 06.1-03 Task 2)", () => {
       matchKey: "2024test_qm1",
       season: 2024,
       eventKey: "2024test",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       teamKey: "frc1",
       matchIndex: 0,
       metrics: { total: { value: 42, percentile: 87.5 } },

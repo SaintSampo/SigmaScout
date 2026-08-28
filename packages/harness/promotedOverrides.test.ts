@@ -1,8 +1,8 @@
 /**
  * Harness registry + promoted-version resolution tests (ALGO-05/ALGO-06).
  *
- * ALGO-06: `applyPromotedOverrides`/`loadPromotedSigma1`/`loadSearchWinnerSigma1`
- * are the D-13/D-14 link that makes `--algorithm sigma1` mean the committed
+ * ALGO-06: `applyPromotedOverrides`/`loadPromotedVpr`/`loadSearchWinnerVpr`
+ * are the D-13/D-14 link that makes `--algorithm vpr` mean the committed
  * PROMOTED version rather than the Phase-2-reproducing defaults. `digest.test.ts`
  * proves a promoted version reproduces its own digest; nothing there proves the
  * CLI actually LOADS it. A silent fallback to defaults would leave every digest
@@ -13,21 +13,21 @@
  * ALGO-05: the adaptation on/off MECHANISM is already proven in
  * `sigma1/params.test.ts` (adaptation-off bitwise identical, adaptation-on
  * differs). What is proven here is the layer above it — that the harness
- * REGISTRY exposes `sigma1-adapt` and `sigma1-defaults` as genuinely distinct
+ * REGISTRY exposes `vpr-adapt` and `vpr-defaults` as genuinely distinct
  * modules, which is what the ALGO-05 holdout comparison actually runs through.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALGORITHMS, applyPromotedOverrides, loadPromotedSigma1, loadSearchWinnerSigma1 } from "./cli.js";
+import { ALGORITHMS, applyPromotedOverrides, loadPromotedVpr, loadSearchWinnerVpr } from "./cli.js";
 import { makeSigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 
 /**
  * The committed promoted version `applyPromotedOverrides` resolves for the
- * `sigma1` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
+ * `vpr` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
  * unlike `reports/tune-joint-on.json` it is always present, in CI included.
  */
 const PROMOTED_VERSION_IDENTITY = "2.0.0+tuned-2026-08";
@@ -173,7 +173,7 @@ function predictionStream(algorithm: AlgorithmModule<unknown>): string {
 /** A schema-valid promoted-version object wrapping an arbitrary param set. */
 function promotedVersionFile(paramSetName: string, params: Sigma1Params): string {
   return JSON.stringify({
-    id: "sigma1",
+    id: "vpr",
     codeVersion: "2.0.0",
     paramSetName,
     version: `2.0.0+${paramSetName}`,
@@ -197,9 +197,9 @@ function promotedVersionFile(paramSetName: string, params: Sigma1Params): string
 
 // --- ALGO-06: promoted version resolution -----------------------------------
 
-describe("loadPromotedSigma1 (ALGO-06)", () => {
+describe("loadPromotedVpr (ALGO-06)", () => {
   it("returns undefined for a path that does not exist, rather than throwing — this is the documented fallback contract", () => {
-    expect(loadPromotedSigma1("sigma1", join(tmpdir(), "definitely-not-a-real-version-file.json"))).toBeUndefined();
+    expect(loadPromotedVpr("vpr", join(tmpdir(), "definitely-not-a-real-version-file.json"))).toBeUndefined();
   });
 
   it("builds a module carrying the FILE's version identity, not the caller's default", () => {
@@ -207,10 +207,10 @@ describe("loadPromotedSigma1 (ALGO-06)", () => {
     const versionPath = join(dir, "version.json");
     writeFileSync(versionPath, promotedVersionFile("test-tuned", DEFAULT_SIGMA1_PARAMS));
 
-    const loaded = loadPromotedSigma1("sigma1", versionPath);
+    const loaded = loadPromotedVpr("vpr", versionPath);
 
     expect(loaded).toBeDefined();
-    expect(loaded?.id).toBe("sigma1");
+    expect(loaded?.id).toBe("vpr");
     expect(loaded?.version).toBe("2.0.0+test-tuned");
   });
 
@@ -222,8 +222,8 @@ describe("loadPromotedSigma1 (ALGO-06)", () => {
     const tuned: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEvent: 5 };
     writeFileSync(versionPath, promotedVersionFile("test-tuned", tuned));
 
-    const loaded = loadPromotedSigma1("sigma1", versionPath);
-    const untuned = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
+    const loaded = loadPromotedVpr("vpr", versionPath);
+    const untuned = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
 
     expect(loaded).toBeDefined();
     expect(predictionStream(loaded as AlgorithmModule<Sigma1State>)).not.toBe(
@@ -234,9 +234,9 @@ describe("loadPromotedSigma1 (ALGO-06)", () => {
   it("throws on a schema-invalid version file rather than silently falling back to defaults", () => {
     const dir = makeTempDir("promoted-malformed-");
     const versionPath = join(dir, "malformed.json");
-    writeFileSync(versionPath, JSON.stringify({ id: "sigma1", codeVersion: "2.0.0", params: {} }));
+    writeFileSync(versionPath, JSON.stringify({ id: "vpr", codeVersion: "2.0.0", params: {} }));
 
-    expect(() => loadPromotedSigma1("sigma1", versionPath)).toThrow();
+    expect(() => loadPromotedVpr("vpr", versionPath)).toThrow();
   });
 
   it("throws on a non-finite param value (D-13's finite discipline), never coercing it", () => {
@@ -245,11 +245,11 @@ describe("loadPromotedSigma1 (ALGO-06)", () => {
     // NaN serializes to JSON `null`, which the schema must also reject.
     writeFileSync(versionPath, promotedVersionFile("bad", { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEvent: NaN }));
 
-    expect(() => loadPromotedSigma1("sigma1", versionPath)).toThrow();
+    expect(() => loadPromotedVpr("vpr", versionPath)).toThrow();
   });
 });
 
-describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
+describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
   /** A `tune.ts --stage joint` artifact whose winner fixes rpMonteCarloDraws to 0, exactly as the real search does for speed. */
   function searchArtifact(winnerIndex: number): string {
     return JSON.stringify({
@@ -262,7 +262,7 @@ describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
   }
 
   it("returns undefined when the search artifact is absent — reports/ is gitignored, so this is the normal CI path", () => {
-    expect(loadSearchWinnerSigma1("sigma1-adapt", join(tmpdir(), "no-such-search.json"), "w")).toBeUndefined();
+    expect(loadSearchWinnerVpr("vpr-adapt", join(tmpdir(), "no-such-search.json"), "w")).toBeUndefined();
   });
 
   it("returns undefined when winnerIndex names no candidate, rather than throwing or picking an arbitrary one", () => {
@@ -270,7 +270,7 @@ describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
     const artifactPath = join(dir, "search.json");
     writeFileSync(artifactPath, searchArtifact(999));
 
-    expect(loadSearchWinnerSigma1("sigma1-adapt", artifactPath, "w")).toBeUndefined();
+    expect(loadSearchWinnerVpr("vpr-adapt", artifactPath, "w")).toBeUndefined();
   });
 
   it("restores rpMonteCarloDraws to the versioned default — the loaded module EMITS an RP pmf, though its source artifact recorded 0 draws", () => {
@@ -278,9 +278,9 @@ describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
     const artifactPath = join(dir, "search.json");
     writeFileSync(artifactPath, searchArtifact(1));
 
-    const loaded = loadSearchWinnerSigma1("sigma1-adapt", artifactPath, "tune-joint-on-winner");
+    const loaded = loadSearchWinnerVpr("vpr-adapt", artifactPath, "tune-joint-on-winner");
     expect(loaded).toBeDefined();
-    expect(loaded?.id).toBe("sigma1-adapt");
+    expect(loaded?.id).toBe("vpr-adapt");
     expect(loaded?.version).toBe("2.0.0+tune-joint-on-winner");
 
     // The restore is only observable through predict(): rpPmfForMatch
@@ -288,7 +288,7 @@ describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
     // artifact's own un-restored 0 proves the assertion below can fail.
     const restored = loaded as AlgorithmModule<Sigma1State>;
     const control = makeSigma1({
-      id: "sigma1-adapt-control",
+      id: "vpr-adapt-control",
       linkMode: "predictive-variance",
       params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 },
     });
@@ -304,8 +304,8 @@ describe("loadSearchWinnerSigma1 (ALGO-06 / D-06)", () => {
 });
 
 describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
-  it("swaps the sigma1 entry for the COMMITTED promoted version — `--algorithm sigma1` does not silently mean untuned defaults", () => {
-    const untuned = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
+  it("swaps the vpr entry for the COMMITTED promoted version — `--algorithm vpr` does not silently mean untuned defaults", () => {
+    const untuned = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
     expect(untuned.version).toBe(DEFAULTS_VERSION_IDENTITY);
 
     const [overridden] = applyPromotedOverrides([untuned]);
@@ -316,7 +316,7 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
   });
 
   it("the swapped-in module's tuned params reach the predict/update path — its prediction stream differs from the untuned module's", () => {
-    const untuned = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
+    const untuned = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
     const [overridden] = applyPromotedOverrides([untuned]);
 
     expect(predictionStream(overridden as AlgorithmModule<Sigma1State>)).not.toBe(
@@ -324,10 +324,10 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
     );
   });
 
-  it("leaves every non-sigma1/non-sigma1-adapt module referentially identical", () => {
+  it("leaves every non-vpr/non-vpr-adapt module referentially identical", () => {
     const opr = ALGORITHMS["opr"] as AlgorithmModule<unknown>;
     const epa = ALGORITHMS["epa"] as AlgorithmModule<unknown>;
-    const defaults = ALGORITHMS["sigma1-defaults"] as AlgorithmModule<unknown>;
+    const defaults = ALGORITHMS["vpr-defaults"] as AlgorithmModule<unknown>;
 
     const result = applyPromotedOverrides([opr, epa, defaults]);
 
@@ -336,20 +336,42 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
     expect(result[2]).toBe(defaults);
   });
 
-  it("falls back to the passed-in sigma1-adapt module when the on-search artifact is absent, preserving pre-override behaviour", () => {
+  it("falls back to the passed-in vpr-adapt module when the on-search artifact is absent, preserving pre-override behaviour", () => {
     // reports/ is gitignored; when it is absent the adapt entry must survive
     // untouched. When it IS present the override fires and the module is
     // rebuilt — both are correct, so assert the invariant true either way:
     // the id is preserved and a module is always returned.
-    const adapt = ALGORITHMS["sigma1-adapt"] as AlgorithmModule<unknown>;
+    const adapt = ALGORITHMS["vpr-adapt"] as AlgorithmModule<unknown>;
     const [result] = applyPromotedOverrides([adapt]);
 
     expect(result).toBeDefined();
-    expect(result?.id).toBe("sigma1-adapt");
+    expect(result?.id).toBe("vpr-adapt");
+  });
+
+  // Test 5 (plan 07-16 Task 1, T-07-16-05): adjacency — `vpr` and
+  // `vpr-adapt` do not collide. Applied to a registry containing BOTH, each
+  // routes to its OWN branch (the published id to the committed version
+  // file, the variant to the search-artifact loader), asserted by reading
+  // each returned module's `.id` back rather than trusting call order or a
+  // `startsWith`/substring test, which would resolve one into the other.
+  it("routes vpr and vpr-adapt to their own distinct override branches without collision", () => {
+    const baseVpr = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
+    const baseAdapt = makeSigma1({ id: "vpr-adapt", linkMode: "predictive-variance" });
+
+    const [overriddenVpr, overriddenAdapt] = applyPromotedOverrides([baseVpr, baseAdapt]);
+
+    expect(overriddenVpr?.id).toBe("vpr");
+    expect(overriddenAdapt?.id).toBe("vpr-adapt");
+    // The published entry resolves the committed version pin (a real,
+    // different version string); the adaptation entry either falls back to
+    // its passed-in module (reports/ absent in CI) or resolves its own
+    // search-artifact loader — never the published version's identity.
+    expect(overriddenVpr?.version).toBe(PROMOTED_VERSION_IDENTITY);
+    expect(overriddenAdapt?.version).not.toBe(PROMOTED_VERSION_IDENTITY);
   });
 
   it("is a pure mapping: it returns a new array and never mutates the one it was given", () => {
-    const untuned = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
+    const untuned = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
     const input = [untuned];
 
     const result = applyPromotedOverrides(input);
@@ -366,11 +388,11 @@ describe("ALGORITHMS registry wiring (ALGO-05)", () => {
   const REQUIRED_IDS = [
     "opr",
     "epa",
-    "sigma1",
-    "sigma1-defaults",
-    "sigma1-seasonsd",
-    "sigma1-normalcdf",
-    "sigma1-adapt",
+    "vpr",
+    "vpr-defaults",
+    "vpr-seasonsd",
+    "vpr-normalcdf",
+    "vpr-adapt",
   ] as const;
 
   it.each(REQUIRED_IDS)("registers %s", (id) => {
@@ -383,25 +405,25 @@ describe("ALGORITHMS registry wiring (ALGO-05)", () => {
     }
   });
 
-  it("sigma1-defaults and sigma1-adapt carry EXACTLY distinct version identities (D-13)", () => {
+  it("vpr-defaults and vpr-adapt carry EXACTLY distinct version identities (D-13)", () => {
     // Exact equality, not `toContain`: "defaults-adapt" contains "defaults",
     // so a substring check would pass even if both ids resolved to the same
     // adaptation-on module — precisely the regression this test exists for.
-    expect(ALGORITHMS["sigma1-defaults"]?.version).toBe(DEFAULTS_VERSION_IDENTITY);
-    expect(ALGORITHMS["sigma1-adapt"]?.version).toBe(ADAPT_VERSION_IDENTITY);
-    expect(ALGORITHMS["sigma1-defaults"]?.version).not.toBe(ALGORITHMS["sigma1-adapt"]?.version);
+    expect(ALGORITHMS["vpr-defaults"]?.version).toBe(DEFAULTS_VERSION_IDENTITY);
+    expect(ALGORITHMS["vpr-adapt"]?.version).toBe(ADAPT_VERSION_IDENTITY);
+    expect(ALGORITHMS["vpr-defaults"]?.version).not.toBe(ALGORITHMS["vpr-adapt"]?.version);
   });
 
-  it("the registered sigma1-adapt and sigma1-defaults modules produce GENUINELY different prediction streams over one shared fixture — the on/off comparison is not scoring the same module twice", () => {
-    const off = ALGORITHMS["sigma1-defaults"] as AlgorithmModule<Sigma1State>;
-    const on = ALGORITHMS["sigma1-adapt"] as AlgorithmModule<Sigma1State>;
+  it("the registered vpr-adapt and vpr-defaults modules produce GENUINELY different prediction streams over one shared fixture — the on/off comparison is not scoring the same module twice", () => {
+    const off = ALGORITHMS["vpr-defaults"] as AlgorithmModule<Sigma1State>;
+    const on = ALGORITHMS["vpr-adapt"] as AlgorithmModule<Sigma1State>;
 
     expect(predictionStream(on)).not.toBe(predictionStream(off));
   });
 
   it("both registered modules are individually reproducible — a differing stream above is adaptation, never run-to-run noise", () => {
-    const off = ALGORITHMS["sigma1-defaults"] as AlgorithmModule<Sigma1State>;
-    const on = ALGORITHMS["sigma1-adapt"] as AlgorithmModule<Sigma1State>;
+    const off = ALGORITHMS["vpr-defaults"] as AlgorithmModule<Sigma1State>;
+    const on = ALGORITHMS["vpr-adapt"] as AlgorithmModule<Sigma1State>;
 
     expect(predictionStream(off)).toBe(predictionStream(off));
     expect(predictionStream(on)).toBe(predictionStream(on));

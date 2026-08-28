@@ -41,11 +41,11 @@ import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algor
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import {
-  sigma1,
-  sigma1Adaptive,
-  sigma1Defaults,
-  sigma1NormalCdf,
-  sigma1SeasonSd,
+  vpr,
+  vprAdaptive,
+  vprDefaults,
+  vprNormalCdf,
+  vprSeasonSd,
   makeSigma1,
   DEFAULT_SIGMA1_PARAMS,
   Sigma1ParamsSchema,
@@ -86,33 +86,35 @@ import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
 // (incompatible) state types S; each entry is internally type-safe. D-12's
-// three Sigma1 link modes share one update path (sigma1/index.ts's
-// makeSigma1) but are registered as three distinct entries so one harness
-// run scores all three side by side (plan 02-05). D-05/D-06 (plan 03-04
-// Task 2): `sigma1-adapt` is the SAME shape applied to the adaptation-on/off
-// question — `pnpm harness --algorithm sigma1,sigma1-adapt` scores both
-// variants in one pass over one shared match stream, so any difference is
-// the adaptation and nothing else. `sigma1-defaults` (plan 03-06) is the
-// Phase-2-reproducing untuned baseline, registered explicitly so a run can
-// show `sigma1` (the currently-promoted, potentially tuned version, see
-// `applyPromotedOverrides` below) alongside it — this is what makes "what
-// did tuning buy" legible in one artifact rather than implied.
+// three VPR link modes share one update path (sigma1/index.ts's
+// makeSigma1 — the implementation module keeps its pre-rename directory
+// name and factory name, D-04/D-05/PD-02, plan 07-16) but are registered as
+// three distinct entries so one harness run scores all three side by side
+// (plan 02-05). D-05/D-06 (plan 03-04 Task 2): `vpr-adapt` is the SAME shape
+// applied to the adaptation-on/off question — `pnpm harness --algorithm
+// vpr,vpr-adapt` scores both variants in one pass over one shared match
+// stream, so any difference is the adaptation and nothing else.
+// `vpr-defaults` (plan 03-06) is the Phase-2-reproducing untuned baseline,
+// registered explicitly so a run can show `vpr` (the currently-promoted,
+// potentially tuned version, see `applyPromotedOverrides` below) alongside
+// it — this is what makes "what did tuning buy" legible in one artifact
+// rather than implied.
 export const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
-  sigma1,
-  "sigma1-defaults": sigma1Defaults,
-  "sigma1-seasonsd": sigma1SeasonSd,
-  "sigma1-normalcdf": sigma1NormalCdf,
-  "sigma1-adapt": sigma1Adaptive,
+  vpr,
+  "vpr-defaults": vprDefaults,
+  "vpr-seasonsd": vprSeasonSd,
+  "vpr-normalcdf": vprNormalCdf,
+  "vpr-adapt": vprAdaptive,
 };
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
 /**
- * D-13/D-14 (plan 03-06): once a version is promoted, `--algorithm sigma1`
+ * D-13/D-14 (plan 03-06): once a version is promoted, `--algorithm vpr`
  * should mean THAT shipped version, not the Phase-2-reproducing defaults
- * `ALGORITHMS.sigma1` above still is — `sigma1-defaults` above is what keeps
+ * `ALGORITHMS.vpr` above still is — `vpr-defaults` above is what keeps
  * the untuned baseline available for comparison. Read LAZILY, inside
  * `applyPromotedOverrides` (called only from `main()`, at CLI-entry time,
  * never at this module's top-level import) — `data/algorithm-versions/*.json`
@@ -121,8 +123,8 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
-const PROMOTED_SIGMA1_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
-/** The committed version-file directory `warnIfNewerPromotedSigma1` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
+/** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**
  * D-06/D-08/ALGO-05 (plan 03-06): the adaptation-ON joint search's own
@@ -130,7 +132,7 @@ const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
  * defaults-plus-flag module. `reports/` is gitignored (D-14: a search
  * evaluation is an experiment, not a version), so this file is NOT always
  * present — `applyPromotedOverrides` falls back to the existing
- * `sigma1Adaptive` (defaults + `adaptationEnabled: true`) when it is
+ * `vprAdaptive` (defaults + `adaptationEnabled: true`) when it is
  * absent, exactly the pre-existing behavior for every invocation that
  * predates this override.
  */
@@ -145,16 +147,16 @@ interface TuneSearchOutputForOverride {
   readonly candidates: readonly TuneSearchCandidateForOverride[];
 }
 
-/** Builds a Sigma1 module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
-export function loadPromotedSigma1(id: string, versionPath: string): AlgorithmModule<any> | undefined {
+/** Builds a VPR module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
+export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModule<any> | undefined {
   if (!existsSync(versionPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(versionPath, "utf8"));
   const promoted = PromotedVersionSchema.parse(raw);
   return makeSigma1({ id, linkMode: "predictive-variance", params: promoted.params, paramSetName: promoted.paramSetName });
 }
 
-/** Builds a Sigma1 module from a `tune.ts --stage joint` search artifact's own winning candidate — restoring `rpMonteCarloDraws` to the versioned default the same way `promote.ts` does for a promoted winner (the search fixes it to 0 for speed). `undefined` if the artifact does not exist. */
-export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
+/** Builds a VPR module from a `tune.ts --stage joint` search artifact's own winning candidate — restoring `rpMonteCarloDraws` to the versioned default the same way `promote.ts` does for a promoted winner (the search fixes it to 0 for speed). `undefined` if the artifact does not exist. */
+export function loadSearchWinnerVpr(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
   if (!existsSync(searchArtifactPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
   const output = raw as TuneSearchOutputForOverride;
@@ -166,8 +168,8 @@ export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, p
 }
 
 /**
- * D-12 / 03-REVIEW WR-03: makes a newer committed Sigma1 version file LOUD
- * at load time while keeping `PROMOTED_SIGMA1_VERSION_PATH` the explicit,
+ * D-12 / 03-REVIEW WR-03: makes a newer committed VPR version file LOUD
+ * at load time while keeping `PROMOTED_VPR_VERSION_PATH` the explicit,
  * pinned path that is actually loaded — never a bypass of the pin.
  *
  * Two alternatives were considered and rejected (both recorded in
@@ -188,9 +190,9 @@ export function loadSearchWinnerSigma1(id: string, searchArtifactPath: string, p
  * never changes which file is actually loaded: a missing `versionsDir` or a
  * missing `pinnedPath`, or a stray unparseable file anywhere in
  * `versionsDir`, is treated as "nothing to warn about," exactly like
- * `loadPromotedSigma1`'s own existing missing-file fallback.
+ * `loadPromotedVpr`'s own existing missing-file fallback.
  */
-export function warnIfNewerPromotedSigma1(versionsDir: string, pinnedPath: string): void {
+export function warnIfNewerPromotedVpr(versionsDir: string, pinnedPath: string): void {
   if (!existsSync(pinnedPath)) return;
   let pinned: PromotedVersion;
   try {
@@ -233,34 +235,35 @@ export function warnIfNewerPromotedSigma1(versionsDir: string, pinnedPath: strin
   if (newestFileName === undefined) return;
 
   console.log(
-    `WARNING [warnIfNewerPromotedSigma1]: a newer promoted "${pinned.id}" version exists — ` +
+    `WARNING [warnIfNewerPromotedVpr]: a newer promoted "${pinned.id}" version exists — ` +
       `pinned=${pinnedFileName} (promoted ${pinned.provenance.promotedAt}), newest=${newestFileName} ` +
       `(promoted ${new Date(newestTime).toISOString()}). The pin is deliberate (D-12: Phase 3's D-13 makes ` +
       `version identity load-bearing for Phase 4's artifacts, the Phase 5 dropdown, and the Phase 8 Compare ` +
-      `page) — to score the newer version, edit PROMOTED_SIGMA1_VERSION_PATH in packages/harness/cli.ts.`
+      `page) — to score the newer version, edit PROMOTED_VPR_VERSION_PATH in packages/harness/cli.ts.`
   );
 }
 
 /**
- * Plan 03-06: swaps the static `sigma1`/`sigma1-adapt` registry entries for
- * the currently-promoted version / the on-search's own winner when their
- * source files are present, leaving every other algorithm (and either of
- * these two when their file is absent) exactly as `resolveAlgorithms`
- * returned it. Applied once in `main()`, never inside the static
- * `ALGORITHMS` registry itself (see the file-presence comments above).
+ * Plan 03-06 (renamed 07-16): swaps the static `vpr`/`vpr-adapt` registry
+ * entries for the currently-promoted version / the on-search's own winner
+ * when their source files are present, leaving every other algorithm (and
+ * either of these two when their file is absent) exactly as
+ * `resolveAlgorithms` returned it. Applied once in `main()`, never inside
+ * the static `ALGORITHMS` registry itself (see the file-presence comments
+ * above).
  */
 export function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
   return algorithms.map((algorithm) => {
-    if (algorithm.id === "sigma1") {
+    if (algorithm.id === "vpr") {
       // D-12 / 03-REVIEW WR-03: the committed-version pin, not the
       // gitignored `reports/` search artifact this branch never reads — the
       // adaptation branch below reads a search artifact instead and is
       // deliberately excluded from this staleness check.
-      warnIfNewerPromotedSigma1(ALGORITHM_VERSIONS_DIR, PROMOTED_SIGMA1_VERSION_PATH);
-      return loadPromotedSigma1("sigma1", PROMOTED_SIGMA1_VERSION_PATH) ?? algorithm;
+      warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
+      return loadPromotedVpr("vpr", PROMOTED_VPR_VERSION_PATH) ?? algorithm;
     }
-    if (algorithm.id === "sigma1-adapt") {
-      return loadSearchWinnerSigma1("sigma1-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner") ?? algorithm;
+    if (algorithm.id === "vpr-adapt") {
+      return loadSearchWinnerVpr("vpr-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner") ?? algorithm;
     }
     return algorithm;
   });
@@ -529,7 +532,7 @@ async function runSeason(
         blueComponents: r.prediction.blueComponents ?? {},
         variance: r.prediction.variance,
         // D-10 (plan 03-03): present only for an algorithm that modeled RP
-        // (Sigma1) — `writePredictionLine`'s schema treats `undefined` as
+        // (VPR) — `writePredictionLine`'s schema treats `undefined` as
         // "omit entirely", never coercing to an empty array.
         redRpPmf: r.prediction.redRpPmf ? [...r.prediction.redRpPmf] : undefined,
         blueRpPmf: r.prediction.blueRpPmf ? [...r.prediction.blueRpPmf] : undefined,
@@ -846,11 +849,11 @@ async function main(): Promise<void> {
     },
   });
 
-  // Plan 03-06: swaps in the currently-promoted `sigma1` version and the
-  // adaptation-on search's own winner for `sigma1-adapt`, when their source
-  // files exist — see `applyPromotedOverrides`'s own doc comment. A no-op
-  // for every other algorithm id and for either of these two when its
-  // source file is absent.
+  // Plan 03-06 (renamed 07-16): swaps in the currently-promoted `vpr`
+  // version and the adaptation-on search's own winner for `vpr-adapt`, when
+  // their source files exist — see `applyPromotedOverrides`'s own doc
+  // comment. A no-op for every other algorithm id and for either of these
+  // two when its source file is absent.
   const algorithms = applyPromotedOverrides(resolveAlgorithms(values.algorithm));
   const outDir = values.out ?? DEFAULT_OUT_DIR;
   const includeOffseason = values["include-offseason"] === true;

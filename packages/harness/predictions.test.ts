@@ -104,7 +104,7 @@ describe("openPredictionsWriter / writePredictionLine / closePredictionsWriter",
     writePredictionLine(
       handle,
       makeRecord({
-        algorithmId: "sigma1",
+        algorithmId: "vpr",
         variance: 42.5,
         redComponents: { autoAmpNote: { mean: 3, variance: 1.2 } },
         blueComponents: { autoAmpNote: { mean: 2, variance: 0.8 } },
@@ -153,7 +153,7 @@ describe("openPredictionsWriter / writePredictionLine / closePredictionsWriter",
     const handle = openPredictionsWriter(outDir, 2024);
     const records = [
       makeRecord({ matchKey: "2024test_qm1", algorithmId: "opr" }),
-      makeRecord({ matchKey: "2024test_qm1", algorithmId: "sigma1", variance: 12 }),
+      makeRecord({ matchKey: "2024test_qm1", algorithmId: "vpr", variance: 12 }),
     ];
     for (const record of records) writePredictionLine(handle, record);
     closePredictionsWriter(handle);
@@ -169,7 +169,7 @@ describe("openPredictionsWriter / writePredictionLine / closePredictionsWriter",
     const handle = openPredictionsWriter(outDir, 2024);
     writePredictionLine(
       handle,
-      makeRecord({ algorithmId: "sigma1", redRpPmf: [0.1, 0.2, 0.3, 0.4], blueRpPmf: [0.5, 0.5] })
+      makeRecord({ algorithmId: "vpr", redRpPmf: [0.1, 0.2, 0.3, 0.4], blueRpPmf: [0.5, 0.5] })
     );
     closePredictionsWriter(handle);
 

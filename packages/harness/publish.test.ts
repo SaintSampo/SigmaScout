@@ -14,10 +14,10 @@ import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../core
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-// Deliberately the pre-VPR-rename identifier (PD-12, 07-08-PLAN.md): this
-// file already imports `sigma1`'s own `publish.ts` importer this way, and
-// 07-16's full-repo sweep is what renames it in wave 11.
-import { sigma1 } from "../core/algorithms/sigma1/index.js";
+// Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
+// own `publish.ts` importer now imports the published `vpr` registry entry
+// under its post-rename name.
+import { vpr } from "../core/algorithms/sigma1/index.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   openCorpus,
@@ -130,7 +130,7 @@ function eventArtifactParams(
   return {
     eventKey: "2026casj",
     season: 2026,
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+test",
     predictions: [{ match: fixtureMatch(), prediction: fixturePrediction(prediction) }],
     upcoming: [{ match: fixtureUpcoming(), prediction: fixturePrediction(upcomingPrediction) }],
@@ -414,14 +414,14 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
   it("Test 6 (PD-09): the published value traces to predict()'s own output on the record it built the row from, never a recomputation", () => {
     const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
     const match = fixtureMatch();
-    const records = new WalkForwardSimulator([match]).run(sigma1, teams);
+    const records = new WalkForwardSimulator([match]).run(vpr, teams);
     const record = records[0]!;
     expect(record.prediction.redScoreVarianceOwn).toBeDefined();
     const artifact = buildEventArtifact({
       eventKey: match.eventKey,
       season: 2026,
-      algorithmId: sigma1.id,
-      algorithmVersion: sigma1.version,
+      algorithmId: vpr.id,
+      algorithmVersion: vpr.version,
       predictions: records,
       generation: "g-test6",
     });
@@ -481,13 +481,13 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("Test 7: a real publishSeasons run with sigma1 publishes a finite redScoreVarianceOwn and the seeded sortTime on a played event row", async () => {
+  it("Test 7: a real publishSeasons run with vpr publishes a finite redScoreVarianceOwn and the seeded sortTime on a played event row", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
     upsertMatch(db, seasonMatch({ sortTime: 12_345 }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", sigma1.id);
+    const artifact = findEventArtifact("2026casj", vpr.id);
     const row = artifact.matches.find((m) => m.matchKey === "2026casj_qm1");
     expect(row).toBeDefined();
     expect(Number.isFinite(row?.redScoreVarianceOwn)).toBe(true);
@@ -530,10 +530,10 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
       })
     );
 
-    await publishSeasons(db, { seasons: [2024], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2024], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
     const teamArtifact = findTeamArtifact("frc1", 2024);
-    const eventArtifact = findEventArtifact("2024casj", sigma1.id);
+    const eventArtifact = findEventArtifact("2024casj", vpr.id);
 
     const teamCasjEvent = teamArtifact.events.find((e) => e.eventKey === "2024casj");
     const qmTeamRow = teamCasjEvent?.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
@@ -722,9 +722,9 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
       fetchedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", sigma1.id);
+    const artifact = findEventArtifact("2026casj", vpr.id);
     expect(artifact.name).toBe("Sacramento Regional");
     expect(artifact.startDate).toBe("2026-03-01");
     expect(artifact.location).toBe("CA, USA");
@@ -738,9 +738,9 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
     upsertEvent(db, seasonEvent({ eventKey: "2026noselect" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026noselect_qm1", eventKey: "2026noselect" }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026noselect", sigma1.id);
+    const artifact = findEventArtifact("2026noselect", vpr.id);
     expect(artifact.alliances).toEqual([]);
   });
 });
@@ -880,9 +880,9 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
       rankingScore: 2.71,
     });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", sigma1.id);
+    const artifact = findEventArtifact("2026casj", vpr.id);
     const row = artifact.teams.find((t) => t.teamKey === "frc1");
     expect(row?.rank).toBe(2);
     expect(row?.record).toEqual({ wins: 5, losses: 2, ties: 0 });
@@ -893,9 +893,9 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
     upsertEvent(db, seasonEvent({ eventKey: "2026norank" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026norank_qm1", eventKey: "2026norank" }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026norank", sigma1.id);
+    const artifact = findEventArtifact("2026norank", vpr.id);
     for (const row of artifact.teams) {
       const r = row as object;
       expect(r).not.toHaveProperty("rank");
@@ -1136,7 +1136,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
   } as const;
 
   it("D-01: rounds a Sigma1-shaped prediction's own-variance fields to 4 decimals; an OPR-shaped prediction leaves both undefined", () => {
-    const sigma1Artifact = buildTeamSeasonArtifact({
+    const vprArtifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
         {
@@ -1149,9 +1149,9 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
         },
       ],
     });
-    const sigma1Row = sigma1Artifact.events[0]?.matches[0];
-    expect(sigma1Row?.redScoreVarianceOwn).toBe(12.3457);
-    expect(sigma1Row?.blueScoreVarianceOwn).toBe(9.8765);
+    const vprRow = vprArtifact.events[0]?.matches[0];
+    expect(vprRow?.redScoreVarianceOwn).toBe(12.3457);
+    expect(vprRow?.blueScoreVarianceOwn).toBe(9.8765);
 
     const oprArtifact = buildTeamSeasonArtifact({
       ...baseParams,
@@ -1417,7 +1417,7 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
     teamNumber: 254,
     nickname: "The Cheesy Poofs",
     season: 2024,
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+test",
     seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
     metricHistory: [],
@@ -1524,17 +1524,17 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
       events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
       actualBonusFlagsByMatchKey: flagMap,
     });
-    const sigma1Artifact = buildTeamSeasonArtifact({
+    const vprArtifact = buildTeamSeasonArtifact({
       ...baseParams,
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+test",
       events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
       actualBonusFlagsByMatchKey: flagMap,
     });
     const oprRow = oprArtifact.events[0]?.matches[0];
-    const sigma1Row = sigma1Artifact.events[0]?.matches[0];
-    expect(oprRow?.actualRedBonusRp).toEqual(sigma1Row?.actualRedBonusRp);
-    expect(oprRow?.actualBlueBonusRp).toEqual(sigma1Row?.actualBlueBonusRp);
+    const vprRow = vprArtifact.events[0]?.matches[0];
+    expect(oprRow?.actualRedBonusRp).toEqual(vprRow?.actualRedBonusRp);
+    expect(oprRow?.actualBlueBonusRp).toEqual(vprRow?.actualBlueBonusRp);
   });
 
   /**
@@ -1589,7 +1589,7 @@ function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow
     matchKey: "2026casj_qm1",
     season: 2026,
     eventKey: "2026casj",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     teamKey: "frc254",
     matchIndex: 0,
     metrics: { [TOTAL_METRIC_KEY]: { value: 10 } },

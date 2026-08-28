@@ -2,7 +2,7 @@
  * Coverage for the two offline-published manifests (D-18/D-03, plan 04-03
  * Task 1): the live-windows half-open-interval contract, the corpus-derived
  * window builder (including the zero-match inferred fallback), and the
- * algorithms manifest's harness-only-id rejection and Sigma1-version
+ * algorithms manifest's harness-only-id rejection and VPR-version
  * agreement with the committed promoted file.
  */
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -24,7 +24,7 @@ import {
   isLiveAt,
 } from "./manifests.js";
 
-const PROMOTED_SIGMA1_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
 
 let dir: string;
 let corpusPath: string;
@@ -209,12 +209,24 @@ describe("AlgorithmsManifestSchema — D-03 harness-only rejection", () => {
     };
   }
 
-  it("rejects a manifest naming sigma1-adapt, with a message naming D-03", () => {
-    expect(() => AlgorithmsManifestSchema.parse(baseManifest("sigma1-adapt"))).toThrow(/D-03/);
+  it("rejects a manifest naming vpr-adapt, with a message naming D-03", () => {
+    expect(() => AlgorithmsManifestSchema.parse(baseManifest("vpr-adapt"))).toThrow(/D-03/);
   });
 
   it("rejects each of the four harness-only ids", () => {
-    for (const id of ["sigma1-defaults", "sigma1-seasonsd", "sigma1-normalcdf", "sigma1-adapt"]) {
+    for (const id of ["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]) {
+      expect(() => AlgorithmsManifestSchema.parse(baseManifest(id))).toThrow();
+    }
+  });
+
+  // Test 10 (plan 07-16 Task 1, T-07-16-05): the published id itself is
+  // ACCEPTED in the same file that rejects all four harness-only variants —
+  // the case that would fail under any prefix/substring test, since `vpr`
+  // is a literal prefix of `vpr-adapt` etc. HARNESS_ONLY_ALGORITHM_IDS.has
+  // is exact-equality Set membership, never `startsWith`/`includes`.
+  it("accepts the published id vpr while rejecting all four harness-only variants", () => {
+    expect(() => AlgorithmsManifestSchema.parse(baseManifest("vpr"))).not.toThrow();
+    for (const id of ["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]) {
       expect(() => AlgorithmsManifestSchema.parse(baseManifest(id))).toThrow();
     }
   });
@@ -230,10 +242,19 @@ describe("AlgorithmsManifestSchema — D-03 harness-only rejection", () => {
 });
 
 describe("buildAlgorithmsManifest — D-03's published set", () => {
-  it("returns exactly 3 entries whose ids are opr, epa, sigma1", () => {
+  // Test 1 (plan 07-16 Task 1): the manifest's third entry is `vpr`, the
+  // renamed publisher-side identity — deliberately asserted against a
+  // literal array, NOT `[...PUBLISHED_ALGORITHM_IDS]`. PUBLISHED_ALGORITHM_IDS
+  // is the browser-facing tier (07-18's to move) and still reads
+  // opr/epa/sigma1 through this phase's transition window (PD-01); the
+  // manifest's own id is read from the committed promoted version file, and
+  // the two are DELIBERATELY different values right now. Equating them here
+  // would silently re-couple the two tiers this plan's whole safety property
+  // depends on keeping apart.
+  it("returns exactly 3 entries whose ids are opr, epa, vpr — in that order", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms).toHaveLength(3);
-    expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+    expect(manifest.algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);
   });
 
   it("reads opr/epa's id and version straight from the modules", () => {
@@ -246,18 +267,30 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
     expect(epaEntry.params).toBeUndefined();
   });
 
-  it("the Sigma1 entry's version equals the committed promoted version file's version field (read at test time, never hardcoded)", () => {
-    const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_SIGMA1_VERSION_PATH, "utf8")));
+  // Test 2 (plan 07-16 Task 1): the manifest id is READ from the committed
+  // version file's own `id` field, never written as a literal at the
+  // construction site — a future literal reintroduced there fails THIS case
+  // specifically, because it compares against the file's own parsed field
+  // rather than the string "vpr".
+  it("the published entry's id strictly equals the id parsed from the committed promoted version file (read, not written)", () => {
+    const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
-    const sigma1Entry = manifest.algorithms.find((a) => a.id === "sigma1")!;
-    expect(sigma1Entry.version).toBe(committed.version);
-    expect(sigma1Entry.version).toContain("+");
-    expect(() => Object.freeze(sigma1Entry.params)).not.toThrow();
+    const vprEntry = manifest.algorithms[2]!;
+    expect(vprEntry.id).toBe(committed.id);
   });
 
-  it("the Sigma1 entry's params parse against Sigma1ParamsSchema (already enforced by AlgorithmsManifestSchema.parse inside buildAlgorithmsManifest, asserted here for presence)", () => {
+  it("the VPR entry's version equals the committed promoted version file's version field (read at test time, never hardcoded)", () => {
+    const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
-    const sigma1Entry = manifest.algorithms.find((a) => a.id === "sigma1")!;
-    expect(sigma1Entry.params).toBeDefined();
+    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
+    expect(vprEntry.version).toBe(committed.version);
+    expect(vprEntry.version).toContain("+");
+    expect(() => Object.freeze(vprEntry.params)).not.toThrow();
+  });
+
+  it("the VPR entry's params parse against Sigma1ParamsSchema (already enforced by AlgorithmsManifestSchema.parse inside buildAlgorithmsManifest, asserted here for presence)", () => {
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
+    expect(vprEntry.params).toBeDefined();
   });
 });

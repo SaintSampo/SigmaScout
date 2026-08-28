@@ -44,7 +44,8 @@ const ProvenanceSchema = z.object({
    * D-14 (plan 03-05 Task 3): the full provenance a JOINT-stage promotion
    * carries — "which search produced this, on which corpus, scoring what"
    * answerable from the file alone. All OPTIONAL so the pre-existing
-   * tracer-stage promotion (03-01's `sigma1@2.0.0+tracer-check.json`, which
+   * tracer-stage promotion (03-01's `vpr@2.0.0+tracer-check.json`, renamed
+   * from `sigma1@2.0.0+tracer-check.json` by plan 07-16, D-04/D-05 — which
    * never ran the screen or the joint search and therefore has no seed,
    * survivor list, or LOSO summary to report) keeps validating unchanged —
    * every field below IS populated for a joint-stage promotion.
@@ -194,7 +195,10 @@ async function main(): Promise<void> {
   if (!fromPath) throw new Error("--from is required (e.g. --from reports/tune-tracer.json), or pass --adaptation on|off");
   const paramSetName = values.name;
   if (!paramSetName) throw new Error("--name is required (the paramSetName half of D-13's {codeVersion}+{paramSetName} identity)");
-  const id = values.id ?? "sigma1";
+  // D-04/D-05 (plan 07-16): a future promotion's default id is the renamed
+  // published identity, so an operator who omits `--id` stamps a version
+  // file the current registry/publisher/manifest chain actually resolves.
+  const id = values.id ?? "vpr";
   const codeVersion = values["code-version"] ?? SIGMA1_CODE_VERSION;
   const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : COLD_START_SEASON;
   const sliceEvents = values["slice-events"] !== undefined ? parseSliceEvents(values["slice-events"]) : 3;

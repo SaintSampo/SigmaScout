@@ -6,12 +6,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
   SIGMA1_CONSISTENCY_CARRY_DECAY,
   SIGMA1_MIN_CONSISTENCY_VARIANCE,
   makeSigma1,
-  sigma1,
-  sigma1NormalCdf,
-  sigma1SeasonSd,
+  vpr,
+  vprNormalCdf,
+  vprSeasonSd,
   shrinkConsistency,
   teamTotalVariance,
   type Sigma1State,
@@ -158,10 +159,10 @@ function serializeState(state: Sigma1State): string {
   });
 }
 
-describe("sigma1.predict — shape", () => {
+describe("vpr.predict — shape", () => {
   it("returns winner, pRedWin, redScore, blueScore, variance, and per-component mean+variance vectors for both alliances", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -186,7 +187,7 @@ describe("sigma1.predict — shape", () => {
       blueSurrogates: [],
       eventType: 0,
     };
-    const prediction = sigma1.predict(state, upcoming);
+    const prediction = vpr.predict(state, upcoming);
 
     expect(["red", "blue"]).toContain(prediction.winner);
     expect(prediction.pRedWin).toBeGreaterThanOrEqual(0);
@@ -208,7 +209,7 @@ describe("sigma1.predict — shape", () => {
   });
 
   it("gives a red-win probability of exactly 0.5 when the predicted score margin is zero (no ratings yet)", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const upcoming: UpcomingMatch = {
       matchKey: "2024test_qm1",
       eventKey: "2024test",
@@ -221,17 +222,17 @@ describe("sigma1.predict — shape", () => {
       blueSurrogates: [],
       eventType: 0,
     };
-    const prediction = sigma1.predict(state, upcoming);
+    const prediction = vpr.predict(state, upcoming);
     expect(prediction.redScore).toBe(0);
     expect(prediction.blueScore).toBe(0);
     expect(prediction.pRedWin).toBe(0.5);
   });
 });
 
-describe("sigma1.predict — D-01 own-variance publish (Phase 6)", () => {
+describe("vpr.predict — D-01 own-variance publish (Phase 6)", () => {
   it("returns redScoreVarianceOwn/blueScoreVarianceOwn as finite numbers equal to each alliance's own posterior + covariance total, computed independently", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -256,7 +257,7 @@ describe("sigma1.predict — D-01 own-variance publish (Phase 6)", () => {
       blueSurrogates: [],
       eventType: 0,
     };
-    const prediction = sigma1.predict(state, upcoming);
+    const prediction = vpr.predict(state, upcoming);
 
     expect(typeof prediction.redScoreVarianceOwn).toBe("number");
     expect(typeof prediction.blueScoreVarianceOwn).toBe("number");
@@ -309,8 +310,8 @@ describe("sigma1.predict — D-01 own-variance publish (Phase 6)", () => {
 
 describe("teamMetrics — D-27 contract shape", () => {
   it("returns exactly the requested teams, each with one entry per component plus total, every entry carrying a defined spread", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -323,7 +324,7 @@ describe("teamMetrics — D-27 contract shape", () => {
       })
     );
 
-    const metrics = sigma1.teamMetrics(state, ["frc254"]);
+    const metrics = vpr.teamMetrics(state, ["frc254"]);
     expect(Object.keys(metrics)).toEqual(["frc254"]);
     const frc254 = metrics["frc254"]!;
     // One entry per component, plus total, plus the three phase groups
@@ -353,8 +354,8 @@ describe("teamMetrics — D-27 contract shape", () => {
   });
 
   it("with no team filter, returns every team the state knows", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -366,7 +367,7 @@ describe("teamMetrics — D-27 contract shape", () => {
         scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
       })
     );
-    const metrics = sigma1.teamMetrics(state);
+    const metrics = vpr.teamMetrics(state);
     expect(Object.keys(metrics).sort()).toEqual(["T1", "T2", "T3", "T4", "T5", "T6"].sort());
   });
 });
@@ -414,7 +415,7 @@ describe("teamMetrics — honest-variance check", () => {
       breakdownParseFailureCount: 0,
     };
 
-    const metrics = sigma1.teamMetrics(state);
+    const metrics = vpr.teamMetrics(state);
     expect(metrics["STEADY"]!["autoLeave"]!.value).toBe(metrics["STREAKY"]!["autoLeave"]!.value);
     expect(metrics["STEADY"]!["autoLeave"]!.spread).not.toBe(metrics["STREAKY"]!["autoLeave"]!.spread);
     // total spread also differs, since covariance matrices differ.
@@ -489,9 +490,9 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
    * team, per this task's `<behavior>` requirement.
    */
   function buildSixTeamFixtureState(): Sigma1State {
-    let state = sigma1.initState([]);
+    let state = vpr.initState([]);
     for (let i = 0; i < SIX_TEAM_RED_VALUES.length; i++) {
-      state = sigma1.update(
+      state = vpr.update(
         state,
         match({
           matchKey: `2024test_qm${i + 1}`,
@@ -520,9 +521,9 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
 
   it("Test 1 (the tracer's proof) — three teams' published TOTAL spread squares sum to predict()'s own redScoreVarianceOwn/blueScoreVarianceOwn, on both alliances", () => {
     const state = buildSixTeamFixtureState();
-    const prediction = sigma1.predict(state, SIX_TEAM_UPCOMING);
-    const redMetrics = sigma1.teamMetrics(state, SIX_TEAM_UPCOMING.redTeams);
-    const blueMetrics = sigma1.teamMetrics(state, SIX_TEAM_UPCOMING.blueTeams);
+    const prediction = vpr.predict(state, SIX_TEAM_UPCOMING);
+    const redMetrics = vpr.teamMetrics(state, SIX_TEAM_UPCOMING.redTeams);
+    const blueMetrics = vpr.teamMetrics(state, SIX_TEAM_UPCOMING.blueTeams);
 
     const redSumOfSquares = SIX_TEAM_UPCOMING.redTeams.reduce(
       (sum, team) => sum + redMetrics[team]!["total"]!.spread! ** 2,
@@ -576,7 +577,7 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
       breakdownParseFailureCount: 0,
     };
 
-    const metrics = sigma1.teamMetrics(state, ["COLDSTART"]);
+    const metrics = vpr.teamMetrics(state, ["COLDSTART"]);
     const totalSpread = metrics["COLDSTART"]!["total"]!.spread!;
     expect(Number.isFinite(totalSpread)).toBe(true);
     expect(totalSpread).toBeGreaterThan(0);
@@ -600,8 +601,8 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
  */
 describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 07-06 Task 2)", () => {
   it("Test 5 — every published metric key's spread strictly exceeds the square root of that key's R term alone", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -614,7 +615,7 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
       })
     );
 
-    const metrics = sigma1.teamMetrics(state, ["frc254"]);
+    const metrics = vpr.teamMetrics(state, ["frc254"]);
     const frc254 = metrics["frc254"]!;
     const teamState = state.teams.get("frc254")!;
 
@@ -694,7 +695,7 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
       breakdownParseFailureCount: 0,
     };
 
-    const metrics = sigma1.teamMetrics(state, ["PARTIALGROUP"]);
+    const metrics = vpr.teamMetrics(state, ["PARTIALGROUP"]);
     const groupSpread = metrics["PARTIALGROUP"]!["phaseAuto"]!.spread!;
     expect(Number.isFinite(groupSpread)).toBe(true);
 
@@ -736,10 +737,10 @@ describe("D-05 fallback — null scoreBreakdownRaw still updates state, with inf
       scoreBreakdownRaw: null,
     });
 
-    let realState = sigma1.initState([]);
-    realState = sigma1.update(realState, realMatch);
-    let fallbackState = sigma1.initState([]);
-    fallbackState = sigma1.update(fallbackState, fallbackMatch);
+    let realState = vpr.initState([]);
+    realState = vpr.update(realState, realMatch);
+    let fallbackState = vpr.initState([]);
+    fallbackState = vpr.update(fallbackState, fallbackMatch);
 
     // Both teams' state changed (state was not skipped/left cold-start).
     expect(fallbackState.teams.has("T1")).toBe(true);
@@ -760,7 +761,7 @@ describe("D-05 fallback — null scoreBreakdownRaw still updates state, with inf
 
 describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
   it("produces a prediction and a no-op update for an alliance whose every team is a surrogate", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const upcoming: UpcomingMatch = {
       matchKey: "2024test_qm1",
       eventKey: "2024test",
@@ -774,8 +775,8 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
       eventType: 0,
     };
 
-    expect(() => sigma1.predict(state, upcoming)).not.toThrow();
-    const prediction = sigma1.predict(state, upcoming);
+    expect(() => vpr.predict(state, upcoming)).not.toThrow();
+    const prediction = vpr.predict(state, upcoming);
     expect(Number.isNaN(prediction.pRedWin)).toBe(false);
     expect(Number.isNaN(prediction.variance)).toBe(false);
 
@@ -789,8 +790,8 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
       hasScoreBreakdown: true,
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     };
-    expect(() => sigma1.update(state, result)).not.toThrow();
-    const nextState = sigma1.update(state, result);
+    expect(() => vpr.update(state, result)).not.toThrow();
+    const nextState = vpr.update(state, result);
     // Red is entirely surrogates -> a genuine no-op for red's teams; blue
     // updates normally (mirrors opr.ts's/epa.ts's own empty-observation
     // handling).
@@ -814,8 +815,8 @@ describe("D-07 process noise — cross-event vs within-event", () => {
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     });
 
-    let stateSameEvent = sigma1.update(sigma1.initState([]), firstMatch);
-    let stateCrossEvent = sigma1.update(sigma1.initState([]), firstMatch);
+    let stateSameEvent = vpr.update(vpr.initState([]), firstMatch);
+    let stateCrossEvent = vpr.update(vpr.initState([]), firstMatch);
 
     const secondMatchSameEvent = match({
       matchKey: "2024eventa_qm2",
@@ -838,8 +839,8 @@ describe("D-07 process noise — cross-event vs within-event", () => {
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     });
 
-    stateSameEvent = sigma1.update(stateSameEvent, secondMatchSameEvent);
-    stateCrossEvent = sigma1.update(stateCrossEvent, secondMatchCrossEvent);
+    stateSameEvent = vpr.update(stateSameEvent, secondMatchSameEvent);
+    stateCrossEvent = vpr.update(stateCrossEvent, secondMatchCrossEvent);
 
     const sameEventVariance = stateSameEvent.teams.get("T1")!.beliefs["autoLeave"]!.variance;
     const crossEventVariance = stateCrossEvent.teams.get("T1")!.beliefs["autoLeave"]!.variance;
@@ -848,10 +849,20 @@ describe("D-07 process noise — cross-event vs within-event", () => {
 });
 
 describe("makeSigma1 — distinct ids, shared update path, mode-specific predict", () => {
-  it("gives sigma1 / sigma1SeasonSd / sigma1NormalCdf distinct ids matching D-12's three modes", () => {
-    expect(sigma1.id).toBe("sigma1");
-    expect(sigma1SeasonSd.id).toBe("sigma1-seasonsd");
-    expect(sigma1NormalCdf.id).toBe("sigma1-normalcdf");
+  it("gives vpr / vprSeasonSd / vprNormalCdf distinct ids matching D-12's three modes", () => {
+    expect(vpr.id).toBe("vpr");
+    expect(vprSeasonSd.id).toBe("vpr-seasonsd");
+    expect(vprNormalCdf.id).toBe("vpr-normalcdf");
+  });
+
+  // Test 11 (plan 07-16 Task 1): the renamed registry entry's id is
+  // strictly `vpr`, and its `version` string is UNCHANGED by the rename —
+  // `SIGMA1_CODE_VERSION` plus the default `paramSetName` fallback ("defaults")
+  // is an implementation constant PD-02 leaves alone; only the identity
+  // (`id`) moved.
+  it("vpr's id is exactly \"vpr\" and its version string is unchanged from before the rename", () => {
+    expect(vpr.id).toBe("vpr");
+    expect(vpr.version).toBe(`${SIGMA1_CODE_VERSION}+defaults`);
   });
 
   it("produces identical state via update() across all three modes, differing only in predict's outputs that depend on the link mode", () => {
@@ -865,9 +876,9 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     });
 
-    const s1 = sigma1.update(sigma1.initState([]), m);
-    const s2 = sigma1SeasonSd.update(sigma1SeasonSd.initState([]), m);
-    const s3 = sigma1NormalCdf.update(sigma1NormalCdf.initState([]), m);
+    const s1 = vpr.update(vpr.initState([]), m);
+    const s2 = vprSeasonSd.update(vprSeasonSd.initState([]), m);
+    const s3 = vprNormalCdf.update(vprNormalCdf.initState([]), m);
 
     expect(serializeState(s1)).toBe(serializeState(s2));
     expect(serializeState(s1)).toBe(serializeState(s3));
@@ -884,9 +895,9 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
       blueSurrogates: [],
       eventType: 0,
     };
-    const p1 = sigma1.predict(s1, upcoming);
-    const p2 = sigma1SeasonSd.predict(s2, upcoming);
-    const p3 = sigma1NormalCdf.predict(s3, upcoming);
+    const p1 = vpr.predict(s1, upcoming);
+    const p2 = vprSeasonSd.predict(s2, upcoming);
+    const p3 = vprNormalCdf.predict(s3, upcoming);
 
     // Score/variance predictions don't depend on the link mode at all.
     expect(p1.redScore).toBe(p2.redScore);
@@ -897,8 +908,8 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
   });
 
   it("makeSigma1({ id, linkMode }) round-trips a custom id", () => {
-    const custom = makeSigma1({ id: "sigma1-custom", linkMode: "season-sd" });
-    expect(custom.id).toBe("sigma1-custom");
+    const custom = makeSigma1({ id: "vpr-custom", linkMode: "season-sd" });
+    expect(custom.id).toBe("vpr-custom");
   });
 
   it("throws when constructed with a params object that violates a cross-parameter invariant (WR-02, 03.1-REVIEW.md: makeSigma1 must parse options.params through Sigma1ParamsSchema, not merely accept it by TypeScript shape)", () => {
@@ -909,7 +920,7 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
     // unvalidated.
     expect(() =>
       makeSigma1({
-        id: "sigma1-invalid",
+        id: "vpr-invalid",
         linkMode: "predictive-variance",
         params: { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 1, processNoiseWithinEvent: 5 },
       })
@@ -954,7 +965,7 @@ describe("determinism — replaying the same fixture twice", () => {
     ];
 
     function replay(): unknown[] {
-      let state = sigma1.initState([]);
+      let state = vpr.initState([]);
       const predictions: unknown[] = [];
       for (const m of matches) {
         const upcoming: UpcomingMatch = {
@@ -969,8 +980,8 @@ describe("determinism — replaying the same fixture twice", () => {
           blueSurrogates: m.blueSurrogates,
           eventType: m.eventType,
         };
-        predictions.push(sigma1.predict(state, upcoming));
-        state = sigma1.update(state, m);
+        predictions.push(vpr.predict(state, upcoming));
+        state = vpr.update(state, m);
       }
       return predictions;
     }
@@ -983,7 +994,7 @@ describe("determinism — replaying the same fixture twice", () => {
 
 describe("T-02-01 — non-finite observed component values throw rather than fold into Kalman state", () => {
   it("throws when result.redScore is non-finite (a distributeResidual degenerate value that would otherwise reach updateAllianceSum unchecked)", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const brokenMatch = match({
       matchKey: "2024test_qm1",
       redTeams: ["T1", "T2", "T3"],
@@ -993,11 +1004,11 @@ describe("T-02-01 — non-finite observed component values throw rather than fol
       hasScoreBreakdown: false,
       scoreBreakdownRaw: null,
     });
-    expect(() => sigma1.update(state, brokenMatch)).toThrow(/non-finite/);
+    expect(() => vpr.update(state, brokenMatch)).toThrow(/non-finite/);
   });
 });
 
-describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
+describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
   it("a NON-uniform predicted vector with a nonzero prior foulsCommitted mean: foulsCommitted's belief mean is carried forward unchanged, and the opponent's predicted foul contribution is netted out before the offensive split", () => {
     // Unlike rawBreakdown2024Uniform (deliberately uniform, so it
     // coincidentally matches distributeResidual's cold-start uniform
@@ -1074,7 +1085,7 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
       scoreBreakdownRaw: null,
     });
 
-    const next = sigma1.update(state, fallbackMatch);
+    const next = vpr.update(state, fallbackMatch);
 
     // Invariant 1 (CR-01): none of red's own actual score lands in red's
     // own foulsCommitted belief — the Kalman MEAN is left exactly
@@ -1113,8 +1124,8 @@ describe("sigma1.update — D-05 fallback attribution (CR-01, code review phase 
 
 describe("carrySeason — D-16/D-17", () => {
   it("carries the component mean forward (an even split of the carried total, matching epa.ts's own carrySeason reshaping) and decays the consistency estimate by SIGMA1_CONSISTENCY_CARRY_DECAY", () => {
-    let state = sigma1.initState([]);
-    state = sigma1.update(
+    let state = vpr.initState([]);
+    state = vpr.update(
       state,
       match({
         matchKey: "2024test_qm1",
@@ -1129,8 +1140,8 @@ describe("carrySeason — D-16/D-17", () => {
 
     const beforeConsistency = state.teams.get("T1")!.consistency["foulsCommitted"]!;
 
-    expect(sigma1.carrySeason).toBeDefined();
-    const carried = sigma1.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+    expect(vpr.carrySeason).toBeDefined();
+    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
 
     expect(carried.season).toBe(2025);
     const t1After = carried.teams.get("T1");
@@ -1161,13 +1172,13 @@ describe("carrySeason — D-16/D-17", () => {
   });
 
   it("is a no-op at the cold-start boundary", () => {
-    const state = sigma1.initState([]);
-    const carried = sigma1.carrySeason!(state, { fromSeason: 2021, toSeason: 2022, isColdStart: true });
+    const state = vpr.initState([]);
+    const carried = vpr.carrySeason!(state, { fromSeason: 2021, toSeason: 2022, isColdStart: true });
     expect(carried).toBe(state);
   });
 });
 
-describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip, never a throw", () => {
+describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, never a throw", () => {
   const offseasonMatch = match({
     matchKey: "2024off_qm1",
     eventKey: "2024off",
@@ -1181,22 +1192,22 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
   });
 
   it("update() on a match with eventType: 99, compLevel: 'qm', and a real scoreBreakdownRaw does not throw, and rpSkippedMatchCount increments by exactly 1", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const priorSkipped = state.rpSkippedMatchCount;
     let next!: Sigma1State;
     expect(() => {
-      next = sigma1.update(state, offseasonMatch);
+      next = vpr.update(state, offseasonMatch);
     }).not.toThrow();
     expect(next.rpSkippedMatchCount).toBe(priorSkipped + 1);
   });
 
   it("that same call leaves the score side working — team beliefs still change, proving the guard skipped only the RP fold, not update() wholesale", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     // Cold-start: no team has any belief yet.
     for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
       expect(state.teams.has(teamId)).toBe(false);
     }
-    const next = sigma1.update(state, offseasonMatch);
+    const next = vpr.update(state, offseasonMatch);
     for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
       const team = next.teams.get(teamId);
       expect(team).toBeDefined();
@@ -1208,7 +1219,7 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
   });
 
   it("predict() on an upcoming match with eventType: 99 and compLevel: 'qm' does not throw, and the Prediction carries neither redRpPmf nor blueRpPmf", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const upcoming: UpcomingMatch = {
       matchKey: "2024off_qm2",
       eventKey: "2024off",
@@ -1221,9 +1232,9 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
       blueSurrogates: [],
       eventType: 99,
     };
-    let prediction!: ReturnType<typeof sigma1.predict>;
+    let prediction!: ReturnType<typeof vpr.predict>;
     expect(() => {
-      prediction = sigma1.predict(state, upcoming);
+      prediction = vpr.predict(state, upcoming);
     }).not.toThrow();
     expect("redRpPmf" in prediction).toBe(false);
     expect("blueRpPmf" in prediction).toBe(false);
@@ -1234,7 +1245,7 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
     // false would silently disable RP prediction for the entire project
     // and still pass the three tests above.
     for (const eventType of [0, 1, 2, 3, 4, 5, 100]) {
-      const state = sigma1.initState([]);
+      const state = vpr.initState([]);
       const priorSkipped = state.rpSkippedMatchCount;
       const mappedMatch = match({
         matchKey: `2024et${eventType}_qm1`,
@@ -1247,7 +1258,7 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
         hasScoreBreakdown: true,
         scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
       });
-      const next = sigma1.update(state, mappedMatch);
+      const next = vpr.update(state, mappedMatch);
       expect(next.rpSkippedMatchCount).toBe(priorSkipped);
 
       const upcoming: UpcomingMatch = {
@@ -1262,16 +1273,16 @@ describe("sigma1 — CR-01: unmapped eventType (offseason 99) is a defined skip,
         blueSurrogates: [],
         eventType,
       };
-      const prediction = sigma1.predict(next, upcoming);
+      const prediction = vpr.predict(next, upcoming);
       expect("redRpPmf" in prediction).toBe(true);
       expect("blueRpPmf" in prediction).toBe(true);
     }
   });
 });
 
-describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to the D-05 fallback, never a throw", () => {
+describe("vpr — T-03-18b: a malformed self-reported breakdown degrades to the D-05 fallback, never a throw", () => {
   it("update() on a match with hasScoreBreakdown: true and the missing-adjustPoints (2024cafb_qm1) payload does not throw, and breakdownParseFailureCount increments by exactly 1", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const priorFailures = state.breakdownParseFailureCount;
     const malformedMatch = match({
       matchKey: "2024cafb_qm1",
@@ -1284,13 +1295,13 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
     });
     let next!: Sigma1State;
     expect(() => {
-      next = sigma1.update(state, malformedMatch);
+      next = vpr.update(state, malformedMatch);
     }).not.toThrow();
     expect(next.breakdownParseFailureCount).toBe(priorFailures + 1);
   });
 
   it("that same call still folds the score side — all six teams gain beliefs with finite means and matchCount 1 — and rpSkippedMatchCount also increments by 1 (the documented D-Q2 overlap)", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const priorSkipped = state.rpSkippedMatchCount;
     const malformedMatch = match({
       matchKey: "2024cafb_qm1",
@@ -1301,7 +1312,7 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
       hasScoreBreakdown: true,
       scoreBreakdownRaw: rawBreakdown2024MissingFields(UNIFORM_PER_COMPONENT, CAFB_QM1_MISSING_FIELDS),
     });
-    const next = sigma1.update(state, malformedMatch);
+    const next = vpr.update(state, malformedMatch);
     for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
       const team = next.teams.get(teamId);
       expect(team).toBeDefined();
@@ -1314,7 +1325,7 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
   });
 
   it("the severely truncated 2024wvrox_sf1m1-shaped payload (only autoLeavePoints survives per side) behaves identically: no throw, counter plus 1", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const priorFailures = state.breakdownParseFailureCount;
     const malformedMatch = match({
       matchKey: "2024wvrox_sf1m1",
@@ -1327,13 +1338,13 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
     });
     let next!: Sigma1State;
     expect(() => {
-      next = sigma1.update(state, malformedMatch);
+      next = vpr.update(state, malformedMatch);
     }).not.toThrow();
     expect(next.breakdownParseFailureCount).toBe(priorFailures + 1);
   });
 
   it("update() on a match whose event key names an unregistered season still throws — the catch did not swallow the season-registry defect (T-03-21)", () => {
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const unmappedSeasonMatch = match({
       matchKey: "1999test_qm1",
       eventKey: "1999test",
@@ -1344,7 +1355,7 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
       hasScoreBreakdown: true,
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     });
-    expect(() => sigma1.update(state, unmappedSeasonMatch)).toThrow(/no component map registered/);
+    expect(() => vpr.update(state, unmappedSeasonMatch)).toThrow(/no component map registered/);
   });
 
   it("positive control (non-negotiable): a well-formed payload leaves breakdownParseFailureCount at 0 AND rpSkippedMatchCount at 0 AND every team's parsed component set includes foulsCommitted", () => {
@@ -1353,7 +1364,7 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
     // project and still pass every test above. rpSkippedMatchCount is
     // reachable at 0 only when the parse actually succeeded — any fallback
     // (absent OR malformed) also skips the RP fold.
-    const state = sigma1.initState([]);
+    const state = vpr.initState([]);
     const wellFormedMatch = match({
       matchKey: "2024test_qm1",
       redTeams: ["T1", "T2", "T3"],
@@ -1363,7 +1374,7 @@ describe("sigma1 — T-03-18b: a malformed self-reported breakdown degrades to t
       hasScoreBreakdown: true,
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     });
-    const next = sigma1.update(state, wellFormedMatch);
+    const next = vpr.update(state, wellFormedMatch);
     expect(next.breakdownParseFailureCount).toBe(0);
     expect(next.rpSkippedMatchCount).toBe(0);
     for (const teamId of ["T1", "T2", "T3", "T4", "T5", "T6"]) {

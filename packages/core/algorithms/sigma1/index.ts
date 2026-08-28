@@ -643,7 +643,7 @@ function allianceOffensiveTotal(components: Record<string, ComponentPrediction>)
  * silently re-associates that sum and changes its last bit(s) — exactly the
  * kind of change `digest.test.ts` (D-15/SC-5, this plan's T-07-06-03) exists
  * to catch, and it did: that refactor shape was tried first, found to flip
- * both committed `sigma1@2.0.0` digests, and reverted in favor of this
+ * both committed `sigma1@2.0.0` digests [pre-rename], and reverted in favor of this
  * threaded-accumulator shape, which reduces to the exact same left-to-right
  * chain of additions the original single flat loop performed. `predict()`
  * is bit-for-bit unaffected by this task; only `teamMetrics`'s NEW,
@@ -1240,36 +1240,51 @@ export function makeSigma1(options: Sigma1Options): AlgorithmModule<Sigma1State>
   };
 }
 
-/** D-12's nested default: logistic on `margin / (c * sqrt(predictiveVariance))`. Untagged `paramSetName` — resolves to `version: "{SIGMA1_CODE_VERSION}+defaults"`. */
-export const sigma1 = makeSigma1({ id: "sigma1", linkMode: "predictive-variance" });
+/**
+ * D-04/D-05 (plan 07-16 Task 1): `vpr` is the PUBLISHED algorithm identity —
+ * the id that reaches every R2 artifact key, the algorithms manifest, and
+ * D1's `algorithm_state.algorithm_id` column. Everything around it in this
+ * file — `makeSigma1`, `Sigma1State`, `Sigma1Params`, `SIGMA1_CODE_VERSION`,
+ * and the `sigma1/` directory this file lives in — names the Kalman-filter
+ * IMPLEMENTATION and was deliberately left unrenamed (PD-02, 07-16-PLAN.md):
+ * the rename follows the identity a value IS, PRODUCES, or RESOLVES, not
+ * the machinery that builds it. A reader who wants the implementation-side
+ * rename too (`sigma1/` -> some other directory name, `Sigma1State` ->
+ * some other type name) should treat that as a separate, later refactor —
+ * it moves no published byte and was out of scope here.
+ *
+ * D-12's nested default: logistic on `margin / (c * sqrt(predictiveVariance))`.
+ * Untagged `paramSetName` — resolves to `version: "{SIGMA1_CODE_VERSION}+defaults"`.
+ */
+export const vpr = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
 /** D-12 mode 1: Statbotics-parity logistic on `margin / seasonScoreSd`. */
-export const sigma1SeasonSd = makeSigma1({ id: "sigma1-seasonsd", linkMode: "season-sd" });
+export const vprSeasonSd = makeSigma1({ id: "vpr-seasonsd", linkMode: "season-sd" });
 /** D-12 mode 3: deferred idea, shipped as a working flag flip (RESEARCH.md Deferred Ideas). */
-export const sigma1NormalCdf = makeSigma1({ id: "sigma1-normalcdf", linkMode: "normal-cdf" });
+export const vprNormalCdf = makeSigma1({ id: "vpr-normalcdf", linkMode: "normal-cdf" });
 /**
  * The honest, untuned baseline (Claude's Discretion, naming) — identical to
- * `sigma1` in every respect except an explicit `paramSetName: "defaults"`
+ * `vpr` in every respect except an explicit `paramSetName: "defaults"`
  * rather than relying on `makeSigma1`'s own default fallback, so a harness
- * run can register both `sigma1` (implicit defaults) and `sigma1Defaults`
+ * run can register both `vpr` (implicit defaults) and `vprDefaults`
  * (explicit defaults) side by side once `promote.ts` starts registering
- * tuned variants under the `sigma1` id — this row is what isolates what
+ * tuned variants under the `vpr` id — this row is what isolates what
  * tuning actually bought.
  */
-export const sigma1Defaults = makeSigma1({ id: "sigma1-defaults", linkMode: "predictive-variance", paramSetName: "defaults" });
+export const vprDefaults = makeSigma1({ id: "vpr-defaults", linkMode: "predictive-variance", paramSetName: "defaults" });
 /**
  * D-05/D-06/D-08 (plan 03-04 Task 2): the adaptation-ON counterpart to
- * `sigma1`/`sigma1Defaults`, registered under the `sigma1-adapt` harness id
- * so `pnpm harness --algorithm sigma1,sigma1-adapt` scores both variants in
+ * `vpr`/`vprDefaults`, registered under the `vpr-adapt` harness id
+ * so `pnpm harness --algorithm vpr,vpr-adapt` scores both variants in
  * ONE pass over one shared match stream — the same objects, the same order,
  * so any difference between the two is the adaptation and nothing else.
  * `paramSetName: "defaults-adapt"` keeps its version identity distinct from
- * the off variant's `"defaults"` (D-13). The default `sigma1` module itself
+ * the off variant's `"defaults"` (D-13). The default `vpr` module itself
  * is UNCHANGED — `adaptationEnabled: false` — D-08: the code stays in the
  * tree behind its flag, and the default promoted version has adaptation off
  * until a measurement (plan 03-05's best-vs-best search) says otherwise.
  */
-export const sigma1Adaptive = makeSigma1({
-  id: "sigma1-adapt",
+export const vprAdaptive = makeSigma1({
+  id: "vpr-adapt",
   linkMode: "predictive-variance",
   paramSetName: "defaults-adapt",
   params: { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true },

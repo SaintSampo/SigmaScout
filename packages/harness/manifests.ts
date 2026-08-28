@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { warnIfNewerPromotedSigma1 } from "./cli.js";
+import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import type { Corpus } from "../corpus/db.js";
 import {
@@ -153,18 +153,18 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // ---------------------------------------------------------------------------
 
 /**
- * `packages/harness/cli.ts`'s `PROMOTED_SIGMA1_VERSION_PATH`/
+ * `packages/harness/cli.ts`'s `PROMOTED_VPR_VERSION_PATH`/
  * `ALGORITHM_VERSIONS_DIR` are module-private (not exported) — reimplemented
  * here rather than imported, the same small, deliberate duplication
  * `cli.ts`'s own `ALGORITHM_VERSIONS_DIR` comment already documents for
  * mirroring `promote.ts`'s private `ALGORITHM_VERSIONS_DIR`. Keeping the
  * literal path identical to `cli.ts`'s is what keeps this manifest and
  * `applyPromotedOverrides` naming the SAME promoted version (T-04-16) —
- * `warnIfNewerPromotedSigma1`, imported from `cli.ts` unchanged, is called
+ * `warnIfNewerPromotedVpr`, imported from `cli.ts` unchanged, is called
  * before reading it, exactly as `applyPromotedOverrides` does, so a newer
  * committed version file is exactly as loud here as it is in a harness run.
  */
-const PROMOTED_SIGMA1_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 export interface BuildAlgorithmsManifestOptions {
@@ -175,12 +175,15 @@ export interface BuildAlgorithmsManifestOptions {
 }
 
 /**
- * D-03: the three published entries — `opr` and `epa` read their `id` and
- * `version` straight from the modules themselves (never a guessed/hardcoded
- * string), and the Sigma1 entry is read from the committed promoted version
- * file `applyPromotedOverrides` (`cli.ts`) pins, so this manifest and the
- * harness's own promoted-version resolution can never name two different
- * versions (T-04-16).
+ * D-03 (rename D-04/D-05, plan 07-16): the three published entries — `opr`
+ * and `epa` read their `id` and `version` straight from the modules
+ * themselves (never a guessed/hardcoded string), and the third (published)
+ * entry's `id` is read from the committed promoted version file
+ * `applyPromotedOverrides` (`cli.ts`) pins — currently `vpr` — so this
+ * manifest and the harness's own promoted-version resolution can never name
+ * two different versions (T-04-16, and, since the rename, T-07-16-01: the
+ * manifest id and the artifact-key id segment cannot disagree without the
+ * version file disagreeing with itself).
  */
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
   const { generation, computedAt } = options;
@@ -191,10 +194,10 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // D-12 / 03-REVIEW WR-03: the same staleness check `applyPromotedOverrides`
   // runs before reading the pinned file — a newer committed version must be
   // exactly as loud here as it is in a harness run.
-  warnIfNewerPromotedSigma1(ALGORITHM_VERSIONS_DIR, PROMOTED_SIGMA1_VERSION_PATH);
-  const promotedRaw: unknown = JSON.parse(readFileSync(PROMOTED_SIGMA1_VERSION_PATH, "utf8"));
+  warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
+  const promotedRaw: unknown = JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8"));
   const promoted = PromotedVersionSchema.parse(promotedRaw);
-  const sigma1Split = splitManifestVersion(promoted.id, promoted.version);
+  const vprSplit = splitManifestVersion(promoted.id, promoted.version);
 
   const algorithms: AlgorithmManifestEntry[] = [
     { id: opr.id, version: opr.version, codeVersion: oprSplit.codeVersion, paramSetName: oprSplit.paramSetName },
@@ -202,8 +205,8 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
     {
       id: promoted.id,
       version: promoted.version,
-      codeVersion: sigma1Split.codeVersion,
-      paramSetName: sigma1Split.paramSetName,
+      codeVersion: vprSplit.codeVersion,
+      paramSetName: vprSplit.paramSetName,
       params: promoted.params,
     },
   ];

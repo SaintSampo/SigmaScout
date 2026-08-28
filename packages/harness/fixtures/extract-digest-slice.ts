@@ -25,10 +25,12 @@
  * behind.
  *
  * Measured (real run against the committed `sigma1@2.0.0+tuned-2026-08`
- * version's 3-event/265-match slice): `digest-slice.json` is 644.4 KB —
- * inside this script's own bounded target (roughly 100-300 matches / 2-3
- * events, low hundreds of KB) and well under `digest.test.ts`'s 2 MB
- * acceptance ceiling.
+ * version's 3-event/265-match slice) [pre-rename]: `digest-slice.json` is
+ * 644.4 KB — inside this script's own bounded target (roughly 100-300
+ * matches / 2-3 events, low hundreds of KB) and well under
+ * `digest.test.ts`'s 2 MB acceptance ceiling. The file measured is the same
+ * file, renamed without a content change (plan 07-16, D-04/D-05) to
+ * `vpr@2.0.0+tuned-2026-08.json` — this figure still describes it.
  *
  * Same standalone-script shape as `identifiability.ts`/`tune.ts`/
  * `promote.ts`: `parseArgs`, `async function main()`, an entry-point guard
@@ -36,7 +38,8 @@
  * corpus pass.
  *
  * Usage: `pnpm tsx packages/harness/fixtures/extract-digest-slice.ts [--version <path>]`
- * (defaults to the promoted `sigma1@2.0.0+tuned-2026-08.json`).
+ * (defaults to the promoted `vpr@2.0.0+tuned-2026-08.json`, renamed from
+ * `sigma1@2.0.0+tuned-2026-08.json` by plan 07-16, D-04/D-05).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -47,7 +50,7 @@ import { openCorpusReadOnly, selectMatchesChronological } from "../../corpus/db.
 import { PromotedVersionSchema } from "../promote.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
-const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "sigma1@2.0.0+tuned-2026-08.json");
+const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
 const OUTPUT_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 
 /** The committed fixture's on-disk shape — `digest.test.ts` reads this back and re-validates `sliceEventKeys`/`sliceSeason` still match whichever promoted version it is checking. */

@@ -165,7 +165,7 @@ describe("D-28 integration: onMatchComplete snapshot inside the existing replay 
     const handle = openMetricHistoryWriter(outDir, 2024);
     const matchIndexByKey = new Map(matches.map((m, i) => [m.matchKey, i]));
 
-    const algorithms = [makeFakeAlgorithm("opr", false), makeFakeAlgorithm("epa", false), makeFakeAlgorithm("sigma1", true)];
+    const algorithms = [makeFakeAlgorithm("opr", false), makeFakeAlgorithm("epa", false), makeFakeAlgorithm("vpr", true)];
     const algorithmById = new Map(algorithms.map((a) => [a.id, a]));
 
     const simulator = new WalkForwardSimulator(matches);
@@ -226,7 +226,7 @@ describe("D-28 integration: onMatchComplete snapshot inside the existing replay 
     const outDir = makeTempDir();
     const handle = openMetricHistoryWriter(outDir, 2024);
     const matchIndexByKey = new Map(matches.map((m, i) => [m.matchKey, i]));
-    const algorithms = [makeFakeAlgorithm("opr", false), makeFakeAlgorithm("sigma1", true)];
+    const algorithms = [makeFakeAlgorithm("opr", false), makeFakeAlgorithm("vpr", true)];
     const algorithmById = new Map(algorithms.map((a) => [a.id, a]));
 
     const simulator = new WalkForwardSimulator(matches);
@@ -253,10 +253,10 @@ describe("D-28 integration: onMatchComplete snapshot inside the existing replay 
       .map((l) => MetricHistoryRowSchema.parse(JSON.parse(l)));
 
     const oprRows = rows.filter((r) => r.algorithmId === "opr");
-    const sigma1Rows = rows.filter((r) => r.algorithmId === "sigma1");
+    const vprRows = rows.filter((r) => r.algorithmId === "vpr");
     expect(oprRows.length).toBeGreaterThan(0);
-    expect(sigma1Rows.length).toBeGreaterThan(0);
+    expect(vprRows.length).toBeGreaterThan(0);
     for (const row of oprRows) expect(row.metrics["total"]?.spread).toBeUndefined();
-    for (const row of sigma1Rows) expect(row.metrics["total"]?.spread).toBe(1.5);
+    for (const row of vprRows) expect(row.metrics["total"]?.spread).toBe(1.5);
   });
 });

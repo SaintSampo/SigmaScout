@@ -117,7 +117,7 @@ describe("roundPmf — renormalized rounding with a deterministic tie-break", ()
       season: 2024,
       eventKey: "2024test",
       compLevel: "qm" as const,
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       predictedWinner: "red" as const,
       pRedWin: 0.6,

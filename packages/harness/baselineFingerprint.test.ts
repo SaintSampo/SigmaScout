@@ -191,14 +191,25 @@ describe("committed baseline fingerprints", () => {
   });
 
   /**
-   * A-01 / T-03.2-13 (03.2-SECURITY.md): `packages/harness/cli.ts:263` resolves
-   * `loadSearchWinnerSigma1("sigma1-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner")
-   * ?? algorithm`. When the gitignored `reports/tune-joint-on.json` is absent — the default
-   * state of any fresh worktree — that `??` silently falls back and `sigma1-adapt` resolves to
-   * `2.0.0+defaults-adapt` instead of the published `2.0.0+tune-joint-on-winner`. The run still
-   * succeeds and the numbers still look plausible; they are a different algorithm's numbers.
-   * This is not a typo guard — `2.0.0+defaults-adapt` is exactly what the silent fallback
-   * produces, and this assertion exists so a future re-run cannot regress to it undetected.
+   * A-01 / T-03.2-13 (03.2-SECURITY.md): `packages/harness/cli.ts`'s
+   * `applyPromotedOverrides` resolves `loadSearchWinnerVpr("vpr-adapt",
+   * ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner") ?? algorithm` (renamed
+   * from `loadSearchWinnerSigma1("sigma1-adapt", ...)` by plan 07-16,
+   * D-04/D-05 — the mechanism this test pins is unchanged by the rename).
+   * When the gitignored `reports/tune-joint-on.json` is absent — the default
+   * state of any fresh worktree — that `??` silently falls back and the
+   * adaptation variant resolves to `2.0.0+defaults-adapt` instead of the
+   * published `2.0.0+tune-joint-on-winner`. The run still succeeds and the
+   * numbers still look plausible; they are a different algorithm's numbers.
+   * This is not a typo guard — `2.0.0+defaults-adapt` is exactly what the
+   * silent fallback produces, and this assertion exists so a future re-run
+   * cannot regress to it undetected.
+   *
+   * The fixture read below (`data/baselines/opr-event-scoped-2026-08.json`)
+   * is a FROZEN historical measurement (tier F, this plan's first
+   * prohibition) — it still names the entry `sigma1-adapt` because that is
+   * genuinely the id the run that produced it used, before this plan's
+   * rename. This assertion is deliberately NOT updated to `vpr-adapt`.
    */
   it("the event-scoped fingerprint's sigma1-adapt entry reads 2.0.0+tune-joint-on-winner, not the silent-fallback 2.0.0+defaults-adapt (A-01, T-03.2-13)", () => {
     const raw: unknown = JSON.parse(

@@ -116,13 +116,13 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   it("D-13/plan 03-03: derives codeVersion/paramSetName by splitting version on the first '+'", async () => {
     const slices = aggregateScores(FIXTURE_PREDICTIONS);
     const artifact = await buildArtifact({
-      algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08" }],
+      algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08" }],
       corpusIdentity: "test-corpus",
       slices,
       statboticsReferences: [],
     });
     expect(artifact.algorithms).toEqual([
-      { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+      { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
     ]);
   });
 

@@ -1,7 +1,7 @@
 /**
- * D-12 / 03-REVIEW WR-03: `warnIfNewerPromotedSigma1` makes a newer
- * committed Sigma1 version file LOUD at load time while the pinned path
- * (`PROMOTED_SIGMA1_VERSION_PATH` in `cli.ts`) stays the one that is
+ * D-12 / 03-REVIEW WR-03: `warnIfNewerPromotedVpr` makes a newer
+ * committed VPR version file LOUD at load time while the pinned path
+ * (`PROMOTED_VPR_VERSION_PATH` in `cli.ts`) stays the one that is
  * actually loaded — an explicit pin is a reproducibility feature (D-13
  * makes version identity load-bearing for Phase 4's artifacts, the Phase 5
  * dropdown, and the Phase 8 Compare page), not an oversight to paper over
@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { warnIfNewerPromotedSigma1 } from "./cli.js";
+import { warnIfNewerPromotedVpr } from "./cli.js";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 
 let tempDir: string | undefined;
@@ -60,35 +60,35 @@ const PINNED_PROMOTED_AT = "2026-08-16T20:00:00.000Z";
 const OLDER_PROMOTED_AT = "2026-08-01T00:00:00.000Z";
 const NEWER_PROMOTED_AT = "2026-08-18T12:00:00.000Z";
 
-describe("warnIfNewerPromotedSigma1 (D-12 / 03-REVIEW WR-03)", () => {
+describe("warnIfNewerPromotedVpr (D-12 / 03-REVIEW WR-03)", () => {
   it("emits no warning given a versions directory containing only the pinned file", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
-      warnIfNewerPromotedSigma1(dir, pinnedPath);
+      warnIfNewerPromotedVpr(dir, pinnedPath);
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       logSpy.mockRestore();
     }
   });
 
-  it("emits a warning naming both the pinned file and the newer file when a newer Sigma1 version exists", () => {
+  it("emits a warning naming both the pinned file and the newer file when a newer VPR version exists", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    const newerPath = join(dir, "sigma1@2.0.0+newer.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
-    writeFileSync(newerPath, promotedVersionFile("sigma1", "newer", NEWER_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    const newerPath = join(dir, "vpr@2.0.0+newer.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
+    writeFileSync(newerPath, promotedVersionFile("vpr", "newer", NEWER_PROMOTED_AT));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
-      warnIfNewerPromotedSigma1(dir, pinnedPath);
+      warnIfNewerPromotedVpr(dir, pinnedPath);
       expect(logSpy).toHaveBeenCalledTimes(1);
       const [message] = logSpy.mock.calls[0] as [string];
-      expect(message).toContain("sigma1@2.0.0+pinned.json");
-      expect(message).toContain("sigma1@2.0.0+newer.json");
+      expect(message).toContain("vpr@2.0.0+pinned.json");
+      expect(message).toContain("vpr@2.0.0+newer.json");
       expect(message).toContain(PINNED_PROMOTED_AT);
       expect(message).toContain(NEWER_PROMOTED_AT);
     } finally {
@@ -98,14 +98,14 @@ describe("warnIfNewerPromotedSigma1 (D-12 / 03-REVIEW WR-03)", () => {
 
   it("emits no warning when the other version file is OLDER than the pinned one — deliberately scoring an older version is legitimate work", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    const olderPath = join(dir, "sigma1@2.0.0+older.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
-    writeFileSync(olderPath, promotedVersionFile("sigma1", "older", OLDER_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    const olderPath = join(dir, "vpr@2.0.0+older.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
+    writeFileSync(olderPath, promotedVersionFile("vpr", "older", OLDER_PROMOTED_AT));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
-      warnIfNewerPromotedSigma1(dir, pinnedPath);
+      warnIfNewerPromotedVpr(dir, pinnedPath);
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       logSpy.mockRestore();
@@ -114,14 +114,14 @@ describe("warnIfNewerPromotedSigma1 (D-12 / 03-REVIEW WR-03)", () => {
 
   it("ignores a newer version file belonging to a DIFFERENT algorithm id, regardless of timestamp", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    const otherPath = join(dir, "sigma1-adapt@2.0.0+newer.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
-    writeFileSync(otherPath, promotedVersionFile("sigma1-adapt", "newer", NEWER_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    const otherPath = join(dir, "vpr-adapt@2.0.0+newer.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
+    writeFileSync(otherPath, promotedVersionFile("vpr-adapt", "newer", NEWER_PROMOTED_AT));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
-      warnIfNewerPromotedSigma1(dir, pinnedPath);
+      warnIfNewerPromotedVpr(dir, pinnedPath);
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       logSpy.mockRestore();
@@ -130,27 +130,27 @@ describe("warnIfNewerPromotedSigma1 (D-12 / 03-REVIEW WR-03)", () => {
 
   it("returns quietly (never throws) when the versions directory is missing", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
 
-    expect(() => warnIfNewerPromotedSigma1(join(dir, "does-not-exist"), pinnedPath)).not.toThrow();
+    expect(() => warnIfNewerPromotedVpr(join(dir, "does-not-exist"), pinnedPath)).not.toThrow();
   });
 
   it("returns quietly (never throws) when the pinned file is missing", () => {
     const dir = makeTempDir();
-    expect(() => warnIfNewerPromotedSigma1(dir, join(dir, "no-such-pinned.json"))).not.toThrow();
+    expect(() => warnIfNewerPromotedVpr(dir, join(dir, "no-such-pinned.json"))).not.toThrow();
   });
 
   it("skips a malformed/unparseable file in the versions directory rather than throwing", () => {
     const dir = makeTempDir();
-    const pinnedPath = join(dir, "sigma1@2.0.0+pinned.json");
-    const malformedPath = join(dir, "sigma1@2.0.0+malformed.json");
-    writeFileSync(pinnedPath, promotedVersionFile("sigma1", "pinned", PINNED_PROMOTED_AT));
+    const pinnedPath = join(dir, "vpr@2.0.0+pinned.json");
+    const malformedPath = join(dir, "vpr@2.0.0+malformed.json");
+    writeFileSync(pinnedPath, promotedVersionFile("vpr", "pinned", PINNED_PROMOTED_AT));
     writeFileSync(malformedPath, "{ not valid json");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
-      expect(() => warnIfNewerPromotedSigma1(dir, pinnedPath)).not.toThrow();
+      expect(() => warnIfNewerPromotedVpr(dir, pinnedPath)).not.toThrow();
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       logSpy.mockRestore();

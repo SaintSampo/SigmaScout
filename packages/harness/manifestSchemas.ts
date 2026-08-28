@@ -6,11 +6,12 @@
  * fix) for the exact reason `packages/core/algorithms/leakProof.ts`'s own
  * header already documents for the identical situation: `manifests.ts`
  * imports `readFileSync`/`join` from `node:fs`/`node:path` directly (used by
- * `buildAlgorithmsManifest`) AND imports `warnIfNewerPromotedSigma1` from
- * `./cli.js`, which itself imports the corpus (`better-sqlite3`) at module
- * top level — since ES module imports are FILE-scoped, not export-scoped,
- * importing even a single schema from `manifests.ts` would drag that entire
- * transitive graph into the Worker's bundle. `apps/worker/src/liveWindows.ts`
+ * `buildAlgorithmsManifest`) AND imports `warnIfNewerPromotedVpr` (plan
+ * 07-16's rename of `warnIfNewerPromotedSigma1`) from `./cli.js`, which
+ * itself imports the corpus (`better-sqlite3`) at module top level — since
+ * ES module imports are FILE-scoped, not export-scoped, importing even a
+ * single schema from `manifests.ts` would drag that entire transitive graph
+ * into the Worker's bundle. `apps/worker/src/liveWindows.ts`
  * needs exactly these schemas (per this plan's own read_first/key_links: "the
  * Worker validates the fetched manifests against these same schemas ... uses
  * isLiveAt rather than writing its own inequality") — this file is what makes
@@ -70,8 +71,8 @@ export function isLiveAt(window: Pick<LiveWindowEntry, "startMs" | "endMs">, epo
 // D-03: the algorithms manifest
 // ---------------------------------------------------------------------------
 
-/** D-03: the four Phase-2/Phase-3 experiment ids that exist to answer harness questions and must never appear in a user-facing manifest. */
-export const HARNESS_ONLY_ALGORITHM_IDS = new Set(["sigma1-defaults", "sigma1-seasonsd", "sigma1-normalcdf", "sigma1-adapt"]);
+/** D-03: the four Phase-2/Phase-3 experiment ids that exist to answer harness questions and must never appear in a user-facing manifest. Renamed with the published algorithm (plan 07-16, D-04/D-05/PD-03) so the registry never carries two names for one model — every membership test below is EXACT string equality (`Set.has`), never a prefix/substring test, which is what keeps `vpr` itself from being swept into this set by its own name. */
+export const HARNESS_ONLY_ALGORITHM_IDS = new Set(["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]);
 
 export const AlgorithmManifestEntrySchema = z.object({
   id: z.string().min(1),
@@ -79,7 +80,7 @@ export const AlgorithmManifestEntrySchema = z.object({
   version: z.string().min(1),
   codeVersion: z.string().min(1),
   paramSetName: z.string().min(1),
-  /** Present only for the Sigma1 entry — a Worker rebuilds the module with `makeSigma1({ params, ... })`; OPR/EPA carry no tunable parameter set. */
+  /** Present only for the VPR entry (`Sigma1ParamsSchema` — the implementation's own parameter type, not renamed per PD-02) — a Worker rebuilds the module with `makeSigma1({ params, ... })`; OPR/EPA carry no tunable parameter set. */
   params: Sigma1ParamsSchema.optional(),
 });
 
@@ -98,8 +99,8 @@ export const AlgorithmsManifestSchema = z
         ctx.issues.push({
           code: "custom",
           message:
-            `D-03: algorithm id "${entry.id}" is harness-only (one of sigma1-defaults/sigma1-seasonsd/` +
-            `sigma1-normalcdf/sigma1-adapt) and must never appear in the published algorithms manifest — ` +
+            `D-03: algorithm id "${entry.id}" is harness-only (one of vpr-defaults/vpr-seasonsd/` +
+            `vpr-normalcdf/vpr-adapt) and must never appear in the published algorithms manifest — ` +
             `it exists to answer a Phase 2/3 harness question, not a Phase 5 dropdown choice`,
           path: ["algorithms"],
           input: ctx.value,

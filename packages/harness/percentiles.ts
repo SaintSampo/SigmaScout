@@ -234,7 +234,7 @@ export function sortedPoolsByMetric(metricsByTeam: TeamMetrics, teamKeys: readon
  *
  * NOT every metric — this is a measured payload-budget decision, not an
  * oversight. `docs/publish-budget.md` records the budget-critical artifact
- * (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`) at 304,862 bytes
+ * (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`) [pre-rename] at 304,862 bytes
  * under a 375,000-byte ceiling: 70,138 bytes of headroom. That team-season
  * carries 292 `metricHistory` rows; a 2024 row's `metrics` record holds 17
  * names (13 season components, `total`, and the three phase groups). A
