@@ -284,6 +284,34 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectAlliances: "empty",
     expectVariance: "present",
   },
+  {
+    eventKey: "2024casf",
+    algorithmId: "opr",
+    note:
+      "UI-SPEC E4 partial and E5 partial on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
+      "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
+      "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the sigma1 " +
+      "assertion its meaning.",
+    expectMatches: 87,
+    expectUpcoming: 0,
+    expectTeams: 43,
+    expectRankedTeams: 43,
+    expectAlliances: "populated",
+    expectVariance: "absent",
+  },
+  {
+    eventKey: "2024casf",
+    algorithmId: "epa",
+    note:
+      "The same no-variance state at a different column set — the third arm that lets 07-01/07-11/07-12 flip " +
+      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts.",
+    expectMatches: 87,
+    expectUpcoming: 0,
+    expectTeams: 43,
+    expectRankedTeams: 43,
+    expectAlliances: "populated",
+    expectVariance: "absent",
+  },
 ];
 
 // ---------------------------------------------------------------------------
