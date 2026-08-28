@@ -89,5 +89,6 @@
     "source_grounding_authority": "grep"
   },
   "mode": "yolo",
-  "granularity": "standard"
+  "granularity": "standard",
+  "context_window": 1000000
 }

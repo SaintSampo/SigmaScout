@@ -404,7 +404,48 @@ Plans:
   4. The Alliances tab shows each alliance's combined metrics.
   5. The Elims tab lists every elimination match with predictions next to actual results.
 
-**Plans**: TBD
+**Plans**: 20 plans in 15 waves
+
+**Wave 1** *(no dependencies)*
+  - `07-01` — TRACER: `/event/$eventKey` route -> fetch -> `EventArtifactSchema.parse` -> Breakdown table (EVNT-03)
+  - `07-02` — corpus storage: `event_alliances` table + additive ranking columns
+  - `07-06` — site-wide `±` redefinition to `√(P+R)` (D-01/D-02/D-03), cross-cutting
+
+**Wave 2** *(blocked on Wave 1)*
+  - `07-03` — `/event/{key}/alliances` TBA ingest (D-18.7); owns `COVERAGE.md`
+  - `07-07` — published event-artifact schema additions (D-18 items 3, 6, 7, 8)
+
+**Wave 3** *(blocked on Wave 2)*
+  - `07-04` — rankings ingest extension: record + ranking score, guarded (D-18.6)
+  - `07-08` — populate new fields in `buildEventArtifact`
+
+**Wave 4** *(blocked on Wave 3)*
+  - `07-05` — full-corpus live ingest, 2022-2026
+  - `07-09` — as-of-event metric snapshots (D-10) + the `--include-offseason` CLI gap
+
+**Wave 5** *(blocked on Wave 4)*
+  - `07-10` — subset publish under current keys, so tabs build against real data
+
+**Waves 6-10** *(each blocked on the previous; client tabs)*
+  - `07-11` — Insights tab (EVNT-02, D-07..D-10)
+  - `07-12` — Quals tab + shared event-scoped match plot (EVNT-04, D-12/D-13)
+  - `07-13` — Elims tab (EVNT-06, D-14)
+  - `07-14` — Alliances tab (EVNT-05, D-15..D-17)
+  - `07-15` — event header, Events-list links, SearchBox wiring, D-20
+
+**Waves 11-14** *(the rename/republish tier split; each blocked on the previous)*
+  - `07-16` — pipeline-side rename: what the publisher writes, nothing the browser reads
+  - `07-17` — D-18 full republish, write + verify **[checkpoint:decision]**
+  - `07-18` — client cutover: flip the reader to the new keys
+  - `07-19` — deletion of the old objects and D1 rows **[checkpoint:decision, one-way]**
+
+**Wave 15** *(blocked on Wave 14)*
+  - `07-20` — Playwright backstop evidence for the 12 backstop markers
+
+**Cross-cutting constraints:**
+  - No wave may leave the browser requesting a key prefix nothing has written (the tier-split invariant; the site deploys on every push to `main`).
+  - `±` is always 1 SD of `√(P+R)`, never a consistency value — every table and every plot (D-01).
+  - Secrets never reach a transcript: `tsx --env-file=.env` or `set -a; . ./.env; set +a`; never `Read`/`cat`/`echo` `.env`.
 **UI hint**: yes
 
 ### Phase 8: Simulation & Compare
