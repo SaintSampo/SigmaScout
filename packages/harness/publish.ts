@@ -249,6 +249,21 @@ export interface BuildEventArtifactParams {
   readonly generation: string;
   /** D-04: ISO timestamp. Defaults to `new Date().toISOString()` — overridable for deterministic tests. */
   readonly computedAt?: string;
+  /**
+   * D-08 (Phase 6), plan 07-08, routed from a 07-12 finding: `match_key` ->
+   * `sort_time`, the same map and the same name
+   * `BuildTeamSeasonArtifactParams.sortTimeByMatchKey` already carries — see
+   * that field's doc comment for the full contract, inherited verbatim
+   * rather than restated: an omitted map, or a missing entry for a specific
+   * match key, leaves that row's `sortTime` absent — never a synthetic
+   * default, never a zero epoch, never a value derived from the match key
+   * or from the clock. `07-UI-SPEC.md`'s Quals paragraph renders an
+   * upcoming row's Actual column as a scheduled-time string, and this field
+   * was found published on the team artifact but on neither event schema
+   * and absent from every match row of the live `2024casf` artifact — so
+   * without it that column ships as an em-dash.
+   */
+  readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -265,6 +280,12 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     compLevel: match.compLevel,
     setNumber: match.setNumber,
     matchNumber: match.matchNumber,
+    // D-13, plan 07-08 (routed from 07-12): see this interface's matching
+    // param field just above for the full contract. Written inline (not
+    // hoisted to a `const`) — this row builder's body is a concise arrow
+    // expression, and hoisting would reindent every field below in a diff a
+    // reviewer has to read for the variance change too.
+    sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
     redTeams: [...match.redTeams],
     blueTeams: [...match.blueTeams],
     predictedWinner: prediction.winner,
@@ -273,6 +294,24 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     predictedBlueScore: roundMetric(prediction.blueScore),
     redComponents: roundComponents(prediction.redComponents),
     blueComponents: roundComponents(prediction.blueComponents),
+    // D-18 item 3, plan 07-08: each alliance's OWN predicted-score variance
+    // — the same quantity, under the same field name, that
+    // `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
+    // (see that field's doc comment for the full contract; not restated
+    // here). `undefined` for OPR/EPA, neither of which models an
+    // alliance-level own variance. Rounded exactly once, here, at the
+    // publish boundary, at `ROUNDING_RULE.variance` — reusing that existing
+    // rule deliberately (07-07 PD-03: the same physical quantity as the
+    // team artifact's pair, so a second rounding key would be drift wearing
+    // documentation's clothes). Read directly off `predict()`'s own output
+    // and never recomputed here: a recomputed value agrees with the model
+    // by construction and would keep agreeing after this function stopped
+    // reading the model's output at all (D-01, folded todo
+    // `publish-match-predictive-variance.md`).
+    redScoreVarianceOwn:
+      prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
+    blueScoreVarianceOwn:
+      prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -283,6 +322,8 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     compLevel: match.compLevel,
     setNumber: match.setNumber,
     matchNumber: match.matchNumber,
+    /** D-13, plan 07-08: see the `matches` row builder's `sortTime` comment above for the full contract. */
+    sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
     redTeams: [...match.redTeams],
     blueTeams: [...match.blueTeams],
     predictedWinner: prediction.winner,
@@ -291,6 +332,11 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     predictedBlueScore: roundMetric(prediction.blueScore),
     redComponents: roundComponents(prediction.redComponents),
     blueComponents: roundComponents(prediction.blueComponents),
+    /** D-18 item 3, plan 07-08: see the `matches` row builder's `redScoreVarianceOwn`/`blueScoreVarianceOwn` comment above for the full contract. */
+    redScoreVarianceOwn:
+      prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
+    blueScoreVarianceOwn:
+      prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
   }));
@@ -1402,6 +1448,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           teams: teamsStanding,
           generation,
           computedAt,
+          // D-08 (Phase 6)/D-13, plan 07-08: the SAME map already read once
+          // per season above (feeds TeamSeasonMatchSchema.sortTime and
+          // sortTeamSeasonMatches) — passed straight through, no second
+          // query call and no re-scoping.
+          sortTimeByMatchKey,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         eventPending.push(uploader.publish("event", key, JSON.stringify(eventArtifact)));
@@ -1624,6 +1675,12 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     const eventTeamKeys = Array.from(new Set([...teams, ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
     const metricsByTeam = finalState !== undefined ? algorithm.teamMetrics(finalState, eventTeamKeys) : {};
     const teamsStanding = buildEventTeamsStanding(metricsByTeam, eventTeamKeys, teamInfo);
+    // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
+    // sort-time read at all before this plan — `--event <key>` is an
+    // explicit request to publish that one event, so this call is made with
+    // NO options object (offseason matches included), unlike the
+    // seasons-path read this file's season loop makes above.
+    const sortTimeByMatchKey = selectScheduledMatchTimes(db, season);
 
     const validated = buildEventArtifact({
       eventKey,
@@ -1634,6 +1691,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       upcoming,
       teams: teamsStanding,
       generation: randomUUID(),
+      sortTimeByMatchKey,
     });
 
     const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });

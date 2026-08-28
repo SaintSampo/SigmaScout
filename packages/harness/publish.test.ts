@@ -14,6 +14,10 @@ import type { MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+// Deliberately the pre-VPR-rename identifier (PD-12, 07-08-PLAN.md): this
+// file already imports `sigma1`'s own `publish.ts` importer this way, and
+// 07-16's full-repo sweep is what renames it in wave 11.
+import { sigma1 } from "../core/algorithms/sigma1/index.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   openCorpus,
@@ -26,7 +30,7 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator, type PredictionRecord } from "./replay.js";
-import type { TeamSeasonArtifact } from "./pageArtifacts.js";
+import type { EventArtifact, TeamSeasonArtifact } from "./pageArtifacts.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import {
   actualBonusFlagsForSeason,
@@ -40,9 +44,10 @@ import {
   publishSeasons,
   withHistoryPercentiles,
   type ActualBonusFlags,
+  type BuildEventArtifactParams,
   type PublishedObjectRecord,
 } from "./publish.js";
-import { ROUNDING_RULE } from "./rounding.js";
+import { roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
@@ -102,6 +107,94 @@ function fixtureUpcoming(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch 
   };
 }
 
+/**
+ * Plan 07-08 Task 1: a complete `BuildEventArtifactParams` — one played
+ * `PredictionRecord`, one `UpcomingPredictionRecord`, one team, a fixed
+ * `generation`/`computedAt` — so Tasks 1-3 extend ONE helper instead of each
+ * hand-building params. `prediction`/`upcomingPrediction` override the
+ * FIRST played/upcoming record's `Prediction` only (this fixture always
+ * carries exactly one of each); every other top-level field is overridable
+ * directly through the rest of `overrides`.
+ */
+function eventArtifactParams(
+  overrides: Partial<BuildEventArtifactParams> & {
+    prediction?: Partial<Prediction>;
+    upcomingPrediction?: Partial<Prediction>;
+  } = {}
+): BuildEventArtifactParams {
+  const { prediction, upcomingPrediction, ...rest } = overrides;
+  return {
+    eventKey: "2026casj",
+    season: 2026,
+    algorithmId: "sigma1",
+    algorithmVersion: "2.0.0+test",
+    predictions: [{ match: fixtureMatch(), prediction: fixturePrediction(prediction) }],
+    upcoming: [{ match: fixtureUpcoming(), prediction: fixturePrediction(upcomingPrediction) }],
+    teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics: { total: { value: 45.6, spread: 3.1 } } }],
+    generation: "test-generation-1",
+    computedAt: "2026-08-27T00:00:00.000Z",
+    ...rest,
+  };
+}
+
+/** Plan 07-08 Task 1: mirrors `findTeamArtifact`'s shape exactly, for the seeded-corpus `publishSeasons` harness's `v1/event/{eventKey}/{algorithmId}@...` `putObject` calls. */
+function findEventArtifact(eventKey: string, algorithmId: string): EventArtifact {
+  const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/event/${eventKey}/${algorithmId}@`));
+  expect(call, `expected a v1/event/${eventKey}/${algorithmId}@... putObject call`).toBeDefined();
+  return JSON.parse(call![2] as string) as EventArtifact;
+}
+
+/** Hoisted to module scope (plan 07-08) so Tasks 1-3's own seeded-corpus describe blocks can reuse it alongside the pre-existing `publishSeasons — Phase 6` block. */
+function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
+  return {
+    eventKey: "2026casj",
+    year: 2026,
+    eventType: 0,
+    isOffseason: false,
+    startDate: "2026-03-01",
+    name: "2026casj",
+    week: null,
+    country: null,
+    stateProv: null,
+    districtKey: null,
+    ...overrides,
+  };
+}
+
+/** Hoisted to module scope (plan 07-08) — see `seasonEvent`'s comment. */
+function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
+  return {
+    matchKey: "2026casj_qm1",
+    eventKey: "2026casj",
+    compLevel: "qm",
+    matchNumber: 1,
+    setNumber: 1,
+    sortTime: 1_000,
+    redTeams: ["frc1", "frc2", "frc3"],
+    blueTeams: ["frc4", "frc5", "frc6"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
+    winner: "red",
+    winnerImputed: false,
+    redScore: 100,
+    blueScore: 80,
+    redRpEarned: 2,
+    blueRpEarned: 0,
+    hasScoreBreakdown: false,
+    scoreBreakdownRaw: null,
+    ...overrides,
+  };
+}
+
+/** Hoisted to module scope (plan 07-08) — see `seasonEvent`'s comment. */
+function findTeamArtifact(teamKey: string, year = 2026): TeamSeasonArtifact {
+  const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/${year}/`));
+  expect(call, `expected a v1/team/${teamKey}/${year}/... putObject call`).toBeDefined();
+  return JSON.parse(call![2] as string) as TeamSeasonArtifact;
+}
+
 describe("buildEventArtifact", () => {
   it("assembles a two-match fixture with upcoming and teams into a valid EventArtifact", () => {
     const predictions: PredictionRecord[] = [
@@ -150,6 +243,221 @@ describe("buildEventArtifact", () => {
     expect(artifact.matches[0]?.pRedWin).toBe(0.6235);
     expect(artifact.matches[0]?.predictedRedScore).toBe(110.12);
     expect(artifact.matches[0]?.predictedBlueScore).toBe(100.65);
+  });
+});
+
+/**
+ * Plan 07-08 Task 1 (D-18 item 3, D-13 routed from 07-12): each alliance's
+ * own predicted-score variance and each row's `sortTime`, threaded onto both
+ * event match row builders. Every case asserts on a value read off the
+ * returned or published artifact — never merely that a call did not throw.
+ */
+describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-13 sortTime (plan 07-08 Task 1)", () => {
+  it("Test 1 (regression floor): a call supplying none of this plan's new parameters still produces a parsing artifact with both fields undefined", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    expect(artifact.matches[0]?.redScoreVarianceOwn).toBeUndefined();
+    expect(artifact.matches[0]?.sortTime).toBeUndefined();
+  });
+
+  it("Test 2: a played row carries both variance fields, rounded at ROUNDING_RULE.variance", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ prediction: { redScoreVarianceOwn: 41.256, blueScoreVarianceOwn: 38.5 } }));
+    expect(artifact.matches[0]?.redScoreVarianceOwn).toBe(roundTo(41.256, ROUNDING_RULE.variance));
+    expect(artifact.matches[0]?.blueScoreVarianceOwn).toBe(roundTo(38.5, ROUNDING_RULE.variance));
+  });
+
+  it("Test 3: an upcoming row carries both variance fields", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ upcomingPrediction: { redScoreVarianceOwn: 12.34, blueScoreVarianceOwn: 9.87 } }));
+    expect(artifact.upcoming[0]?.redScoreVarianceOwn).toBe(roundTo(12.34, ROUNDING_RULE.variance));
+    expect(artifact.upcoming[0]?.blueScoreVarianceOwn).toBe(roundTo(9.87, ROUNDING_RULE.variance));
+  });
+
+  /**
+   * Deviation from the plan's literal `[0.2, 0.2]` wording (Rule 1, found
+   * RED-first): `buildEventArtifact`'s existing `roundPmf` call
+   * UNCONDITIONALLY renormalizes any non-empty pmf so its rounded entries
+   * sum to exactly 1 (adding the residual to the largest entry) — so a
+   * `[0.2, 0.2]` input renormalizes to `[0.8, 0.2]` and parses successfully
+   * through this path; `[0.2, 0.2]`'s failure mode is only reachable by
+   * calling `EventArtifactSchema` directly with the UNROUNDED value, which
+   * `pageArtifacts.test.ts`'s own "Test 3b" (plan 07-07) already covers. An
+   * EMPTY `redRpPmf` genuinely reaches a throw through THIS function — the
+   * conditional guard above `roundPmf` treats an empty array as truthy and
+   * hands it to `roundPmf`, whose own explicit guard rejects it ("an empty
+   * array is never a valid distribution") — the same non-empty rule
+   * `EventUpcomingMatchSchema`'s refine enforces. This still proves the
+   * point the plan named: the new variance fields sit inside the object
+   * literal without disturbing this pmf handling.
+   */
+  it("Test 3 (pmf refines still fire): an upcoming prediction carrying both variance fields AND an empty redRpPmf still throws, naming the pmf rule", () => {
+    expect(() =>
+      buildEventArtifact(
+        eventArtifactParams({
+          upcomingPrediction: { redScoreVarianceOwn: 12.34, blueScoreVarianceOwn: 9.87, redRpPmf: [] },
+        })
+      )
+    ).toThrow(/distribution/);
+  });
+
+  it("Test 4: red and blue own-variance are independently optional", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ prediction: { redScoreVarianceOwn: 41.25 } }));
+    expect(artifact.matches[0]?.redScoreVarianceOwn).toBe(roundTo(41.25, ROUNDING_RULE.variance));
+    expect(artifact.matches[0]?.blueScoreVarianceOwn).toBeUndefined();
+  });
+
+  it("Test 5 (PD-02): an OPR row carries neither variance key, in memory nor after a JSON round-trip", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", algorithmVersion: "3.0.0+baseline" }));
+    expect(artifact.matches[0]?.redScoreVarianceOwn).toBeUndefined();
+    expect(artifact.matches[0]?.blueScoreVarianceOwn).toBeUndefined();
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    expect(roundTripped.matches[0]).not.toHaveProperty("redScoreVarianceOwn");
+    expect(roundTripped.matches[0]).not.toHaveProperty("blueScoreVarianceOwn");
+  });
+
+  it("Test 6 (PD-09): the published value traces to predict()'s own output on the record it built the row from, never a recomputation", () => {
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const match = fixtureMatch();
+    const records = new WalkForwardSimulator([match]).run(sigma1, teams);
+    const record = records[0]!;
+    expect(record.prediction.redScoreVarianceOwn).toBeDefined();
+    const artifact = buildEventArtifact({
+      eventKey: match.eventKey,
+      season: 2026,
+      algorithmId: sigma1.id,
+      algorithmVersion: sigma1.version,
+      predictions: records,
+      generation: "g-test6",
+    });
+    expect(artifact.matches[0]?.redScoreVarianceOwn).toBe(roundTo(record.prediction.redScoreVarianceOwn!, ROUNDING_RULE.variance));
+  });
+
+  it("Test 9: sortTime round-trips exactly on both a played and an upcoming row", () => {
+    const match = fixtureMatch();
+    const upcoming = fixtureUpcoming();
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        sortTimeByMatchKey: new Map([
+          [match.matchKey, 111_000],
+          [upcoming.matchKey, 222_000],
+        ]),
+      })
+    );
+    expect(artifact.matches[0]?.sortTime).toBe(111_000);
+    expect(artifact.upcoming[0]?.sortTime).toBe(222_000);
+  });
+
+  it("Test 10: a match key absent from a supplied map, and a call supplying no map at all, both leave sortTime absent and never 0", () => {
+    const match = fixtureMatch();
+    const withEmptyMap = buildEventArtifact(eventArtifactParams({ sortTimeByMatchKey: new Map() }));
+    expect(withEmptyMap.matches[0]?.sortTime).toBeUndefined();
+    expect(withEmptyMap.matches[0]?.sortTime).not.toBe(0);
+    const roundTrippedEmptyMap = JSON.parse(JSON.stringify(withEmptyMap)) as typeof withEmptyMap;
+    expect(roundTrippedEmptyMap.matches[0]).not.toHaveProperty("sortTime");
+
+    const withNoMap = buildEventArtifact(eventArtifactParams());
+    expect(withNoMap.matches[0]?.sortTime).toBeUndefined();
+    expect(withNoMap.matches[0]?.sortTime).not.toBe(0);
+    const roundTrippedNoMap = JSON.parse(JSON.stringify(withNoMap)) as typeof withNoMap;
+    expect(roundTrippedNoMap.matches[0]).not.toHaveProperty("sortTime");
+    void match; // referenced for clarity that this map deliberately omits this match's key
+  });
+});
+
+/**
+ * Plan 07-08 Task 1, Tests 7-8: the seeded-corpus `publishSeasons` harness,
+ * proving the variance/sortTime seam and the folded playoff bonus-RP
+ * criterion against REAL published JSON bytes rather than in-memory
+ * assertions.
+ */
+describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criterion, end-to-end (plan 07-08 Task 1)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-event-variance-corpus-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("Test 7: a real publishSeasons run with sigma1 publishes a finite redScoreVarianceOwn and the seeded sortTime on a played event row", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
+    upsertMatch(db, seasonMatch({ sortTime: 12_345 }));
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026casj", sigma1.id);
+    const row = artifact.matches.find((m) => m.matchKey === "2026casj_qm1");
+    expect(row).toBeDefined();
+    expect(Number.isFinite(row?.redScoreVarianceOwn)).toBe(true);
+    expect(row?.sortTime).toBe(12_345);
+  });
+
+  /**
+   * PD-08: the seeded corpus rows actively carry a REAL, populated 2024
+   * score breakdown on BOTH the qm and the sf match (the same
+   * `rawBreakdown2024()` fixture `actualBonusFlagsForSeason`'s own tests
+   * use) — so this is a genuine input that could produce bonus-RP data for
+   * the playoff match, not a well-behaved fixture that happens not to
+   * supply it. The qualification-side assertions below are what makes this
+   * non-vacuous.
+   */
+  it("Test 8 (folded todo, PD-08): a freshly published playoff row carries no bonus-RP key on either artifact kind, against a real qualification-side bonus set", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2024casj_qm1",
+        eventKey: "2024casj",
+        compLevel: "qm",
+        sortTime: 1_000,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
+      })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2024casj_sf1m1",
+        eventKey: "2024casj",
+        compLevel: "sf",
+        setNumber: 1,
+        matchNumber: 1,
+        sortTime: 2_000,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2024], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const teamArtifact = findTeamArtifact("frc1", 2024);
+    const eventArtifact = findEventArtifact("2024casj", sigma1.id);
+
+    const teamCasjEvent = teamArtifact.events.find((e) => e.eventKey === "2024casj");
+    const qmTeamRow = teamCasjEvent?.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
+    const sfTeamRow = teamCasjEvent?.matches.find((m) => m.matchKey === "2024casj_sf1m1") as object;
+
+    // Non-vacuity: the qualification row genuinely carries all four keys.
+    expect(qmTeamRow).toHaveProperty("redBonusRp");
+    expect(qmTeamRow).toHaveProperty("blueBonusRp");
+    expect(qmTeamRow).toHaveProperty("actualRedBonusRp");
+    expect(qmTeamRow).toHaveProperty("actualBlueBonusRp");
+
+    expect(sfTeamRow).not.toHaveProperty("redBonusRp");
+    expect(sfTeamRow).not.toHaveProperty("blueBonusRp");
+    expect(sfTeamRow).not.toHaveProperty("actualRedBonusRp");
+    expect(sfTeamRow).not.toHaveProperty("actualBlueBonusRp");
+
+    const qmEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
+    const sfEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_sf1m1") as object;
+    for (const key of ["redBonusRp", "blueBonusRp", "actualRedBonusRp", "actualBlueBonusRp"]) {
+      expect(qmEventRow).not.toHaveProperty(key);
+      expect(sfEventRow).not.toHaveProperty(key);
+    }
   });
 });
 
@@ -1000,53 +1308,8 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
-    return {
-      eventKey: "2026casj",
-      year: 2026,
-      eventType: 0,
-      isOffseason: false,
-      startDate: "2026-03-01",
-      name: "2026casj",
-      week: null,
-      country: null,
-      stateProv: null,
-      districtKey: null,
-      ...overrides,
-    };
-  }
-
-  function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
-    return {
-      matchKey: "2026casj_qm1",
-      eventKey: "2026casj",
-      compLevel: "qm",
-      matchNumber: 1,
-      setNumber: 1,
-      sortTime: 1_000,
-      redTeams: ["frc1", "frc2", "frc3"],
-      blueTeams: ["frc4", "frc5", "frc6"],
-      redSurrogates: [],
-      blueSurrogates: [],
-      redDqs: [],
-      blueDqs: [],
-      winner: "red",
-      winnerImputed: false,
-      redScore: 100,
-      blueScore: 80,
-      redRpEarned: 2,
-      blueRpEarned: 0,
-      hasScoreBreakdown: false,
-      scoreBreakdownRaw: null,
-      ...overrides,
-    };
-  }
-
-  function findTeamArtifact(teamKey: string, year = 2026): TeamSeasonArtifact {
-    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/${year}/`));
-    expect(call, `expected a v1/team/${teamKey}/${year}/... putObject call`).toBeDefined();
-    return JSON.parse(call![2] as string) as TeamSeasonArtifact;
-  }
+  // `seasonEvent`/`seasonMatch`/`findTeamArtifact` hoisted to module scope
+  // (plan 07-08) — see their definitions above, beside `eventArtifactParams`.
 
   it("fixes the eventName defect (real name published, null-column corpus degrades to the event key) and keeps an event with only a scheduled match as its own section, not dropped", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional" }));
