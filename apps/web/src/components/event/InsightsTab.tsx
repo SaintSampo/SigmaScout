@@ -4,7 +4,7 @@
  * own Total order with a stated notice when no official ranking exists.
  * Eight columns: Rank, Team #, Nickname, Record, RP, Auto, Teleop, Endgame.
  *
- * This first section (Task 1) is the pure data layer only — no React, no
+ * The first section below (Task 1) is the pure data layer — no React, no
  * TanStack anything. `buildInsightsRows` is the ONE function that returns
  * both the ordered rows and the `orderSource` discriminant driving the D-08
  * banner, deliberately NOT split into a separate `hasOfficialRanking`
@@ -12,10 +12,32 @@
  * lesson is that one rule expressed as two independent literals drifts apart
  * and ships a false claim. Here there is exactly one fact ("does this event
  * have an official ranking") and exactly one function that knows it.
+ *
+ * The second section (Task 2) is the rendered table: pinned columns via
+ * `PINNED_COLUMN_IDS` imported VERBATIM from `teams-table/columns.tsx`
+ * (07-RESEARCH.md Pattern 2, 07-PATTERNS.md) — never a locally re-typed
+ * `["rank", "teamNumber", "nickname"]` literal — tier-boxed Auto/Teleop/
+ * Endgame cells via the identical `tierForPercentile` derivation
+ * `BreakdownTab.tsx` uses, a plain bare RP cell that can never wear a tier
+ * (Decision 1), and the D-08 fallback banner.
  */
+import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { useMemo } from "react";
+import { Link } from "@tanstack/react-router";
+import { InfoIcon } from "lucide-react";
+import { MetricValue } from "@/components/MetricValue";
+import { EmptyState } from "@/components/StateViews";
+import { SkeletonRows } from "@/components/Skeletons";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TierKeyRow } from "@/components/team/TierKeyRow";
+import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { PINNED_COLUMN_IDS } from "@/components/teams-table/columns";
+import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
+import { tierForPercentile } from "@/lib/tiers";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -158,3 +180,272 @@ export function insightsFallbackNotice(algorithmLabel: string): string {
  * must be mirrored here.
  */
 export const INSIGHTS_RP_DECIMALS = 2;
+
+// ---------------------------------------------------------------------------
+// Task 2 — the rendered table
+// ---------------------------------------------------------------------------
+
+/**
+ * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
+ * `teams-table/columns.tsx`'s own header comment): pinning offsets require
+ * `columnSizingFeature` registered alongside `columnPinningFeature`, or
+ * `getStart`/`getSize` do not exist at all. The column helper below is typed
+ * against THIS module's own `InsightsRow`, so it is declared locally rather
+ * than imported across the `teams-table` module boundary — only
+ * `PINNED_COLUMN_IDS` itself is imported from there, verbatim.
+ */
+const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
+const columnHelper = createColumnHelper<typeof features, InsightsRow>();
+
+function cellClassName(columnId: string): string {
+  return columnId === "nickname" ? "truncate text-role-body" : "numeric-cell text-role-body";
+}
+
+/**
+ * The Insights tab's column set is the fixed five identity/competition
+ * columns plus one per `METRIC_GROUPS` entry, in that constant's own order —
+ * never derived from a fetched row's own `metrics` key order (EVNT-02
+ * ordering). Column ids are chosen to match `PINNED_COLUMN_IDS` verbatim
+ * (`rank`, `teamNumber`, `nickname`) rather than the constant being adapted
+ * to them.
+ */
+function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource) {
+  // `algorithmId` reaching this function was already validated upstream
+  // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
+  // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
+  // already uses for a value the type system widened to plain `string`
+  // crossing a component-prop boundary.
+  const algorithm = algorithmId as PublishedAlgorithmId;
+  const rankHeader = orderSource === "official" ? "Rank" : `${algorithmDisplayLabel(algorithm)} Rank`;
+
+  return columnHelper.columns([
+    // D-08/T-07-11-02: in fallback mode the header itself names the
+    // algorithm whose ordering it is showing — a model-derived ordinal must
+    // never sit under a bare "Rank" header a reader parses as official.
+    columnHelper.accessor((row) => row.displayRank, {
+      id: "rank",
+      header: rankHeader,
+      size: 72,
+      cell: (info) => {
+        const value = info.getValue();
+        return <span className="numeric-cell">{value === undefined ? "—" : value}</span>;
+      },
+    }),
+    columnHelper.accessor("teamNumber", {
+      header: "Team #",
+      size: 88,
+      cell: (info) => (
+        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
+          {info.getValue()}
+        </Link>
+      ),
+    }),
+    columnHelper.accessor("nickname", {
+      header: "Nickname",
+      size: 220,
+      cell: (info) => (
+        <Link
+          to="/team/$teamNumber"
+          params={{ teamNumber: String(info.row.original.teamNumber) }}
+          search={{ year: season, algorithm, tab: "overview" }}
+          title={info.getValue()}
+          className="block max-w-full"
+        >
+          {info.getValue()}
+        </Link>
+      ),
+    }),
+    columnHelper.accessor("record", {
+      header: "Record",
+      size: 100,
+      cell: (info) => <span className="numeric-cell">{formatEventRecord(info.getValue())}</span>,
+    }),
+    // RP: a plain numeric-cell span, NEVER MetricValue and NEVER a tier
+    // class under any input (this plan's Decision 1). `rp` is TBA's own raw
+    // competition statistic — no percentile exists for it, and none could
+    // honestly be derived from an event's own visible roster
+    // (`TeamMetricSchema.percentile`'s own season-pool-only definition).
+    // An explicit `undefined` comparison distinguishes a real `0` from
+    // absence, the same discipline the Rank cell above applies.
+    columnHelper.accessor("rp", {
+      id: "rp",
+      header: "RP",
+      size: 84,
+      cell: (info) => {
+        const value = info.getValue();
+        return <span className="numeric-cell">{value === undefined ? "—" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
+      },
+    }),
+    ...METRIC_GROUPS.map((group) =>
+      columnHelper.accessor((row) => row.metrics[group.metricKey], {
+        id: group.metricKey,
+        header: group.label,
+        size: 120,
+        // The identical `tierForPercentile(metric?.percentile)` derivation
+        // `BreakdownTab.tsx` uses — one derivation path, so an Insights tier
+        // and a Breakdown tier for the same team/metric/season can never
+        // disagree (D-09). Tiered unconditionally, including this sorted
+        // column: D-09 knowingly accepts the redundancy of adjacent rows
+        // sharing a tier in exchange for one rule and more colour.
+        cell: (info) => {
+          const entry = info.getValue();
+          return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+        },
+      }),
+    ),
+  ]);
+}
+
+export interface InsightsTabProps {
+  artifact: EventArtifact;
+  algorithmId: string;
+  season: number;
+}
+
+/** The pending state's skeleton row count — matching `BREAKDOWN_SKELETON_ROW_COUNT`'s role in `BreakdownTab.tsx`. */
+export const INSIGHTS_SKELETON_ROW_COUNT = 8;
+
+/**
+ * `InsightsTabSkeleton({ algorithmId, season })`: the eight real column
+ * headers above `SkeletonRows` — always with the BARE `Rank` header, never
+ * the fallback-labelled one. Before the artifact resolves there is no way to
+ * know whether D-08's fallback applies, and flashing the algorithm-labelled
+ * header only to replace it a moment later would assert a provenance claim
+ * the page cannot yet support.
+ */
+export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
+  void algorithmId; // the skeleton's header set does not vary by algorithm — see the doc comment above for why orderSource is fixed to "official" here
+  void season;
+  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", ...METRIC_GROUPS.map((group) => group.label)];
+
+  return (
+    <div className="flex flex-col gap-[var(--spacing-md)]">
+      <TierKeyRow />
+      <div className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+          <TableHeader>
+            <TableRow>
+              {headers.map((label) => (
+                <TableHead key={label} className="text-role-label truncate">
+                  {label}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <SkeletonRows rows={INSIGHTS_SKELETON_ROW_COUNT} columns={headers.length} />
+          </TableBody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Insights tab: `TierKeyRow` once, the D-08 banner when (and only when)
+ * `orderSource` is `"fallback"`, then the pinned wide table in its own
+ * native `overflow-x-auto` scroll region — a DOM SIBLING of the tab strip's
+ * own scroll region, never its ancestor or descendant. Renders `EmptyState`
+ * (no table at all) when `artifact.teams` is empty.
+ *
+ * Every string that originates in the published artifact — nickname, event
+ * name, event key — renders as a plain JSX text node or a `title` attribute
+ * value, never through a raw-markup sink (T-07-11-01).
+ */
+export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps) {
+  const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
+  const columns = useMemo(() => buildInsightsColumns(algorithmId, season, orderSource), [algorithmId, season, orderSource]);
+
+  const table = useTable({
+    features,
+    columns,
+    data: rows,
+    initialState: { columnPinning: { start: [...PINNED_COLUMN_IDS], end: [] } },
+  });
+
+  if (artifact.teams.length === 0) {
+    const eventName = artifact.name ?? artifact.eventKey;
+    return <EmptyState heading={`No teams for ${eventName}`} body={`No teams found for ${eventName}. Check back later.`} />;
+  }
+
+  return (
+    <div className="flex flex-col gap-[var(--spacing-md)]">
+      <TierKeyRow />
+      {orderSource === "fallback" && (
+        <div
+          data-testid="insights-fallback-banner"
+          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-surface)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
+        >
+          <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
+          <span>{insightsFallbackNotice(algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>
+        </div>
+      )}
+      <div data-testid="insights-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+        <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  const pinned = header.column.getIsPinned();
+                  return (
+                    <TableHead
+                      key={header.id}
+                      data-testid={`insights-header-${header.column.id}`}
+                      data-pinned={pinned ? "true" : "false"}
+                      className="text-role-label truncate"
+                      style={{
+                        width: header.getSize(),
+                        position: pinned ? "sticky" : undefined,
+                        left: pinned ? header.getStart("start") : undefined,
+                        zIndex: pinned ? 4 : 3,
+                        background: "var(--color-bg-surface)",
+                      }}
+                    >
+                      <table.FlexRender header={header} />
+                    </TableHead>
+                  );
+                })}
+                {/*
+                  Trailing sizeless filler, matching `TeamsTable.tsx`'s own
+                  reasoning: slack absorbed here rather than redistributed
+                  across real columns, which would desync the pinned
+                  offsets (`getStart("start")` is derived from column
+                  sizes). Hidden from assistive tech — it carries no data.
+                */}
+                <TableHead aria-hidden="true" style={{ padding: 0, background: "var(--color-bg-surface)" }} />
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow key={row.id} data-testid="insights-row" data-team-number={row.original.teamNumber}>
+                {row.getAllCells().map((cell) => {
+                  const pinned = cell.column.getIsPinned();
+                  return (
+                    <TableCell
+                      key={cell.id}
+                      data-testid={`insights-cell-${cell.column.id}`}
+                      data-pinned={pinned ? "true" : "false"}
+                      className={cellClassName(cell.column.id)}
+                      style={{
+                        width: cell.column.getSize(),
+                        position: pinned ? "sticky" : undefined,
+                        left: pinned ? cell.column.getStart("start") : undefined,
+                        zIndex: pinned ? 1 : undefined,
+                        background: pinned ? "var(--color-bg-page)" : undefined,
+                      }}
+                    >
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  );
+                })}
+                {/* Matches the header's trailing filler — see the note there. */}
+                <TableCell aria-hidden="true" style={{ padding: 0 }} />
+              </TableRow>
+            ))}
+          </TableBody>
+        </table>
+      </div>
+    </div>
+  );
+}
