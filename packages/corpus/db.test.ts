@@ -15,11 +15,13 @@ import {
   findIncompleteIngestRuns,
   openCorpus,
   recordIngestRun,
+  selectEventAlliancesForSeason,
   selectMatchesChronological,
   selectScheduledMatches,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   upsertEvent,
+  upsertEventAlliance,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -764,5 +766,180 @@ describe("team_media — corpus table and accessors (plan 06-03 Task 1)", () => 
     const withoutOffseason = selectTeamKeysForYear(db, 2024, { excludeOffseason: true });
     expect(withoutOffseason).not.toContain("frc20");
     expect(withoutOffseason).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+  });
+});
+
+interface AllianceOverrides {
+  eventKey?: string;
+  allianceNumber?: number;
+  name?: string | null;
+  picks?: string[];
+  declines?: string[];
+  statusRaw?: string | null;
+  fetchedAt?: string;
+}
+
+function alliance(overrides: AllianceOverrides = {}) {
+  return {
+    eventKey: "2024casj",
+    allianceNumber: 1,
+    name: "Alliance 1",
+    picks: ["frc1", "frc2", "frc3"],
+    declines: [],
+    statusRaw: null,
+    fetchedAt: "2026-08-27T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", () => {
+  it("an existing corpus file created before this change gains the table on open, with 0 rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-event-alliances-migration-"));
+    const freshPath = join(dir, "corpus.sqlite");
+    try {
+      // Simulate a corpus built from the schema text as it existed before
+      // this plan (no event_alliances table) — the additive CREATE TABLE IF
+      // NOT EXISTS in schema.sql must not require this corpus to be
+      // rebuilt.
+      const priorSchema = `
+        CREATE TABLE IF NOT EXISTS teams (
+          team_key TEXT PRIMARY KEY,
+          team_number INTEGER NOT NULL,
+          nickname TEXT
+        );
+        CREATE TABLE IF NOT EXISTS events (
+          event_key TEXT PRIMARY KEY,
+          year INTEGER NOT NULL,
+          event_type INTEGER NOT NULL,
+          is_offseason INTEGER NOT NULL,
+          start_date TEXT NOT NULL,
+          name TEXT, week INTEGER, country TEXT, state_prov TEXT, district_key TEXT
+        );
+        CREATE TABLE IF NOT EXISTS matches (
+          match_key TEXT PRIMARY KEY,
+          event_key TEXT NOT NULL REFERENCES events(event_key),
+          comp_level TEXT NOT NULL, match_number INTEGER NOT NULL, set_number INTEGER NOT NULL,
+          sort_time INTEGER NOT NULL, red_teams TEXT NOT NULL, blue_teams TEXT NOT NULL,
+          red_surrogates TEXT NOT NULL, blue_surrogates TEXT NOT NULL,
+          red_dqs TEXT NOT NULL, blue_dqs TEXT NOT NULL,
+          winner TEXT, winner_imputed INTEGER NOT NULL DEFAULT 0,
+          red_score INTEGER, blue_score INTEGER, red_rp_earned INTEGER, blue_rp_earned INTEGER,
+          has_score_breakdown INTEGER NOT NULL, score_breakdown_raw TEXT,
+          replayed INTEGER NOT NULL DEFAULT 0, replay_detected_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS http_cache (
+          url TEXT PRIMARY KEY, etag TEXT NOT NULL, fetched_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ingest_runs (
+          run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT,
+          season_start INTEGER NOT NULL, season_end INTEGER NOT NULL,
+          request_count INTEGER NOT NULL DEFAULT 0, cache_hit_count INTEGER NOT NULL DEFAULT 0,
+          completed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS event_rankings (
+          event_key TEXT NOT NULL REFERENCES events(event_key),
+          team_key TEXT NOT NULL REFERENCES teams(team_key),
+          rank INTEGER NOT NULL, total_teams INTEGER NOT NULL, fetched_at TEXT NOT NULL,
+          PRIMARY KEY (event_key, team_key)
+        );
+      `;
+      expect(priorSchema).not.toContain("event_alliances");
+      const rawDb = new Database(freshPath);
+      rawDb.pragma("foreign_keys = ON");
+      rawDb.exec(priorSchema);
+      rawDb.close();
+
+      const reopened = openCorpus(freshPath);
+      const row = reopened.prepare("SELECT count(*) as n FROM event_alliances").get() as { n: number };
+      expect(row.n).toBe(0);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("insert-then-read round trip: allianceNumber, name and picks come back identical, picks in the same order", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024casj", allianceNumber: 1, name: "Alliance 1", picks: ["frc3", "frc1", "frc2"] }));
+
+    const result = selectEventAlliancesForSeason(db, 2024);
+    expect(result.get("2024casj")).toEqual([{ allianceNumber: 1, name: "Alliance 1", picks: ["frc3", "frc1", "frc2"] }]);
+  });
+
+  it("a name of null round-trips as null, not an empty string and not a generated label", () => {
+    upsertEvent(db, event({ eventKey: "2024wvrox" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024wvrox", allianceNumber: 1, name: null }));
+
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024wvrox") ?? [];
+    expect(row?.name).toBeNull();
+  });
+
+  it("a 4-pick alliance round-trips with picks.length 4 and picks[3] holding the 4th (backup) team key", () => {
+    upsertEvent(db, event({ eventKey: "2024roe" }));
+    upsertEventAlliance(
+      db,
+      alliance({ eventKey: "2024roe", allianceNumber: 1, picks: ["frc3310", "frc67", "frc4451", "frc3539"] })
+    );
+
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024roe") ?? [];
+    expect(row?.picks).toHaveLength(4);
+    expect(row?.picks[3]).toBe("frc3539");
+  });
+
+  it("a 3-pick alliance round-trips with picks.length 3", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024casj", allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }));
+
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024casj") ?? [];
+    expect(row?.picks).toHaveLength(3);
+  });
+
+  it("two upserts for the same (event_key, alliance_number) leave exactly one row carrying the second call's values", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024casj", allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024casj", allianceNumber: 1, picks: ["frc9", "frc8", "frc7"] }));
+
+    const count = db.prepare("SELECT COUNT(*) as n FROM event_alliances").get() as { n: number };
+    expect(count.n).toBe(1);
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024casj") ?? [];
+    expect(row?.picks).toEqual(["frc9", "frc8", "frc7"]);
+  });
+
+  it("the same alliance_number under a second event_key leaves two rows, not merged", () => {
+    upsertEvent(db, event({ eventKey: "2024aaaa" }));
+    upsertEvent(db, event({ eventKey: "2024bbbb" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024aaaa", allianceNumber: 1 }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024bbbb", allianceNumber: 1 }));
+
+    const count = db.prepare("SELECT COUNT(*) as n FROM event_alliances").get() as { n: number };
+    expect(count.n).toBe(2);
+  });
+
+  it("an event for which nothing was ever upserted is absent from the returned map entirely — no key, no zero-row placeholder", () => {
+    upsertEvent(db, event({ eventKey: "2024noalliances" }));
+
+    const result = selectEventAlliancesForSeason(db, 2024);
+    expect(result.has("2024noalliances")).toBe(false);
+  });
+
+  it("returns alliances ascending by alliance_number even when inserted in descending/shuffled order", () => {
+    upsertEvent(db, event({ eventKey: "2024shuffled" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024shuffled", allianceNumber: 3 }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024shuffled", allianceNumber: 1 }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024shuffled", allianceNumber: 2 }));
+
+    const rows = selectEventAlliancesForSeason(db, 2024).get("2024shuffled") ?? [];
+    expect(rows.map((r) => r.allianceNumber)).toEqual([1, 2, 3]);
+  });
+
+  it("selectEventAlliancesForSeason(db, 2024) returns alliances only for events whose events.year is 2024", () => {
+    upsertEvent(db, event({ eventKey: "2023old", year: 2023 }));
+    upsertEvent(db, event({ eventKey: "2024new", year: 2024 }));
+    upsertEventAlliance(db, alliance({ eventKey: "2023old", allianceNumber: 1 }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024new", allianceNumber: 1 }));
+
+    const result = selectEventAlliancesForSeason(db, 2024);
+    expect(result.has("2023old")).toBe(false);
+    expect(result.has("2024new")).toBe(true);
   });
 });
