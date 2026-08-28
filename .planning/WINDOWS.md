@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 11
+open_count: 12
 waived_count: 0
 fixed_count: 3
-total_count: 14
-last_updated: 2026-08-28T17:50:41.285Z
+total_count: 15
+last_updated: 2026-08-28T18:55:00.000Z
 ---
 
 # Broken Windows Ledger
@@ -25,7 +25,8 @@ last_updated: 2026-08-28T17:50:41.285Z
 | 8 | 04 | deviation | apps/worker/src/scheduled.ts |  | Phase B (artifact writes) is deliberately best-effort: a failure there does not change an event's 'advanced' outcome (state has genuinely advanced correctly), but a skipped artifact stays one tick stale until that team's next match at that event -- no future trigger re-attempts a partially-completed Phase B on its own | open |  | 2026-08-22T18:03:11.610Z |  |
 | 9 | 04 | deviation | docs/publish-budget.md |  | 3 published algorithms folded together for a single ordinary match exceed the deployed Worker's real per-tick subrequest budget (estimated cost 50 vs usable ~41); confirmed by repeated live observation, not fixed in this plan (Rule 4 -- architectural) | open |  | 2026-08-23T03:17:45.065Z |  |
 | 10 | 04 | unrun-verify | apps/worker/src/scheduled.ts |  | epa/sigma1 solo deployed-Worker freshness runs (plan 04-07 Task 2) never folded a single match within the poll window and were not diagnosed to root cause within the plan's session; opr's identical rig succeeded cleanly (6/6, digestMatch=true). Not reproduced in an isolated local call to the same algorithm code with the same real data. The CI-runnable offline equivalence test (scheduled.replay.test.ts) independently proves equivalence for all three algorithms and is unaffected. | open |  | 2026-08-23T03:17:53.122Z |  |
-| 11 | 06.1 | unmet-truth | docs/publish-budget.md |  | teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision | open |  | 2026-08-27T00:37:40.533Z |  |
+| 11 | 06.1 | unmet-truth | docs/publish-budget.md |  | teams/{year} page kind measured max updated by 07-17's D-18 full republish (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1): now 3,732,955 bytes (was 3,577,069), further over committed budgetMaxBytes (3,500,000); grown by D-18's new per-team fields plus offseason-widened activeYears on top of the original pre-06.1 Phase-6 cause (bf1e3228/06f468ad); ceiling still deliberately not raised; payloadBudget.test.ts left red pending a developer decision | open |  | 2026-08-27T00:37:40.533Z |  |
+| 15 | 07 | unmet-truth | docs/publish-budget.md |  | team/{teamKey}/{year} page kind crosses BOTH its committed budgetMaxBytes (375,000) and payloadBudget.test.ts's separate absolute structural ceiling (TEAM_PAGE_ABSOLUTE_MAX_BYTES = 600,000) for the FIRST time, measured against 07-17's real D-18 full republish (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1): max 821,938 bytes (119% over budget, 37% over the absolute ceiling) at v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json -- frc9999 is a synthetic/heavily-reused team key (27 events, 289 matches in the 2024 season alone under --include-offseason), confirmed a real published object rather than a data-integrity artifact. Neither ceiling raised per this plan's own prohibition; routed to 07-19 with the ceiling untouched | open |  | 2026-08-28T18:55:00.000Z |  |
 | 12 | 07 | deviation | packages/corpus/integrity.test.ts | 314 | 07-05's mandated full-corpus rankings backfill (zero NULL record_wins/losses/ties/ranking_score corpus-wide) permanently falsifies this pre-existing 07-02 test's nullRows assertion, which expects to still find an event_rankings row with all four columns NULL; out of 07-05's declared scope (plan verification requires packages/corpus/ diff stay empty for the whole plan), so left unfixed and reported here for a future plan to update the stale assertion | resolved | Resolved by the phase-7 orchestrator after wave 5: the no-default assertion moved out of the corpus-backed block and onto a purpose-built pre-migration database (legacy-shaped event_rankings + a row, then opened through openCorpus so the real ALTER TABLE block runs). Phrased that way it tests the migration itself and no backfill can invalidate it. Proven non-vacuous by injecting DEFAULT 0 into the migration and observing exactly this assertion go RED. | 2026-08-28T04:38:17.003Z | 2026-08-28T05:57:27.078Z |  |
 | 13 | 07 | deviation | scripts/verifySubsetPublish.ts |  | 2025isios published alliances:[] against 07-10's committed expectAlliances:populated seed value; confirmed against live TBA (GET /event/2025isios/alliances -> 200, []) as real TBA state, a third D-17 empty-alliances event beyond RESEARCH.md's original two (2025bc, 2026wvrox) -- expectation left unedited per plan's first prohibition, routed to 07-14 | open |  | 2026-08-28T05:45:22.023Z |  |
 | 14 | 07 | deviation | packages/ingest/normalize.ts |  | 2024orbb/2025orbb (Oregon BunnyBots, offseason event_type 99 running a non-FRC custom game) self-reported a non-integer score_breakdown.{color}.rp value (e.g. 32.5, 34.5, 12.5) on 30 match rows across the two events -- not a real ranking-point count, same family as ledger #4/#5 (self-reported offseason breakdowns not matching the official schema), on the RP side rather than score-breakdown-parse. Blocked 07-17's --include-offseason full republish (TeamSeasonMatchSchema's actualRedRp/actualBlueRp .int() assertion threw). Fixed out-of-scope, authorized at 07-17's checkpoint:decision: normalize.ts's extractRp now requires Number.isInteger and degrades to null; publish.ts's actualRedRp/actualBlueRp assignment gained a toIntegerRpOrNull defence-in-depth guard against any value already sitting in the corpus; the two events were re-ingested (pnpm ingest --event 2024orbb/2025orbb --force), reducing non-integer rows in data/corpus.sqlite from 30 to 0. Tests added in normalize.test.ts and publish.test.ts. | open |  | 2026-08-28T17:50:41.285Z |  |
@@ -158,7 +159,7 @@ last_updated: 2026-08-28T17:50:41.285Z
     "phase": "06.1",
     "file": "docs/publish-budget.md",
     "line": null,
-    "description": "teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision",
+    "description": "teams/{year} page kind measured max updated by 07-17's D-18 full republish (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1): now 3,732,955 bytes (was 3,577,069), further over committed budgetMaxBytes (3,500,000); grown by D-18's new per-team fields plus offseason-widened activeYears on top of the original pre-06.1 Phase-6 cause (bf1e3228/06f468ad); ceiling still deliberately not raised; payloadBudget.test.ts left red pending a developer decision",
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-27T00:37:40.533Z",
@@ -198,6 +199,18 @@ last_updated: 2026-08-28T17:50:41.285Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-28T17:50:41.285Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "unmet-truth",
+    "phase": "07",
+    "file": "docs/publish-budget.md",
+    "line": null,
+    "description": "team/{teamKey}/{year} page kind crosses BOTH its committed budgetMaxBytes (375,000) and payloadBudget.test.ts's separate absolute structural ceiling (TEAM_PAGE_ABSOLUTE_MAX_BYTES = 600,000) for the FIRST time, measured against 07-17's real D-18 full republish (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1): max 821,938 bytes (119% over budget, 37% over the absolute ceiling) at v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json -- frc9999 is a synthetic/heavily-reused team key (27 events, 289 matches in the 2024 season alone under --include-offseason), confirmed a real published object rather than a data-integrity artifact. Neither ceiling raised per this plan's own prohibition; routed to 07-19 with the ceiling untouched",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-28T18:55:00.000Z",
     "resolved_at": null
   }
 ]

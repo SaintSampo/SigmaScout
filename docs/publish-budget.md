@@ -22,7 +22,75 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-08-27, `00:01:39Z`-`00:24:31Z` (≈22 min 52 sec wall clock),** producing 54,671
+**Latest run — 2026-08-28, plan 07-17's D-18 full republish (`pnpm publish:seasons`, now
+including `--include-offseason` — see the command-scope note below), generation
+`47d020a4-1a16-4331-bd70-ce2f468bf2d1`.** 57,188 page objects plus 2 manifests (57,190 total
+`PUT`s), 3,358,758,125 bytes (≈3.13 GiB) of page-object payload, under the renamed `vpr@` prefix
+(D-04/D-05) beside the retained `sigma1@`/`opr@`/`epa@` objects. This run carries all nine D-18
+items at once and is the FIRST run in this document's history to describe a wider stream than
+every earlier run below: `--include-offseason` widens `buildSeasonStream` itself, so **20,055
+additional played matches (+23.8% over the 84,339 regular-season matches) entered the walk-forward
+replay**, and 6,729 of 17,670 team-seasons (38%) carry at least one played offseason match and
+therefore publish different numbers than the figures every earlier section in this document
+describes. `docs/models/` and `data/baselines/` were measured on the narrower (offseason-excluded)
+stream and have not been re-run — that divergence is a standing finding routed forward, not
+resolved here. Two events (`2024orbb`, `2025orbb`) self-reported a non-integer `rp` value that
+first blocked this run's `--include-offseason` dry-run; fixed out-of-scope and authorized at this
+plan's own `checkpoint:decision` (`packages/ingest/normalize.ts`'s `extractRp` now degrades a
+non-integer self-reported RP to `null` rather than passing it through — see
+`.planning/WINDOWS.md` ledger #14).
+
+**Execution note, recorded honestly rather than omitted.** The first tracked invocation of this
+run was contaminated: four earlier "killed" attempts left zombie `node.exe` processes alive in the
+background (Windows/Git-Bash's process-tree kill did not reach the deep `tsx` child), each
+independently replaying and uploading the full range concurrently with the tracked run. Those four
+were identified and terminated before any figure below was read, and this run — generation
+`47d020a4-1a16-4331-bd70-ce2f468bf2d1` — is a clean, solitary re-run started only after a full
+process-list check confirmed zero other publish processes were alive. Every figure below is read
+from that clean run's own log and from a post-run `pnpm verify:subset` generation-uniformity check
+confirming exactly one distinct generation across every sampled key. See this plan's own SUMMARY
+for the full incident account.
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key |
+|---|---:|---:|---:|---:|---|
+| `teams/{year}` | 15 | 1,773,535 | 3,732,955 | 3,732,955 | `v1/teams/2024/vpr@2.0.0+tuned-2026-08.json` |
+| `team/{teamKey}/{year}` | 53,010 | 42,381 | 149,580 | 821,938 | `v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json` |
+| `events/{year}` | 15 | 75,225 | 84,113 | 84,113 | `v1/events/2025/vpr@2.0.0+tuned-2026-08.json` |
+| `event/{eventKey}` | 4,143 | 76,937 | 189,578 | 326,949 | `v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json` |
+| `compare/{year}` | 5 | 14,045 | — | 14,149 | `v1/compare/2025.json` |
+| `manifest/live-windows` | 1 | — | — | — | `v1/manifest/live-windows.json` |
+| `manifest/algorithms` | 1 | — | — | — | `v1/manifest/algorithms.json` |
+
+**Two ceilings are crossed, one already accepted and now worse, one crossed for the first time —
+both left untouched per this plan's own prohibition against raising a budget to fit a
+measurement.**
+
+- `teams/{year}`'s max moved from the previously-recorded 3,577,069 bytes to **3,732,955 bytes**,
+  further over the committed `budgetMaxBytes` of 3,500,000 (accepted override, ledger #11 — this
+  run's figure supersedes the ledger entry's previously-recorded number, updated below). D-18's new
+  per-team fields (rank/record/rp/variance context, plus every affected team's offseason-widened
+  `activeYears`) grew an already-over page kind further; this run does not investigate the byte-level
+  attribution further than that, since the ceiling was already a standing, accepted finding before
+  this run.
+- `team/{teamKey}/{year}` crosses its 375,000-byte ceiling for the FIRST time in this document's
+  history: **821,938 bytes**, for `v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json` — 119% over.
+  `frc9999` is a synthetic/heavily-reused team key (confirmed directly: 27 events, 289 matches in
+  the 2024 season alone under offseason inclusion — a real published object, not a data-integrity
+  artifact of the republish). This is a genuine, real, un-actioned finding for a developer to
+  decide on, recorded here per `.planning/WINDOWS.md` ledger #15 and routed to 07-19 with the
+  ceiling left untouched, exactly as the `teams/{year}` overage already is.
+
+Every other page kind's `max` stays under its committed ceiling: `events/{year}` 84,113 < 108,000;
+`event/{eventKey}` 326,949 < 350,000; `compare/{year}` 14,149 < 20,000.
+
+**Command scope, decided here (07-09's PD-08 routed this question forward; 07-17's PD-02 decides
+it).** `publish:seasons` now reads
+`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason` — the
+documented re-baseline command is the command that produced every figure in this section, and
+`publishSeasons`' own `includeOffseason` default stays `false` so the capability is opt-in at the
+library level.
+
+**Run — 2026-08-27, `00:01:39Z`-`00:24:31Z` (≈22 min 52 sec wall clock),** producing 54,671
 page objects plus 2 manifests (54,673 total `PUT`s), 2,714,525,205 bytes (≈2.53 GiB) of page-object
 payload (generation `bbe1552e-0091-40cf-b70c-cf4296ebcf63`). This is plan 06.1-07's single
 authorized republish, carrying live for the first time: predicted per-bonus RP probabilities and
@@ -574,48 +642,48 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-27T00:24:31Z",
-  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026) -- plan 06.1-07's single authorized republish carrying F-06-1/F-06-3/TEAM-04 plus pre-06.1 Phase-6 commits 06f468ad/bf1e3228 (first republished this run)",
+  "measuredAt": "2026-08-28T18:52:38Z",
+  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- plan 07-17's D-18 full republish under the renamed vpr@ prefix, generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1, first run in this document to include offseason/preseason matches (20,055 additional played matches, +23.8%)",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 1711158,
-      "p95Bytes": 3577069,
-      "maxBytes": 3577069,
+      "medianBytes": 1773535,
+      "p95Bytes": 3732955,
+      "maxBytes": 3732955,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/teams/2024/vpr@2.0.0+tuned-2026-08.json"
     },
     "team": {
-      "count": 51693,
-      "medianBytes": 37049,
-      "p95Bytes": 119877,
-      "maxBytes": 340569,
+      "count": 53010,
+      "medianBytes": 42381,
+      "p95Bytes": 149580,
+      "maxBytes": 821938,
       "budgetMaxBytes": 375000,
-      "largestKey": "v1/team/frc118/2026/sigma1@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json"
     },
     "events": {
       "count": 15,
-      "medianBytes": 75106,
-      "p95Bytes": 83752,
-      "maxBytes": 83752,
+      "medianBytes": 75225,
+      "p95Bytes": 84113,
+      "maxBytes": 84113,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/sigma1@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/events/2025/vpr@2.0.0+tuned-2026-08.json"
     },
     "event": {
-      "count": 2943,
-      "medianBytes": 82074,
-      "p95Bytes": 175866,
-      "maxBytes": 285437,
+      "count": 4143,
+      "medianBytes": 76937,
+      "p95Bytes": 189578,
+      "maxBytes": 326949,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024new/sigma1@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 14017,
-      "p95Bytes": 14121,
-      "maxBytes": 14121,
+      "medianBytes": 14045,
+      "p95Bytes": 14149,
+      "maxBytes": 14149,
       "budgetMaxBytes": 20000,
-      "largestKey": "v1/compare/2026.json"
+      "largestKey": "v1/compare/2025.json"
     }
   }
 }
