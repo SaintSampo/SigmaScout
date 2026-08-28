@@ -1,7 +1,15 @@
 import { cn } from "@/lib/utils";
+import { SkeletonRows } from "../Skeletons.js";
+import { BonusRpDots } from "../team/BonusRpDots.js";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain } from "../team/matchAxis.js";
+// G-06.1-26 (plan 06.1-08, PD-19) precedent, followed here verbatim
+// (07-12-PLAN.md Task 2): imported directly from core rather than copied
+// into apps/web — `rp/constants.ts` has zero runtime imports of its own, so
+// importing it does not drag the Sigma1 RP implementation into the browser
+// bundle.
+import { isBonusRpCompLevel } from "../../../../../packages/core/algorithms/sigma1/rp/constants.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 /**
@@ -16,11 +24,6 @@ import type { EventMatchRow } from "./eventMatchAxis.js";
  * and `MATCH_GEOMETRY`, and every horizontal position from that same
  * module's `scaleToPlot`/`PLOT_W` — imported, never restated. No `top` or
  * `left` literal is ever written in this file.
- *
- * TRACER SCOPE (Task 1): only the Match, plot, Actual and Call columns carry
- * content here. Task 2 fills the Conf. and Pred. Score cells (confidence
- * chip, predicted score with plus-minus, bonus-RP dots) without changing
- * this structure.
  */
 export interface EventMatchTableProps {
   rows: readonly EventMatchRow[];
@@ -30,6 +33,8 @@ export interface EventMatchTableProps {
 
 /** Match, plot, Conf., Pred. Score, Actual, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. */
 export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
+
+const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Conf.", "Pred. Score", "Actual", "Call"] as const;
 
 /** A team key's displayed number, falling back to the raw key string when it does not match the `frc{number}` shape — the same construction `MatchTable.tsx`'s own module-private label helper uses. Named distinctly from this row type's own field names so a structural props-declaration gate cannot mistake it for a per-team prop. */
 function rosterNumberLabel(rosterKey: string): string {
@@ -119,8 +124,80 @@ function EventAxisHeader({ domain }: { domain: AxisDomain }) {
   );
 }
 
+/** The Confidence column's predicted-winner chip — the same `--alliance-*` tokens the plotted marks use, reusing `MatchTable`'s own `.alliance-chip`/`.alliance-chip--{side}` classes so the chip and the band agree about which alliance is which. */
+function EventAllianceChip({ side }: { side: "red" | "blue" }) {
+  return <span className={cn("alliance-chip", side === "red" ? "alliance-chip--red" : "alliance-chip--blue")}>{side === "red" ? "Red" : "Blue"}</span>;
+}
+
+/**
+ * One alliance's predicted score with its bonus-RP dot group above it.
+ * Rounded to a whole number for the same reason `MatchTable.tsx`'s
+ * `PredictedScoreLine` gives: its uncertainty is already drawn as the band,
+ * so a decimal would imply a precision the band denies.
+ *
+ * The dot group renders on every `qm` row (gated by `isBonusRpCompLevel`),
+ * and EVERY dot in it is `unknown` — no `states`/`probabilities` array is
+ * passed and none is derived from the row, because neither
+ * `EventMatchSchema` nor `EventUpcomingMatchSchema` publishes a per-bonus
+ * array of any kind. Inventing one from the score or the result would put a
+ * false claim behind the identical glyph a real one uses. The group is the
+ * placeholder that says "this is a qualification match and we do not know",
+ * which is different from saying nothing.
+ */
+function EventPredictedScoreLine({
+  matchKey,
+  side,
+  score,
+  variance,
+  season,
+  compLevel,
+}: {
+  matchKey: string;
+  side: "red" | "blue";
+  score: number;
+  variance: number | undefined;
+  season: number;
+  compLevel: EventMatchRow["compLevel"];
+}) {
+  const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
+  return (
+    <span className="flex items-center gap-[var(--spacing-xs)]">
+      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} applicable={isBonusRpCompLevel(compLevel)} />
+      <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
+        {Math.round(score)}
+        {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}
+      </span>
+    </span>
+  );
+}
+
+function EventActualScoreLine({
+  matchKey,
+  side,
+  score,
+  isLoser,
+  season,
+  compLevel,
+}: {
+  matchKey: string;
+  side: "red" | "blue";
+  score: number;
+  isLoser: boolean;
+  season: number;
+  compLevel: EventMatchRow["compLevel"];
+}) {
+  return (
+    <span className="flex items-center gap-[var(--spacing-xs)]">
+      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} applicable={isBonusRpCompLevel(compLevel)} />
+      <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
+        {score}
+      </span>
+    </span>
+  );
+}
+
 function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number }) {
-  void season; // reserved for Task 2's bonus-RP dot groups, unused in tracer scope
+  const confidence = row.predictedWinner === "red" ? row.pRedWin : 1 - row.pRedWin;
   const winnerCorrect = row.played && row.predictedWinner === row.actualWinner;
   const redLoses = row.played && row.actualWinner === "blue";
   const blueLoses = row.played && row.actualWinner === "red";
@@ -176,19 +253,23 @@ function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow
           />
         </div>
       </td>
-      {/* Conf. — Task 2 fills this cell. */}
-      <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top" />
-      {/* Pred. Score — Task 2 fills this cell. */}
-      <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top" />
+      <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
+        <span className="flex items-center gap-[var(--spacing-xs)]">
+          <EventAllianceChip side={row.predictedWinner} />
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
+        </span>
+      </td>
+      <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        <div className="flex flex-col gap-[2px]">
+          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redScoreVarianceOwn} season={season} compLevel={row.compLevel} />
+          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueScoreVarianceOwn} season={season} compLevel={row.compLevel} />
+        </div>
+      </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {row.played ? (
           <div className="flex flex-col gap-[2px]">
-            <span data-testid={`actual-${row.matchKey}-red`} className={cn("numeric-cell whitespace-nowrap", redLoses && "text-[var(--loser-ink)]")}>
-              {row.actualRedScore}
-            </span>
-            <span data-testid={`actual-${row.matchKey}-blue`} className={cn("numeric-cell whitespace-nowrap", blueLoses && "text-[var(--loser-ink)]")}>
-              {row.actualBlueScore}
-            </span>
+            <EventActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} compLevel={row.compLevel} />
+            <EventActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} compLevel={row.compLevel} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
@@ -233,6 +314,32 @@ export function EventMatchTable({ rows, domain, season }: EventMatchTableProps) 
         {rows.map((row, index) => (
           <EventMatchRowView key={row.matchKey} row={row} domain={domain} tinted={index % 2 === 1} season={season} />
         ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * The pending state's placeholder (07-12-PLAN.md Task 2) — the real header
+ * labels above `SkeletonRows` sized by `EVENT_MATCH_TABLE_COLUMN_COUNT`, so
+ * the pending state has the shape of the table that is loading rather than
+ * a spinner. Reuses `SkeletonRows` verbatim rather than a second skeleton
+ * primitive.
+ */
+export function EventMatchTableSkeleton({ rowCount }: { rowCount: number }) {
+  return (
+    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+      <thead>
+        <tr>
+          {EVENT_MATCH_TABLE_HEADERS.map((label, index) => (
+            <th key={index} className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">
+              {label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <SkeletonRows rows={rowCount} columns={EVENT_MATCH_TABLE_COLUMN_COUNT} />
       </tbody>
     </table>
   );
