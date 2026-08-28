@@ -183,7 +183,10 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?year=2026&algorithm=vpr");
+    // Explicit ?tab=breakdown (plan 07-18 Task 2 flipped the no-param default
+    // to insights) — this case tests Breakdown's OWN column set, not
+    // "whichever tab is active by default".
+    renderEventRoute("/event/2024casf?year=2026&algorithm=vpr&tab=breakdown");
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(16));
   });
@@ -194,7 +197,13 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=vpr");
+    // Explicit ?tab=breakdown (plan 07-18 Task 2 flipped the no-param
+    // default to insights) — Radix's TabsContent only ever renders a panel's
+    // CHILDREN once that panel has been active at least once (the wrapper
+    // div is always present with `hidden`, but stays empty until then), so
+    // this Breakdown-specific DOM-structure case needs Breakdown made active
+    // explicitly rather than relying on it being the default.
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=breakdown");
 
     await waitFor(() => expect(screen.getByTestId("breakdown-table-scroll")).toBeDefined());
     const tabStrip = screen.getByTestId("event-tab-strip-scroll");
@@ -203,8 +212,56 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(tableScroll.contains(tabStrip)).toBe(false);
   });
 
-  it("DEFAULT_EVENT_TAB is still the string 'breakdown'", () => {
-    expect(DEFAULT_EVENT_TAB).toBe("breakdown");
+  // Test 8 (plan 07-18 Task 2): 07-11's inverse case, rewritten rather than
+  // deleted — 07-11 deliberately deferred this flip (outline assumption 6's
+  // dependency-cycle reasoning) and this plan makes it.
+  it("DEFAULT_EVENT_TAB is now the string 'insights' (was 'breakdown' through 07-11; flipped by plan 07-18 Task 2)", () => {
+    expect(DEFAULT_EVENT_TAB).toBe("insights");
+  });
+
+  // Test 5 (plan 07-18 Task 2): a bare event URL renders the Insights panel —
+  // the observable form of UI-SPEC E2's "default Insights" clause.
+  it("Test 5: a bare event URL (no ?tab=) renders the Insights panel, not the Breakdown panel", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=vpr");
+
+    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
+  });
+
+  // Test 6 (plan 07-18 Task 2): the registration invariant, pinned as a test
+  // rather than merely relied upon — the same fact this task's precondition
+  // checked by reading the source.
+  it("Test 6: REGISTERED_EVENT_TABS and EVENT_TABS hold the same five ids", async () => {
+    const { EVENT_TABS } = await import("../lib/searchParams.js");
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=vpr");
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
+    const registeredNames = screen.getAllByRole("tab").map((tab) => tab.textContent);
+    expect(registeredNames).toHaveLength(EVENT_TABS.length);
+  });
+
+  // Test 7 (plan 07-18 Task 2): an explicit non-default tab still renders,
+  // unchanged from before the flip — contrast case proving the default
+  // change did not turn every route into Insights regardless of ?tab=.
+  it("Test 7: ?tab=breakdown still renders the Breakdown panel as active, explicit tab wins over the new default", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=breakdown");
+
+    await waitFor(() => expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(false));
+    expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
   });
 });
 
@@ -546,7 +603,9 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
     });
     const router = renderEventRoute("/event/2024casf?algorithm=vpr&tab=alliances");
 
-    await waitFor(() => expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(false));
+    // The DEFAULT tab's panel is Insights as of plan 07-18 Task 2 (was
+    // Breakdown through 07-11).
+    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
     // Radix keeps every `TabsContent` mounted (hidden via the `hidden`
     // attribute for the inactive ones) — matching this file's own
     // established convention of asserting on `hidden`, never on DOM

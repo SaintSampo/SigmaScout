@@ -229,12 +229,18 @@ export type TeamSearch = z.infer<typeof TeamSearchSchema>;
 export const EVENT_TABS = ["insights", "breakdown", "quals", "alliances", "elims"] as const;
 
 /**
- * The event page's default tab. `breakdown` for this plan (Breakdown is the
- * only tab whose full contract renders from fields the artifact publishes
- * today — 07-01-PLAN.md's objective). 07-18 flips this to `insights` once
- * the Insights tab exists — a one-constant edit, not a schema change.
+ * The event page's default tab — Insights, the event's landing tab per
+ * 07-UI-SPEC.md's E2 populated row (plan 07-18 Task 2). This constant names
+ * which tab is ACTIVE on arrival, never where a tab sits in the strip —
+ * `EVENT_TABS`'s declared order above is unrelated and unchanged by this
+ * value. The route (`event.$eventKey.tsx`) narrows this against its own
+ * `REGISTERED_EVENT_TABS` array, so this constant may only ever hold an id
+ * that has a registered trigger and content panel; it held `breakdown`
+ * (07-01-PLAN.md's objective, the only tab whose full contract rendered from
+ * published fields at that point in the phase) until Insights existed and
+ * every tab was registered.
  */
-export const DEFAULT_EVENT_TAB = "breakdown";
+export const DEFAULT_EVENT_TAB = "insights";
 
 /**
  * Extends `RootSearchSchema` with exactly one field, `tab` — mirroring

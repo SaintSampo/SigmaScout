@@ -55,21 +55,32 @@ describe("TeamSearchSchema", () => {
   });
 });
 
-describe("EventSearchSchema (07-01-PLAN.md Task 1)", () => {
-  it("EVENT_TABS is the five fixed ids in UI-SPEC order", () => {
+describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights by 07-18 Task 2)", () => {
+  // Test 4 (plan 07-18 Task 2): ordering is untouched — asserted separately
+  // from the default so the two facts (WHICH tab is active vs. WHERE tabs
+  // sit in the strip) cannot be conflated.
+  it("EVENT_TABS is the five fixed ids in UI-SPEC order, with the default's id first", () => {
     expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims"]);
   });
 
-  it("parses an explicit valid tab", () => {
-    expect(EventSearchSchema.parse({ tab: "quals" }).tab).toBe("quals");
+  // Test 3 (plan 07-18 Task 2): an explicit tab still wins for every one of
+  // the five ids, so the default change did not turn the field into a
+  // constant.
+  it("parses each of the five explicit tab ids back unchanged", () => {
+    for (const tab of EVENT_TABS) {
+      expect(EventSearchSchema.parse({ tab }).tab).toBe(tab);
+    }
   });
 
-  it("falls back to breakdown on a bogus tab value", () => {
-    expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("breakdown");
+  // Test 2 (plan 07-18 Task 2): a malformed tab still falls back, to the NEW
+  // default.
+  it("falls back to insights (the new default) on a bogus tab value", () => {
+    expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("insights");
   });
 
-  it("defaults to breakdown when tab is absent", () => {
-    expect(EventSearchSchema.parse({}).tab).toBe("breakdown");
+  // Test 1 (plan 07-18 Task 2): the empty-input path.
+  it("defaults to insights when tab is absent", () => {
+    expect(EventSearchSchema.parse({}).tab).toBe("insights");
   });
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
