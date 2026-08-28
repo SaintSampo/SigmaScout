@@ -61,6 +61,7 @@ import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/si
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
+  selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
   selectMatchesChronological,
   selectScheduledMatches,
@@ -72,6 +73,7 @@ import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionR
 import {
   artifactKey,
   CompareArtifactSchema,
+  composeEventLocation,
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -235,6 +237,41 @@ export interface EventTeamStandingInput {
   readonly metrics: Record<string, TeamMetric>;
 }
 
+/**
+ * D-18 item 8, plan 07-08: mirrors `EventMetaRow`'s own field names and
+ * nullability field-for-field, so a call site passes a corpus row's fields
+ * straight through with no per-site logic. Composition (the
+ * `stateProv`/`country` join into one display string) happens exactly ONCE,
+ * inside `buildEventArtifact`, through the exported location composer
+ * (`pageArtifacts.ts`) — never at a call site — so the event page and the
+ * Events list can never disagree about one event's location string (PD-04).
+ */
+export interface EventArtifactIdentityInput {
+  readonly name: string | null;
+  readonly startDate: string;
+  readonly country: string | null;
+  readonly stateProv: string | null;
+  readonly week: number | null;
+}
+
+/**
+ * D-18 item 7, D-15, D-16, plan 07-08: structurally `EventAllianceSelection`
+ * (`packages/corpus/db.ts`), declared here so this file's exported parameter
+ * surface does not depend on a corpus interface. `picks` is TBA's own
+ * ordered array — entry 0 is the alliance leader and a fourth entry where
+ * present is the reserve robot TBA lists with no field of its own. D-16
+ * excludes that fourth team from 07-14's combined arithmetic; it does NOT
+ * exclude the team from the published record of who was on the alliance, so
+ * truncating this array anywhere would erase a real team's competition
+ * result from the only published account of that event's selection.
+ * <!-- planner-discipline-allow: captain --> <!-- planner-discipline-allow: backup -->
+ */
+export interface EventAllianceInput {
+  readonly allianceNumber: number;
+  readonly name: string | null;
+  readonly picks: readonly string[];
+}
+
 export interface BuildEventArtifactParams {
   readonly eventKey: string;
   readonly season: number;
@@ -264,6 +301,23 @@ export interface BuildEventArtifactParams {
    * without it that column ships as an em-dash.
    */
   readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
+  /**
+   * D-18 item 8, plan 07-08: the event's own identity, from the corpus
+   * `events` row. Omitted entirely means "no caller told me" — none of
+   * `name`/`startDate`/`location`/`week` is emitted on the candidate; a
+   * caller passing raw corpus columns straight through is what makes
+   * `location`'s single composition point (PD-04) actually hold.
+   */
+  readonly eventMeta?: EventArtifactIdentityInput;
+  /**
+   * D-18 item 7, D-15, D-16, D-17, plan 07-08: this event's playoff alliance
+   * selection, from `selectEventAlliancesForSeason`. Optional so the key's
+   * presence itself carries meaning (PD-03): present (including `[]`) means
+   * the caller consulted the corpus, absent means this artifact predates the
+   * field. Both real call sites supply this unconditionally — an event with
+   * genuinely zero alliance rows publishes `[]`, never an omitted key.
+   */
+  readonly alliances?: readonly EventAllianceInput[];
 }
 
 /**
@@ -348,6 +402,56 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     metrics: roundTeamMetricRecord(t.metrics),
   }));
 
+  // D-18 item 8, plan 07-08: the event's own identity. An omitted
+  // `params.eventMeta` emits NONE of the four keys below — "no caller told
+  // me" — inventing an identity from silence would be the same fault PD-03
+  // forbids for `alliances`.
+  const identityFields = params.eventMeta
+    ? {
+        // `name` falls back to the event key on a null OR EMPTY corpus
+        // value (PD-05) — an explicit non-empty test, never `??`, because
+        // `??` lets `""` straight through into a `.min(1)` parse failure.
+        // The corpus `name` column is NULL until an `--events-only` refetch
+        // fills it; mirrors `buildEventsArtifact`'s own `e.name ?? e.event_key`
+        // intent while closing the empty-string hole a bare `??` leaves.
+        name: params.eventMeta.name !== null && params.eventMeta.name.length > 0 ? params.eventMeta.name : params.eventKey,
+        // `startDate` has no honest fallback (there is no key to fall back
+        // to, unlike `name`) — an empty corpus value omits the key entirely
+        // rather than publish a fabricated date.
+        ...(params.eventMeta.startDate.length > 0 ? { startDate: params.eventMeta.startDate } : {}),
+        // The ONLY call to the location composer in this pipeline (PD-04) —
+        // `null` is a real published answer (no recorded location), never an
+        // omission. Never reimplement the "{stateProv}, {country}" join
+        // anywhere else in this file.
+        location: composeEventLocation(params.eventMeta.stateProv, params.eventMeta.country),
+        // Passed through unchanged, including `null` and including `0` — a
+        // real week index is never conflated with "not derivable" (PD-07).
+        week: params.eventMeta.week,
+      }
+    : {};
+
+  // D-18 item 7, D-15, D-16, D-17, plan 07-08: this event's playoff alliance
+  // selection. `undefined` (never assigned) when `params.alliances` was not
+  // supplied, an array (possibly `[]`) otherwise — this is what lets
+  // `candidate` below emit the `alliances` key exactly when the caller
+  // consulted the corpus (PD-03): the key's PRESENCE, not its length, is
+  // the "did anyone ask" signal, and `[]` is the honest "zero rows" answer
+  // for an event that ran quals and rankings but held no selection.
+  const alliances = params.alliances?.map((sel) => ({
+    allianceNumber: sel.allianceNumber,
+    // Conditional spread (never `""`, never a synthesized label) — an
+    // absent key for an absent TBA name, isomorphic to the source shape
+    // live-observed at `2024wvrox`. Choosing a display fallback is 07-14's
+    // decision to make from this honest absence.
+    ...(sel.name !== null && sel.name.length > 0 ? { name: sel.name } : {}),
+    // A fresh copy, never aliased (T-07-08-07) — 07-02's ORDER BY is the
+    // ordering contract and this function neither sorts, filters, dedupes
+    // nor truncates it. Never sliced to three: D-16 excludes a fourth pick
+    // from 07-14's summed arithmetic, not from this published record of who
+    // was on the alliance.
+    picks: [...sel.picks],
+  }));
+
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
@@ -356,9 +460,11 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     algorithmVersion: params.algorithmVersion,
     eventKey: params.eventKey,
     season: params.season,
+    ...identityFields,
     matches,
     upcoming,
     teams,
+    ...(alliances !== undefined ? { alliances } : {}),
   };
 
   return EventArtifactSchema.parse(candidate);
@@ -1188,6 +1294,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // inner entry leaves both fields undefined at the per-team assembly
     // site below — never fetched, never guessed, never zero.
     const eventRankingsForSeason = selectEventRankingsForSeason(db, season);
+    // D-18 item 7, plan 07-08: this event's playoff alliance selections,
+    // once per season — beside the ranking read above, both season-scoped
+    // map reads sitting together rather than one per event. `?? []` at the
+    // per-event call site below is what makes the published `alliances` key
+    // always present post-republish while still meaning "zero rows" rather
+    // than "unknown", because this call site has, by construction,
+    // consulted the corpus (PD-03).
+    const alliancesForSeason = selectEventAlliancesForSeason(db, season);
     // Phase 06.1 (F-06-3, PD-09): the algorithm-independent actual per-bonus
     // flag map, built ONCE per season here — outside the per-algorithm loop
     // below — since the raw score breakdown and this season's RP rule
@@ -1453,6 +1567,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // sortTeamSeasonMatches) — passed straight through, no second
           // query call and no re-scoping.
           sortTimeByMatchKey,
+          // D-18 item 8, plan 07-08: `e` is this event's own `eventMeta` row
+          // (the loop variable above), already in scope — passed straight
+          // through as raw corpus columns (PD-04).
+          eventMeta: { name: e.name, startDate: e.start_date, country: e.country, stateProv: e.state_prov, week: e.week },
+          // D-18 item 7, plan 07-08: `?? []` is deliberate (PD-03) — this
+          // call site always consulted the corpus, so the published key is
+          // always present, meaning "zero rows" when the map has no entry.
+          alliances: alliancesForSeason.get(e.event_key) ?? [],
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         eventPending.push(uploader.publish("event", key, JSON.stringify(eventArtifact)));
@@ -1681,6 +1803,16 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     // NO options object (offseason matches included), unlike the
     // seasons-path read this file's season loop makes above.
     const sortTimeByMatchKey = selectScheduledMatchTimes(db, season);
+    // D-18 items 6/7/8, plan 07-08: this single-event mode had no identity,
+    // alliance or ranking reads at all before this plan — `--event <key>`
+    // is 07-10's ONLY subset-publish path, so an artifact written here
+    // missing any of these leaves 07-11/07-14/07-15 with nothing to build
+    // against. A missing `events` row (a corpus with matches but no event
+    // metadata — a degraded corpus, not a reason to refuse to publish this
+    // event's matches) yields an OMITTED `eventMeta` parameter, never a
+    // throw.
+    const eventMetaRow = selectEventMeta(db, season).find((e) => e.event_key === eventKey);
+    const alliancesForEvent = selectEventAlliancesForSeason(db, season).get(eventKey) ?? [];
 
     const validated = buildEventArtifact({
       eventKey,
@@ -1692,6 +1824,10 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       teams: teamsStanding,
       generation: randomUUID(),
       sortTimeByMatchKey,
+      eventMeta: eventMetaRow
+        ? { name: eventMetaRow.name, startDate: eventMetaRow.start_date, country: eventMetaRow.country, stateProv: eventMetaRow.state_prov, week: eventMetaRow.week }
+        : undefined,
+      alliances: alliancesForEvent,
     });
 
     const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });

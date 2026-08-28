@@ -24,6 +24,7 @@ import {
   openCorpusReadOnly,
   selectScheduledMatches,
   upsertEvent,
+  upsertEventAlliance,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -458,6 +459,192 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
       expect(qmEventRow).not.toHaveProperty(key);
       expect(sfEventRow).not.toHaveProperty(key);
     }
+  });
+});
+
+/**
+ * Plan 07-08 Task 2 (D-18 items 7/8): the event's own identity
+ * (`name`/`startDate`/`location`/`week`) and its playoff alliance selection
+ * (`alliances`). Every case asserts on a value read off the returned or
+ * published artifact.
+ */
+describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alliances (plan 07-08 Task 2)", () => {
+  it("Test 1: no eventMeta, no alliances parameter -> none of the five keys are properties", () => {
+    const artifact = buildEventArtifact(eventArtifactParams()) as object;
+    expect(artifact).not.toHaveProperty("name");
+    expect(artifact).not.toHaveProperty("startDate");
+    expect(artifact).not.toHaveProperty("location");
+    expect(artifact).not.toHaveProperty("week");
+    expect(artifact).not.toHaveProperty("alliances");
+  });
+
+  it("Test 2: full identity round-trip", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        eventMeta: { name: "Sacramento Regional", startDate: "2026-03-01", country: "USA", stateProv: "CA", week: 3 },
+      })
+    );
+    expect(artifact.name).toBe("Sacramento Regional");
+    expect(artifact.startDate).toBe("2026-03-01");
+    expect(artifact.location).toBe("CA, USA");
+    expect(artifact.week).toBe(3);
+  });
+
+  it("Test 3: a null location and a null week are real, distinguishable from the absent case", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "Some Event", startDate: "2026-03-01", country: null, stateProv: null, week: null } })
+    ) as object & { location: unknown; week: unknown };
+    expect(artifact.location).toBeNull();
+    expect(artifact).toHaveProperty("location");
+    expect(artifact.week).toBeNull();
+    expect(artifact).toHaveProperty("week");
+  });
+
+  it("Test 4 (PD-07): week: 0 survives as a real zero, not null and not undefined", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "Some Event", startDate: "2026-03-01", country: null, stateProv: null, week: 0 } })
+    );
+    expect(artifact.week).toBe(0);
+  });
+
+  it("Test 5 (PD-05): a null name AND an empty-string name both fall back to the event key", () => {
+    const nullName = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: null, startDate: "2026-03-01", country: null, stateProv: null, week: null } })
+    );
+    expect(nullName.name).toBe("2026casj");
+    const emptyName = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "", startDate: "2026-03-01", country: null, stateProv: null, week: null } })
+    );
+    expect(emptyName.name).toBe("2026casj");
+  });
+
+  it("Test 6: an empty startDate is never invented — the key is entirely absent", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "Some Event", startDate: "", country: null, stateProv: null, week: null } })
+    ) as object;
+    expect(artifact).not.toHaveProperty("startDate");
+  });
+
+  it("Test 7: composeEventLocation's four input combinations, pinned through buildEventArtifact's own output", () => {
+    const both = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "E", startDate: "2026-03-01", country: "USA", stateProv: "CA", week: null } })
+    );
+    expect(both.location).toBe("CA, USA");
+    const countryOnly = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "E", startDate: "2026-03-01", country: "USA", stateProv: null, week: null } })
+    );
+    expect(countryOnly.location).toBe("USA");
+    const stateProvOnly = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "E", startDate: "2026-03-01", country: null, stateProv: "CA", week: null } })
+    );
+    expect(stateProvOnly.location).toBe("CA");
+    const neither = buildEventArtifact(
+      eventArtifactParams({ eventMeta: { name: "E", startDate: "2026-03-01", country: null, stateProv: null, week: null } })
+    );
+    expect(neither.location).toBeNull();
+  });
+
+  it("Test 8 (PD-03): an empty alliances array IS a property, distinct from the omitted-parameter case", () => {
+    const withEmpty = buildEventArtifact(eventArtifactParams({ alliances: [] })) as object & { alliances: unknown };
+    expect(withEmpty).toHaveProperty("alliances");
+    expect(withEmpty.alliances).toEqual([]);
+    const withoutParam = buildEventArtifact(eventArtifactParams()) as object;
+    expect(withoutParam).not.toHaveProperty("alliances");
+  });
+
+  it("Test 9: three alliances round-trip whole and in the supplied order, including a fourth pick", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        alliances: [
+          { allianceNumber: 1, name: "The Alliance", picks: ["frc254", "frc1678", "frc971"] },
+          { allianceNumber: 2, name: null, picks: ["frc604", "frc2054", "frc1323", "frc330"] },
+          { allianceNumber: 3, name: null, picks: ["frc118", "frc192", "frc27"] },
+        ],
+      })
+    );
+    expect(artifact.alliances).toHaveLength(3);
+    expect(artifact.alliances?.map((a) => a.allianceNumber)).toEqual([1, 2, 3]);
+    expect(artifact.alliances?.[1]?.picks).toHaveLength(4);
+    expect(artifact.alliances?.[1]?.picks[3]).toBe("frc330");
+  });
+
+  it("Test 10: an absent TBA alliance name publishes no name key, empty publishes none either, and a real name round-trips", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        alliances: [
+          { allianceNumber: 1, name: null, picks: ["frc1", "frc2", "frc3"] },
+          { allianceNumber: 2, name: "", picks: ["frc4", "frc5", "frc6"] },
+          { allianceNumber: 3, name: "Real Name", picks: ["frc7", "frc8", "frc9"] },
+        ],
+      })
+    );
+    expect(artifact.alliances?.[0]).not.toHaveProperty("name");
+    expect(artifact.alliances?.[1]).not.toHaveProperty("name");
+    expect(artifact.alliances?.[2]?.name).toBe("Real Name");
+  });
+});
+
+/**
+ * Plan 07-08 Task 2, Test 11: identity and alliances through the real
+ * seeded-corpus `publishSeasons` path.
+ */
+describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-event-identity-corpus-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("Test 11a: name/startDate/location/week and two alliance entries all reach the published v1/event/... body", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional", week: 3, country: "USA", stateProv: "CA" }));
+    upsertMatch(db, seasonMatch());
+    upsertEventAlliance(db, {
+      eventKey: "2026casj",
+      allianceNumber: 1,
+      name: "The Alliance",
+      picks: ["frc1", "frc2", "frc3"],
+      declines: [],
+      statusRaw: null,
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+    });
+    upsertEventAlliance(db, {
+      eventKey: "2026casj",
+      allianceNumber: 2,
+      name: null,
+      picks: ["frc4", "frc5", "frc6"],
+      declines: [],
+      statusRaw: null,
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026casj", sigma1.id);
+    expect(artifact.name).toBe("Sacramento Regional");
+    expect(artifact.startDate).toBe("2026-03-01");
+    expect(artifact.location).toBe("CA, USA");
+    expect(artifact.week).toBe(3);
+    expect(artifact.alliances).toHaveLength(2);
+    expect(artifact.alliances?.[0]?.name).toBe("The Alliance");
+    expect(artifact.alliances?.[1]).not.toHaveProperty("name");
+  });
+
+  it("Test 11b: an event with no alliance rows publishes alliances as [] (D-17)", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026noselect" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026noselect_qm1", eventKey: "2026noselect" }));
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [sigma1], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026noselect", sigma1.id);
+    expect(artifact.alliances).toEqual([]);
   });
 });
 
