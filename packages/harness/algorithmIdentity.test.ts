@@ -5,23 +5,27 @@
  *
  * This is a THREE-WAY split, and this file is only ONE of the three parts —
  * naming all three here is what keeps this test from reading as either a
- * duplicate of a later plan's check or a claim that the rename is finished:
+ * duplicate of a later plan's check or a claim that the rename is finished.
+ * TWO of the three thirds have now landed:
  *
  *   - SOURCE (this file, plan 07-16): no identity-shaped occurrence of the
  *     retired id `sigma1` (or its four harness-only variants) survives
  *     anywhere in the tracked tree outside a short, individually-reasoned,
- *     length-asserted exclusion list.
- *   - CLIENT (plan 07-18): `apps/web/**` is exempted below on purpose,
- *     because the deployed browser is still reading the pre-rename R2
- *     prefix through this phase's rename transition window (waves 11-12).
- *     07-18 lands the client half of this assertion by DELETING the
- *     `apps/web/**` exclusion entry below, in the same commit that flips
- *     `PUBLISHED_ALGORITHM_IDS` and `DEFAULT_ALGORITHM`.
- *   - LIVE (plan 07-19): zero `sigma1@` objects in R2 and zero
- *     `algorithm_id = 'sigma1'` rows in D1 — a fact about the deployed
+ *     length-asserted exclusion list. LANDED.
+ *   - CLIENT (plan 07-18 Task 3, this commit): the client-package exclusion
+ *     entry that used to sit in `IDENTITY_SWEEP_EXCLUSIONS` below is DELETED
+ *     here — the deployed browser no longer reads the pre-rename R2 prefix
+ *     (07-18 Tasks 1-2 moved it), so the gate now walks the client tree with
+ *     the rest of the repository and finds nothing. LANDED.
+ *   - LIVE (plan 07-19, still outstanding): zero `sigma1@` objects in R2 and
+ *     zero `algorithm_id = 'sigma1'` rows in D1 — a fact about the deployed
  *     bucket and database, which no source-level test run on a checkout can
- *     prove. 07-19 executes that check against the real infrastructure
- *     after it deletes the retired objects/rows and redeploys the Worker.
+ *     prove. Roughly eighteen thousand objects and a live D1 row still carry
+ *     the retired id at this commit, deliberately left in place so this
+ *     cutover stays revertible; 07-19 deletes them and redeploys the Worker
+ *     under the renamed live-fold tier. A fully green run of THIS file must
+ *     never be read as the rename being finished — it proves the source and
+ *     client thirds, not the live one.
  *
  * Walks the repository from its root with `readdirSync` (not `git
  * ls-files` — PD-06: dependency-free, deterministic, no coupling to a git
@@ -63,10 +67,11 @@ function isSkippedFile(name: string): boolean {
 }
 
 /**
- * Path-prefix exclusions, seeded with EXACTLY these eight entries — the
- * length is itself asserted below (T-07-16-06 / prohibition 2), so a ninth
- * entry added later is a deliberate, reviewed diff, never a quiet way to
- * make a red gate green.
+ * Path-prefix exclusions, seeded with eight entries at 07-16 Task 3 and
+ * decremented to SEVEN here (plan 07-18 Task 3 deleted the client-package
+ * exclusion entry) — the length is itself asserted below (T-07-16-06 /
+ * prohibition 2), so a further entry added later is a deliberate, reviewed
+ * diff, never a quiet way to make a red gate green.
  */
 export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
   ".planning/", // planning history — decisions, plans, summaries recorded under the id in force when they were written
@@ -76,7 +81,6 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
   "docs/first-paint-measurement.md", // measurement record
   "docs/publish-budget.md", // measurement record; 07-19 re-measures it against the D-18-enlarged schema
   "data/baselines/", // frozen run fingerprints — committed exactly as measured, never rewritten
-  "apps/web/", // CLIENT tier (07-18's): the deployed browser is still reading the pre-rename R2 prefix on purpose through this phase's transition window; 07-18 deletes THIS entry as the mechanism that lands the client half of the D-05 assertion
 ];
 
 /**
@@ -96,13 +100,14 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
  *     directory name PD-02 keeps) — a sweep-pattern limitation (the pattern
  *     cannot distinguish a quoted path segment from a quoted identity value
  *     without parsing call syntax), not an unrenamed identity.
- *   - `publishedAlgorithms.ts` is PD-01's own named dual-tier file: its
- *     `PUBLISHED_ALGORITHM_IDS` value is deliberately unrenamed
- *     browser-facing content, but the file itself lives OUTSIDE
- *     `apps/web/` — the plan's outline enumerated the CLIENT exclusion by
- *     directory, and this is the one browser-facing value that does not
- *     live under that directory. 07-18 is what moves this value, exactly
- *     as it deletes the `apps/web/` entry above.
+ *   - `publishedAlgorithms.ts` is PD-01's own named dual-tier file: through
+ *     07-16 and 07-17 its `PUBLISHED_ALGORITHM_IDS` value was deliberately
+ *     unrenamed browser-facing content, but the file itself lives in the
+ *     harness package, not the client package — the plan's outline
+ *     enumerated the CLIENT exclusion by directory, and this was the one
+ *     browser-facing value that did not live under that directory. 07-18
+ *     Task 1 moved this value (the collapse), the same commit that deletes
+ *     the client-package entry above.
  *   - `baselineFingerprint.test.ts` asserts against
  *     `data/baselines/opr-event-scoped-2026-08.json`'s own committed,
  *     frozen content (tier F) — the test must cite the frozen ids literally
@@ -112,8 +117,8 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
  *   - `scripts/verifySubsetPublish.ts` verifies CURRENTLY PUBLISHED reality
  *     against the live public origin (tier C in substance — it reads
  *     exactly what a browser would read today — but the script lives
- *     outside `apps/web/`). 07-17 extends its expectation table; 07-19 is
- *     what the published reality itself moves to.
+ *     outside the client package). 07-17 extends its expectation table;
+ *     07-19 is what the published reality itself moves to.
  *   - `publish.test.ts` proves T-07-16-01/Test 9's NEGATIVE assertion — that
  *     the retired id is now REJECTED by `resolvePublishAlgorithms` and that
  *     no emitted key contains the retired `sigma1@` segment. Asserting
@@ -146,14 +151,23 @@ export const PRE_RENAME_MARKER = "[pre-rename]";
  * line can carry more than one identity-shaped match) may legitimately
  * exist across the whole tree. Flagged assumption 4 set the original bound
  * at 12 from an eight-to-ten-citation estimate found before the full
- * re-grep ran. The real re-grep (this task) found 13, all genuine measured
+ * re-grep ran. 07-16 Task 3's real re-grep found 13, all genuine measured
  * citations correctly marked (`docs/worker-operations.md`'s "Verified
  * 2026-08-23" section alone carries several, since a real historical
  * verification run's log output and CLI invocation are quoted verbatim in
- * multiple places). Raised here, in a visible diff, with this reason — not
- * by widening a file exclusion, which prohibition 2 forbids.
+ * multiple places).
+ *
+ * Raised again here, to 19, by plan 07-18 Task 3's own re-grep of the newly
+ * un-excluded client tree — six new genuine citations, each a historical
+ * attribution comment naming the pre-rename id (the three e2e specs' own
+ * "confirmed live"/"published under" artifact-key citations, one comment in
+ * `query-client.ts` attributing a config rename to plan 07-16, and two
+ * comments in `searchParams.ts` explaining where `DEFAULT_ALGORITHM`'s
+ * value moved from). Each is disclosed individually above at its own site;
+ * raised in a visible diff with this reason — not by widening a file
+ * exclusion, which prohibition 2 forbids.
  */
-const MARKER_CAP = 13;
+const MARKER_CAP = 19;
 
 /** The retired published identity and its four harness-only siblings — the exact set this sweep looks for. */
 const RETIRED_IDS = ["sigma1", "sigma1-defaults", "sigma1-seasonsd", "sigma1-normalcdf", "sigma1-adapt"] as const;
@@ -330,7 +344,10 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
   });
 
   it("IDENTITY_SWEEP_EXCLUSIONS has exactly the length it was seeded with — an added exclusion is a deliberate, reviewed edit", () => {
-    expect(IDENTITY_SWEEP_EXCLUSIONS).toHaveLength(8);
+    // Decremented from 8 to 7 by plan 07-18 Task 3, which deleted the
+    // client-package entry — the mechanism that lands the CLIENT third of
+    // the standing D-05 assertion (see this file's own header comment).
+    expect(IDENTITY_SWEEP_EXCLUSIONS).toHaveLength(7);
   });
 
   it("STRUCTURAL_EXEMPTIONS (a separate, smaller list from the tier exclusions) has exactly the length it was seeded with", () => {

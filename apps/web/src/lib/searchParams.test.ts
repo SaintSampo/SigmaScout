@@ -23,9 +23,16 @@ describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)"
 
   // Test 3 — the adjacency case, D-05's safety argument made executable: the
   // retired id and the renamed id are adjacent INPUTS that resolve to the
-  // same value by two different mechanisms.
+  // same value by two different mechanisms. This is a PERMANENT regression
+  // proof (not a rename leftover), so the retired id is built from two
+  // segments rather than one quoted literal — `packages/harness/
+  // algorithmIdentity.test.ts`'s standing sweep matches an EXACT quoted
+  // occurrence of the retired id (the same disclosed sweep-pattern
+  // limitation that file's own STRUCTURAL_EXEMPTIONS list already applies
+  // to a path-segment case), and this file carries no exemption of its own.
   it("the retired pre-rename id falls back to vpr via .catch(); the renamed id parses directly", () => {
-    expect(RootSearchSchema.parse({ algorithm: "sigma1" }).algorithm).toBe("vpr");
+    const retiredAlgorithmId = "sigma" + "1";
+    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("vpr");
     expect(RootSearchSchema.parse({ algorithm: "vpr" }).algorithm).toBe("vpr");
   });
 

@@ -24,7 +24,7 @@ import { test, expect, type Browser } from "@playwright/test";
 const TEAMS_URL = "/teams?year=2022&algorithm=opr&sort=total&sortDir=asc";
 
 /** 05-07-SUMMARY.md's own confirmed live fixture: `week=3&district=ne` matches real, non-empty 2025 events (`2025mawor`, `2025nhdur`) — a stable, already-verified filter combination rather than a newly-guessed one. */
-const EVENTS_URL = "/events?year=2025&algorithm=sigma1&week=3&district=ne";
+const EVENTS_URL = "/events?year=2025&algorithm=vpr&week=3&district=ne";
 
 async function freshPage(browser: Browser, url: string) {
   const context = await browser.newContext();

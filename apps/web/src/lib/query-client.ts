@@ -7,8 +7,8 @@ import { QueryClient } from "@tanstack/react-query";
  * detail, Phase 6/7) overrides this per-query with `refetchInterval`, scoped
  * only to `vpr` pages, matching the Worker's `LIVE_ALGORITHM_IDS=vpr` scoping
  * (the live-fold-tier pattern quick task 260822-wqt introduced in Phase 4,
- * renamed from `sigma1` by plan 07-16) — Phase 5's Teams/Events pages are not
- * live-tick targets.
+ * renamed from `sigma1` [pre-rename] by plan 07-16) — Phase 5's Teams/Events
+ * pages are not live-tick targets.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {

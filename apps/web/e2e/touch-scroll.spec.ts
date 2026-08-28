@@ -27,7 +27,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const TEAMS_URL = "/teams?year=2024&algorithm=sigma1&sort=total&sortDir=desc";
+const TEAMS_URL = "/teams?year=2024&algorithm=vpr&sort=total&sortDir=desc";
 const SCROLL_CONTAINER = '[data-testid="teams-table-scroll"]';
 const HEADER = '[data-slot="table-header"]';
 const ROW = '[data-testid="teams-row"]';
@@ -186,7 +186,7 @@ test("a pinned cell's background is opaque, not transparent", async ({ page }) =
  * outstanding real-device human check.
  */
 test.describe("team page — per-event-section touch scroll (D-10)", () => {
-  const TEAM_URL = "/team/118?year=2024&algorithm=sigma1";
+  const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
   const SCROLLER_TESTID_PATTERN = '[data-testid^="match-table-scroll-"]';
 
   test.beforeEach(async ({ page }) => {

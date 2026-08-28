@@ -25,7 +25,7 @@
  */
 import { test, expect } from "@playwright/test";
 
-const TARGET_URL = "/teams?year=2024&algorithm=sigma1";
+const TARGET_URL = "/teams?year=2024&algorithm=vpr";
 
 test.describe("Static shell — JavaScript disabled", () => {
   test.use({ javaScriptEnabled: false });

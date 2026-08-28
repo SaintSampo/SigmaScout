@@ -25,14 +25,14 @@ const KNOWN_SEASONS = new Set<number>(SEASONS);
  * renamed from Sigma1) rather than OPR/EPA, matching 05-RESEARCH.md Pattern
  * 1's example schema.
  *
- * D-04/D-05 (plan 07-18, the cutover): this value moved here from `sigma1`
- * once 07-17's write pass made the `vpr@` objects live in R2 — the deployed
- * browser now requests what the publisher and the Worker have written since
- * plan 07-16. An already-shared link carrying the retired `sigma1` id is not
- * a dead link: it is no longer a member of `PUBLISHED_ALGORITHM_IDS`, so the
- * `z.enum(...).catch(DEFAULT_ALGORITHM)` expression below falls through to
- * this value rather than failing — D-05's own safety argument for why the
- * rename reaches the algorithm id at all.
+ * D-04/D-05 (plan 07-18, the cutover): this value moved here from `sigma1` [pre-rename]
+ * once 07-17's write pass made the `vpr@` objects live in R2 —
+ * the deployed browser now requests what the publisher and the Worker have
+ * written since plan 07-16. An already-shared link carrying the retired
+ * `sigma1` [pre-rename] id is not a dead link: it is no longer a member of
+ * `PUBLISHED_ALGORITHM_IDS`, so the `z.enum(...).catch(DEFAULT_ALGORITHM)`
+ * expression below falls through to this value rather than failing — D-05's
+ * own safety argument for why the rename reaches the algorithm id at all.
  */
 const DEFAULT_ALGORITHM: PublishedAlgorithmId = "vpr";
 
