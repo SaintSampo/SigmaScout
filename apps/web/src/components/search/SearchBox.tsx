@@ -31,7 +31,7 @@ import { teamsQueryOptions } from "@/lib/api/teams";
 import { eventsQueryOptions } from "@/lib/api/events";
 import { buildSearchResults, type EventMatch, type TeamMatch } from "@/lib/search-index";
 import { markSearchKeystroke, markSearchResultsRendered, measureSearchKeystrokeToRender } from "@/lib/perfMarks";
-import type { YearChangeableSearch } from "@/lib/searchParams";
+import { DEFAULT_EVENT_TAB, type YearChangeableSearch } from "@/lib/searchParams";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /**
@@ -40,21 +40,21 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
  * once at the root layout (inside `Ribbon`), so it is visible on every
  * route, and TanStack Router's typed `navigate()` has no single type that
  * means "any route in the tree, carrying forward whatever the CURRENT
- * route's search happens to hold." Unlike those two callers, this one's
- * TARGET route genuinely varies (a team match navigates to `/team/{number}`,
- * an event match to `/events`), which is exactly why a plain `<Link>` cannot
- * express it and an imperative, narrowly-typed `navigate()` cast is used
- * instead. At RUNTIME every search updater below only ever reads/writes
- * known fields, so an unrecognized field silently passing through the
- * spread is stripped by the TARGET route's own `validateSearch` (T-05-02) —
- * never a crash, never a stray param reaching a component. `params` is
- * optional on the option object — only the team destination's route has a
- * path param to carry (D-15's plain team number, not the internal `frc{n}`
- * key).
+ * route's search happens to hold." This one's TARGET route genuinely varies
+ * (a team match navigates to `/team/{number}`, an event match to
+ * `/event/{eventKey}`, 07-15-PLAN.md Task 2), which is exactly why a plain
+ * `<Link>` cannot express it and an imperative, narrowly-typed `navigate()`
+ * cast is used instead. At RUNTIME every search updater below only ever
+ * reads/writes known fields, so an unrecognized field silently passing
+ * through the spread is stripped by the TARGET route's own `validateSearch`
+ * (T-05-02) — never a crash, never a stray param reaching a component.
+ * `params` is a union of the two destinations' own path params — the team
+ * number (D-15's plain team number, not the internal `frc{n}` key) or the
+ * event key.
  */
 type SearchNavigate = (opts: {
-  to: "/teams" | "/events" | "/team/$teamNumber";
-  params?: { teamNumber: string };
+  to: "/team/$teamNumber" | "/event/$eventKey";
+  params: { teamNumber: string } | { eventKey: string };
   search: (prev: Record<string, unknown>) => Record<string, unknown>;
 }) => Promise<void>;
 
@@ -227,7 +227,7 @@ export function SearchBox() {
 
   function handleSelectTeam(team: TeamMatch) {
     // The real per-team destination (06-CONTEXT.md D-15/D-16), replacing
-    // Phase 5's interim Teams-page landing. The route takes the plain team
+    // Phase 5's provisional Teams-page landing. The route takes the plain team
     // number, not the internal `frc{number}` corpus key (`team.teamKey`) —
     // that split is D-15's whole point, so the number is what crosses this
     // boundary. year/algorithm carry forward exactly as handleSelectEvent's
@@ -241,12 +241,18 @@ export function SearchBox() {
   }
 
   function handleSelectEvent(event: EventMatch) {
-    // INTERIM TARGET (see handleSelectTeam's identical note): lands on the
-    // Events page filtered to the matched event's week when it has one —
-    // EVENTS-01's real per-event page is Phase 7's job.
+    // The real per-event destination (07-15-PLAN.md Task 2), replacing
+    // Phase 5's provisional Events-page landing. year/algorithm carry forward
+    // exactly as handleSelectTeam's own updater does; `tab` comes from the
+    // imported `DEFAULT_EVENT_TAB` constant, never a hardcoded id, so
+    // 07-18's one-constant flip moves this entry point with no edit here.
+    // `week` is dropped entirely: it existed only to filter the old
+    // Events-list landing, and the event route's own `validateSearch` would
+    // strip it anyway.
     void navigate({
-      to: "/events",
-      search: (prev) => ({ ...prev, year: search.year, algorithm: search.algorithm, week: event.week === null ? undefined : event.week }),
+      to: "/event/$eventKey",
+      params: { eventKey: event.eventKey },
+      search: (prev) => ({ ...prev, year: search.year, algorithm: search.algorithm, tab: DEFAULT_EVENT_TAB }),
     });
     closeAndReset();
   }

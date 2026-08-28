@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, TeamsArtifactSchema, type EventsArtifact, type TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { DEFAULT_EVENT_TAB } from "@/lib/searchParams";
 import { SearchBox } from "./SearchBox.js";
 
 const PLACEHOLDER = "Search teams or events";
@@ -307,5 +308,45 @@ describe("SearchBox", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/events/"))).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------
+  // 07-15-PLAN.md Task 2 — an event selection lands on the real event route
+  // ---------------------------------------------------------------------
+
+  it("Test 5/6/7: an event selection navigates to the real event route, carrying the current year/algorithm and DEFAULT_EVENT_TAB, with no /events landing anywhere in the call", async () => {
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    global.fetch = baseFetchMock({
+      teams: [],
+      eventsFetch: () => Promise.resolve(new Response(JSON.stringify(makeEventsArtifact([event({ eventKey: "2024casj", name: "Silicon Valley Regional" })])), { status: 200 })),
+    });
+    render(<SearchBox />, { wrapper });
+
+    const input = await screen.findByPlaceholderText(PLACEHOLDER);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "silicon" } });
+    const eventOption = await screen.findByRole("option", { name: /Silicon Valley Regional/ });
+    fireEvent.click(eventOption);
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0]?.[0] as {
+      to: string;
+      params: { eventKey: string };
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+    };
+    expect(call.to).toBe("/event/$eventKey");
+    expect(call.params).toEqual({ eventKey: "2024casj" });
+    expect(call.search({ someOtherField: "kept" })).toEqual({
+      someOtherField: "kept",
+      year: 2024,
+      algorithm: "sigma1",
+      tab: DEFAULT_EVENT_TAB,
+    });
+
+    // No mocked navigate call in the event-selection path names the interim
+    // Events-list landing — the whole point of this task.
+    for (const navigateCall of mockNavigate.mock.calls) {
+      expect((navigateCall[0] as { to?: string }).to).not.toBe("/events");
+    }
   });
 });

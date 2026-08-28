@@ -1,8 +1,12 @@
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DEFAULT_EVENT_TAB } from "@/lib/searchParams";
+import { composeEventLocation } from "../../../../../packages/harness/pageArtifacts.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventRow, EventSortDirection, EventSortKey } from "./filterModel";
 
 /**
@@ -15,6 +19,12 @@ import type { EventRow, EventSortDirection, EventSortKey } from "./filterModel";
  * Task 3) — this component renders that array plainly and reports header
  * clicks back up via `onSortChange` rather than owning any sort/filter
  * state of its own, since sort lives in the URL (D-14).
+ *
+ * 07-15-PLAN.md Task 2: the event-name cell is now a router `Link` to
+ * `/event/{eventKey}` — the navigation that makes the whole of Phase 7
+ * reachable from the deployed site. Only the name cell links (PD-06);
+ * every other cell stays inert, matching `teams-table/columns.tsx`'s own
+ * cell-level-link precedent rather than a whole-row anchor.
  */
 
 const SKELETON_ROWS = 8;
@@ -40,17 +50,12 @@ function cellText(value: string | null): string {
   return value === null ? "—" : value;
 }
 
-function locationText(event: EventRow): string {
-  if (event.stateProv === null && event.country === null) return "—";
-  if (event.stateProv === null) return event.country as string;
-  if (event.country === null) return event.stateProv;
-  return `${event.stateProv}, ${event.country}`;
-}
-
 export interface EventsListProps {
   status: "pending" | "error" | "success";
   events: readonly EventRow[];
   year: number;
+  /** Threaded from the route rather than read a second time via a cross-route search hook (06-05's stated preference) — carried on the row link's `search` so the destination lands with the reader's current algorithm. */
+  algorithm: PublishedAlgorithmId;
   hasActiveFilter: boolean;
   onClearFilters: () => void;
   onRetry: () => void;
@@ -99,16 +104,33 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
   );
 }
 
-function EventRowView({ event }: { event: EventRow }) {
+function EventRowView({ event, year, algorithm }: { event: EventRow; year: number; algorithm: PublishedAlgorithmId }) {
+  const location = composeEventLocation(event.stateProv, event.country) ?? "—";
   return (
     <TableRow>
-      <TableCell className="max-w-[16rem] truncate" title={event.name}>
-        {event.name}
+      <TableCell className="max-w-[16rem] p-0">
+        {/*
+          07-15-PLAN.md Task 2, PD-06: only the name cell links — the header
+          row already carries per-cell sort buttons a row-level anchor would
+          swallow, and one linked cell keeps the row's other text selectable.
+          `tab` comes from the imported `DEFAULT_EVENT_TAB` constant, never a
+          hardcoded id, so 07-18's one-constant flip moves this entry point
+          with no edit here.
+        */}
+        <Link
+          to="/event/$eventKey"
+          params={{ eventKey: event.eventKey }}
+          search={{ year, algorithm, tab: DEFAULT_EVENT_TAB }}
+          title={event.name}
+          className="block max-w-[16rem] truncate p-2"
+        >
+          {event.name}
+        </Link>
       </TableCell>
       <TableCell className="numeric-cell">{event.week === null ? <Badge variant="secondary">Offseason</Badge> : event.week}</TableCell>
       <TableCell>{event.startDate}</TableCell>
-      <TableCell className="max-w-[10rem] truncate" title={locationText(event)}>
-        {locationText(event)}
+      <TableCell className="max-w-[10rem] truncate" title={location}>
+        {location}
       </TableCell>
       <TableCell className="max-w-[8rem] truncate" title={cellText(event.districtKey)}>
         {cellText(event.districtKey)}
@@ -119,7 +141,7 @@ function EventRowView({ event }: { event: EventRow }) {
   );
 }
 
-export function EventsList({ status, events, year, hasActiveFilter, onClearFilters, onRetry, sortKey, sortDir, onSortChange }: EventsListProps) {
+export function EventsList({ status, events, year, algorithm, hasActiveFilter, onClearFilters, onRetry, sortKey, sortDir, onSortChange }: EventsListProps) {
   if (status === "error") {
     return (
       <div className="w-full">
@@ -156,7 +178,7 @@ export function EventsList({ status, events, year, hasActiveFilter, onClearFilte
       <ColumnHeaderRow sortKey={sortKey} sortDir={sortDir} onSortChange={onSortChange} />
       <TableBody>
         {events.map((event) => (
-          <EventRowView key={event.eventKey} event={event} />
+          <EventRowView key={event.eventKey} event={event} year={year} algorithm={algorithm} />
         ))}
       </TableBody>
     </Table>

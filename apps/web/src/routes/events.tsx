@@ -104,6 +104,7 @@ function EventsPage() {
         status={status}
         events={sortedEvents}
         year={year}
+        algorithm={algorithm}
         hasActiveFilter={hasActiveFilter}
         onClearFilters={handleClearFilters}
         onRetry={handleRetry}
