@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 7
-current_phase_name: Event Pages
+current_phase: 07
+current_phase_name: event-pages
 status: executing
-stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-08-28T00:22:06.405Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-08-28T01:28:16.387Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 07 planning complete
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 64
+  completed_plans: 65
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 06.1 — match-and-event-data-enrichment
+**Current focus:** Phase 07 — event-pages
 
 ## Current Position
 
-Phase: 7 — Event Pages
-Plan: Not started
+Phase: 07 (event-pages) — EXECUTING
+Plan: 2 of 20
 Status: Ready to execute
-Last activity: 2026-08-27 — Phase 07 planning complete
+Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
@@ -98,6 +98,7 @@ Progress: [██████████] 100%
 | Phase 06.1 P06 | ~40min | 3 tasks | 7 files |
 | Phase 06.1 P07 | ~50min | 3 tasks | 1 files |
 | Phase 06.1 P08 | 55min | 3 tasks | 12 files |
+| Phase 07 P01 | 22min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -197,6 +198,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 06.1 P07]: The republish's payload-budget delta has five real contributing causes, not three -- two pre-06.1 Phase-6 commits (06f468ad phase-group metrics, bf1e3228 teams-artifact tier field) landed after the prior recorded run and were never republished until this run, swept in alongside this phase's own three items
 - [Phase ?]: [Phase 06.1 P07]: teams/{year}'s measured maximum (3,577,069 bytes) now exceeds its committed budgetMaxBytes ceiling (3,500,000), caused entirely by pre-06.1 Phase-6 work; ceiling deliberately NOT raised (this plan's own prohibition); payloadBudget.test.ts left genuinely red for this one page kind, logged to WINDOWS.md ledger #11 for a future developer decision
 - [Phase ?]: [Phase 06.1 P08]: T-06.1-24 re-dispositioned to accept (Task 1 option-a) -- per-event tier-basis caption removed with no replacement explanation anywhere; buildTeamSeasonArtifact's predicted+actual per-bonus fields switched to conditional spread and gated on isBonusRpCompLevel(match.compLevel) as defence-in-depth beyond the plan's literal per-task file list (Rule 2)
+- [Phase ?]: [Phase 07 P01]: Event page season sourced from the event key + artifact.season, never ?year= — /event/{eventKey}?year=2026 still renders the real season's columns
+- [Phase ?]: [Phase 07 P01]: EventSearchSchema's tab enum stays over all five EVENT_TABS ids for URL-contract stability; route-local REGISTERED_EVENT_TABS narrows to the ids actually wired each wave, since z.enum's .catch() can't help when every id is a valid enum member
+- [Phase ?]: [Phase 07 P01]: Breakdown tab's columnPinningFeature/columnSizingFeature registered locally in BreakdownTab.tsx (not imported from teams-table/columns.tsx) since the column helper must be typed against BreakdownRow
+- [Phase ?]: [Phase 07 P01]: The tab strip and each tab's own table are three independent DOM-sibling overflow-x-auto scroll regions, never ancestor/descendant of one another
 
 ### Pending Todos
 
@@ -242,6 +247,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-27T06:37:42.152Z
-Stopped at: Phase 7 UI-SPEC approved
-Resume file: .planning/phases/07-event-pages/07-UI-SPEC.md
+Last session: 2026-08-28T01:28:16.357Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None

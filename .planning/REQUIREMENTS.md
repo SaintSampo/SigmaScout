@@ -55,7 +55,7 @@ for the full baseline-change narrative.
 
 - [x] **EVNT-01**: User can view all events for the selected year, sortable/filterable by week, country, state, and district
 - [ ] **EVNT-02**: Event Insights tab ranks the event's teams with the same columns as the Teams page
-- [ ] **EVNT-03**: Event Breakdown tab shows score-component breakdowns for the event's teams
+- [x] **EVNT-03**: Event Breakdown tab shows score-component breakdowns for the event's teams
 - [ ] **EVNT-04**: Event Quals tab lists qualification matches with predictions vs actuals
 - [ ] **EVNT-05**: Event Alliances tab shows each alliance's combined metrics
 - [ ] **EVNT-06**: Event Elims tab lists elimination matches with predictions vs actuals
@@ -132,7 +132,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEAM-06 | Phase 6 | Complete |
 | EVNT-01 | Phase 5 | Complete |
 | EVNT-02 | Phase 7 | Pending |
-| EVNT-03 | Phase 7 | Pending |
+| EVNT-03 | Phase 7 | Complete |
 | EVNT-04 | Phase 7 | Pending |
 | EVNT-05 | Phase 7 | Pending |
 | EVNT-06 | Phase 7 | Pending |
