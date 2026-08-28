@@ -106,3 +106,47 @@ CREATE TABLE IF NOT EXISTS event_rankings (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (event_key, team_key)
 );
+
+-- Playoff alliance selection ingest (D-18.7, plan 07-02 Task 1): one row per
+-- (event_key, alliance_number), sourced from TBA's `/event/{key}/alliances`.
+-- Additive CREATE TABLE IF NOT EXISTS, matching team_media/event_rankings's
+-- precedent exactly above -- not winner_imputed's rebuild guard: this is a
+-- brand-new table, no prior rows, no migration needed. An event with no
+-- alliance selection stores ZERO rows here, never a placeholder row with a
+-- fabricated seed (D-17's disabled-tab treatment on the site reads that
+-- absence, so absence has to be real) -- matching event_rankings' own PD-02
+-- discipline above.
+CREATE TABLE IF NOT EXISTS event_alliances (
+  event_key TEXT NOT NULL REFERENCES events(event_key),
+  -- The 1-based index of the alliance object in TBA's own response array --
+  -- TBA's seed order. Never parsed out of `name`, because `name` is absent
+  -- entirely at some events (live-observed at 2024wvrox).
+  alliance_number INTEGER NOT NULL,
+  -- Nullable; NULL is the honest stored value for "TBA sent no name" --
+  -- never an empty string, never a synthesized "Alliance {n}". Rendering a
+  -- fallback label is 07-14's decision, not this layer's.
+  name TEXT,
+  -- JSON array of team keys in TBA's order, the same representation
+  -- matches.red_teams already uses. picks[0] is the captain and picks[3] is
+  -- the backup where a 4th team exists; TBA has no separate backup field
+  -- (D-16), so this schema must not invent one. Deliberately carries no
+  -- REFERENCES teams(team_key) -- same as matches.red_teams -- because
+  -- 06.1-01 hit a live foreign-key failure on TBA's synthetic second-robot
+  -- team keys (frc1165B and siblings at 2024azrl1..5), which have no
+  -- /team/{key} record at all.
+  picks TEXT NOT NULL,
+  -- JSON array, "[]" when empty -- RESEARCH.md observed it empty in all 40
+  -- sampled events. Stored as source provenance following
+  -- matches.score_breakdown_raw's D-05 verbatim precedent. Read by nothing
+  -- in Phase 7, kept so a later consumer of alliance status/playoff record
+  -- does not have to spend another full-corpus live TBA pass over ~1,581
+  -- events.
+  declines TEXT NOT NULL,
+  -- TBA's `status` object serialized verbatim, nullable. RESEARCH.md Q2
+  -- measured its shape varying by playoff_type (values 0, 4, 8 and 10
+  -- observed) -- precisely why it is stored whole rather than modelled
+  -- column-by-column.
+  status_raw TEXT,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (event_key, alliance_number)
+);

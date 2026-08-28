@@ -801,6 +801,98 @@ export function selectEventRankingsForSeason(
   return result;
 }
 
+export interface CorpusEventAlliance {
+  eventKey: string;
+  allianceNumber: number;
+  name: string | null;
+  picks: string[];
+  declines: string[];
+  statusRaw: string | null;
+  fetchedAt: string;
+}
+
+/** The read shape 07-08 maps onto 07-07's `EventAllianceSchema` (D-15, D-16, plan 07-02 Task 1) — deliberately omits `declines`/`statusRaw`, which no Phase 7 consumer reads (see `selectEventAlliancesForSeason`'s own doc comment). */
+export interface EventAllianceSelection {
+  allianceNumber: number;
+  name: string | null;
+  picks: string[];
+}
+
+/**
+ * Upserts one playoff alliance's selection for one event (D-18.7, plan
+ * 07-02 Task 1). Mirrors `upsertEventRanking`'s upsert-on-conflict shape:
+ * overwrites every non-key column on conflict, so a re-run over an
+ * already-ingested event refreshes the row in place rather than duplicating
+ * it (the `(event_key, alliance_number)` primary key makes this
+ * idempotent). `picks` and `declines` are bound as `JSON.stringify(...)` of
+ * the already-typed arrays; `statusRaw` and `name` bind through as-is,
+ * including `null` for TBA's genuinely-absent cases.
+ */
+export function upsertEventAlliance(db: Corpus, alliance: CorpusEventAlliance): void {
+  db.prepare(
+    `INSERT INTO event_alliances (event_key, alliance_number, name, picks, declines, status_raw, fetched_at)
+     VALUES (@eventKey, @allianceNumber, @name, @picks, @declines, @statusRaw, @fetchedAt)
+     ON CONFLICT(event_key, alliance_number) DO UPDATE SET
+       name = excluded.name,
+       picks = excluded.picks,
+       declines = excluded.declines,
+       status_raw = excluded.status_raw,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    eventKey: alliance.eventKey,
+    allianceNumber: alliance.allianceNumber,
+    name: alliance.name,
+    picks: JSON.stringify(alliance.picks),
+    declines: JSON.stringify(alliance.declines),
+    statusRaw: alliance.statusRaw,
+    fetchedAt: alliance.fetchedAt,
+  });
+}
+
+interface EventAllianceRow {
+  event_key: string;
+  alliance_number: number;
+  name: string | null;
+  picks: string;
+}
+
+/**
+ * Every stored alliance for a season, keyed by event key (D-15, D-16, plan
+ * 07-02 Task 1), each event's alliances ordered ascending by
+ * `alliance_number` through an explicit `ORDER BY` — seed order is a stated
+ * contract here, never an artifact of SQLite's row order. Joins `events` to
+ * filter by season, mirroring `selectEventRankingsForSeason`'s join (this
+ * table carries no `year` column either). An event with no upserted
+ * alliances is absent from the returned map entirely — no key, no
+ * zero-length placeholder entry. `declines` and `status_raw` are
+ * intentionally not selected — no Phase 7 consumer reads them — a future
+ * consumer widens this SELECT rather than re-ingesting.
+ */
+export function selectEventAlliancesForSeason(
+  db: Corpus,
+  season: number
+): Map<string, EventAllianceSelection[]> {
+  const rows = db
+    .prepare(
+      `SELECT ea.event_key, ea.alliance_number, ea.name, ea.picks
+       FROM event_alliances ea
+       JOIN events e ON e.event_key = ea.event_key
+       WHERE e.year = ?
+       ORDER BY ea.event_key, ea.alliance_number`
+    )
+    .all(season) as EventAllianceRow[];
+  const result = new Map<string, EventAllianceSelection[]>();
+  for (const row of rows) {
+    if (!result.has(row.event_key)) result.set(row.event_key, []);
+    result.get(row.event_key)!.push({
+      allianceNumber: row.alliance_number,
+      name: row.name,
+      picks: JSON.parse(row.picks) as string[],
+    });
+  }
+  return result;
+}
+
 export interface SelectTeamKeysForYearOptions {
   /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause (plan 06-03). */
   excludeOffseason?: boolean;
