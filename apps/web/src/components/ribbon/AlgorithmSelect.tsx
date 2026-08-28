@@ -46,6 +46,18 @@ export function useAlgorithmOptions(): AlgorithmOption[] {
 }
 
 /**
+ * The base (no version suffix) display label for one published algorithm id
+ * (07-01-PLAN.md Task 2) — the SAME `ALGORITHM_DISPLAY_LABELS` entry
+ * `useAlgorithmOptions` above already reads, exposed as a plain function so a
+ * non-hook call site (e.g. the Breakdown tab's D-11 model-estimates caption)
+ * can read it without a manifest fetch. Gives 07-18's D-04 relabel exactly
+ * one place to change.
+ */
+export function algorithmDisplayLabel(algorithmId: PublishedAlgorithmId): string {
+  return ALGORITHM_DISPLAY_LABELS[algorithmId];
+}
+
+/**
  * The resolved artifact version for one published algorithm id, or
  * `undefined` while the manifest is pending/failed/missing that id — the
  * one seam `routes/teams.tsx` (and later Phase 6-8 pages) needs to know

@@ -7,11 +7,13 @@
  * (mirroring `columns.tsx`'s pattern), so every render needs a router
  * context whose tree carries a `to="/team/$teamNumber"` route — the same
  * self-contained-tree `TestHarness` technique `TeamsTable.test.tsx` already
- * uses.
+ * uses. TanStack Router resolves its first match asynchronously, so every
+ * assertion below follows `TeamsTable.test.tsx`'s own `await waitFor(...)`
+ * convention rather than querying synchronously right after `render()`.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
@@ -51,6 +53,7 @@ function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
   };
 }
 
+/** Builds a valid artifact through `EventArtifactSchema.parse` — the real schema, proving the fixture matches the published shape. */
 function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> = {}): EventArtifact {
   return EventArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -65,6 +68,31 @@ function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> =
     teams,
     ...overrides,
   });
+}
+
+/**
+ * Builds a hand-written, EventArtifact-SHAPED object WITHOUT running it
+ * through `EventArtifactSchema.parse` — needed only for the out-of-range
+ * percentile boundary cases (101, -1), which `TeamMetricSchema.percentile`'s
+ * own `z.number().min(0).max(100)` constraint correctly rejects at the
+ * publish boundary. `tierForPercentile`'s own out-of-range guard is defense
+ * in depth against exactly this (a hypothetical pipeline defect reaching the
+ * client), so it must be exercisable in a test even though a real published
+ * artifact could never carry such a value.
+ */
+function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
+  return {
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: "gen-1",
+    computedAt: "2026-08-27T00:00:00.000Z",
+    algorithmId: "sigma1",
+    algorithmVersion: "2.0.0+tuned-2026-08",
+    eventKey: "2024casf",
+    season: 2024,
+    matches: [],
+    upcoming: [],
+    teams,
+  } as unknown as EventArtifact;
 }
 
 /** A metrics record carrying every sigma1/2024 declared key, so the column-set tests have real data behind every column. */
@@ -85,9 +113,11 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "sigma1", season
 }
 
 describe("BreakdownTab — column set (EVNT-03)", () => {
-  it("sigma1/2024: exactly Team #, Nickname, thirteen component keys, and Total, in metricKeysFor order — no Rank column", () => {
+  it("sigma1/2024: exactly Team #, Nickname, thirteen component keys, and Total, in metricKeysFor order — no Rank column", async () => {
     const artifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
     renderBreakdown(artifact, "sigma1", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     const expected = ["Team #", "Nickname", ...metricKeysFor("sigma1", 2024)];
@@ -98,16 +128,17 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
   });
 
-  it("opr/2024: exactly Team #, Nickname, Total — a legitimately narrow table, not a broken wide one", () => {
+  it("opr/2024: exactly Team #, Nickname, Total — a legitimately narrow table, not a broken wide one", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 20 } } })], { algorithmId: "opr" });
     renderBreakdown(artifact, "opr", 2024);
 
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers).toEqual(["Team #", "Nickname", "Total"]);
     expect(headers).toHaveLength(3);
   });
 
-  it("column order is metricKeysFor's own order even when the fixture's metrics object literal declares keys in reverse order", () => {
+  it("column order is metricKeysFor's own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
     const orderedKeys = [...metricKeysFor("sigma1", 2024)];
     const reversedMetrics: ArtifactTeam["metrics"] = {};
     for (const key of [...orderedKeys].reverse()) {
@@ -116,6 +147,7 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
     const artifact = makeArtifact([team({ metrics: reversedMetrics })]);
     renderBreakdown(artifact, "sigma1", 2024);
 
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     const expectedLabels = ["Team #", "Nickname", ...orderedKeys.map((key) => (key === TOTAL_KEY ? "Total" : key))];
     expect(headers).toEqual(expectedLabels);
@@ -123,81 +155,87 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 });
 
 describe("BreakdownTab — partial data (EVNT-03)", () => {
-  it("a team missing one declared component key renders an em-dash in that cell; the column header for that key stays present", () => {
+  it("a team missing one declared component key renders an em-dash in that cell; the column header for that key stays present", async () => {
     const metrics = fullSigma1Metrics2024();
     delete metrics.adjust;
     const artifact = makeArtifact([team({ metrics })]);
     renderBreakdown(artifact, "sigma1", 2024);
 
-    expect(screen.getByTestId("breakdown-header-adjust")).toBeDefined();
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-adjust")).toBeDefined());
     expect(screen.getByTestId("breakdown-cell-adjust").textContent).toBe("—");
   });
 
-  it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", () => {
+  it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 42.5 } } })]);
     renderBreakdown(artifact, "opr", 2024);
 
-    const cell = screen.getByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    const cell = await screen.findByTestId(`breakdown-cell-${TOTAL_KEY}`);
     expect(cell.textContent).toBe("42.50");
     expect(cell.textContent).not.toContain("±");
   });
 });
 
 describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
-  function renderWithPercentile(percentile: number | undefined) {
+  async function renderWithPercentile(percentile: number | undefined) {
     const metrics: ArtifactTeam["metrics"] = { [TOTAL_KEY]: { value: 10, ...(percentile === undefined ? {} : { percentile }) } };
-    const artifact = makeArtifact([team({ metrics })]);
+    const outOfRange = percentile !== undefined && (percentile < 0 || percentile > 100);
+    const artifact = outOfRange ? makeUnvalidatedArtifact([team({ metrics })]) : makeArtifact([team({ metrics })]);
     renderBreakdown(artifact, "opr", 2024);
-    return screen.getByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    const cell = await screen.findByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    // The tier class lands on `MetricValue`'s own inner `<span class="numeric-cell">`,
+    // not on the outer `TableCell` wrapper — query the child MetricValue renders.
+    const inner = cell.querySelector(".numeric-cell");
+    if (inner === null) throw new Error("MetricValue's numeric-cell span was not found inside the Breakdown cell");
+    return inner as HTMLElement;
   }
 
-  it("percentile 95 renders the legendary tier class", () => {
-    expect(renderWithPercentile(95).className).toContain("metric-tier--legendary");
+  it("percentile 95 renders the legendary tier class", async () => {
+    expect((await renderWithPercentile(95)).className).toContain("metric-tier--legendary");
   });
 
-  it("percentile 94.9 renders the epic tier class", () => {
-    expect(renderWithPercentile(94.9).className).toContain("metric-tier--epic");
+  it("percentile 94.9 renders the epic tier class", async () => {
+    expect((await renderWithPercentile(94.9)).className).toContain("metric-tier--epic");
   });
 
-  it("percentile 75 renders the epic tier class", () => {
-    expect(renderWithPercentile(75).className).toContain("metric-tier--epic");
+  it("percentile 75 renders the epic tier class", async () => {
+    expect((await renderWithPercentile(75)).className).toContain("metric-tier--epic");
   });
 
-  it("percentile 74.9 renders the rare tier class", () => {
-    expect(renderWithPercentile(74.9).className).toContain("metric-tier--rare");
+  it("percentile 74.9 renders the rare tier class", async () => {
+    expect((await renderWithPercentile(74.9)).className).toContain("metric-tier--rare");
   });
 
-  it("percentile 50 renders the rare tier class", () => {
-    expect(renderWithPercentile(50).className).toContain("metric-tier--rare");
+  it("percentile 50 renders the rare tier class", async () => {
+    expect((await renderWithPercentile(50)).className).toContain("metric-tier--rare");
   });
 
-  it("percentile 49.9 renders no metric-tier class at all", () => {
-    expect(renderWithPercentile(49.9).className).not.toContain("metric-tier");
+  it("percentile 49.9 renders no metric-tier class at all", async () => {
+    expect((await renderWithPercentile(49.9)).className).not.toContain("metric-tier");
   });
 
-  it("percentile 100 renders the legendary tier class", () => {
-    expect(renderWithPercentile(100).className).toContain("metric-tier--legendary");
+  it("percentile 100 renders the legendary tier class", async () => {
+    expect((await renderWithPercentile(100)).className).toContain("metric-tier--legendary");
   });
 
-  it("percentile 101 renders no metric-tier class (out of range)", () => {
-    expect(renderWithPercentile(101).className).not.toContain("metric-tier");
+  it("percentile 101 renders no metric-tier class (out of range)", async () => {
+    expect((await renderWithPercentile(101)).className).not.toContain("metric-tier");
   });
 
-  it("percentile -1 renders no metric-tier class (out of range)", () => {
-    expect(renderWithPercentile(-1).className).not.toContain("metric-tier");
+  it("percentile -1 renders no metric-tier class (out of range)", async () => {
+    expect((await renderWithPercentile(-1)).className).not.toContain("metric-tier");
   });
 
-  it("a metric with no percentile key renders no metric-tier class — the state every team in the live 2024casf artifact is in today", () => {
-    expect(renderWithPercentile(undefined).className).not.toContain("metric-tier");
+  it("a metric with no percentile key renders no metric-tier class — the state every team in the live 2024casf artifact is in today", async () => {
+    expect((await renderWithPercentile(undefined)).className).not.toContain("metric-tier");
   });
 });
 
 describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () => {
-  it("TierKeyRow renders exactly once, and the caption renders exactly once naming the selected algorithm and the per-alliance framing", () => {
+  it("TierKeyRow renders exactly once, and the caption renders exactly once naming the selected algorithm and the per-alliance framing", async () => {
     const artifact = makeArtifact([team()]);
     renderBreakdown(artifact, "sigma1", 2024);
 
-    expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1);
+    await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
     const captions = screen.getAllByText(/per alliance, not per team/);
     expect(captions).toHaveLength(1);
     expect(captions[0]?.textContent).toContain("Sigma1");
@@ -205,19 +243,19 @@ describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () 
 });
 
 describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
-  it("an empty teams array renders the EmptyState and no table element", () => {
+  it("an empty teams array renders the EmptyState and no table element", async () => {
     const artifact = makeArtifact([]);
     renderBreakdown(artifact);
 
-    expect(screen.getByText("No teams for 2024casf")).toBeDefined();
+    await waitFor(() => expect(screen.getByText("No teams for 2024casf")).toBeDefined());
     expect(document.querySelector("table")).toBeNull();
   });
 
-  it("a one-team artifact renders the same header row and exactly one body row, same table path as a many-team artifact", () => {
+  it("a one-team artifact renders the same header row and exactly one body row, same table path as a many-team artifact", async () => {
     const oneTeamArtifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
     const { unmount } = renderBreakdown(oneTeamArtifact, "sigma1", 2024);
+    await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(1));
     const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(screen.getAllByTestId("breakdown-row")).toHaveLength(1);
     unmount();
 
     const manyTeams = Array.from({ length: 43 }, (_, index) =>
@@ -225,19 +263,19 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
     );
     const manyTeamsArtifact = makeArtifact(manyTeams);
     renderBreakdown(manyTeamsArtifact, "sigma1", 2024);
+    await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(43));
     const manyTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(manyTeamHeaders).toEqual(oneTeamHeaders);
-    expect(screen.getAllByTestId("breakdown-row")).toHaveLength(43);
   });
 });
 
 describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
-  it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", () => {
+  it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", async () => {
     const longNickname = "A".repeat(60);
     const artifact = makeArtifact([team({ nickname: longNickname })]);
     renderBreakdown(artifact);
 
-    const cell = screen.getByTestId("breakdown-cell-nickname");
+    const cell = await screen.findByTestId("breakdown-cell-nickname");
     expect(cell.className).toContain("truncate");
     const link = within(cell).getByTitle(longNickname);
     expect(link.textContent).toBe(longNickname);
@@ -245,10 +283,11 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
 });
 
 describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () => {
-  it("Team # and Nickname header and body cells carry data-pinned=true; every metric column carries data-pinned=false", () => {
+  it("Team # and Nickname header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
     const artifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
     renderBreakdown(artifact, "sigma1", 2024);
 
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
     expect(screen.getByTestId("breakdown-header-teamNumber").getAttribute("data-pinned")).toBe("true");
     expect(screen.getByTestId("breakdown-header-nickname").getAttribute("data-pinned")).toBe("true");
     expect(screen.getByTestId("breakdown-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
