@@ -49,3 +49,27 @@ export function seasonFromEventKey(eventKey: string): number {
   }
   return Number.parseInt(eventKey.slice(0, 4), 10);
 }
+
+/**
+ * Returns `eventKey` with its leading four season digits replaced by
+ * `season` — e.g. `("2024casf", 2025)` -> `"2025casf"`. Throws
+ * `InvalidEventKeyError` for a key `isValidEventKey` rejects, exactly as
+ * `seasonFromEventKey` does, so the two helpers share one contract.
+ *
+ * This module is the one place in `apps/web` that knows the event-key
+ * convention — a season swap performed inline at a call site (07-15-PLAN.md
+ * Task 3, Phase 5 D-12's year-change extension point) would be a second,
+ * driftable copy of that knowledge.
+ *
+ * TBA's event codes are a naming CONVENTION, not an identity guarantee
+ * across seasons: a code that carries over usually names the same event,
+ * and the destination page's own header (07-15-PLAN.md Task 1) is what lets
+ * a reader confirm it — which is why a caller can safely map by code rather
+ * than needing a cross-season event identity the corpus does not have.
+ */
+export function eventKeyForSeason(eventKey: string, season: number): string {
+  if (!isValidEventKey(eventKey)) {
+    throw new InvalidEventKeyError(eventKey);
+  }
+  return `${season}${eventKey.slice(4)}`;
+}

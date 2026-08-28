@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_KEY_PATTERN, InvalidEventKeyError, isValidEventKey, seasonFromEventKey } from "./eventKey.js";
+import { EVENT_KEY_PATTERN, eventKeyForSeason, InvalidEventKeyError, isValidEventKey, seasonFromEventKey } from "./eventKey.js";
 
 describe("eventKey", () => {
   it("EVENT_KEY_PATTERN matches a real event key shape", () => {
@@ -35,5 +35,23 @@ describe("eventKey", () => {
   it("rejects a key missing the four-digit year", () => {
     expect(isValidEventKey("casf")).toBe(false);
     expect(isValidEventKey("24casf")).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------
+  // 07-15-PLAN.md Task 3 — eventKeyForSeason, Phase 5 D-12's season swap
+  // ---------------------------------------------------------------------
+
+  it("Test 4: eventKeyForSeason swaps only the leading four season digits", () => {
+    expect(eventKeyForSeason("2024casf", 2025)).toBe("2025casf");
+    expect(eventKeyForSeason("2024casf", 2024)).toBe("2024casf");
+    expect(eventKeyForSeason("2022ispr", 2026)).toBe("2026ispr");
+  });
+
+  it("Test 5: eventKeyForSeason rejects what the pattern rejects", () => {
+    expect(() => eventKeyForSeason("notanevent", 2025)).toThrow(InvalidEventKeyError);
+  });
+
+  it("Test 6: eventKeyForSeason and seasonFromEventKey agree on which characters are the season", () => {
+    expect(seasonFromEventKey(eventKeyForSeason("2024casf", 2026))).toBe(2026);
   });
 });

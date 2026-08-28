@@ -17,6 +17,7 @@ import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFea
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
@@ -84,7 +85,20 @@ export function buildColumns(algorithmId: string, season: number) {
   const algorithm = algorithmId as PublishedAlgorithmId;
 
   return columnHelper.columns([
-    columnHelper.accessor("rank", { header: "Rank", size: 56 }),
+    // D-20: this column ranks by the SELECTED algorithm's Total regardless
+    // of which column the reader currently sorts by — `rowModel.ts`'s
+    // `buildTeamRows` has always computed exactly this ordering, the bare
+    // "Rank" label simply failed to say so. The label is derived from
+    // `algorithmDisplayLabel` at render time, never a literal, so a
+    // wrong-provenance claim (naming an algorithm that didn't produce the
+    // ordering) is structurally unreachable and 07-18's D-04 relabel
+    // carries this header for free. `size` grows from 56 to 96: the header
+    // string grows from four characters ("Rank") to eight or nine
+    // ("Sigma1 Rank"/"VPR Rank"), and `TeamsTable.tsx` derives every pinned
+    // cell's sticky `left` offset from this column's declared size — a
+    // stale 56 would clip the new header inside its own box on the one
+    // column the whole table is ordered by.
+    columnHelper.accessor("rank", { header: `${algorithmDisplayLabel(algorithm)} Rank`, size: 96 }),
     columnHelper.accessor("teamNumber", {
       header: "Team #",
       size: 88,

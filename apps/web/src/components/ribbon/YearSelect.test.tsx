@@ -6,7 +6,7 @@ import { useConstrainedYears, YearSelect } from "./YearSelect.js";
 import { SEASONS } from "@/lib/seasons";
 import { algorithmsManifestQueryOptions } from "@/lib/api/manifests";
 import { teamQueryOptions } from "@/lib/api/team";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, type TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, EventsArtifactSchema, type TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 // D-18 (06-07-PLAN.md Task 3). `YearSelect` mounts once at the root layout,
 // so it can't use a strict route hook — mock `useLocation`/`useSearch` the
@@ -199,5 +199,199 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
     expect(trigger.getAttribute("aria-disabled")).not.toBe("true");
     expect(trigger.hasAttribute("disabled")).toBe(false);
     expect(await openAndListOptions()).toEqual(["2024"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 07-15-PLAN.md Task 3 — Phase 5 D-12's year-change extension point on an
+// event detail route: changing the year maps to the same event code in the
+// target season when that season published it, and falls back to that
+// season's Events list otherwise.
+// ---------------------------------------------------------------------------
+
+function eventsArtifactBody(eventKeys: string[]) {
+  const events = eventKeys.map((eventKey) => ({
+    eventKey,
+    name: "Some Regional",
+    eventType: 0,
+    isOffseason: false,
+    startDate: "2025-03-01",
+    week: 1,
+    teamCount: 40,
+    matchCount: 80,
+    playedMatchCount: 80,
+    country: "USA",
+    stateProv: "CA",
+    districtKey: null,
+  }));
+  return JSON.stringify(
+    EventsArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-24T00:00:00.000Z",
+      algorithmId: "sigma1",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      season: 2025,
+      events,
+    }),
+  );
+}
+
+function fetchMockFor(opts: { events?: () => Promise<Response>; manifest?: () => Promise<Response> }) {
+  const manifestFetch = opts.manifest ?? (() => Promise.resolve(new Response(JSON.stringify(MANIFEST), { status: 200 })));
+  const eventsFetch = opts.events ?? (() => Promise.resolve(new Response(eventsArtifactBody([]), { status: 200 })));
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("manifest")) return manifestFetch();
+    if (url.includes("/events/")) return eventsFetch();
+    return Promise.reject(new Error(`unexpected fetch: ${url}`));
+  });
+}
+
+describe("YearSelect — Phase 5 D-12's event-detail year-change extension point", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    mockNavigate.mockClear();
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockPathname = "/teams";
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("Test 7: a hit navigates to the mapped event in the target season", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    global.fetch = fetchMockFor({ events: () => Promise.resolve(new Response(eventsArtifactBody(["2025casf", "2025other"]), { status: 200 })) });
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+    fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+    const option2025 = await screen.findByRole("option", { name: "2025" });
+    fireEvent.click(option2025);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    const call = mockNavigate.mock.calls[0]?.[0] as { to?: string; params?: { eventKey: string } };
+    expect(call.to).toBe("/event/$eventKey");
+    expect(call.params).toEqual({ eventKey: "2025casf" });
+  });
+
+  it("Test 8: a miss falls back to the Events list for the new year", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    global.fetch = fetchMockFor({ events: () => Promise.resolve(new Response(eventsArtifactBody(["2025other"]), { status: 200 })) });
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+    fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+    const option2025 = await screen.findByRole("option", { name: "2025" });
+    fireEvent.click(option2025);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    const call = mockNavigate.mock.calls[0]?.[0] as { to?: string; params?: unknown };
+    expect(call.to).toBe("/events");
+    expect(call.params).toBeUndefined();
+  });
+
+  it("Test 9: a fetch failure falls back identically, with no unhandled rejection", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    global.fetch = fetchMockFor({ events: () => Promise.reject(new Error("network down")) });
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+    fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+    const option2025 = await screen.findByRole("option", { name: "2025" });
+    fireEvent.click(option2025);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    const call = mockNavigate.mock.calls[0]?.[0] as { to?: string };
+    expect(call.to).toBe("/events");
+  });
+
+  it("Test 10: an unresolved algorithm version navigates to the Events list rather than an unverified event key", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    global.fetch = fetchMockFor({
+      manifest: () => Promise.resolve(new Response(JSON.stringify({ ...MANIFEST, algorithms: [] }), { status: 200 })),
+      events: () => Promise.resolve(new Response(eventsArtifactBody(["2025casf"]), { status: 200 })),
+    });
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+    fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+    const option2025 = await screen.findByRole("option", { name: "2025" });
+    fireEvent.click(option2025);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    const call = mockNavigate.mock.calls[0]?.[0] as { to?: string };
+    expect(call.to).toBe("/events");
+  });
+
+  it("Test 11: nothing fires at render — rendering on an event detail route issues zero events-artifact fetches before any interaction", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    const fetchMock = fetchMockFor({});
+    global.fetch = fetchMock;
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/events/"))).toBe(false);
+  });
+
+  it("Test 12: every other route family stays synchronous, search-updater-only, with no `to` and no `params`", async () => {
+    for (const pathname of ["/teams", "/events"]) {
+      mockPathname = pathname;
+      mockSearch = { year: 2024, algorithm: "sigma1" };
+      const fetchMock = fetchMockFor({});
+      global.fetch = fetchMock;
+      const client = makeQueryClient();
+
+      const { unmount } = render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+      fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+      fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+      const option2025 = await screen.findByRole("option", { name: "2025" });
+      fireEvent.click(option2025);
+
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+      const call = mockNavigate.mock.calls[0]?.[0] as { to?: string; params?: unknown };
+      expect(call.to).toBeUndefined();
+      expect(call.params).toBeUndefined();
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/events/"))).toBe(false);
+
+      mockNavigate.mockClear();
+      unmount();
+      cleanup();
+    }
+  });
+
+  it("Test 13: the reselect no-op survives on an event detail route — no navigation, no fetch", async () => {
+    mockPathname = "/event/2024casf";
+    mockSearch = { year: 2024, algorithm: "sigma1" };
+    const fetchMock = fetchMockFor({});
+    global.fetch = fetchMock;
+    const client = makeQueryClient();
+
+    render(<YearSelect />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Year" }), { button: 0, pointerId: 1 });
+    fireEvent.click(screen.getByRole("combobox", { name: "Year" }));
+    const option2024 = await screen.findByRole("option", { name: "2024" });
+    fireEvent.click(option2024);
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/events/"))).toBe(false);
   });
 });
