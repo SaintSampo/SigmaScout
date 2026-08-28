@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-06-PLAN.md
-last_updated: "2026-08-28T02:17:19.421Z"
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-08-28T02:42:17.448Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 67
+  completed_plans: 68
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 4 of 20
+Plan: 5 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [████████░░] 80%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
@@ -101,6 +101,7 @@ Progress: [████████░░] 80%
 | Phase 07 P01 | 22min | 3 tasks | 13 files |
 | Phase 07 P02 | 32min | 3 tasks | 4 files |
 | Phase 07 P06 | 45min | 3 tasks | 9 files |
+| Phase 07 P03 | ~20min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P06]: TeamMetric.spread redefined site-wide from sqrt(R) to sqrt(P+R) (D-01/D-02/D-03), proven by the alliance-additivity identity against predict()'s own redScoreVarianceOwn/blueScoreVarianceOwn; teamOwnComponentVarianceSum threads a seed accumulator through allianceComponentVarianceSum so predict()'s floating-point path stays bit-identical (digest.test.ts) despite the naive delegation shape flipping both committed digests
 - [Phase ?]: [Phase 07 P06]: Two extra stale two-quantity-model doc sites (adaptation.ts x2, rp/state.ts x1) found live by this plan's own sweep-gate grep, outside PD-02's enumerated 12 sites and outside files_modified -- corrected under Rule 2 since the plan's own acceptance criterion required a zero-match grep over the whole sigma1/ directory
 - [Phase ?]: [Phase 07 P06]: EVNT-02/EVNT-05 left Pending in REQUIREMENTS.md -- this plan changes the quantity those tabs display but does not own the tabs (07-11/07-14 do), matching the 07-02 precedent
+- [Phase ?]: [Phase 07 P03]: status: z.unknown() widened to z.unknown().optional() (Rule 1 fix, live-discovered) -- real 2022 alliance objects can carry no status key at all, a shape RESEARCH.md's 40-event sample never observed; Zod v4's z.unknown() alone requires the key present
+- [Phase ?]: [Phase 07 P03]: tbaClient.test.ts's capability-surface case widened beyond the plan's literal instruction to also exercise fetchTeamMedia/fetchEventRankings, so a test titled 'eleven capabilities' actually calls all eleven rather than nine plus two separately-tested siblings
+- [Phase ?]: [Phase 07 P03]: COVERAGE.md's status row/note [6] updated with a new 'status ABSENT entirely' row rather than silently edited into agreement -- the plan-time matrix didn't anticipate this shape; live 2022 ingest (244/25/19) and 2024 ingest (285/27/12) are the measured-cost section's authoritative figures for 07-05's later full pass
+- [Phase ?]: [Phase 07 P03]: EVNT-05 intentionally left Pending in REQUIREMENTS.md despite appearing in plan 07-03's frontmatter requirements list -- this plan ships only the ingest half (schema/normalize/CLI mode/live two-season proof); the requirement text describes the rendered Alliances tab, which is 07-14's job, matching the EVNT-02/EVNT-05 precedent 07-02 already established
 
 ### Pending Todos
 
@@ -256,6 +261,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T02:17:19.394Z
-Stopped at: Completed 07-06-PLAN.md
+Last session: 2026-08-28T02:42:17.419Z
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None
