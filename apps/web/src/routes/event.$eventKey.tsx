@@ -8,6 +8,7 @@ import { eventQueryOptions } from "../lib/api/event.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
+import { EventHeader, EventHeaderSkeleton } from "../components/event/EventHeader.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
@@ -229,6 +230,19 @@ function EventPage() {
     });
   }
 
+  // PD-05: the header renders on the populated and pending branches only,
+  // and on NO error branch (including the 404) — the tab content's own
+  // EmptyState/ErrorState already name the event key and are the page's
+  // whole message there. `data === undefined` covers both "still pending"
+  // and "the manifest version hasn't resolved yet, so the query is
+  // disabled" identically, matching every other branch in this file that
+  // already treats those two as one state.
+  function renderHeader() {
+    if (error) return null;
+    if (data === undefined) return <EventHeaderSkeleton />;
+    return <EventHeader artifact={data} />;
+  }
+
   function renderElimsContent() {
     return renderTabState({
       is404,
@@ -248,6 +262,13 @@ function EventPage() {
     // uses, for the same stated reason (the fixed 470px plot width math the
     // Quals and Elims tabs will carry in 07-12/07-13).
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
+      {/*
+        07-15-PLAN.md Task 1's identity header — a DOM SIBLING of the tab
+        strip below, never its ancestor and never its descendant, so a long
+        name truncates rather than scrolls and the strip's own scroll region
+        stays untouched.
+      */}
+      <div className="mb-[var(--spacing-lg)]">{renderHeader()}</div>
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         {/*
           The THIRD independent scroll region 07-RESEARCH.md's Open Question

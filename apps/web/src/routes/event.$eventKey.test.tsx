@@ -761,3 +761,66 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     expect(tableScroll.contains(tabStrip)).toBe(false);
   });
 });
+
+describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("Test 13: a populated artifact renders the h1 carrying the artifact's name, and the header is a DOM sibling of the tab strip in both directions", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ name: "San Francisco Regional", startDate: "2024-03-07", location: "CA, USA", week: 1 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("San Francisco Regional"));
+    const header = screen.getByTestId("event-header");
+    const tabStrip = screen.getByTestId("event-tab-strip-scroll");
+    expect(header.contains(tabStrip)).toBe(false);
+    expect(tabStrip.contains(header)).toBe(false);
+  });
+
+  it("Test 14: the pending state renders the header skeleton alongside the tab strip", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByTestId("event-header-skeleton")).toBeDefined());
+    expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined();
+  });
+
+  it("Test 15: a mocked 404 and separately a mocked 500 render no header and no header skeleton, and the existing empty/error state assertions still pass", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
+    expect(screen.queryByTestId("event-header")).toBeNull();
+    expect(screen.queryByTestId("event-header-skeleton")).toBeNull();
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("boom", { status: 500 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
+    expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
+    expect(screen.queryByTestId("event-header")).toBeNull();
+    expect(screen.queryByTestId("event-header-skeleton")).toBeNull();
+  });
+});
