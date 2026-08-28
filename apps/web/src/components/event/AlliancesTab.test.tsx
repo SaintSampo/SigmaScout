@@ -25,6 +25,7 @@ import {
   alliancesIncompleteNotice,
   buildAllianceRows,
   combineAlliancePicks,
+  hasAllianceData,
 } from "./AlliancesTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
@@ -431,5 +432,30 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
     const nicknameSpan = within(captainCell).getByTitle(longNickname);
     expect(nicknameSpan.textContent).toBe(longNickname);
     expect(nicknameSpan.className).toContain("truncate");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3 — D-17: hasAllianceData, the predicate the route's disabled-trigger
+// state consults. Absent and empty are two separately named cases because
+// 07-08's PD-03 makes them distinguishable at the artifact level and D-17
+// deliberately collapses them — a test exercising only one would not prove
+// the collapse.
+// ---------------------------------------------------------------------------
+
+describe("hasAllianceData — D-17's collapse of two distinguishable absences (EVNT-05)", () => {
+  it("returns false for an artifact with no alliances key at all", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, undefined);
+    expect(hasAllianceData(artifact)).toBe(false);
+  });
+
+  it("returns false for an artifact whose alliances is an empty array", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, []);
+    expect(hasAllianceData(artifact)).toBe(false);
+  });
+
+  it("returns true for an artifact with one alliance", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance()]);
+    expect(hasAllianceData(artifact)).toBe(true);
   });
 });

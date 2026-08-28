@@ -11,7 +11,7 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
-import { AlliancesTab, AlliancesTabSkeleton } from "../components/event/AlliancesTab.js";
+import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
@@ -41,8 +41,20 @@ export const Route = createFileRoute("/event/$eventKey")({
  */
 const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims"];
 
-function resolveActiveTab(tab: EventTab): EventTab {
-  return REGISTERED_EVENT_TABS.includes(tab) ? tab : DEFAULT_EVENT_TAB;
+/**
+ * `isAlliancesDisabled` extends this narrowing rather than adding a second
+ * mechanism (07-14-PLAN.md Task 3, D-17): a tab whose trigger is CURRENTLY
+ * disabled resolves to `DEFAULT_EVENT_TAB` the same way an unregistered id
+ * does, so a shared `?tab=alliances` link on an alliance-less event lands on
+ * the default tab instead of opening a disabled tab onto an empty table.
+ * Resolve only — this never navigates and never rewrites the search param,
+ * so the URL stays shareable and back/forward-navigable. This is what makes
+ * 07-UI-SPEC.md's E7 `empty` dismissal true rather than merely asserted.
+ */
+function resolveActiveTab(tab: EventTab, isAlliancesDisabled: boolean): EventTab {
+  if (!REGISTERED_EVENT_TABS.includes(tab)) return DEFAULT_EVENT_TAB;
+  if (tab === "alliances" && isAlliancesDisabled) return DEFAULT_EVENT_TAB;
+  return tab;
 }
 
 /**
@@ -115,7 +127,7 @@ function EventPage() {
   // an invalid event key so no fetch ever fires against a nonsense key.
   const version = useAlgorithmVersion(algorithm);
 
-  const { data, isPending, error, refetch } = useQuery({
+  const { data, isPending, error, refetch, isPlaceholderData } = useQuery({
     ...eventQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
     enabled: isValidKey && version !== undefined,
     placeholderData: keepPreviousData,
@@ -130,7 +142,19 @@ function EventPage() {
   }
 
   const season = seasonFromEventKey(eventKey);
-  const activeTab = resolveActiveTab(tab);
+
+  // D-17: the Alliances trigger is disabled only once the artifact for THIS
+  // event key has genuinely resolved — data present, not pending, no error,
+  // and NOT placeholder data. `placeholderData: keepPreviousData` (above)
+  // means `data` can still be the PREVIOUS event's artifact mid-navigation;
+  // deriving the disabled state from it would let one event's alliance
+  // array decide another event's trigger — the same class of wrong-
+  // provenance problem 07-11 refused when it declined to guess the fallback
+  // header before the artifact resolved. Disabling is itself a claim about
+  // this event's data, so an unresolved/errored/placeholder query leaves the
+  // trigger enabled rather than asserting a claim the page cannot support.
+  const isAlliancesDisabled = !isPending && !error && !isPlaceholderData && data !== undefined && !hasAllianceData(data);
+  const activeTab = resolveActiveTab(tab, isAlliancesDisabled);
 
   function handleTabChange(value: string) {
     const nextTab = value as EventTab;
@@ -242,7 +266,19 @@ function EventPage() {
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Quals
             </TabsTrigger>
-            <TabsTrigger value="alliances" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+            {/*
+              D-17: `disabled` alone is the whole treatment — no title, no
+              accessible-description reference, no icon, no badge, no custom
+              class. `apps/web/src/components/ui/tabs.tsx` already removes
+              pointer events and halves opacity for a disabled trigger; Radix
+              supplies the disabled semantics. The Copywriting Contract's own
+              row for this element reads that there is no copy at all.
+            */}
+            <TabsTrigger
+              value="alliances"
+              disabled={isAlliancesDisabled}
+              className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+            >
               Alliances
             </TabsTrigger>
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">

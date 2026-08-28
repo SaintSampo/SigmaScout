@@ -439,6 +439,203 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
   });
 });
 
+describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled trigger (07-14-PLAN.md Task 3)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("with the artifact resolved and alliances absent, the Alliances trigger is disabled; with an empty array, likewise; with one alliance, it is enabled", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ alliances: [] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(false));
+  });
+
+  it("the disabled trigger's accessible name is still 'Alliances' with no icon, badge, title or aria-describedby", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    const trigger = await screen.findByRole("tab", { name: "Alliances" });
+    await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(true));
+    expect(trigger.textContent).toBe("Alliances");
+    expect(trigger.hasAttribute("title")).toBe(false);
+    expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("while the query is pending, the Alliances trigger is NOT disabled — the state is unknown", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    const trigger = await screen.findByRole("tab", { name: "Alliances" });
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("with a mocked error response, the Alliances trigger is NOT disabled", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("boom", { status: 500 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    const trigger = await screen.findByRole("tab", { name: "Alliances" });
+    await waitFor(() => expect(screen.getByRole("button", { name: /retry/i })).toBeDefined());
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("while the query is serving placeholder data from a previously-loaded event whose alliances were absent, the trigger for the NEWLY-requested event is NOT disabled", async () => {
+    let secondEventRequested = false;
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      if (url.includes("2024cast")) {
+        secondEventRequested = true;
+        return new Promise<Response>(() => {}); // the new key's own fetch never resolves in this test
+      }
+      return Promise.resolve(eventArtifactResponse()); // 2024casf: resolved, alliances absent
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
+
+    await router.navigate({ to: "/event/$eventKey", params: { eventKey: "2024cast" }, search: (prev: Record<string, unknown>) => prev } as never);
+
+    await waitFor(() => expect(secondEventRequested).toBe(true));
+    // `data` is still 2024casf's artifact here (placeholderData:
+    // keepPreviousData) while 2024cast's own fetch is in flight — that
+    // artifact belongs to a DIFFERENT event and must never decide this
+    // event's trigger state.
+    expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("loading ?tab=alliances for an event whose alliances are absent renders the DEFAULT tab's panel, not the alliances-panel, without navigating (the tab search param is unchanged)", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+
+    await waitFor(() => expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(false));
+    // Radix keeps every `TabsContent` mounted (hidden via the `hidden`
+    // attribute for the inactive ones) — matching this file's own
+    // established convention of asserting on `hidden`, never on DOM
+    // presence, for the inactive panel.
+    expect(screen.getByTestId("alliances-panel").hasAttribute("hidden")).toBe(true);
+    expect((router.state.location.search as Record<string, unknown>).tab).toBe("alliances");
+  });
+
+  it("loading ?tab=alliances for an event WITH alliances renders the Alliances panel", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+
+    await waitFor(() => expect(screen.getByTestId("alliances-panel").hasAttribute("hidden")).toBe(false));
+  });
+
+  it("clicking the enabled Alliances trigger navigates to ?tab=alliances while preserving the existing year and algorithm search params", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+
+    const trigger = await screen.findByRole("tab", { name: "Alliances" });
+    await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
+    fireEvent.mouseDown(trigger, { button: 0 });
+
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>;
+      expect(search.tab).toBe("alliances");
+      expect(search.algorithm).toBe("sigma1");
+      expect(search.year).toBe(2024);
+    });
+  });
+
+  it("the tab-strip scroll region and the Alliances table's own scroll region are DOM siblings, never nested in either direction", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+
+    await waitFor(() => expect(screen.getByTestId("alliances-table-scroll")).toBeDefined());
+    const tabStrip = screen.getByTestId("event-tab-strip-scroll");
+    const tableScroll = screen.getByTestId("alliances-table-scroll");
+    expect(tabStrip.contains(tableScroll)).toBe(false);
+    expect(tableScroll.contains(tabStrip)).toBe(false);
+  });
+
+  it("the 404, 500 and pending states are the SAME on ?tab=alliances as on ?tab=breakdown, for an event whose alliances are present", async () => {
+    for (const tab of ["alliances", "breakdown"]) {
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        return Promise.resolve(new Response("not found", { status: 404 }));
+      });
+      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
+      expect(screen.queryByRole("button")).toBeNull();
+      cleanup();
+
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        return Promise.resolve(new Response("boom", { status: 500 }));
+      });
+      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
+      expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
+      cleanup();
+
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        return new Promise<Response>(() => {});
+      });
+      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
+      expect(screen.queryByRole("progressbar")).toBeNull();
+      cleanup();
+    }
+  });
+});
+
 describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Task 1)", () => {
   const originalFetch = global.fetch;
 
