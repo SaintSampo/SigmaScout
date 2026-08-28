@@ -8,10 +8,10 @@
  * `event.$eventKey.tsx` is under test, not a re-implementation of it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { RootSearchSchema } from "../lib/searchParams.js";
+import { DEFAULT_EVENT_TAB, RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import { Route as EventRouteImport } from "./event.$eventKey.js";
 
@@ -43,7 +43,7 @@ const SIGMA1_2024_COMPONENT_KEYS = [
   "foulsCommitted",
 ];
 
-function eventArtifactResponse() {
+function eventArtifactResponse(overrides: Record<string, unknown> = {}) {
   const metrics: Record<string, { value: number; spread?: number }> = { total: { value: 48.33, spread: 2.32 } };
   for (const key of SIGMA1_2024_COMPONENT_KEYS) {
     metrics[key] = { value: 10, spread: 1 };
@@ -59,7 +59,8 @@ function eventArtifactResponse() {
       season: 2024,
       matches: [],
       upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics }],
+      ...overrides,
     }),
     { status: 200 },
   );
@@ -202,5 +203,178 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     const tableScroll = screen.getByTestId("breakdown-table-scroll");
     expect(tabStrip.contains(tableScroll)).toBe(false);
     expect(tableScroll.contains(tabStrip)).toBe(false);
+  });
+
+  it("DEFAULT_EVENT_TAB is still the string 'breakdown'", () => {
+    expect(DEFAULT_EVENT_TAB).toBe("breakdown");
+  });
+});
+
+describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md Task 3)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("the Insights trigger renders with the manifest resolved and the artifact fetch left pending — the strip gates content, not its own existence", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Insights" })).toBeDefined());
+  });
+
+  it("exactly two tabs exist, named Insights and Breakdown IN THAT ORDER, before any artifact data resolves", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown"]);
+  });
+
+  it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel; ?tab=quals (unregistered) still resolves to Breakdown", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    await waitFor(() => expect(screen.getByTestId("insights-panel")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=breakdown");
+    await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
+  });
+
+  it("?tab=insights with a mocked 404 renders the same empty state (no button) that ?tab=breakdown renders", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+
+    await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("?tab=insights with a mocked 500 renders the same ErrorState copy and Retry button that ?tab=breakdown renders", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("boom", { status: 500 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+
+    await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
+    expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
+  });
+
+  it("?tab=insights in the pending state renders the Insights skeleton and zero progressbar elements; ?tab=breakdown in the same state still renders the Breakdown skeleton", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+
+    await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
+      "Rank",
+      "Team #",
+      "Nickname",
+      "Record",
+      "RP",
+      "Auto",
+      "Teleop",
+      "Endgame",
+    ]);
+  });
+
+  it("?tab=insights with a populated ranked artifact renders the eight Insights headers and no fallback banner; with an unranked artifact it renders the banner", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      const metrics: Record<string, { value: number }> = { total: { value: 48.33 } };
+      return Promise.resolve(
+        eventArtifactResponse({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
+      );
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    await waitFor(() => expect(screen.getByTestId("insights-fallback-banner")).toBeDefined());
+  });
+
+  it("the tab-strip scroll region and the Insights table's own scroll region are DOM siblings, never nested in either direction", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+
+    await waitFor(() => expect(screen.getByTestId("insights-table-scroll")).toBeDefined());
+    const tabStrip = screen.getByTestId("event-tab-strip-scroll");
+    const tableScroll = screen.getByTestId("insights-table-scroll");
+    expect(tabStrip.contains(tableScroll)).toBe(false);
+    expect(tableScroll.contains(tabStrip)).toBe(false);
+  });
+
+  it("clicking the Insights trigger navigates to ?tab=insights while preserving the existing year and algorithm search params", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+
+    const insightsTrigger = await screen.findByRole("tab", { name: "Insights" });
+    // Radix's `TabsTrigger` activates on `onMouseDown` (not `onClick`) —
+    // `fireEvent.mouseDown` is the event that actually drives its
+    // `onValueChange`, matching the primary-button, no-ctrl-key branch its
+    // own source checks (`event.button === 0`).
+    fireEvent.mouseDown(insightsTrigger, { button: 0 });
+
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>;
+      expect(search.tab).toBe("insights");
+      expect(search.algorithm).toBe("sigma1");
+      expect(search.year).toBe(2024);
+    });
   });
 });
