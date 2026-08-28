@@ -161,7 +161,19 @@ describe("ROUNDING_RULE.percentile — Phase 6, D-04 (plan 06-02 Task 3)", () =>
     expect(roundTo(74.44, ROUNDING_RULE.percentile)).toBe(74.4);
   });
 
-  it("Object.keys(ROUNDING_RULE) gained exactly one entry versus the pre-Phase-6 set", () => {
-    expect(Object.keys(ROUNDING_RULE).sort()).toEqual(["metric", "percentile", "pmf", "probability", "score", "variance"].sort());
+  it("Object.keys(ROUNDING_RULE) is exactly this set: the pre-Phase-6 six plus Phase 6's percentile plus Phase 7's rankingPoints (plan 07-07 Task 2) — a future unannounced key is a red test here, and only here", () => {
+    expect(Object.keys(ROUNDING_RULE).sort()).toEqual(
+      ["metric", "percentile", "pmf", "probability", "rankingPoints", "score", "variance"].sort()
+    );
+  });
+});
+
+describe("ROUNDING_RULE.rankingPoints — Phase 7, D-18 item 6 (plan 07-07 Task 2)", () => {
+  it("is exactly 2 decimals, matching TBA's own published Ranking Score precision", () => {
+    expect(ROUNDING_RULE.rankingPoints).toBe(2);
+  });
+
+  it("roundTo(3.835, ROUNDING_RULE.rankingPoints) yields 3.84, exercising the documented half-away-from-zero tie-break at this rule's own precision", () => {
+    expect(roundTo(3.835, ROUNDING_RULE.rankingPoints)).toBe(3.84);
   });
 });

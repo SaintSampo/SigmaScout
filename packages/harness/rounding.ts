@@ -40,6 +40,13 @@
  * | Percentile (Phase 6, D-04)                                 | 1        | Matches `colour-and-tiers.md`'s own |
  * |                                                           |          | worked precision (p50=39.2, not |
  * |                                                           |          | p50=39.20000001). |
+ * | `ROUNDING_RULE.rankingPoints`                              | 2        | TBA's OWN reported Ranking Score, a |
+ * |   (`EventTeamSchema.rp`, Phase 7, D-18 item 6)             |          | per-match average — not a model |
+ * |                                                           |          | output like `metric`, so it gets its |
+ * |                                                           |          | own key rather than borrowing that |
+ * |                                                           |          | one despite the identical decimal |
+ * |                                                           |          | count. Two decimals is TBA's own |
+ * |                                                           |          | published precision. |
  *
  * Phase 6's D-01 own-variance fields (`redScoreVarianceOwn`/
  * `blueScoreVarianceOwn`) reuse `ROUNDING_RULE.variance` unchanged above —
@@ -53,7 +60,10 @@
  * fields are integral by construction
  * (`packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema.actualRedRp`/
  * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
- * `ROUNDING_RULE` entry for RP either. `sortTime` (Phase 6's
+ * `ROUNDING_RULE` entry for RP either. `EventTeamSchema.rank` and
+ * `record.wins`/`record.losses`/`record.ties` (Phase 7, D-18 item 6, plan
+ * 07-07 Task 2) are integral by construction in the same way — no
+ * `ROUNDING_RULE` entry for any of them. `sortTime` (Phase 6's
  * `TeamSeasonMatchSchema.sortTime`, and Phase 7's `EventMatchSchema.sortTime`/
  * `EventUpcomingMatchSchema.sortTime`, plan 07-07 Task 1) gets no entry for a
  * stronger reason than an integer count: it is a timestamp in epoch seconds,
@@ -89,6 +99,16 @@ export const ROUNDING_RULE = {
   variance: 4,
   /** Phase 6, D-04: percentile, matching `colour-and-tiers.md`'s worked precision. */
   percentile: 1,
+  /**
+   * Phase 7, D-18 item 6 (plan 07-07 Task 2): `EventTeamSchema.rp` — TBA's
+   * own reported Ranking Score, a per-match average. Two decimals matches
+   * TBA's own published precision; a third decimal is never rendered or
+   * read. A key of its own rather than a reuse of `metric` despite the
+   * identical decimal count, because `metric` is the class for this
+   * project's own model outputs and a future change to model-display
+   * precision must not silently move a number TBA reported.
+   */
+  rankingPoints: 2,
 } as const;
 
 export class NonFiniteRoundError extends Error {

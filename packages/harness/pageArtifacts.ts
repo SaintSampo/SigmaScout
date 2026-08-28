@@ -360,6 +360,49 @@ const EventTeamSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int().optional(),
   nickname: z.string().optional(),
+  /**
+   * D-18 item 6, D-07, plan 07-07 Task 2: this team's official rank at this
+   * event, sourced from `event_rankings.rank` through
+   * `selectEventRankingsForSeason` (`packages/corpus/db.ts`). Optional for
+   * two independent reasons: 259 of 1,581 corpus events have no ranking
+   * rows at all (D-08's measured count), and a pre-republish artifact
+   * predates the field entirely. Absence is never synthesized and never
+   * zero — D-08's fallback ordering is rendered by 07-11 and must never be
+   * written INTO this field: a model-derived position placed under a name
+   * that asserts official provenance is a false attribution the reader has
+   * no way to detect. `rank`, `record` and `rp` are independently
+   * optional; a half-present set is a REAL state (an `event_rankings` row
+   * written before 07-04's widened ingest carries a rank with a NULL
+   * record and a NULL ranking score), so there is deliberately no
+   * cross-field `.refine()` here — matching
+   * `TeamSeasonEventSchema.rank`'s own stated choice (PD-05).
+   */
+  rank: z.number().int().positive().optional(),
+  /**
+   * D-18 item 6, D-07, plan 07-07 Task 2: TBA's own reported record for
+   * this team at this event, which accounts for disqualifications and
+   * surrogate appearances — never a tally this pipeline counted from
+   * `matches[]` (D-18 item 6's own stated reason for requiring TBA as the
+   * source). Reuses `RecordSchema`'s existing three integers; never a
+   * formatted string. Rendering is 07-11's.
+   */
+  record: RecordSchema.optional(),
+  /**
+   * D-18 item 6, D-07, plan 07-07 Task 2: TBA's Ranking Score,
+   * `sort_orders[0]`, guarded at ingest by 07-04's
+   * `sort_order_info[0].name === "Ranking Score"` assertion and stored in
+   * the corpus column `ranking_score` (07-02) — recording that naming hop
+   * explicitly here, at this end as well as the storage end, so the column
+   * and the field cannot quietly become two different facts. It is a
+   * per-match average and therefore a REAL rather than an integer count.
+   * Rounded exactly once, at the publish boundary, at
+   * `ROUNDING_RULE.rankingPoints`. It is explicitly NOT the same quantity
+   * as `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`, which are
+   * integer bonus-RP counts published unrounded — the two share three
+   * letters and nothing else, and a reader who conflates them will misread
+   * both.
+   */
+  rp: z.number().optional(),
   metrics: MetricsRecordSchema,
 });
 

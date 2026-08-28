@@ -167,6 +167,43 @@ function validEventFixture() {
   };
 }
 
+/**
+ * plan 07-07: mirrors `fixtureWithMatchRow`'s shape — spreads
+ * `validEventFixture()` and applies partial overrides to the top level, to
+ * `matches[0]`, to `upcoming[0]` and to `teams` (or, for cases that need
+ * more than one row, replaces the whole `matches`/`upcoming`/`teams` arrays
+ * outright). Declared once, beside `validEventFixture`, so Tasks 1-3 extend
+ * one helper instead of each writing its own. `validEventFixture` itself is
+ * never mutated by this helper or by any test that calls it.
+ */
+function eventFixtureWith(
+  overrides: {
+    top?: Record<string, unknown>;
+    match?: Record<string, unknown>;
+    matches?: Array<Record<string, unknown>>;
+    upcoming?: Record<string, unknown>;
+    upcomingRows?: Array<Record<string, unknown>>;
+    team?: Record<string, unknown>;
+    teams?: Array<Record<string, unknown>>;
+  } = {}
+) {
+  const fixture = validEventFixture() as unknown as Record<string, unknown>;
+  const baseMatches = fixture.matches as Array<Record<string, unknown>>;
+  const baseUpcoming = fixture.upcoming as Array<Record<string, unknown>>;
+  const matches = overrides.matches ?? [{ ...baseMatches[0]!, ...overrides.match }];
+  const upcoming = overrides.upcomingRows ?? [{ ...baseUpcoming[0]!, ...overrides.upcoming }];
+  const teams =
+    overrides.teams ??
+    (overrides.team !== undefined ? [{ teamKey: "frc254", metrics: {}, ...overrides.team }] : (fixture.teams as Array<Record<string, unknown>>));
+  return {
+    ...fixture,
+    ...overrides.top,
+    matches,
+    upcoming,
+    teams,
+  };
+}
+
 function validCompareFixture() {
   return {
     ...PREAMBLE,
@@ -466,37 +503,6 @@ describe("EventArtifactSchema.upcoming — D-08's real shape", () => {
 });
 
 describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/blueScoreVarianceOwn and sortTime (D-18 item 3, D-13, plan 07-07 Task 1)", () => {
-  /**
-   * Mirrors `fixtureWithMatchRow`'s shape (see the D-01 own-variance describe
-   * block above): spreads `validEventFixture()` and applies partial
-   * overrides to the top level, to `matches[0]`, to `upcoming[0]` and to
-   * `teams` — or, for the D-13 merge case, replaces the whole `matches`/
-   * `upcoming` arrays outright. `validEventFixture` itself is never mutated.
-   */
-  function eventFixtureWith(
-    overrides: {
-      top?: Record<string, unknown>;
-      match?: Record<string, unknown>;
-      matches?: Array<Record<string, unknown>>;
-      upcoming?: Record<string, unknown>;
-      upcomingRows?: Array<Record<string, unknown>>;
-      teams?: Array<Record<string, unknown>>;
-    } = {}
-  ) {
-    const fixture = validEventFixture() as unknown as Record<string, unknown>;
-    const baseMatches = fixture.matches as Array<Record<string, unknown>>;
-    const baseUpcoming = fixture.upcoming as Array<Record<string, unknown>>;
-    const matches = overrides.matches ?? [{ ...baseMatches[0]!, ...overrides.match }];
-    const upcoming = overrides.upcomingRows ?? [{ ...baseUpcoming[0]!, ...overrides.upcoming }];
-    return {
-      ...fixture,
-      ...overrides.top,
-      matches,
-      upcoming,
-      ...(overrides.teams !== undefined ? { teams: overrides.teams } : {}),
-    };
-  }
-
   it("Test 2 — a played row carries both variance fields, read back off the parsed result", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redScoreVarianceOwn: 41.25, blueScoreVarianceOwn: 38.5 } }));
     // Direct property access (no intermediate `as unknown as {...}` cast) is
@@ -577,6 +583,57 @@ describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/bl
       (a, b) => (a.sortTime ?? 0) - (b.sortTime ?? 0)
     );
     expect(merged.map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3", "2026casj_qm4"]);
+  });
+});
+
+describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-07 Task 2)", () => {
+  it("Test 1 — the D-08 no-ranking case: a team row carrying none of the three parses, all three read back undefined", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254" } }));
+    expect(parsed.teams[0]!.rank).toBeUndefined();
+    expect(parsed.teams[0]!.record).toBeUndefined();
+    expect(parsed.teams[0]!.rp).toBeUndefined();
+  });
+
+  it("Test 2 — full round-trip: rank, record and rp all read back exactly, record as three integers", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({ team: { teamKey: "frc254", rank: 7, record: { wins: 9, losses: 1, ties: 0 }, rp: 3.83 } })
+    );
+    expect(parsed.teams[0]!.rank).toBe(7);
+    expect(parsed.teams[0]!.record).toEqual({ wins: 9, losses: 1, ties: 0 });
+    expect(parsed.teams[0]!.rp).toBe(3.83);
+  });
+
+  it("Test 3 — rank is 1-based: 0 is rejected, 1 is accepted", () => {
+    expect(() => EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", rank: 1 } }))).not.toThrow();
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ team: { teamKey: "frc254", rank: 0 } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 4 — rank is an integer: 2.5 is rejected", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ team: { teamKey: "frc254", rank: 2.5 } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 5 — a real zero record is accepted when explicitly present (distinct from the absent case above); a negative field is rejected through RecordSchema's existing nonnegative()", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", record: { wins: 0, losses: 0, ties: 0 } } }));
+    expect(parsed.teams[0]!.record).toEqual({ wins: 0, losses: 0, ties: 0 });
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ team: { teamKey: "frc254", record: { wins: 0, losses: -1, ties: 0 } } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 6 — rp is a REAL, not a count: 3.83 round-trips, and a separate case's 0 reads back as 0, distinguishable from absent", () => {
+    const parsedNonzero = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", rp: 3.83 } }));
+    expect(parsedNonzero.teams[0]!.rp).toBe(3.83);
+    const parsedZero = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", rp: 0 } }));
+    expect(parsedZero.teams[0]!.rp).toBe(0);
+    expect(parsedZero.teams[0]!.rp).not.toBeUndefined();
+  });
+
+  it("Test 7 — the half-present state is legal (PD-05): a row carrying rank but neither record nor rp parses, real state of a pre-07-04 event_rankings row", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", rank: 12 } }));
+    expect(parsed.teams[0]!.rank).toBe(12);
+    expect(parsed.teams[0]!.record).toBeUndefined();
+    expect(parsed.teams[0]!.rp).toBeUndefined();
   });
 });
 
