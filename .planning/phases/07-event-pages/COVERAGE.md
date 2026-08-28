@@ -88,6 +88,7 @@ Field set confirmed live against 40 real events spanning 2022–2026 and all 8 o
 | `name` ABSENT entirely (key not present) | INTEGRATE | a real, live-observed TBA shape (`2024wvrox`), stored as SQL NULL and never as an empty string or a fabricated label — see note [2] |
 | `declines` (array of declined team keys) | INTEGRATE | stored verbatim as `event_alliances.declines` for source provenance; read by nothing in Phase 7 — see note [6] |
 | `status` (whole object, verbatim) | INTEGRATE | serialized whole into `event_alliances.status_raw` because its shape varies by `playoff_type` — see note [6] |
+| `status` ABSENT entirely (key not present) | INTEGRATE | live-discovered against the real full 2022 season (plan 07-03 Task 2, not in RESEARCH.md's 40-event sample) — several alliance objects at real 2022 events carry no `status` key at all; `tbaAllianceEntrySchema.status` is `z.unknown().optional()`, and absence normalizes to `statusRaw: null`, the same absence-not-fabrication treatment `name` gets — see note [6] |
 | top-level `null` response body | INTEGRATE | a distinct real TBA answer ("no alliance structure exists for this event", live at `2022ispr`) — tallied as `nullBodyCount`, stores zero rows — see note [3] |
 | empty array response (`[]`) | INTEGRATE | a distinct real TBA answer ("this event ran quals but never held an alliance selection", live at `2025bc` and `2026wvrox`) — tallied as `emptyAlliancesCount`, stores zero rows — see note [3] |
 | `status.status` (`"won"` / `"eliminated"`) | OPT-OUT | not modelled and not read by any Phase 7 consumer; rides verbatim inside `status_raw` — see note [6] |
@@ -176,6 +177,20 @@ playoff format into a parse failure. Every one of its sub-fields is opted out at
 the table above: they ride along inside `status_raw`, but no code reads them, no column is named for
 them, and none of them is a fact this project asserts.
 
+**Reconciliation-pass finding (plan 07-03 Task 3):** `status` can be **entirely absent**, not merely
+variable in shape — a fact RESEARCH.md's 40-event sample did not observe and this file's plan-time
+form did not record. Plan 07-03 Task 2's live `pnpm ingest:alliances --year 2022` run threw
+`invalid_type: expected nonoptional, received undefined` against real 2022 alliance objects carrying
+no `status` key at all — `tbaAllianceEntrySchema`'s original `status: z.unknown()` required the key
+to be present, which Zod v4 treats as distinct from the value being present-but-unknown. Fixed to
+`status: z.unknown().optional()` in the same commit that discovered it (Task 2), verified against the
+live 2022 data, and added as a new schema test case. This is RESEARCH.md Assumption A3's named risk
+("a full-corpus live ingest could surface a rarer shape variant this sample didn't hit") materializing
+inside this very plan's own two-season run — not deferred to 07-05, since it blocked Task 2's live
+proof from completing at all. `normalizeEventAlliances` already treated a missing `status` key as
+`statusRaw: null` (the same absence-not-fabrication treatment `name` gets), so no normalize-layer
+change was needed, only the schema's required-vs-optional boundary.
+
 **[7] Sampling caveat — open, and owned by 07-05.** Every shape decision above rests on
 RESEARCH.md's 40-event live sample (one event per year × TBA event-type group, 2022–2026, 8 event
 types) plus the two full seasons plan 07-03 ingested live. That is **not** the full ~1,581-event
@@ -189,30 +204,92 @@ matrix is decided on strong evidence, not on complete evidence.
 
 ## The recurring cost this integration commits to
 
-> **Placeholder — filled by plan 07-03 Task 3 from Task 2's real run.** `packages/ingest/tbaClient.ts`'s
-> `THROTTLE_INTERVAL_MS = 100` applies per request unconditionally, including on cache-hit 304
-> responses, so cost scales with the corpus's event count rather than with payload size.
+`packages/ingest/tbaClient.ts`'s `THROTTLE_INTERVAL_MS = 100` applies per request unconditionally,
+including on cache-hit 304 responses, so cost scales with the corpus's event count rather than with
+payload size.
 
-Structure to fill, following `06.1-match-and-event-data-enrichment/COVERAGE.md`'s own measured-cost
-section:
+**Commands run (plan 07-03 Task 2, 2026-08-28, real TBA API via `tsx --env-file=.env`):**
 
-- **Commands:** the two exact `pnpm ingest:alliances` invocations run in plan 07-03 Task 2.
-- **Date:** the run date.
-- **Total requests / cache hits (304) / fresh (200):** read from `ingest_runs`, not from an in-memory
-  tally.
-- **Elapsed wall clock:** read from `ingest_runs.started_at` to `finished_at`.
-- **Observed per-request time** against the 100 ms throttle floor (06.1-04 measured ≈160 ms/request on
-  this network for the rankings pass).
-- **Per-season table:** events, `populatedCount`, `nullBodyCount`, `emptyAlliancesCount`,
-  `cacheHitCount`, `notFoundCount` — the five counters, which sum exactly to the season's event count.
-- **Budget projection** for the remaining three seasons, which plan 07-05 spends.
+1. `pnpm ingest:alliances --year 2022` — the season's initial live fetch.
+2. `pnpm ingest:alliances --year 2024` — the second season's live fetch.
+3. `pnpm ingest:alliances --year 2022 --force` — a clean re-run of 2022 bypassing all cached
+   ETags, run because command 1 mixed in 10 events served from ETags an earlier, unrelated partial
+   session had already written before this plan's Task 2 status-key fix landed (see COVERAGE.md note
+   [6]'s reconciliation-pass finding). Command 3's tri-state split is the clean, full-season
+   measurement and is what the table below cites for 2022; command 1's own console output (238
+   populated / 23 null-body / 17 empty-alliances / 10 cache hits / 0 not-found, still summing to 288)
+   is recorded in Task 2's commit message for provenance but superseded here.
+
+**Total requests / cache hits (304) / fresh (200), read from `ingest_runs`, not an in-memory tally:**
+
+| Run | `ingest_runs.run_id` | Requests | Cache hits (304) | Fresh (200) |
+|---|---|---:|---:|---:|
+| 2022 (initial) | `75aa0068` | 289 | 10 | 279 |
+| 2024 | `69eb2dd7` | 325 | 0 | 325 |
+| 2022 (`--force`) | `e765bb63` | 289 | 0 | 289 |
+
+Each season's request count is one more than its event count (289 = 288 events + 1, 325 = 324 events +
+1) — the extra request is `main()`'s one-time `fetchStatus` datafeed-health check, shared by every
+`pnpm ingest*` mode, not a per-event cost.
+
+**Elapsed wall clock, read from `ingest_runs.started_at`/`finished_at`, not console timing:**
+
+| Run | Started | Finished | Elapsed |
+|---|---|---|---:|
+| 2022 (initial) | 2026-08-28T02:28:04.928Z | 2026-08-28T02:29:01.575Z | 56.6s |
+| 2024 | 2026-08-28T02:29:10.741Z | 2026-08-28T02:30:16.004Z | 65.3s |
+| 2022 (`--force`) | 2026-08-28T02:30:35.452Z | 2026-08-28T02:31:27.109Z | 51.7s |
+
+**Observed per-request time**, computed from the two all-fresh runs (initial 2022's 10 cache hits
+would understate the true per-request cost, since a 304 still pays the full `THROTTLE_INTERVAL_MS`
+gate but returns no body):
+
+- 2022 (`--force`, 289 requests, 51.657s): **178.7 ms/request.**
+- 2024 (325 requests, 65.263s): **200.8 ms/request.**
+- Combined (614 requests, 116.92s): **190.4 ms/request** — against the 100 ms `THROTTLE_INTERVAL_MS`
+  floor and the ≈160 ms/request 06.1-04 measured for the rankings pass on this same network. The
+  alliances endpoint runs measurably slower per request than rankings did (≈19% higher), consistent
+  with a materially different response payload shape (a variable-length array of alliance objects,
+  each carrying a nested `status` blob) rather than a network-conditions difference — both passes ran
+  from the same machine on the same day.
+
+**Per-season table** — the five counters sum exactly to the season's event count in both rows:
+
+| Season | Events | `populatedCount` | `nullBodyCount` | `emptyAlliancesCount` | `cacheHitCount` | `notFoundCount` | Sum |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2022 (`--force`, clean) | 288 | 244 | 25 | 19 | 0 | 0 | 288 |
+| 2024 | 324 | 285 | 27 | 12 | 0 | 0 | 324 |
+
+Combined across both seasons: 612 events, 529 populated, 52 null-body, 31 empty-alliances — a
+populated rate of 86.4%, close to RESEARCH.md's 40-event sample's 92.5% (37/40) but not identical,
+consistent with A3's caveat that a larger sample can shift the observed split without changing the
+shape decisions above (every response still parses under one of the three states this ingest already
+handles).
+
+**Budget projection for the remaining three seasons (2023, 2025, 2026), which plan 07-05 spends:**
+
+| Season | Events (from `events` table) |
+|---|---:|
+| 2023 | 309 |
+| 2025 | 350 |
+| 2026 | 310 |
+| **Total** | **969** |
+
+At ≈190 ms/request (this run's combined observed rate) that projects to roughly 969 × 0.190s ≈ **184
+seconds (≈3.1 minutes)** for the remaining three seasons' alliances pass alone, against a floor of
+969 × 0.100s ≈ 97 seconds (≈1.6 minutes) if TBA's response times ever matched the throttle interval
+exactly. 2022 and 2024 will read as ETag cache hits during 07-05's full pass (see Handoff below), so
+07-05's own alliances-specific added cost is bounded by these three seasons, not by the full
+1,581-event corpus — the two seasons already fetched here do not need to be paid for again.
 
 **Handoff, recorded in advance rather than rediscovered.** Plan 07-03 ingests 2022 and 2024 live;
 plan 07-05 then runs all five seasons, and will see those two as ETag **cache hits**, so its own
 per-season tally for them will read as zeroes. This section is therefore the authoritative record of
-2022's and 2024's three-state split, and 07-05 may either cite these figures or re-fetch those two
-seasons with `--force`. This is 06.1-04's note [3] — where 2024's rankings split was permanently lost
-to exactly this effect — handled up front instead of written up afterwards.
+2022's and 2024's three-state split — 244/25/19 for 2022 (the clean `--force` figures above supersede
+the initial run's stale-cache-contaminated 238/23/17) and 285/27/12 for 2024 — and 07-05 may either
+cite these figures or re-fetch those two seasons with `--force`. This is 06.1-04's note [3] — where
+2024's rankings split was permanently lost to exactly this effect — handled up front instead of
+written up afterwards.
 
 ---
 *Produced at plan time for Phase 7 (plan 07-03). Measured-cost section completed at execution. Validated at `verify:pre` by `api-coverage.verify-pre`.*
