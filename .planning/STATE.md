@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-12-PLAN.md
-last_updated: "2026-08-28T06:57:41.653Z"
+stopped_at: Completed 07-13-PLAN.md
+last_updated: "2026-08-28T07:16:53.798Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 3 of 20
+Plan: 4 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
@@ -110,6 +110,7 @@ Progress: [█████████░] 90%
 | Phase 07 P10 | 35min | 3 tasks | 2 files |
 | Phase 07 P11 | 17min | 3 tasks | 4 files |
 | Phase 07 P12 | ~55min | 3 tasks | 10 files |
+| Phase 07 P13 | ~35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P12]: PLOT_W promoted to matchAxis.ts export and padAxisDomain extracted as a shared helper, both proven behaviour-preserving (matchAxis.test.ts/MatchTable.test.tsx stayed byte-identical and green) -- one geometry set and one padding policy for both the team and event match tables
 - [Phase ?]: [Phase 07 P12]: EventMatchTable carries no team-key prop at all, enforced by a compile-time Exclude<keyof Props,...> === never assertion proven to bite -- the this-team bold-highlight rule is dropped by being structurally unrepresentable rather than merely unapplied
 - [Phase ?]: [Phase 07 P12]: EVNT-04 marked complete in REQUIREMENTS.md -- this plan renders the Quals tab (matches the EVNT-02/07-11 precedent of marking complete at the rendering plan, not the earlier schema/publish plans)
+- [Phase ?]: [Phase 07 P13]: ElimsTab.tsx ships as QualsTab's sibling with isElimCompLevel swapped in for isQualCompLevel -- no new comparator, filter, geometry constant or bonus-state derivation declared, enforced by seven negative grep gates; every elimination-row bonus-RP dot renders unknown with the not-awarded-outside-qualification-matches label (playoffs award no bonus RP)
+- [Phase ?]: [Phase 07 P13]: EVNT-06 marked complete -- D-14's flat elimination list (no bracket) ships with the measured reason (from 2023 on, compLevel is sf for nearly every playoff match) recorded on the tab, and the ordering deviation (compareEventMatchRows is series-major for a 2022-style bracket, not literally chronological) surfaced as a flagged planner assumption routed to a named owner rather than fixed locally
 
 ### Pending Todos
 
@@ -292,6 +295,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T06:57:41.599Z
-Stopped at: Completed 07-12-PLAN.md
+Last session: 2026-08-28T07:16:53.749Z
+Stopped at: Completed 07-13-PLAN.md
 Resume file: None
