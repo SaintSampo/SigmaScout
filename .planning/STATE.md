@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-08-PLAN.md
-last_updated: "2026-08-28T04:05:14.677Z"
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-08-28T04:42:04.485Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 71
+  completed_plans: 72
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 8 of 20
+Plan: 9 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -105,6 +105,7 @@ Progress: [█████████░] 85%
 | Phase 07 P07 | 22min | 3 tasks | 4 files |
 | Phase 07 P04 | 20min | 3 tasks | 5 files |
 | Phase 07 P08 | 40min | 3 tasks | 2 files |
+| Phase 07 P05 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -229,6 +230,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P08]: eventTeamRankingFields extracted as a module-level helper (not inlined in a block-bodied .map() callback) specifically to keep buildEventArtifact's own function range at exactly one return statement (T-07-08-02, high severity) -- traded off against the plan's literal ROUNDING_RULE.rankingPoints in-function grep location, which now reads 0 instead of 1
 - [Phase ?]: [Phase 07 P08]: Task 1's pmf-refines-still-fire test uses an empty redRpPmf, not the plan's literal [0.2, 0.2] -- buildEventArtifact's existing roundPmf call unconditionally renormalizes any non-empty pmf to sum to 1, so [0.2, 0.2] parses successfully through this path; pageArtifacts.test.ts's own schema-level Test 3b (07-07) is what actually covers the raw-value refine failure
 - [Phase ?]: [Phase 07 P08]: EVNT-02/EVNT-04/EVNT-05/EVNT-06 left Pending in REQUIREMENTS.md despite appearing in plan 07-08's frontmatter requirements list -- this plan ships only the assembly/publish-boundary half; the rendered tabs (Insights/Quals/Elims/Alliances) are owned by 07-11 through 07-14, matching the established 07-02/07-03/07-06/07-07 precedent
+- [Phase ?]: [Phase 07 P05]: Both corpusCensus.test.ts describe blocks (event_rankings, event_alliances) authored together in Task 1's single commit rather than split per task -- Task 2's commit is --allow-empty, the honest reflection of a deliverable (live-ingested corpus) that is entirely gitignored external state
+- [Phase ?]: [Phase 07 P05]: Live full 2022-2026 rankings force-refresh (1,586 requests, 232.2s) and alliances ingest (1,586 requests, 223.1s) verified by fresh read-only corpus census -- event_rankings zero NULL record columns corpus-wide (47,695 rows, 1,322 populated events matching 06.1-04's baseline exactly), event_alliances first-ever corpus-wide measurement (10,290 rows, 1,355 distinct events); 2024's rankings null-body/empty-rankings split (0/44) measured for the first time, closing 06.1-04 COVERAGE.md note [3]
+- [Phase ?]: [Phase 07 P05]: A pre-existing 07-02 test (packages/corpus/integrity.test.ts:314) asserting an event_rankings row can still be found with all four D-18.6 columns NULL is now permanently falsified by this plan's mandated zero-NULL backfill -- left unfixed (every task's verification requires packages/corpus/ diff stay empty) and logged to WINDOWS.md ledger #12 for a future plan to update
 
 ### Pending Todos
 
@@ -274,6 +278,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T04:05:14.620Z
-Stopped at: Completed 07-08-PLAN.md
+Last session: 2026-08-28T04:42:04.431Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
