@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-16-PLAN.md
-last_updated: "2026-08-28T16:49:06.087Z"
+stopped_at: Completed 07-17-PLAN.md
+last_updated: "2026-08-28T19:10:27.833Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 80
+  completed_plans: 81
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 7 of 20
+Plan: 8 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -114,6 +114,7 @@ Progress: [██████████] 95%
 | Phase 07 P14 | 25min | 3 tasks | 4 files |
 | Phase 07 P15 | 45min | 3 tasks | 15 files |
 | Phase 07 P16 | ~70min | 3 tasks | 43 files |
+| Phase 07 P17 | 1h27m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -260,6 +261,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P15]: SearchBox.test.tsx's pre-existing case count was 10, not the plan's stated 13; EventsList.test.tsx's pre-existing count (9) matched exactly — both files' pre-existing cases pass unweakened
 - [Phase ?]: [Phase 07 P16]: Sigma1 -> VPR rename (pipeline half): registry/version-files/harness chain renamed to vpr, PIPELINE_ALGORITHM_IDS added beside unchanged PUBLISHED_ALGORITHM_IDS (PD-01) so the browser tier stays on sigma1@ until 07-18; digest.test.ts stayed bit-identical unedited
 - [Phase ?]: [Phase 07 P16]: algorithmIdentity.test.ts's STRUCTURAL_EXEMPTIONS (6 entries) added alongside the plan's own 8-entry IDENTITY_SWEEP_EXCLUSIONS to cover cases the tier-P/C/F list doesn't reach (the sweep's own file, a path-segment false positive, PD-01's dual-tier constant, a frozen-fixture assertion, a live-reality verification script, and a negative rejection-proof test); marker cap raised 12->13 against the real re-grep count
+- [Phase ?]: [Phase 07 P17]: Discovered and recovered from a genuine concurrent-writer incident -- four zombie publish.ts processes from earlier executor-timeout-killed attempts stayed alive on Windows/Git-Bash (the timeout kills only the outer wrapper, not the deep tsx child) and raced a tracked run against the live R2 bucket for its full ~24-minute duration. Killed via PowerShell Stop-Process, confirmed absent, superseded by one clean solitary re-run (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1) -- safe per PD-05 since every key is deterministic and idempotent. Post-recovery verify:subset confirms one distinct generation across every sampled key
+- [Phase ?]: [Phase 07 P17]: team/{teamKey}/{year} crosses BOTH its 375,000-byte committed budget and payloadBudget.test.ts's separate 600,000-byte absolute structural ceiling for the first time (821,938 bytes, frc9999/2024 -- confirmed a real synthetic/heavily-reused team key with 27 events/289 matches under --include-offseason, not a data-integrity artifact); neither ceiling raised, new WINDOWS.md ledger #15 routed to 07-19
 
 ### Pending Todos
 
@@ -279,6 +282,7 @@ None yet.
 - ~~packages/core/algorithms/breakdown/2024.ts's parseBreakdown() is called unconditionally at the top of sigma1's update() with no eventType/compLevel guard and no try/catch -- self-reported offseason score_breakdown JSON missing required fields (confirmed: 2024cafb_qm1, 2024wvrox_sf1m1) throws uncaught; logged WINDOWS.md #4/#5, not fixed (out of scope for 03-07)~~ **RESOLVED** by quick task 260818-inm: `tryParseBreakdownPair` narrows the failure to ZodError/SyntaxError only and degrades to the D-05 fallback with a counted `breakdownParseFailureCount`; both commands now exit 0 (1004 and 19 failures counted, never dropped). WINDOWS.md #4/#5 closed. ~~Security threat T-03-18b remains formally `open` in 03-SECURITY.md until `/gsd-secure-phase 3` is re-run.~~ **RESOLVED** (corrected 2026-08-20, phase 03.1 follow-up, per the 2026-08-19 milestone audit): `/gsd-secure-phase 3` was in fact re-run — `03-SECURITY.md` reads `status: verified`, `threats_open: 0`, `updated: 2026-08-19`. This line was stale, carried over unfixed from the prior audit; T-03-18b is closed.
 - Phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift) closed all nine review warnings carried forward from Phases 1 and 3 (six in `01-REVIEW.md`, three in `03-REVIEW.md`), each with a verifiable commit SHA recorded in the review file's own resolution subsection; corrected `01-VERIFICATION.md`'s stale human-verification item (closed by `01-UAT.md`, not still outstanding); and corrected this file's stale T-03-18b claim above. See `.planning/phases/03.1-address-phase-1-3-review-warnings-and-doc-drift/03.1-05-SUMMARY.md` for the full accounting.
 - teams/{year} artifact's measured maximum (3,577,069 bytes) exceeds its committed budgetMaxBytes ceiling (3,500,000 bytes) -- caused by pre-06.1 Phase-6 work (06f468ad/bf1e3228), not phase 06.1's own scope; payloadBudget.test.ts left red pending a developer decision (raise ceiling deliberately, or shrink the teams/{year} artifact). See WINDOWS.md ledger #11 and 06.1-07-SUMMARY.md.
+- Executor-tool Bash timeout does not terminate background process trees on Windows/Git-Bash (only the outer wrapper dies, not deep tsx/node children) -- caused a real concurrent-writer incident during 07-17's publish run, recovered but costly. Future long-running publish invocations on this machine MUST use run_in_background=true from the FIRST attempt, never rely on the tool's default timeout to kill a heavy child process
 
 ### Quick Tasks Completed
 
@@ -305,6 +309,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T16:49:06.056Z
-Stopped at: Completed 07-16-PLAN.md
+Last session: 2026-08-28T19:10:27.805Z
+Stopped at: Completed 07-17-PLAN.md
 Resume file: None
