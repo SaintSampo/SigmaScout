@@ -282,14 +282,162 @@ exactly. 2022 and 2024 will read as ETag cache hits during 07-05's full pass (se
 07-05's own alliances-specific added cost is bounded by these three seasons, not by the full
 1,581-event corpus — the two seasons already fetched here do not need to be paid for again.
 
-**Handoff, recorded in advance rather than rediscovered.** Plan 07-03 ingests 2022 and 2024 live;
-plan 07-05 then runs all five seasons, and will see those two as ETag **cache hits**, so its own
-per-season tally for them will read as zeroes. This section is therefore the authoritative record of
-2022's and 2024's three-state split — 244/25/19 for 2022 (the clean `--force` figures above supersede
-the initial run's stale-cache-contaminated 238/23/17) and 285/27/12 for 2024 — and 07-05 may either
-cite these figures or re-fetch those two seasons with `--force`. This is 06.1-04's note [3] — where
-2024's rankings split was permanently lost to exactly this effect — handled up front instead of
-written up afterwards.
+**Handoff, realized (plan 07-05, 2026-08-28).** Plan 07-03 ingested 2022 and 2024 live; plan 07-05
+then ran all five seasons and, as predicted, saw those two as ETag **cache hits** (288 and 324
+respectively, 0 populated each) — the realized form of this handoff, not a shortfall. 07-05 took the
+"cite these figures" branch of the choice offered above rather than the `--force` branch: forcing
+2022/2024 would have spent 612 requests re-deriving a three-state split already written down in this
+same section, the exact measurement-for-its-own-sake move 06.1-04 declined for 2024 and was right to
+decline. This section's 244/25/19 (2022) and 285/27/12 (2024) therefore remain the authoritative
+record of those two seasons' split. See "Measured cost — the real full-corpus 2022-2026 pass (plan
+07-05)" below for the remaining three seasons and the corpus-wide state after the full pass.
 
 ---
 *Produced at plan time for Phase 7 (plan 07-03). Measured-cost section completed at execution. Validated at `verify:pre` by `api-coverage.verify-pre`.*
+
+---
+
+## Measured cost — the real full-corpus 2022-2026 pass (plan 07-05)
+
+This section is plan 07-05's own record, added after 07-03's measured-cost section above rather than
+replacing it — that section remains the authoritative record of 2022's and 2024's fresh alliance
+fetch. This section covers both endpoints' full five-season pass: the forced rankings re-ingest
+(D-18.6, backfilling `record_wins`/`record_losses`/`record_ties`/`ranking_score` across all five
+seasons) and the unforced alliances ingest for the three seasons 07-03 had not yet fetched
+(2023, 2025, 2026), plus the corpus-wide state both endpoints hold after the pass.
+
+### Rankings subsection
+
+**Commands run** (2026-08-28, real TBA API via `tsx --env-file=.env`), one per season:
+
+1. `pnpm ingest:rankings --year 2022 --force`
+2. `pnpm ingest:rankings --year 2023 --force`
+3. `pnpm ingest:rankings --year 2024 --force`
+4. `pnpm ingest:rankings --year 2025 --force`
+5. `pnpm ingest:rankings --year 2026 --force`
+
+**`--force` was mandatory, not optional, on every one of the five.** `cachedEtagFor` returns a cached
+ETag unless forced, and `ingestSeasonRankingsOnly`'s 304 branch increments `cacheHitCount` and
+`continue`s before reaching any upsert — so an unforced pass would have written nothing at all and
+shipped all four of 07-02's new columns NULL across the entire corpus. 06.1-04 measured exactly this
+failure mode: all 324 of 2024's requests returned 304 on a plain re-run. Every one of the five
+invocations above reported `cacheHitCount = 0`, confirming the flag reached `parseCliOptions` on all
+five.
+
+| Season | Events | Populated | Null-body | Empty-rankings | Cache hits | 404 skips | Unregistered-team skips | Null-`ranking_score` rows | Requests | Wall clock |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2022 | 288 | 236 | 0 | 52 | 0 | 0 | 48 | 0 | 289 | 34.2s |
+| 2023 | 309 | 249 | 2 | 58 | 0 | 0 | 73 | 0 | 310 | 38.7s |
+| 2024 | 324 | 280 | 0 | 44 | 0 | 0 | 87 | 0 | 325 | 50.6s |
+| 2025 | 350 | 311 | 8 | 31 | 0 | 0 | 67 | 0 | 351 | 62.1s |
+| 2026 | 310 | 246 | 40 | 24 | 0 | 0 | 21 | 0 | 311 | 46.6s |
+| **Total** | **1,581** | **1,322** | **50** | **209** | **0** | **0** | **296** | **0** | **1,586** | **232.2s** |
+
+Every event-level closed sum (populated + null-body + empty-rankings + cache-hits + 404-skips) equals
+`SELECT COUNT(*) FROM events WHERE year = ?` exactly for all five seasons — the 404-skip column is
+sourced from `grep -c '404 Not Found, skipping'` over each season's tee'd log, since
+`ingestSeasonRankingsOnly`'s 404 branch increments no counter (weaker than the alliances invariant
+below, which needs no log grep). All five seasons measured 0 404-skips. `Unregistered-team skips` and
+`Null-ranking_score rows` are ROW-level counters (`unknownTeamCount`/`nullRankingScoreCount`) and are
+deliberately excluded from the event-level closed sum — 06.1-LEARNINGS.md's surprise that TBA reports
+rankings for synthetic second-robot team keys is why the skip exists at all. Every wall-clock figure
+above is read from that season's own `ingest_runs.finished_at` minus `started_at`, never console
+timing: 2022 `6bdd6e72` (34.173s), 2023 `823eaa49` (38.741s), 2024 `f7da9be2` (50.588s), 2025
+`b80a420c` (62.055s), 2026 `6fec9e67` (46.642s). Total requests 1,586 at 232.199s elapsed is
+**146.4 ms/request**, below 06.1-04's measured ≈160 ms/request for the same endpoint on a comparable
+network — consistent with `--force`'s single-code-path fresh-200 traffic having no 304-branch
+short-circuit overhead to pay.
+
+**2024's three-state split, measured for the first time.** 2024's null-body and empty-rankings counts
+are **0 and 44**. 06.1-04's own `COVERAGE.md` note [3] recorded this split as unknown because that
+plan correctly declined to spend 324 requests purely to recover a classification when all 324 of that
+run's requests returned 304. This pass forced 2024 for the independent reason that the four new
+`record`/`ranking_score` columns require it, so the measurement came free rather than being chased for
+its own sake.
+
+### Alliances subsection
+
+**Commands run** (2026-08-28, real TBA API via `tsx --env-file=.env`), one per season, **no**
+`--force`:
+
+1. `pnpm ingest:alliances --year 2022`
+2. `pnpm ingest:alliances --year 2023`
+3. `pnpm ingest:alliances --year 2024`
+4. `pnpm ingest:alliances --year 2025`
+5. `pnpm ingest:alliances --year 2026`
+
+**The absence of `--force` here is deliberate — the opposite call from the rankings pass above.**
+2023, 2025 and 2026 had no cached ETag for this brand-new endpoint at all, so they fetched fresh
+without any flag; 2022 and 2024 were already fetched fresh by 07-03, so forcing them would have spent
+612 requests re-deriving a three-state split already written down in this same file's earlier section
+— the same measurement-for-its-own-sake move 06.1-04 declined for 2024's rankings and was right to
+decline.
+
+| Season | Events | Populated | Null-body | Empty-alliances | Cache hits | Not-found | Alliance rows written | Distinct events with rows | Requests | Wall clock |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2022 | 288 | 0 | 0 | 0 | 288 | 0 | 1,752 (07-03's, untouched) | 244 | 289 | 47.1s |
+| 2023 | 309 | 258 | 48 | 3 | 0 | 0 | 1,983 | 258 | 310 | 44.7s |
+| 2024 | 324 | 0 | 0 | 0 | 324 | 0 | 2,167 (07-03's, untouched) | 285 | 325 | 41.4s |
+| 2025 | 350 | 320 | 17 | 13 | 0 | 0 | 2,446 | 320 | 351 | 49.5s |
+| 2026 | 310 | 248 | 58 | 4 | 0 | 0 | 1,942 | 248 | 311 | 40.3s |
+| **Total** | **1,581** | **826** | **123** | **20** | **612** | **0** | **10,290** | **1,355** | **1,586** | **223.1s** |
+
+2022 and 2024's `288`/`324` cache hits and `0` populated are the realized form of 07-03's own recorded
+handoff paragraph above, not a shortfall — those two seasons' real three-state split (244/25/19 and
+285/27/12) is recorded in that earlier section, and this pass's zero counters simply confirm the ETag
+path worked. Unlike the rankings tally, this endpoint's five counters close exactly against each
+season's event count with **no** log grep required, because `ingestSeasonAlliancesOnly` counts its own
+404s. Wall-clock figures read from `ingest_runs`: 2022 `10ec6738` (47.112s), 2023 `f50abf40`
+(44.715s), 2024 `91b783d6` (41.372s), 2025 `a33553c2` (49.534s), 2026 `bf8dfafe` (40.332s). The three
+freshly-fetched seasons (2023/2025/2026, 972 requests, 134.581s) measured **138.5 ms/request** —
+faster than 07-03's own combined 190.4 ms/request estimate and than the earlier section's budget
+projection of ≈184 seconds for these three seasons (actual: 134.6s).
+
+**`picks` length histogram, across all five seasons:** length 2 → 10 rows, length 3 → 8,353 rows,
+length 4 → 1,927 rows (10,290 total, all within the 1–4 bound). **Ten sub-three-pick alliances**
+exist, all at length 2, all belonging to two events — `2022vabrb` and `2024vabrb`, five alliances each
+(a small, presumably 2-robot-per-alliance offseason format) — flagged to 07-14's D-16 rule as a real
+input: a length-2 alliance has no third pick to sum, so D-16's "sum the first three picks" rule needs
+a stated behavior for these ten rows.
+
+### Corpus-state subsection
+
+Sourced from fresh read-only queries executed after all ten processes exited, never from either run's
+own tally.
+
+- **`event_rankings`:** 47,695 total rows (against 06.1-04's own 47,695 baseline — unchanged, since
+  the forced pass refreshed existing rows in place rather than adding new ones; every season's row set
+  was already present from 06.1-04's original ingest, only the four D-18.6 columns were NULL before
+  this pass). Distinct populated events per season: 2022 236, 2023 249, 2024 280, 2025 311, 2026 246 —
+  summing to **1,322 distinct populated events corpus-wide**, landing exactly on 06.1-04's own
+  measured 1,322 total (this pass's own 2024 figure of 280 supersedes 06.1-04's un-force-measured
+  value for that season, since 06.1-04 saw all 324 of 2024's requests as 304s and could not measure it
+  directly). Corpus events with **no** `event_rankings` row at all: **259**, landing exactly on
+  06.1-04's own measured 259 (within the 150–400 band this plan's census asserts). Zero rows anywhere
+  carry a NULL or negative
+  `record_wins`/`record_losses`/`record_ties`; 47,305 rows carry `record_wins > 0`.
+- **`event_alliances`:** first corpus-wide measurement of this table's coverage. 10,290 total rows.
+  Distinct events with rows per season: 2022 244, 2023 258, 2024 285, 2025 320, 2026 248 — **1,355**
+  distinct events total, all clearing the census's 100-event-per-season non-vacuity floor by a wide
+  margin. `2025bc`, `2026wvrox` and `2022ispr` each exist in `events` and each hold exactly 0
+  `event_alliances` rows, the three live-observed absent shapes RESEARCH.md Question 2 named. Zero
+  events have a non-contiguous `alliance_number` sequence. 07-03's 2022/2024 rows are proven untouched:
+  `MAX(fetched_at)` over those two seasons' rows (`2026-08-28T02:31:26.963Z`) is strictly less than
+  `MIN(fetched_at)` over 2023/2025/2026's rows (`2026-08-28T04:24:50.410Z`).
+
+### Budget guidance
+
+A future full re-ingest of the rankings endpoint (all five seasons, forced) costs roughly **4 minutes**
+of wall clock (this pass: 232.2s) at ≈146 ms/request; a future full re-ingest of the alliances endpoint
+costs roughly **3.7 minutes** (this pass: 223.1s) at ≈140 ms/request when unforced against a
+fully-cached corpus (cache hits still pay the unconditional 100 ms throttle). **Standing warning:** any
+future backfill of a column added after a prior ingest — the exact situation D-18.6's four new
+`event_rankings` columns created for this plan — requires `--force`, **including on a resume**. An
+aborted forced season has already written fresh ETags for the events it reached, so an unforced resume
+of that season would 304-skip both the events it already finished and, on their older ETags, precisely
+the events it never backfilled — producing a partial backfill indistinguishable from success. Always
+re-run an aborted forced season with `--force` again; the upsert merges, so the already-done half costs
+only its own re-fetch time.
+
+---
+*Measured-cost section for plan 07-05 completed at execution, 2026-08-28. Validated at `verify:pre` by `api-coverage.verify-pre`.*
