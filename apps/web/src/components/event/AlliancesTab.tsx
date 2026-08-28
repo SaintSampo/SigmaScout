@@ -83,10 +83,21 @@ export interface AllianceRow {
  * with a missing pick look catastrophically weak rather than unknown.
  */
 export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined)[]): DisplayMetric | undefined {
+  // PROHIBITION: never sum over a present subset when fewer than three
+  // entries resolve — no arity-flexible sum. The two measured causes that
+  // reach this branch are a sub-three-pick alliance (2022vabrb/2024vabrb,
+  // ten corpus rows, each running five two-pick alliances) and a pick whose
+  // team has no metrics row in this artifact (live at 2024cmptx, two of
+  // eight alliances, at the third pick). Both return `undefined` here,
+  // through the SAME rule, with no special case for either cause.
   if (totals.length !== ALLIANCE_COMBINED_PICK_COUNT || totals.some((total) => total === undefined)) {
     return undefined;
   }
   const resolved = totals as DisplayMetric[];
+  // PROHIBITION: never default an absent published value to 0 here or
+  // anywhere else in this file. A missing term defaulted to zero would make
+  // an alliance with a missing pick render as catastrophically weak rather
+  // than unknown — the opposite of the em-dash this function returns above.
   const value = resolved.reduce((sum, total) => sum + total.value, 0);
   const allSpreadsPresent = resolved.every((total) => total.spread !== undefined);
   if (!allSpreadsPresent) {
@@ -100,11 +111,6 @@ export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined
   // publish boundary.
   const varianceSum = resolved.reduce((sum, total) => sum + total.spread! * total.spread!, 0);
   return { value, spread: Math.sqrt(varianceSum) };
-}
-
-/** Ascending team-number comparator, the same total-order tie-break every sibling tab uses. */
-function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: number }): number {
-  return a.teamNumber - b.teamNumber;
 }
 
 /** Ascending `allianceNumber`, exact ties broken by ascending first-pick team key — a TOTAL order that never depends on the sort engine's stability (EVNT-05 adjacency). */

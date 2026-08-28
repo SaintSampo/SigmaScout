@@ -22,6 +22,7 @@ import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact }
 import {
   ALLIANCES_INDEPENDENCE_CAVEAT,
   AlliancesTab,
+  alliancesIncompleteNotice,
   buildAllianceRows,
   combineAlliancePicks,
 } from "./AlliancesTab";
@@ -256,5 +257,179 @@ describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
     await waitFor(() => expect(link.getAttribute("href")).toContain("/team/1"));
     expect(link.getAttribute("href")).toContain("algorithm=sigma1");
     expect(link.getAttribute("href")).toContain("year=2024");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2 — the all-or-nothing rule from both measured causes, the
+// incomplete-combination notice, and the identity/adjacency guarantees.
+// ---------------------------------------------------------------------------
+
+const FIVE_TEAMS: ArtifactTeam[] = [
+  ...FOUR_TEAMS,
+  team({ teamKey: "frc5", teamNumber: 5, nickname: "Epsilon" }),
+];
+
+describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-05 empty)", () => {
+  it("a three-pick alliance whose third pick's team key has NO row in teams renders an em-dash, never the two-term sum", async () => {
+    // frc9 is never in the teams array at all — the live 2024cmptx shape.
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.textContent).toBe("—");
+    // frc1 (value 10) + frc2 (value 10) = 20 — the two-term sum a partial
+    // implementation would plausibly render instead.
+    expect(cell.textContent).not.toContain("20.00");
+  });
+
+  it("the same alliance where the third pick HAS a teams row but that row publishes no total metric renders the same em-dash", async () => {
+    const teamsWithNoTotal = [...FOUR_TEAMS, team({ teamKey: "frc9", teamNumber: 9, nickname: "Zeta", metrics: {} })];
+    renderAlliances(makeArtifact(teamsWithNoTotal, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.textContent).toBe("—");
+    expect(cell.textContent).not.toContain("20.00");
+  });
+
+  it("a two-pick alliance (modelled on 2024vabrb) renders an em-dash Combined Total through the SAME rule, with no special case — Captain/Pick 2 filled, Pick 3 and Backup em-dash", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2"] })]));
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pick0").textContent).toContain("Alpha");
+    expect(screen.getByTestId("alliances-cell-pick1").textContent).toContain("Beta");
+  });
+
+  it("a one-pick alliance renders em-dash Combined Total and em-dashes in Pick 2, Pick 3 and Backup, with the single pick in Captain", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1"] })]));
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
+    expect(screen.getByTestId("alliances-cell-pick0").textContent).toContain("Alpha");
+  });
+
+  it("all three sum positions resolve but only two publish a spread — the summed value renders with NO plus-minus suffix", async () => {
+    const teams = [
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "Alpha", metrics: { [TOTAL_KEY]: { value: 1 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Beta", metrics: { [TOTAL_KEY]: { value: 2, spread: 1 } } }),
+      team({ teamKey: "frc3", teamNumber: 3, nickname: "Gamma", metrics: { [TOTAL_KEY]: { value: 3, spread: 1 } } }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.textContent).toContain("6.00");
+    expect(cell.textContent).not.toContain("±");
+  });
+});
+
+describe("AlliancesTab — the incomplete-combination notice (Claude's Discretion, no UI-SPEC row)", () => {
+  it("a fixture where every alliance combines renders NO incomplete-notice element at all", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    await screen.findByTestId("alliances-table-scroll");
+    expect(screen.queryByTestId("alliances-incomplete-notice")).toBeNull();
+  });
+
+  it("a 2024cmptx-shaped fixture (8 alliances, 2 unresolvable) renders exactly one notice naming 2, 8 and the algorithm label", async () => {
+    const teams = [...FOUR_TEAMS, team({ teamKey: "frc5", teamNumber: 5, nickname: "Epsilon" }), team({ teamKey: "frc6", teamNumber: 6, nickname: "Zeta" })];
+    const alliances = [
+      alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 2, picks: ["frc1", "frc2", "frc9"] }), // frc9 unresolvable
+      alliance({ allianceNumber: 3, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 4, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 5, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 6, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 7, picks: ["frc1", "frc2", "frc9"] }), // frc9 unresolvable
+      alliance({ allianceNumber: 8, picks: ["frc1", "frc2", "frc3"] }),
+    ];
+    renderAlliances(makeArtifact(teams, alliances), "sigma1");
+    const notice = await screen.findByTestId("alliances-incomplete-notice");
+    expect(screen.getAllByTestId("alliances-incomplete-notice")).toHaveLength(1);
+    expect(notice.textContent).toContain("2");
+    expect(notice.textContent).toContain("8");
+    expect(notice.textContent).toContain("Sigma1");
+  });
+
+  it("exactly one incomplete alliance renders the singular form; eight with two incomplete renders the plural form", () => {
+    expect(alliancesIncompleteNotice(1, 5, "VPR")).toBe(
+      "1 of 5 alliances is missing a combined value because one of its first three picks has no published VPR total.",
+    );
+    expect(alliancesIncompleteNotice(2, 8, "VPR")).toBe(
+      "2 of 8 alliances are missing a combined value because one of their first three picks has no published VPR total.",
+    );
+    expect(alliancesIncompleteNotice(1, 5, "VPR")).not.toBe(alliancesIncompleteNotice(2, 8, "VPR"));
+  });
+
+  it("the notice's icon is aria-hidden, the notice carries no role attribute, and its subtree contains no button", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
+    const notice = await screen.findByTestId("alliances-incomplete-notice");
+    expect(notice.hasAttribute("role")).toBe(false);
+    expect(within(notice).queryByRole("button")).toBeNull();
+    const icon = notice.querySelector("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("the notice renders BENEATH the independence caveat in document order", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
+    const caveat = await screen.findByTestId("alliances-independence-caveat");
+    const notice = await screen.findByTestId("alliances-incomplete-notice");
+    // DOM_POSITION_FOLLOWING means `notice` comes after `caveat`.
+    expect(caveat.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)", () => {
+  it("two alliances sharing an identical allianceNumber render as two separate rows, in ascending first-pick team-key order, neither renumbered", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [
+      alliance({ allianceNumber: 1, picks: ["frc3"] }),
+      alliance({ allianceNumber: 1, picks: ["frc1"] }),
+    ]);
+    const rows = buildAllianceRows(artifact, "sigma1");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.allianceNumber)).toEqual([1, 1]);
+    expect(rows.map((row) => row.picks[0]?.teamKey)).toEqual(["frc1", "frc3"]);
+  });
+
+  it("two alliances whose Combined Totals are exactly equal render as two separate rows, never merged or de-duplicated", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [
+      alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }),
+      alliance({ allianceNumber: 2, picks: ["frc1", "frc2", "frc3"] }),
+    ]);
+    const rows = buildAllianceRows(artifact, "sigma1");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.combined?.value).toBe(rows[1]?.combined?.value);
+  });
+
+  it("a five-pick alliance renders entries at positions 3 AND 4 in the Backup cell, both as links, neither dropped", async () => {
+    renderAlliances(makeArtifact(FIVE_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4", "frc5"] })]));
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(within(backupCell).getAllByRole("link")).toHaveLength(2);
+  });
+
+  it("a pick whose team key has no teams row still renders its team number as a link; the nickname position renders an em-dash", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc9", "frc1", "frc2"] })]));
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    expect(captainCell.textContent).toContain("9");
+    const link = within(captainCell).getByRole("link");
+    expect(within(link).getByText("—")).toBeDefined();
+  });
+
+  it("a one-alliance fixture and an eight-alliance fixture render identical header rows and body-row counts of 1 and 8 — the count is never branched on", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(1));
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    cleanup();
+
+    const eightAlliances = Array.from({ length: 8 }, (_, i) => alliance({ allianceNumber: i + 1, picks: ["frc1", "frc2", "frc3"] }));
+    renderAlliances(makeArtifact(FOUR_TEAMS, eightAlliances));
+    await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(8));
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+  });
+
+  it("a 60-character nickname renders in full inside the cell's title attribute and the cell carries a truncation class — never a sliced text node", async () => {
+    const longNickname = "A".repeat(60);
+    const teams = [team({ teamKey: "frc1", teamNumber: 1, nickname: longNickname }), team({ teamKey: "frc2", teamNumber: 2 }), team({ teamKey: "frc3", teamNumber: 3 })];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    const nicknameSpan = within(captainCell).getByTitle(longNickname);
+    expect(nicknameSpan.textContent).toBe(longNickname);
+    expect(nicknameSpan.className).toContain("truncate");
   });
 });
