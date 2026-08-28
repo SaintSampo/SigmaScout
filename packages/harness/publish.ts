@@ -5,7 +5,7 @@
  *
  *   pnpm publish:artifacts --event <event_key> --algorithm opr [--bucket <name>] [--dry-run]
  *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,sigma1] [--bucket <name>]
- *     [--concurrency 16] [--dry-run] [--skip-state]
+ *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
  *
  * `--event` is the single-event republish path (how a live-event artifact is
  * refreshed by hand after this plan; unchanged in shape from the 04-01
@@ -1237,6 +1237,20 @@ export interface PublishSeasonsOptions {
   readonly concurrency?: number;
   readonly dryRun?: boolean;
   readonly skipState?: boolean;
+  /**
+   * D-08, RESEARCH.md Pitfall 1, plan 07-09: defaults to `false`, so a run
+   * that does not ask for offseason gets the pre-existing behavior
+   * unchanged. Now settable from the CLI as `--include-offseason`
+   * (`main()`'s `parseArgs`, threaded through `runSeasonsCliMode`) — before
+   * plan 07-09 this field existed but nothing could set it, which meant
+   * the standard `--seasons` republish published NO event artifact for any
+   * of the 259 corpus events with no ranking rows, including `2025isios`
+   * (68 matches), `2023cnsh` (62) and `2024auwarp` (62), the exact events
+   * D-08's fallback was measured against. A run WITHOUT this flag will not
+   * rewrite offseason event artifacts a previous run wrote — this function
+   * deletes nothing, so those objects survive and go stale rather than
+   * disappearing.
+   */
   readonly includeOffseason?: boolean;
   readonly coldStartSeason?: number;
   readonly generation?: string;
@@ -1722,9 +1736,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
 
       // --- events/{year}/{algorithm}@{version}.json ---
       // Event summary counts reflect matches actually replayed this run
-      // (respecting --include-offseason), same scope as the artifacts
-      // themselves — an offseason event shows zero counts when offseason
-      // matches were excluded from this run.
+      // (respecting --include-offseason, plan 07-09: now CLI-reachable via
+      // main()'s parseArgs, where before this plan nothing could set it),
+      // same scope as the artifacts themselves — an offseason event shows
+      // zero counts when offseason matches were excluded from this run.
       const eventsRows: EventsArtifactEventInput[] = eventMeta.map((e) => {
         const counts = eventCounts.get(e.event_key);
         return {
@@ -2125,14 +2140,15 @@ async function runSeasonsCliMode(
   bucket: string,
   concurrency: number,
   dryRun: boolean,
-  skipState: boolean
+  skipState: boolean,
+  includeOffseason: boolean
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState });
+    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason });
   } finally {
     db.close();
   }
@@ -2148,6 +2164,7 @@ async function main(): Promise<void> {
       seasons: { type: "string" },
       concurrency: { type: "string" },
       "skip-state": { type: "boolean" },
+      "include-offseason": { type: "boolean" },
     },
   });
 
@@ -2158,7 +2175,15 @@ async function main(): Promise<void> {
     await runEventMode(values.event, values.algorithm, bucket, dryRun);
   } else if (values.seasons) {
     const concurrency = values.concurrency ? Number.parseInt(values.concurrency, 10) : DEFAULT_CONCURRENCY;
-    await runSeasonsCliMode(values.seasons, values.algorithm, bucket, concurrency, dryRun, values["skip-state"] === true);
+    await runSeasonsCliMode(
+      values.seasons,
+      values.algorithm,
+      bucket,
+      concurrency,
+      dryRun,
+      values["skip-state"] === true,
+      values["include-offseason"] === true
+    );
   } else {
     throw new Error("One of --event or --seasons is required");
   }
