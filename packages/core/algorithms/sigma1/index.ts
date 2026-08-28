@@ -620,12 +620,45 @@ function allianceOffensiveTotal(components: Record<string, ComponentPrediction>)
   return total;
 }
 
+/**
+ * One team's own posterior (P) sum: `belief.variance` totalled over every
+ * component this team has a belief for, starting from `seed` (default 0).
+ * The per-team half of `allianceComponentVarianceSum` below (which resolves
+ * each team's state and delegates here, THREADING its own running total
+ * through as `seed` rather than summing each team's subtotal in isolation
+ * and adding that) — after plan 07-06 (D-01), `teamMetrics` calls this SAME
+ * function (at the default `seed = 0`) to build the posterior term of its
+ * own published `spread`, so there is exactly one place in this file that
+ * knows how a team's P is summed, and both the match path (`predict`) and
+ * the publish path (`teamMetrics`) read it. That single construction is
+ * what makes the alliance-additivity identity (`sigma1.test.ts`'s Test 1)
+ * hold BY CONSTRUCTION rather than by two implementations agreeing by luck.
+ *
+ * The `seed` parameter exists ONLY to keep `allianceComponentVarianceSum`'s
+ * floating-point addition order byte-for-byte IDENTICAL to its pre-07-06
+ * form: IEEE-754 addition is not associative, so a naive "sum each team's
+ * subtotal independently, then add the subtotals together" refactor
+ * silently re-associates that sum and changes its last bit(s) — exactly the
+ * kind of change `digest.test.ts` (D-15/SC-5, this plan's T-07-06-03) exists
+ * to catch, and it did: that refactor shape was tried first, found to flip
+ * both committed `sigma1@2.0.0` digests, and reverted in favor of this
+ * threaded-accumulator shape, which reduces to the exact same left-to-right
+ * chain of additions the original single flat loop performed. `predict()`
+ * is bit-for-bit unaffected by this task; only `teamMetrics`'s NEW,
+ * seed-less call site changes what gets published.
+ */
+function teamOwnComponentVarianceSum(teamState: Sigma1TeamState, seed = 0): number {
+  let total = seed;
+  for (const belief of Object.values(teamState.beliefs)) total += belief.variance;
+  return total;
+}
+
 function allianceComponentVarianceSum(state: Sigma1State, teams: readonly string[]): number {
   let total = 0;
   for (const team of teams) {
-    const beliefs = state.teams.get(team)?.beliefs;
-    if (!beliefs) continue;
-    for (const belief of Object.values(beliefs)) total += belief.variance;
+    const teamState = state.teams.get(team);
+    if (!teamState) continue;
+    total = teamOwnComponentVarianceSum(teamState, total);
   }
   return total;
 }
@@ -999,7 +1032,14 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
     }
 
     const totalVariance = Math.max(params.minConsistencyVariance, teamTotalVariance(teamState.covariance));
-    perTeam[TOTAL_METRIC_KEY] = { value: total, spread: Math.sqrt(totalVariance) };
+    // D-01/D-02 (plan 07-06): published spread is now √(P + R) — this
+    // team's own posterior sum (`teamOwnComponentVarianceSum`, the exact
+    // per-team P `predict()`'s own `redScoreVarianceOwn`/
+    // `blueScoreVarianceOwn` sums across an alliance) plus `totalVariance`
+    // (R, unchanged above, including its `minConsistencyVariance` floor —
+    // D-03/PD-04). `value: total` is unchanged — expectation is linear and
+    // this plan changes only the uncertainty, never the estimate.
+    perTeam[TOTAL_METRIC_KEY] = { value: total, spread: Math.sqrt(teamOwnComponentVarianceSum(teamState) + totalVariance) };
 
     // Phase groups (Auto/Teleop/Endgame) published as first-class metrics.
     //

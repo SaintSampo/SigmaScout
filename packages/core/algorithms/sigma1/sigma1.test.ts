@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SIGMA1_PARAMS,
   SIGMA1_CONSISTENCY_CARRY_DECAY,
+  SIGMA1_MIN_CONSISTENCY_VARIANCE,
   makeSigma1,
   sigma1,
   sigma1NormalCdf,
@@ -416,6 +417,175 @@ describe("teamMetrics — honest-variance check", () => {
     // total spread also differs, since covariance matrices differ.
     expect(metrics["STEADY"]!["total"]!.spread).not.toBe(metrics["STREAKY"]!["total"]!.spread);
   });
+});
+
+/**
+ * Plan 07-06 (D-01/D-02/D-03): `TeamMetric.spread` is redefined at its
+ * assembly site from `√R` (D-09 consistency alone) to `√(P + R)` — the same
+ * two-term construction `predict()`'s own `redScoreVarianceOwn`/
+ * `blueScoreVarianceOwn` already use. This describe block is the tracer's
+ * end-to-end proof (Task 1): the additivity identity pinned against
+ * `predict()`'s own output, the non-vacuity of that identity, and the
+ * floor-errs-wide direction.
+ */
+describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
+  /**
+   * Same field set as `rawBreakdown2024Uniform` above (score fields plus the
+   * RP-side placeholder fields `rp/2024.ts`'s own schema requires), but with
+   * INDEPENDENT red/blue per-component values so repeated matches fold
+   * genuinely varying residuals into every team's posterior AND covariance
+   * — needed so Test 2 (non-vacuity) is real: a uniform, ever-repeating
+   * observation would converge residuals toward zero and let the
+   * `SIGMA1_MIN_CONSISTENCY_VARIANCE` floor do the work Test 1's identity is
+   * supposed to be proving happens without it.
+   */
+  function rawBreakdown2024Split(redVal: number, blueVal: number): string {
+    function side(perComponentValue: number) {
+      return {
+        autoLeavePoints: perComponentValue,
+        autoAmpNotePoints: perComponentValue,
+        autoSpeakerNotePoints: perComponentValue,
+        teleopAmpNotePoints: perComponentValue,
+        teleopSpeakerNotePoints: perComponentValue,
+        teleopSpeakerNoteAmplifiedPoints: perComponentValue,
+        endGameOnStagePoints: perComponentValue,
+        endGameParkPoints: perComponentValue,
+        endGameHarmonyPoints: perComponentValue,
+        endGameNoteInTrapPoints: perComponentValue,
+        endGameSpotLightBonusPoints: perComponentValue,
+        adjustPoints: perComponentValue,
+        foulPoints: perComponentValue,
+        autoAmpNoteCount: 0,
+        autoSpeakerNoteCount: 0,
+        teleopAmpNoteCount: 0,
+        teleopSpeakerNoteCount: 0,
+        teleopSpeakerNoteAmplifiedCount: 0,
+        endGameTotalStagePoints: 0,
+        endGameRobot1: "None",
+        endGameRobot2: "None",
+        endGameRobot3: "None",
+        coopertitionBonusAchieved: false,
+        melodyBonusAchieved: false,
+        ensembleBonusAchieved: false,
+        melodyBonusThresholdCoop: 0,
+        melodyBonusThresholdNonCoop: 0,
+        ensembleBonusStagePointsThreshold: 0,
+        ensembleBonusOnStageRobotsThreshold: 0,
+      };
+    }
+    return JSON.stringify({ red: side(redVal), blue: side(blueVal) });
+  }
+
+  const SIX_TEAM_RED_VALUES = [8, 22, 5, 30, 12, 25, 3, 18];
+  const SIX_TEAM_BLUE_VALUES = [15, 4, 28, 9, 20, 6, 24, 11];
+
+  /**
+   * Six teams (T1-T3 red, T4-T6 blue), the same alliance pairing across
+   * eight matches with genuinely varying per-component observations —
+   * builds non-degenerate beliefs (P) AND covariance matrices (R) for every
+   * team, per this task's `<behavior>` requirement.
+   */
+  function buildSixTeamFixtureState(): Sigma1State {
+    let state = sigma1.initState([]);
+    for (let i = 0; i < SIX_TEAM_RED_VALUES.length; i++) {
+      state = sigma1.update(
+        state,
+        match({
+          matchKey: `2024test_qm${i + 1}`,
+          redTeams: ["T1", "T2", "T3"],
+          blueTeams: ["T4", "T5", "T6"],
+          hasScoreBreakdown: true,
+          scoreBreakdownRaw: rawBreakdown2024Split(SIX_TEAM_RED_VALUES[i]!, SIX_TEAM_BLUE_VALUES[i]!),
+        })
+      );
+    }
+    return state;
+  }
+
+  const SIX_TEAM_UPCOMING: UpcomingMatch = {
+    matchKey: "2024test_qm99",
+    eventKey: "2024test",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 99,
+    redTeams: ["T1", "T2", "T3"],
+    blueTeams: ["T4", "T5", "T6"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 0,
+  };
+
+  it("Test 1 (the tracer's proof) — three teams' published TOTAL spread squares sum to predict()'s own redScoreVarianceOwn/blueScoreVarianceOwn, on both alliances", () => {
+    const state = buildSixTeamFixtureState();
+    const prediction = sigma1.predict(state, SIX_TEAM_UPCOMING);
+    const redMetrics = sigma1.teamMetrics(state, SIX_TEAM_UPCOMING.redTeams);
+    const blueMetrics = sigma1.teamMetrics(state, SIX_TEAM_UPCOMING.blueTeams);
+
+    const redSumOfSquares = SIX_TEAM_UPCOMING.redTeams.reduce(
+      (sum, team) => sum + redMetrics[team]!["total"]!.spread! ** 2,
+      0
+    );
+    const blueSumOfSquares = SIX_TEAM_UPCOMING.blueTeams.reduce(
+      (sum, team) => sum + blueMetrics[team]!["total"]!.spread! ** 2,
+      0
+    );
+
+    expect(Math.abs(redSumOfSquares - prediction.redScoreVarianceOwn!)).toBeLessThan(1e-9);
+    expect(Math.abs(blueSumOfSquares - prediction.blueScoreVarianceOwn!)).toBeLessThan(1e-9);
+  });
+
+  it("Test 2 (non-vacuity of Test 1) — the SIGMA1_MIN_CONSISTENCY_VARIANCE floor does not bind for any of the six fixture teams", () => {
+    const state = buildSixTeamFixtureState();
+    for (const team of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
+      const teamState = state.teams.get(team)!;
+      expect(teamTotalVariance(teamState.covariance)).toBeGreaterThan(SIGMA1_MIN_CONSISTENCY_VARIANCE);
+    }
+  });
+
+  it("Test 3 — the floor errs wide, never narrow: a cold-start team's TOTAL spread strictly exceeds sqrt(the floor), because P is genuinely added on top of the floored R", () => {
+    const componentOrder = ["autoLeave"];
+    const state: Sigma1State = {
+      season: 2024,
+      componentOrder,
+      teams: new Map([
+        [
+          "COLDSTART",
+          {
+            beliefs: { autoLeave: { mean: 10, variance: 4 } },
+            // All-zero covariance — a genuine cold-start team, so
+            // `teamTotalVariance` is 0 and the `minConsistencyVariance`
+            // floor binds (PD-04).
+            covariance: [[0]],
+            consistency: { autoLeave: DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance },
+            matchCount: 0,
+            lastEventKey: null,
+            innovationStats: emptyInnovationStats(),
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
+          },
+        ],
+      ]),
+      league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
+      allianceScoreStats: emptyExpandingStats(),
+      priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSkippedMatchCount: 0,
+      breakdownParseFailureCount: 0,
+    };
+
+    const metrics = sigma1.teamMetrics(state, ["COLDSTART"]);
+    const totalSpread = metrics["COLDSTART"]!["total"]!.spread!;
+    expect(Number.isFinite(totalSpread)).toBe(true);
+    expect(totalSpread).toBeGreaterThan(0);
+    expect(totalSpread).toBeGreaterThan(Math.sqrt(SIGMA1_MIN_CONSISTENCY_VARIANCE));
+  });
+
+  // Test 4 (regression floor, per this task's <behavior>): the pre-existing
+  // "teamMetrics — D-27 contract shape" and "teamMetrics — honest-variance
+  // check" describe blocks above are left byte-identical in this task's
+  // diff and continue to pass unmodified under P + R — proven by the diff
+  // itself (no edit to either block) rather than by a fourth added test,
+  // which would falsify this task's own "3 higher" case-count criterion.
 });
 
 describe("D-05 fallback — null scoreBreakdownRaw still updates state, with inflated measurement noise", () => {
