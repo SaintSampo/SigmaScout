@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-08-28T03:23:48.257Z"
+stopped_at: Completed 07-08-PLAN.md
+last_updated: "2026-08-28T04:05:14.677Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 70
+  completed_plans: 71
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 7 of 20
+Plan: 8 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
@@ -104,6 +104,7 @@ Progress: [████████░░] 83%
 | Phase 07 P03 | ~20min | 3 tasks | 8 files |
 | Phase 07 P07 | 22min | 3 tasks | 4 files |
 | Phase 07 P04 | 20min | 3 tasks | 5 files |
+| Phase 07 P08 | 40min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -225,6 +226,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P04]: rankingsLive.test.ts's live-TBA cases assert sort_order_info[0].name against a string literal, never the exported constant, so a future rename of the constant cannot make the live drift check pass vacuously; bounded to 7 requests total (T-07-04-04)
 - [Phase ?]: [Phase 07 P04]: Observed (not assumed) that a bare pnpm test in a fresh shell with no exported TBA_API_KEY reports the live-TBA block as a named skip, not a run — this repo's node Vitest project does not auto-load .env into process.env
 - [Phase ?]: [Phase 07 P04]: EVNT-02 left Pending in REQUIREMENTS.md despite appearing in plan 07-04's frontmatter requirements list -- this plan ships only the ingest-level guard/record/ranking-score half; the rendered Insights tab is 07-11's, matching the 07-02/07-03/07-06/07-07 precedent
+- [Phase ?]: [Phase 07 P08]: eventTeamRankingFields extracted as a module-level helper (not inlined in a block-bodied .map() callback) specifically to keep buildEventArtifact's own function range at exactly one return statement (T-07-08-02, high severity) -- traded off against the plan's literal ROUNDING_RULE.rankingPoints in-function grep location, which now reads 0 instead of 1
+- [Phase ?]: [Phase 07 P08]: Task 1's pmf-refines-still-fire test uses an empty redRpPmf, not the plan's literal [0.2, 0.2] -- buildEventArtifact's existing roundPmf call unconditionally renormalizes any non-empty pmf to sum to 1, so [0.2, 0.2] parses successfully through this path; pageArtifacts.test.ts's own schema-level Test 3b (07-07) is what actually covers the raw-value refine failure
+- [Phase ?]: [Phase 07 P08]: EVNT-02/EVNT-04/EVNT-05/EVNT-06 left Pending in REQUIREMENTS.md despite appearing in plan 07-08's frontmatter requirements list -- this plan ships only the assembly/publish-boundary half; the rendered tabs (Insights/Quals/Elims/Alliances) are owned by 07-11 through 07-14, matching the established 07-02/07-03/07-06/07-07 precedent
 
 ### Pending Todos
 
@@ -270,6 +274,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T03:23:48.227Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-08-28T04:05:14.620Z
+Stopped at: Completed 07-08-PLAN.md
 Resume file: None
