@@ -99,6 +99,191 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectAlliances: "populated",
     expectVariance: "present",
   },
+  {
+    eventKey: "2022ilpe",
+    algorithmId: "sigma1",
+    note:
+      "07-13's played+upcoming elimination INTERLEAVE case (qf2m3 between played qf2m2 and qf3m1) — the real " +
+      "case a played-then-upcoming concatenation fails while passing a contiguous fixture. Second ordinary " +
+      "regional for 07-15.",
+    expectMatches: 85,
+    expectUpcoming: 3,
+    expectTeams: 38,
+    expectRankedTeams: 38,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2022mirr",
+    algorithmId: "sigma1",
+    note:
+      "07-13/07-20's pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
+      "rows across 20 sets. Offseason, reachable only once an offseason publish reaches it — this plan is that " +
+      "publish.",
+    expectMatches: 38,
+    expectUpcoming: 60,
+    expectTeams: 15,
+    expectRankedTeams: 15,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2023cur",
+    algorithmId: "sigma1",
+    note: "07-20's widest roster (78 ranked teams, tied max) and 130 qualification rows — the E3 roster and E5 density target.",
+    expectMatches: 145,
+    expectUpcoming: 0,
+    expectTeams: 78,
+    expectRankedTeams: 78,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2023cnsh",
+    algorithmId: "sigma1",
+    note: "D-08 / RESEARCH Pitfall 1's own named event, one of the exact three D-08's fallback was measured and written around. Offseason, zero ranking rows.",
+    expectMatches: 62,
+    expectUpcoming: 0,
+    expectTeams: 29,
+    expectRankedTeams: 0,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2023nhgrs",
+    algorithmId: "sigma1",
+    note:
+      "07-12's adjacency measurement event: 52 played + 26 upcoming qualification rows (zero duplicate " +
+      "matchNumber across the two arrays), a second-season D-13 quals-merge case.",
+    expectMatches: 67,
+    expectUpcoming: 26,
+    expectTeams: 39,
+    expectRankedTeams: 39,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2024new",
+    algorithmId: "sigma1",
+    note:
+      "07-20's E4 target and the payload gate: the corpus's current maximum-bytes event object (285,437 " +
+      "pre-plan) and the widest column set in the app. D-08 CONTROL — every team carries a rank.",
+    expectMatches: 140,
+    expectUpcoming: 0,
+    expectTeams: 75,
+    expectRankedTeams: 75,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2024vabrb",
+    algorithmId: "sigma1",
+    note:
+      "07-14's explicit routed recommendation, three-in-one: offseason, zero ranking rows (D-08's banner), and " +
+      "five alliances of exactly two picks (D-16's incomplete-sum rule on every row).",
+    expectMatches: 26,
+    expectUpcoming: 0,
+    expectTeams: 13,
+    expectRankedTeams: 0,
+    expectAlliances: "populated",
+    expectVariance: "present",
+    expectAllianceCount: 5,
+    expectEveryAlliancePicks: 2,
+  },
+  {
+    eventKey: "2024wvrox",
+    algorithmId: "sigma1",
+    note:
+      "07-20/07-14: the true corpus quals maximum (135 qualification rows) and RESEARCH.md Question 2's " +
+      "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key.",
+    expectMatches: 154,
+    expectUpcoming: 0,
+    expectTeams: 30,
+    expectRankedTeams: 30,
+    expectAlliances: "populated",
+    expectVariance: "present",
+    expectSomeAllianceWithoutName: true,
+  },
+  {
+    eventKey: "2025flta",
+    algorithmId: "sigma1",
+    note:
+      "07-12/07-20: 63 played + 21 upcoming = the 84-row merged quals slate 07-12's width target and 07-20's " +
+      "E5 merge case. Third ordinary regional for 07-15.",
+    expectMatches: 78,
+    expectUpcoming: 21,
+    expectTeams: 42,
+    expectRankedTeams: 42,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2025isios",
+    algorithmId: "sigma1",
+    note:
+      "D-08 / Pitfall 1's headline event (68 matches, zero ranking rows) and 07-20's named D-08 positive case. " +
+      "Only subset event with upcoming qualification rows AND zero elimination matches of any kind.",
+    expectMatches: 43,
+    expectUpcoming: 25,
+    expectTeams: 45,
+    expectRankedTeams: 0,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2025bc",
+    algorithmId: "sigma1",
+    note:
+      "D-17: RESEARCH.md Question 2 live-observed an EMPTY alliances array here — a valid 200 with [], on an " +
+      "event that ran 83 qualification matches and published 62 rankings.",
+    expectMatches: 113,
+    expectUpcoming: 0,
+    expectTeams: 62,
+    expectRankedTeams: 62,
+    expectAlliances: "empty",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2025cmptx",
+    algorithmId: "sigma1",
+    note:
+      "07-11's own named expected no-ranking candidate — Einstein is playoff-only, so zero ranking rows is a " +
+      "format fact, not an offseason fact. Also zero qualification rows in both arrays (UI-SPEC E5 empty) and " +
+      "a 4-pick alliance shape for D-16's excluded-fourth-pick rule.",
+    expectMatches: 16,
+    expectUpcoming: 0,
+    expectTeams: 26,
+    expectRankedTeams: 0,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2026vache",
+    algorithmId: "sigma1",
+    note:
+      "07-20's E1 target. Published name is 124 characters — the longest event name in five seasons of corpus " +
+      "data — the header truncation + title backstop needs a real published artifact carrying it.",
+    expectMatches: 75,
+    expectUpcoming: 0,
+    expectTeams: 30,
+    expectRankedTeams: 30,
+    expectAlliances: "populated",
+    expectVariance: "present",
+  },
+  {
+    eventKey: "2026wvrox",
+    algorithmId: "sigma1",
+    note:
+      "D-17, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
+      "seasons. Also 5 upcoming qualification rows against 120 played — the D-13 quals merge in a third " +
+      "season and a different ratio.",
+    expectMatches: 120,
+    expectUpcoming: 5,
+    expectTeams: 30,
+    expectRankedTeams: 30,
+    expectAlliances: "empty",
+    expectVariance: "present",
+  },
 ];
 
 // ---------------------------------------------------------------------------
