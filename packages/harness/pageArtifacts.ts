@@ -268,6 +268,29 @@ const EventMatchSchema = z.object({
   compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
   setNumber: z.number().int(),
   matchNumber: z.number().int(),
+  /**
+   * D-13, plan 07-07 Task 1: this match's chronological sort key, in epoch
+   * seconds — the same field and the same spelling as
+   * `TeamSeasonMatchSchema.sortTime` (see its doc comment for the
+   * epoch-seconds unit and the played-row-shows-actual-time semantics, not
+   * restated here). It does two jobs on an event page: it is the ordering
+   * key D-13's client-side merge of `matches[]` and `upcoming[]` sorts on —
+   * the two arrays remain two distinct arrays on the wire so Phase 8's
+   * simulation input is untouched, which means the browser has no other
+   * basis for interleaving them — and, on an UPCOMING row specifically, it is
+   * additionally the value displayed in the Actual column as a scheduled
+   * time (a played row's Actual column shows `actualRedScore`/
+   * `actualBlueScore` instead). Optional, and deliberately never
+   * `.nullable()`: `matches.sort_time` is `NOT NULL` in
+   * `packages/corpus/schema.sql`, so a null is not a representable source
+   * state and accepting one here would invent a third case D-13's merge
+   * would then have to handle for no reason. `undefined` means only "this
+   * artifact predates the field" — 07-12 found no match row in the live
+   * `2024casf` artifact carrying this key. 07-08 sources this from
+   * `selectScheduledMatchTimes` (`packages/harness/publish.ts`), which
+   * already runs for the team artifact; no new corpus query is needed.
+   */
+  sortTime: z.number().int().optional(),
   redTeams: z.array(z.string()),
   blueTeams: z.array(z.string()),
   predictedWinner: z.enum(["red", "blue"]),
@@ -276,6 +299,25 @@ const EventMatchSchema = z.object({
   predictedBlueScore: z.number(),
   redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
   blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
+  /**
+   * D-18 item 3, plan 07-07 Task 1: this alliance's own predicted-score
+   * variance — the same quantity, under the same field name, that
+   * `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
+   * (see that field's doc comment for the full contract; not restated
+   * here). Left `undefined` by OPR and EPA, neither of which models an
+   * alliance-level own variance — following `TeamSeasonMatchSchema.variance`'s
+   * own optional convention. Rounded exactly once, at the publish boundary,
+   * at `ROUNDING_RULE.variance` (`rounding.ts`); the call itself belongs to
+   * 07-08. Under this file's header rule (D-01) it equals the sum of its
+   * three teams' published `TeamMetric.spread` squares — the additivity
+   * identity plan 07-06 pinned against `predict()`'s own output — which is
+   * what makes the Alliances tab's combined uncertainty (07-14) and the
+   * Elims band (07-13) the same number rather than two numbers that happen
+   * to agree.
+   */
+  redScoreVarianceOwn: z.number().optional(),
+  /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+  blueScoreVarianceOwn: z.number().optional(),
   actualWinner: z.enum(["red", "blue", "tie"]),
   actualRedScore: z.number(),
   actualBlueScore: z.number(),
@@ -288,6 +330,8 @@ const EventUpcomingMatchSchema = z
     compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
     setNumber: z.number().int(),
     matchNumber: z.number().int(),
+    /** D-13, plan 07-07 Task 1: see `EventMatchSchema.sortTime`'s doc comment for the full contract — same field, same spelling, same two jobs (ordering key and, here, the value this UPCOMING row's Actual column displays as a scheduled time). */
+    sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
     blueTeams: z.array(z.string()),
     predictedWinner: z.enum(["red", "blue"]),
@@ -296,6 +340,9 @@ const EventUpcomingMatchSchema = z
     predictedBlueScore: z.number(),
     redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
     blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
+    /** D-18 item 3, plan 07-07 Task 1: see `EventMatchSchema.redScoreVarianceOwn`/`blueScoreVarianceOwn`'s doc comments for the full contract — same fields, same spelling, same optional-when-OPR/EPA convention. */
+    redScoreVarianceOwn: z.number().optional(),
+    blueScoreVarianceOwn: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
   })

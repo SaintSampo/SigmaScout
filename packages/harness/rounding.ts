@@ -45,10 +45,20 @@
  * `blueScoreVarianceOwn`) reuse `ROUNDING_RULE.variance` unchanged above —
  * same physical quantity (an alliance-total predictive variance) as the
  * existing combined `variance` field, so no new rounding rule is added for
- * them. D-02's actual RP fields are integral by construction
+ * them. Phase 7 (D-18 item 3, plan 07-07 Task 1) extends this same reuse to
+ * `EventMatchSchema`/`EventUpcomingMatchSchema`'s own `redScoreVarianceOwn`/
+ * `blueScoreVarianceOwn` pair — it is the identical physical quantity at the
+ * event-page aggregation level, so a second key here would be drift wearing
+ * documentation's clothes, not a genuinely new field class. D-02's actual RP
+ * fields are integral by construction
  * (`packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema.actualRedRp`/
  * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
- * `ROUNDING_RULE` entry for RP either.
+ * `ROUNDING_RULE` entry for RP either. `sortTime` (Phase 6's
+ * `TeamSeasonMatchSchema.sortTime`, and Phase 7's `EventMatchSchema.sortTime`/
+ * `EventUpcomingMatchSchema.sortTime`, plan 07-07 Task 1) gets no entry for a
+ * stronger reason than an integer count: it is a timestamp in epoch seconds,
+ * not a measured quantity, so rounding it at any display precision would be
+ * meaningless at best and would silently reorder a match list at worst.
  *
  * TIE-BREAKING (roundTo): half-away-from-zero, implemented explicitly —
  * take the sign, scale, `Math.round` the magnitude, unscale, restore the

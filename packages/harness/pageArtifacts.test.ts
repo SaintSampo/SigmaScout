@@ -465,6 +465,121 @@ describe("EventArtifactSchema.upcoming — D-08's real shape", () => {
   });
 });
 
+describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/blueScoreVarianceOwn and sortTime (D-18 item 3, D-13, plan 07-07 Task 1)", () => {
+  /**
+   * Mirrors `fixtureWithMatchRow`'s shape (see the D-01 own-variance describe
+   * block above): spreads `validEventFixture()` and applies partial
+   * overrides to the top level, to `matches[0]`, to `upcoming[0]` and to
+   * `teams` — or, for the D-13 merge case, replaces the whole `matches`/
+   * `upcoming` arrays outright. `validEventFixture` itself is never mutated.
+   */
+  function eventFixtureWith(
+    overrides: {
+      top?: Record<string, unknown>;
+      match?: Record<string, unknown>;
+      matches?: Array<Record<string, unknown>>;
+      upcoming?: Record<string, unknown>;
+      upcomingRows?: Array<Record<string, unknown>>;
+      teams?: Array<Record<string, unknown>>;
+    } = {}
+  ) {
+    const fixture = validEventFixture() as unknown as Record<string, unknown>;
+    const baseMatches = fixture.matches as Array<Record<string, unknown>>;
+    const baseUpcoming = fixture.upcoming as Array<Record<string, unknown>>;
+    const matches = overrides.matches ?? [{ ...baseMatches[0]!, ...overrides.match }];
+    const upcoming = overrides.upcomingRows ?? [{ ...baseUpcoming[0]!, ...overrides.upcoming }];
+    return {
+      ...fixture,
+      ...overrides.top,
+      matches,
+      upcoming,
+      ...(overrides.teams !== undefined ? { teams: overrides.teams } : {}),
+    };
+  }
+
+  it("Test 2 — a played row carries both variance fields, read back off the parsed result", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redScoreVarianceOwn: 41.25, blueScoreVarianceOwn: 38.5 } }));
+    // Direct property access (no intermediate `as unknown as {...}` cast) is
+    // load-bearing here (PD-10): before EventMatchSchema declares these
+    // fields, this line is a `pnpm typecheck` error (TS2339, property does
+    // not exist on the inferred zod type), not merely a runtime `undefined`.
+    expect(parsed.matches[0]!.redScoreVarianceOwn).toBe(41.25);
+    expect(parsed.matches[0]!.blueScoreVarianceOwn).toBe(38.5);
+  });
+
+  it("Test 3a — an upcoming row carries both variance fields, read back off the parsed result", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ upcoming: { redScoreVarianceOwn: 41.25, blueScoreVarianceOwn: 38.5 } }));
+    expect(parsed.upcoming[0]!.redScoreVarianceOwn).toBe(41.25);
+    expect(parsed.upcoming[0]!.blueScoreVarianceOwn).toBe(38.5);
+  });
+
+  it("Test 3b — an upcoming row carrying both variance fields AND a redRpPmf summing to 0.4 still fails, naming the pmf rule — proves the new fields landed inside the object literal without disturbing the chained .refine() calls", () => {
+    const result = EventArtifactSchema.safeParse(
+      eventFixtureWith({ upcoming: { redScoreVarianceOwn: 41.25, blueScoreVarianceOwn: 38.5, redRpPmf: [0.2, 0.2] } })
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must be non-empty and sum to 1"))).toBe(true);
+    }
+  });
+
+  it("Test 4 — the two fields are independently optional on a played row", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redScoreVarianceOwn: 41.25 } }));
+    expect(parsed.matches[0]!.redScoreVarianceOwn).toBe(41.25);
+    expect(parsed.matches[0]!.blueScoreVarianceOwn).toBeUndefined();
+  });
+
+  it("Test 5 — the OPR/EPA case: a played row and an upcoming row carrying neither field both parse and both read back undefined", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.matches[0]!.redScoreVarianceOwn).toBeUndefined();
+    expect(parsed.matches[0]!.blueScoreVarianceOwn).toBeUndefined();
+    expect(parsed.upcoming[0]!.redScoreVarianceOwn).toBeUndefined();
+    expect(parsed.upcoming[0]!.blueScoreVarianceOwn).toBeUndefined();
+  });
+
+  it("Test 6 — sortTime round-trips on both a played row and an upcoming row", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { sortTime: 1710500000 }, upcoming: { sortTime: 1710503600 } }));
+    expect(parsed.matches[0]!.sortTime).toBe(1710500000);
+    expect(parsed.upcoming[0]!.sortTime).toBe(1710503600);
+  });
+
+  it("Test 6b — a row carrying no sortTime parses and reads it back as undefined — the pre-republish state", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.matches[0]!.sortTime).toBeUndefined();
+  });
+
+  it("Test 7a — sortTime is rejected when non-integer", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { sortTime: 1710500000.5 } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 7b — sortTime is rejected when null — matches.sort_time is NOT NULL in the corpus, so null is not a representable source state", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { sortTime: null } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 8 — the D-13 merge is possible from the published shape alone: concatenating matches and upcoming and sorting by sortTime yields the four matchKeys in strict chronological order", () => {
+    const baseMatch = validEventFixture().matches[0]!;
+    const baseUpcoming = validEventFixture().upcoming[0]!;
+    const fixture = eventFixtureWith({
+      matches: [
+        { ...baseMatch, matchKey: "2026casj_qm1", sortTime: 10 },
+        { ...baseMatch, matchKey: "2026casj_qm3", sortTime: 30 },
+      ],
+      upcomingRows: [
+        { ...baseUpcoming, matchKey: "2026casj_qm2", sortTime: 20 },
+        { ...baseUpcoming, matchKey: "2026casj_qm4", sortTime: 40 },
+      ],
+    });
+    const parsed = EventArtifactSchema.parse(fixture);
+    type SortableRow = { matchKey: string; sortTime?: number };
+    const merged = [...(parsed.matches as unknown as SortableRow[]), ...(parsed.upcoming as unknown as SortableRow[])].sort(
+      (a, b) => (a.sortTime ?? 0) - (b.sortTime ?? 0)
+    );
+    expect(merged.map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3", "2026casj_qm4"]);
+  });
+});
+
 describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 1)", () => {
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
