@@ -136,6 +136,37 @@ export function hasEventLocationColumns(db: Corpus): boolean {
   return EVENT_LOCATION_COLUMNS.every(([name]) => existing.has(name));
 }
 
+/**
+ * The four D-18.6 columns `event_rankings` gained in plan 07-02 — TBA's own
+ * `record` object (wins/losses/ties) plus the RP `sort_orders[0]` value,
+ * renamed `ranking_score`. Named for its headline fields but governs all
+ * four columns including the ranking score, so a reader does not assume a
+ * fifth un-migrated column exists somewhere. Paired with the SQL type used
+ * when adding a missing one via `ALTER TABLE ... ADD COLUMN` below, mirroring
+ * `EVENT_LOCATION_COLUMNS`'s shape exactly.
+ */
+const EVENT_RANKING_RECORD_COLUMNS: readonly [string, string][] = [
+  ["record_wins", "INTEGER"],
+  ["record_losses", "INTEGER"],
+  ["record_ties", "INTEGER"],
+  ["ranking_score", "REAL"],
+];
+
+/**
+ * True when the given handle's `event_rankings` table already carries all
+ * four D-18.6 record/ranking-score columns (plan 07-02) — the `PRAGMA
+ * table_info(event_rankings)` analog of `hasEventLocationColumns`, scanning
+ * `event_rankings` instead of `events`. Exported because `integrity.test.ts`
+ * reads it in plan 07-02 Task 3, so guard and test are single-sourced
+ * exactly as `hasEventLocationColumns` and `hasWinnerImputedColumn` already
+ * are.
+ */
+export function hasEventRankingRecordColumns(db: Corpus): boolean {
+  const columns = db.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[];
+  const existing = new Set(columns.map((column) => column.name));
+  return EVENT_RANKING_RECORD_COLUMNS.every(([name]) => existing.has(name));
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
@@ -198,6 +229,35 @@ export function openCorpus(path: string): Corpus {
       throw new Error(
         `Additive migration for events table location columns at ${path} did not complete — ` +
           `hasEventLocationColumns still returns false after running every missing ALTER TABLE.`
+      );
+    }
+  }
+
+  // plan 07-02 (D-18.6): the same additive-nullable-column exception as the
+  // EVNT-01 block above, applied to event_rankings' four new source fields
+  // (TBA's own record.{wins,losses,ties} and sort_orders[0], renamed
+  // ranking_score) rather than a derived value — every statement here is an
+  // add-a-column statement, nothing removes a table, removes rows, or
+  // copies data into a replacement table, so it is safe against a
+  // populated, unrecoverable corpus. Must run after the schema.sql exec
+  // above (which creates event_rankings already carrying these columns on
+  // a fresh corpus) and after the hasWinnerImputedColumn guard (a corpus
+  // that fails that guard must not be partially migrated first).
+  if (!hasEventRankingRecordColumns(db)) {
+    const columns = db.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[];
+    const existing = new Set(columns.map((column) => column.name));
+    for (const [name, sqlType] of EVENT_RANKING_RECORD_COLUMNS) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE event_rankings ADD COLUMN ${name} ${sqlType}`);
+      }
+    }
+    if (!hasEventRankingRecordColumns(db)) {
+      // Unreachable in practice — guards against a bug in the ALTER loop
+      // itself, not TBA drift, so a named error is appropriate here too.
+      db.close();
+      throw new Error(
+        `Additive migration for event_rankings record/ranking-score columns at ${path} did not complete — ` +
+          `hasEventRankingRecordColumns still returns false after running every missing ALTER TABLE.`
       );
     }
   }
@@ -738,30 +798,56 @@ export interface CorpusEventRanking {
   rank: number;
   totalTeams: number;
   fetchedAt: string;
+  /**
+   * D-18.6 (plan 07-02): TBA ranking entry's own `record` object and the RP
+   * `sort_orders[0]` value, renamed `ranking_score`. Optional, not
+   * required — `packages/ingest/cli.ts`'s existing `ingestSeasonRankingsOnly`
+   * call site must keep compiling unchanged at this plan's commit, three
+   * waves before 07-04 widens it to actually supply them. Omitting a field
+   * writes SQL NULL over whatever was there (see `upsertEventRanking`'s own
+   * doc comment for why that is harmless before 07-04 and the intended
+   * refresh semantics after it).
+   */
+  recordWins?: number | null;
+  recordLosses?: number | null;
+  recordTies?: number | null;
+  rankingScore?: number | null;
 }
 
 /**
  * Upserts one team's TBA-computed standing at one event (TEAM-04, F-06-3,
- * plan 06.1-01). Mirrors `upsertTeamMedia`'s upsert-on-conflict shape:
- * overwrites every non-key column on conflict, so a re-run over an
- * already-ingested event refreshes `rank`/`totalTeams`/`fetchedAt` in place
- * rather than duplicating rows (the `(event_key, team_key)` primary key
- * makes this idempotent).
+ * plan 06.1-01; D-18.6 record/ranking-score fields added plan 07-02).
+ * Mirrors `upsertTeamMedia`'s upsert-on-conflict shape: overwrites every
+ * non-key column on conflict, so a re-run over an already-ingested event
+ * refreshes every field in place rather than duplicating rows (the
+ * `(event_key, team_key)` primary key makes this idempotent). A caller
+ * omitting the four D-18.6 fields writes NULL over whatever was there —
+ * harmless before 07-04 widens `ingestSeasonRankingsOnly` to always supply
+ * them (every row's four columns are already NULL until then), and the
+ * intended refresh semantics afterward.
  */
 export function upsertEventRanking(db: Corpus, ranking: CorpusEventRanking): void {
   db.prepare(
-    `INSERT INTO event_rankings (event_key, team_key, rank, total_teams, fetched_at)
-     VALUES (@eventKey, @teamKey, @rank, @totalTeams, @fetchedAt)
+    `INSERT INTO event_rankings (event_key, team_key, rank, total_teams, fetched_at, record_wins, record_losses, record_ties, ranking_score)
+     VALUES (@eventKey, @teamKey, @rank, @totalTeams, @fetchedAt, @recordWins, @recordLosses, @recordTies, @rankingScore)
      ON CONFLICT(event_key, team_key) DO UPDATE SET
        rank = excluded.rank,
        total_teams = excluded.total_teams,
-       fetched_at = excluded.fetched_at`
+       fetched_at = excluded.fetched_at,
+       record_wins = excluded.record_wins,
+       record_losses = excluded.record_losses,
+       record_ties = excluded.record_ties,
+       ranking_score = excluded.ranking_score`
   ).run({
     eventKey: ranking.eventKey,
     teamKey: ranking.teamKey,
     rank: ranking.rank,
     totalTeams: ranking.totalTeams,
     fetchedAt: ranking.fetchedAt,
+    recordWins: ranking.recordWins ?? null,
+    recordLosses: ranking.recordLosses ?? null,
+    recordTies: ranking.recordTies ?? null,
+    rankingScore: ranking.rankingScore ?? null,
   });
 }
 
@@ -770,33 +856,73 @@ interface EventRankingRow {
   team_key: string;
   rank: number;
   total_teams: number;
+  record_wins: number | null;
+  record_losses: number | null;
+  record_ties: number | null;
+  ranking_score: number | null;
 }
 
 /**
  * Every stored event ranking for a season, nested `event_key -> team_key ->
- * {rank, totalTeams}` (TEAM-04, F-06-3, plan 06.1-01) — the shape
- * `packages/harness/publish.ts`'s per-team artifact assembly looks up by
- * key, never by array position (this plan's `must_haves.truths`: SQLite's
- * row order is never load-bearing). Joins `events` to filter by season,
- * mirroring `selectTeamKeysForYear`'s join-to-`events` shape, since
- * `event_rankings` itself carries no `year` column.
+ * {rank, totalTeams, recordWins, recordLosses, recordTies, rankingScore}`
+ * (TEAM-04, F-06-3, plan 06.1-01; D-18.6 fields added plan 07-02) — the
+ * shape `packages/harness/publish.ts`'s per-team artifact assembly looks up
+ * by key, never by array position (this plan's `must_haves.truths`:
+ * SQLite's row order is never load-bearing). Joins `events` to filter by
+ * season, mirroring `selectTeamKeysForYear`'s join-to-`events` shape, since
+ * `event_rankings` itself carries no `year` column. The four D-18.6 fields
+ * read `null` for any row that never had them written.
  */
 export function selectEventRankingsForSeason(
   db: Corpus,
   season: number
-): Map<string, Map<string, { rank: number; totalTeams: number }>> {
+): Map<
+  string,
+  Map<
+    string,
+    {
+      rank: number;
+      totalTeams: number;
+      recordWins: number | null;
+      recordLosses: number | null;
+      recordTies: number | null;
+      rankingScore: number | null;
+    }
+  >
+> {
   const rows = db
     .prepare(
-      `SELECT er.event_key, er.team_key, er.rank, er.total_teams
+      `SELECT er.event_key, er.team_key, er.rank, er.total_teams,
+              er.record_wins, er.record_losses, er.record_ties, er.ranking_score
        FROM event_rankings er
        JOIN events e ON e.event_key = er.event_key
        WHERE e.year = ?`
     )
     .all(season) as EventRankingRow[];
-  const result = new Map<string, Map<string, { rank: number; totalTeams: number }>>();
+  const result = new Map<
+    string,
+    Map<
+      string,
+      {
+        rank: number;
+        totalTeams: number;
+        recordWins: number | null;
+        recordLosses: number | null;
+        recordTies: number | null;
+        rankingScore: number | null;
+      }
+    >
+  >();
   for (const row of rows) {
     if (!result.has(row.event_key)) result.set(row.event_key, new Map());
-    result.get(row.event_key)!.set(row.team_key, { rank: row.rank, totalTeams: row.total_teams });
+    result.get(row.event_key)!.set(row.team_key, {
+      rank: row.rank,
+      totalTeams: row.total_teams,
+      recordWins: row.record_wins,
+      recordLosses: row.record_losses,
+      recordTies: row.record_ties,
+      rankingScore: row.ranking_score,
+    });
   }
   return result;
 }

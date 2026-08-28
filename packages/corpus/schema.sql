@@ -98,12 +98,35 @@ CREATE TABLE IF NOT EXISTS team_media (
 -- for a real populated TBA ranking entry (PD-02): a null response body or
 -- an empty rankings array writes zero rows for that event, rather than a
 -- placeholder row with a fabricated rank.
+--
+-- record_wins/record_losses/record_ties/ranking_score (D-18.6, plan 07-02
+-- Task 2): four additive nullable columns, following EVNT-01's
+-- ALTER-TABLE-ADD-COLUMN precedent (db.ts's openCorpus migration comment)
+-- rather than this table's own CREATE-TABLE-IF-NOT-EXISTS precedent, since
+-- they widen an existing table rather than create a new one — see
+-- EVENT_RANKING_RECORD_COLUMNS / hasEventRankingRecordColumns in db.ts for
+-- the migration that lands them on a corpus created before this plan.
+-- Nullable because a row ingested before 07-04's widened ingest ran
+-- genuinely has no answer for them, and NULL is that honest answer.
+-- record_wins/record_losses/record_ties come from the TBA ranking entry's
+-- own `record` object — the authoritative source, since it accounts for
+-- DQs and surrogate appearances a matches[]-derived count would not.
+-- ranking_score comes from `sort_orders[0]` and is REAL because TBA's value
+-- is a per-match average, not a count; it is named for the exact string
+-- `sort_order_info[0].name` carries in every one of the 40 events
+-- RESEARCH.md sampled across 5 seasons and 8 event types ("Ranking
+-- Score") — 07-04 asserts that string at ingest, so the column name and
+-- the guard cannot drift apart.
 CREATE TABLE IF NOT EXISTS event_rankings (
   event_key TEXT NOT NULL REFERENCES events(event_key),
   team_key TEXT NOT NULL REFERENCES teams(team_key),
   rank INTEGER NOT NULL,
   total_teams INTEGER NOT NULL,
   fetched_at TEXT NOT NULL,
+  record_wins INTEGER,   -- TBA ranking entry's record.wins; NULL until 07-04's widened ingest fills it
+  record_losses INTEGER, -- TBA ranking entry's record.losses; NULL until 07-04's widened ingest fills it
+  record_ties INTEGER,   -- TBA ranking entry's record.ties; NULL until 07-04's widened ingest fills it
+  ranking_score REAL,    -- TBA's sort_orders[0], named for sort_order_info[0].name === "Ranking Score"; NULL until 07-04's widened ingest fills it
   PRIMARY KEY (event_key, team_key)
 );
 
