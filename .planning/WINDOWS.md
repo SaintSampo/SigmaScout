@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 3
-total_count: 12
-last_updated: 2026-08-28T04:38:17.003Z
+total_count: 13
+last_updated: 2026-08-28T05:45:22.023Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,7 @@ last_updated: 2026-08-28T04:38:17.003Z
 | 10 | 04 | unrun-verify | apps/worker/src/scheduled.ts |  | epa/sigma1 solo deployed-Worker freshness runs (plan 04-07 Task 2) never folded a single match within the poll window and were not diagnosed to root cause within the plan's session; opr's identical rig succeeded cleanly (6/6, digestMatch=true). Not reproduced in an isolated local call to the same algorithm code with the same real data. The CI-runnable offline equivalence test (scheduled.replay.test.ts) independently proves equivalence for all three algorithms and is unaffected. | open |  | 2026-08-23T03:17:53.122Z |  |
 | 11 | 06.1 | unmet-truth | docs/publish-budget.md |  | teams/{year} page kind measured max (3,577,069 bytes) exceeds committed budgetMaxBytes (3,500,000); caused entirely by pre-06.1 Phase-6 commits bf1e3228/06f468ad first republished by plan 06.1-07; ceiling deliberately not raised; payloadBudget.test.ts left red pending a developer decision | open |  | 2026-08-27T00:37:40.533Z |  |
 | 12 | 07 | deviation | packages/corpus/integrity.test.ts | 314 | 07-05's mandated full-corpus rankings backfill (zero NULL record_wins/losses/ties/ranking_score corpus-wide) permanently falsifies this pre-existing 07-02 test's nullRows assertion, which expects to still find an event_rankings row with all four columns NULL; out of 07-05's declared scope (plan verification requires packages/corpus/ diff stay empty for the whole plan), so left unfixed and reported here for a future plan to update the stale assertion | open |  | 2026-08-28T04:38:17.003Z |  |
+| 13 | 07 | deviation | scripts/verifySubsetPublish.ts |  | 2025isios published alliances:[] against 07-10's committed expectAlliances:populated seed value; confirmed against live TBA (GET /event/2025isios/alliances -> 200, []) as real TBA state, a third D-17 empty-alliances event beyond RESEARCH.md's original two (2025bc, 2026wvrox) -- expectation left unedited per plan's first prohibition, routed to 07-14 | open |  | 2026-08-28T05:45:22.023Z |  |
 
 ````json
 [
@@ -172,6 +173,18 @@ last_updated: 2026-08-28T04:38:17.003Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-28T04:38:17.003Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "scripts/verifySubsetPublish.ts",
+    "line": null,
+    "description": "2025isios published alliances:[] against 07-10's committed expectAlliances:populated seed value; confirmed against live TBA (GET /event/2025isios/alliances -> 200, []) as real TBA state, a third D-17 empty-alliances event beyond RESEARCH.md's original two (2025bc, 2026wvrox) -- expectation left unedited per plan's first prohibition, routed to 07-14",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-28T05:45:22.023Z",
     "resolved_at": null
   }
 ]
