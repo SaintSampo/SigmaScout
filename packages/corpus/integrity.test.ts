@@ -86,6 +86,27 @@ function createLegacyMatchesTable(db: Database.Database): void {
   `);
 }
 
+/**
+ * An `event_rankings` table shaped exactly like the pre-07-02 schema — the
+ * five columns `schema.sql` had before D-18.6 added `record_wins`,
+ * `record_losses`, `record_ties` and `ranking_score`, nothing more. The
+ * `REFERENCES` clauses are omitted for the same reason
+ * `createLegacyMatchesTable` omits them: the fixture exists to pin a column
+ * set, not foreign-key behaviour.
+ */
+function createLegacyEventRankingsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE event_rankings (
+      event_key TEXT NOT NULL,
+      team_key TEXT NOT NULL,
+      rank INTEGER NOT NULL,
+      total_teams INTEGER NOT NULL,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (event_key, team_key)
+    );
+  `);
+}
+
 /** An `events` table shaped exactly like the pre-05-02 schema — five columns, none of EVNT-01's new location/calendar fields. */
 function createLegacyEventsTable(db: Database.Database): void {
   db.exec(`
@@ -311,7 +332,15 @@ describe("event_alliances / event_rankings migration against the real corpus (pl
     }
   });
 
-  it("the migration did not corrupt columns it did not touch, and wrote no default value into the four new columns on existing rows", () => {
+  // The companion no-default assertion does NOT live here. Proving the
+  // migration wrote no default into pre-existing rows is only observable
+  // from row state while those rows are still unfilled, and 07-05's
+  // full-corpus backfill legitimately fills every one of them — so an
+  // assertion phrased against the real corpus can only ever be true in the
+  // window between 07-02 and 07-05. It is asserted against a purpose-built
+  // pre-migration database instead, in the ungated block below, where it
+  // tests the migration itself and no backfill can invalidate it.
+  it("the migration did not corrupt columns it did not touch", () => {
     const readDb = openCorpusReadOnly(CORPUS_PATH);
     try {
       const invalidCount = (
@@ -320,22 +349,83 @@ describe("event_alliances / event_rankings migration against the real corpus (pl
         }
       ).n;
       expect(invalidCount).toBe(0);
-
-      const nullRows = readDb
-        .prepare(
-          `SELECT record_wins, record_losses, record_ties, ranking_score
-           FROM event_rankings
-           WHERE record_wins IS NULL AND record_losses IS NULL AND record_ties IS NULL AND ranking_score IS NULL
-           LIMIT 1`
-        )
-        .get() as { record_wins: null; record_losses: null; record_ties: null; ranking_score: null } | undefined;
-      expect(nullRows).toBeDefined();
-      expect(nullRows?.record_wins).toBeNull();
-      expect(nullRows?.record_losses).toBeNull();
-      expect(nullRows?.record_ties).toBeNull();
-      expect(nullRows?.ranking_score).toBeNull();
     } finally {
       readDb.close();
+    }
+  });
+});
+
+/**
+ * D-18.6, plan 07-02 Task 2 — the ALTER TABLE block in isolation.
+ *
+ * This is the home of the no-default assertion that used to sit in the
+ * corpus-backed block above. `ALTER TABLE ADD COLUMN` writing no default
+ * into pre-existing rows is a property of the MIGRATION, so it is asserted
+ * against a database built to be pre-migration: a legacy-shaped
+ * `event_rankings` carrying a row, then opened through `openCorpus` so the
+ * real migration runs against it. Phrased that way the assertion is stable
+ * for good. Phrased against `data/corpus.sqlite` it was not: it required a
+ * still-all-NULL row to exist, which 07-05's full-corpus backfill correctly
+ * eliminated corpus-wide (WINDOWS.md ledger #12).
+ *
+ * Needs no real corpus, so unlike the block above it always runs — matching
+ * this file's header discipline for its temp-path blocks.
+ */
+describe("event_rankings record/ranking-score migration against a pre-migration database (plan 07-02 Task 2)", () => {
+  it("adds all four D-18.6 columns and writes no default value into rows that predate them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-migration-"));
+    const path = join(dir, "corpus.sqlite");
+    let db: Corpus | undefined;
+    try {
+      // A row that exists BEFORE the four columns do — the only state from
+      // which 'the migration wrote no default' is observable at all.
+      const legacy = new Database(path);
+      createLegacyEventRankingsTable(legacy);
+      legacy
+        .prepare(
+          `INSERT INTO event_rankings (event_key, team_key, rank, total_teams, fetched_at)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .run("2024casj", "frc254", 1, 42, "2024-03-01T00:00:00Z");
+      legacy.close();
+
+      // Runs Task 2's ALTER TABLE block. `CREATE TABLE IF NOT EXISTS` in
+      // schema.sql leaves the legacy table alone, so the migration path —
+      // not the fresh-schema path — is what executes here.
+      db = openCorpus(path);
+
+      expect(hasEventRankingRecordColumns(db)).toBe(true);
+
+      const row = db
+        .prepare(
+          `SELECT rank, total_teams, record_wins, record_losses, record_ties, ranking_score
+           FROM event_rankings
+           WHERE event_key = ? AND team_key = ?`
+        )
+        .get("2024casj", "frc254") as
+        | {
+            rank: number;
+            total_teams: number;
+            record_wins: number | null;
+            record_losses: number | null;
+            record_ties: number | null;
+            ranking_score: number | null;
+          }
+        | undefined;
+
+      // Guards the four NULL assertions below against passing vacuously on a
+      // row the migration dropped.
+      expect(row).toBeDefined();
+      expect(row?.rank).toBe(1);
+      expect(row?.total_teams).toBe(42);
+
+      expect(row?.record_wins).toBeNull();
+      expect(row?.record_losses).toBeNull();
+      expect(row?.record_ties).toBeNull();
+      expect(row?.ranking_score).toBeNull();
+    } finally {
+      db?.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
