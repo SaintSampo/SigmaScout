@@ -181,13 +181,25 @@ export type TbaEventRankingsResponse = z.infer<typeof tbaEventRankingsResponseSc
  *   maximum is deliberately unconstrained: 3 and 4 were both observed, and
  *   a length ceiling would turn a future format change into a parse
  *   failure over something this pipeline does not care about.
- * - `status` is `z.unknown()`, the same treatment `tbaMatchSchema.
- *   score_breakdown` already gets under D-05. RESEARCH.md Q2 observed its
- *   shape varying with `playoff_type` across values 0, 4, 8 and 10, with
- *   only `status.status`, `status.record`, `status.current_level_record`
- *   and `status.level` reliably present. Modelling it field-by-field would
- *   make a future playoff format a parse failure; storing it whole keeps
- *   the provenance without the brittleness.
+ * - `status` is `z.unknown().optional()`, the same z.unknown() treatment
+ *   `tbaMatchSchema.score_breakdown` already gets under D-05, plus
+ *   `.optional()`. RESEARCH.md Q2's 40-event sample observed its shape
+ *   varying with `playoff_type` across values 0, 4, 8 and 10, with only
+ *   `status.status`, `status.record`, `status.current_level_record` and
+ *   `status.level` reliably present — but did not observe the key ABSENT
+ *   entirely. This plan's Task 2 live full-season run (2022, real corpus)
+ *   found it: several alliance objects at real 2022 events carry no
+ *   `status` key at all. Zod v4 treats `z.unknown()` alone as requiring
+ *   the key to be present (an "unknown" value is not the same as an
+ *   absent key), so the un-`.optional()`-ed schema threw
+ *   `invalid_type: expected nonoptional, received undefined` against real
+ *   data — exactly A3's named risk ("a full-corpus live ingest could
+ *   surface a rarer shape variant [the 40-event] sample didn't hit")
+ *   materializing inside this plan's own two-season run. Modelling it
+ *   field-by-field would make a future playoff format a parse failure;
+ *   storing it whole (when present) keeps the provenance without the
+ *   brittleness, and `.optional()` makes absence a real, distinct answer
+ *   rather than a parse failure, exactly like `name`'s treatment above.
  * - `declines` is required. It was present, as an empty array, in all 40
  *   sampled events, and `event_alliances.declines` is `NOT NULL` — a
  *   missing key is genuine drift that a NOT NULL column cannot honestly
@@ -197,7 +209,7 @@ export const tbaAllianceEntrySchema = z.object({
   declines: z.array(z.string()),
   name: z.string().nullish(),
   picks: z.array(z.string()).min(1),
-  status: z.unknown(),
+  status: z.unknown().optional(),
 });
 export type TbaAllianceEntry = z.infer<typeof tbaAllianceEntrySchema>;
 

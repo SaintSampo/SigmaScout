@@ -18,6 +18,10 @@
  *     every team's standing at each of the season's events via
  *     /event/{key}/rankings and stores the result in event_rankings. One
  *     request per event, not per team; includes offseason events (PD-01).)
+ *   pnpm ingest:alliances --years 2022-2026   (EVNT-05, D-18.7, plan 07-03:
+ *     resolves each event's playoff alliance selection via
+ *     /event/{key}/alliances, one request per event, and stores the result
+ *     in event_alliances. Includes offseason events, matching PD-01.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -36,6 +40,7 @@ import {
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   upsertEvent,
+  upsertEventAlliance,
   upsertEventRanking,
   upsertMatch,
   upsertTeam,
@@ -43,10 +48,12 @@ import {
   writeEtag,
   type Corpus,
 } from "../corpus/db.js";
+import { normalizeEventAlliances } from "./alliances.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
 import { normalizeEventRankings } from "./rankings.js";
 import {
+  tbaAllianceResponseSchema,
   tbaEventListSchema,
   tbaEventRankingsResponseSchema,
   tbaEventSchema,
@@ -57,6 +64,7 @@ import {
 } from "./schemas.js";
 import {
   fetchAllTeams,
+  fetchEventAlliances,
   fetchEventDetail,
   fetchEventMatches,
   fetchEventRankings,
@@ -88,6 +96,8 @@ interface CliOptions {
   mediaOnly: boolean;
   /** TEAM-04/F-06-3 (plan 06.1-01): resolve/refresh only event_rankings for the requested season range. */
   rankingsOnly: boolean;
+  /** EVNT-05, D-18.7 (plan 07-03): resolve/refresh only event_alliances for the requested season range. */
+  alliancesOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -113,11 +123,13 @@ function parseCliOptions(): CliOptions {
       "events-only": { type: "boolean", default: false },
       "media-only": { type: "boolean", default: false },
       "rankings-only": { type: "boolean", default: false },
+      "alliances-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
   const mediaOnly = values["media-only"] ?? false;
   const rankingsOnly = values["rankings-only"] ?? false;
+  const alliancesOnly = values["alliances-only"] ?? false;
 
   if (values.event) {
     return {
@@ -128,11 +140,21 @@ function parseCliOptions(): CliOptions {
       eventsOnly,
       mediaOnly,
       rankingsOnly,
+      alliancesOnly,
     };
   }
   if (values.years) {
     const [seasonStart, seasonEnd] = parseYearsRange(values.years);
-    return { seasonStart, seasonEnd, eventKey: undefined, force: values.force ?? false, eventsOnly, mediaOnly, rankingsOnly };
+    return {
+      seasonStart,
+      seasonEnd,
+      eventKey: undefined,
+      force: values.force ?? false,
+      eventsOnly,
+      mediaOnly,
+      rankingsOnly,
+      alliancesOnly,
+    };
   }
   if (values.year) {
     const year = Number(values.year);
@@ -145,6 +167,7 @@ function parseCliOptions(): CliOptions {
       eventsOnly,
       mediaOnly,
       rankingsOnly,
+      alliancesOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -417,6 +440,97 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
   );
 }
 
+/**
+ * EVNT-05/D-18.7 (plan 07-03): resolves every event's playoff alliance
+ * selection for one season via TBA's `/event/{key}/alliances`, one request
+ * per event, and stores the result in `event_alliances`. Structurally
+ * identical to `ingestSeasonRankingsOnly` above — iterates the corpus's OWN
+ * `events` table for the season, deliberately does NOT filter offseason
+ * events (PD-01 remains in force here too — RESEARCH.md Q2's live probe
+ * found offseason events are exactly where the two empty-array cases live,
+ * so excluding them would hide the absent-data case D-17 is designed
+ * around), and tallies the same tri-state parse-result split.
+ *
+ * Two deliberate divergences from `ingestSeasonRankingsOnly`, stated here
+ * so a reader does not assume they were forgotten:
+ *
+ * 1. There is no unknown-team guard and no `unknownTeamCount`.
+ *    `ingestSeasonRankingsOnly` needs one because `event_rankings.
+ *    team_key REFERENCES teams(team_key)`, and TBA reports rankings for
+ *    synthetic second-robot keys such as `frc1165B` at `2024azrl1`..`5`
+ *    that TBA's own `/team/{key}` 404s on. `event_alliances` stores
+ *    `picks` as a JSON array with no team-key foreign key — 07-02's
+ *    explicit decision, taken because of that very incident — so a
+ *    synthetic key inside `picks` is harmless here and must not be
+ *    filtered out. Filtering it would silently drop a real team from a
+ *    real alliance.
+ * 2. There IS a `notFoundCount`, mirroring `ingestSeasonMediaOnly`'s
+ *    rather than `ingestSeasonRankingsOnly`'s bare log line. With it, the
+ *    five counters — `populatedCount`, `nullBodyCount`,
+ *    `emptyAlliancesCount`, `cacheHitCount`, `notFoundCount` — sum exactly
+ *    to the season's event count, which turns the tally from a log line
+ *    into a closed invariant a reader can falsify. Every event takes
+ *    exactly one of the five paths.
+ */
+async function ingestSeasonAlliancesOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const eventKeys = (
+    db.prepare(`SELECT event_key FROM events WHERE year = ?`).all(year) as { event_key: string }[]
+  ).map((r) => r.event_key);
+
+  let populatedCount = 0;
+  let nullBodyCount = 0;
+  let emptyAlliancesCount = 0;
+  let cacheHitCount = 0;
+  let notFoundCount = 0;
+
+  for (const eventKey of eventKeys) {
+    const alliancesUrl = `/event/${eventKey}/alliances`;
+    let result: Awaited<ReturnType<typeof fetchEventAlliances>>;
+    try {
+      result = await fetchEventAlliances(ctx, eventKey, cachedEtagFor(db, alliancesUrl, force));
+    } catch (err) {
+      // Mirrors ingestSeasonMediaOnly's 404 handling: a placeholder/
+      // unregistered event key 404ing is an honest "nothing to fetch" for
+      // this event, not TBA schema drift — skip and continue the season.
+      if (err instanceof Error && /HTTP 404/.test(err.message)) {
+        notFoundCount++;
+        console.log(`  ${alliancesUrl}: 404 Not Found, skipping`);
+        continue;
+      }
+      throw err;
+    }
+    if (result.status === 304) {
+      cacheHitCount++;
+      continue;
+    }
+
+    const parsed = tbaAllianceResponseSchema.parse(result.body);
+    if (parsed === null) {
+      nullBodyCount++;
+    } else if (parsed.length === 0) {
+      emptyAlliancesCount++;
+    } else {
+      populatedCount++;
+    }
+
+    const normalized = normalizeEventAlliances(parsed);
+    const fetchedAt = new Date().toISOString();
+    for (const alliance of normalized) {
+      upsertEventAlliance(db, { eventKey, ...alliance, fetchedAt });
+    }
+    // writeEtag runs AFTER the upsert loop, deliberately — an interrupted
+    // event has no cached ETag and is re-fetched on the next run rather
+    // than skipped as a 304 whose rows never landed.
+    if (result.etag) writeEtag(db, alliancesUrl, result.etag);
+  }
+
+  console.log(
+    `Season ${year}: ${eventKeys.length} events (${populatedCount} populated, ${nullBodyCount} null-body, ` +
+      `${emptyAlliancesCount} empty-alliances, ${cacheHitCount} cache hits this run, ` +
+      `${notFoundCount} not-found)`
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -504,6 +618,20 @@ async function main(): Promise<void> {
     } else if (options.rankingsOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonRankingsOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.alliancesOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonAlliancesOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,

@@ -59,6 +59,12 @@ describe("tbaAllianceResponseSchema", () => {
     expect(() => tbaAllianceResponseSchema.parse(response)).not.toThrow();
   });
 
+  it("parses an alliance object with no status key at all — live-discovered against the real 2022 season (Task 2), not in RESEARCH.md's original 40-event sample", () => {
+    const { status: _status, ...withoutStatus } = allianceEntry();
+    expect(Object.keys(withoutStatus)).toEqual(["declines", "name", "picks"]);
+    expect(() => tbaAllianceResponseSchema.parse([withoutStatus])).not.toThrow();
+  });
+
   it("throws on a drifted payload — picks retyped from an array of strings to a single string", () => {
     const drifted = [{ ...allianceEntry(), picks: "frc3310" }];
     expect(() => tbaAllianceResponseSchema.parse(drifted)).toThrow();
