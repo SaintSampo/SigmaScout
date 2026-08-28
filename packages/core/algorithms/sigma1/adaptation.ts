@@ -52,7 +52,10 @@ import type { Sigma1Params } from "./params.js";
  * season of history. This uses its own EWMA at `params.adaptationEwmaAlpha`,
  * the same "recency-weighted, one off match can't swing it too far"
  * reasoning `consistency.ts`'s `SIGMA1_CONSISTENCY_EWMA_ALPHA` doc comment
- * already states for the team-page spread.
+ * already states for R, the consistency term (plan 07-06, D-01: R is one of
+ * the two terms — alongside the posterior P — now summed into every
+ * published `TeamMetric.spread`; see `sigma1/index.ts`'s `teamMetrics` doc
+ * comment for the full redefinition).
  */
 export interface InnovationStats {
   readonly meanSquaredNormalizedInnovation: number;
@@ -117,7 +120,7 @@ export function foldInnovation(stats: InnovationStats, normalizedInnovation: num
  *     handful of matches cannot tell you its regime is changing — returning
  *     1 here (rather than computing off thin data) is the min-observations
  *     floor, the same role `consistency.ts`'s `shrinkConsistency` weight
- *     plays for thin per-team history on the team-page spread.
+ *     plays for thin per-team history on R, the consistency term.
  *
  * Otherwise: `clamp(pow(stats.meanSquaredNormalizedInnovation,
  * params.adaptationExponent), params.adaptationMinFactor,

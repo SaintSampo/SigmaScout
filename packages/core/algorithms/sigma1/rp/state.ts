@@ -4,8 +4,10 @@
  * SEPARATE from `sigma1/index.ts`'s score-side `Sigma1TeamState` fields
  * (`beliefs`/`covariance`/`consistency`) — this module never reads or
  * writes those, and `sigma1/index.ts`'s `teamTotalVariance` call keeps
- * summing the score-component matrix alone, so the published team-page `±`
- * and `docs/models/sigma1-identifiability.md`'s conclusions are numerically
+ * summing the score-component matrix alone, so BOTH terms behind a
+ * published `TeamMetric.spread` (P — `beliefs`' own `variance` — and R —
+ * `consistency`/`covariance`, plan 07-06's D-01/D-02) and
+ * `docs/models/sigma1-identifiability.md`'s conclusions are numerically
  * untouched by everything in this file (D-09's whole point, provable by
  * `state.test.ts`'s dedicated equality assertion, not merely asserted in
  * prose).

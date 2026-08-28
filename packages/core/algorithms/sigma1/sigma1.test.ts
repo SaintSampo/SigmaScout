@@ -12,14 +12,17 @@ import {
   sigma1,
   sigma1NormalCdf,
   sigma1SeasonSd,
+  shrinkConsistency,
   teamTotalVariance,
   type Sigma1State,
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
-import { FOULS_COMMITTED_COMPONENT } from "../breakdown/index.js";
+import { FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
+import { TOTAL_METRIC_KEY } from "../types.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 import { emptyInnovationStats } from "./adaptation.js";
+import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
 import { epa } from "../epa.js";
 
@@ -586,6 +589,130 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
   // diff and continue to pass unmodified under P + R — proven by the diff
   // itself (no edit to either block) rather than by a fourth added test,
   // which would falsify this task's own "3 higher" case-count criterion.
+});
+
+/**
+ * Plan 07-06 Task 2: the remaining two published-spread assembly sites
+ * (per-component, phase-group) get the same `√(P + R)` redefinition Task 1
+ * proved on TOTAL. Every key `teamMetrics` returns must carry the two-term
+ * construction — PD-01's "closed set of three sites" claim, checked here
+ * per-key rather than just at TOTAL.
+ */
+describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 07-06 Task 2)", () => {
+  it("Test 5 — every published metric key's spread strictly exceeds the square root of that key's R term alone", () => {
+    let state = sigma1.initState([]);
+    state = sigma1.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["frc254", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redScore: UNIFORM_TOTAL,
+        blueScore: UNIFORM_TOTAL,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+
+    const metrics = sigma1.teamMetrics(state, ["frc254"]);
+    const frc254 = metrics["frc254"]!;
+    const teamState = state.teams.get("frc254")!;
+
+    // Cannot pass vacuously by iterating an empty or truncated record.
+    expect(Object.keys(frc254).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1 + 3);
+
+    const groups = componentGroupsForSeason(state.season!)!;
+    for (const [key, metric] of Object.entries(frc254)) {
+      let rAlone: number;
+      if (key === TOTAL_METRIC_KEY) {
+        rAlone = Math.sqrt(Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, teamTotalVariance(teamState.covariance)));
+      } else if (key === "phaseAuto" || key === "phaseTeleop" || key === "phaseEndgame") {
+        const groupId: "auto" | "teleop" | "endgame" = key === "phaseAuto" ? "auto" : key === "phaseTeleop" ? "teleop" : "endgame";
+        const indices = groups[groupId]
+          .map((name) => state.componentOrder.indexOf(name))
+          .filter((index) => index !== -1);
+        rAlone = Math.sqrt(Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, subsetVariance(teamState.covariance, indices)));
+      } else {
+        const observedConsistency = teamState.consistency[key] ?? DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance;
+        // Mirrors `leagueConsistencyFor` (index.ts, module-private): the
+        // live league-average consistency for this component if the league
+        // has folded any observations of it yet, else the cold-start
+        // fallback — NOT the fallback alone, since this state's league has
+        // real folded data after the update() call above.
+        const leagueStats = state.league.componentConsistency[key];
+        const leagueConsistency =
+          leagueStats && leagueStats.count > 0 ? leagueStats.mean : DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance;
+        rAlone = Math.sqrt(
+          shrinkConsistency(
+            observedConsistency,
+            teamState.matchCount,
+            leagueConsistency,
+            DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches,
+            DEFAULT_SIGMA1_PARAMS.minConsistencyVariance
+          )
+        );
+      }
+      expect(metric.spread!, `${key}: spread must strictly exceed √R alone`).toBeGreaterThan(rAlone);
+    }
+  });
+
+  it("Test 6 — a phase group's P and R sums cover the SAME present-only component set (PD-07)", () => {
+    // A hand-built state whose 2024 season grouping (auto: autoLeave,
+    // autoAmpNote, autoSpeakerNote) names a component absent from
+    // `componentOrder` — `autoAmpNote` is deliberately excluded, so the
+    // group's P sum and R sum must both skip it, not just one of the two.
+    const componentOrder = ["autoLeave", "autoSpeakerNote"];
+    const state: Sigma1State = {
+      season: 2024,
+      componentOrder,
+      teams: new Map([
+        [
+          "PARTIALGROUP",
+          {
+            beliefs: {
+              autoLeave: { mean: 5, variance: 3 },
+              autoSpeakerNote: { mean: 7, variance: 6 },
+            },
+            covariance: [
+              [4, 1],
+              [1, 5],
+            ],
+            consistency: { autoLeave: 2, autoSpeakerNote: 3 },
+            matchCount: 10,
+            lastEventKey: "2024test",
+            innovationStats: emptyInnovationStats(),
+            rpBeliefs: {},
+            rpCovariance: [],
+            rpCrossCovariance: [],
+          },
+        ],
+      ]),
+      league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
+      allianceScoreStats: emptyExpandingStats(),
+      priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSkippedMatchCount: 0,
+      breakdownParseFailureCount: 0,
+    };
+
+    const metrics = sigma1.teamMetrics(state, ["PARTIALGROUP"]);
+    const groupSpread = metrics["PARTIALGROUP"]!["phaseAuto"]!.spread!;
+    expect(Number.isFinite(groupSpread)).toBe(true);
+
+    // Present-only indices: autoLeave (0) and autoSpeakerNote (1).
+    // autoAmpNote has no entry in componentOrder, so it is absent from BOTH
+    // the posterior sum and the covariance subset — never just one.
+    const presentPosterior = 3 + 6; // belief.variance for autoLeave + autoSpeakerNote
+    const presentR = Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, subsetVariance(state.teams.get("PARTIALGROUP")!.covariance, [0, 1]));
+    const expected = Math.sqrt(presentPosterior + presentR);
+    expect(Math.abs(groupSpread - expected)).toBeLessThan(1e-9);
+  });
+
+  // Test 7 (regression floor, per this task's <behavior>): the pre-existing
+  // "teamMetrics — honest-variance check" describe block is left
+  // byte-identical in this task's diff too and continues to pass — two
+  // teams with identical means but different residual histories still
+  // report different spreads on both `autoLeave` and `total`, since R still
+  // differs between them under P + R.
 });
 
 describe("D-05 fallback — null scoreBreakdownRaw still updates state, with inflated measurement noise", () => {

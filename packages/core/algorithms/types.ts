@@ -90,11 +90,14 @@ export interface Prediction {
    * spread) total, the exact D-10 predictive-variance quantity Sigma1
    * already computes to build its RP pmf. This is NOT the same quantity as
    * `variance` above (which sums both alliances for the win-probability
-   * denominator) and NOT the same quantity as `TeamMetric.spread`'s D-09
-   * match-to-match consistency — a later reader must never conflate any of
-   * these three. Optional, following the same convention as `variance`
-   * above: populated by Sigma1, left `undefined` by OPR and EPA, neither of
-   * which models an alliance-level own variance.
+   * denominator) — that distinction stays real and unaffected. It IS,
+   * since plan 07-06 (D-01/D-02), the SAME quantity as `TeamMetric.spread`
+   * at the alliance aggregation level: `redScoreVarianceOwn` equals the sum
+   * of its three teams' `TeamMetric.spread` squares, by construction
+   * (`sigma1/sigma1.test.ts`'s alliance-additivity identity test pins this
+   * against `predict()`'s own output). Optional, following the same
+   * convention as `variance` above: populated by Sigma1, left `undefined`
+   * by OPR and EPA, neither of which models an alliance-level own variance.
    */
   redScoreVarianceOwn?: number;
   /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
@@ -138,7 +141,14 @@ export interface Prediction {
   blueBonusRp?: readonly number[];
 }
 
-/** D-27: one team's named metric — a value with an optional consistency/uncertainty spread. */
+/**
+ * D-27, redefined by D-01/D-02 (plan 07-06): one team's named metric — a
+ * value with an optional `spread`. `spread` is one standard deviation of
+ * the FULL predictive variance for that team and metric (`√(P + R)`) — the
+ * only uncertainty quantity this project ever displays. Every `±` printed
+ * and every band or interval drawn anywhere on the site is this same
+ * quantity, at whatever aggregation level the surface shows.
+ */
 export interface TeamMetric {
   value: number;
   spread?: number;

@@ -1,34 +1,44 @@
 /**
- * D-09/D-11's team-page `±` estimator: a team's own match-to-match
+ * D-09/D-11's consistency (R) estimator: a team's own match-to-match
  * performance spread, shrunk toward the league average when its history is
  * thin.
  *
  * Three distinct "variance" quantities live in this phase — conflating
  * them is the single most likely way Sigma1 ships a number that reads
  * plausibly and means nothing (PROJECT.md's core value is HONEST
- * uncertainty). Named once here, mapped explicitly (RESEARCH.md Pattern 3):
+ * uncertainty). Named once here, mapped explicitly (RESEARCH.md Pattern 3;
+ * updated by plan 07-06, D-01/D-02/D-03 — see that plan's own doc comment
+ * on `sigma1/index.ts`'s `teamMetrics` for the full redefinition):
  *
- *   - consistency / spread (D-09, THIS module, team page) — the
- *     measurement noise `R`: the per-team, per-component variance of one
- *     match's REALIZED contribution around that team's CURRENT mean.
- *     `foldConsistency` estimates it online via an EWMA of squared
- *     residuals; `shrinkConsistency` blends it toward the league average
- *     for thin histories (D-11).
+ *   - consistency (D-09, THIS module) — the measurement noise `R`: the
+ *     per-team, per-component variance of one match's REALIZED contribution
+ *     around that team's CURRENT mean. `foldConsistency` estimates it
+ *     online via an EWMA of squared residuals; `shrinkConsistency` blends
+ *     it toward the league average for thin histories (D-11). D-03: this
+ *     module's output is still computed and still folded into the Kalman
+ *     update, but it is now only ONE OF THE TWO TERMS behind what the site
+ *     displays — never published or displayed on its own.
  *   - estimate uncertainty — the posterior covariance `P` from
- *     `kalman.ts`'s `TeamComponentBelief.variance`. Never displayed
- *     directly; an internal filter quantity.
- *   - full predictive variance (D-10, match prediction) — `P + Q + R`,
- *     combined per D-03 across an alliance in `sigma1/index.ts`'s
- *     `predict`. Strictly larger than this module's team-page spread,
- *     since it also carries the filter's own uncertainty about the mean.
+ *     `kalman.ts`'s `TeamComponentBelief.variance`. The OTHER term: since
+ *     plan 07-06 (D-01), `P` is summed with this module's `R` at every
+ *     `sigma1/index.ts` `teamMetrics` assembly site, and is therefore part
+ *     of every `TeamMetric.spread` the site displays — no longer an
+ *     internal-only filter quantity.
+ *   - full predictive variance (D-10) — `P + Q + R`, combined per D-03
+ *     across an alliance in `sigma1/index.ts`'s `predict`, and — since plan
+ *     07-06 — the SAME two-term construction (`P` here plus `R` from this
+ *     module, over one team rather than an alliance) that `teamMetrics`
+ *     publishes as `TeamMetric.spread` at every aggregation level: team,
+ *     phase group, and alliance total. One quantity, displayed everywhere.
  *
  * Boundary contracts this module makes explicit (matching `brier.ts`'s
  * header-block convention):
  *
  *   - `foldConsistency`'s `prior` argument is a VARIANCE (squared units),
  *     never a standard deviation — callers take `Math.sqrt` only at the
- *     point of display (`sigma1/index.ts`'s `teamMetrics`).
- *   - A team with zero prior matches gets its shrunk spread entirely from
+ *     point of display (`sigma1/index.ts`'s `teamMetrics`, which sums this
+ *     term with `P` first — plan 07-06).
+ *   - A team with zero prior matches gets its shrunk R entirely from
  *     the league-average prior (`shrinkConsistency`'s weight is exactly 0
  *     at `matchCount === 0`) — never a bare 0 (a false claim of perfect
  *     consistency) and never the raw per-team EWMA alone (which would be
@@ -89,8 +99,11 @@ export function foldConsistency(prior: number, residual: number, alpha: number =
  * `sigma1/index.ts`'s `teamMetrics` (Phase 3) passes
  * `params.shrinkagePriorMatches`/`params.minConsistencyVariance` explicitly
  * instead. All arguments and the return value are VARIANCES (squared
- * units) — `sigma1/index.ts` takes the square root only when populating a
- * displayed `TeamMetric.spread`.
+ * units) — `sigma1/index.ts`'s `teamMetrics` (plan 07-06, D-01/D-02) sums
+ * this R term with the matching P term from `kalman.ts`'s
+ * `TeamComponentBelief.variance` FIRST, and takes the square root of that
+ * sum only when populating a displayed `TeamMetric.spread` — never the
+ * square root of this function's return value alone.
  */
 export function shrinkConsistency(
   observed: number,

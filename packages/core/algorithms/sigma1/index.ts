@@ -8,7 +8,9 @@
  *
  * Assembles `kalman.ts` (the per-component Kalman recursion), `covariance.ts`
  * (D-03's per-team cross-component covariance and total-variance quadratic
- * form), `consistency.ts` (D-09/D-11's team-page spread estimator), and
+ * form), `consistency.ts` (D-09/D-11's consistency/R term estimator — ONE OF
+ * THE TWO TERMS behind every published spread since plan 07-06, D-01/D-02;
+ * see `teamMetrics`'s own doc comment below for the full redefinition), and
  * `linkFunctions.ts` (D-12's three win-probability modes) into one
  * `predict`/`update`/`teamMetrics`/`carrySeason` contract, reusing
  * `opr.ts`'s `ratingEligibleTeams` and `breakdown/index.ts`'s per-season
@@ -982,28 +984,46 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
 }
 
 /**
- * D-27: per team, one `TeamMetric` per learned component (`value` = the
- * Kalman belief mean, `spread` = the square root of the D-11-shrunk
- * consistency variance) plus `TOTAL_METRIC_KEY` (`value` = the component
- * sum, `spread` = the square root of `teamTotalVariance` over the team's
- * OWN covariance matrix — D-03's full quadratic form, not a sum of
- * per-component spreads, since that would silently drop cross-component
- * correlation). Every spread is derived from that team's own residual
- * history; a team with no history gets the shrinkage blend's
- * league-prior-dominated value, visible as such via a `matchCount` of 0
- * rather than hidden behind a plausible-looking number.
+ * D-27/D-01/D-02 (plan 07-06): per team, one `TeamMetric` per learned
+ * component, plus `TOTAL_METRIC_KEY`, plus each of `phaseAuto`/
+ * `phaseTeleop`/`phaseEndgame` this season registers a grouping for. Every
+ * key's `spread` is the SAME two-term construction, at whatever aggregation
+ * level the key names: that team's own posterior variance (P,
+ * `teamOwnComponentVarianceSum`/`belief.variance`, the filter's uncertainty
+ * about the mean) PLUS that team's own consistency term (R, D-09's
+ * match-to-match residual variance, D-11-shrunk) over the SAME component
+ * set — one standard deviation of the full predictive variance for that
+ * team, at that aggregation level. A group's version restricts both terms
+ * to the group's own component indices (PD-07); TOTAL's version is exactly
+ * this team's own contribution to `predict()`'s `redScoreVarianceOwn`/
+ * `blueScoreVarianceOwn` — three teammates' TOTAL spreads sum in quadrature
+ * to the alliance variance `predict` reports, pinned by
+ * `sigma1.test.ts`'s Test 1 (the additivity identity) against `predict()`'s
+ * own output. `value` is unchanged at every level — expectation is linear
+ * however the components covary, and D-01 changes only the uncertainty,
+ * never the estimate. A group's spread has to be computed HERE, not
+ * reconstructed from published per-component spreads on a client: it needs
+ * the off-diagonal `Cov(auto_i, auto_j)` terms, which are never published.
+ * A team with no history gets the shrinkage blend's league-prior-dominated
+ * R term (P instead starts at the cold-start belief variance), visible as
+ * such via a `matchCount` of 0 rather than hidden behind a plausible-
+ * looking number.
  *
- * D-05 (plan 03-04), Claude's Discretion resolved: adaptation does NOT
- * touch this function's output. `consistency`/`teamState.covariance` below
- * are exactly what they were before adaptation existed — adaptation only
- * ever scales `applyTeamProcessNoise`'s `q` (the Kalman filter's process
- * noise, an internal responsiveness knob), never the empirically-estimated
- * consistency/covariance this function reads. The published `±` is what the
- * site shows the user; it must stay a direct empirical estimate of that
- * team's own residual spread, not partly a function of a tuning parameter —
- * letting a responsiveness knob move it would quietly turn an "honest
- * uncertainty" number into something the on/off adaptation comparison could
- * no longer cleanly attribute.
+ * D-05 (plan 03-04) REVERSED by D-01 (plan 07-06): this comment used to
+ * assert that adaptation does NOT touch this function's output, and that
+ * the published `±` "must stay a direct empirical estimate of that team's
+ * own residual spread, not partly a function of a tuning parameter." Both
+ * claims stop being true the moment P is published. `index.ts`'s
+ * `scaledQ = q * adaptationFactor(...)` (see `applyTeamProcessNoise`) scales
+ * the process noise that inflates `belief.variance` — and `belief.variance`
+ * IS P, now summed into every spread this function returns. D-01 is a
+ * locked, one-way user decision that supersedes the earlier constraint
+ * outright (plan 07-06, T-07-06-02 in the threat register): the published
+ * `±` now includes the filter's own uncertainty about the mean, and that
+ * term IS moved by the adaptation knob through the scaled process noise.
+ * Consequence: an adaptation on/off comparison can no longer attribute the
+ * published `±` independently of the tuning parameter — a REAL, accepted
+ * cost of D-01, not a bug to fix here.
  */
 function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, params: Sigma1Params): TeamMetrics {
   const requestedTeams = teams ?? [...state.teams.keys()];
@@ -1028,7 +1048,11 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
         params.shrinkagePriorMatches,
         params.minConsistencyVariance
       );
-      perTeam[name] = { value, spread: Math.sqrt(shrunkVariance) };
+      // D-01/D-02 (plan 07-06): this component's posterior term
+      // (`belief?.variance ?? 0`, PD-06 — matching what the match path
+      // already does for a component a team has no belief for) summed with
+      // `shrunkVariance` (R, unchanged above) inside the root.
+      perTeam[name] = { value, spread: Math.sqrt((belief?.variance ?? 0) + shrunkVariance) };
     }
 
     const totalVariance = Math.max(params.minConsistencyVariance, teamTotalVariance(teamState.covariance));
@@ -1055,19 +1079,29 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
       for (const groupId of COMPONENT_GROUP_IDS) {
         const indices: number[] = [];
         let groupValue = 0;
+        // D-01/D-02 (plan 07-06, PD-07): this group's posterior (P) sum,
+        // accumulated in the SAME loop iteration — after the same
+        // `index === -1` guard — that builds `indices` and `groupValue`, so
+        // a component this season's grouping names but `componentOrder`
+        // does not carry is skipped from BOTH the posterior sum and the
+        // covariance subset, never just one. Passing a name list to a
+        // shared helper instead would not guarantee this, since a helper
+        // cannot see `componentOrder`.
+        let groupPosterior = 0;
         let present = false;
         for (const name of groups[groupId]) {
           const index = state.componentOrder.indexOf(name);
           if (index === -1) continue;
           indices.push(index);
           groupValue += teamState.beliefs[name]?.mean ?? 0;
+          groupPosterior += teamState.beliefs[name]?.variance ?? 0;
           present = true;
         }
         // A group whose components are all absent from this season's resolved
         // component order publishes nothing, rather than a spurious 0 ± floor.
         if (!present) continue;
         const groupVariance = Math.max(params.minConsistencyVariance, subsetVariance(teamState.covariance, indices));
-        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue, spread: Math.sqrt(groupVariance) };
+        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue, spread: Math.sqrt(groupPosterior + groupVariance) };
       }
     }
 
