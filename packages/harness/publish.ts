@@ -63,7 +63,6 @@ import {
   openCorpusReadOnly,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
-  selectMatchesChronological,
   selectScheduledMatches,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
@@ -2004,36 +2003,74 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    const matches = selectMatchesChronological(db, { eventKey });
+    const season = deriveSeasonFromEventKey(eventKey);
+    // D-10, PD-05, plan 07-09 Task 2: this mode now replays the target
+    // event's WHOLE SEASON, not just the one event, so the percentile it
+    // publishes is ranked against a genuine season-wide pool rather than
+    // the event's own roster — which `TeamMetricSchema.percentile`'s own
+    // definition forbids. Cost: one season replay per invocation, 16-29
+    // seconds measured (RESEARCH.md Question 3), against a previously
+    // near-instant command. Honest remaining limitation, not hidden: this
+    // mode still carries no CROSS-SEASON state (no season-boundary
+    // threading), so a value it writes is close to but not identical to
+    // what a full seasons run produces — and that full run overwrites
+    // every key it touches. This is the path a subset publish runs on, so
+    // an artifact written here is what the rendered tabs are verified
+    // against.
+    //
+    // PD-06: offseason matches are always included in this season replay,
+    // with no flag of its own — `--event <key>` is an explicit request for
+    // that one event; an excluding stream would be empty (and throw on
+    // data that plainly exists) for an offseason event, and the phase's
+    // authorized full republish always widens its own scope the same way,
+    // so this matches the trajectory that run will write.
+    const stream = buildSeasonStream(db, season, { includeOffseason: true });
+    const scheduled = selectScheduledMatches(db, { year: season });
+    const teamsThisSeason = Array.from(
+      new Set([...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]), ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
+    );
+
+    // PD-07: the loud zero-completed-matches guard and its exact message
+    // are unchanged from 07-08/Phase 4 — never widened to silently publish
+    // a scheduled-only event.
+    const matches = stream.filter((m) => m.eventKey === eventKey);
     if (matches.length === 0) {
       throw new Error(`No completed matches found in corpus for event ${eventKey}`);
     }
-    const season = deriveSeasonFromEventKey(eventKey);
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
-    const simulator = new WalkForwardSimulator(matches);
-    const records = simulator.runAll([algorithm], teams);
-    const predictions: PredictionRecord[] = records.map((r) => ({ match: r.match, prediction: r.prediction }));
+    // D-10, plan 07-09 Task 2: the same one-line per-event state capture
+    // Task 1 added to the seasons path's own per-match completion hook —
+    // one Map, no season-boundary threading (this mode publishes no
+    // team-season artifact and needs none).
+    const stateByEventKey = new Map<string, unknown>();
+    const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
+      stateByEventKey.set(match.eventKey, state);
+    };
+    const simulator = new WalkForwardSimulator(stream);
+    const records = simulator.runAll([algorithm], teamsThisSeason, undefined, onMatchComplete);
+    const predictions: PredictionRecord[] = records
+      .filter((r) => r.match.eventKey === eventKey)
+      .map((r) => ({ match: r.match, prediction: r.prediction }));
     const finalState = records.finalStates.get(algorithm.id);
 
-    const scheduled = selectScheduledMatches(db, { eventKey });
+    const scheduledForEvent = scheduled.filter((m) => m.eventKey === eventKey);
     const upcoming: UpcomingPredictionRecord[] =
-      finalState !== undefined ? scheduled.map((match) => ({ match, prediction: algorithm.predict(finalState, match) })) : [];
+      finalState !== undefined ? scheduledForEvent.map((match) => ({ match, prediction: algorithm.predict(finalState, match) })) : [];
 
     const teamInfo = lookupAllTeamInfo(db);
-    const eventTeamKeys = Array.from(new Set([...teams, ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
-    const metricsByTeam = finalState !== undefined ? algorithm.teamMetrics(finalState, eventTeamKeys) : {};
-    // D-10, plan 07-09 Task 1 (temporary — Task 2 restructures this whole
-    // function onto a season-scoped replay so this becomes a genuine
-    // season-final pool, per PD-05): an empty pool here is a required-
-    // parameter typecheck fix that publishes NO percentile at all (every
-    // metric passes through `withEventPercentiles` unchanged, since an
-    // empty map has no entry for any name) rather than one ranked against
-    // this event's own roster — never the forbidden shortcut, even as a
-    // placeholder.
-    const teamsStanding = buildEventTeamsStanding(metricsByTeam, eventTeamKeys, teamInfo, new Map<string, number[]>());
+    const eventTeamKeys = Array.from(new Set([...teams, ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
+
+    // D-10, plan 07-09 Task 2: derived exactly as the seasons path's own
+    // per-algorithm block derives them — season-final metrics over the
+    // WHOLE season's team list, the pool built from that same map, and the
+    // as-of-event record through the shared helper.
+    const seasonFinalMetrics = finalState !== undefined ? algorithm.teamMetrics(finalState, teamsThisSeason) : {};
+    const sortedPools = sortedPoolsByMetric(seasonFinalMetrics, teamsThisSeason);
+    const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventKey, eventKey, eventTeamKeys, seasonFinalMetrics);
+    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, sortedPools);
     // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
-    // sort-time read at all before this plan — `--event <key>` is an
+    // sort-time read at all before that plan — `--event <key>` is an
     // explicit request to publish that one event, so this call is made with
     // NO options object (offseason matches included), unlike the
     // seasons-path read this file's season loop makes above.

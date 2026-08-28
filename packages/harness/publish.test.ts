@@ -6,7 +6,7 @@
  * network, no corpus. The real full 2022-2026 run is recorded in the
  * SUMMARY, not re-run on every `pnpm test`.
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -2143,6 +2143,32 @@ describe("publishSeasons — D-10 as-of-event value + season-final percentile on
     // rather than hand-typed, so this cannot silently drift from production.
     const expectedOrder = Array.from(new Set(earlyArtifact.matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
     expect(earlyArtifact.teams.map((t) => t.teamKey)).toEqual(expectedOrder);
+  });
+});
+
+/**
+ * Plan 07-09 Task 2: `runEventMode` is module-private and not directly
+ * callable from this test file, so its own single-season-replay/single-
+ * pool/single-as-of-event-call shape is asserted STRUCTURALLY, at the
+ * source-text level, standing in for a behavior test that would otherwise
+ * need a full corpus. This is a deliberate stand-in, named as such so a
+ * later reader does not mistake it for a weakened behavior assertion —
+ * Test 3 below (the full pre-existing + Task 1 seeded-corpus suite still
+ * green) is what actually proves runEventMode's sibling function,
+ * publishSeasons, moved nothing.
+ */
+describe("runEventMode — structural (plan 07-09 Task 2)", () => {
+  const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+  const rangeMatch = /async function runEventMode\b[\s\S]*?(?=\nasync function runSeasonsCliMode\b)/.exec(source);
+
+  it("Test 2 (structural stand-in for an un-exported function): runEventMode's own range contains exactly one buildSeasonStream call, one sortedPoolsByMetric call, and one metricsAsOfEvent call", () => {
+    expect(rangeMatch, "expected to find runEventMode's source range").not.toBeNull();
+    const body = rangeMatch![0];
+    const count = (pattern: string) => (body.match(new RegExp(pattern, "g")) ?? []).length;
+    expect(count("buildSeasonStream\\(")).toBe(1);
+    // <!-- planner-discipline-allow: sortedPoolsByMetric -->
+    expect(count("sortedPoolsByMetric\\(")).toBe(1);
+    expect(count("metricsAsOfEvent\\(")).toBe(1);
   });
 });
 
