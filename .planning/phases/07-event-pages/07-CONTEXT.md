@@ -45,8 +45,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
 
 ### The site-wide ± rule (cross-cutting — supersedes prior guidance)
 
-- **D-01: A user must NEVER see a D-09 consistency value. Every `±` on the site, in
-  every table and every plot, is 1 SD of the full predictive variance `√(P + R)`.**
+- **D-01: A user must NEVER see a D-09 consistency value. Every `±` on the site, in every table and every plot, is 1 SD of the full predictive variance `√(P + R)`.**
 
   This overrides `uncertainty-display.md`'s standing rule that the team-page `±` is D-09
   consistency and the match-prediction `±` is D-10 predictive variance. That two-quantity
@@ -129,8 +128,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
   set: rank, record, RPs, and the three phase groups (auto / teleop / endgame). It is
   **not** a Teams-page clone. Rank comes from `event_rankings`, ingested in 06.1.
 
-- **D-08: On an event with no official ranking, Insights falls back to VPR order and says
-  so.** Measured, not assumed: **259 of 1,581 corpus events have no ranking rows** — 185
+- **D-08: On an event with no official ranking, Insights falls back to VPR order and says so.** Measured, not assumed: **259 of 1,581 corpus events have no ranking rows** — 185
   offseason (type 99), 46 preseason (type 100), ~23 scattered district/regional, and 5
   Championship Finals (type 4, one per year — Einstein is playoff-only, so a
   qualification ranking cannot exist). These are not marginal events: `2025isios` (FIRST
@@ -138,13 +136,11 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
   Rejected: falling back silently (a reader cannot tell official standings from the
   model's opinion) and showing an empty tab (kills Insights on 259 real events).
 
-- **D-09: Tier boxes appear on every metric cell on this tab, including the sorted
-  column.** Knowingly accepts the redundancy Phase 6 D-17 identified (adjacent rows in a
+- **D-09: Tier boxes appear on every metric cell on this tab, including the sorted column.** Knowingly accepts the redundancy Phase 6 D-17 identified (adjacent rows in a
   sorted column share a tier by construction) in exchange for one simple rule and more
   colour — the direction `ui-polish-pass.md` asked for.
 
-- **D-10: The metric values shown are as-of-event — the walk-forward state at that
-  event's end — while percentiles still rank against the season-FINAL field.** The value
+- **D-10: The metric values shown are as-of-event — the walk-forward state at that event's end — while percentiles still rank against the season-FINAL field.** The value
   says "this is what the model knew at this event"; the tier says "and that stood here
   against the final field." This is exactly the split 06.1 already locked for team-page
   history rows, so nothing is re-litigated. Rejected: percentiles also as-of-event, which
@@ -158,9 +154,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
 
 ### Breakdown tab (EVNT-03)
 
-- **D-11: Breakdown shows per-team model estimates, every raw component for that season,
-  as a table of values with tier boxes, sorted by VPR rank, carrying no event rank at
-  all.** Insights is the standings summary; Breakdown is the full detail.
+- **D-11: Breakdown shows per-team model estimates, every raw component for that season, as a table of values with tier boxes, sorted by VPR rank, carrying no event rank at all.** Insights is the standings summary; Breakdown is the full detail.
 
   **Constraint that forces the "model estimates" framing:** TBA's `score_breakdown`
   (102,877 matches in the corpus) is per **alliance**, never per team. Actual per-team
@@ -178,8 +172,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
 
 ### Quals and Elims tabs (EVNT-04, EVNT-06)
 
-- **D-12: Each tab gets its own shared axis domain, computed over that tab's played AND
-  scheduled matches.** Per-tab follows `uncertainty-display.md`'s "one shared scale per
+- **D-12: Each tab gets its own shared axis domain, computed over that tab's played AND scheduled matches.** Per-tab follows `uncertainty-display.md`'s "one shared scale per
   view, never per row" rule (quals and elims are separate views, and elim alliances
   outscore quals teams, so one axis would squash every quals row into the left half). The
   played-and-scheduled computation is carried forward from Phase 6 D-06 rather than
@@ -194,8 +187,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
   treatment. Rejected: two sections on the tab, and merging in the schema (which would
   mean reworking Phase 8's input before Phase 8 starts).
 
-- **D-14: The Elims tab is a flat chronological list with the round labelled per row; a
-  true bracket is deferred.** Measured across the corpus, this is a real structural fork:
+- **D-14: The Elims tab is a flat chronological list with the round labelled per row; a true bracket is deferred.** Measured across the corpus, this is a real structural fork:
 
   | Season | Elim structure |
   |---|---|
@@ -210,8 +202,7 @@ fidelity — the user's "plan it whole" preference is a preference, not a gag or
 
 ### Alliances tab (EVNT-05)
 
-- **D-15: An alliance's combined metric sums the first three picks' means; the combined
-  variance sums their variances and the display shows `√` of it.** Explicitly:
+- **D-15: An alliance's combined metric sums the first three picks' means; the combined variance sums their variances and the display shows `√` of it.** Explicitly:
   `σ_alliance = √(σ₁² + σ₂² + σ₃²)` — standard deviations are never added. Three robots
   at ±10 give ±17.3, not ±30.
 
