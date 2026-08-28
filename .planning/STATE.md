@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-10-PLAN.md
-last_updated: "2026-08-28T05:45:38.682Z"
-last_activity: 2026-08-27
+stopped_at: Completed 07-11-PLAN.md
+last_updated: "2026-08-28T06:29:33.244Z"
+last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 74
+  completed_plans: 75
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 11 of 20
+Plan: 2 of 20
 Status: Ready to execute
-Last activity: 2026-08-27 — Phase 07 execution started
+Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -108,6 +108,7 @@ Progress: [█████████░] 88%
 | Phase 07 P05 | 25min | 3 tasks | 3 files |
 | Phase 07 P09 | 18min | 3 tasks | 2 files |
 | Phase 07 P10 | 35min | 3 tasks | 2 files |
+| Phase 07 P11 | 17min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -240,6 +241,7 @@ Recent decisions affecting current work:
 - [Phase ?]: PD-04 confirmed live: 07-10 adds 7 offseason keys (all 404 pre-plan) and overwrites 8 -- not zero-added as the outline originally said
 - [Phase ?]: 07-10 found 2025isios publishes alliances:[] despite the plan's own table declaring populated -- confirmed against live TBA as real state (not an ingest bug), a third D-17 empty-alliances event; expectation left unedited per the plan's own first prohibition, routed to 07-14
 - [Phase ?]: EVNT-02 through EVNT-06 left Pending after 07-10 (matches 07-02 through 07-09 precedent) -- this plan proves the publish-run level only; 07-11 through 07-15 own the rendered tab surfaces that satisfy each requirement
+- [Phase ?]: [Phase 07 P11]: RP renders as a plain numeric-cell span (never MetricValue) and the fallback-mode Rank header names the selected algorithm — Insights tab EVNT-02/D-07..D-10 shipped, verified live against 2025cmptx (0/26 ranked, real no-ranking Championship Finals) and 2024new (75/75 ranked control)
 
 ### Pending Todos
 
@@ -285,6 +287,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T05:45:38.630Z
-Stopped at: Completed 07-10-PLAN.md
+Last session: 2026-08-28T06:29:33.193Z
+Stopped at: Completed 07-11-PLAN.md
 Resume file: None
