@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-15-PLAN.md
-last_updated: "2026-08-28T08:06:05.144Z"
+stopped_at: Completed 07-16-PLAN.md
+last_updated: "2026-08-28T16:49:06.087Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 78
+  completed_plans: 80
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 6 of 20
+Plan: 7 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -113,6 +113,7 @@ Progress: [█████████░] 93%
 | Phase 07 P13 | ~35min | 2 tasks | 4 files |
 | Phase 07 P14 | 25min | 3 tasks | 4 files |
 | Phase 07 P15 | 45min | 3 tasks | 15 files |
+| Phase 07 P16 | ~70min | 3 tasks | 43 files |
 
 ## Accumulated Context
 
@@ -257,6 +258,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P15]: Event identity header (EventHeader.tsx) ships as a DOM sibling above the tab strip, rendering only on populated/pending (PD-05); EventsList and SearchBox now navigate to /event/{eventKey}, retiring Phase 5's interim Events-list landing
 - [Phase ?]: [Phase 07 P15]: D-20's per-algorithm rank header derives from algorithmDisplayLabel(algorithm) rather than a literal; Phase 5 D-12's year-change extension point discharged via an allow-list membership fetch at click time (resolveYearChangeTarget), falling back to the target season's Events list on any miss/unresolved version/fetch failure
 - [Phase ?]: [Phase 07 P15]: SearchBox.test.tsx's pre-existing case count was 10, not the plan's stated 13; EventsList.test.tsx's pre-existing count (9) matched exactly — both files' pre-existing cases pass unweakened
+- [Phase ?]: [Phase 07 P16]: Sigma1 -> VPR rename (pipeline half): registry/version-files/harness chain renamed to vpr, PIPELINE_ALGORITHM_IDS added beside unchanged PUBLISHED_ALGORITHM_IDS (PD-01) so the browser tier stays on sigma1@ until 07-18; digest.test.ts stayed bit-identical unedited
+- [Phase ?]: [Phase 07 P16]: algorithmIdentity.test.ts's STRUCTURAL_EXEMPTIONS (6 entries) added alongside the plan's own 8-entry IDENTITY_SWEEP_EXCLUSIONS to cover cases the tier-P/C/F list doesn't reach (the sweep's own file, a path-segment false positive, PD-01's dual-tier constant, a frozen-fixture assertion, a live-reality verification script, and a negative rejection-proof test); marker cap raised 12->13 against the real re-grep count
 
 ### Pending Todos
 
@@ -302,6 +305,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T08:06:05.095Z
-Stopped at: Completed 07-15-PLAN.md
+Last session: 2026-08-28T16:49:06.056Z
+Stopped at: Completed 07-16-PLAN.md
 Resume file: None
