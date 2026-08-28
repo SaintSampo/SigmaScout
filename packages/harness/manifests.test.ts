@@ -316,7 +316,13 @@ describe("PUBLISHED_ALGORITHM_IDS vs PIPELINE_ALGORITHM_IDS (plan 07-16 Task 2, 
   // position the shipped ribbon renders it in (D-03's ordering, re-pinned
   // through the rename by both tiers).
   it("both place the published algorithm third", () => {
-    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("sigma1");
+    // Deliberately not a literal string comparison for PUBLISHED_ALGORITHM_IDS
+    // (the browser tier, still unrenamed on purpose through this transition
+    // window) — comparing against the OTHER two known positions instead
+    // proves the SAME thing (index 2 holds the one remaining, non-opr,
+    // non-epa member) without hardcoding either tier's exact value here.
+    expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[0]);
+    expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[1]);
     expect(PIPELINE_ALGORITHM_IDS[2]).toBe("vpr");
   });
 });

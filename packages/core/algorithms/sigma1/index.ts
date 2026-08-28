@@ -20,7 +20,8 @@
  * `makeSigma1({ id, linkMode })` builds one module per D-12 win-probability
  * mode; `update`'s state-transition math is IDENTICAL across every mode
  * (link mode only affects `predict`'s probability step), so three prebuilt
- * modules (`sigma1`, `sigma1SeasonSd`, `sigma1NormalCdf`) can each run
+ * modules (`vpr`, `vprSeasonSd`, `vprNormalCdf` — renamed by plan 07-16,
+ * D-04/D-05, from the pre-rename exports of the same shape) can each run
  * their own state instance in one harness pass — three times a cheap
  * update, in exchange for D-12's side-by-side comparison table without a
  * second replay pass.

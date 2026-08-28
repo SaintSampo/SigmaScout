@@ -53,7 +53,7 @@ TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 # gated by a test that re-derives the budget
 # (apps/worker/test/liveAlgorithmTier.test.ts).
 #
-# D-04/D-05 (plan 07-16): renamed from "sigma1" to "vpr". This value is
+# D-04/D-05 (plan 07-16): renamed from its pre-rename value to vpr. This value is
 # INERT against the deployed Worker until 07-19 runs `pnpm worker:deploy` —
 # the live Worker keeps running under the pre-rename tier until then, and
 # the deployed browser is still reading the pre-rename artifact prefix until

@@ -44,8 +44,9 @@ const ProvenanceSchema = z.object({
    * D-14 (plan 03-05 Task 3): the full provenance a JOINT-stage promotion
    * carries — "which search produced this, on which corpus, scoring what"
    * answerable from the file alone. All OPTIONAL so the pre-existing
-   * tracer-stage promotion (03-01's `vpr@2.0.0+tracer-check.json`, renamed
-   * from `sigma1@2.0.0+tracer-check.json` by plan 07-16, D-04/D-05 — which
+   * tracer-stage promotion (03-01's `vpr@2.0.0+tracer-check.json`, renamed by
+   * plan 07-16, D-04/D-05, from its pre-rename filename
+   * `sigma1@2.0.0+tracer-check.json` [pre-rename] — which
    * never ran the screen or the joint search and therefore has no seed,
    * survivor list, or LOSO summary to report) keeps validating unchanged —
    * every field below IS populated for a joint-stage promotion.

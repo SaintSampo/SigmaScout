@@ -22,8 +22,8 @@
  * use. Defining them in `index.ts` and importing them back into this module
  * would make `index.ts` and `params.ts` import each other: `index.ts` needs
  * `Sigma1Params`/`DEFAULT_SIGMA1_PARAMS` for `Sigma1Options` and its
- * module-top-level `makeSigma1(...)` calls (`sigma1`, `sigma1Defaults`,
- * ...), while `params.ts` would need `index.ts`'s constants for
+ * module-top-level `makeSigma1(...)` calls (`vpr`, `vprDefaults`,
+ * ... — renamed by plan 07-16, D-04/D-05), while `params.ts` would need `index.ts`'s constants for
  * `DEFAULT_SIGMA1_PARAMS`'s own top-level object literal — a genuine ESM
  * import cycle where BOTH sides dereference the other's binding at
  * module-evaluation time, not inside a deferred function body. That throws
@@ -165,8 +165,8 @@ export interface Sigma1Params {
  * Reproduces Phase-2 Sigma1 behaviour exactly: every field is imported from
  * the pre-existing constant it replaces, never a re-typed literal, so this
  * default set cannot drift from the numbers it is defined to reproduce. A
- * `sigma1` module built with no explicit `params` (`makeSigma1({ id,
- * linkMode })`, every pre-Phase-3 call site) resolves to this object and
+ * `vpr` module (renamed by plan 07-16, D-04/D-05) built with no explicit
+ * `params` (`makeSigma1({ id, linkMode })`, every pre-Phase-3 call site) resolves to this object and
  * must produce bitwise-identical predictions to the pre-parameterization
  * module (this task's must-have truth, proven by `sigma1.test.ts` staying
  * green unmodified).

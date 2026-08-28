@@ -468,8 +468,9 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
 /**
  * D-12/D-13: converts one algorithm's in-memory state into `StateRow`s ready
  * for a D1 seed (`emitSeedSql`). Dispatches on `algorithmId`: `"opr"` is
- * event-scoped (D-09), `"epa"` is team-scoped, and every other id (`sigma1`
- * and its four harness-only siblings) shares Sigma1State's exact shape.
+ * event-scoped (D-09), `"epa"` is team-scoped, and every other id (`vpr`
+ * and its four harness-only siblings, renamed by plan 07-16, D-04/D-05)
+ * shares Sigma1State's exact shape.
  */
 export function serializeState(
   algorithmId: string,

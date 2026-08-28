@@ -24,8 +24,8 @@
  * a promotion that changes the slice cannot silently leave a stale fixture
  * behind.
  *
- * Measured (real run against the committed `sigma1@2.0.0+tuned-2026-08`
- * version's 3-event/265-match slice) [pre-rename]: `digest-slice.json` is
+ * Measured [pre-rename] (real run against the committed `sigma1@2.0.0+tuned-2026-08`
+ * version's 3-event/265-match slice): `digest-slice.json` is
  * 644.4 KB — inside this script's own bounded target (roughly 100-300
  * matches / 2-3 events, low hundreds of KB) and well under
  * `digest.test.ts`'s 2 MB acceptance ceiling. The file measured is the same
@@ -38,8 +38,8 @@
  * corpus pass.
  *
  * Usage: `pnpm tsx packages/harness/fixtures/extract-digest-slice.ts [--version <path>]`
- * (defaults to the promoted `vpr@2.0.0+tuned-2026-08.json`, renamed from
- * `sigma1@2.0.0+tuned-2026-08.json` by plan 07-16, D-04/D-05).
+ * (defaults to the promoted `vpr@2.0.0+tuned-2026-08.json`, renamed by
+ * plan 07-16, D-04/D-05, from its pre-rename filename).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

@@ -112,8 +112,13 @@ season. It is a **manual operation run before and after an event weekend** — s
 pnpm publish:seasons
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-opr.sql
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-epa.sql
-npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-sigma1.sql
+npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-vpr.sql
 ```
+
+The third seed file's name follows the algorithm's own registry id (`publish.ts`'s
+`seed-${algorithm.id}.sql`) — renamed from `seed-sigma1.sql` by plan 07-16 (D-04/D-05). This
+instruction describes the file a FUTURE `pnpm publish:seasons` run produces; see the transition
+note under "Live folding tier" below for what has and has not landed yet.
 
 Skipping it breaks nothing — the site stays up and approximately fresh. It just means any drift
 between the Worker's incremental folding and a from-scratch offline replay goes uncorrected until
@@ -123,17 +128,28 @@ the next run.
 
 ## Live folding tier (quick task 260822-wqt)
 
-**Only sigma1 folds live.** `apps/worker/wrangler.toml`'s `[vars] LIVE_ALGORITHM_IDS` is the
-single place that is configured — a plain tracked value, visible in git, following
-`TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere else.
+**D-04/D-05 (plan 07-16) transition note — read this before the rest of this section.** The
+TRACKED config now names the renamed publisher-side identity (`LIVE_ALGORITHM_IDS = "vpr"` in
+`apps/worker/wrangler.toml`), but that change is INERT until 07-19 runs `pnpm worker:deploy` — the
+DEPLOYED Worker is still running the pre-rename tier (folding under the id this section's
+historical measurements below were taken against) until that redeploy happens, and the deployed
+browser is still reading the pre-rename R2 object prefix until 07-18 flips the client's request
+target. Nothing below this note describes a state that exists yet on the live site; it describes
+the mechanism and the historical verification that mechanism was built and proven against.
+
+**Only the published algorithm folds live.** `apps/worker/wrangler.toml`'s `[vars]
+LIVE_ALGORITHM_IDS` is the single place that is configured — a plain tracked value, visible in
+git, following `TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere
+else.
 
 **Why.** `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match (6 touched teams) is 18 with
-sigma1 alone vs. 50 with all three published algorithms, against ~41 subrequests actually
-available per tick (`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own fixed costs).
-With all three live the event defers every tick, forever — measured on the deployed Worker during
-plan 04-07 and recorded in [`publish-budget.md`](publish-budget.md)'s "Worker runtime budget
-(D-21/D-23, plan 04-07)" section; this task's own numbers below reconfirm it on the same criterion
-with sigma1 alone.
+the published algorithm alone vs. 50 with all three published algorithms, against ~41 subrequests
+actually available per tick (`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own
+fixed costs). With all three live the event defers every tick, forever — measured on the deployed
+Worker during plan 04-07 under the pre-rename identity `sigma1` [pre-rename] and recorded in
+[`publish-budget.md`](publish-budget.md)'s "Worker runtime budget (D-21/D-23, plan 04-07)" section;
+this task's own numbers below reconfirm it on the same criterion, also measured under the
+pre-rename identity `sigma1` [pre-rename].
 
 **`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page still read
 them; `packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest
@@ -146,34 +162,38 @@ expected behavior, not a bug.
 `processEvent` uses. Re-measure on a deployed Worker before changing the tracked value; do not
 raise the test's threshold to make a wider tier pass.
 
-**Verified 2026-08-23** (`apps/worker/test/liveAlgorithmTier.test.ts`'s tracked-tier assertion
-flipped to `"sigma1,epa,opr"` and observed to fail on the arithmetic-naming message, then reverted
-— see that test file and its own commit):
+**Verified 2026-08-23, all measurements below under the pre-rename identity `sigma1` [pre-rename] —
+plan 07-16 renamed the identity afterward without re-running this verification, since the rename
+moves no predicted number and folds no different match** (`apps/worker/test/liveAlgorithmTier.test.ts`'s
+tracked-tier assertion flipped to `"sigma1,epa,opr"` [pre-rename] and observed to fail on the
+arithmetic-naming message, then reverted — see that test file and its own commit):
 
 - Deployed version `77fca208-753f-4a4b-9f91-98e32c0e1717` (tracked config). `wrangler deploy`'s
-  output listed both `env.TBA_BASE_URL` and `env.LIVE_ALGORITHM_IDS ("sigma1")` alongside the
-  `MANIFEST`/`DB`/`ARTIFACTS` bindings and `schedule: * * * * *`.
+  output listed both `env.TBA_BASE_URL` and `env.LIVE_ALGORITHM_IDS ("sigma1")` [pre-rename]
+  alongside the `MANIFEST`/`DB`/`ARTIFACTS` bindings and `schedule: * * * * *`.
 - Idle ticks on that version: 3 consecutive `"ok":true`, `eventsConsidered:0`, `subrequestsUsed:1`,
   CPU 5–6 ms — no `live-tier-defaulted` warn line, confirming the tracked var reached the deployed
   Worker.
-- A real fold, driven via the replay rig (`--event 2026cmptx --algorithm sigma1 --match-limit 2
-  --live-trigger cron`) against version `6cbe6d50-c556-49df-a2f6-551030e4ed01` (the rig's
-  fixture-pointed deploy): both matches folded with **zero timeouts** —
+- A real fold, driven via the replay rig (`--event 2026cmptx --algorithm sigma1` [pre-rename]
+  `--match-limit 2 --live-trigger cron`) against version `6cbe6d50-c556-49df-a2f6-551030e4ed01` (the
+  rig's fixture-pointed deploy): both matches folded with **zero timeouts** —
   `"eventsAdvanced":1,"eventsDeferred":0` on both advancing ticks, `subrequestsUsed` 24 then 26
   (comfortably under 46), CPU 42 ms then 208 ms (n=2). Freshness: 49,586 ms and 60,083 ms
   end-to-end (fixture reveal → published artifact), median/p95/max reported by the rig as
   49,586/60,083/60,083 ms — this includes the real one-minute cron's own scheduling jitter
   (`--live-trigger cron`), not just write-path latency.
 - After the mandatory post-rig re-baseline (`pnpm publish:seasons` + the three seed imports), the
-  algorithms manifest still lists `opr`, `epa`, `sigma1`, and an `opr` and an `epa` event artifact
-  for `2026cmptx` are both still retrievable from R2 — the published set (D-03) is intact.
+  algorithms manifest still lists `opr`, `epa`, `sigma1` [pre-rename], and an `opr` and an `epa`
+  event artifact for `2026cmptx` are both still retrievable from R2 — the published set (D-03) is
+  intact.
 
-**A real bug found running this verification, fixed alongside it.** Cold-starting sigma1 alone
-(no league row of its own yet, `opr`/`epa` already seeded) deterministically deserialized `opr`'s
-league row as sigma1's own state and crashed every tick — a pre-existing SQL operator-precedence
-bug in `readScopedState` (`apps/worker/src/stateStore.ts`), unrelated to the live-tier filter
-itself but only ever exercised by cold-starting one algorithm in isolation, exactly what this task
-needed to verify. See that file's own comment and `apps/worker/test/readScopedStateSql.test.ts`
+**A real bug found running this verification, fixed alongside it — also measured under the
+pre-rename identity `sigma1` [pre-rename].** Cold-starting the published algorithm alone (no league
+row of its own yet, `opr`/`epa` already seeded) deterministically deserialized `opr`'s league row
+as its own state and crashed every tick — a pre-existing SQL operator-precedence bug in
+`readScopedState` (`apps/worker/src/stateStore.ts`), unrelated to the live-tier filter itself but
+only ever exercised by cold-starting one algorithm in isolation, exactly what this task needed to
+verify. See that file's own comment and `apps/worker/test/readScopedStateSql.test.ts`
 for the fix and its regression test.
 
 Two new rows for this section's symptoms are added to the "When something is wrong" table below.
@@ -217,7 +237,7 @@ requests. All ten returned `ok`.
 | `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
-| `opr` or `epa` metrics look stale mid-event while `sigma1` updates | Expected — only `sigma1` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
+| `opr` or `epa` metrics look stale mid-event while `vpr` updates | Expected — only `vpr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 
 ---
@@ -316,7 +336,7 @@ npx tsx --env-file=.env scripts/replayRig.ts \
   --event <a real historical event key, e.g. 2026cmptx> \
   --worker-url https://sigmascout-worker.jrw4561.workers.dev \
   --fixture-url https://fixture-rig.sigmascout.org \
-  --algorithm opr,epa,sigma1 \
+  --algorithm opr,epa,vpr \
   --mode both \
   --live-trigger cron \
   --out reports/replay-rig/<name>.json

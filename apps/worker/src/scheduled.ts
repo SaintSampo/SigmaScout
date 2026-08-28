@@ -130,8 +130,8 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
 
 /**
  * Quick task 260822-wqt (D-04 regression fix): only the published VPR
- * algorithm needs real-time folding during a live event [pre-rename: this
- * mechanism was built and measured under the pre-rename id `sigma1`] — the
+ * algorithm needs real-time folding during a live event — this mechanism
+ * was built and measured under the pre-rename identity [pre-rename] — the
  * user's explicit decision over adding per-algorithm cursor granularity.
  * `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match (6 touched
  * teams) is 18 with vpr alone vs. 50 with all three published algorithms
@@ -144,7 +144,8 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * re-baseline (D-12) instead. Exported so `parseLiveAlgorithmIds`'s
  * unset/empty fallback and this file's own regression test
  * (`liveAlgorithmTier.test.ts`) bind to the SAME default rather than a
- * re-typed copy. Renamed to `vpr` from `sigma1` by plan 07-16 (D-04/D-05) —
+ * re-typed copy. Renamed to `vpr` by plan 07-16 (D-04/D-05) from its
+ * pre-rename value —
  * this value is validated against `PIPELINE_ALGORITHM_IDS` (the
  * publisher/Worker-write tier, PD-01), not `PUBLISHED_ALGORITHM_IDS` (the
  * browser-read tier, unchanged until 07-18).
