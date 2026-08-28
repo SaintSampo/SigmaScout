@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-07-PLAN.md
-last_updated: "2026-08-28T03:07:33.315Z"
+stopped_at: Completed 07-04-PLAN.md
+last_updated: "2026-08-28T03:23:48.257Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 69
+  completed_plans: 70
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 6 of 20
+Plan: 7 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [████████░░] 82%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -103,6 +103,7 @@ Progress: [████████░░] 82%
 | Phase 07 P06 | 45min | 3 tasks | 9 files |
 | Phase 07 P03 | ~20min | 3 tasks | 8 files |
 | Phase 07 P07 | 22min | 3 tasks | 4 files |
+| Phase 07 P04 | 20min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -220,6 +221,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P07]: eventFixtureWith test helper moved to module scope beside validEventFixture (per the plan's own instruction) after an initial draft nested it inside Task 1's describe block -- folded into Task 2's commit, the first task that actually needed to reuse it
 - [Phase ?]: [Phase 07 P07]: Reworded one new doc-comment phrase ('the two arrays stay separate on the wire' -> 'remain two distinct arrays on the wire') to avoid a literal substring collision with 07-06's PD-09 sweep gate grep -- same meaning, gate stays green
 - [Phase ?]: [Phase 07 P07]: EVNT-02/EVNT-04/EVNT-05/EVNT-06 left Pending in REQUIREMENTS.md despite appearing in plan 07-07's frontmatter requirements list -- this plan ships only the schema-level half; the rendered tab is owned by 07-11/07-12/07-14/07-13 respectively, matching the established 07-02/07-03/07-06 precedent
+- [Phase ?]: [Phase 07 P04]: normalizeEventRankings's sort-order guard (RankingScoreSortOrderError) and the read it protects live in one function, asserting sort_order_info[0].name === RANKING_SCORE_SORT_ORDER_NAME before storing a ranking-score value — RESEARCH.md Question 1's finding (stable across 40 live events, 5 seasons, 8 event types) licenses reading position 0, not reading it silently
+- [Phase ?]: [Phase 07 P04]: rankingsLive.test.ts's live-TBA cases assert sort_order_info[0].name against a string literal, never the exported constant, so a future rename of the constant cannot make the live drift check pass vacuously; bounded to 7 requests total (T-07-04-04)
+- [Phase ?]: [Phase 07 P04]: Observed (not assumed) that a bare pnpm test in a fresh shell with no exported TBA_API_KEY reports the live-TBA block as a named skip, not a run — this repo's node Vitest project does not auto-load .env into process.env
+- [Phase ?]: [Phase 07 P04]: EVNT-02 left Pending in REQUIREMENTS.md despite appearing in plan 07-04's frontmatter requirements list -- this plan ships only the ingest-level guard/record/ranking-score half; the rendered Insights tab is 07-11's, matching the 07-02/07-03/07-06/07-07 precedent
 
 ### Pending Todos
 
@@ -265,6 +270,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T03:07:33.285Z
-Stopped at: Completed 07-07-PLAN.md
+Last session: 2026-08-28T03:23:48.227Z
+Stopped at: Completed 07-04-PLAN.md
 Resume file: None
