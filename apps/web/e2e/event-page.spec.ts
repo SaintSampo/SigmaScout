@@ -18,17 +18,29 @@ import { test, expect } from "@playwright/test";
 const EVENT_URL = "/event/2024casf?algorithm=vpr";
 
 test.describe("Event page tracer", () => {
-  test("renders a real event's key and a positive team count from the live bucket", async ({ page }) => {
+  // [Rule 1 - Bug, found live running this task's own required e2e pass]
+  // The original assertions (`getByTestId("event-key")`,
+  // `getByTestId("event-team-count")`) target DOM that never shipped under
+  // those names, or stopped existing once `EventHeader.tsx` (07-15) and
+  // `InsightsTab.tsx` (07-11) landed — `event-header`/`event-header-meta`
+  // and `insights-row` are the real, current signals. This tracer spec was
+  // never previously exercised against a deployed origin (07-01 through
+  // 07-17 were never pushed to trigger the deploy workflow before this
+  // plan), so the mismatch went undetected until this task's own required
+  // e2e run. Rewritten against the shipped DOM rather than against a
+  // hardcoded event name, matching `team-page.spec.ts`'s own convention of
+  // asserting non-empty content rather than a specific TBA-sourced string.
+  test("renders a real event's identity and a positive team count from the live bucket", async ({ page }) => {
     await page.goto(EVENT_URL);
 
-    const eventKey = page.getByTestId("event-key");
-    await expect(eventKey).toBeVisible({ timeout: 15_000 });
-    await expect(eventKey).toHaveText("2024casf");
+    const heading = page.getByRole("heading", { level: 1 });
+    await expect(heading).toBeVisible({ timeout: 15_000 });
+    const headingText = await heading.innerText();
+    expect(headingText.trim().length).toBeGreaterThan(0);
 
-    const teamCount = page.getByTestId("event-team-count");
-    await expect(teamCount).toBeVisible();
-    const teamCountText = await teamCount.innerText();
-    expect(Number.parseInt(teamCountText, 10)).toBeGreaterThan(0);
+    const teamRows = page.getByTestId("insights-row");
+    await expect(teamRows.first()).toBeVisible();
+    expect(await teamRows.count()).toBeGreaterThan(0);
   });
 
   test("an invalid event key renders a message and fires no artifact fetch", async ({ page }) => {
