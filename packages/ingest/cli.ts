@@ -411,7 +411,7 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
       populatedCount++;
     }
 
-    const normalized = normalizeEventRankings(parsed);
+    const normalized = normalizeEventRankings(parsed, eventKey);
     const fetchedAt = new Date().toISOString();
     for (const ranking of normalized) {
       if (!knownTeamKeys.has(ranking.teamKey)) {

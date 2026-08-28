@@ -108,14 +108,24 @@ export type TbaMedia = z.infer<typeof tbaMediaSchema>;
 export const tbaMediaListSchema = z.array(tbaMediaSchema);
 
 /**
- * `GET /event/{key}/rankings` element (TEAM-04, F-06-3, plan 06.1-01). Field
- * set confirmed live against 7 real events spanning 2022-2026 (06.1-RESEARCH.md
- * Code Examples). `qual_average`/`sort_orders`/`extra_stats` are `.nullable()`
- * because TBA has observed-null `qual_average` in every 2022-2026 sample and
- * `sort_orders`/`extra_stats` genuinely vary by season (Pitfall 3) — this
- * schema models the shape without constraining vocabulary this phase never
- * reads (only `rank`/`team_key` and the response's own `rankings.length` are
- * used; see `rankings.ts`).
+ * `GET /event/{key}/rankings` element (TEAM-04, F-06-3, plan 06.1-01; widened
+ * D-18.6, plan 07-04). Field set confirmed live against 7 real events
+ * spanning 2022-2026 (06.1-RESEARCH.md Code Examples). `qual_average`/
+ * `sort_orders`/`extra_stats` are `.nullable()` because TBA has observed-null
+ * `qual_average` in every 2022-2026 sample and `sort_orders`/`extra_stats`
+ * genuinely vary by season (Pitfall 3) — this schema models the shape
+ * without constraining vocabulary this pipeline does not read.
+ *
+ * As of plan 07-04, `rank`/`team_key`/`rankings.length` are NOT the only
+ * fields read: `record` (TBA's own win/loss/tie tally, which accounts for
+ * DQs and surrogate appearances a match-derived count would misreport) and
+ * the position-0 entry of `sort_orders` (TBA's ranking-score/RP value) are
+ * now read and persisted into `event_rankings`. `sort_orders` stays
+ * `.nullable()` here precisely because its per-season vocabulary variation
+ * is why `rankings.ts`'s `normalizeEventRankings` asserts the position-0
+ * name at ingest time rather than assuming it. `normalizeEventRankings` is
+ * this schema's single consumer for both the pre-existing and the widened
+ * fields.
  */
 export const tbaEventRankingSchema = z.object({
   // `.int()`: every other boundary this value crosses treats it as strictly
