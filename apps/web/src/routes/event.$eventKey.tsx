@@ -10,7 +10,7 @@ import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
-import { QualsTab } from "../components/event/QualsTab.js";
+import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -172,10 +172,6 @@ function EventPage() {
     });
   }
 
-  // TRACER SCOPE (07-12-PLAN.md Task 1): the pending renderer here is a
-  // placeholder — Task 3 replaces it with `QualsTabSkeleton` once that
-  // component exists, matching the shape `renderInsightsContent`/
-  // `renderBreakdownContent` already establish.
   function renderQualsContent() {
     return renderTabState({
       is404,
@@ -185,7 +181,7 @@ function EventPage() {
       eventKey,
       season,
       onRetry: () => void refetch(),
-      renderPending: () => <BreakdownTabSkeleton algorithmId={algorithm} season={season} />,
+      renderPending: () => <QualsTabSkeleton />,
       renderPopulated: (artifact) => <QualsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
     });
   }

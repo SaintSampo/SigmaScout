@@ -124,13 +124,16 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     await waitFor(() => expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined());
   });
 
-  it("?tab=quals (unregistered) resolves to the Breakdown panel, same as ?tab=breakdown", async () => {
+  it("?tab=elims (still unregistered) resolves to the Breakdown panel, same as ?tab=breakdown", async () => {
+    // "quals" was the unregistered probe here through 07-01/07-11; 07-12
+    // registers it (see the "Quals tab registered" describe block below),
+    // so this probe moves to "elims" — still unregistered as of this plan.
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
     await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
 
     cleanup();
@@ -230,7 +233,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Insights" })).toBeDefined());
   });
 
-  it("exactly two tabs exist, named Insights and Breakdown IN THAT ORDER, before any artifact data resolves", async () => {
+  it("exactly three tabs exist, named Insights, Breakdown and Quals IN THAT ORDER, before any artifact data resolves (07-12-PLAN.md registers Quals)", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -238,12 +241,12 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     });
     renderEventRoute("/event/2024casf?algorithm=sigma1");
 
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(3));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals"]);
   });
 
-  it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel; ?tab=quals (unregistered) still resolves to Breakdown", async () => {
+  it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel; ?tab=elims (still unregistered) still resolves to Breakdown", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -267,7 +270,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
     await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
   });
 
@@ -373,6 +376,77 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     await waitFor(() => {
       const search = router.state.location.search as Record<string, unknown>;
       expect(search.tab).toBe("insights");
+      expect(search.algorithm).toBe("sigma1");
+      expect(search.year).toBe(2024);
+    });
+  });
+});
+
+describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Task 3)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("a route test with the artifact fetch left pending finds the Quals tab and its skeleton, and zero progressbar elements", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Quals" })).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("quals-table-scroll")).toBeDefined());
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("?tab=quals renders the Quals panel; the Breakdown panel is not rendered", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ matches: [], upcoming: [] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+
+    await waitFor(() => expect(screen.getByTestId("quals-panel")).toBeDefined());
+    // Radix keeps every TabsContent mounted and hides the inactive ones via
+    // the `hidden` attribute (matching this file's own established pattern
+    // of asserting on the ACTIVE panel's testid rather than the inactive
+    // panel's DOM absence) — the Breakdown panel is present but inactive.
+    expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(false);
+    expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
+  });
+
+  it("a mocked 500 response on ?tab=quals renders the page-level error copy and a Retry button, not a Quals-specific error", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(new Response("boom", { status: 500 }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+
+    await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
+    expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
+  });
+
+  it("switching to the Quals tab preserves the year and algorithm search params", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+
+    const qualsTrigger = await screen.findByRole("tab", { name: "Quals" });
+    fireEvent.mouseDown(qualsTrigger, { button: 0 });
+
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>;
+      expect(search.tab).toBe("quals");
       expect(search.algorithm).toBe("sigma1");
       expect(search.year).toBe(2024);
     });
