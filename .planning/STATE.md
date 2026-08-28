@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-14-PLAN.md
-last_updated: "2026-08-28T07:43:57.986Z"
+stopped_at: Completed 07-15-PLAN.md
+last_updated: "2026-08-28T08:06:05.144Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 5 of 20
+Plan: 6 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
@@ -112,6 +112,7 @@ Progress: [█████████░] 93%
 | Phase 07 P12 | ~55min | 3 tasks | 10 files |
 | Phase 07 P13 | ~35min | 2 tasks | 4 files |
 | Phase 07 P14 | 25min | 3 tasks | 4 files |
+| Phase 07 P15 | 45min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -253,6 +254,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P13]: EVNT-06 marked complete -- D-14's flat elimination list (no bracket) ships with the measured reason (from 2023 on, compLevel is sf for nearly every playoff match) recorded on the tab, and the ordering deviation (compareEventMatchRows is series-major for a 2022-style bracket, not literally chronological) surfaced as a flagged planner assumption routed to a named owner rather than fixed locally
 - [Phase ?]: [Phase 07 P14]: Alliances tab EVNT-05/D-15/D-16/D-17 shipped -- combineAlliancePicks all-or-nothing sum-of-variances arithmetic proven against both measured absence causes (sub-three-pick alliance, missing-metrics-row pick); D-17 disabled trigger computed only from a genuinely resolved artifact for the current event key, proven via a real router.navigate exercising keepPreviousData
 - [Phase ?]: [Phase 07 P14]: WINDOWS.md ledger #13 (2025isios's stale expectAlliances:populated seed in scripts/verifySubsetPublish.ts) left open -- outside this plan's declared file scope (AlliancesTab.tsx/test.tsx, event.$eventKey.tsx/test.tsx); the empty-alliances state itself is correctly handled by this plan's D-17 logic
+- [Phase ?]: [Phase 07 P15]: Event identity header (EventHeader.tsx) ships as a DOM sibling above the tab strip, rendering only on populated/pending (PD-05); EventsList and SearchBox now navigate to /event/{eventKey}, retiring Phase 5's interim Events-list landing
+- [Phase ?]: [Phase 07 P15]: D-20's per-algorithm rank header derives from algorithmDisplayLabel(algorithm) rather than a literal; Phase 5 D-12's year-change extension point discharged via an allow-list membership fetch at click time (resolveYearChangeTarget), falling back to the target season's Events list on any miss/unresolved version/fetch failure
+- [Phase ?]: [Phase 07 P15]: SearchBox.test.tsx's pre-existing case count was 10, not the plan's stated 13; EventsList.test.tsx's pre-existing count (9) matched exactly — both files' pre-existing cases pass unweakened
 
 ### Pending Todos
 
@@ -298,6 +302,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T07:43:57.937Z
-Stopped at: Completed 07-14-PLAN.md
+Last session: 2026-08-28T08:06:05.095Z
+Stopped at: Completed 07-15-PLAN.md
 Resume file: None
