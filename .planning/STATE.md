@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-08-28T04:42:04.485Z"
+stopped_at: Completed 07-09-PLAN.md
+last_updated: "2026-08-28T05:09:06.265Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 72
+  completed_plans: 73
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 9 of 20
+Plan: 10 of 20
 Status: Ready to execute
 Last activity: 2026-08-27 — Phase 07 execution started
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -106,6 +106,7 @@ Progress: [█████████░] 86%
 | Phase 07 P04 | 20min | 3 tasks | 5 files |
 | Phase 07 P08 | 40min | 3 tasks | 2 files |
 | Phase 07 P05 | 25min | 3 tasks | 3 files |
+| Phase 07 P09 | 18min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -233,6 +234,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P05]: Both corpusCensus.test.ts describe blocks (event_rankings, event_alliances) authored together in Task 1's single commit rather than split per task -- Task 2's commit is --allow-empty, the honest reflection of a deliverable (live-ingested corpus) that is entirely gitignored external state
 - [Phase ?]: [Phase 07 P05]: Live full 2022-2026 rankings force-refresh (1,586 requests, 232.2s) and alliances ingest (1,586 requests, 223.1s) verified by fresh read-only corpus census -- event_rankings zero NULL record columns corpus-wide (47,695 rows, 1,322 populated events matching 06.1-04's baseline exactly), event_alliances first-ever corpus-wide measurement (10,290 rows, 1,355 distinct events); 2024's rankings null-body/empty-rankings split (0/44) measured for the first time, closing 06.1-04 COVERAGE.md note [3]
 - [Phase ?]: [Phase 07 P05]: A pre-existing 07-02 test (packages/corpus/integrity.test.ts:314) asserting an event_rankings row can still be found with all four D-18.6 columns NULL is now permanently falsified by this plan's mandated zero-NULL backfill -- left unfixed (every task's verification requires packages/corpus/ diff stay empty) and logged to WINDOWS.md ledger #12 for a future plan to update
+- [Phase ?]: [Phase 07 P09]: withEventPercentiles applies NO metric-name allowlist (PD-03, deliberate divergence from withHistoryPercentiles) -- buildEventTeamsStanding's required 4th sortedPools param threads the season-final pool into both call sites; runEventMode restructured onto a season-scoped replay (PD-05) so 07-10's subset publish carries honest percentiles
+- [Phase ?]: [Phase 07 P09]: --include-offseason threaded through main()/runSeasonsCliMode/publishSeasons -- unlocks 253 real event artifacts (verified live, --seasons 2026 dry-run) a standard --seasons republish could not reach before; package.json's publish:seasons script left unedited (PD-08), routed to 07-17/07-19
 
 ### Pending Todos
 
@@ -278,6 +281,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T04:42:04.431Z
-Stopped at: Completed 07-05-PLAN.md
+Last session: 2026-08-28T05:09:06.212Z
+Stopped at: Completed 07-09-PLAN.md
 Resume file: None
