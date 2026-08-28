@@ -1,22 +1,33 @@
 /**
  * Credential-free, re-runnable verifier for 07-10's real-data subset publish
- * (PD-08). Reads published artifacts from the SAME public origin the browser
- * reads (`apps/web/src/lib/artifactOrigin.ts`, Phase 4 D-25) — never the R2
- * bucket directly, never `packages/harness/r2Client.ts`'s `getObject` /
- * `deleteObject` — and resolves each algorithm's published version from the
- * public algorithms manifest rather than hardcoding or hand-typing one
- * (PD-02). Parses every artifact through the publisher's own
- * `EventArtifactSchema` and asserts ten classes of expectation per entry
- * (provenance, identity, array shape, rank/record/rp, percentile,
- * per-alliance own variance, sortTime, alliances) against a committed
- * expectation table, `PUBLISHED_SUBSET`, whose numbers are direct corpus
- * measurements recorded in `07-10-PLAN.md`'s `<subset_selection>` table and
- * never adjusted to match an observed result (this plan's first
- * prohibition).
+ * (PD-08), extended by plan 07-17 (PD-03) for the D-18 full republish under
+ * the renamed `vpr` algorithm id. Reads published artifacts from the SAME
+ * public origin the browser reads (`apps/web/src/lib/artifactOrigin.ts`,
+ * Phase 4 D-25) — never the R2 bucket directly, never
+ * `packages/harness/r2Client.ts`'s `getObject` / `deleteObject` — and
+ * resolves each algorithm's published version from the public algorithms
+ * manifest rather than hardcoding or hand-typing one (PD-02). Parses every
+ * artifact through the publisher's own `EventArtifactSchema` /
+ * `TeamSeasonArtifactSchema` and asserts thirteen classes of expectation
+ * against two committed expectation tables — `PUBLISHED_SUBSET` (event-level,
+ * checks 1-10) and `PUBLISHED_TEAM_SUBSET` (team-level, checks 11-13) — whose
+ * numbers are direct corpus measurements and never adjusted to match an
+ * observed result (this plan's first prohibition; PD-03).
  *
- * Inherited by plan 07-17's write-pass verification via `--origin` and an
- * extended `PUBLISHED_SUBSET` table (PD-08) — this script is built once here
- * and never duplicated for that later plan.
+ * 07-17's own fifteen `PUBLISHED_SUBSET` entries are kept EXACTLY as 07-10
+ * left them (`PRE_RENAME_EVENT_SUBSET` below) — the old-key control: every
+ * one of these seventeen entries (fifteen `sigma1` + the two non-`sigma1`
+ * `2024casf` arms) must stay green after 07-17's full republish, proving
+ * nothing was deleted or clobbered. `RENAMED_EVENT_SUBSET` derives a renamed
+ * duplicate of every one of those seventeen PROGRAMMATICALLY (a `.map()`,
+ * never hand-retyped) so the expectation numbers can never silently drift
+ * between the control and the renamed-run assertion — for the fifteen
+ * `sigma1` entries the duplicate's `algorithmId` becomes `vpr`; the two
+ * `opr`/`epa` arms are duplicated unchanged (opr/epa are overwritten in
+ * place by the same run, never renamed), so the table reads as "every
+ * algorithm this run touches, once for old-key control, once for the
+ * renamed-run assertion" rather than silently omitting two of seventeen
+ * (PD-03).
  *
  * This script needs NO credential of any kind: it never reads an
  * environment variable, never constructs a signed request, and never
@@ -30,13 +41,23 @@
  * `TeamMetric.percentile` is `.min(0).max(100).optional()` in
  * `packages/harness/pageArtifacts.ts` and deliberately never `.nullable()` —
  * a literal `percentile: null` in a real body is therefore already refused
- * by `EventArtifactSchema.safeParse` before this file's own checks ever run,
- * surfacing as a parse failure rather than as a silent pass.
+ * by `EventArtifactSchema.safeParse`/`TeamSeasonArtifactSchema.safeParse`
+ * before this file's own checks ever run, surfacing as a parse failure
+ * rather than as a silent pass.
  */
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import { artifactKey, EventArtifactSchema, type EventArtifact } from "../packages/harness/pageArtifacts.js";
+import {
+  artifactKey,
+  EventArtifactSchema,
+  TeamSeasonArtifactSchema,
+  type EventArtifact,
+  type TeamSeasonArtifact,
+} from "../packages/harness/pageArtifacts.js";
+
+/** D-04/D-05 (plan 07-16): the renamed published algorithm id — every `sigma1` control entry's renamed duplicate carries this id instead. */
+const RENAMED_ALGORITHM_ID = "vpr";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,13 +99,16 @@ export interface SubsetEntry {
 }
 
 /**
- * Task 1 seeds this table with the single 2024casf sigma1 tracer entry.
- * Task 2 extends it with the other fourteen sigma1 events. Task 3 extends it
- * with 2024casf's opr and epa arms. Every number came from a direct corpus
+ * 07-10's committed table, kept BYTE-IDENTICAL to how that plan left it — the
+ * old-key control (PD-03). Every number came from a direct corpus
  * measurement recorded in 07-10-PLAN.md's <subset_selection> table; none may
- * be adjusted to match an observed result.
+ * be adjusted to match an observed result, including `2025isios`'s
+ * `expectAlliances: "populated"` below, which 07-10 itself found publishes
+ * `alliances: []` in real production (WINDOWS.md ledger #13, left open by
+ * this plan for the same reason: this plan's own first prohibition forbids
+ * touching a committed expectation to match an observation).
  */
-export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
+export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
   {
     eventKey: "2024casf",
     algorithmId: "sigma1",
@@ -311,6 +335,149 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
+  },
+];
+
+/**
+ * PD-03: a renamed duplicate of every one of `PRE_RENAME_EVENT_SUBSET`'s
+ * seventeen entries, derived PROGRAMMATICALLY (never hand-retyped) so the
+ * expectation numbers are, by construction, identical — a disagreement
+ * between an event's single-event artifact and its seasons-pass artifact
+ * would show up as a real check failure here, never as a copy-paste drift in
+ * this table. The fifteen `sigma1` entries become `vpr` (D-04/D-05); the two
+ * `opr`/`epa` arms at `2024casf` are duplicated with their `algorithmId`
+ * UNCHANGED, since opr/epa are overwritten in place by 07-17's run rather
+ * than renamed — their "renamed-run duplicate" therefore targets the exact
+ * same key as the control entry, which is deliberate (PD-03's own text names
+ * this arrangement): the SAME key checked twice, once before the run
+ * (`PRE_RENAME_EVENT_SUBSET`, run early to establish the RED baseline) and
+ * once after (this table, run again after Task 3's real publish), is exactly
+ * how an `opr`/`epa` overwrite-in-place gets its own before/after proof
+ * without a second, redundant table.
+ */
+export const RENAMED_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUBSET.map((entry) => ({
+  ...entry,
+  algorithmId: entry.algorithmId === "sigma1" ? RENAMED_ALGORITHM_ID : entry.algorithmId,
+  note: `[renamed-run duplicate, PD-03] ${entry.note}`,
+}));
+
+/**
+ * The one genuinely new entry (Task 1 step 4): `2024auwarp`, event type 99
+ * (offseason), `start_date` 2024-08-23 — the third of D-08's three named
+ * events and the one 07-10 deliberately excluded. Corpus-measured (read-only,
+ * `data/corpus.sqlite`, this plan's own baseline capture): 47 `qm` + 13 `sf`
+ * + 2 `f` played rows (62 total) and zero scheduled, a 25-team roster, zero
+ * `event_rankings` rows (offseason, D-08's fallback banner fires), and zero
+ * `event_alliances` rows. This is the first artifact this event will ever
+ * have had under any algorithm id.
+ */
+const NEW_2024AUWARP_ENTRY: SubsetEntry = {
+  eventKey: "2024auwarp",
+  algorithmId: RENAMED_ALGORITHM_ID,
+  note:
+    "D-08's third named event, deliberately excluded by 07-10 — the first artifact it will ever have had. " +
+    "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
+    "25-team roster.",
+  expectMatches: 62,
+  expectUpcoming: 0,
+  expectTeams: 25,
+  expectRankedTeams: 0,
+  expectAlliances: "empty",
+  expectVariance: "present",
+};
+
+/**
+ * The full event-level expectation table this plan's verifier runs against:
+ * the seventeen 07-10 control entries, their seventeen renamed-run
+ * duplicates, and the one genuinely new `2024auwarp` entry — 35 total.
+ */
+export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [...PRE_RENAME_EVENT_SUBSET, ...RENAMED_EVENT_SUBSET, NEW_2024AUWARP_ENTRY];
+
+// ---------------------------------------------------------------------------
+// PUBLISHED_TEAM_SUBSET — the team-artifact subset (checks 11-13)
+// ---------------------------------------------------------------------------
+
+export interface TeamSubsetEntry {
+  readonly teamKey: string;
+  readonly year: number;
+  readonly algorithmId: string;
+  /** The one-line reason this team-season is in the subset. */
+  readonly note: string;
+  /** Exact count of `ef`/`qf`/`sf`/`f` match rows expected across this team-season's `events[].matches[]`, measured directly from the corpus. */
+  readonly expectPlayoffRows: number;
+}
+
+/**
+ * One team-season per season (2022-2026) chosen for having playoff matches,
+ * plus the two teams Task 4's `spread` comparison needs — a low-match team
+ * and a veteran, both selected to have played ZERO offseason/preseason
+ * matches that season so the comparison isolates D-01/D-02's redefinition
+ * from the offseason-inclusion methodology change (PD-08). `frc4206`
+ * (2024) serves BOTH roles at once (25 playoff rows, 83 total matches, the
+ * corpus-measured 2024 maximum among zero-offseason teams) rather than
+ * duplicating a second 2024 entry. One control entry
+ * (`frc4206`/2024/`sigma1`) is included so Task 1 step 6 can point check 11
+ * at a REAL pre-rename object with real playoff rows before trusting the
+ * check against the renamed artifacts. All counts measured read-only against
+ * `data/corpus.sqlite` at this plan's Task 1 baseline capture.
+ */
+export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
+  {
+    teamKey: "frc4206",
+    year: 2024,
+    algorithmId: "sigma1",
+    note:
+      "CONTROL (Task 1 step 6 only): the pre-rename team artifact this check must FAIL against before it is " +
+      "trusted — 83 total matches, 25 playoff rows, zero offseason/preseason involvement in 2024.",
+    expectPlayoffRows: 25,
+  },
+  {
+    teamKey: "frc59",
+    year: 2022,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note: "2022's playoff-row entry — 53 total matches, 12 playoff rows, zero offseason/preseason involvement.",
+    expectPlayoffRows: 12,
+  },
+  {
+    teamKey: "frc7072",
+    year: 2023,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note: "2023's playoff-row entry — 35 total matches, 5 playoff rows, zero offseason/preseason involvement.",
+    expectPlayoffRows: 5,
+  },
+  {
+    teamKey: "frc4206",
+    year: 2024,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note:
+      "2024's playoff-row entry AND the veteran half of PD-08's spread comparison — 83 total matches (the " +
+      "corpus-measured 2024 maximum among zero-offseason teams), 25 playoff rows.",
+    expectPlayoffRows: 25,
+  },
+  {
+    teamKey: "frc9969",
+    year: 2024,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note:
+      "The low-match half of PD-08's spread comparison — 3 total matches in 2024, zero playoff rows, zero " +
+      "offseason/preseason involvement. Under D-01/D-02's redefinition this team's spread ratio (spread/value " +
+      "or the raw spread magnitude relative to a same-metric veteran) is expected to read WIDER than " +
+      "frc4206's, since the model has seen it in far fewer matches.",
+    expectPlayoffRows: 0,
+  },
+  {
+    teamKey: "frc7111",
+    year: 2025,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note: "2025's playoff-row entry — 27 total matches, 7 playoff rows, zero offseason/preseason involvement.",
+    expectPlayoffRows: 7,
+  },
+  {
+    teamKey: "frc2638",
+    year: 2026,
+    algorithmId: RENAMED_ALGORITHM_ID,
+    note: "2026's playoff-row entry — 40 total matches, 11 playoff rows, zero offseason/preseason involvement.",
+    expectPlayoffRows: 11,
   },
 ];
 
@@ -684,6 +851,191 @@ async function verifyOneEntry(
 }
 
 // ---------------------------------------------------------------------------
+// verifyTeamEntry — checks 11 through 13 (plan 07-17, PD-03)
+// ---------------------------------------------------------------------------
+
+const PLAYOFF_COMP_LEVELS = new Set(["ef", "qf", "sf", "f"]);
+/** D-18.4: these four own properties must never appear on a playoff-comp-level match row — see `packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema` doc comments for the full per-bonus contract these fields carry on a QUALIFICATION row. */
+const BONUS_RP_OWN_PROPERTIES = ["redBonusRp", "blueBonusRp", "actualRedBonusRp", "actualBlueBonusRp"] as const;
+
+export interface TeamMetricCensusRow {
+  readonly name: string;
+  readonly value: number;
+  readonly spread: number | undefined;
+  readonly percentile: number | undefined;
+}
+
+export interface TeamEntryObserved {
+  playoffRowCount?: number;
+  stalePropertiesFound?: readonly string[];
+  generation?: string;
+  metricCensus?: readonly TeamMetricCensusRow[];
+}
+
+export interface TeamSubsetEntryResult {
+  readonly entry: TeamSubsetEntry;
+  readonly key: string;
+  readonly version: string;
+  readonly status: number;
+  readonly bytes: number;
+  readonly generation?: string;
+  readonly observed: TeamEntryObserved;
+  readonly failures: readonly string[];
+}
+
+/**
+ * Runs checks 11 through 13 against an already-fetched, already-schema-parsed
+ * team-season artifact. `raw` is the SAME body's plain `JSON.parse` result
+ * (not the Zod-parsed `artifact`) — check 11's `hasOwnProperty` assertion is
+ * made against it deliberately, per this plan's own instruction, so the
+ * check reflects exactly what bytes were published rather than anything a
+ * schema's own optional-field handling could normalize away.
+ */
+export function verifyTeamEntry(
+  entry: TeamSubsetEntry,
+  artifact: TeamSeasonArtifact,
+  raw: unknown
+): { observed: TeamEntryObserved; failures: string[] } {
+  const failures: string[] = [];
+  const observed: TeamEntryObserved = {};
+
+  // Check 11 — playoff bonus-RP absence (D-18.4), over the RAW JSON.
+  let playoffRowCount = 0;
+  const stalePropertiesFound = new Set<string>();
+  const rawEvents = Array.isArray((raw as { events?: unknown }).events) ? ((raw as { events: unknown[] }).events) : [];
+  for (const rawEvent of rawEvents) {
+    const rawMatches = Array.isArray((rawEvent as { matches?: unknown }).matches) ? ((rawEvent as { matches: unknown[] }).matches) : [];
+    for (const rawMatch of rawMatches) {
+      const row = rawMatch as Record<string, unknown>;
+      if (typeof row.compLevel === "string" && PLAYOFF_COMP_LEVELS.has(row.compLevel)) {
+        playoffRowCount++;
+        for (const propertyName of BONUS_RP_OWN_PROPERTIES) {
+          if (Object.prototype.hasOwnProperty.call(row, propertyName)) {
+            stalePropertiesFound.add(propertyName);
+          }
+        }
+      }
+    }
+  }
+  observed.playoffRowCount = playoffRowCount;
+  observed.stalePropertiesFound = [...stalePropertiesFound];
+  if (playoffRowCount !== entry.expectPlayoffRows) {
+    failures.push(`playoffRows: expected ${entry.expectPlayoffRows}, observed ${playoffRowCount}`);
+  }
+  if (playoffRowCount === 0) {
+    failures.push("bonusRpAbsence: zero playoff rows observed — the absence assertion below is vacuous against this artifact");
+  } else if (stalePropertiesFound.size > 0) {
+    failures.push(
+      `bonusRpAbsence: ${playoffRowCount} playoff row(s) checked, ${stalePropertiesFound.size} carry a stale own property: ${[...stalePropertiesFound].join(", ")}`
+    );
+  }
+
+  // Check 12 — generation uniformity (reported by the caller across every fetched entry in the run; recorded here per-entry).
+  observed.generation = artifact.generation;
+
+  // Check 13 — the metric census (raw material for Task 4's old-vs-new spread comparison).
+  const metricCensus: TeamMetricCensusRow[] = Object.entries(artifact.seasonStats.metrics).map(([name, metric]) => ({
+    name,
+    value: metric.value,
+    spread: metric.spread,
+    percentile: metric.percentile,
+  }));
+  observed.metricCensus = metricCensus;
+  for (const row of metricCensus) {
+    if (row.percentile !== undefined && (row.percentile < 0 || row.percentile > 100)) {
+      failures.push(`metricCensus: metric "${row.name}" percentile ${row.percentile} outside [0, 100]`);
+    }
+  }
+
+  return { observed, failures };
+}
+
+async function verifyOneTeamEntry(
+  origin: string,
+  versions: ReadonlyMap<string, string>,
+  entry: TeamSubsetEntry,
+  runId: string
+): Promise<TeamSubsetEntryResult> {
+  const version = versions.get(entry.algorithmId);
+  if (version === undefined) {
+    return {
+      entry,
+      key: "(unresolved)",
+      version: "(unresolved)",
+      status: 0,
+      bytes: 0,
+      observed: {},
+      failures: [`manifest: no published version found for algorithm "${entry.algorithmId}"`],
+    };
+  }
+  const key = artifactKey({ page: "team", teamKey: entry.teamKey, year: entry.year, algorithmId: entry.algorithmId, version });
+
+  const fetched = await fetchArtifactFresh(origin, key, runId);
+  if (fetched.status !== 200 || fetched.body === undefined) {
+    return {
+      entry,
+      key,
+      version,
+      status: fetched.status,
+      bytes: fetched.bytes,
+      observed: {},
+      failures: [`fetch: GET ${origin}/${key} -> HTTP ${fetched.status}`],
+    };
+  }
+
+  let rawJson: unknown;
+  try {
+    rawJson = JSON.parse(fetched.body);
+  } catch (err) {
+    return {
+      entry,
+      key,
+      version,
+      status: fetched.status,
+      bytes: fetched.bytes,
+      observed: {},
+      failures: [`parse: response body is not valid JSON — ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+
+  const parsed = TeamSeasonArtifactSchema.safeParse(rawJson);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+    return {
+      entry,
+      key,
+      version,
+      status: fetched.status,
+      bytes: fetched.bytes,
+      observed: {},
+      failures: [`parse: TeamSeasonArtifactSchema.safeParse failed — ${issues.join("; ")}`],
+    };
+  }
+
+  const { observed, failures } = verifyTeamEntry(entry, parsed.data, rawJson);
+  return {
+    entry,
+    key,
+    version,
+    status: fetched.status,
+    bytes: fetched.bytes,
+    generation: parsed.data.generation,
+    observed,
+    failures,
+  };
+}
+
+function formatTeamResultLine(result: TeamSubsetEntryResult): string {
+  const o = result.observed;
+  const census = (o.metricCensus ?? []).map((r) => `${r.name}=${r.value}${r.spread !== undefined ? `±${r.spread}` : ""}${r.percentile !== undefined ? `[p${r.percentile}]` : ""}`).join(" ");
+  return (
+    `${result.entry.teamKey}/${result.entry.year}/${result.entry.algorithmId} [${result.key}] status=${result.status} ` +
+    `bytes=${result.bytes} generation=${result.generation ?? "-"} playoffRows=${o.playoffRowCount ?? "-"} ` +
+    `staleProperties=${(o.stalePropertiesFound ?? []).join(",") || "-"} metrics: ${census || "-"}`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
@@ -694,6 +1046,10 @@ interface CliOptions {
   readonly versionOverrides: ReadonlyMap<string, string>;
   readonly baseline: boolean;
   readonly json: boolean;
+  /** Run PUBLISHED_TEAM_SUBSET (checks 11-13) instead of PUBLISHED_SUBSET (checks 1-10). */
+  readonly teamOnly: boolean;
+  /** For each team entry, ALSO fetch the same team-season under this other algorithm id and print a side-by-side metric/spread-ratio table. Print-only — no assertion. Requires --team-only. */
+  readonly compareLegacy: string | undefined;
 }
 
 function parseCliOptions(argv: readonly string[]): CliOptions {
@@ -706,6 +1062,8 @@ function parseCliOptions(argv: readonly string[]): CliOptions {
       version: { type: "string", multiple: true },
       baseline: { type: "boolean" },
       json: { type: "boolean" },
+      "team-only": { type: "boolean" },
+      "compare-legacy": { type: "string" },
     },
   });
   const versionOverrides = new Map<string, string>();
@@ -714,6 +1072,9 @@ function parseCliOptions(argv: readonly string[]): CliOptions {
     if (eq === -1) throw new Error(`--version expects "<id>=<version>", got "${raw}"`);
     versionOverrides.set(raw.slice(0, eq), raw.slice(eq + 1));
   }
+  if (values["compare-legacy"] !== undefined && values["team-only"] !== true) {
+    throw new Error("--compare-legacy requires --team-only");
+  }
   return {
     origin: values.origin ?? DEFAULT_ARTIFACT_ORIGIN,
     only: values.only ?? [],
@@ -721,6 +1082,8 @@ function parseCliOptions(argv: readonly string[]): CliOptions {
     versionOverrides,
     baseline: values.baseline === true,
     json: values.json === true,
+    teamOnly: values["team-only"] === true,
+    compareLegacy: values["compare-legacy"],
   };
 }
 
@@ -730,6 +1093,63 @@ function filterSubset(options: CliOptions): readonly SubsetEntry[] {
     if (options.algorithm !== undefined && entry.algorithmId !== options.algorithm) return false;
     return true;
   });
+}
+
+function filterTeamSubset(options: CliOptions): readonly TeamSubsetEntry[] {
+  return PUBLISHED_TEAM_SUBSET.filter((entry) => {
+    if (options.only.length > 0 && !options.only.includes(entry.teamKey)) return false;
+    if (options.algorithm !== undefined && entry.algorithmId !== options.algorithm) return false;
+    return true;
+  });
+}
+
+/**
+ * Print-only, no assertion (PD-08's published corroboration, Task 4): for
+ * one team entry ALREADY verified under its own (renamed) algorithm id,
+ * fetches the SAME team-season under `legacyAlgorithmId` and prints both
+ * metric tables side by side with the per-metric spread ratio
+ * (renamed/legacy) — the direct read that lets a low-match team's WIDER
+ * `spread` ratio (relative to a veteran's) be seen against real published
+ * bytes, isolating D-01/D-02's `√(P+R)` redefinition from the
+ * offseason-inclusion methodology change.
+ */
+async function printLegacyComparison(
+  origin: string,
+  versions: ReadonlyMap<string, string>,
+  entry: TeamSubsetEntry,
+  renamedCensus: readonly TeamMetricCensusRow[],
+  legacyAlgorithmId: string,
+  runId: string
+): Promise<void> {
+  const legacyVersion = versions.get(legacyAlgorithmId);
+  if (legacyVersion === undefined) {
+    console.log(`  --compare-legacy ${legacyAlgorithmId}: no published version found for "${legacyAlgorithmId}"`);
+    return;
+  }
+  const legacyKey = artifactKey({ page: "team", teamKey: entry.teamKey, year: entry.year, algorithmId: legacyAlgorithmId, version: legacyVersion });
+  const fetched = await fetchArtifactFresh(origin, legacyKey, runId);
+  if (fetched.status !== 200 || fetched.body === undefined) {
+    console.log(`  --compare-legacy ${legacyAlgorithmId}: GET ${origin}/${legacyKey} -> HTTP ${fetched.status}`);
+    return;
+  }
+  const parsed = TeamSeasonArtifactSchema.safeParse(JSON.parse(fetched.body));
+  if (!parsed.success) {
+    console.log(`  --compare-legacy ${legacyAlgorithmId}: parse failed`);
+    return;
+  }
+  const legacyMetrics = parsed.data.seasonStats.metrics;
+  console.log(`  --compare-legacy ${legacyAlgorithmId} [${legacyKey}] generation=${parsed.data.generation}`);
+  const metricNames = new Set([...renamedCensus.map((r) => r.name), ...Object.keys(legacyMetrics)]);
+  for (const name of [...metricNames].sort()) {
+    const renamedRow = renamedCensus.find((r) => r.name === name);
+    const legacyMetric = legacyMetrics[name];
+    const renamedSpread = renamedRow?.spread;
+    const legacySpread = legacyMetric?.spread;
+    const ratio = renamedSpread !== undefined && legacySpread !== undefined && legacySpread !== 0 ? renamedSpread / legacySpread : undefined;
+    console.log(
+      `    ${name}: renamed=${renamedRow?.value ?? "-"}±${renamedSpread ?? "-"} legacy=${legacyMetric?.value ?? "-"}±${legacySpread ?? "-"} ratio=${ratio ?? "-"}`
+    );
+  }
 }
 
 function formatResultLine(result: SubsetEntryResult): string {
@@ -745,8 +1165,70 @@ function formatResultLine(result: SubsetEntryResult): string {
   );
 }
 
+/** Check 12 — generation uniformity. Reported at the end of a run, informational only (never a per-entry failure): more than one distinct generation among entries this SAME publish run was supposed to have produced is the observable signature of a resumed or interrupted pass. */
+function reportGenerationUniformity(label: string, generations: readonly (string | undefined)[]): void {
+  const distinct = new Set(generations.filter((g): g is string => g !== undefined));
+  if (distinct.size <= 1) {
+    console.log(`\ngeneration uniformity (${label}): ${distinct.size} distinct value(s) — ${[...distinct].join(", ") || "(none fetched)"}`);
+  } else {
+    console.log(
+      `\ngeneration uniformity (${label}): FINDING — ${distinct.size} distinct values across entries expected from one pass: [${[...distinct].join(", ")}] — the observable signature of a resumed or interrupted publish run.`
+    );
+  }
+}
+
+async function runTeamMode(options: CliOptions): Promise<void> {
+  const entries = filterTeamSubset(options);
+  if (entries.length === 0) {
+    console.error("verify:subset --team-only: no PUBLISHED_TEAM_SUBSET entries matched --only/--algorithm filters");
+    process.exit(1);
+  }
+  const versions = await resolvePublishedVersions(options.origin, options.versionOverrides);
+  const runId = randomUUID();
+
+  const results: TeamSubsetEntryResult[] = [];
+  for (const entry of entries) {
+    const result = await verifyOneTeamEntry(options.origin, versions, entry, runId);
+    results.push(result);
+    if (!options.json) {
+      console.log(formatTeamResultLine(result));
+      for (const failure of result.failures) {
+        console.log(`  FAIL ${result.entry.teamKey}/${result.entry.year}/${result.entry.algorithmId}: ${failure}`);
+      }
+      if (options.compareLegacy !== undefined && result.observed.metricCensus !== undefined) {
+        await printLegacyComparison(options.origin, versions, entry, result.observed.metricCensus, options.compareLegacy, runId);
+      }
+    }
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(results, null, 2));
+  } else {
+    const failingEntries = results.filter((r) => r.failures.length > 0).length;
+    const totalFailures = results.reduce((n, r) => n + r.failures.length, 0);
+    console.log(`\n${entries.length} team entr${entries.length === 1 ? "y" : "ies"} checked, ${failingEntries} failing, ${totalFailures} total failure(s).`);
+    // The control entry (algorithmId "sigma1") is deliberately excluded from
+    // the "one pass" generation-uniformity scope — it comes from an older
+    // publish run by design (07-10), not this run.
+    reportGenerationUniformity(
+      "team subset, non-control",
+      results.filter((r) => r.entry.algorithmId !== "sigma1").map((r) => r.generation)
+    );
+  }
+
+  if (results.some((r) => r.failures.length > 0)) {
+    process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
+
+  if (options.teamOnly) {
+    await runTeamMode(options);
+    return;
+  }
+
   const entries = filterSubset(options);
   if (entries.length === 0) {
     console.error("verify:subset: no PUBLISHED_SUBSET entries matched --only/--algorithm filters");
@@ -798,6 +1280,14 @@ async function main(): Promise<void> {
     const failingEntries = results.filter((r) => r.failures.length > 0).length;
     const totalFailures = results.reduce((n, r) => n + r.failures.length, 0);
     console.log(`\n${entries.length} entr${entries.length === 1 ? "y" : "ies"} checked, ${failingEntries} failing, ${totalFailures} total failure(s).`);
+    // Check 12: the "one pass" scope is every entry NOT in the `sigma1`
+    // old-key control (PRE_RENAME_EVENT_SUBSET's own sigma1 rows) — those
+    // are deliberately from an OLDER run (07-10's) and mixing them in would
+    // manufacture a false finding every time.
+    reportGenerationUniformity(
+      "event subset, non-control",
+      results.filter((r) => r.entry.algorithmId !== "sigma1").map((r) => r.generation)
+    );
   }
 
   if (results.some((r) => r.failures.length > 0)) {

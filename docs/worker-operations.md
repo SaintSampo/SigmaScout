@@ -114,6 +114,7 @@ npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-op
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-epa.sql
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-vpr.sql
 ```
+As of plan 07-17, `pnpm publish:seasons` includes offseason and preseason events (`--include-offseason`) in both the published set and the walk-forward stream — an operator running this command is entitled to know its scope changed.
 
 The third seed file's name follows the algorithm's own registry id (`publish.ts`'s
 `seed-${algorithm.id}.sql`) — renamed from `seed-sigma1.sql` by plan 07-16 (D-04/D-05). This
