@@ -198,6 +198,42 @@ export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], sorted
 }
 
 /**
+ * D-10, D-09, D-11, plan 07-09: attaches the SEASON-FINAL percentile to an
+ * AS-OF-EVENT metrics record — the split D-10 locks and which 06.1-05
+ * already established for `metricHistory` rows (`withHistoryPercentiles`
+ * just above); see that function's doc comment for the shared reasoning,
+ * not restated here.
+ *
+ * `sortedPools` is always the pool built once per (algorithm, season) from
+ * that season's FULL team list (`sortedPoolsByMetric`) — ranking against an
+ * event's own roster is forbidden (T-07-09-01): the tier box this feeds
+ * renders in the identical colour whichever pool produced the number, so a
+ * reader cannot detect the substitution. A metric name with no entry in
+ * `sortedPools` is copied through with NO `percentile` key — never a
+ * coerced `0` — inheriting `sortedPoolsByMetric`'s own PD-07 omission
+ * contract.
+ *
+ * Unlike `withHistoryPercentiles`, this function applies NO metric-name
+ * allowlist (PD-03): Breakdown tier-boxes every `metricKeysFor(algorithmId,
+ * season)` column, and the payload argument that justifies the
+ * history-row sibling's four-name cut (292 rows per team-season) runs the
+ * opposite way here, where an event artifact carries exactly ONE metrics
+ * record per team.
+ * <!-- planner-discipline-allow: HISTORY_PERCENTILE_METRIC_KEYS -->
+ */
+export function withEventPercentiles(
+  metrics: Record<string, TeamMetric>,
+  sortedPools: ReadonlyMap<string, number[]>
+): Record<string, TeamMetricWithPercentile> {
+  const result: Record<string, TeamMetricWithPercentile> = {};
+  for (const [name, metric] of Object.entries(metrics)) {
+    const pool = sortedPools.get(name);
+    result[name] = pool !== undefined ? { ...metric, percentile: percentileAgainstSortedPool(pool, metric.value) } : { ...metric };
+  }
+  return result;
+}
+
+/**
  * Splits an algorithm's `version` on its first `+` — the same D-13 identity
  * split `packages/harness/artifact.ts`'s `splitAlgorithmVersion` and
  * `packages/harness/manifests.ts`'s module-private `splitVersion` already
@@ -234,7 +270,14 @@ export interface EventTeamStandingInput {
   readonly teamKey: string;
   readonly teamNumber?: number;
   readonly nickname?: string;
-  readonly metrics: Record<string, TeamMetric>;
+  /**
+   * D-10, plan 07-09: widened from `Record<string, TeamMetric>` — the
+   * percentile is attached by `withEventPercentiles` BEFORE the value
+   * reaches this interface, so nothing downstream (`buildEventArtifact`'s
+   * `roundTeamMetricRecord`) computes one. A plain `TeamMetric` (no
+   * `percentile`) is still assignable, so no existing caller is affected.
+   */
+  readonly metrics: Record<string, TeamMetricWithPercentile>;
 }
 
 /**
@@ -1113,16 +1156,65 @@ function withPublishedTiers(metrics: Record<string, { value: number; spread?: nu
   return out;
 }
 
-/** Builds an event's D-07 standings-style team list from a season/event-scoped `TeamMetrics` map (already computed once per algorithm per season — see `publishSeasons`). */
+/**
+ * D-10, D-09, D-11, plan 07-09: the metrics handed in (`metricsByTeam`) are
+ * AS-OF-EVENT — the caller derives them through `metricsAsOfEvent` below —
+ * while `sortedPools` is always the SEASON-FINAL pool built once per
+ * (algorithm, season) at its existing single site. This is the same split
+ * `withHistoryPercentiles` applies to history rows; the merge itself is
+ * `withEventPercentiles`. Required rather than optional (PD-02): an
+ * optional pool is an opt-out, and an artifact published without
+ * percentiles parses, uploads, and renders a page with every tier box dark.
+ */
 function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
   teamKeys: readonly string[],
-  teamInfo: ReadonlyMap<string, TeamInfo>
+  teamInfo: ReadonlyMap<string, TeamInfo>,
+  sortedPools: ReadonlyMap<string, number[]>
 ): EventTeamStandingInput[] {
   return teamKeys.map((teamKey) => {
     const info = teamInfoOrFallback(teamInfo, teamKey);
-    return { teamKey, teamNumber: info.teamNumber, nickname: info.nickname, metrics: metricsByTeam[teamKey] ?? {} };
+    return {
+      teamKey,
+      teamNumber: info.teamNumber,
+      nickname: info.nickname,
+      metrics: withEventPercentiles(metricsByTeam[teamKey] ?? {}, sortedPools),
+    };
   });
+}
+
+/**
+ * D-10, RESEARCH.md Question 3, plan 07-09: returns the walk-forward
+ * metrics AS OF one event's last chronological match, captured through the
+ * per-match completion hook `publishSeasons`'s replay loop already pays for
+ * (D-28).
+ *
+ * A missing entry in `stateByEventKey` means this event produced no capture
+ * for its key — an event with no completed matches,
+ * for which "the state at that event's end" is not a quantity that exists
+ * yet — so the season-final metrics are the only defensible answer, and are
+ * exactly what was published before this plan (PD-04). This is the ONLY
+ * fallback this function knows about; a missing entry for any other reason
+ * is not a case it handles, and widening it would publish a page asserting
+ * "what the model knew at this event" while showing what it knew at
+ * season's end, with nothing anywhere able to detect it.
+ *
+ * The guard below is an explicit `state !== undefined` test, never
+ * truthiness and never a `??`/`||` shorthand — `state` is typed `unknown`
+ * and a truthiness guard would be a silent trap for a future state shape.
+ */
+function metricsAsOfEvent(
+  algorithm: AlgorithmModule<any>,
+  stateByEventKey: ReadonlyMap<string, unknown>,
+  eventKey: string,
+  eventTeamKeys: readonly string[],
+  seasonFinalMetrics: TeamMetrics
+): TeamMetrics {
+  const state = stateByEventKey.get(eventKey);
+  if (state !== undefined) {
+    return algorithm.teamMetrics(state, eventTeamKeys);
+  }
+  return seasonFinalMetrics;
 }
 
 function groupByEvent<T extends { readonly match: { readonly eventKey: string } }>(records: readonly T[]): Map<string, T[]> {
@@ -1436,9 +1528,28 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const algorithmById = new Map(options.algorithms.map((a) => [a.id, a]));
     const metricHistoryByAlgoTeam = new Map<string, Map<string, MetricHistoryRow[]>>();
     for (const algorithm of options.algorithms) metricHistoryByAlgoTeam.set(algorithm.id, new Map());
+    // D-10, RESEARCH.md Question 3, plan 07-09: the per-event walk-forward
+    // state snapshot — a Map of eventKey -> state, per algorithm — captured
+    // inside this SAME per-match completion hook D-28's metric history
+    // already pays for (no new corpus query, no second replay pass, no
+    // second hook). The hook is handed the state AFTER that algorithm's `update`,
+    // so what is stored below is the state as of THAT match's completion;
+    // the stream is chronological (`buildSeasonStream`), so the last write
+    // for one event key is that event's LAST match, regardless of how many
+    // events run the same weekend. Every algorithm's `update` returns a NEW
+    // state object (`sigma1`/`epa` a fresh literal, `opr` a fresh
+    // `{ perEvent, lastEventByTeam }` or the identical state on a genuine
+    // non-`qm` no-op) — so storing the reference below is a genuine
+    // snapshot, never an alias of the eventually-final state. Cost, from
+    // measurement rather than a guess: 9-26 ms of extra `teamMetrics`
+    // compute per (season, algorithm) pair, against a replay that already
+    // takes 16-29 seconds per season.
+    const stateByAlgoEvent = new Map<string, Map<string, unknown>>();
+    for (const algorithm of options.algorithms) stateByAlgoEvent.set(algorithm.id, new Map());
     const onMatchComplete = (match: MatchResult, algorithmId: string, state: unknown): void => {
       const algorithm = algorithmById.get(algorithmId);
       if (!algorithm) return;
+      stateByAlgoEvent.get(algorithmId)!.set(match.eventKey, state);
       const involvedTeams = [...match.redTeams, ...match.blueTeams];
       const metrics = algorithm.teamMetrics(state, involvedTeams);
       const byTeam = metricHistoryByAlgoTeam.get(algorithmId)!;
@@ -1538,6 +1649,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // field"), deliberately not "the field as of that match index" — the
       // more expensive option 06-UAT.md records as rejected.
       const sortedPools = sortedPoolsByMetric(metricsByTeam, teamsThisSeason);
+      // D-10, plan 07-09: this algorithm's per-event state capture, bound
+      // once here for the event loop below — never rebuilt per event.
+      const stateByEventForAlgo = stateByAlgoEvent.get(algorithm.id)!;
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
@@ -1654,7 +1768,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           new Set([...predictions.flatMap((p) => [...p.match.redTeams, ...p.match.blueTeams]), ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
         );
         if (predictions.length === 0 && upcoming.length === 0) continue; // no data for this event under this run's scope
-        const teamsStanding = buildEventTeamsStanding(metricsByTeam, eventTeamKeys, teamInfo);
+        // D-10, plan 07-09: the value is AS-OF-EVENT (this event's last
+        // chronological match, or the season-final fallback for an event
+        // with no completed matches — PD-04); the pool is SEASON-FINAL
+        // (`sortedPools`, already in scope above).
+        const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventForAlgo, e.event_key, eventTeamKeys, metricsByTeam);
+        const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, sortedPools);
         const eventArtifact = buildEventArtifact({
           eventKey: e.event_key,
           season,
@@ -1904,7 +2023,15 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     const teamInfo = lookupAllTeamInfo(db);
     const eventTeamKeys = Array.from(new Set([...teams, ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
     const metricsByTeam = finalState !== undefined ? algorithm.teamMetrics(finalState, eventTeamKeys) : {};
-    const teamsStanding = buildEventTeamsStanding(metricsByTeam, eventTeamKeys, teamInfo);
+    // D-10, plan 07-09 Task 1 (temporary — Task 2 restructures this whole
+    // function onto a season-scoped replay so this becomes a genuine
+    // season-final pool, per PD-05): an empty pool here is a required-
+    // parameter typecheck fix that publishes NO percentile at all (every
+    // metric passes through `withEventPercentiles` unchanged, since an
+    // empty map has no entry for any name) rather than one ranked against
+    // this event's own roster — never the forbidden shortcut, even as a
+    // placeholder.
+    const teamsStanding = buildEventTeamsStanding(metricsByTeam, eventTeamKeys, teamInfo, new Map<string, number[]>());
     // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
     // sort-time read at all before this plan — `--event <key>` is an
     // explicit request to publish that one event, so this call is made with

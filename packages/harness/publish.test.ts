@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -44,6 +44,7 @@ import {
   computeSizeStats,
   OUTCOME_KEYS,
   publishSeasons,
+  withEventPercentiles,
   withHistoryPercentiles,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
@@ -53,7 +54,7 @@ import {
 import { roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
-import { percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
+import { HISTORY_PERCENTILE_METRIC_KEYS, percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
 
 vi.mock("./r2Client.js", () => ({
   putObject: vi.fn(async () => undefined),
@@ -208,6 +209,88 @@ function seasonRankingRow(overrides: Partial<EventTeamRankingInput> = {}): Event
     rankingScore: 3.835,
     ...overrides,
   };
+}
+
+/**
+ * Plan 07-09 (D-10, Wave 0 case): seeds two 2026 events over the SAME six
+ * teams — an early event ("2026ear") and a later one ("2026lat"), each with
+ * two `qm` matches at distinct `sortTime` ranges (1,000/2,000 vs
+ * 10,000/11,000). Scores deliberately differ between the two events so a
+ * team's event-scoped OPR rating (D-01: one independent least-squares fit
+ * per event) at the early event's end differs from its rating at the
+ * season's end — OPR's `teamMetrics` headlines each team's MOST RECENT
+ * event (`lastEventByTeam`), so after both events replay, every one of
+ * these six teams' season-final value is its LATE-event rating, while the
+ * as-of-early-event snapshot this plan captures is its EARLY-event rating
+ * alone. Returns the event keys and the team keys seeded so each case names
+ * what it is asserting about rather than re-deriving it.
+ */
+function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: string; teamKeys: string[] } {
+  const earlyEventKey = "2026ear";
+  const lateEventKey = "2026lat";
+  const teamKeys = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+
+  upsertEvent(db, seasonEvent({ eventKey: earlyEventKey, name: "Early Event" }));
+  upsertMatch(
+    db,
+    seasonMatch({
+      matchKey: `${earlyEventKey}_qm1`,
+      eventKey: earlyEventKey,
+      matchNumber: 1,
+      sortTime: 1_000,
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+      redScore: 150,
+      blueScore: 90,
+      winner: "red",
+    })
+  );
+  upsertMatch(
+    db,
+    seasonMatch({
+      matchKey: `${earlyEventKey}_qm2`,
+      eventKey: earlyEventKey,
+      matchNumber: 2,
+      sortTime: 2_000,
+      redTeams: ["frc1", "frc4", "frc5"],
+      blueTeams: ["frc2", "frc3", "frc6"],
+      redScore: 100,
+      blueScore: 140,
+      winner: "blue",
+    })
+  );
+
+  upsertEvent(db, seasonEvent({ eventKey: lateEventKey, name: "Late Event" }));
+  upsertMatch(
+    db,
+    seasonMatch({
+      matchKey: `${lateEventKey}_qm1`,
+      eventKey: lateEventKey,
+      matchNumber: 1,
+      sortTime: 10_000,
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+      redScore: 60,
+      blueScore: 200,
+      winner: "blue",
+    })
+  );
+  upsertMatch(
+    db,
+    seasonMatch({
+      matchKey: `${lateEventKey}_qm2`,
+      eventKey: lateEventKey,
+      matchNumber: 2,
+      sortTime: 11_000,
+      redTeams: ["frc1", "frc5", "frc6"],
+      blueTeams: ["frc2", "frc3", "frc4"],
+      redScore: 180,
+      blueScore: 80,
+      winner: "red",
+    })
+  );
+
+  return { earlyEventKey, lateEventKey, teamKeys };
 }
 
 describe("buildEventArtifact", () => {
@@ -1779,6 +1862,287 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
       ([msg]) => typeof msg === "string" && msg.includes("2026") && msg.toLowerCase().includes("activeyears")
     );
     expect(warned).toBe(true);
+  });
+});
+
+/**
+ * Plan 07-09 Task 1 (D-10, D-09, D-11): direct unit coverage of
+ * `withEventPercentiles` — the exported merge function, tested in isolation
+ * from the seeded-corpus publish path below.
+ */
+describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
+  it("Test 2: a pool hit attaches the exact percentileAgainstSortedPool value; a pool miss attaches no percentile key at all", () => {
+    const metrics: Record<string, TeamMetric> = { total: { value: 50 }, spread: { value: 12 } };
+    const pool = [10, 20, 50, 80];
+    const sortedPools = new Map<string, number[]>([["total", pool]]);
+    const result = withEventPercentiles(metrics, sortedPools);
+    expect(result.total?.percentile).toBe(percentileAgainstSortedPool(pool, 50));
+    expect(result.spread).not.toHaveProperty("percentile");
+  });
+
+  it("Test 3 (PD-03 — deliberate divergence from withHistoryPercentiles): a raw metric name NOT in HISTORY_PERCENTILE_METRIC_KEYS still receives a percentile when the pool has it", () => {
+    const rawComponentName = "autoMobility";
+    expect(HISTORY_PERCENTILE_METRIC_KEYS).not.toContain(rawComponentName);
+    const metrics: Record<string, TeamMetric> = { [rawComponentName]: { value: 5 } };
+    const pool = [1, 5, 9];
+    const sortedPools = new Map<string, number[]>([[rawComponentName, pool]]);
+    const result = withEventPercentiles(metrics, sortedPools);
+    expect(result[rawComponentName]?.percentile).toBe(percentileAgainstSortedPool(pool, 5));
+  });
+
+  it("Test 4: never mutates the input, returns new objects, preserves key order", () => {
+    const metrics: Record<string, TeamMetric> = { b: { value: 2 }, a: { value: 1 } };
+    const snapshot = JSON.parse(JSON.stringify(metrics));
+    const sortedPools = new Map<string, number[]>([
+      ["a", [1, 2, 3]],
+      ["b", [1, 2, 3]],
+    ]);
+    const result = withEventPercentiles(metrics, sortedPools);
+    expect(metrics).toEqual(snapshot);
+    expect(result).not.toBe(metrics);
+    expect(result.a).not.toBe(metrics.a);
+    expect(Object.keys(result)).toEqual(Object.keys(metrics));
+  });
+
+  it("Test 5: value and spread survive untouched; this function attaches a percentile and derives nothing else", () => {
+    const metrics: Record<string, TeamMetric> = { total: { value: 42.5, spread: 3.25 }, other: { value: 7 } };
+    const sortedPools = new Map<string, number[]>([["total", [10, 42.5, 90]]]);
+    const result = withEventPercentiles(metrics, sortedPools);
+    expect(result.total?.value).toBe(42.5);
+    expect(result.total?.spread).toBe(3.25);
+    expect(result.other).not.toHaveProperty("spread");
+  });
+
+  it("Test 6 (EVNT-03 precision): a value exactly equal to a pool member gets EXACTLY that member's percentile, via toBe", () => {
+    const pool = [10, 20, 30, 40, 50];
+    const metrics: Record<string, TeamMetric> = { total: { value: 30 } };
+    const sortedPools = new Map<string, number[]>([["total", pool]]);
+    const result = withEventPercentiles(metrics, sortedPools);
+    expect(result.total?.percentile).toBe(percentileAgainstSortedPool(pool, 30));
+  });
+
+  it("Test 11a (EVNT-02/EVNT-03 adjacency): two teams with exactly equal values receive the identical percentile", () => {
+    const pool = [10, 20, 20, 40];
+    const sortedPools = new Map<string, number[]>([["total", pool]]);
+    const teamA = withEventPercentiles({ total: { value: 20 } }, sortedPools);
+    const teamB = withEventPercentiles({ total: { value: 20 } }, sortedPools);
+    expect(teamA.total?.percentile).toBe(teamB.total?.percentile);
+  });
+
+  it("Test 12 (PD-03, direct form): attaches a percentile to MORE metric names than HISTORY_PERCENTILE_METRIC_KEYS.length when the pool has all of them — the machine-checked form of the no-allowlist claim", () => {
+    const metrics: Record<string, TeamMetric> = {
+      total: { value: 50 },
+      phaseAuto: { value: 10 },
+      phaseTeleop: { value: 30 },
+      phaseEndgame: { value: 10 },
+      autoMobility: { value: 3 },
+      teleopScoring: { value: 12 },
+    };
+    const sortedPools = new Map<string, number[]>(Object.keys(metrics).map((name) => [name, [1, 5, 50, 90]]));
+    const result = withEventPercentiles(metrics, sortedPools);
+    const withPercentileCount = Object.values(result).filter((m) => m.percentile !== undefined).length;
+    expect(withPercentileCount).toBeGreaterThan(HISTORY_PERCENTILE_METRIC_KEYS.length);
+  });
+});
+
+/**
+ * Plan 07-09 Task 1 (D-10, Wave 0 case): the as-of-event value merged with
+ * the season-final percentile, proven end-to-end from a seeded corpus to
+ * published JSON bytes. `opr` is used throughout — its event-scoped fit
+ * (D-01, headlines each team's MOST RECENT event) is what makes a genuinely
+ * different as-of-event vs season-final value cheap to construct without
+ * hand-tuning Sigma1/EPA's cross-match state evolution.
+ */
+describe("publishSeasons — D-10 as-of-event value + season-final percentile on published event artifacts (plan 07-09 Task 1)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-event-percentiles-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("Test 7 (Wave 0 D-10 case, non-vacuous): the early event publishes its as-of-event OPR value, distinct from the season-final value the late event publishes", async () => {
+    const { earlyEventKey, lateEventKey, teamKeys } = seedTwoEventSeason(db);
+
+    // (a) fixture-vacuity guard, asserted FIRST: replay independently, in-test.
+    const stream = buildSeasonStream(db, 2026, {});
+    const stateByEventKey = new Map<string, unknown>();
+    const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
+      stateByEventKey.set(match.eventKey, state);
+    };
+    const simulator = new WalkForwardSimulator(stream);
+    const records = simulator.runAll([opr], teamKeys, undefined, onMatchComplete);
+    const finalState = records.finalStates.get(opr.id);
+    const seasonFinalMetrics = finalState !== undefined ? opr.teamMetrics(finalState as Parameters<typeof opr.teamMetrics>[0], teamKeys) : {};
+    const earlyState = stateByEventKey.get(earlyEventKey);
+    const asOfEarlyMetrics = earlyState !== undefined ? opr.teamMetrics(earlyState as Parameters<typeof opr.teamMetrics>[0], teamKeys) : {};
+
+    const asOfEarlyEventValue = asOfEarlyMetrics["frc1"]?.[TOTAL_METRIC_KEY]?.value;
+    const seasonFinalValue = seasonFinalMetrics["frc1"]?.[TOTAL_METRIC_KEY]?.value;
+    expect(asOfEarlyEventValue, "fixture-vacuity guard: as-of-early-event and season-final OPR values must differ").not.toBe(seasonFinalValue);
+    expect(asOfEarlyEventValue).toBeDefined();
+    expect(seasonFinalValue).toBeDefined();
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
+    const lateArtifact = findEventArtifact(lateEventKey, "opr");
+    const earlyRow = earlyArtifact.teams.find((t) => t.teamKey === "frc1");
+    const lateRow = lateArtifact.teams.find((t) => t.teamKey === "frc1");
+
+    // Published `value` is rounded once at the publish boundary
+    // (`roundTeamMetricRecord`, `ROUNDING_RULE.metric`) — round the
+    // independently-replayed raw expectation the SAME way before comparing
+    // against published JSON bytes, rather than comparing raw to rounded.
+    const roundedAsOfEarlyEventValue = roundTo(asOfEarlyEventValue!, ROUNDING_RULE.metric);
+    const roundedSeasonFinalValue = roundTo(seasonFinalValue!, ROUNDING_RULE.metric);
+
+    // (b) the EARLY event's published artifact carries the as-of-early-event value.
+    expect(earlyRow?.metrics.total?.value).toBe(roundedAsOfEarlyEventValue);
+    // (c) it does NOT carry the season-final value.
+    expect(earlyRow?.metrics.total?.value).not.toBe(roundedSeasonFinalValue);
+    // (d) the LATER event's published artifact carries the season-final value.
+    expect(lateRow?.metrics.total?.value).toBe(roundedSeasonFinalValue);
+  });
+
+  it("Test 8: the published percentile is ranked against the season-final pool, never the early event's own (smaller) roster", async () => {
+    const { earlyEventKey, teamKeys } = seedTwoEventSeason(db);
+    // Widen the season pool beyond the early event's own six-team roster:
+    // two teams (frc7/frc8) that compete ONLY at the late event, so the
+    // early event's own roster (six teams) and the season-final pool
+    // (eight teams) provably differ in membership.
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026lat_qm3",
+        eventKey: "2026lat",
+        matchNumber: 3,
+        sortTime: 12_000,
+        redTeams: ["frc7", "frc2", "frc3"],
+        blueTeams: ["frc8", "frc5", "frc6"],
+        redScore: 115,
+        blueScore: 95,
+        winner: "red",
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
+    const earlyRow = earlyArtifact.teams.find((t) => t.teamKey === "frc1")!;
+    const publishedPercentile = earlyRow.metrics.total?.percentile;
+    expect(publishedPercentile).toBeDefined();
+
+    // Independently replay to compute both pools in-test.
+    const stream = buildSeasonStream(db, 2026, {});
+    const stateByEventKey = new Map<string, unknown>();
+    const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
+      stateByEventKey.set(match.eventKey, state);
+    };
+    const simulator = new WalkForwardSimulator(stream);
+    const teamsThisSeason = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const records = simulator.runAll([opr], teamsThisSeason, undefined, onMatchComplete);
+    const finalState = records.finalStates.get(opr.id);
+    const seasonFinalMetrics =
+      finalState !== undefined ? opr.teamMetrics(finalState as Parameters<typeof opr.teamMetrics>[0], teamsThisSeason) : {};
+    const seasonFinalPool = sortedPoolsByMetric(seasonFinalMetrics, teamsThisSeason).get(TOTAL_METRIC_KEY)!;
+
+    const earlyState = stateByEventKey.get(earlyEventKey);
+    const asOfEarlyMetrics = earlyState !== undefined ? opr.teamMetrics(earlyState as Parameters<typeof opr.teamMetrics>[0], teamKeys) : {};
+    const asOfEarlyValue = asOfEarlyMetrics["frc1"]![TOTAL_METRIC_KEY]!.value;
+
+    const seasonFinalPoolPercentile = percentileAgainstSortedPool(seasonFinalPool, asOfEarlyValue);
+    // The FORBIDDEN number: ranked against the early event's own roster alone.
+    const eventRosterPool = sortedPoolsByMetric(asOfEarlyMetrics, teamKeys).get(TOTAL_METRIC_KEY)!;
+    const eventRosterPoolPercentile = percentileAgainstSortedPool(eventRosterPool, asOfEarlyValue);
+
+    expect(publishedPercentile).toBe(seasonFinalPoolPercentile);
+    expect(publishedPercentile, "the published percentile must NOT equal the forbidden event-roster-ranked one").not.toBe(
+      eventRosterPoolPercentile
+    );
+  });
+
+  it("Test 9 (PD-04): an event with no completed matches publishes season-final metrics through the same merge, not an empty record", async () => {
+    seedTwoEventSeason(db);
+    upsertEvent(db, seasonEvent({ eventKey: "2026sch", name: "Scheduled Only" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026sch_qm1",
+        eventKey: "2026sch",
+        matchNumber: 1,
+        sortTime: 20_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        winner: null,
+        redScore: null,
+        blueScore: null,
+        redRpEarned: null,
+        blueRpEarned: null,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const schedArtifact = findEventArtifact("2026sch", "opr");
+    const row = schedArtifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(row.metrics).not.toEqual({});
+    expect(row.metrics.total?.value).toBeDefined();
+    expect(row.metrics.total?.percentile).toBeDefined();
+
+    const lateArtifact = findEventArtifact("2026lat", "opr");
+    const lateRow = lateArtifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(row.metrics.total?.value).toBe(lateRow.metrics.total?.value);
+  });
+
+  it("Test 10 (UI-SPEC E3/E4 partial): a team the as-of-event state knows nothing about publishes metrics: {} — no fabricated value", async () => {
+    const { earlyEventKey } = seedTwoEventSeason(db);
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: `${earlyEventKey}_qm3`,
+        eventKey: earlyEventKey,
+        matchNumber: 3,
+        sortTime: 3_000,
+        redTeams: ["frc1", "frc2", "frc9"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        winner: null,
+        redScore: null,
+        blueScore: null,
+        redRpEarned: null,
+        blueRpEarned: null,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
+    const row = earlyArtifact.teams.find((t) => t.teamKey === "frc9")!;
+    expect(row).toBeDefined();
+    expect(row.metrics).toEqual({});
+  });
+
+  it("Test 11b (EVNT-02/EVNT-03 ordering): the published teams array order is the caller's order, not a value-derived one", async () => {
+    const { earlyEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
+    // eventTeamKeys is Array.from(new Set([...match teams in chronological
+    // order...])) inside publishSeasons — reproduced here from the
+    // artifact's own matches (already in that same chronological order)
+    // rather than hand-typed, so this cannot silently drift from production.
+    const expectedOrder = Array.from(new Set(earlyArtifact.matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    expect(earlyArtifact.teams.map((t) => t.teamKey)).toEqual(expectedOrder);
   });
 });
 
