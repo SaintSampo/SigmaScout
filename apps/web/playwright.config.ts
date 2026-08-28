@@ -71,7 +71,13 @@ export default defineConfig({
       // existing 1440x900 desktop project is the natural home — `baseURL`
       // itself is UNCHANGED, per this plan's own instruction not to repoint
       // e2e at anything other than the canonical deployed origin.
-      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts/,
+      // Widened by 07-01-PLAN.md Task 1 (matching the identical precedent set
+      // by team-page.spec.ts/static-shell.spec.ts above): a spec matching no
+      // project's testMatch reports "no tests found" rather than failing,
+      // which both 06-01 and 06-05 hit — event-page.spec.ts needs the same
+      // 1440x900 desktop project (the tracer only asserts a rendered event
+      // key and team count, no layout-dependent assertion).
+      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {

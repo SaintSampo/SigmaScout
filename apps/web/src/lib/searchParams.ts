@@ -202,3 +202,38 @@ export const TeamSearchSchema = RootSearchSchema.extend({
 });
 
 export type TeamSearch = z.infer<typeof TeamSearchSchema>;
+
+/**
+ * The event page's five tab ids (07-01-PLAN.md Task 1), in the fixed order
+ * 07-UI-SPEC.md's E2 populated row and its Copywriting Contract's Tab-labels
+ * row both state: Insights, Breakdown, Quals, Alliances, Elims. This enum
+ * stays over all five ids for the whole phase even though only `breakdown`
+ * is REGISTERED (has a trigger and a content panel) by this plan — the
+ * route's own `REGISTERED_EVENT_TABS` array (Task 3) is the narrower,
+ * per-wave subset. Keeping the URL contract stable across the phase means
+ * every later plan's own `searchParams.ts` edit is a no-op here; only
+ * `REGISTERED_EVENT_TABS` in the route grows.
+ */
+export const EVENT_TABS = ["insights", "breakdown", "quals", "alliances", "elims"] as const;
+
+/**
+ * The event page's default tab. `breakdown` for this plan (Breakdown is the
+ * only tab whose full contract renders from fields the artifact publishes
+ * today — 07-01-PLAN.md's objective). 07-18 flips this to `insights` once
+ * the Insights tab exists — a one-constant edit, not a schema change.
+ */
+export const DEFAULT_EVENT_TAB = "breakdown";
+
+/**
+ * Extends `RootSearchSchema` with exactly one field, `tab` — mirroring
+ * `TeamSearchSchema` exactly. Neither Insights nor Breakdown exposes a
+ * clickable-to-resort header this phase (07-UI-SPEC.md's Accent section), so
+ * there is no sort state to carry: `sort`/`sortDir` are deliberately NOT
+ * extended in here.
+ */
+export const EventSearchSchema = RootSearchSchema.extend({
+  tab: z.enum(EVENT_TABS).catch(DEFAULT_EVENT_TAB),
+});
+
+export type EventSearch = z.infer<typeof EventSearchSchema>;
+export type EventTab = (typeof EVENT_TABS)[number];

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
-import { TeamSearchSchema } from "./searchParams.js";
+import { EVENT_TABS, EventSearchSchema, TeamSearchSchema } from "./searchParams.js";
 
 describe("TeamSearchSchema", () => {
   it("parses an explicit valid tab", () => {
@@ -22,6 +22,30 @@ describe("TeamSearchSchema", () => {
 
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = TeamSearchSchema.parse({ year: "1899", algorithm: "nope" });
+    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.algorithm).toBe("sigma1");
+  });
+});
+
+describe("EventSearchSchema (07-01-PLAN.md Task 1)", () => {
+  it("EVENT_TABS is the five fixed ids in UI-SPEC order", () => {
+    expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims"]);
+  });
+
+  it("parses an explicit valid tab", () => {
+    expect(EventSearchSchema.parse({ tab: "quals" }).tab).toBe("quals");
+  });
+
+  it("falls back to breakdown on a bogus tab value", () => {
+    expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("breakdown");
+  });
+
+  it("defaults to breakdown when tab is absent", () => {
+    expect(EventSearchSchema.parse({}).tab).toBe("breakdown");
+  });
+
+  it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
+    const parsed = EventSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
     expect(parsed.algorithm).toBe("sigma1");
   });
