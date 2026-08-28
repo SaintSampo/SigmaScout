@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-11-PLAN.md
-last_updated: "2026-08-28T06:29:33.244Z"
+stopped_at: Completed 07-12-PLAN.md
+last_updated: "2026-08-28T06:57:41.653Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 75
+  completed_plans: 76
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 2 of 20
+Plan: 3 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -109,6 +109,7 @@ Progress: [█████████░] 89%
 | Phase 07 P09 | 18min | 3 tasks | 2 files |
 | Phase 07 P10 | 35min | 3 tasks | 2 files |
 | Phase 07 P11 | 17min | 3 tasks | 4 files |
+| Phase 07 P12 | ~55min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -242,6 +243,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-10 found 2025isios publishes alliances:[] despite the plan's own table declaring populated -- confirmed against live TBA as real state (not an ingest bug), a third D-17 empty-alliances event; expectation left unedited per the plan's own first prohibition, routed to 07-14
 - [Phase ?]: EVNT-02 through EVNT-06 left Pending after 07-10 (matches 07-02 through 07-09 precedent) -- this plan proves the publish-run level only; 07-11 through 07-15 own the rendered tab surfaces that satisfy each requirement
 - [Phase ?]: [Phase 07 P11]: RP renders as a plain numeric-cell span (never MetricValue) and the fallback-mode Rank header names the selected algorithm — Insights tab EVNT-02/D-07..D-10 shipped, verified live against 2025cmptx (0/26 ranked, real no-ranking Championship Finals) and 2024new (75/75 ranked control)
+- [Phase ?]: [Phase 07 P12]: eventMatchAxis.ts's comparator branches on sortTime PRESENCE before VALUE (never values-only) because a values-only comparison is non-transitive across a mixed timed/untimed set; the bracket chain is retained beneath it because 114 corpus groups share an identical sort_time -- closes 07-13's routed series-major finding (2022nhgrs: 8/14 rows moved)
+- [Phase ?]: [Phase 07 P12]: PLOT_W promoted to matchAxis.ts export and padAxisDomain extracted as a shared helper, both proven behaviour-preserving (matchAxis.test.ts/MatchTable.test.tsx stayed byte-identical and green) -- one geometry set and one padding policy for both the team and event match tables
+- [Phase ?]: [Phase 07 P12]: EventMatchTable carries no team-key prop at all, enforced by a compile-time Exclude<keyof Props,...> === never assertion proven to bite -- the this-team bold-highlight rule is dropped by being structurally unrepresentable rather than merely unapplied
+- [Phase ?]: [Phase 07 P12]: EVNT-04 marked complete in REQUIREMENTS.md -- this plan renders the Quals tab (matches the EVNT-02/07-11 precedent of marking complete at the rendering plan, not the earlier schema/publish plans)
 
 ### Pending Todos
 
@@ -287,6 +292,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T06:29:33.193Z
-Stopped at: Completed 07-11-PLAN.md
+Last session: 2026-08-28T06:57:41.599Z
+Stopped at: Completed 07-12-PLAN.md
 Resume file: None
