@@ -124,27 +124,21 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     await waitFor(() => expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined());
   });
 
-  it("?tab=alliances (still unregistered) resolves to the Breakdown panel, same as ?tab=breakdown", async () => {
-    // "quals" was the unregistered probe here through 07-01/07-11; 07-12
-    // registered it and moved the probe to "elims"; 07-13 registers "elims"
-    // (see the "Elims tab registered" describe block below), so this probe
-    // moves to "alliances" — still unregistered as of this plan.
+  it("?tab=alliances renders the Alliances panel (07-14-PLAN.md registers it) — the Breakdown panel is present but inactive", async () => {
+    // Through 07-13, "alliances" was this file's own probe for an
+    // UNREGISTERED tab id; 07-14 registers it (the last of EVENT_TABS'
+    // five), so this test now proves the opposite of what it used to prove —
+    // that the id IS registered and resolves to its own panel. There is no
+    // remaining unregistered id in EVENT_TABS to move the probe to.
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
     renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
-    await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
-
-    cleanup();
-    global.fetch = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      return new Promise<Response>(() => {});
-    });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=breakdown");
-    await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("alliances-panel")).toBeDefined());
+    expect(screen.getByTestId("alliances-panel").hasAttribute("hidden")).toBe(false);
+    expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
   });
 
   it("a mocked 404 artifact response renders the empty state naming the event key, with no button", async () => {
@@ -234,7 +228,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Insights" })).toBeDefined());
   });
 
-  it("exactly four tabs exist, named Insights, Breakdown, Quals and Elims IN THAT ORDER, before any artifact data resolves (07-13-PLAN.md registers Elims)", async () => {
+  it("exactly five tabs exist, named Insights, Breakdown, Quals, Alliances and Elims IN THAT ORDER, before any artifact data resolves (07-14-PLAN.md registers Alliances, the last of EVENT_TABS)", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -242,12 +236,12 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     });
     renderEventRoute("/event/2024casf?algorithm=sigma1");
 
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Elims"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Alliances", "Elims"]);
   });
 
-  it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel; ?tab=alliances (still unregistered) still resolves to Breakdown", async () => {
+  it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -263,15 +257,6 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       return new Promise<Response>(() => {});
     });
     renderEventRoute("/event/2024casf?algorithm=sigma1&tab=breakdown");
-    await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
-    cleanup();
-
-    global.fetch = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      return new Promise<Response>(() => {});
-    });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
     await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
   });
 
@@ -551,7 +536,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     });
   });
 
-  it("the strip exposes exactly four elements with role tab, named Insights, Breakdown, Quals and Elims in that order", async () => {
+  it("the strip exposes exactly five elements with role tab, named Insights, Breakdown, Quals, Alliances and Elims in that order", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -559,9 +544,9 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     });
     renderEventRoute("/event/2024casf?algorithm=sigma1");
 
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Elims"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Alliances", "Elims"]);
   });
 
   it("the tab-strip scroll region and the Elims table's own scroll region are DOM siblings, never nested in either direction", async () => {

@@ -11,6 +11,7 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
+import { AlliancesTab, AlliancesTabSkeleton } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
@@ -26,23 +27,19 @@ export const Route = createFileRoute("/event/$eventKey")({
 });
 
 /**
- * Only the ids this route currently registers a trigger AND a content panel
- * for — `insights` (07-11-PLAN.md Task 3) and `breakdown` (07-01-PLAN.md
- * Task 3). Each further expansion plan (07-12, 07-13, 07-14) appends its own
- * id here in the same edit where it adds its trigger. This narrowing exists
- * because `EventSearchSchema`'s `.catch()` cannot help here: an id like
- * `quals` is a valid member of `EVENT_TABS`'s enum, so it parses cleanly and
- * would otherwise hand Radix a value with no matching trigger or content —
- * an empty panel between waves.
+ * Every id `EVENT_TABS` declares now has a trigger AND a content panel
+ * (07-14-PLAN.md registers the last one, `alliances`) — this narrowing array
+ * is kept rather than removed because `EventSearchSchema`'s `.catch()`
+ * cannot help here on its own: an id is a valid member of `EVENT_TABS`'s
+ * enum whether or not this route has a matching trigger/panel for it, so the
+ * narrowing is what stopped an empty panel between waves and stays as the
+ * one list a reader checks against the tab strip below.
  *
- * `elims` is registered LAST (07-13-PLAN.md Decision 6). `EVENT_TABS`
- * declares the fixed order `insights, breakdown, quals, alliances, elims`;
- * at this wave `alliances` is not yet registered, so the rendered strip
- * reads Insights, Breakdown, Quals, Elims — correct relative order with one
- * member absent. 07-14 inserts its own Alliances trigger BETWEEN Quals and
- * Elims rather than appending, since `EVENT_TABS` places Alliances fourth.
+ * `alliances` sits BETWEEN `quals` and `elims`, matching `EVENT_TABS`'s own
+ * fixed declared order and 07-13's comment asking this plan to insert it
+ * exactly there rather than append it.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "elims"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims"];
 
 function resolveActiveTab(tab: EventTab): EventTab {
   return REGISTERED_EVENT_TABS.includes(tab) ? tab : DEFAULT_EVENT_TAB;
@@ -194,6 +191,20 @@ function EventPage() {
     });
   }
 
+  function renderAlliancesContent() {
+    return renderTabState({
+      is404,
+      error,
+      isPending,
+      data,
+      eventKey,
+      season,
+      onRetry: () => void refetch(),
+      renderPending: () => <AlliancesTabSkeleton algorithmId={algorithm} season={season} />,
+      renderPopulated: (artifact) => <AlliancesTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+    });
+  }
+
   function renderElimsContent() {
     return renderTabState({
       is404,
@@ -231,11 +242,9 @@ function EventPage() {
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Quals
             </TabsTrigger>
-            {/*
-              07-14 inserts the Alliances trigger HERE, between Quals and
-              Elims, because EVENT_TABS declares Alliances fourth and Elims
-              fifth — this trigger stays last only until that plan lands.
-            */}
+            <TabsTrigger value="alliances" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+              Alliances
+            </TabsTrigger>
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Elims
             </TabsTrigger>
@@ -249,6 +258,9 @@ function EventPage() {
         </TabsContent>
         <TabsContent value="quals" data-testid="quals-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderQualsContent()}
+        </TabsContent>
+        <TabsContent value="alliances" data-testid="alliances-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+          {renderAlliancesContent()}
         </TabsContent>
         <TabsContent value="elims" data-testid="elims-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderElimsContent()}
