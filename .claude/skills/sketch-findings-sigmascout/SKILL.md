@@ -31,9 +31,11 @@ sequential shading was explored across four hues and rejected outright.
 Totals render as intervals where there is room; match predictions render as two alliance bands on a
 **single shared event scale**, where the overlap between them *is* the win probability.
 
-**Two ± are not the same quantity.** Team-page ± is match-to-match consistency (D-09); match-
-prediction ± is full predictive variance (D-10). Conflating them produces bands that are wrong by
-7–10σ. Read `references/uncertainty-display.md` before touching either.
+**One ± quantity, everywhere.** (Supersedes prior guidance — Phase 7 plan 07-06, D-01/D-02/D-03.)
+Every `±` this site prints and every band or interval it draws, at every aggregation level, is one
+standard deviation of the full predictive variance. A user must never see a bare consistency-only
+value. Drawing a band from only part of that variance produces bands that are wrong by 7–10σ. Read
+`references/uncertainty-display.md` before touching either.
 
 **Typography and tokens.** Inter, applied via Tailwind's `--font-sans` token (a bare
 `body { font-family }` rule is dropped by the production CSS minifier — this was a real bug).
@@ -52,7 +54,7 @@ blue; FRC alliance red/blue is validated and safe as-is.
 | Area | Reference | Key Decision |
 |------|-----------|--------------|
 | Colour & rarity tiers | `references/colour-and-tiers.md` | Percentile tiers with Common unboxed; blue must stay sky for CVD |
-| Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; the two ± are different quantities |
+| Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; one ± quantity, everywhere (D-01, Phase 7) |
 | Chart craft | `references/chart-craft.md` | Derive coupled geometry; grouping is proximity; mock against the real distribution |
 
 ## Read this first if you are…
@@ -67,8 +69,11 @@ Two decisions here need values the published artifacts do not yet carry:
 
 1. **Per-metric percentiles** for the tier system — pipeline-published or client-derived, undecided.
 2. **Match-level predictive variance** (D-10's `P + Q + R`) — computed by the harness to produce
-   `pRedWin`, never published. Until it ships, any match interval display is wrong. Filed at
-   `.planning/todos/pending/publish-match-predictive-variance.md`. Blocks **TEAM-05**.
+   `pRedWin`. Published on the team artifact since Phase 6 D-01 (`TeamSeasonMatchSchema`'s
+   `redScoreVarianceOwn`/`blueScoreVarianceOwn`), so TEAM-05 is satisfied. NOT yet on the event
+   artifact — `EventMatchSchema` gains these fields in Phase 7 plan 07-07 and 07-08 populates them.
+   Until then, any EVENT-page match interval display is wrong. Filed at
+   `.planning/todos/pending/publish-match-predictive-variance.md`, folded into Phase 7 as D-18 item 3.
 
 ## Theme
 

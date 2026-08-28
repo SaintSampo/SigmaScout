@@ -3,19 +3,36 @@
 SigmaScout's stated differentiator is *honest uncertainty*. These decisions are about making the ±
 visible rather than decorative.
 
-## The two ± are different quantities — never conflate them
+## One quantity, everywhere — never a partial one
 
 This is the single most important thing in this file.
 
-- **D-09 — team-page ±:** the team's **match-to-match performance spread** (consistency). A streaky
-  team keeps a wide ±; a metronomic one narrows.
-- **D-10 — match-prediction ±:** the **full predictive variance** — estimate uncertainty *plus*
-  performance spread (`P + Q + R`).
+**Supersedes prior guidance (Phase 7 plan 07-06, D-01/D-02/D-03):** this file used to say the
+team-page ± and the match-prediction ± were two different quantities that must never be conflated —
+D-09's match-to-match consistency alone on the team page, D-10's full predictive variance on a match
+prediction. That two-quantity design is REJECTED outright, not merely corrected. A user must never
+see a bare D-09 consistency value: every `±` this site prints, and every band, interval, or plot it
+draws, at every aggregation level — one team's metric, an alliance's combined total, a match row's
+band — is the same quantity: **one standard deviation of the full predictive variance**
+(`√(P + R)`, D-01's `P + R` for one team; `√(P + Q + R)` once process noise is folded in, per team or
+per alliance as the surface aggregates). A team's `spread`, an alliance's combined ±, and a match
+row's band reconcile by summing SQUARES and taking the root — three robots at ±10 combine to ±17.3,
+never ±30. D-09's consistency term (R) is still computed and still feeds the Kalman update
+internally, but it is never displayed or published on its own under any name (D-03).
 
-They answer different questions and must be labelled accordingly. Conflating them is not theoretical:
-sketch 003's first draft drew match bands from `sqrt(sum of component variances)`, which omits the
-performance-spread term, and the actual results landed **7σ and ~10σ outside** the drawn bands. The
-model was fine; the quantity was wrong.
+**Why this is coherent rather than a compromise:** an alliance's combined `±` is exactly
+`√(Σ teams' own P + R)`, which is the SAME quantity `redScoreVarianceOwn` already is — so the site
+becomes internally consistent by construction, not by discipline. Accepted consequence: a team we
+have seen only a few matches of now shows a WIDE ± because we are genuinely unsure, not because it is
+streaky — the honest answer, not a flattering one.
+
+**The band-from-a-partial-variance failure is still exactly why this file exists** — it just no
+longer has two names. Sketch 003's first draft drew match bands from `sqrt(sum of component
+variances)`, which omitted the posterior term, and the actual results landed **7σ and ~10σ outside**
+the drawn bands. The model was fine; the quantity was wrong. That lesson generalizes past the old
+two-quantity framing: a band drawn from only PART of the predictive variance — the consistency term
+alone (the original sketch-003 error) or the posterior term alone (an equal and opposite one) — is
+wrong by multiple sigma either way. Draw the whole thing, always.
 
 ## Design Decisions
 
@@ -104,19 +121,22 @@ visible when it lands on top of the band it belongs to.
   different things. The most common charting mistake, and explicitly disallowed.
 - **Zero-anchored interval axes** where spread is small relative to magnitude.
 - **Greying a plotted mark to indicate outcome.** Breaks identity encoding.
-- **Drawing a match interval from component variances.** Wrong quantity — see the top of this file.
+- **Drawing a band from only PART of the predictive variance** — the consistency term (R) alone, or
+  the posterior term (P) alone. Wrong by multiple sigma either way — see the top of this file.
 
 ## Data dependency (not yet satisfied)
 
-**Match-level predictive variance is computed but never published.** The harness uses D-10's
-`P + Q + R` in `packages/core/algorithms/sigma1/linkFunctions.ts` to produce `pRedWin`, but
-`EventMatchSchema` in `packages/harness/pageArtifacts.ts` carries only scores, `pRedWin`, and
-per-component mean/variance. **Any interval display of a match prediction is wrong until this
-ships.** Cheap to add — the value exists at compute time. See
-`.planning/todos/pending/publish-match-predictive-variance.md`.
+**Match-level predictive variance is published on the team artifact, not yet on the event artifact.**
+The harness uses D-10's `P + Q + R` in `packages/core/algorithms/sigma1/linkFunctions.ts` to produce
+`pRedWin`; the per-match `redScoreVarianceOwn`/`blueScoreVarianceOwn` values it also computes have
+carried through to `TeamSeasonMatchSchema` since Phase 6 D-01, so a team page's own match table can
+already draw a real band. `EventMatchSchema` in `packages/harness/pageArtifacts.ts` does not yet
+carry those fields — Phase 7 plan 07-07 adds them to the schema and 07-08 populates them. **Any event
+page's match-interval display is wrong until that lands.** See
+`.planning/todos/pending/publish-match-predictive-variance.md`, folded into Phase 7 as D-18 item 3.
 
-This blocks **TEAM-05** (Phase 6: "predicted RP ± variance" per match) and any Phase 7 alliance
-display that shows uncertainty.
+This blocked **TEAM-05** (Phase 6: "predicted RP ± variance" per match, now satisfied) and blocks any
+Phase 7 event-page display that shows match-level uncertainty until 07-07/07-08 land.
 
 ## Open questions
 
