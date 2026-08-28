@@ -489,4 +489,93 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     expect(screen.getByTestId("quals-panel").hasAttribute("hidden")).toBe(true);
     expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
   });
+
+  it("a mocked 404 response renders the same empty state, with no button, on ?tab=elims as on ?tab=quals", async () => {
+    for (const tab of ["elims", "quals"]) {
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        return Promise.resolve(new Response("not found", { status: 404 }));
+      });
+      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+
+      await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
+      expect(screen.queryByRole("button")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("a mocked 500 response renders the same ErrorState copy and Retry button on ?tab=elims as on ?tab=quals", async () => {
+    for (const tab of ["elims", "quals"]) {
+      global.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        return Promise.resolve(new Response("boom", { status: 500 }));
+      });
+      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+
+      await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
+      expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
+      cleanup();
+    }
+  });
+
+  it("?tab=elims in the pending state renders the Elims skeleton and zero progressbar elements", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
+
+    await waitFor(() => expect(screen.getByTestId("elims-table-scroll")).toBeDefined());
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("clicking the Elims trigger navigates to ?tab=elims while preserving the existing year and algorithm search params", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+
+    const elimsTrigger = await screen.findByRole("tab", { name: "Elims" });
+    fireEvent.mouseDown(elimsTrigger, { button: 0 });
+
+    await waitFor(() => {
+      const search = router.state.location.search as Record<string, unknown>;
+      expect(search.tab).toBe("elims");
+      expect(search.algorithm).toBe("sigma1");
+      expect(search.year).toBe(2024);
+    });
+  });
+
+  it("the strip exposes exactly four elements with role tab, named Insights, Breakdown, Quals and Elims in that order", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1");
+
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(4));
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Elims"]);
+  });
+
+  it("the tab-strip scroll region and the Elims table's own scroll region are DOM siblings, never nested in either direction", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse({ matches: [{ matchKey: "2024casf_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1, redTeams: ["frc254"], blueTeams: ["frc118"], predictedWinner: "red", pRedWin: 0.6, predictedRedScore: 120, predictedBlueScore: 100, actualWinner: "red", actualRedScore: 130, actualBlueScore: 90 }] }));
+    });
+    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
+
+    await waitFor(() => expect(screen.getByTestId("elims-table-scroll")).toBeDefined());
+    const tabStrip = screen.getByTestId("event-tab-strip-scroll");
+    const tableScroll = screen.getByTestId("elims-table-scroll");
+    expect(tabStrip.contains(tableScroll)).toBe(false);
+    expect(tableScroll.contains(tabStrip)).toBe(false);
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { ElimsTab, ElimsTabSkeleton } from "./ElimsTab.js";
-import { QualsTab } from "./QualsTab.js";
+import { QualsTab, QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import type { EventMatch, EventUpcomingMatch } from "./eventMatchAxis.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -357,5 +357,146 @@ describe("Structure", () => {
     render(<ElimsTabSkeleton />);
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
+  it("an artifact whose matches are all qualification rows and whose upcoming is empty (the 2025srsd shape) renders EmptyState with the event's name, the Copywriting Contract body, and no table/axis-header/scroll-region", () => {
+    const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: "Sioux Falls Regional" })} algorithmId="sigma1" season={2025} />);
+    expect(screen.getByText("No matches found for Sioux Falls Regional")).toBeDefined();
+    expect(screen.getByText(QUALS_EMPTY_STATE_BODY)).toBeDefined();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByTestId("axis-ticks")).toBeNull();
+    expect(screen.queryByTestId("elims-table-scroll")).toBeNull();
+  });
+
+  it("the empty-state body is byte-identical to QualsTab's exported constant, compared by import rather than retyped", () => {
+    const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="sigma1" season={2025} />);
+    expect(screen.getByText(QUALS_EMPTY_STATE_BODY)).toBeDefined();
+  });
+
+  it("the empty state renders no button element at all", () => {
+    const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="sigma1" season={2025} />);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("an artifact carrying no name field falls back to the event key in the heading", () => {
+    const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: undefined, eventKey: "2025srsd" })} algorithmId="sigma1" season={2025} />);
+    expect(screen.getByText("No matches found for 2025srsd")).toBeDefined();
+  });
+
+  it("an artifact whose matches are empty but whose upcoming carries 3 elimination rows renders the FULL table with 3 rows, not the empty state", () => {
+    const upcoming = [
+      makeUpcomingMatch({ matchKey: "qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
+      makeUpcomingMatch({ matchKey: "qf2m1", compLevel: "qf", setNumber: 2, matchNumber: 1 }),
+      makeUpcomingMatch({ matchKey: "qf3m1", compLevel: "qf", setNumber: 3, matchNumber: 1 }),
+    ];
+    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="sigma1" season={2022} />);
+    expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(3);
+    expect(screen.queryByText(/No matches found/)).toBeNull();
+  });
+});
+
+describe("Adjacency (EVNT-06 adjacency)", () => {
+  it("two rows sharing an identical (compLevel, setNumber, matchNumber) triple but differing in match key both appear, in match-key order — they separate, not merge or drop", () => {
+    const matches = [
+      makePlayedMatch({ matchKey: "2022ilpe_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
+      makePlayedMatch({ matchKey: "2022gacar_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
+    ];
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid"));
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(["match-row-2022gacar_qf1m1", "match-row-2022ilpe_qf1m1"]);
+  });
+
+  it("two alliance bands whose predicted intervals exactly touch both render, each keeping its own colour and its own tick", () => {
+    // Red predicted 100 ± 10 (band [90,110]); blue predicted 130 ± 20 (band [110,150]) — touching at 110.
+    const matches = [
+      makePlayedMatch({
+        matchKey: "qf1m1",
+        predictedRedScore: 100,
+        redScoreVarianceOwn: 100,
+        predictedBlueScore: 130,
+        blueScoreVarianceOwn: 400,
+      }),
+    ];
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
+  });
+
+  it("two alliance bands whose predicted intervals exactly COINCIDE both render, with two ticks", () => {
+    const matches = [
+      makePlayedMatch({
+        matchKey: "qf1m1",
+        predictedRedScore: 100,
+        redScoreVarianceOwn: 100,
+        predictedBlueScore: 100,
+        blueScoreVarianceOwn: 100,
+      }),
+    ];
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
+  });
+
+  it("a row whose variance fields are both exactly 0 still renders both ticks and both bands — a zero-width band is a real state, not an absent one", () => {
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 0, blueScoreVarianceOwn: 0 })];
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
+  });
+});
+
+describe("Boundary and single-row (EVNT-06 empty, UI-SPEC E6 zero-one-many)", () => {
+  it("a one-row elimination slate renders a one-row table with a non-zero-range axis", () => {
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(1);
+    const ticks = screen.getAllByTestId("axis-tick").map((t) => Number(t.textContent));
+    expect(Math.max(...ticks)).toBeGreaterThan(Math.min(...ticks));
+  });
+
+  it("a 60-row fixture modelled on 2022mirr (ef sets 1-20, three matches each, all unplayed) renders exactly 60 body rows in set-then-match order, bands and ticks but no dots, and round labels reading Eighths {set}-{match}", () => {
+    const upcoming: EventUpcomingMatch[] = [];
+    for (let set = 1; set <= 20; set++) {
+      for (let match = 1; match <= 3; match++) {
+        upcoming.push(makeUpcomingMatch({ matchKey: `ef${set}m${match}`, compLevel: "ef", setNumber: set, matchNumber: match }));
+      }
+    }
+    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="sigma1" season={2022} />);
+    const rows = screen.getAllByTestId(/^match-row-/);
+    expect(rows).toHaveLength(60);
+    expect(screen.getByText("Eighths 1-1")).toBeDefined();
+    expect(screen.getByText("Eighths 20-3")).toBeDefined();
+    expect(document.querySelectorAll('[data-testid$="-dot"]')).toHaveLength(0);
+  });
+});
+
+describe("Anti-drift against the sibling tab", () => {
+  it("rendering ElimsTab and QualsTab against the same artifact, the two scroll elements' class strings are IDENTICAL", () => {
+    const matches = [
+      makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 }),
+      makePlayedMatch({ matchKey: "qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
+    ];
+    const artifact = makeArtifact({ matches });
+    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    const qualsClass = screen.getByTestId("quals-table-scroll").className;
+    unmount();
+
+    render(<ElimsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    const elimsClass = screen.getByTestId("elims-table-scroll").className;
+
+    expect(elimsClass).toBe(qualsClass);
   });
 });

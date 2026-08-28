@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { EventMatchTable, EventMatchTableSkeleton } from "./EventMatchTable.js";
 import { computeEventAxisDomain, isElimCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
+import { QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
+import { EmptyState } from "../StateViews.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -51,13 +53,36 @@ export function ElimsTabSkeleton() {
 }
 
 /**
- * Task 1's tracer scope: the filter, the D-13 merge, the D-12 domain and the
- * table, drawn entirely from 07-12's exports. Task 2 adds the empty-state
- * branch for the 15% of corpus events with zero elimination matches.
+ * Renders `EmptyState` (no table, no axis header, no scroll region) when the
+ * merged row list is empty — 239 of the corpus's 1,581 events (15%) carry
+ * zero elimination matches, the single most common absent-data shape on this
+ * page, not a defensive branch. Renders the full table for an event with
+ * zero PLAYED but some scheduled elimination matches — empty means zero
+ * elimination matches at all, never "none played yet".
+ *
+ * The body is IMPORTED from `QualsTab.tsx`'s exported `QUALS_EMPTY_STATE_BODY`
+ * rather than retyped — 07-12 exported it exactly so this tab renders the
+ * identical Copywriting Contract sentence rather than a paraphrase. The
+ * `QUALS_` prefix reads oddly on this tab and that is deliberate: the
+ * sentence is shared by contract, and renaming or relocating it would mean
+ * editing a dependency's shipped export and its test file for a purely
+ * cosmetic gain, against the real risk of turning a green suite red.
+ *
+ * The sentence actually fits THIS tab BETTER than it fits Quals — its
+ * not-yet-published framing is exactly right for the dominant case here (an
+ * event mid-schedule whose bracket does not exist yet), and the
+ * Championship-Finals case that made the sentence slightly wrong on the
+ * Quals tab does not arise here, since a Championship Finals event has a
+ * full 15-16 row elimination slate.
  */
 export function ElimsTab({ artifact, season }: ElimsTabProps) {
   const rows = useMemo(() => mergeEventMatches(artifact.matches, artifact.upcoming, isElimCompLevel), [artifact]);
   const domain = useMemo(() => computeEventAxisDomain(rows), [rows]);
+
+  if (rows.length === 0) {
+    const eventName = artifact.name ?? artifact.eventKey;
+    return <EmptyState heading={`No matches found for ${eventName}`} body={QUALS_EMPTY_STATE_BODY} />;
+  }
 
   return (
     <div data-testid="elims-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
