@@ -11,6 +11,7 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { BreakdownTab, BreakdownTabSkeleton } from "../components/event/BreakdownTab.js";
 import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTab.js";
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
+import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -33,8 +34,15 @@ export const Route = createFileRoute("/event/$eventKey")({
  * `quals` is a valid member of `EVENT_TABS`'s enum, so it parses cleanly and
  * would otherwise hand Radix a value with no matching trigger or content —
  * an empty panel between waves.
+ *
+ * `elims` is registered LAST (07-13-PLAN.md Decision 6). `EVENT_TABS`
+ * declares the fixed order `insights, breakdown, quals, alliances, elims`;
+ * at this wave `alliances` is not yet registered, so the rendered strip
+ * reads Insights, Breakdown, Quals, Elims — correct relative order with one
+ * member absent. 07-14 inserts its own Alliances trigger BETWEEN Quals and
+ * Elims rather than appending, since `EVENT_TABS` places Alliances fourth.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "elims"];
 
 function resolveActiveTab(tab: EventTab): EventTab {
   return REGISTERED_EVENT_TABS.includes(tab) ? tab : DEFAULT_EVENT_TAB;
@@ -186,6 +194,20 @@ function EventPage() {
     });
   }
 
+  function renderElimsContent() {
+    return renderTabState({
+      is404,
+      error,
+      isPending,
+      data,
+      eventKey,
+      season,
+      onRetry: () => void refetch(),
+      renderPending: () => <ElimsTabSkeleton />,
+      renderPopulated: (artifact) => <ElimsTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+    });
+  }
+
   return (
     // Same `max-w-[1200px]` centred content column `team.$teamNumber.tsx`
     // uses, for the same stated reason (the fixed 470px plot width math the
@@ -209,6 +231,14 @@ function EventPage() {
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Quals
             </TabsTrigger>
+            {/*
+              07-14 inserts the Alliances trigger HERE, between Quals and
+              Elims, because EVENT_TABS declares Alliances fourth and Elims
+              fifth — this trigger stays last only until that plan lands.
+            */}
+            <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+              Elims
+            </TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
@@ -219,6 +249,9 @@ function EventPage() {
         </TabsContent>
         <TabsContent value="quals" data-testid="quals-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderQualsContent()}
+        </TabsContent>
+        <TabsContent value="elims" data-testid="elims-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+          {renderElimsContent()}
         </TabsContent>
       </Tabs>
     </div>
