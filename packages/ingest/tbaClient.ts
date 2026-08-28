@@ -9,9 +9,11 @@
  * Hardened for a full 2022-2026 backfill (Plan 03 Task 2): every outbound
  * request is throttled and tallied so a five-season run stays measurable
  * and bounded (T-01-04), and the client exposes helpers for exactly the
- * eight capabilities COVERAGE.md marks INTEGRATE — status, teams-list
+ * eleven capabilities COVERAGE.md marks INTEGRATE — status, teams-list
  * (paginated), team-detail, events-list, event-detail, event-teams,
- * event-matches, and match-detail — and none marked OPT-OUT.
+ * event-matches, match-detail, team-media (plan 06-03, Phase 6),
+ * event-rankings (plan 06.1-01, Phase 6.1), and event-alliances (plan
+ * 07-03, Phase 7) — and none marked OPT-OUT.
  */
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -114,7 +116,13 @@ export interface TbaClientContext {
   baseUrl?: string;
 }
 
-// --- The eight capabilities COVERAGE.md marks INTEGRATE ---------------
+// --- The eleven capabilities COVERAGE.md marks INTEGRATE --------------
+// status, teams-list (paginated), team-detail, events-list, event-detail,
+// event-teams, event-matches, match-detail, team-media (Phase 6),
+// event-rankings (Phase 6.1), event-alliances (Phase 7) — each new
+// addition should get a parenthetical here naming the phase that added
+// it, so the next addition has an obvious place to append rather than an
+// obvious place to forget (T-07-03-09).
 
 /** `GET /status` — datafeed health, checked once at the start of a run. */
 export function fetchStatus(ctx: TbaClientContext, cachedEtag?: string): Promise<TbaFetchResult> {
@@ -198,6 +206,21 @@ export function fetchEventRankings(
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
   return tbaFetch(`/event/${eventKey}/rankings`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
+ * `GET /event/{key}/alliances` (D-18.7, EVNT-05, plan 07-03) — every
+ * playoff alliance selection for one event, in one response. Event-scoped,
+ * not team-scoped — mirrors `fetchEventRankings`'s shape exactly, never
+ * `fetchTeamMedia`'s per-entity loop: one request per event covers every
+ * alliance at it.
+ */
+export function fetchEventAlliances(
+  ctx: TbaClientContext,
+  eventKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/event/${eventKey}/alliances`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /**

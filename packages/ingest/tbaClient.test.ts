@@ -6,8 +6,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAllTeams,
+  fetchEventAlliances,
   fetchEventDetail,
   fetchEventMatches,
+  fetchEventRankings,
   fetchEventTeams,
   fetchEventsList,
   fetchMatchDetail,
@@ -125,7 +127,7 @@ describe("capability surface", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exposes exactly the eight COVERAGE.md INTEGRATE capabilities", async () => {
+  it("exposes exactly the eleven COVERAGE.md INTEGRATE capabilities", async () => {
     await fetchStatus(ctx);
     await fetchTeamDetail(ctx, "frc254");
     await fetchEventsList(ctx, 2024);
@@ -134,6 +136,9 @@ describe("capability surface", () => {
     await fetchEventMatches(ctx, "2024casj");
     await fetchMatchDetail(ctx, "2024casj_qm1");
     await fetchAllTeams(ctx, 2024); // default mock returns [] -> a single (empty) page
+    await fetchTeamMedia(ctx, "frc254", 2024);
+    await fetchEventRankings(ctx, "2024casj");
+    await fetchEventAlliances(ctx, "2024casj");
 
     const requestedPaths = fetchMock.mock.calls.map(([url]) => new URL(url as string).pathname);
     expect(requestedPaths).toEqual(
@@ -146,6 +151,9 @@ describe("capability surface", () => {
         "/api/v3/event/2024casj/matches",
         "/api/v3/match/2024casj_qm1",
         "/api/v3/teams/2024/0",
+        "/api/v3/team/frc254/media/2024",
+        "/api/v3/event/2024casj/rankings",
+        "/api/v3/event/2024casj/alliances",
       ])
     );
   });
@@ -170,5 +178,14 @@ describe("capability surface", () => {
     expect(new URL(url).pathname).toBe("/api/v3/team/frc254/media/2024");
     const headers = requestInit.headers as Record<string, string>;
     expect(headers["If-None-Match"]).toBe("\"cached-media-etag\"");
+  });
+
+  it("fetchEventAlliances issues /event/{key}/alliances and forwards a cached ETag as a conditional request header (D-18.7, plan 07-03)", async () => {
+    await fetchEventAlliances(ctx, "2024casj", "\"cached-alliances-etag\"");
+
+    const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/api/v3/event/2024casj/alliances");
+    const headers = requestInit.headers as Record<string, string>;
+    expect(headers["If-None-Match"]).toBe("\"cached-alliances-etag\"");
   });
 });

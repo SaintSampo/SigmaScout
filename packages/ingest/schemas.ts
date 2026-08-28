@@ -152,3 +152,62 @@ export const tbaEventRankingsResponseSchema = z
   })
   .nullable();
 export type TbaEventRankingsResponse = z.infer<typeof tbaEventRankingsResponseSchema>;
+
+/**
+ * `GET /event/{key}/alliances` element (D-18.7, EVNT-05, plan 07-03) — one
+ * playoff alliance selection. Field set confirmed live against 40 real
+ * events spanning 2022-2026 (RESEARCH.md Open Question 2). This is
+ * deliberately NOT the module-private `tbaAllianceSchema` above, which
+ * models a single MATCH's red or blue roster (`team_keys`/
+ * `surrogate_team_keys`/`dq_team_keys`/`score`) — two different TBA
+ * concepts share the word "alliance"; this response schema must never be
+ * substituted for the per-match one or vice versa.
+ *
+ * Four fields, four reasons a later reader has no other source for:
+ * - `name` is `.nullish()` — not required, not `.optional()` alone, and
+ *   never given a `.default()`. RESEARCH.md Q2 observed the key ABSENT
+ *   entirely at `2024wvrox`, where the alliance object's only keys are
+ *   `declines`, `picks` and `status`. `.nullish()` additionally tolerates
+ *   an explicit `null` without aborting a 1,581-event run over a purely
+ *   cosmetic label. A `.default()` of any kind is forbidden here: it would
+ *   make an absence indistinguishable from a value at every layer
+ *   downstream.
+ * - `picks` carries `.min(1)`. An alliance object with zero picks is not
+ *   an alliance, was never observed across the 38 populated events
+ *   sampled, and could not be stored anyway — `packages/corpus/db.ts`'s
+ *   `event_alliances` contract forbids a row with an empty picks array.
+ *   Rejecting it at the parse boundary is what makes that contract
+ *   structurally true instead of dependent on a downstream skip. The
+ *   maximum is deliberately unconstrained: 3 and 4 were both observed, and
+ *   a length ceiling would turn a future format change into a parse
+ *   failure over something this pipeline does not care about.
+ * - `status` is `z.unknown()`, the same treatment `tbaMatchSchema.
+ *   score_breakdown` already gets under D-05. RESEARCH.md Q2 observed its
+ *   shape varying with `playoff_type` across values 0, 4, 8 and 10, with
+ *   only `status.status`, `status.record`, `status.current_level_record`
+ *   and `status.level` reliably present. Modelling it field-by-field would
+ *   make a future playoff format a parse failure; storing it whole keeps
+ *   the provenance without the brittleness.
+ * - `declines` is required. It was present, as an empty array, in all 40
+ *   sampled events, and `event_alliances.declines` is `NOT NULL` — a
+ *   missing key is genuine drift that a NOT NULL column cannot honestly
+ *   absorb, and this file's header policy says drift throws.
+ */
+export const tbaAllianceEntrySchema = z.object({
+  declines: z.array(z.string()),
+  name: z.string().nullish(),
+  picks: z.array(z.string()).min(1),
+  status: z.unknown(),
+});
+export type TbaAllianceEntry = z.infer<typeof tbaAllianceEntrySchema>;
+
+/**
+ * `GET /event/{key}/alliances` — the whole response. The top-level
+ * `.nullable()` is load-bearing and non-negotiable for the identical
+ * reason `tbaEventRankingsResponseSchema`'s is: TBA returns HTTP 200 with
+ * a bare `null` body for an event with no alliance structure at all,
+ * observed live at `2022ispr`, and a schema that throws on it converts
+ * TBA's honest answer into an aborted ingest run.
+ */
+export const tbaAllianceResponseSchema = z.array(tbaAllianceEntrySchema).nullable();
+export type TbaAllianceResponse = z.infer<typeof tbaAllianceResponseSchema>;
