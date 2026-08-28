@@ -62,7 +62,9 @@
  * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
  * `ROUNDING_RULE` entry for RP either. `EventTeamSchema.rank` and
  * `record.wins`/`record.losses`/`record.ties` (Phase 7, D-18 item 6, plan
- * 07-07 Task 2) are integral by construction in the same way — no
+ * 07-07 Task 2), and `EventArtifactSchema.week` and
+ * `EventAllianceSchema.allianceNumber` (Phase 7, D-18 items 7/8, plan 07-07
+ * Task 3), are integral by construction in the same way — no
  * `ROUNDING_RULE` entry for any of them. `sortTime` (Phase 6's
  * `TeamSeasonMatchSchema.sortTime`, and Phase 7's `EventMatchSchema.sortTime`/
  * `EventUpcomingMatchSchema.sortTime`, plan 07-07 Task 1) gets no entry for a

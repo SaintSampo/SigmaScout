@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   artifactKey,
   CompareArtifactSchema,
+  composeEventLocation,
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -637,6 +638,108 @@ describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-0
   });
 });
 
+describe("EventAllianceSchema / EventArtifactSchema identity fields (D-18 items 7/8, D-15, D-16, D-17, plan 07-07 Task 3)", () => {
+  const THREE_PICKS = ["frc254", "frc1678", "frc971"];
+  const FOUR_PICKS = ["frc254", "frc1678", "frc971", "frc604"];
+
+  it("Test 1 — the pre-republish shape, re-asserted with every field in this plan now declared: the unmodified fixture parses and alliances/name/startDate/location/week all read back undefined", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    // Direct property access (no intermediate cast) is load-bearing (PD-10):
+    // before EventArtifactSchema declares these fields, this line is a
+    // `pnpm typecheck` error, not merely a runtime `undefined`.
+    expect(parsed.alliances).toBeUndefined();
+    expect(parsed.name).toBeUndefined();
+    expect(parsed.startDate).toBeUndefined();
+    expect(parsed.location).toBeUndefined();
+    expect(parsed.week).toBeUndefined();
+  });
+
+  it("Test 2 — an empty selection is not an absent key: alliances: [] parses and reads back as an empty array, distinct from the absent case above", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { alliances: [] } }));
+    expect(parsed.alliances).toEqual([]);
+  });
+
+  it("Test 3 — three picks and four picks both round-trip whole", () => {
+    const threePick = EventArtifactSchema.parse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS }] } })
+    );
+    expect(threePick.alliances![0]!.picks.length).toBe(3);
+
+    const fourPick = EventArtifactSchema.parse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: FOUR_PICKS }] } })
+    );
+    expect(fourPick.alliances![0]!.picks.length).toBe(4);
+    expect(fourPick.alliances![0]!.picks[3]).toBe("frc604");
+  });
+
+  it("Test 4 — the absent name: an alliance object with no name key parses and reads name back as undefined; name: '' is REJECTED", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS }] } })
+    );
+    expect(parsed.alliances![0]!.name).toBeUndefined();
+
+    const result = EventArtifactSchema.safeParse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, name: "", picks: THREE_PICKS }] } })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 5 — allianceNumber is a positive integer: 0 rejected, 1 accepted, 1.5 rejected", () => {
+    const zero = EventArtifactSchema.safeParse(eventFixtureWith({ top: { alliances: [{ allianceNumber: 0, picks: THREE_PICKS }] } }));
+    expect(zero.success).toBe(false);
+    const one = EventArtifactSchema.safeParse(eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS }] } }));
+    expect(one.success).toBe(true);
+    const fractional = EventArtifactSchema.safeParse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1.5, picks: THREE_PICKS }] } })
+    );
+    expect(fractional.success).toBe(false);
+  });
+
+  it("Test 6 — an alliance with no picks is unrepresentable: picks: [] is rejected", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: [] }] } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 7 — array order is preserved, and seed order does not depend on it", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({
+        top: {
+          alliances: [
+            { allianceNumber: 3, picks: ["frcA", "frcB", "frcC"] },
+            { allianceNumber: 1, picks: ["frcD", "frcE", "frcF"] },
+            { allianceNumber: 2, picks: ["frcG", "frcH", "frcI"] },
+          ],
+        },
+      })
+    );
+    expect(parsed.alliances!.map((alliance) => alliance.allianceNumber)).toEqual([3, 1, 2]);
+  });
+
+  it("Test 8 — identity fields: name/startDate round-trip as strings and reject ''; location: null and week: null both parse and read back null, distinct from absent; location and week round-trip exactly when present", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({ top: { name: "Silicon Valley Regional", startDate: "2026-03-01", location: "CA, USA", week: 3 } })
+    );
+    expect(parsed.name).toBe("Silicon Valley Regional");
+    expect(parsed.startDate).toBe("2026-03-01");
+    expect(parsed.location).toBe("CA, USA");
+    expect(parsed.week).toBe(3);
+
+    const nullish = EventArtifactSchema.parse(eventFixtureWith({ top: { location: null, week: null } }));
+    expect(nullish.location).toBeNull();
+    expect(nullish.week).toBeNull();
+
+    expect(EventArtifactSchema.safeParse(eventFixtureWith({ top: { name: "" } })).success).toBe(false);
+    expect(EventArtifactSchema.safeParse(eventFixtureWith({ top: { startDate: "" } })).success).toBe(false);
+  });
+
+  it("Test 9 — composeEventLocation, all four input combinations, never an em-dash", () => {
+    expect(composeEventLocation("CA", "USA")).toBe("CA, USA");
+    expect(composeEventLocation(null, "USA")).toBe("USA");
+    expect(composeEventLocation("CA", null)).toBe("CA");
+    expect(composeEventLocation(null, null)).toBeNull();
+  });
+});
+
 describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 1)", () => {
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
@@ -737,12 +840,21 @@ describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped fie
     }
   });
 
-  it("no row-level field name (teams table row, event/team match rows, compare slice) matches the comparison pattern", () => {
+  it("no row-level field name (teams table row, event/team match rows, compare slice, event team/alliance rows) matches the comparison pattern", () => {
     const teamsRow = validTeamsFixture().teams[0]!;
     const matchRow = validEventFixture().matches[0]!;
     const upcomingRow = validEventFixture().upcoming[0]!;
     const compareSlice = validCompareFixture().slices[0]!;
     const teamSeasonMatchRow = validTeamSeasonFixture().events[0]!.matches[0]!;
+    // plan 07-07 Task 3: an enriched event fixture's teams[0] (rank/record/rp)
+    // and alliances[0] (allianceNumber/name/picks), so every field this plan
+    // adds sits inside this mechanical guard rather than outside it.
+    const enrichedEventFixture = eventFixtureWith({
+      team: { teamKey: "frc254", rank: 1, record: { wins: 9, losses: 1, ties: 0 }, rp: 3.83 },
+      top: { alliances: [{ allianceNumber: 1, name: "Alliance 1", picks: ["frc254", "frc1678", "frc971"] }] },
+    }) as unknown as { teams: Array<Record<string, unknown>>; alliances: Array<Record<string, unknown>> };
+    const eventTeamRow = enrichedEventFixture.teams[0]!;
+    const eventAllianceRow = enrichedEventFixture.alliances[0]!;
 
     const allRowNames = [
       ...Object.keys(teamsRow),
@@ -750,6 +862,8 @@ describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped fie
       ...Object.keys(upcomingRow),
       ...Object.keys(compareSlice),
       ...Object.keys(teamSeasonMatchRow),
+      ...Object.keys(eventTeamRow),
+      ...Object.keys(eventAllianceRow),
     ];
     for (const name of allRowNames) {
       expect(name).not.toMatch(COMPARISON_PATTERN);

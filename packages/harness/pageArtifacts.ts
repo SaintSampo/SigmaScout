@@ -229,6 +229,30 @@ export function publishedTierForPercentile(percentile: number | undefined): "rar
   return undefined;
 }
 
+/**
+ * D-18 item 8, PD-01, plan 07-07 Task 3: composes an event's single display
+ * location string from TBA's `state_prov`/`country` columns, reproducing
+ * `apps/web/src/components/events-list/EventsList.tsx`'s `locationText`
+ * composition exactly — `"{stateProv}, {country}"` when both are present,
+ * the single present value when one is `null`, and `null` when both are
+ * `null`. The em-dash a reader sees for that last case is deliberately NOT
+ * this function's output — that is a rendering decision `EventsList.tsx`'s
+ * own `cellText` already owns, applied by its caller as `?? "—"`. 07-08
+ * calls this to populate `EventArtifactSchema.location`; 07-15 should make
+ * `EventsList.tsx`'s `locationText` delegate to this same function as
+ * `composeEventLocation(event.stateProv, event.country) ?? "—"`, so the
+ * event page and the Events list can never print different locations for
+ * one event. This is the same single-sourcing reason
+ * `publishedTierForPercentile` above gives in its own doc comment — one
+ * exported composer, not two independently-drifting implementations.
+ */
+export function composeEventLocation(stateProv: string | null, country: string | null): string | null {
+  if (stateProv !== null && country !== null) return `${stateProv}, ${country}`;
+  if (stateProv !== null) return stateProv;
+  if (country !== null) return country;
+  return null;
+}
+
 /** Win/loss/tie counts as three integer fields, never a formatted string. */
 const RecordSchema = z.object({
   wins: z.number().int().nonnegative(),
@@ -748,6 +772,41 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
 // ---------------------------------------------------------------------------
 
 /**
+ * D-18 item 7, D-15, D-16, plan 07-07 Task 3: one playoff alliance's
+ * selection at an event. Declared module-private, matching every other row
+ * schema in this file — nothing outside this module needs the schema
+ * object itself, only `EventArtifact`'s inferred type.
+ *
+ * `allianceNumber` is TBA's own 1-based seed position, carried explicitly
+ * rather than implied by array index so seed order survives any
+ * re-serialization, sort or filter between the publisher and the browser.
+ * It is never parsed out of `name`, because `name` is absent entirely at
+ * some events (live-observed at `2024wvrox`).
+ *
+ * `name` is omitted when TBA sent none — the published shape stays
+ * isomorphic to the source shape, an absent key for an absent name, never
+ * an empty string and never a synthesized label; choosing a display
+ * fallback is 07-14's decision to make from an honest absence.
+ *
+ * `picks` is TBA's own ordered array: entry 0 is the alliance captain,
+ * entries 1 and 2 are the second and third picks, and a fourth entry where
+ * present is the reserve robot TBA lists with no field of its own. This
+ * schema declares no field named for either of those two positions —
+ * both ARE positions in this one array, and a parallel field would be a
+ * copy that can drift from it (PD-02). The constraint that matters most:
+ * D-16 excludes the fourth pick from 07-14's combined arithmetic so the
+ * column stays comparable across rows — it does not exclude that team from
+ * the record of who was on the alliance, so truncating `picks` to three
+ * anywhere in this pipeline would erase a real team's competition result
+ * from the only published account of that event's selection.
+ */
+const EventAllianceSchema = z.object({
+  allianceNumber: z.number().int().positive(),
+  name: z.string().min(1).optional(),
+  picks: z.array(z.string().min(1)).min(1),
+});
+
+/**
  * The one page schema plan 04-01's tracer needed, widened by plan 04-02
  * Task 2 to carry `upcoming`'s real D-08 shape and a standings-style
  * `teams` list, and by plan 04-04 Task 1 to make `teams` REQUIRED (never
@@ -759,13 +818,49 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
  * page's standings table would have rendered empty instead of failing
  * loudly on a real gap. `matches` is unchanged from the 04-01 tracer's
  * shape.
+ *
+ * D-18 items 7/8, plan 07-07 Task 3 widen this with the event's own
+ * identity (`name`/`startDate`/`location`/`week`) and its playoff alliance
+ * selection (`alliances`). `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately
+ * NOT bumped for these additions (D-02) — additive, optional fields on one
+ * page kind are backward-compatible for any reader, matching
+ * `EventsListRowSchema`'s own EVNT-01 precedent in this same file (plan
+ * 05-02) for the identical class of change.
+ *
+ * `name`/`startDate` are optional but never null: TBA has both for any real
+ * event, and 07-08 falls back to the event key exactly as
+ * `buildEventsArtifact` already does for the events list — `undefined` here
+ * can only mean the artifact predates the field.
+ *
+ * `location`/`week` are optional AND nullable: `undefined` means the same
+ * as above, while `null` is the honest published answer for an event with
+ * genuinely no recorded location or no derivable competition week — the
+ * same shape `EventsListRowSchema` already uses for these two source
+ * columns, plus the optionality the pre-republish window needs. `location`
+ * is composed once, in the pipeline, through `composeEventLocation`
+ * exported above (PD-01) — never two raw `stateProv`/`country` fields here,
+ * so the event page and the Events list can never disagree about one
+ * event's location string.
+ *
+ * `alliances` is optional for the pre-republish window only: 07-08 must
+ * always emit the key after the republish, and 07-14's disabled-tab
+ * predicate treats an absent key and an empty array identically because
+ * both are live-observed real absences — a null TBA body at `2022ispr` and
+ * an empty array at `2025bc` and `2026wvrox`, the latter being events that
+ * ran qualification matches and published rankings but never held an
+ * alliance selection at all.
  */
 export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
   season: z.number().int(),
+  name: z.string().min(1).optional(),
+  startDate: z.string().min(1).optional(),
+  location: z.string().min(1).nullable().optional(),
+  week: z.number().int().nullable().optional(),
   matches: z.array(EventMatchSchema),
   upcoming: z.array(EventUpcomingMatchSchema),
   teams: z.array(EventTeamSchema),
+  alliances: z.array(EventAllianceSchema).optional(),
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;
