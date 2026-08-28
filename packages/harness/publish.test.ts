@@ -295,11 +295,11 @@ function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: 
   return { earlyEventKey, lateEventKey, teamKeys };
 }
 
-describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2)", () => {
+describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2, repointed at the collapsed single tier by plan 07-18 Task 1)", () => {
   // Test 7: the default publish set (an operator who omits `--algorithm`,
   // the path an operator actually takes) resolves to the OPR id, the EPA
-  // id, and `vpr` — the renamed pipeline tier (PIPELINE_ALGORITHM_IDS), not
-  // the still-unmoved browser tier (PUBLISHED_ALGORITHM_IDS).
+  // id, and `vpr` — read from `PUBLISHED_ALGORITHM_IDS`, the single
+  // algorithm-id constant again as of plan 07-18's collapse.
   it("the default (undefined) publish set resolves to opr, epa, vpr", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
     expect(algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);

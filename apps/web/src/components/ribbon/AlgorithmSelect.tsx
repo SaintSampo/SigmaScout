@@ -7,11 +7,20 @@ import { resolveSortKey } from "@/lib/resolveSortKey";
 import type { YearChangeableSearch } from "@/lib/searchParams";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
-/** Display labels for the three published ids — a build-time constant, never derived from the manifest. */
+/**
+ * Display labels for the three published ids — a build-time constant, never
+ * derived from the manifest. This is the SINGLE place the site's model name
+ * is written (D-04, plan 07-18): every other model-name render in the app —
+ * this ribbon option, the Teams-page rank column header (D-20,
+ * `columns.tsx`), the Insights tab's fallback notice (D-08, `InsightsTab.tsx`)
+ * and the Breakdown tab's model-estimates caption (D-11, `BreakdownTab.tsx`)
+ * — reads through `algorithmDisplayLabel` below rather than holding a second
+ * literal, so a future rename needs no second edit anywhere in that list.
+ */
 const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> = {
   opr: "OPR",
   epa: "EPA",
-  sigma1: "Sigma1",
+  vpr: "VPR",
 };
 
 interface AlgorithmOption {
@@ -86,7 +95,7 @@ type CrossRouteNavigate = (opts: { search: (prev: YearChangeableSearch) => YearC
  * holds position: same route, same filters, same sort DIRECTION, with the
  * sort KEY re-resolved through `resolveSortKey` against the new pair's key
  * set (D-13) — only the values change. No colour, dot or badge indicates
- * freshness anywhere in this component (only sigma1 folds live, and this
+ * freshness anywhere in this component (only VPR folds live, and this
  * phase does not surface per-algorithm freshness at all).
  */
 export function AlgorithmSelect() {

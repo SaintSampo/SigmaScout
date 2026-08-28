@@ -61,7 +61,7 @@ function fullInsightsMetrics(overrides: Record<string, { value: number; spread?:
   return { ...record, ...overrides };
 }
 
-function renderInsights(artifact: EventArtifact, algorithmId = "sigma1", season = 2024) {
+function renderInsights(artifact: EventArtifact, algorithmId = "vpr", season = 2024) {
   return render(
     <TestHarness>
       <InsightsTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -85,7 +85,7 @@ function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> =
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -103,7 +103,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc1", teamNumber: 1, rank: 1, metrics: { [TOTAL_KEY]: { value: 3 } } }),
       team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.orderSource).toBe("official");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([1, 2, 3]);
   });
@@ -114,7 +114,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.orderSource).toBe("fallback");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([2, 3, 1]);
   });
@@ -125,7 +125,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
       team({ teamKey: "frc3", teamNumber: 3, rank: 1, metrics: { [TOTAL_KEY]: { value: 3 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.orderSource).toBe("official");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 2, 1]);
     const firstUnrankedIndex = model.rows.findIndex((row) => row.displayRank === undefined);
@@ -137,7 +137,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc9", teamNumber: 9, rank: 5, metrics: { [TOTAL_KEY]: { value: 1 } } }),
       team({ teamKey: "frc3", teamNumber: 3, rank: 5, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.rows).toHaveLength(2);
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 9]);
     expect(model.rows.map((row) => row.displayRank)).toEqual([5, 5]);
@@ -148,7 +148,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc9", teamNumber: 9, metrics: { [TOTAL_KEY]: { value: 15 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 15 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([3, 9]);
   });
 
@@ -157,7 +157,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc1", teamNumber: 1, metrics: {} }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: -50 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.orderSource).toBe("fallback");
     expect(model.rows.map((row) => row.teamNumber)).toEqual([2, 1]);
   });
@@ -169,8 +169,8 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc5", teamNumber: 5, rank: 2, metrics: { [TOTAL_KEY]: { value: 3 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const modelA = buildInsightsRows(makeArtifact(teamsA), "sigma1");
-    const modelB = buildInsightsRows(makeArtifact(teamsB), "sigma1");
+    const modelA = buildInsightsRows(makeArtifact(teamsA), "vpr");
+    const modelB = buildInsightsRows(makeArtifact(teamsB), "vpr");
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(modelB.rows.map((row) => row.teamKey));
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(["frc3", "frc5", "frc9"]);
   });
@@ -182,8 +182,8 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const modelA = buildInsightsRows(makeArtifact(teamsA), "sigma1");
-    const modelB = buildInsightsRows(makeArtifact(teamsB), "sigma1");
+    const modelA = buildInsightsRows(makeArtifact(teamsA), "vpr");
+    const modelB = buildInsightsRows(makeArtifact(teamsB), "vpr");
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(modelB.rows.map((row) => row.teamKey));
     expect(modelA.rows.map((row) => row.teamKey)).toEqual(["frc3", "frc5", "frc9"]);
   });
@@ -193,7 +193,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc1", teamNumber: 1, rank: 7, metrics: { [TOTAL_KEY]: { value: 1 } } }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 2 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     const ranked = model.rows.find((row) => row.teamNumber === 1);
     const unranked = model.rows.find((row) => row.teamNumber === 2);
     expect(ranked?.displayRank).toBe(7);
@@ -206,24 +206,24 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     expect(model.rows.map((row) => row.displayRank)).toEqual([1, 2, 3]);
   });
 
   it("an artifact with teams: [] returns zero rows and orderSource 'fallback' — no rank exists, so the discriminant is honest even with nothing to order", () => {
-    const model = buildInsightsRows(makeArtifact([]), "sigma1");
+    const model = buildInsightsRows(makeArtifact([]), "vpr");
     expect(model.rows).toHaveLength(0);
     expect(model.orderSource).toBe("fallback");
   });
 
   it("a one-team artifact returns one row through the same code path as a 43-team one", () => {
-    const oneTeamModel = buildInsightsRows(makeArtifact([team({ rank: 1 })]), "sigma1");
+    const oneTeamModel = buildInsightsRows(makeArtifact([team({ rank: 1 })]), "vpr");
     expect(oneTeamModel.rows).toHaveLength(1);
 
     const manyTeams = Array.from({ length: 43 }, (_, index) =>
       team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, rank: index + 1, nickname: `Team ${index + 1}` }),
     );
-    const manyTeamsModel = buildInsightsRows(makeArtifact(manyTeams), "sigma1");
+    const manyTeamsModel = buildInsightsRows(makeArtifact(manyTeams), "vpr");
     expect(manyTeamsModel.rows).toHaveLength(43);
   });
 });
@@ -234,7 +234,7 @@ describe("buildInsightsRows — record/rp pass-through (EVNT-02 empty)", () => {
       team({ teamKey: "frc1", teamNumber: 1, record: { wins: 4, losses: 2, ties: 1 } }),
       team({ teamKey: "frc2", teamNumber: 2 }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     const withRecord = model.rows.find((row) => row.teamNumber === 1);
     const withoutRecord = model.rows.find((row) => row.teamNumber === 2);
     expect(withRecord?.record).toEqual({ wins: 4, losses: 2, ties: 1 });
@@ -246,7 +246,7 @@ describe("buildInsightsRows — record/rp pass-through (EVNT-02 empty)", () => {
       team({ teamKey: "frc1", teamNumber: 1, rp: 0 }),
       team({ teamKey: "frc2", teamNumber: 2 }),
     ]);
-    const model = buildInsightsRows(artifact, "sigma1");
+    const model = buildInsightsRows(artifact, "vpr");
     const withRp = model.rows.find((row) => row.teamNumber === 1);
     const withoutRp = model.rows.find((row) => row.teamNumber === 2);
     expect(withRp?.rp).toBe(0);
@@ -256,7 +256,7 @@ describe("buildInsightsRows — record/rp pass-through (EVNT-02 empty)", () => {
 
   it("teamNumber falls back to the team key's digits and nickname to a Team {number} string when either is absent", () => {
     const artifact = makeArtifact([{ teamKey: "frc42", metrics: { [TOTAL_KEY]: { value: 10 } } }]);
-    const row = buildInsightsRows(artifact, "sigma1").rows[0];
+    const row = buildInsightsRows(artifact, "vpr").rows[0];
     expect(row?.teamNumber).toBe(42);
     expect(row?.nickname).toBe("Team 42");
   });
@@ -279,19 +279,19 @@ describe("formatEventRecord (EVNT-02 empty)", () => {
 
 describe("insightsFallbackNotice (D-08 Copywriting Contract)", () => {
   it("begins with the hand-written literal leading clause and contains the given label", () => {
-    const sentence = insightsFallbackNotice("Sigma1");
+    const sentence = insightsFallbackNotice("VPR");
     expect(sentence.startsWith("This event has no official TBA ranking. Teams below are ordered by ")).toBe(true);
-    expect(sentence).toContain("Sigma1");
+    expect(sentence).toContain("VPR");
   });
 });
 
 describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
-  it("sigma1/2024: exactly eight headers, in the declared order", async () => {
+  it("vpr/2024: exactly eight headers, in the declared order", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -299,7 +299,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
     });
-    renderInsights(artifact, "sigma1", 2024);
+    renderInsights(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
@@ -335,7 +335,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -343,7 +343,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
       upcoming: [],
       teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: reversed }],
     });
-    renderInsights(artifact, "sigma1", 2024);
+    renderInsights(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
@@ -357,7 +357,7 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -374,11 +374,11 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   }
 
   it("no ranks: fallback header contains the algorithm's display label and the word Rank, and the banner renders", async () => {
-    renderInsights(artifactWithRanks([{}, {}]), "sigma1", 2024);
+    renderInsights(artifactWithRanks([{}, {}]), "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
     const rankHeader = screen.getAllByRole("columnheader")[0];
-    expect(rankHeader?.textContent).toContain(algorithmDisplayLabel("sigma1"));
+    expect(rankHeader?.textContent).toContain(algorithmDisplayLabel("vpr"));
     expect(rankHeader?.textContent).toContain("Rank");
 
     const banner = screen.getByTestId("insights-fallback-banner");
@@ -388,7 +388,7 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   });
 
   it("has ranks: the leading header is exactly the word Rank, and the banner does not exist at all", async () => {
-    renderInsights(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "sigma1", 2024);
+    renderInsights(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
     const rankHeader = screen.getAllByRole("columnheader")[0];
@@ -403,7 +403,7 @@ describe("InsightsTab — pinning (UI-SPEC E3 overflow, structural half)", () =>
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -431,7 +431,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -483,7 +483,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -510,7 +510,7 @@ describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -549,7 +549,7 @@ describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -575,7 +575,7 @@ describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -598,7 +598,7 @@ describe("InsightsTab — partial phase-metric data", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -640,7 +640,7 @@ describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -659,7 +659,7 @@ describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -683,7 +683,7 @@ describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -705,7 +705,7 @@ describe("InsightsTab — long text (UI-SPEC E3 long-text)", () => {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -728,7 +728,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -746,7 +746,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -768,7 +768,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -784,7 +784,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
 
 describe("InsightsTabSkeleton", () => {
   it("renders the eight real headers with the bare Rank header, skeleton body rows, and zero progressbar elements", () => {
-    render(<InsightsTabSkeleton algorithmId="sigma1" season={2024} />);
+    render(<InsightsTabSkeleton algorithmId="vpr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);

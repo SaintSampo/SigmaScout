@@ -12,7 +12,7 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     season: 2024,
     eventKey: "2024casj",
     compLevel: "qm",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     predictedWinner: "red",
     pRedWin: 0.6,
@@ -41,7 +41,7 @@ function makeHistoryRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistor
     matchKey: "2024casj_qm1",
     season: 2024,
     eventKey: "2024casj",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     teamKey: "frc118",
     matchIndex: 0,
     metrics: { total: { value: 88.2 } },
@@ -72,7 +72,7 @@ describe("EventSection", () => {
         event={makeEvent()}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
       />,
@@ -88,7 +88,7 @@ describe("EventSection", () => {
         event={makeEvent()}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[makeHistoryRow({ eventKey: "2024txkat" })]}
       />,
@@ -102,7 +102,7 @@ describe("EventSection", () => {
         event={makeEvent({ matches: [makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" })] })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -119,7 +119,7 @@ describe("EventSection", () => {
         })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -130,7 +130,7 @@ describe("EventSection", () => {
   it("carries the full event name in a title attribute for a 70-character name", () => {
     const longName = "A".repeat(70);
     render(
-      <EventSection event={makeEvent({ eventName: longName })} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />,
+      <EventSection event={makeEvent({ eventName: longName })} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />,
     );
     const heading = screen.getByRole("heading", { level: 2 });
     expect(heading.getAttribute("title")).toBe(longName);
@@ -138,7 +138,7 @@ describe("EventSection", () => {
   });
 
   it("carries an elevation class and a surface class distinct from the page background (06-09-PLAN.md Task 3 polish pass)", () => {
-    render(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />);
+    render(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />);
     const section = screen.getByTestId("event-section-2024casj");
     expect(section.className).toContain("shadow-sm");
     expect(section.className).toContain("event-card");
@@ -151,7 +151,7 @@ describe("EventSection", () => {
         event={makeEvent({ rank: 5, totalTeams: 32 })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -162,7 +162,7 @@ describe("EventSection", () => {
 
   it("renders no standing element when the event fixture carries neither rank nor totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
     render(
-      <EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />,
+      <EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />,
     );
     expect(screen.queryByTestId("event-standing-2024casj")).toBeNull();
   });
@@ -173,7 +173,7 @@ describe("EventSection", () => {
         event={makeEvent({ rank: 5, totalTeams: undefined })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -187,7 +187,7 @@ describe("EventSection", () => {
         event={makeEvent({ rank: undefined, totalTeams: 32 })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -201,7 +201,7 @@ describe("EventSection", () => {
         event={makeEvent({ rank: 5, totalTeams: 32, startDate: "2024-03-01" })}
         domain={DOMAIN}
         teamKey="frc118"
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         metricHistory={[]}
       />,
@@ -226,7 +226,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
         />,
@@ -241,7 +241,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 20 } } })]}
         />,
@@ -256,7 +256,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
         />,
@@ -272,7 +272,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
         />,
@@ -286,7 +286,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
         />,
@@ -300,7 +300,7 @@ describe("EventSection", () => {
           event={makeEvent()}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 97 } } })]}
         />,
@@ -313,12 +313,12 @@ describe("EventSection", () => {
   it("gives two sections distinct scroller test ids", () => {
     render(
       <>
-        <EventSection event={makeEvent({ eventKey: "2024casj" })} domain={DOMAIN} teamKey="frc118" algorithmId="sigma1" season={2024} metricHistory={[]} />
+        <EventSection event={makeEvent({ eventKey: "2024casj" })} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />
         <EventSection
           event={makeEvent({ eventKey: "2024txkat", eventName: "FIT District Katy Event" })}
           domain={DOMAIN}
           teamKey="frc118"
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2024}
           metricHistory={[]}
         />

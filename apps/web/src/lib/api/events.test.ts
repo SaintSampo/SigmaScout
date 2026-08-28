@@ -14,7 +14,7 @@ function makeValidArtifact(): EventsArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2025,
     events: [
@@ -49,7 +49,7 @@ describe("fetchEventsArtifact", () => {
     const artifact = makeValidArtifact();
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    const result = await fetchEventsArtifact({ year: 2025, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    const result = await fetchEventsArtifact({ year: 2025, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
     expect(result.events).toHaveLength(1);
     expect(result.events[0]?.eventKey).toBe("2025alhu");
@@ -61,7 +61,7 @@ describe("fetchEventsArtifact", () => {
 
     let caught: unknown;
     try {
-      await fetchEventsArtifact({ year: 2025, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+      await fetchEventsArtifact({ year: 2025, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
     } catch (err) {
       caught = err;
     }
@@ -77,7 +77,7 @@ describe("fetchEventsArtifact", () => {
     delete artifact.season; // required field, per EventsArtifactSchema
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    await expect(fetchEventsArtifact({ year: 2025, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
+    await expect(fetchEventsArtifact({ year: 2025, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
   });
 
   it("requests the exact key-built URL via the shared key builder and origin helper", async () => {
@@ -85,8 +85,8 @@ describe("fetchEventsArtifact", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
     global.fetch = fetchMock;
 
-    await fetchEventsArtifact({ year: 2025, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    await fetchEventsArtifact({ year: 2025, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/events/2025/sigma1@2.0.0+tuned-2026-08.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/events/2025/vpr@2.0.0+tuned-2026-08.json");
   });
 });

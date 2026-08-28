@@ -75,7 +75,7 @@ function makeArtifact(teams: ArtifactTeam[], alliances: ArtifactAlliance[] | und
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -95,7 +95,7 @@ const FOUR_TEAMS: ArtifactTeam[] = [
   team({ teamKey: "frc4", teamNumber: 4, nickname: "Delta" }),
 ];
 
-function renderAlliances(artifact: EventArtifact, algorithmId = "sigma1", season = 2024) {
+function renderAlliances(artifact: EventArtifact, algorithmId = "vpr", season = 2024) {
   return render(
     <TestHarness>
       <AlliancesTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -157,7 +157,7 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
       alliance({ allianceNumber: 1, picks: ["frc2"] }),
       alliance({ allianceNumber: 2, picks: ["frc3"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "sigma1");
+    const rows = buildAllianceRows(artifact, "vpr");
     expect(rows.map((row) => row.allianceNumber)).toEqual([1, 2, 3]);
   });
 
@@ -169,13 +169,13 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
     ];
     const a = makeArtifact(FOUR_TEAMS, alliances);
     const b = makeArtifact(FOUR_TEAMS, [...alliances].reverse());
-    expect(buildAllianceRows(a, "sigma1").map((r) => r.allianceNumber)).toEqual(buildAllianceRows(b, "sigma1").map((r) => r.allianceNumber));
+    expect(buildAllianceRows(a, "vpr").map((r) => r.allianceNumber)).toEqual(buildAllianceRows(b, "vpr").map((r) => r.allianceNumber));
   });
 });
 
 describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
-  it("renders exactly six column headers in the declared order for a sigma1/2024 fixture", async () => {
-    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "sigma1", 2024);
+  it("renders exactly six column headers in the declared order for a vpr/2024 fixture", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "vpr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Alliance #",
@@ -253,10 +253,10 @@ describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
   });
 
   it("a pick's team number and nickname link to /team/{number} with year/algorithm/tab=overview, matching the sibling tables", async () => {
-    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]), "sigma1", 2024);
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]), "vpr", 2024);
     const link = await screen.findByRole("link", { name: /Alpha/ });
     await waitFor(() => expect(link.getAttribute("href")).toContain("/team/1"));
-    expect(link.getAttribute("href")).toContain("algorithm=sigma1");
+    expect(link.getAttribute("href")).toContain("algorithm=vpr");
     expect(link.getAttribute("href")).toContain("year=2024");
   });
 });
@@ -340,12 +340,12 @@ describe("AlliancesTab — the incomplete-combination notice (Claude's Discretio
       alliance({ allianceNumber: 7, picks: ["frc1", "frc2", "frc9"] }), // frc9 unresolvable
       alliance({ allianceNumber: 8, picks: ["frc1", "frc2", "frc3"] }),
     ];
-    renderAlliances(makeArtifact(teams, alliances), "sigma1");
+    renderAlliances(makeArtifact(teams, alliances), "vpr");
     const notice = await screen.findByTestId("alliances-incomplete-notice");
     expect(screen.getAllByTestId("alliances-incomplete-notice")).toHaveLength(1);
     expect(notice.textContent).toContain("2");
     expect(notice.textContent).toContain("8");
-    expect(notice.textContent).toContain("Sigma1");
+    expect(notice.textContent).toContain("VPR");
   });
 
   it("exactly one incomplete alliance renders the singular form; eight with two incomplete renders the plural form", () => {
@@ -382,7 +382,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
       alliance({ allianceNumber: 1, picks: ["frc3"] }),
       alliance({ allianceNumber: 1, picks: ["frc1"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "sigma1");
+    const rows = buildAllianceRows(artifact, "vpr");
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.allianceNumber)).toEqual([1, 1]);
     expect(rows.map((row) => row.picks[0]?.teamKey)).toEqual(["frc1", "frc3"]);
@@ -393,7 +393,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
       alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }),
       alliance({ allianceNumber: 2, picks: ["frc1", "frc2", "frc3"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "sigma1");
+    const rows = buildAllianceRows(artifact, "vpr");
     expect(rows).toHaveLength(2);
     expect(rows[0]?.combined?.value).toBe(rows[1]?.combined?.value);
   });

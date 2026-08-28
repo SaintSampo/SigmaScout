@@ -15,7 +15,7 @@ import { NoEventDataState, YearMismatchEmptyState } from "./TeamStates.js";
  * below waits for the first render to land rather than asserting
  * immediately after `render()`.
  */
-function renderWithRouter(children: ReactNode, initialEntry = "/team/1114?year=2024&algorithm=sigma1") {
+function renderWithRouter(children: ReactNode, initialEntry = "/team/1114?year=2024&algorithm=vpr") {
   const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
   const teamRoute = createRoute({
     path: "/team/$teamNumber",

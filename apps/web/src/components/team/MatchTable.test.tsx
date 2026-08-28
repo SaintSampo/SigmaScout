@@ -11,7 +11,7 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     season: 2024,
     eventKey: "2024casj",
     compLevel: "qm",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     predictedWinner: "red",
     pRedWin: 0.63,
@@ -48,7 +48,7 @@ describe("matchLabel", () => {
 });
 
 describe("MatchTable", () => {
-  it("renders six alliance marks for a played Sigma1 row (band+tick+dot per alliance), dots carrying alliance colour classes with no loser-ink token", () => {
+  it("renders six alliance marks for a played VPR row (band+tick+dot per alliance), dots carrying alliance colour classes with no loser-ink token", () => {
     render(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, actualRedRp: 2, actualBlueRp: 0 })]}

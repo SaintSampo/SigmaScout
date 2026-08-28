@@ -59,7 +59,7 @@ function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> =
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -85,7 +85,7 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -95,16 +95,16 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
   } as unknown as EventArtifact;
 }
 
-/** A metrics record carrying every sigma1/2024 declared key, so the column-set tests have real data behind every column. */
-function fullSigma1Metrics2024(): ArtifactTeam["metrics"] {
+/** A metrics record carrying every vpr/2024 declared key, so the column-set tests have real data behind every column. */
+function fullVPRMetrics2024(): ArtifactTeam["metrics"] {
   const record: ArtifactTeam["metrics"] = {};
-  for (const key of metricKeysFor("sigma1", 2024)) {
+  for (const key of metricKeysFor("vpr", 2024)) {
     record[key] = { value: 10, spread: 1 };
   }
   return record;
 }
 
-function renderBreakdown(artifact: EventArtifact, algorithmId = "sigma1", season = 2024) {
+function renderBreakdown(artifact: EventArtifact, algorithmId = "vpr", season = 2024) {
   return render(
     <TestHarness>
       <BreakdownTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -113,14 +113,14 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "sigma1", season
 }
 
 describe("BreakdownTab — column set (EVNT-03)", () => {
-  it("sigma1/2024: exactly Team #, Nickname, thirteen component keys, and Total, in metricKeysFor order — no Rank column", async () => {
-    const artifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
-    renderBreakdown(artifact, "sigma1", 2024);
+  it("vpr/2024: exactly Team #, Nickname, thirteen component keys, and Total, in metricKeysFor order — no Rank column", async () => {
+    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expected = ["Team #", "Nickname", ...metricKeysFor("sigma1", 2024)];
+    const expected = ["Team #", "Nickname", ...metricKeysFor("vpr", 2024)];
     // metricLabel maps TOTAL_KEY -> "Total"; every other key renders as itself.
     const expectedLabels = expected.map((key) => (key === TOTAL_KEY ? "Total" : key));
     expect(headers).toEqual(expectedLabels);
@@ -139,13 +139,13 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
   });
 
   it("column order is metricKeysFor's own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
-    const orderedKeys = [...metricKeysFor("sigma1", 2024)];
+    const orderedKeys = [...metricKeysFor("vpr", 2024)];
     const reversedMetrics: ArtifactTeam["metrics"] = {};
     for (const key of [...orderedKeys].reverse()) {
       reversedMetrics[key] = { value: 5 };
     }
     const artifact = makeArtifact([team({ metrics: reversedMetrics })]);
-    renderBreakdown(artifact, "sigma1", 2024);
+    renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
@@ -156,10 +156,10 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 
 describe("BreakdownTab — partial data (EVNT-03)", () => {
   it("a team missing one declared component key renders an em-dash in that cell; the column header for that key stays present", async () => {
-    const metrics = fullSigma1Metrics2024();
+    const metrics = fullVPRMetrics2024();
     delete metrics.adjust;
     const artifact = makeArtifact([team({ metrics })]);
-    renderBreakdown(artifact, "sigma1", 2024);
+    renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getByTestId("breakdown-header-adjust")).toBeDefined());
     expect(screen.getByTestId("breakdown-cell-adjust").textContent).toBe("—");
@@ -233,12 +233,12 @@ describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
 describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () => {
   it("TierKeyRow renders exactly once, and the caption renders exactly once naming the selected algorithm and the per-alliance framing", async () => {
     const artifact = makeArtifact([team()]);
-    renderBreakdown(artifact, "sigma1", 2024);
+    renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
     const captions = screen.getAllByText(/per alliance, not per team/);
     expect(captions).toHaveLength(1);
-    expect(captions[0]?.textContent).toContain("Sigma1");
+    expect(captions[0]?.textContent).toContain("VPR");
   });
 });
 
@@ -252,17 +252,17 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
   });
 
   it("a one-team artifact renders the same header row and exactly one body row, same table path as a many-team artifact", async () => {
-    const oneTeamArtifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
-    const { unmount } = renderBreakdown(oneTeamArtifact, "sigma1", 2024);
+    const oneTeamArtifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    const { unmount } = renderBreakdown(oneTeamArtifact, "vpr", 2024);
     await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(1));
     const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     unmount();
 
     const manyTeams = Array.from({ length: 43 }, (_, index) =>
-      team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, nickname: `Team ${index + 1}`, metrics: fullSigma1Metrics2024() }),
+      team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, nickname: `Team ${index + 1}`, metrics: fullVPRMetrics2024() }),
     );
     const manyTeamsArtifact = makeArtifact(manyTeams);
-    renderBreakdown(manyTeamsArtifact, "sigma1", 2024);
+    renderBreakdown(manyTeamsArtifact, "vpr", 2024);
     await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(43));
     const manyTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(manyTeamHeaders).toEqual(oneTeamHeaders);
@@ -284,8 +284,8 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
 
 describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () => {
   it("Team # and Nickname header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
-    const artifact = makeArtifact([team({ metrics: fullSigma1Metrics2024() })]);
-    renderBreakdown(artifact, "sigma1", 2024);
+    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
     expect(screen.getByTestId("breakdown-header-teamNumber").getAttribute("data-pinned")).toBe("true");
@@ -293,7 +293,7 @@ describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () =
     expect(screen.getByTestId("breakdown-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
     expect(screen.getByTestId("breakdown-cell-nickname").getAttribute("data-pinned")).toBe("true");
 
-    for (const key of metricKeysFor("sigma1", 2024)) {
+    for (const key of metricKeysFor("vpr", 2024)) {
       expect(screen.getByTestId(`breakdown-header-${key}`).getAttribute("data-pinned")).toBe("false");
       expect(screen.getByTestId(`breakdown-cell-${key}`).getAttribute("data-pinned")).toBe("false");
     }
@@ -307,7 +307,7 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc2", teamNumber: 2, nickname: "High", metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, nickname: "Mid", metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "sigma1");
+    const rows = buildBreakdownRows(artifact, "vpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([2, 3, 1]);
   });
 
@@ -316,7 +316,7 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc9", teamNumber: 9, nickname: "Nine", metrics: { [TOTAL_KEY]: { value: 15 } } }),
       team({ teamKey: "frc3", teamNumber: 3, nickname: "Three", metrics: { [TOTAL_KEY]: { value: 15 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "sigma1");
+    const rows = buildBreakdownRows(artifact, "vpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([3, 9]);
   });
 
@@ -327,8 +327,8 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 40 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const rowsA = buildBreakdownRows(makeArtifact(teamsA), "sigma1");
-    const rowsB = buildBreakdownRows(makeArtifact(teamsB), "sigma1");
+    const rowsA = buildBreakdownRows(makeArtifact(teamsA), "vpr");
+    const rowsB = buildBreakdownRows(makeArtifact(teamsB), "vpr");
     expect(rowsA.map((row) => row.teamNumber)).toEqual(rowsB.map((row) => row.teamNumber));
     expect(rowsA.map((row) => row.teamNumber)).toEqual([5, 3, 9]);
   });
@@ -338,13 +338,13 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc1", teamNumber: 1, metrics: {} }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: -50 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "sigma1");
+    const rows = buildBreakdownRows(artifact, "vpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([2, 1]);
   });
 
   it("falls back to the team key's digits and a Team {number} nickname when teamNumber/nickname are absent", () => {
     const artifact = makeArtifact([{ teamKey: "frc42", metrics: { [TOTAL_KEY]: { value: 10 } } }]);
-    const row = buildBreakdownRows(artifact, "sigma1")[0] as BreakdownRow;
+    const row = buildBreakdownRows(artifact, "vpr")[0] as BreakdownRow;
     expect(row.teamNumber).toBe(42);
     expect(row.nickname).toBe("Team 42");
   });

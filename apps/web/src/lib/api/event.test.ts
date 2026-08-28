@@ -20,7 +20,7 @@ type ExtraParamKeys = Exclude<keyof FetchEventArtifactParams, "eventKey" | "algo
 const _noExtraKeys: ExtraParamKeys extends never ? true : false = true;
 const _exactParams = {
   eventKey: "2024casf",
-  algorithmId: "sigma1",
+  algorithmId: "vpr",
   version: "2.0.0+tuned-2026-08",
 } satisfies FetchEventArtifactParams;
 void _exactParams;
@@ -30,7 +30,7 @@ function makeValidArtifact(): EventArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -53,7 +53,7 @@ describe("fetchEventArtifact", () => {
     const artifact = makeValidArtifact();
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    const result = await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    const result = await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
     expect(result.eventKey).toBe("2024casf");
     expect(result.season).toBe(2024);
@@ -65,7 +65,7 @@ describe("fetchEventArtifact", () => {
 
     let caught: unknown;
     try {
-      await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+      await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
     } catch (err) {
       caught = err;
     }
@@ -82,7 +82,7 @@ describe("fetchEventArtifact", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
     await expect(
-      fetchEventArtifact({ eventKey: "2024casf", algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" }),
+      fetchEventArtifact({ eventKey: "2024casf", algorithmId: "vpr", version: "2.0.0+tuned-2026-08" }),
     ).rejects.toBeInstanceOf(ArtifactValidationError);
   });
 
@@ -91,8 +91,8 @@ describe("fetchEventArtifact", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
     global.fetch = fetchMock;
 
-    await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/event/2024casf/sigma1@2.0.0+tuned-2026-08.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/event/2024casf/vpr@2.0.0+tuned-2026-08.json");
   });
 });

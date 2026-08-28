@@ -493,9 +493,30 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     }
   });
 
-  it("an id not in PIPELINE_ALGORITHM_IDS throws UnknownLiveAlgorithmIdError naming the accepted ids", () => {
+  it("an id not in PUBLISHED_ALGORITHM_IDS throws UnknownLiveAlgorithmIdError naming the accepted ids", () => {
     expect(() => parseLiveAlgorithmIds("sigma7")).toThrow(UnknownLiveAlgorithmIdError);
     expect(() => parseLiveAlgorithmIds("opr,sigma7")).toThrow(/sigma7/);
+  });
+
+  // Test 10 (plan 07-18 Task 1): the accepted-ids message lists the three ids
+  // read from the collapsed PUBLISHED_ALGORITHM_IDS constant, joined at
+  // runtime — never a hardcoded sentence — the same assertion shape 07-16
+  // Task 2 Test 3 used, now reading the collapsed constant.
+  it("the accepted-ids message lists all three published ids, joined from the imported constant", () => {
+    let message = "";
+    try {
+      parseLiveAlgorithmIds("sigma7");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain("accepted: opr, epa, vpr");
+  });
+
+  // Test 11 (plan 07-18 Task 1): the retired id is still rejected at the
+  // Worker tier — a collapse that reintroduced it as a member would be a
+  // silent regression.
+  it("the retired pre-rename id (sigma1) is still rejected, not silently folded", () => {
+    expect(() => parseLiveAlgorithmIds("sigma1")).toThrow(UnknownLiveAlgorithmIdError);
   });
 
   it("a live id absent from the algorithms manifest, leaving the filtered module map empty, throws EmptyLiveAlgorithmTierError", () => {

@@ -53,7 +53,7 @@ describe("teams-table columns — team-number/nickname links (E11)", () => {
       <TeamsTable
         status="success"
         rows={[row({ teamNumber: 254, nickname: "The Cheesy Poofs" })]}
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         sortKey={TOTAL_KEY}
         sortDirection="desc"
@@ -79,7 +79,7 @@ describe("teams-table columns — team-number/nickname links (E11)", () => {
       <TeamsTable
         status="success"
         rows={[row({ teamNumber: 1114, nickname: longNickname })]}
-        algorithmId="sigma1"
+        algorithmId="vpr"
         season={2024}
         sortKey={TOTAL_KEY}
         sortDirection="desc"
@@ -119,13 +119,13 @@ describe("teams-table columns — team-number/nickname links (E11)", () => {
 
 describe("buildColumns — D-20's per-algorithm rank header", () => {
   it("Test 1: the leading column header names the selected algorithm, read from algorithmDisplayLabel, never a string literal", () => {
-    const columns = buildColumns("sigma1", 2024);
+    const columns = buildColumns("vpr", 2024);
     const rankColumn = columns[0] as { header: unknown };
-    expect(rankColumn.header).toBe(`${algorithmDisplayLabel("sigma1")} Rank`);
+    expect(rankColumn.header).toBe(`${algorithmDisplayLabel("vpr")} Rank`);
   });
 
-  it("Test 2: opr, epa and sigma1 each produce a distinct leading header, all ending in the same trailing word", () => {
-    const headers = (["opr", "epa", "sigma1"] as const).map((algorithmId) => (buildColumns(algorithmId, 2024)[0] as { header: string }).header);
+  it("Test 2: opr, epa and vpr each produce a distinct leading header, all ending in the same trailing word", () => {
+    const headers = (["opr", "epa", "vpr"] as const).map((algorithmId) => (buildColumns(algorithmId, 2024)[0] as { header: string }).header);
     expect(new Set(headers).size).toBe(3);
     for (const header of headers) {
       expect(header.endsWith("Rank")).toBe(true);
@@ -134,6 +134,6 @@ describe("buildColumns — D-20's per-algorithm rank header", () => {
 
   it("Test 3: nothing else moved — PINNED_COLUMN_IDS still leads with rank, and the rank id is not sortable", () => {
     expect(PINNED_COLUMN_IDS).toEqual(["rank", "teamNumber", "nickname"]);
-    expect(sortableColumnIds("sigma1", 2024)).not.toContain("rank");
+    expect(sortableColumnIds("vpr", 2024)).not.toContain("rank");
   });
 });

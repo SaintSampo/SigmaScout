@@ -120,6 +120,13 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
  *     rejection of a string requires citing that exact string; a test
  *     proving an id is refused is proof the rename landed, not a leftover
  *     of it.
+ *   - `apps/worker/test/liveAlgorithmTier.test.ts` (added by plan 07-18
+ *     Task 1) proves the SAME shape of NEGATIVE assertion at the Worker
+ *     tier: after the two-id-tier collapse, `parseLiveAlgorithmIds("sigma1")`
+ *     must still throw `UnknownLiveAlgorithmIdError` rather than silently
+ *     folding the retired id back in as a member. Citing the exact retired
+ *     string is what makes the rejection proof meaningful, identical
+ *     reasoning to the `publish.test.ts` entry above.
  */
 export const STRUCTURAL_EXEMPTIONS: readonly string[] = [
   "packages/harness/algorithmIdentity.test.ts",
@@ -128,6 +135,7 @@ export const STRUCTURAL_EXEMPTIONS: readonly string[] = [
   "packages/harness/baselineFingerprint.test.ts",
   "scripts/verifySubsetPublish.ts",
   "packages/harness/publish.test.ts",
+  "apps/worker/test/liveAlgorithmTier.test.ts",
 ];
 
 /** The comment marker (PD-05) that exempts a measured-figure citation from the sweep — but ONLY on a comment line. A marker on any other kind of line is a violation, not an exemption (prohibition 2's mechanical form). */
@@ -326,7 +334,7 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
   });
 
   it("STRUCTURAL_EXEMPTIONS (a separate, smaller list from the tier exclusions) has exactly the length it was seeded with", () => {
-    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(6);
+    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(7);
   });
 
   it("a marker on a NON-comment line does NOT exempt — the mechanical form of prohibition 2", () => {

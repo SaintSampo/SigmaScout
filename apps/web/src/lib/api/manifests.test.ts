@@ -13,7 +13,7 @@ function makeValidManifest() {
     algorithms: [
       { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },
       { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
-      { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+      { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
     ],
   };
 }
@@ -33,7 +33,7 @@ describe("fetchAlgorithmsManifest", () => {
     const result = await fetchAlgorithmsManifest();
 
     expect(result.algorithms).toHaveLength(3);
-    expect(result.algorithms.find((a) => a.id === "sigma1")?.version).toBe("2.0.0+tuned-2026-08");
+    expect(result.algorithms.find((a) => a.id === "vpr")?.version).toBe("2.0.0+tuned-2026-08");
   });
 
   it("ignores extra keys on an entry rather than validating them (the client's narrow schema, not the harness's full one)", async () => {
@@ -41,7 +41,7 @@ describe("fetchAlgorithmsManifest", () => {
     // A real manifest entry also carries an optional `params` object (the
     // harness's full AlgorithmManifestEntrySchema) — the client schema must
     // strip it, never require or reject it.
-    (manifest.algorithms[2] as Record<string, unknown>).params = { some: "sigma1-only-shape" };
+    (manifest.algorithms[2] as Record<string, unknown>).params = { some: "vpr-only-shape" };
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(manifest), { status: 200 }));
 
     const result = await fetchAlgorithmsManifest();

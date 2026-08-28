@@ -26,12 +26,12 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
 
 /**
  * OPR publishes only `TOTAL_KEY` (`packages/core/algorithms/opr.ts`'s
- * `teamMetrics`, verified 05-RESEARCH.md Pattern 3). EPA and Sigma1 both
+ * `teamMetrics`, verified 05-RESEARCH.md Pattern 3). EPA and VPR both
  * derive their per-season component keys from the SAME
  * `componentMapForSeason(season).components` array — for a fixed year they
  * always expose an identical column-key set, which is the shared-source
  * fact `resolveSortKey.ts`'s algorithm-switch fallback relies on never
- * needing to fire between EPA and Sigma1 at a fixed year.
+ * needing to fire between EPA and VPR at a fixed year.
  *
  * `componentMapForSeason` throws for an unmapped season rather than
  * returning a default — that throw propagates here unguarded: an unmapped

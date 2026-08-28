@@ -24,7 +24,7 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+      algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
     }),
     { status: 200 },
   );
@@ -36,7 +36,7 @@ function teamArtifactResponse() {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       teamKey: "frc1114",
       teamNumber: 1114,
@@ -81,7 +81,7 @@ describe("/team/$teamNumber route — invalid team number (06-01-PLAN.md Task 1)
     const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(manifestResponse()));
     global.fetch = fetchMock;
 
-    renderTeamRoute("/team/notateam?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/notateam?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText('"notateam" is not a valid team number.')).toBeDefined());
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/team/"))).toBe(false);
@@ -99,7 +99,7 @@ describe("/team/$teamNumber route — tab shell (06-01-PLAN.md Task 2)", () => {
 
   it("?tab= absent defaults to the Overview panel", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // manifest never resolves — irrelevant to which panel is shown
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByTestId("overview-panel")).toBeDefined());
     expect(screen.queryByTestId("metric-history-panel")).toBeNull();
@@ -107,14 +107,14 @@ describe("/team/$teamNumber route — tab shell (06-01-PLAN.md Task 2)", () => {
 
   it("?tab=history renders the metric-history-panel placeholder", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1&tab=history");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr&tab=history");
 
     await waitFor(() => expect(screen.getByTestId("metric-history-panel")).toBeDefined());
   });
 
   it("both tab triggers are present and clickable before the artifact resolves (E8)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Overview" })).toBeDefined());
     expect(screen.getByRole("tab", { name: "Metric History" })).toBeDefined();
@@ -136,7 +136,7 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("Couldn't load team 1114 for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -148,7 +148,7 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("Team 1114 didn't compete in 2024")).toBeDefined());
     expect(screen.queryByText("Couldn't load team 1114 for 2024.")).toBeNull();
@@ -160,7 +160,7 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {}); // team artifact never resolves
     });
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getAllByTestId("event-section-skeleton").length).toBeGreaterThanOrEqual(2));
     // 06-07-PLAN.md Task 2: the route's pending branch renders
@@ -175,7 +175,7 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(teamArtifactResponse());
     });
-    renderTeamRoute("/team/1114?year=2024&algorithm=sigma1");
+    renderTeamRoute("/team/1114?year=2024&algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Simbotics"));
     expect(screen.getByText("35-28-0")).toBeDefined();

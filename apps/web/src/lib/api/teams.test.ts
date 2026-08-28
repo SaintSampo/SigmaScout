@@ -14,7 +14,7 @@ function makeValidArtifact(): TeamsArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2024,
     teams: [
@@ -44,7 +44,7 @@ describe("fetchTeamsArtifact", () => {
     const artifact = makeValidArtifact();
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    const result = await fetchTeamsArtifact({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    const result = await fetchTeamsArtifact({ year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
     expect(result.teams).toHaveLength(1);
     expect(result.teams[0]?.teamNumber).toBe(1114);
@@ -56,7 +56,7 @@ describe("fetchTeamsArtifact", () => {
 
     let caught: unknown;
     try {
-      await fetchTeamsArtifact({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+      await fetchTeamsArtifact({ year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
     } catch (err) {
       caught = err;
     }
@@ -72,7 +72,7 @@ describe("fetchTeamsArtifact", () => {
     delete artifact.season; // required field, per TeamsArtifactSchema
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    await expect(fetchTeamsArtifact({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
+    await expect(fetchTeamsArtifact({ year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
   });
 
   it("requests the exact key-built URL, proving artifactKey() and the origin module are wired together", async () => {
@@ -80,8 +80,8 @@ describe("fetchTeamsArtifact", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
     global.fetch = fetchMock;
 
-    await fetchTeamsArtifact({ year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    await fetchTeamsArtifact({ year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/teams/2024/vpr@2.0.0+tuned-2026-08.json");
   });
 });

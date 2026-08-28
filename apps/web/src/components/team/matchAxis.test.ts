@@ -15,7 +15,7 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     season: 2024,
     eventKey: "2024casj",
     compLevel: "qm",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     predictedWinner: "red",
     pRedWin: 0.6,

@@ -21,13 +21,13 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+      algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
     }),
     { status: 200 },
   );
 }
 
-const SIGMA1_2024_COMPONENT_KEYS = [
+const VPR_2024_COMPONENT_KEYS = [
   "autoLeave",
   "autoAmpNote",
   "autoSpeakerNote",
@@ -45,7 +45,7 @@ const SIGMA1_2024_COMPONENT_KEYS = [
 
 function eventArtifactResponse(overrides: Record<string, unknown> = {}) {
   const metrics: Record<string, { value: number; spread?: number }> = { total: { value: 48.33, spread: 2.32 } };
-  for (const key of SIGMA1_2024_COMPONENT_KEYS) {
+  for (const key of VPR_2024_COMPONENT_KEYS) {
     metrics[key] = { value: 10, spread: 1 };
   }
   return new Response(
@@ -53,7 +53,7 @@ function eventArtifactResponse(overrides: Record<string, unknown> = {}) {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -97,7 +97,7 @@ describe("/event/$eventKey route — invalid event key (07-01-PLAN.md Task 1)", 
     const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(manifestResponse()));
     global.fetch = fetchMock;
 
-    renderEventRoute("/event/notanevent?algorithm=sigma1");
+    renderEventRoute("/event/notanevent?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText('"notanevent" is not a valid event key.')).toBeDefined());
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
@@ -119,7 +119,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {}); // artifact never resolves
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined());
   });
@@ -135,7 +135,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=alliances");
     await waitFor(() => expect(screen.getByTestId("alliances-panel")).toBeDefined());
     expect(screen.getByTestId("alliances-panel").hasAttribute("hidden")).toBe(false);
     expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
@@ -147,7 +147,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
     expect(screen.queryByRole("button")).toBeNull();
@@ -159,7 +159,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -171,19 +171,19 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  it("a populated artifact whose season is 2024, loaded at ?year=2026, renders the sixteen sigma1/2024 column headers — the column set follows artifact.season, not ?year=", async () => {
+  it("a populated artifact whose season is 2024, loaded at ?year=2026, renders the sixteen vpr/2024 column headers — the column set follows artifact.season, not ?year=", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?year=2026&algorithm=sigma1");
+    renderEventRoute("/event/2024casf?year=2026&algorithm=vpr");
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(16));
   });
@@ -194,7 +194,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByTestId("breakdown-table-scroll")).toBeDefined());
     const tabStrip = screen.getByTestId("event-tab-strip-scroll");
@@ -223,7 +223,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Insights" })).toBeDefined());
   });
@@ -234,7 +234,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
@@ -247,7 +247,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
     await waitFor(() => expect(screen.getByTestId("insights-panel")).toBeDefined());
     cleanup();
 
@@ -256,7 +256,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=breakdown");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=breakdown");
     await waitFor(() => expect(screen.getByTestId("breakdown-panel")).toBeDefined());
   });
 
@@ -266,7 +266,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
 
     await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
     expect(screen.queryByRole("button")).toBeNull();
@@ -278,7 +278,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
 
     await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -290,7 +290,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
@@ -312,7 +312,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
     cleanup();
@@ -325,7 +325,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
         eventArtifactResponse({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
       );
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
     await waitFor(() => expect(screen.getByTestId("insights-fallback-banner")).toBeDefined());
   });
 
@@ -335,7 +335,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=insights");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
 
     await waitFor(() => expect(screen.getByTestId("insights-table-scroll")).toBeDefined());
     const tabStrip = screen.getByTestId("event-tab-strip-scroll");
@@ -350,7 +350,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
     const insightsTrigger = await screen.findByRole("tab", { name: "Insights" });
     // Radix's `TabsTrigger` activates on `onMouseDown` (not `onClick`) —
@@ -362,7 +362,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     await waitFor(() => {
       const search = router.state.location.search as Record<string, unknown>;
       expect(search.tab).toBe("insights");
-      expect(search.algorithm).toBe("sigma1");
+      expect(search.algorithm).toBe("vpr");
       expect(search.year).toBe(2024);
     });
   });
@@ -383,7 +383,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=quals");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Quals" })).toBeDefined());
     await waitFor(() => expect(screen.getByTestId("quals-table-scroll")).toBeDefined());
@@ -396,7 +396,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ matches: [], upcoming: [] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=quals");
 
     await waitFor(() => expect(screen.getByTestId("quals-panel")).toBeDefined());
     // Radix keeps every TabsContent mounted and hides the inactive ones via
@@ -413,7 +413,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=quals");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=quals");
 
     await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -425,7 +425,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
     const qualsTrigger = await screen.findByRole("tab", { name: "Quals" });
     fireEvent.mouseDown(qualsTrigger, { button: 0 });
@@ -433,7 +433,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
     await waitFor(() => {
       const search = router.state.location.search as Record<string, unknown>;
       expect(search.tab).toBe("quals");
-      expect(search.algorithm).toBe("sigma1");
+      expect(search.algorithm).toBe("vpr");
       expect(search.year).toBe(2024);
     });
   });
@@ -454,7 +454,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
     cleanup();
 
@@ -463,7 +463,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ alliances: [] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
     cleanup();
 
@@ -472,7 +472,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(false));
   });
 
@@ -482,7 +482,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     const trigger = await screen.findByRole("tab", { name: "Alliances" });
     await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(true));
     expect(trigger.textContent).toBe("Alliances");
@@ -496,7 +496,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     const trigger = await screen.findByRole("tab", { name: "Alliances" });
     expect(trigger.hasAttribute("disabled")).toBe(false);
   });
@@ -507,7 +507,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
     const trigger = await screen.findByRole("tab", { name: "Alliances" });
     await waitFor(() => expect(screen.getByRole("button", { name: /retry/i })).toBeDefined());
     expect(trigger.hasAttribute("disabled")).toBe(false);
@@ -524,7 +524,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       }
       return Promise.resolve(eventArtifactResponse()); // 2024casf: resolved, alliances absent
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Alliances" }).hasAttribute("disabled")).toBe(true));
 
@@ -544,7 +544,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr&tab=alliances");
 
     await waitFor(() => expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(false));
     // Radix keeps every `TabsContent` mounted (hidden via the `hidden`
@@ -561,7 +561,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=alliances");
 
     await waitFor(() => expect(screen.getByTestId("alliances-panel").hasAttribute("hidden")).toBe(false));
   });
@@ -572,7 +572,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
     const trigger = await screen.findByRole("tab", { name: "Alliances" });
     await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
@@ -581,7 +581,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
     await waitFor(() => {
       const search = router.state.location.search as Record<string, unknown>;
       expect(search.tab).toBe("alliances");
-      expect(search.algorithm).toBe("sigma1");
+      expect(search.algorithm).toBe("vpr");
       expect(search.year).toBe(2024);
     });
   });
@@ -592,7 +592,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ alliances: [{ allianceNumber: 1, picks: ["frc254"] }] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=alliances");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=alliances");
 
     await waitFor(() => expect(screen.getByTestId("alliances-table-scroll")).toBeDefined());
     const tabStrip = screen.getByTestId("event-tab-strip-scroll");
@@ -608,7 +608,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return Promise.resolve(new Response("not found", { status: 404 }));
       });
-      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      renderEventRoute(`/event/2024casf?algorithm=vpr&tab=${tab}`);
       await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
       expect(screen.queryByRole("button")).toBeNull();
       cleanup();
@@ -618,7 +618,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return Promise.resolve(new Response("boom", { status: 500 }));
       });
-      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      renderEventRoute(`/event/2024casf?algorithm=vpr&tab=${tab}`);
       await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
       expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
       cleanup();
@@ -628,7 +628,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return new Promise<Response>(() => {});
       });
-      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      renderEventRoute(`/event/2024casf?algorithm=vpr&tab=${tab}`);
       await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
       expect(screen.queryByRole("progressbar")).toBeNull();
       cleanup();
@@ -651,7 +651,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Elims" })).toBeDefined());
     const tabs = screen.getAllByRole("tab");
@@ -664,7 +664,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ matches: [], upcoming: [] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=elims");
 
     await waitFor(() => expect(screen.getByTestId("elims-panel")).toBeDefined());
     expect(screen.getByTestId("elims-panel").hasAttribute("hidden")).toBe(false);
@@ -679,7 +679,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return Promise.resolve(new Response("not found", { status: 404 }));
       });
-      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      renderEventRoute(`/event/2024casf?algorithm=vpr&tab=${tab}`);
 
       await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
       expect(screen.queryByRole("button")).toBeNull();
@@ -694,7 +694,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return Promise.resolve(new Response("boom", { status: 500 }));
       });
-      renderEventRoute(`/event/2024casf?algorithm=sigma1&tab=${tab}`);
+      renderEventRoute(`/event/2024casf?algorithm=vpr&tab=${tab}`);
 
       await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
       expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -708,7 +708,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=elims");
 
     await waitFor(() => expect(screen.getByTestId("elims-table-scroll")).toBeDefined());
     expect(screen.queryByRole("progressbar")).toBeNull();
@@ -720,7 +720,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=sigma1&year=2024&tab=breakdown");
+    const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
     const elimsTrigger = await screen.findByRole("tab", { name: "Elims" });
     fireEvent.mouseDown(elimsTrigger, { button: 0 });
@@ -728,7 +728,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     await waitFor(() => {
       const search = router.state.location.search as Record<string, unknown>;
       expect(search.tab).toBe("elims");
-      expect(search.algorithm).toBe("sigma1");
+      expect(search.algorithm).toBe("vpr");
       expect(search.year).toBe(2024);
     });
   });
@@ -739,7 +739,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
     const tabs = screen.getAllByRole("tab");
@@ -752,7 +752,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ matches: [{ matchKey: "2024casf_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1, redTeams: ["frc254"], blueTeams: ["frc118"], predictedWinner: "red", pRedWin: 0.6, predictedRedScore: 120, predictedBlueScore: 100, actualWinner: "red", actualRedScore: 130, actualBlueScore: 90 }] }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1&tab=elims");
+    renderEventRoute("/event/2024casf?algorithm=vpr&tab=elims");
 
     await waitFor(() => expect(screen.getByTestId("elims-table-scroll")).toBeDefined());
     const tabStrip = screen.getByTestId("event-tab-strip-scroll");
@@ -777,7 +777,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ name: "San Francisco Regional", startDate: "2024-03-07", location: "CA, USA", week: 1 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("San Francisco Regional"));
     const header = screen.getByTestId("event-header");
@@ -792,7 +792,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByTestId("event-header-skeleton")).toBeDefined());
     expect(screen.getByRole("tab", { name: "Breakdown" })).toBeDefined();
@@ -804,7 +804,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
     expect(screen.queryByTestId("event-header")).toBeNull();
@@ -816,7 +816,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderEventRoute("/event/2024casf?algorithm=sigma1");
+    renderEventRoute("/event/2024casf?algorithm=vpr");
 
     await waitFor(() => expect(screen.getByText("Couldn't load event 2024casf for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();

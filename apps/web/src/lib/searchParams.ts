@@ -21,20 +21,20 @@ const KNOWN_SEASONS = new Set<number>(SEASONS);
 
 /**
  * The default algorithm every route without an explicit `?algorithm=`
- * resolves to. Sigma1 (this project's own headline algorithm) rather than
- * OPR/EPA, matching 05-RESEARCH.md Pattern 1's example schema.
+ * resolves to. VPR (D-04's name for this project's own headline algorithm,
+ * renamed from Sigma1) rather than OPR/EPA, matching 05-RESEARCH.md Pattern
+ * 1's example schema.
  *
- * D-04/D-05 (plan 07-16, PD-01/PD-04): this file is DELIBERATELY still on
- * the CLIENT/browser tier — the value below is the id the deployed browser
- * actually requests today, because those are the objects that exist in R2
- * right now. The publisher and the Worker have already moved to writing
- * under `vpr` (07-16); this constant has not, on purpose, because flipping
- * it before 07-17 has written the `vpr@` objects would make every artifact
- * query on every route resolve to nothing (T-07-16-02). 07-18 is the plan
- * that flips this value, once 07-17's write pass has landed. This is a
- * comment-only edit — the VALUE on the line below does not change here.
+ * D-04/D-05 (plan 07-18, the cutover): this value moved here from `sigma1`
+ * once 07-17's write pass made the `vpr@` objects live in R2 — the deployed
+ * browser now requests what the publisher and the Worker have written since
+ * plan 07-16. An already-shared link carrying the retired `sigma1` id is not
+ * a dead link: it is no longer a member of `PUBLISHED_ALGORITHM_IDS`, so the
+ * `z.enum(...).catch(DEFAULT_ALGORITHM)` expression below falls through to
+ * this value rather than failing — D-05's own safety argument for why the
+ * rename reaches the algorithm id at all.
  */
-const DEFAULT_ALGORITHM: PublishedAlgorithmId = "sigma1";
+const DEFAULT_ALGORITHM: PublishedAlgorithmId = "vpr";
 
 /**
  * `year`: coerced to an integer and constrained to the known season list
@@ -45,15 +45,12 @@ const DEFAULT_ALGORITHM: PublishedAlgorithmId = "sigma1";
  *
  * `algorithm`: an enum over the published algorithm ids
  * (`packages/harness/publishedAlgorithms.ts`'s `PUBLISHED_ALGORITHM_IDS` —
- * the BROWSER-facing tier, deliberately distinct from that same file's
- * `PIPELINE_ALGORITHM_IDS` added by plan 07-16 for the publisher/Worker
- * write side; see that file's own doc comment for the full split — this is
- * the correct constant for a URL enum precisely because it names what a
- * deployed browser may request, not what the pipeline currently writes),
- * the same build-time constant the algorithm dropdown renders from before
- * any manifest fetch resolves) — anything outside that closed set,
- * including a missing param, falls back to `DEFAULT_ALGORITHM` via
- * `.catch()`.
+ * the single algorithm-id constant again as of plan 07-18's collapse; 07-16's
+ * transitional publisher/Worker-write tier existed only through waves 11-12
+ * and no longer exists), the same build-time constant the algorithm dropdown
+ * renders from before any manifest fetch resolves) — anything outside that
+ * closed set, including a missing param or the retired pre-rename id, falls
+ * back to `DEFAULT_ALGORITHM` via `.catch()`.
  */
 export const RootSearchSchema = z.object({
   year: z.coerce

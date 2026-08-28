@@ -11,7 +11,7 @@ import { COMPONENT_GROUP_IDS, COMPONENT_GROUP_METRIC_KEYS, type ComponentGroupId
  *
  * An earlier version summed the components in the client. That gets the
  * value right — expectation is linear — but cannot produce an honest
- * spread: a group's variance is the quadratic form of Sigma1's per-team
+ * spread: a group's variance is the quadratic form of VPR's per-team
  * component covariance restricted to the group's indices, and the
  * off-diagonal Cov(auto_i, auto_j) terms are not published. Nor can a
  * percentile be derived, since a sum's rank is not a function of its parts'

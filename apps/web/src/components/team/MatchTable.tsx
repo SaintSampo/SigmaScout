@@ -190,7 +190,7 @@ function PredictedScoreLine({
   matchKey: string;
   side: "red" | "blue";
   score: number;
-  /** This alliance's OWN predicted-score variance (D-01). Published by Sigma1; absent for OPR/EPA, which model no alliance-level own variance — those rows then show a bare score, never a fabricated ±. */
+  /** This alliance's OWN predicted-score variance (D-01). Published by VPR; absent for OPR/EPA, which model no alliance-level own variance — those rows then show a bare score, never a fabricated ±. */
   variance: number | undefined;
   season: number;
   /** This alliance's own predicted per-bonus probabilities (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. Undefined when the Monte Carlo did not run for this match. */

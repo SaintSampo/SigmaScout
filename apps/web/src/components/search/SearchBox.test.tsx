@@ -9,7 +9,7 @@ import { SearchBox } from "./SearchBox.js";
 const PLACEHOLDER = "Search teams or events";
 
 const mockNavigate = vi.fn();
-let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "sigma1" };
+let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "vpr" };
 let mockPathname = "/teams";
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -40,7 +40,7 @@ function manifestResponse(): Response {
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
       algorithms: [
-        { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+        { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
         { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
       ],
     }),
@@ -66,7 +66,7 @@ function makeTeamsArtifact(teams: TeamsArtifact["teams"]): TeamsArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2024,
     teams,
@@ -96,7 +96,7 @@ function makeEventsArtifact(events: EventsArtifact["events"]): EventsArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2024,
     events,
@@ -125,7 +125,7 @@ describe("SearchBox", () => {
   afterEach(() => {
     global.fetch = originalFetch;
     mockNavigate.mockClear();
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     mockPathname = "/teams";
     cleanup();
     vi.restoreAllMocks();
@@ -315,7 +315,7 @@ describe("SearchBox", () => {
   // ---------------------------------------------------------------------
 
   it("Test 5/6/7: an event selection navigates to the real event route, carrying the current year/algorithm and DEFAULT_EVENT_TAB, with no /events landing anywhere in the call", async () => {
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     global.fetch = baseFetchMock({
       teams: [],
       eventsFetch: () => Promise.resolve(new Response(JSON.stringify(makeEventsArtifact([event({ eventKey: "2024casj", name: "Silicon Valley Regional" })])), { status: 200 })),
@@ -339,7 +339,7 @@ describe("SearchBox", () => {
     expect(call.search({ someOtherField: "kept" })).toEqual({
       someOtherField: "kept",
       year: 2024,
-      algorithm: "sigma1",
+      algorithm: "vpr",
       tab: DEFAULT_EVENT_TAB,
     });
 

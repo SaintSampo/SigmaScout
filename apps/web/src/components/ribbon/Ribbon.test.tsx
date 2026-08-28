@@ -58,7 +58,7 @@ describe("Ribbon", () => {
 
   it("renders with NO query client data resolved, proving it is not fetch-gated — the algorithms manifest fetch never resolves during this test", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // never resolves
-    await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
+    await renderRibbonAt("/teams?year=2024&algorithm=vpr");
 
     // Renders immediately even though the manifest fetch is permanently
     // pending — proving the ribbon itself is never gated on that fetch.
@@ -69,7 +69,7 @@ describe("Ribbon", () => {
 
   it("all three links render in the fixed order Teams, Events, Compare (desktop)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/events?year=2024&algorithm=sigma1");
+    await renderRibbonAt("/events?year=2024&algorithm=vpr");
 
     const links = screen.getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual(["Teams", "Events", "Compare"]);
@@ -91,7 +91,7 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/compare?year=2024&algorithm=sigma1");
+      await renderRibbonAt("/compare?year=2024&algorithm=vpr");
       const links = screen.getAllByRole("link");
       expect(links.map((link) => link.textContent)).toEqual(["Teams", "Events", "Compare"]);
     } finally {
@@ -101,7 +101,7 @@ describe("Ribbon", () => {
 
   it("the link matching the CURRENT route carries the active indicator and the others do not", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
+    await renderRibbonAt("/teams?year=2024&algorithm=vpr");
 
     const links = screen.getAllByRole("link");
     const teamsLink = links.find((link) => link.textContent === "Teams");
@@ -115,7 +115,7 @@ describe("Ribbon", () => {
 
   it("desktop renders the search box itself (an input), not an icon-only trigger — 05-08-PLAN.md Task 2", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
+    await renderRibbonAt("/teams?year=2024&algorithm=vpr");
 
     expect(screen.getByPlaceholderText("Search teams or events")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Open search" })).toBeNull();
@@ -137,7 +137,7 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/teams?year=2024&algorithm=sigma1");
+      await renderRibbonAt("/teams?year=2024&algorithm=vpr");
       const trigger = screen.getByRole("button", { name: "Open search" });
       expect(trigger.className).toContain("tap-target");
     } finally {
@@ -147,7 +147,7 @@ describe("Ribbon", () => {
 
   it("selecting the already-selected YEAR performs no navigation (YearSelect's NAV-02 adjacency edge)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=sigma1&sort=hubShift1&sortDir=asc");
+    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=vpr&sort=hubShift1&sortDir=asc");
     const navigateSpy = vi.spyOn(router, "navigate");
 
     const yearTrigger = screen.getByRole("combobox", { name: "Year" });
@@ -162,7 +162,7 @@ describe("Ribbon", () => {
 
   it("selecting a DIFFERENT year does navigate and preserves sort/sortDir (D-11) — contrast case proving the reselect guard above is not vacuously true", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=sigma1&sort=hubShift1&sortDir=asc");
+    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=vpr&sort=hubShift1&sortDir=asc");
 
     const yearTrigger = screen.getByRole("combobox", { name: "Year" });
     fireEvent.pointerDown(yearTrigger, { button: 0, pointerId: 1 });

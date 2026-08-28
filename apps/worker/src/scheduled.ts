@@ -84,8 +84,7 @@ import {
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import type { AlgorithmsManifest, LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
-import { PIPELINE_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { liveEventsAt, loadAlgorithmsManifest, loadLiveWindowsManifest } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -145,17 +144,17 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * unset/empty fallback and this file's own regression test
  * (`liveAlgorithmTier.test.ts`) bind to the SAME default rather than a
  * re-typed copy. Renamed to `vpr` by plan 07-16 (D-04/D-05) from its
- * pre-rename value —
- * this value is validated against `PIPELINE_ALGORITHM_IDS` (the
- * publisher/Worker-write tier, PD-01), not `PUBLISHED_ALGORITHM_IDS` (the
- * browser-read tier, unchanged until 07-18).
+ * pre-rename value — this value is validated against `PUBLISHED_ALGORITHM_IDS`
+ * (packages/harness/publishedAlgorithms.ts), the single algorithm-id tier
+ * again as of plan 07-18's collapse (07-16's transitional publisher/Worker-
+ * write tier existed only through waves 11-12 and no longer exists).
  */
 export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["vpr"];
 
-/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PIPELINE_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
+/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {
   constructor(id: string) {
-    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PIPELINE_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
+    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
     this.name = "UnknownLiveAlgorithmIdError";
   }
 }
@@ -194,7 +193,7 @@ export class EmptyLiveAlgorithmTierError extends Error {
  *    case where a deploy-time `--var` override drops this tracked var).
  *    Falling back is safe; the warn line is what stops it being silent. Only
  *    the ids themselves are logged, never any other binding value.
- *  - An id not in `PIPELINE_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
+ *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
  * Called at the TOP of `runTick`, before the live-windows manifest read, so
  * a misconfigured deploy surfaces on the very next tick — one minute later,
  * in the tail an operator is already watching — rather than lying dormant
@@ -212,7 +211,7 @@ export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   }
 
   for (const id of segments) {
-    if (!(PIPELINE_ALGORITHM_IDS as readonly string[]).includes(id)) {
+    if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(id)) {
       throw new UnknownLiveAlgorithmIdError(id);
     }
   }

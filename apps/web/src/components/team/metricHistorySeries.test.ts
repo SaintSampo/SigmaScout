@@ -7,7 +7,7 @@ function row(overrides: Partial<MetricHistoryRow> & { matchKey: string; eventKey
     matchKey: overrides.matchKey,
     season: 2024,
     eventKey: overrides.eventKey,
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     teamKey: "frc1114",
     matchIndex: overrides.matchIndex,
     metrics: overrides.metrics ?? { total: { value: 100, spread: 5 } },

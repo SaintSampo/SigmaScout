@@ -57,7 +57,7 @@ function baseArtifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonAr
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     teamKey: "frc1114",
     teamNumber: 1114,
@@ -74,7 +74,7 @@ describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
   afterEach(() => cleanup());
 
   it("renders the fallback tile with role=img and a team-number-bearing accessible name when robotImageUrl is absent", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const fallback = screen.getByRole("img", { name: /1114/ });
     expect(fallback).toBeDefined();
@@ -84,7 +84,7 @@ describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
 
   it("renders a real <img> with the published src when robotImageUrl is present", async () => {
     const artifact = baseArtifact({ robotImageUrl: "https://i.imgur.com/A0CFArb.jpeg" });
-    render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     await waitFor(() => {
       const img = document.querySelector("img[src]");
@@ -98,7 +98,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
   afterEach(() => cleanup());
 
   it("renders 'Team 1114' when nickname is empty", () => {
-    render(<SeasonHeader artifact={baseArtifact({ nickname: "" })} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact({ nickname: "" })} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Team 1114");
   });
@@ -108,7 +108,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
     expect(longNickname.length).toBeGreaterThanOrEqual(90);
     const trimmed = longNickname.slice(0, 90);
 
-    render(<SeasonHeader artifact={baseArtifact({ nickname: trimmed })} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact({ nickname: trimmed })} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading.getAttribute("title")).toBe(trimmed);
@@ -116,7 +116,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
   });
 
   it("renders an anchor to the TBA page opening in a new tab with rel=noopener", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const link = screen.getByRole("link", { name: "View on TBA" });
     expect(link.getAttribute("href")).toBe("https://www.thebluealliance.com/team/1114");
@@ -140,7 +140,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
@@ -160,7 +160,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     const autoCell = cells.at(0);
@@ -180,7 +180,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   it("renders four em-dash tiles when metrics is empty", () => {
     const artifact = baseArtifact({ seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
@@ -203,7 +203,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   });
 
   it("does not render the TierKeyRow — it lives at the foot of the Overview panel, not in the header", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="sigma1" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });

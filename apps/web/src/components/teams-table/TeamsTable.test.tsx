@@ -98,7 +98,7 @@ describe("TeamsTable", () => {
         <TeamsTable
           status="success"
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 }, hubShift1: { value: 4 } } })]}
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2026}
           sortKey={TOTAL_KEY}
           sortDirection="desc"
@@ -116,7 +116,7 @@ describe("TeamsTable", () => {
         <TeamsTable
           status="success"
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 } } })]}
-          algorithmId="sigma1"
+          algorithmId="vpr"
           season={2026}
           sortKey={TOTAL_KEY}
           sortDirection="desc"

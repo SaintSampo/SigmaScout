@@ -23,7 +23,6 @@ import {
   buildLiveWindowsManifest,
   isLiveAt,
 } from "./manifests.js";
-import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 
 const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
 
@@ -245,13 +244,14 @@ describe("AlgorithmsManifestSchema — D-03 harness-only rejection", () => {
 describe("buildAlgorithmsManifest — D-03's published set", () => {
   // Test 1 (plan 07-16 Task 1): the manifest's third entry is `vpr`, the
   // renamed publisher-side identity — deliberately asserted against a
-  // literal array, NOT `[...PUBLISHED_ALGORITHM_IDS]`. PUBLISHED_ALGORITHM_IDS
-  // is the browser-facing tier (07-18's to move) and still reads
-  // opr/epa/sigma1 through this phase's transition window (PD-01); the
-  // manifest's own id is read from the committed promoted version file, and
-  // the two are DELIBERATELY different values right now. Equating them here
-  // would silently re-couple the two tiers this plan's whole safety property
-  // depends on keeping apart.
+  // literal array, NOT `[...PUBLISHED_ALGORITHM_IDS]`. Through 07-16 Task 1
+  // and 07-17's write pass, `PUBLISHED_ALGORITHM_IDS` (the browser-facing
+  // tier) and this manifest's id were DELIBERATELY different values, so a
+  // literal was required to avoid silently re-coupling the two tiers the
+  // phase's whole safety property depended on keeping apart. Plan 07-18
+  // collapsed the two tiers back into one; the literal stays as written
+  // (it is still correct, and a future accidental re-split would now fail
+  // this case rather than pass vacuously).
   it("returns exactly 3 entries whose ids are opr, epa, vpr — in that order", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms).toHaveLength(3);
@@ -296,33 +296,25 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 });
 
-describe("PUBLISHED_ALGORITHM_IDS vs PIPELINE_ALGORITHM_IDS (plan 07-16 Task 2, PD-01)", () => {
-  // Test 6: the two tiers are DELIBERATELY different during this phase's
-  // rename transition window, and the difference is bounded to exactly one
-  // position. This case is expected to be REWRITTEN (not deleted) by 07-18,
-  // the plan that collapses the two constants back into one and makes them
-  // equal — a transition constant with no test is a transition constant
-  // nobody deletes.
-  it("share their first two members in the same positions, and differ in exactly one position — the third", () => {
-    expect(PIPELINE_ALGORITHM_IDS.length).toBe(PUBLISHED_ALGORITHM_IDS.length);
-    expect(PIPELINE_ALGORITHM_IDS[0]).toBe(PUBLISHED_ALGORITHM_IDS[0]);
-    expect(PIPELINE_ALGORITHM_IDS[1]).toBe(PUBLISHED_ALGORITHM_IDS[1]);
-    expect(PIPELINE_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[2]);
-    const diffCount = PIPELINE_ALGORITHM_IDS.filter((id, i) => id !== PUBLISHED_ALGORITHM_IDS[i]).length;
-    expect(diffCount).toBe(1);
+describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 introduced a transitional second tier, collapsed by plan 07-18 Task 1)", () => {
+  // Test 9 (rewritten from 07-16 Task 2's Test 6, not deleted — that case's
+  // own source comment named this plan as the one that makes the two
+  // tiers equal; deleting it instead would remove the only test that ever
+  // knew the transition happened): `PUBLISHED_ALGORITHM_IDS` is once again
+  // the ONLY algorithm-id constant this module exports, and its members are
+  // the renamed triple in the shipped order.
+  it("is the module's only algorithm-id constant, and its members are the renamed triple in the shipped order", async () => {
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "vpr"]);
+    expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS"]);
   });
 
-  // Test 7: both constants place the published algorithm THIRD — the
-  // position the shipped ribbon renders it in (D-03's ordering, re-pinned
-  // through the rename by both tiers).
-  it("both place the published algorithm third", () => {
-    // Deliberately not a literal string comparison for PUBLISHED_ALGORITHM_IDS
-    // (the browser tier, still unrenamed on purpose through this transition
-    // window) — comparing against the OTHER two known positions instead
-    // proves the SAME thing (index 2 holds the one remaining, non-opr,
-    // non-epa member) without hardcoding either tier's exact value here.
+  // Test 7 (unchanged claim, now a literal comparison since there is only
+  // one tier): the published algorithm sits THIRD — the position the
+  // shipped ribbon renders it in (D-03's ordering, re-pinned through the
+  // rename).
+  it("places the published algorithm third", () => {
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[0]);
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[1]);
-    expect(PIPELINE_ALGORITHM_IDS[2]).toBe("vpr");
+    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("vpr");
   });
 });

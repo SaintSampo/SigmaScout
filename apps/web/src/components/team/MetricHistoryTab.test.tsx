@@ -10,7 +10,7 @@ function artifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonArtifa
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     teamKey: "frc1114",
     teamNumber: 1114,
@@ -35,7 +35,7 @@ describe("MetricHistoryTab", () => {
   it("shows a skeleton and no text while the dynamic import is pending", async () => {
     const loadChart = vi.fn(() => new Promise<{ default: ComponentType<MetricHistoryChartProps> }>(() => {}));
 
-    render(<MetricHistoryTab artifact={artifact()} algorithmId="sigma1" season={2024} loadChart={loadChart} />);
+    render(<MetricHistoryTab artifact={artifact()} algorithmId="vpr" season={2024} loadChart={loadChart} />);
 
     const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
     expect(skeleton).toBeDefined();
@@ -47,7 +47,7 @@ describe("MetricHistoryTab", () => {
     global.fetch = fetchSpy;
     const loadChart = vi.fn(() => Promise.reject(new Error("chunk load failed")));
 
-    render(<MetricHistoryTab artifact={artifact()} algorithmId="sigma1" season={2024} loadChart={loadChart} />);
+    render(<MetricHistoryTab artifact={artifact()} algorithmId="vpr" season={2024} loadChart={loadChart} />);
 
     await waitFor(() => expect(screen.getByText("Chart failed to load")).toBeDefined());
     expect(loadChart).toHaveBeenCalledTimes(1);
@@ -64,7 +64,7 @@ describe("MetricHistoryTab", () => {
     }
     const loadChart = vi.fn(() => Promise.resolve({ default: FakeChart }));
 
-    render(<MetricHistoryTab artifact={artifact()} algorithmId="sigma1" season={2024} loadChart={loadChart} />);
+    render(<MetricHistoryTab artifact={artifact()} algorithmId="vpr" season={2024} loadChart={loadChart} />);
 
     await waitFor(() => expect(screen.getByTestId("fake-chart")).toBeDefined());
   });

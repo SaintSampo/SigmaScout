@@ -12,7 +12,7 @@ import { PAGE_ARTIFACT_SCHEMA_VERSION, EventsArtifactSchema, type TeamSeasonArti
 // so it can't use a strict route hook — mock `useLocation`/`useSearch` the
 // same way `AlgorithmSelect.test.tsx` already mocks `useSearch`/`useNavigate`.
 const mockNavigate = vi.fn();
-let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "sigma1" };
+let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "vpr" };
 let mockPathname = "/teams";
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -29,7 +29,7 @@ const MANIFEST = {
   schemaVersion: 1,
   generation: "gen-1",
   computedAt: "2026-08-24T00:00:00.000Z",
-  algorithms: [{ id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+  algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
 };
 
 const ALGORITHM_VERSION = "2.0.0+tuned-2026-08";
@@ -39,7 +39,7 @@ function teamArtifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonAr
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: ALGORITHM_VERSION,
     teamKey: "frc1114",
     teamNumber: 1114,
@@ -58,7 +58,7 @@ function makeQueryClient(): QueryClient {
 
 /** The exact same key `teamQueryOptions` builds (and the route itself queries with) — `useConstrainedYears` must read THIS key, never a derived/approximate one. */
 function teamKeyFor(year: number) {
-  return teamQueryOptions({ teamKey: "frc1114", year, algorithmId: "sigma1", version: ALGORITHM_VERSION }).queryKey;
+  return teamQueryOptions({ teamKey: "frc1114", year, algorithmId: "vpr", version: ALGORITHM_VERSION }).queryKey;
 }
 
 async function openAndListOptions(): Promise<string[]> {
@@ -75,7 +75,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
   afterEach(() => {
     global.fetch = originalFetch;
     mockNavigate.mockClear();
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     mockPathname = "/teams";
     cleanup();
     vi.restoreAllMocks();
@@ -95,7 +95,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
 
   it("on a team route with a resolved 3-year activeYears, lists exactly those 3 years descending", async () => {
     mockPathname = "/team/1114";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const fetchSpy = vi.fn();
     global.fetch = fetchSpy;
     const client = makeQueryClient();
@@ -114,7 +114,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
     // `AlgorithmSelect.test.tsx` uses for `useAlgorithmOptions`, decoupled
     // from Radix `Select`'s own conditional (open-only) content mounting.
     mockPathname = "/team/1114";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const client = makeQueryClient();
     client.setQueryData(algorithmsManifestQueryOptions().queryKey, MANIFEST);
     // Cache starts EMPTY for the team artifact key — the pre-resolution state.
@@ -134,7 +134,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
 
   it("the trigger's displayed value never changes and the Select is never remounted while activeYears resolves", async () => {
     mockPathname = "/team/1114";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const client = makeQueryClient();
     client.setQueryData(algorithmsManifestQueryOptions().queryKey, MANIFEST);
     // Cache starts EMPTY for the team artifact key — the pre-resolution state.
@@ -159,7 +159,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
 
   it("on a rejected query, falls back to the full SEASONS list rather than blocking", async () => {
     mockPathname = "/team/1114";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const client = makeQueryClient();
     client.setQueryData(algorithmsManifestQueryOptions().queryKey, MANIFEST);
     // Drive the query through a REAL failure so the cache holds a genuine
@@ -175,7 +175,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
 
   it("when the routed year is outside activeYears, the trigger still shows the routed year while the option list stays constrained", async () => {
     mockPathname = "/team/1114";
-    mockSearch = { year: 2026, algorithm: "sigma1" };
+    mockSearch = { year: 2026, algorithm: "vpr" };
     const client = makeQueryClient();
     client.setQueryData(algorithmsManifestQueryOptions().queryKey, MANIFEST);
     client.setQueryData(teamKeyFor(2026), teamArtifact({ season: 2026, activeYears: [2024] }));
@@ -188,7 +188,7 @@ describe("YearSelect — D-18 constrained year dropdown", () => {
 
   it("a rookie team with a one-entry activeYears renders one enabled option, not a disabled control", async () => {
     mockPathname = "/team/1114";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const client = makeQueryClient();
     client.setQueryData(algorithmsManifestQueryOptions().queryKey, MANIFEST);
     client.setQueryData(teamKeyFor(2024), teamArtifact({ activeYears: [2024] }));
@@ -229,7 +229,7 @@ function eventsArtifactBody(eventKeys: string[]) {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithmId: "sigma1",
+      algorithmId: "vpr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       season: 2025,
       events,
@@ -254,7 +254,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
   afterEach(() => {
     global.fetch = originalFetch;
     mockNavigate.mockClear();
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     mockPathname = "/teams";
     cleanup();
     vi.restoreAllMocks();
@@ -262,7 +262,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 7: a hit navigates to the mapped event in the target season", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     global.fetch = fetchMockFor({ events: () => Promise.resolve(new Response(eventsArtifactBody(["2025casf", "2025other"]), { status: 200 })) });
     const client = makeQueryClient();
 
@@ -281,7 +281,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 8: a miss falls back to the Events list for the new year", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     global.fetch = fetchMockFor({ events: () => Promise.resolve(new Response(eventsArtifactBody(["2025other"]), { status: 200 })) });
     const client = makeQueryClient();
 
@@ -300,7 +300,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 9: a fetch failure falls back identically, with no unhandled rejection", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     global.fetch = fetchMockFor({ events: () => Promise.reject(new Error("network down")) });
     const client = makeQueryClient();
 
@@ -318,7 +318,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 10: an unresolved algorithm version navigates to the Events list rather than an unverified event key", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     global.fetch = fetchMockFor({
       manifest: () => Promise.resolve(new Response(JSON.stringify({ ...MANIFEST, algorithms: [] }), { status: 200 })),
       events: () => Promise.resolve(new Response(eventsArtifactBody(["2025casf"]), { status: 200 })),
@@ -339,7 +339,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 11: nothing fires at render — rendering on an event detail route issues zero events-artifact fetches before any interaction", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const fetchMock = fetchMockFor({});
     global.fetch = fetchMock;
     const client = makeQueryClient();
@@ -353,7 +353,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
   it("Test 12: every other route family stays synchronous, search-updater-only, with no `to` and no `params`", async () => {
     for (const pathname of ["/teams", "/events"]) {
       mockPathname = pathname;
-      mockSearch = { year: 2024, algorithm: "sigma1" };
+      mockSearch = { year: 2024, algorithm: "vpr" };
       const fetchMock = fetchMockFor({});
       global.fetch = fetchMock;
       const client = makeQueryClient();
@@ -379,7 +379,7 @@ describe("YearSelect — Phase 5 D-12's event-detail year-change extension point
 
   it("Test 13: the reselect no-op survives on an event detail route — no navigation, no fetch", async () => {
     mockPathname = "/event/2024casf";
-    mockSearch = { year: 2024, algorithm: "sigma1" };
+    mockSearch = { year: 2024, algorithm: "vpr" };
     const fetchMock = fetchMockFor({});
     global.fetch = fetchMock;
     const client = makeQueryClient();

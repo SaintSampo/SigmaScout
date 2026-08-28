@@ -8,8 +8,8 @@ describe("metricKeysFor", () => {
     expect(metricKeysFor("opr", 2024)).toEqual([TOTAL_KEY]);
   });
 
-  it("EPA and Sigma1 return identical arrays for the same season, since both derive from the same season component map", () => {
-    expect(metricKeysFor("epa", 2022)).toEqual(metricKeysFor("sigma1", 2022));
+  it("EPA and VPR return identical arrays for the same season, since both derive from the same season component map", () => {
+    expect(metricKeysFor("epa", 2022)).toEqual(metricKeysFor("vpr", 2022));
   });
 
   it("EPA 2026 returns strictly more keys than EPA 2022, matching the researched 2026-versus-2022 component counts", () => {
@@ -23,7 +23,7 @@ describe("metricKeysFor", () => {
       ["opr", 2024],
       ["epa", 2022],
       ["epa", 2026],
-      ["sigma1", 2024],
+      ["vpr", 2024],
     ] as const) {
       const keys = metricKeysFor(algorithmId, season);
       expect(keys.at(-1)).toBe(TOTAL_KEY);

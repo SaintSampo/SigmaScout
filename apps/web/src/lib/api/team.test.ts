@@ -14,7 +14,7 @@ function makeValidArtifact(): TeamSeasonArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     teamKey: "frc1114",
     teamNumber: 1114,
@@ -42,7 +42,7 @@ describe("fetchTeamArtifact", () => {
     const artifact = makeValidArtifact();
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    const result = await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    const result = await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
     expect(result.teamNumber).toBe(1114);
     expect(result.nickname).toBe("Simbotics");
@@ -54,7 +54,7 @@ describe("fetchTeamArtifact", () => {
 
     let caught: unknown;
     try {
-      await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+      await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
     } catch (err) {
       caught = err;
     }
@@ -70,7 +70,7 @@ describe("fetchTeamArtifact", () => {
     delete artifact.teamNumber; // required field, per TeamSeasonArtifactSchema
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
-    await expect(fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(
+    await expect(fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(
       ArtifactValidationError,
     );
   });
@@ -80,8 +80,8 @@ describe("fetchTeamArtifact", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
     global.fetch = fetchMock;
 
-    await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "sigma1", version: "2.0.0+tuned-2026-08" });
+    await fetchTeamArtifact({ teamKey: "frc1114", year: 2024, algorithmId: "vpr", version: "2.0.0+tuned-2026-08" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/team/frc1114/2024/sigma1@2.0.0+tuned-2026-08.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/team/frc1114/2024/vpr@2.0.0+tuned-2026-08.json");
   });
 });

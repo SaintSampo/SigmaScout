@@ -55,7 +55,7 @@ function makeArtifact(overrides: Partial<EventArtifact> = {}): EventArtifact {
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2022ilpe",
     season: 2022,
@@ -82,7 +82,7 @@ describe("Filtering to the closed elimination set", () => {
       makePlayedMatch({ matchKey: "sf2m1", compLevel: "sf", setNumber: 2, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m1", compLevel: "f", setNumber: 1, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(4);
     expect(screen.queryByTestId("match-row-qm1")).toBeNull();
     expect(screen.queryByTestId("match-row-qm2")).toBeNull();
@@ -97,7 +97,7 @@ describe("Filtering to the closed elimination set", () => {
       makePlayedMatch({ matchKey: "sf13m1", compLevel: "sf", setNumber: 13, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m3", compLevel: "f", setNumber: 1, matchNumber: 3 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(4);
     for (const key of ["ef20m3", "qf1m2", "sf13m1", "f1m3"]) {
       expect(screen.getByTestId(`match-row-${key}`)).toBeDefined();
@@ -111,7 +111,7 @@ describe("Filtering to the closed elimination set", () => {
       makePlayedMatch({ matchKey: "sf13m1", compLevel: "sf", setNumber: 13, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m3", compLevel: "f", setNumber: 1, matchNumber: 3 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByText("Eighths 20-3")).toBeDefined();
     expect(screen.getByText("Quarterfinal 1-2")).toBeDefined();
     expect(screen.getByText("Semifinal 13-1")).toBeDefined();
@@ -127,7 +127,7 @@ describe("Ordering", () => {
       makePlayedMatch({ matchKey: "qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "ef1m1", compLevel: "ef", setNumber: 1, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid"));
     expect(rows).toEqual(["match-row-ef1m1", "match-row-qf1m1", "match-row-sf1m1", "match-row-f1m1"]);
   });
@@ -139,7 +139,7 @@ describe("Ordering", () => {
       makePlayedMatch({ matchKey: "qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "qf2m2", compLevel: "qf", setNumber: 2, matchNumber: 2 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid"));
     expect(rows).toEqual(["match-row-qf1m1", "match-row-qf1m2", "match-row-qf2m1", "match-row-qf2m2"]);
   });
@@ -188,7 +188,7 @@ describe("Ordering", () => {
   it("the 2022ilpe shape renders exactly 18 rows in the full measured order, with upcoming rows interleaved at indices 4, 10 and 15", () => {
     const matches = buildIlpeMatches();
     const upcoming = buildIlpeUpcoming();
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid")!.replace("match-row-", ""));
     expect(rows).toHaveLength(18);
     expect(rows).toEqual(ILPE_EXPECTED_ORDER);
@@ -200,7 +200,7 @@ describe("Ordering", () => {
   it("the same 2022ilpe fixture with both input arrays shuffled produces an identical output sequence", () => {
     const matches = [...buildIlpeMatches()].reverse();
     const upcoming = [...buildIlpeUpcoming()].reverse();
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid")!.replace("match-row-", ""));
     expect(rows).toEqual(ILPE_EXPECTED_ORDER);
   });
@@ -213,7 +213,7 @@ describe("The D-13 merge and its non-mutation contract", () => {
     const matchesBefore = JSON.parse(JSON.stringify(matches));
     const upcomingBefore = JSON.parse(JSON.stringify(upcoming));
 
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2022} />);
 
     expect(matches).toEqual(matchesBefore);
     expect(upcoming).toEqual(upcomingBefore);
@@ -222,7 +222,7 @@ describe("The D-13 merge and its non-mutation contract", () => {
   it("a played row and an upcoming row sharing one match key collapse to exactly ONE rendered row, carrying the played row's actual scores", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", setNumber: 1, matchNumber: 1, actualRedScore: 130, actualBlueScore: 90 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m1", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/);
     expect(rows).toHaveLength(1);
     expect(screen.getByTestId("actual-qf1m1-red").textContent).toContain("130");
@@ -233,7 +233,7 @@ describe("Per-tab domain (D-12)", () => {
   it("axis tick labels span the merged rows' full extent, including an upcoming row's high predicted score", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", predictedRedScore: 900, predictedBlueScore: 880 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2022} />);
     const ticks = screen.getAllByTestId("axis-tick").map((t) => Number(t.textContent));
     expect(Math.max(...ticks)).toBeGreaterThan(880);
   });
@@ -248,11 +248,11 @@ describe("Per-tab domain (D-12)", () => {
         makePlayedMatch({ matchKey: "sf1m2", compLevel: "sf", setNumber: 1, matchNumber: 2, predictedRedScore: 225, predictedBlueScore: 210, actualRedScore: 225, actualBlueScore: 210 }),
       ],
     });
-    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="sigma1" season={2025} />);
+    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="vpr" season={2025} />);
     const qualsTicks = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     unmount();
 
-    render(<ElimsTab artifact={artifact} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={artifact} algorithmId="vpr" season={2025} />);
     const elimsTicks = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
 
     expect(elimsTicks).not.toEqual(qualsTicks);
@@ -261,10 +261,10 @@ describe("Per-tab domain (D-12)", () => {
   it("two renders of the same artifact produce identical tick labels", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1" })];
     const artifact = makeArtifact({ matches });
-    const { unmount } = render(<ElimsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    const { unmount } = render(<ElimsTab artifact={artifact} algorithmId="vpr" season={2022} />);
     const ticksA = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     unmount();
-    render(<ElimsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={artifact} algorithmId="vpr" season={2022} />);
     const ticksB = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     expect(ticksB).toEqual(ticksA);
   });
@@ -278,7 +278,7 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
       makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m1", compLevel: "f", setNumber: 1, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches, season: 2024 })} algorithmId="sigma1" season={2024} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, season: 2024 })} algorithmId="vpr" season={2024} />);
     const dots = document.querySelectorAll('[data-testid^="bonus-dot-"]');
     expect(dots.length).toBeGreaterThan(0);
     for (const dot of dots) {
@@ -293,7 +293,7 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
       makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m1", compLevel: "f", setNumber: 1, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches, season: 2024 })} algorithmId="sigma1" season={2024} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, season: 2024 })} algorithmId="vpr" season={2024} />);
     const dots = document.querySelectorAll('[data-testid^="bonus-dot-"]');
     expect(dots.length).toBeGreaterThan(0);
     for (const dot of dots) {
@@ -303,13 +303,13 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
 
   it("a 2024 elimination row renders two dots per alliance and a 2025 one renders three, driven by bonusRpForSeason", () => {
     const matches2024 = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 })];
-    const { unmount } = render(<ElimsTab artifact={makeArtifact({ matches: matches2024, season: 2024 })} algorithmId="sigma1" season={2024} />);
+    const { unmount } = render(<ElimsTab artifact={makeArtifact({ matches: matches2024, season: 2024 })} algorithmId="vpr" season={2024} />);
     const predictedRedGroup2024 = screen.getByTestId("bonus-rp-predicted-sf1m1-red");
     expect(predictedRedGroup2024.querySelectorAll('[data-testid^="bonus-dot-"]')).toHaveLength(2);
     unmount();
 
     const matches2025 = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches: matches2025, season: 2025 })} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={makeArtifact({ matches: matches2025, season: 2025 })} algorithmId="vpr" season={2025} />);
     const predictedRedGroup2025 = screen.getByTestId("bonus-rp-predicted-sf1m1-red");
     expect(predictedRedGroup2025.querySelectorAll('[data-testid^="bonus-dot-"]')).toHaveLength(3);
   });
@@ -318,7 +318,7 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
 describe("Unplayed and absent-variance rows", () => {
   it("an unplayed elimination row renders both alliance bands and ticks and NO actual dot for either alliance; Actual and Call cells render an em-dash", () => {
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 16 })];
-    render(<ElimsTab artifact={makeArtifact({ upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ upcoming })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m2-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-red-tick")).toBeDefined();
@@ -331,7 +331,7 @@ describe("Unplayed and absent-variance rows", () => {
 
   it("a row carrying neither variance field renders both ticks and no band for either alliance and does not throw", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined })];
-    expect(() => render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />)).not.toThrow();
+    expect(() => render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />)).not.toThrow();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m1-red-band")).toBeNull();
@@ -340,7 +340,7 @@ describe("Unplayed and absent-variance rows", () => {
 
   it("a row carrying only the red variance field renders a red band and no blue band", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: undefined })];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
@@ -349,7 +349,7 @@ describe("Unplayed and absent-variance rows", () => {
 describe("Structure", () => {
   it("the scroll region carries a data-testid of elims-table-scroll", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1" })];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("elims-table-scroll")).toBeDefined();
   });
 
@@ -363,7 +363,7 @@ describe("Structure", () => {
 describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
   it("an artifact whose matches are all qualification rows and whose upcoming is empty (the 2025srsd shape) renders EmptyState with the event's name, the Copywriting Contract body, and no table/axis-header/scroll-region", () => {
     const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: "Sioux Falls Regional" })} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: "Sioux Falls Regional" })} algorithmId="vpr" season={2025} />);
     expect(screen.getByText("No matches found for Sioux Falls Regional")).toBeDefined();
     expect(screen.getByText(QUALS_EMPTY_STATE_BODY)).toBeDefined();
     expect(screen.queryByRole("table")).toBeNull();
@@ -373,19 +373,19 @@ describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
 
   it("the empty-state body is byte-identical to QualsTab's exported constant, compared by import rather than retyped", () => {
     const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="vpr" season={2025} />);
     expect(screen.getByText(QUALS_EMPTY_STATE_BODY)).toBeDefined();
   });
 
   it("the empty state renders no button element at all", () => {
     const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [] })} algorithmId="vpr" season={2025} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("an artifact carrying no name field falls back to the event key in the heading", () => {
     const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
-    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: undefined, eventKey: "2025srsd" })} algorithmId="sigma1" season={2025} />);
+    render(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: undefined, eventKey: "2025srsd" })} algorithmId="vpr" season={2025} />);
     expect(screen.getByText("No matches found for 2025srsd")).toBeDefined();
   });
 
@@ -395,7 +395,7 @@ describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
       makeUpcomingMatch({ matchKey: "qf2m1", compLevel: "qf", setNumber: 2, matchNumber: 1 }),
       makeUpcomingMatch({ matchKey: "qf3m1", compLevel: "qf", setNumber: 3, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="vpr" season={2022} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(3);
     expect(screen.queryByText(/No matches found/)).toBeNull();
   });
@@ -407,7 +407,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
       makePlayedMatch({ matchKey: "2022ilpe_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "2022gacar_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/).map((r) => r.getAttribute("data-testid"));
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(["match-row-2022gacar_qf1m1", "match-row-2022ilpe_qf1m1"]);
@@ -424,7 +424,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
         blueScoreVarianceOwn: 400,
       }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
@@ -441,7 +441,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
         blueScoreVarianceOwn: 100,
       }),
     ];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
@@ -450,7 +450,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
 
   it("a row whose variance fields are both exactly 0 still renders both ticks and both bands — a zero-width band is a real state, not an absent one", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 0, blueScoreVarianceOwn: 0 })];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
@@ -461,7 +461,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
 describe("Boundary and single-row (EVNT-06 empty, UI-SPEC E6 zero-one-many)", () => {
   it("a one-row elimination slate renders a one-row table with a non-zero-range axis", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
-    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(1);
     const ticks = screen.getAllByTestId("axis-tick").map((t) => Number(t.textContent));
     expect(Math.max(...ticks)).toBeGreaterThan(Math.min(...ticks));
@@ -474,7 +474,7 @@ describe("Boundary and single-row (EVNT-06 empty, UI-SPEC E6 zero-one-many)", ()
         upcoming.push(makeUpcomingMatch({ matchKey: `ef${set}m${match}`, compLevel: "ef", setNumber: set, matchNumber: match }));
       }
     }
-    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="vpr" season={2022} />);
     const rows = screen.getAllByTestId(/^match-row-/);
     expect(rows).toHaveLength(60);
     expect(screen.getByText("Eighths 1-1")).toBeDefined();
@@ -490,11 +490,11 @@ describe("Anti-drift against the sibling tab", () => {
       makePlayedMatch({ matchKey: "qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
     ];
     const artifact = makeArtifact({ matches });
-    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="vpr" season={2022} />);
     const qualsClass = screen.getByTestId("quals-table-scroll").className;
     unmount();
 
-    render(<ElimsTab artifact={artifact} algorithmId="sigma1" season={2022} />);
+    render(<ElimsTab artifact={artifact} algorithmId="vpr" season={2022} />);
     const elimsClass = screen.getByTestId("elims-table-scroll").className;
 
     expect(elimsClass).toBe(qualsClass);

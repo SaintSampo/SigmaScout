@@ -84,7 +84,7 @@ export type BonusRpState = "earned" | "missed" | "unknown";
  * probability drives that binary. The exact boundary (a probability of
  * exactly one half) resolves to `earned`, matching this codebase's existing
  * half-away-from-zero rounding convention (`packages/harness/rounding.ts`)
- * and `sigma1/index.ts`'s own tie handling, where a win probability of
+ * and VPR's own tie handling (`sigma1/index.ts`), where a win probability of
  * exactly 0.5 resolves to red. The dot's own tooltip/accessible label
  * (`bonusDotLabel`) carries the real probability as a percentage, so the
  * reader is never left with only the binary — the visual is a summary, not
