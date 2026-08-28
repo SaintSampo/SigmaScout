@@ -13,15 +13,18 @@ import { OUTCOME_KEYS } from "../core/algorithms/leakProof.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   findIncompleteIngestRuns,
+  hasEventRankingRecordColumns,
   openCorpus,
   recordIngestRun,
   selectEventAlliancesForSeason,
+  selectEventRankingsForSeason,
   selectMatchesChronological,
   selectScheduledMatches,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   upsertEvent,
   upsertEventAlliance,
+  upsertEventRanking,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -941,5 +944,242 @@ describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", (
     const result = selectEventAlliancesForSeason(db, 2024);
     expect(result.has("2023old")).toBe(false);
     expect(result.has("2024new")).toBe(true);
+  });
+});
+
+/** An `event_rankings` table shaped exactly like the pre-07-02 schema — five columns, none of D-18.6's new record/ranking-score fields. */
+function createLegacyEventRankingsTable(rawDb: Database.Database): void {
+  rawDb.exec(`
+    CREATE TABLE event_rankings (
+      event_key TEXT NOT NULL REFERENCES events(event_key),
+      team_key TEXT NOT NULL REFERENCES teams(team_key),
+      rank INTEGER NOT NULL,
+      total_teams INTEGER NOT NULL,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (event_key, team_key)
+    );
+  `);
+}
+
+describe("event_rankings — record and ranking-score columns (plan 07-02 Task 2)", () => {
+  it("a CorpusEventRanking written without any of the four new fields stores NULL in all four columns, read back as null", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs" });
+    upsertEventRanking(db, { eventKey: "2024casj", teamKey: "frc254", rank: 1, totalTeams: 40, fetchedAt: "2026-08-27T00:00:00Z" });
+
+    const result = selectEventRankingsForSeason(db, 2024).get("2024casj")?.get("frc254");
+    expect(result?.recordWins).toBeNull();
+    expect(result?.recordLosses).toBeNull();
+    expect(result?.recordTies).toBeNull();
+    expect(result?.rankingScore).toBeNull();
+  });
+
+  it("a CorpusEventRanking written with all four values round-trips each exactly, including a fractional ranking_score", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs" });
+    upsertEventRanking(db, {
+      eventKey: "2024casj",
+      teamKey: "frc254",
+      rank: 1,
+      totalTeams: 40,
+      fetchedAt: "2026-08-27T00:00:00Z",
+      recordWins: 9,
+      recordLosses: 1,
+      recordTies: 0,
+      rankingScore: 3.83,
+    });
+
+    const result = selectEventRankingsForSeason(db, 2024).get("2024casj")?.get("frc254");
+    expect(result?.recordWins).toBe(9);
+    expect(result?.recordLosses).toBe(1);
+    expect(result?.recordTies).toBe(0);
+    expect(result?.rankingScore).toBe(3.83);
+  });
+
+  it("a ranking_score of exactly 0 round-trips as 0, distinguishable from null", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertTeam(db, { teamKey: "frc9999", teamNumber: 9999, nickname: null });
+    upsertEventRanking(db, {
+      eventKey: "2024casj",
+      teamKey: "frc9999",
+      rank: 40,
+      totalTeams: 40,
+      fetchedAt: "2026-08-27T00:00:00Z",
+      recordWins: 0,
+      recordLosses: 10,
+      recordTies: 0,
+      rankingScore: 0,
+    });
+
+    const result = selectEventRankingsForSeason(db, 2024).get("2024casj")?.get("frc9999");
+    expect(result?.rankingScore).toBe(0);
+    expect(result?.rankingScore).not.toBeNull();
+  });
+
+  it("hasEventRankingRecordColumns is false when even one of the four is missing, true when all four are present", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-columns-partial-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    try {
+      const rawDb = new Database(legacyPath);
+      createLegacyEventRankingsTable(rawDb);
+      rawDb.exec(`ALTER TABLE event_rankings ADD COLUMN record_wins INTEGER`);
+      rawDb.exec(`ALTER TABLE event_rankings ADD COLUMN record_losses INTEGER`);
+      rawDb.exec(`ALTER TABLE event_rankings ADD COLUMN record_ties INTEGER`);
+      // ranking_score deliberately omitted — one of the four is missing.
+      expect(hasEventRankingRecordColumns(rawDb)).toBe(false);
+      rawDb.exec(`ALTER TABLE event_rankings ADD COLUMN ranking_score REAL`);
+      expect(hasEventRankingRecordColumns(rawDb)).toBe(true);
+      rawDb.close();
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a legacy event_rankings table gains all four columns on the next openCorpus, with every pre-existing row's rank/total_teams/fetched_at unchanged and the row count unchanged", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-columns-migrate-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    try {
+      const rawDb = new Database(legacyPath);
+      rawDb.pragma("foreign_keys = ON");
+      rawDb.exec(`
+        CREATE TABLE teams (team_key TEXT PRIMARY KEY, team_number INTEGER NOT NULL, nickname TEXT);
+        CREATE TABLE events (
+          event_key TEXT PRIMARY KEY, year INTEGER NOT NULL, event_type INTEGER NOT NULL,
+          is_offseason INTEGER NOT NULL, start_date TEXT NOT NULL
+        );
+      `);
+      createLegacyEventRankingsTable(rawDb);
+      rawDb.exec(`INSERT INTO events (event_key, year, event_type, is_offseason, start_date) VALUES ('2024casj', 2024, 0, 0, '2024-03-01')`);
+      rawDb.exec(`INSERT INTO teams (team_key, team_number, nickname) VALUES ('frc1', 1, NULL), ('frc2', 2, NULL), ('frc3', 3, NULL)`);
+      const seeded = [
+        { teamKey: "frc1", rank: 1, totalTeams: 40, fetchedAt: "2026-08-01T00:00:00Z" },
+        { teamKey: "frc2", rank: 2, totalTeams: 40, fetchedAt: "2026-08-01T00:00:00Z" },
+        { teamKey: "frc3", rank: 3, totalTeams: 40, fetchedAt: "2026-08-01T00:00:00Z" },
+      ];
+      for (const row of seeded) {
+        rawDb
+          .prepare(
+            `INSERT INTO event_rankings (event_key, team_key, rank, total_teams, fetched_at) VALUES (?, ?, ?, ?, ?)`
+          )
+          .run("2024casj", row.teamKey, row.rank, row.totalTeams, row.fetchedAt);
+      }
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      try {
+        expect(hasEventRankingRecordColumns(migrated)).toBe(true);
+        const count = migrated.prepare(`SELECT COUNT(*) as n FROM event_rankings`).get() as { n: number };
+        expect(count.n).toBe(3);
+        for (const row of seeded) {
+          const readBack = migrated
+            .prepare(`SELECT rank, total_teams, fetched_at FROM event_rankings WHERE team_key = ?`)
+            .get(row.teamKey) as { rank: number; total_teams: number; fetched_at: string };
+          expect(readBack.rank).toBe(row.rank);
+          expect(readBack.total_teams).toBe(row.totalTeams);
+          expect(readBack.fetched_at).toBe(row.fetchedAt);
+        }
+      } finally {
+        migrated.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a fresh corpus and a legacy-migrated corpus end with identical PRAGMA table_info(event_rankings) column-name sets, of length 9", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-columns-fresh-vs-migrated-legacy-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    const freshDir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-columns-fresh-vs-migrated-fresh-"));
+    const freshPath = join(freshDir, "fresh.sqlite");
+    try {
+      const rawDb = new Database(legacyPath);
+      rawDb.exec(`
+        CREATE TABLE teams (team_key TEXT PRIMARY KEY, team_number INTEGER NOT NULL, nickname TEXT);
+        CREATE TABLE events (
+          event_key TEXT PRIMARY KEY, year INTEGER NOT NULL, event_type INTEGER NOT NULL,
+          is_offseason INTEGER NOT NULL, start_date TEXT NOT NULL
+        );
+      `);
+      createLegacyEventRankingsTable(rawDb);
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      const fresh = openCorpus(freshPath);
+      try {
+        const migratedNames = (migrated.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        const freshNames = (fresh.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        expect(migratedNames).toEqual(freshNames);
+        expect(migratedNames).toHaveLength(9);
+      } finally {
+        migrated.close();
+        fresh.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-opening an already-migrated corpus runs no ALTER and throws nothing — idempotent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-columns-idempotent-"));
+    const path = join(dir, "corpus.sqlite");
+    try {
+      const first = openCorpus(path);
+      first.close();
+      expect(() => {
+        const second = openCorpus(path);
+        second.close();
+      }).not.toThrow();
+
+      const reopened = openCorpus(path);
+      try {
+        const count = reopened.prepare(`SELECT COUNT(*) as n FROM event_rankings`).get() as { n: number };
+        expect(count.n).toBe(0);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("selectEventRankingsForSeason returns the four new values alongside rank/totalTeams, null for any not stored", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertTeam(db, { teamKey: "frc1", teamNumber: 1, nickname: null });
+    upsertTeam(db, { teamKey: "frc2", teamNumber: 2, nickname: null });
+    upsertEventRanking(db, {
+      eventKey: "2024casj",
+      teamKey: "frc1",
+      rank: 1,
+      totalTeams: 40,
+      fetchedAt: "2026-08-27T00:00:00Z",
+      recordWins: 9,
+      recordLosses: 1,
+      recordTies: 0,
+      rankingScore: 3.9,
+    });
+    upsertEventRanking(db, { eventKey: "2024casj", teamKey: "frc2", rank: 2, totalTeams: 40, fetchedAt: "2026-08-27T00:00:00Z" });
+
+    const bySeason = selectEventRankingsForSeason(db, 2024).get("2024casj");
+    expect(bySeason?.get("frc1")).toEqual({
+      rank: 1,
+      totalTeams: 40,
+      recordWins: 9,
+      recordLosses: 1,
+      recordTies: 0,
+      rankingScore: 3.9,
+    });
+    expect(bySeason?.get("frc2")).toEqual({
+      rank: 2,
+      totalTeams: 40,
+      recordWins: null,
+      recordLosses: null,
+      recordTies: null,
+      rankingScore: null,
+    });
   });
 });
