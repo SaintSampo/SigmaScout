@@ -274,12 +274,12 @@ function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   const algorithms = ids.map((id) => {
     if (id === "opr") return { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" };
     if (id === "epa") return { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" };
-    return { id: "sigma1", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" };
+    return { id: "vpr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" };
   });
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "sigma1"]): FakeKvNamespace {
+function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "vpr"]): FakeKvNamespace {
   return new FakeKvNamespace(
     new Map([
       [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest(windows)],
@@ -407,7 +407,7 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
     ).toBeLessThanOrEqual(usable);
   });
 
-  it("the counterfactual: three live algorithms exceed the same usable budget for one ordinary match (pins WHY sigma1-only was chosen)", () => {
+  it("the counterfactual: three live algorithms exceed the same usable budget for one ordinary match (pins WHY vpr-only was chosen)", () => {
     const usable = new SubrequestBudget().usableCap - TICK_FIXED_SUBREQUEST_COST - EVENT_PREFLIGHT_SUBREQUEST_COST;
     // If this assertion ever fails because Phase B's per-team cost shape
     // genuinely improved, that is the signal to re-evaluate LIVE_ALGORITHM_IDS
@@ -420,7 +420,7 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
 describe("liveAlgorithmTier — the fixed-cost constants are real, not declared", () => {
   it("a tick that considers one live event and finds it unchanged spends exactly TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + 1 (the tick-meta write)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["sigma1"]);
+    const kv = makeKv([window], ["vpr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const fetchMock = vi.fn(async (url: unknown) => {
@@ -431,7 +431,7 @@ describe("liveAlgorithmTier — the fixed-cost constants are real, not declared"
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const env = makeEnv(kv, d1, r2, "sigma1");
+    const env = makeEnv(kv, d1, r2, "vpr");
 
     const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
@@ -441,14 +441,14 @@ describe("liveAlgorithmTier — the fixed-cost constants are real, not declared"
 });
 
 describe("liveAlgorithmTier — only the live tier folds", () => {
-  it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=sigma1, an advancing tick writes only sigma1 artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
+  it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=vpr, an advancing tick writes only vpr artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["opr", "epa", "sigma1"]);
+    const kv = makeKv([window], ["opr", "epa", "vpr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
-    const env = makeEnv(kv, d1, r2, "sigma1");
+    const env = makeEnv(kv, d1, r2, "vpr");
 
     const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
@@ -457,26 +457,26 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
 
     // FakeD1Database.algorithmState keys are `${algorithmId}::${scopeKind}::${scopeKey}`.
     const stateAlgorithmIds = new Set([...d1.algorithmState.keys()].map((k) => k.split("::")[0]));
-    expect(stateAlgorithmIds.has("sigma1")).toBe(true);
+    expect(stateAlgorithmIds.has("vpr")).toBe(true);
     expect(stateAlgorithmIds.has("opr")).toBe(false);
     expect(stateAlgorithmIds.has("epa")).toBe(false);
 
     // artifactKey's shape ends every path segment with `{algorithmId}@{version}.json`.
-    expect(r2.puts.some((p) => p.key.includes("/sigma1@"))).toBe(true);
+    expect(r2.puts.some((p) => p.key.includes("/vpr@"))).toBe(true);
     expect(r2.puts.some((p) => p.key.includes("/opr@"))).toBe(false);
     expect(r2.puts.some((p) => p.key.includes("/epa@"))).toBe(false);
 
-    const sigma1EventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "sigma1", version: "2.0.0+test" });
-    expect(r2.puts.some((p) => p.key === sigma1EventKey)).toBe(true);
+    const vprEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "vpr", version: "2.0.0+test" });
+    expect(r2.puts.some((p) => p.key === vprEventKey)).toBe(true);
     for (const teamKey of ALL_TEAMS) {
-      const sigma1TeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "sigma1", version: "2.0.0+test" });
-      expect(r2.puts.some((p) => p.key === sigma1TeamKey)).toBe(true);
+      const vprTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "vpr", version: "2.0.0+test" });
+      expect(r2.puts.some((p) => p.key === vprTeamKey)).toBe(true);
     }
   });
 });
 
 describe("liveAlgorithmTier — the three decided misconfiguration behaviors", () => {
-  it("unset or empty defaults to sigma1 and emits a structured live-tier-defaulted warn line", () => {
+  it("unset or empty defaults to vpr and emits a structured live-tier-defaulted warn line", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       expect(parseLiveAlgorithmIds(undefined)).toEqual([...DEFAULT_LIVE_ALGORITHM_IDS]);
@@ -493,13 +493,13 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     }
   });
 
-  it("an id not in PUBLISHED_ALGORITHM_IDS throws UnknownLiveAlgorithmIdError naming the accepted ids", () => {
+  it("an id not in PIPELINE_ALGORITHM_IDS throws UnknownLiveAlgorithmIdError naming the accepted ids", () => {
     expect(() => parseLiveAlgorithmIds("sigma7")).toThrow(UnknownLiveAlgorithmIdError);
     expect(() => parseLiveAlgorithmIds("opr,sigma7")).toThrow(/sigma7/);
   });
 
   it("a live id absent from the algorithms manifest, leaving the filtered module map empty, throws EmptyLiveAlgorithmTierError", () => {
     const manifest = AlgorithmsManifestSchema.parse(JSON.parse(algorithmsManifest(["opr"]))); // manifest publishes ONLY opr
-    expect(() => buildAlgorithmModules(manifest, ["sigma1"])).toThrow(EmptyLiveAlgorithmTierError);
+    expect(() => buildAlgorithmModules(manifest, ["vpr"])).toThrow(EmptyLiveAlgorithmTierError);
   });
 });

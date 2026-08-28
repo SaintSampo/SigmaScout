@@ -44,6 +44,7 @@ import {
   computeSizeStats,
   OUTCOME_KEYS,
   publishSeasons,
+  resolvePublishAlgorithms,
   withEventPercentiles,
   withHistoryPercentiles,
   type ActualBonusFlags,
@@ -51,6 +52,7 @@ import {
   type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
+import { artifactKey } from "./pageArtifacts.js";
 import { roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
@@ -292,6 +294,50 @@ function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: 
 
   return { earlyEventKey, lateEventKey, teamKeys };
 }
+
+describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2)", () => {
+  // Test 7: the default publish set (an operator who omits `--algorithm`,
+  // the path an operator actually takes) resolves to the OPR id, the EPA
+  // id, and `vpr` — the renamed pipeline tier (PIPELINE_ALGORITHM_IDS), not
+  // the still-unmoved browser tier (PUBLISHED_ALGORITHM_IDS).
+  it("the default (undefined) publish set resolves to opr, epa, vpr", () => {
+    const algorithms = resolvePublishAlgorithms(undefined);
+    expect(algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);
+  });
+
+  // Test 8: every emitted artifact key for the published algorithm carries
+  // the renamed segment, and none carries the retired one — across all four
+  // algorithm-scoped page kinds (`compare` carries no algorithm segment by
+  // design, so it is excluded here).
+  it("every artifact key built for the published algorithm carries the vpr@{version} segment, never the retired sigma1@ segment", () => {
+    const [, , vprModule] = resolvePublishAlgorithms(undefined);
+    const module = vprModule!;
+    const keys = [
+      artifactKey({ page: "teams", year: 2026, algorithmId: module.id, version: module.version }),
+      artifactKey({ page: "team", teamKey: "frc118", year: 2026, algorithmId: module.id, version: module.version }),
+      artifactKey({ page: "events", year: 2026, algorithmId: module.id, version: module.version }),
+      artifactKey({ page: "event", eventKey: "2026casj", algorithmId: module.id, version: module.version }),
+    ];
+    for (const key of keys) {
+      expect(key).toContain(`vpr@${module.version}`);
+      expect(key).not.toContain("sigma1@");
+    }
+  });
+
+  // Test 9 (T-07-16-01): an unknown/stale id throws loudly rather than
+  // resolving silently — this is what makes a half-applied rename loud
+  // instead of a run that quietly publishes nothing under the requested id.
+  it("throws on the pre-rename id, listing the three known keys in the message", () => {
+    expect(() => resolvePublishAlgorithms("opr,epa,sigma1")).toThrow(/Unknown algorithm for publish: "sigma1"/);
+    try {
+      resolvePublishAlgorithms("sigma1");
+    } catch (err) {
+      expect((err as Error).message).toContain("opr");
+      expect((err as Error).message).toContain("epa");
+      expect((err as Error).message).toContain("vpr");
+    }
+  });
+});
 
 describe("buildEventArtifact", () => {
   it("assembles a two-match fixture with upcoming and teams into a valid EventArtifact", () => {

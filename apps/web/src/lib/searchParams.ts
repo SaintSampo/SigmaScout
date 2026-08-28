@@ -23,6 +23,16 @@ const KNOWN_SEASONS = new Set<number>(SEASONS);
  * The default algorithm every route without an explicit `?algorithm=`
  * resolves to. Sigma1 (this project's own headline algorithm) rather than
  * OPR/EPA, matching 05-RESEARCH.md Pattern 1's example schema.
+ *
+ * D-04/D-05 (plan 07-16, PD-01/PD-04): this file is DELIBERATELY still on
+ * the CLIENT/browser tier — the value below is the id the deployed browser
+ * actually requests today, because those are the objects that exist in R2
+ * right now. The publisher and the Worker have already moved to writing
+ * under `vpr` (07-16); this constant has not, on purpose, because flipping
+ * it before 07-17 has written the `vpr@` objects would make every artifact
+ * query on every route resolve to nothing (T-07-16-02). 07-18 is the plan
+ * that flips this value, once 07-17's write pass has landed. This is a
+ * comment-only edit — the VALUE on the line below does not change here.
  */
 const DEFAULT_ALGORITHM: PublishedAlgorithmId = "sigma1";
 
@@ -34,7 +44,12 @@ const DEFAULT_ALGORITHM: PublishedAlgorithmId = "sigma1";
  * `CURRENT_SEASON` via `.catch()`.
  *
  * `algorithm`: an enum over the published algorithm ids
- * (`packages/harness/publishedAlgorithms.ts`'s `PUBLISHED_ALGORITHM_IDS`,
+ * (`packages/harness/publishedAlgorithms.ts`'s `PUBLISHED_ALGORITHM_IDS` —
+ * the BROWSER-facing tier, deliberately distinct from that same file's
+ * `PIPELINE_ALGORITHM_IDS` added by plan 07-16 for the publisher/Worker
+ * write side; see that file's own doc comment for the full split — this is
+ * the correct constant for a URL enum precisely because it names what a
+ * deployed browser may request, not what the pipeline currently writes),
  * the same build-time constant the algorithm dropdown renders from before
  * any manifest fetch resolves) — anything outside that closed set,
  * including a missing param, falls back to `DEFAULT_ALGORITHM` via

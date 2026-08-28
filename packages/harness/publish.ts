@@ -94,7 +94,8 @@ import {
   withPercentiles,
   type TeamMetricWithPercentile,
 } from "./percentiles.js";
-import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
+import { buildAlgorithmsManifest, buildLiveWindowsManifest } from "./manifests.js";
+import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import type { MetricHistoryRow } from "./metricHistory.js";
@@ -1962,14 +1963,14 @@ function deriveSeasonFromEventKey(eventKey: string): number {
   return season;
 }
 
-/** D-03 (rename D-04/D-05, plan 07-16): resolves the requested `--algorithm` ids (default: `PIPELINE_ALGORITHM_IDS`, the publisher-side tier — PD-01) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`/`cli.ts` do (T-04-16) — never a second, independent resolution. */
-function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
+/** D-03 (rename D-04/D-05, plan 07-16): resolves the requested `--algorithm` ids (default: `PIPELINE_ALGORITHM_IDS`, the publisher-side tier — PD-01) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`/`cli.ts` do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
+export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
-    : [...PUBLISHED_ALGORITHM_IDS];
+    : [...PIPELINE_ALGORITHM_IDS];
   const resolved: AlgorithmModule<any>[] = [];
   for (const id of ids) {
     const base = BASE_PUBLISH_ALGORITHMS[id];

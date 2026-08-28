@@ -16,7 +16,9 @@
 --   IN (...)`, an indexed lookup against `PRIMARY KEY (algorithm_id,
 --   scope_kind, scope_key)` below.
 --   D-09: the three shipped algorithms do NOT share a granularity —
---   Sigma1/EPA accumulate per TEAM, but event-scoped OPR accumulates per
+--   VPR/EPA accumulate per TEAM (VPR renamed from Sigma1 by plan 07-16,
+--   D-04/D-05 — this schema's SQL text is unchanged by that rename, only
+--   this comment's naming is), but event-scoped OPR accumulates per
 --   EVENT (`OprState.perEvent`, keyed by `eventKey` — Phase 3.2's whole
 --   reason for existing was that season-pooled OPR's per-team state
 --   exceeded a Worker's memory outright). A `team_state` table would have

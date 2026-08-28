@@ -40,7 +40,8 @@ export interface Env {
    * mechanism, see `docs/worker-operations.md`'s "Replay rig" section) may
    * or may not carry the other tracked vars through. An optional type makes
    * the unset branch (`scheduled.ts`'s `parseLiveAlgorithmIds`, which
-   * defaults to sigma1 and emits a `live-tier-defaulted` warn line) a real,
+   * defaults to `vpr` — renamed from `sigma1` by plan 07-16, D-04/D-05 —
+   * and emits a `live-tier-defaulted` warn line) a real,
    * reachable, type-checked path instead of dead code the compiler believes
    * cannot happen.
    */

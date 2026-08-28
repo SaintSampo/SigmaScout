@@ -23,6 +23,7 @@ import {
   buildLiveWindowsManifest,
   isLiveAt,
 } from "./manifests.js";
+import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 
 const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
 
@@ -292,5 +293,30 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
     expect(vprEntry.params).toBeDefined();
+  });
+});
+
+describe("PUBLISHED_ALGORITHM_IDS vs PIPELINE_ALGORITHM_IDS (plan 07-16 Task 2, PD-01)", () => {
+  // Test 6: the two tiers are DELIBERATELY different during this phase's
+  // rename transition window, and the difference is bounded to exactly one
+  // position. This case is expected to be REWRITTEN (not deleted) by 07-18,
+  // the plan that collapses the two constants back into one and makes them
+  // equal — a transition constant with no test is a transition constant
+  // nobody deletes.
+  it("share their first two members in the same positions, and differ in exactly one position — the third", () => {
+    expect(PIPELINE_ALGORITHM_IDS.length).toBe(PUBLISHED_ALGORITHM_IDS.length);
+    expect(PIPELINE_ALGORITHM_IDS[0]).toBe(PUBLISHED_ALGORITHM_IDS[0]);
+    expect(PIPELINE_ALGORITHM_IDS[1]).toBe(PUBLISHED_ALGORITHM_IDS[1]);
+    expect(PIPELINE_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[2]);
+    const diffCount = PIPELINE_ALGORITHM_IDS.filter((id, i) => id !== PUBLISHED_ALGORITHM_IDS[i]).length;
+    expect(diffCount).toBe(1);
+  });
+
+  // Test 7: both constants place the published algorithm THIRD — the
+  // position the shipped ribbon renders it in (D-03's ordering, re-pinned
+  // through the rename by both tiers).
+  it("both place the published algorithm third", () => {
+    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("sigma1");
+    expect(PIPELINE_ALGORITHM_IDS[2]).toBe("vpr");
   });
 });

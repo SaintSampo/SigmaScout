@@ -253,7 +253,7 @@ function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   const algorithms = ids.map((id) => {
     if (id === "opr") return { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" };
     if (id === "epa") return { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" };
-    return { id: "sigma1", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" };
+    return { id: "vpr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" };
   });
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }

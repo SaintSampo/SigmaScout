@@ -14,6 +14,19 @@ import {
   MEASUREMENT_GAP_NOTE,
   ReplayRigResultSchema,
 } from "./replayRig.js";
+import { PIPELINE_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+
+// Test 5 (plan 07-16 Task 2): `replayRig.ts`'s default `--algorithm` list
+// (`values.algorithm ?? PIPELINE_ALGORITHM_IDS.join(",")`, in `parseOptions`,
+// not itself exported/unit-testable without a CLI-args harness) is built
+// directly from `PIPELINE_ALGORITHM_IDS` — asserted here against the
+// imported constant, never a re-typed array literal, so a future rename of
+// the constant's members is caught here without editing this test.
+describe("replayRig's default --algorithm list (plan 07-16 Task 2)", () => {
+  it("PIPELINE_ALGORITHM_IDS resolves to the renamed pipeline triple, in publish order", () => {
+    expect([...PIPELINE_ALGORITHM_IDS]).toEqual(["opr", "epa", "vpr"]);
+  });
+});
 
 describe("ARTIFACT_COMPARISON_EXCLUDED_FIELDS", () => {
   it("is exactly generation and computedAt — never widened", () => {
@@ -101,7 +114,7 @@ describe("ReplayRigResultSchema", () => {
     workerUrl: "https://sigmascout-worker.example.workers.dev",
     fixtureUrl: "https://sigmascout-fixture-rig.example.workers.dev",
     event: { eventKey: "2026cmptx", season: 2026, matchCount: 16 },
-    algorithms: ["opr", "epa", "sigma1"],
+    algorithms: ["opr", "epa", "vpr"],
     gap: MEASUREMENT_GAP_NOTE,
   };
 

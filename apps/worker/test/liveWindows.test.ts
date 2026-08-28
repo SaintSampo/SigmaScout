@@ -66,7 +66,7 @@ function validAlgorithmsManifest(): unknown {
     algorithms: [
       { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" },
       { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
-      { id: "sigma1", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+      { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
     ],
   };
 }
@@ -125,7 +125,7 @@ describe("loadAlgorithmsManifest", () => {
 
   it("rejects a harness-only algorithm id (D-03)", async () => {
     const bad = validAlgorithmsManifest() as { algorithms: unknown[] };
-    bad.algorithms.push({ id: "sigma1-adapt", version: "2.0.0+x", codeVersion: "2.0.0", paramSetName: "x" });
+    bad.algorithms.push({ id: "vpr-adapt", version: "2.0.0+x", codeVersion: "2.0.0", paramSetName: "x" });
     const kvValues = new Map([[ALGORITHMS_MANIFEST_KEY, JSON.stringify(bad)]]);
     const { env } = makeEnv(kvValues);
     await expect(loadAlgorithmsManifest(env)).rejects.toBeInstanceOf(ManifestValidationError);

@@ -180,7 +180,7 @@ class FakeD1Database {
 
 function makeRow(overrides: Partial<StateRow> = {}): StateRow {
   return {
-    algorithmId: "sigma1",
+    algorithmId: "vpr",
     algorithmVersion: "2.0.0+test",
     scopeKind: "team",
     scopeKey: "frc254",
@@ -201,8 +201,8 @@ describe("stateStore", () => {
   describe("readScopedState", () => {
     it("issues exactly one D1 statement regardless of key count (21 keys)", async () => {
       const keys = Array.from({ length: 21 }, (_, i) => `frc${i}`);
-      db.algorithmState.set("sigma1 league league", {
-        algorithm_id: "sigma1",
+      db.algorithmState.set("vpr league league", {
+        algorithm_id: "vpr",
         algorithm_version: "2.0.0+test",
         scope_kind: "league",
         scope_key: "league",
@@ -211,8 +211,8 @@ describe("stateStore", () => {
         computed_at: "2026-08-22T00:00:00.000Z",
       });
       for (const key of keys.slice(0, 5)) {
-        db.algorithmState.set(`sigma1 team ${key}`, {
-          algorithm_id: "sigma1",
+        db.algorithmState.set(`vpr team ${key}`, {
+          algorithm_id: "vpr",
           algorithm_version: "2.0.0+test",
           scope_kind: "team",
           scope_key: key,
@@ -222,7 +222,7 @@ describe("stateStore", () => {
         });
       }
 
-      const rows = await readScopedState(db as unknown as D1Database, "sigma1", [{ scopeKind: "team", scopeKeys: keys }]);
+      const rows = await readScopedState(db as unknown as D1Database, "vpr", [{ scopeKind: "team", scopeKeys: keys }]);
 
       expect(db.prepareCallCount).toBe(1);
       expect(db.allCallCount).toBe(1);
@@ -238,7 +238,7 @@ describe("stateStore", () => {
 
     it("throws a named error rather than issuing a second statement past MAX_SCOPE_KEYS_PER_READ", async () => {
       const tooMany = Array.from({ length: MAX_SCOPE_KEYS_PER_READ + 1 }, (_, i) => `frc${i}`);
-      await expect(readScopedState(db as unknown as D1Database, "sigma1", [{ scopeKind: "team", scopeKeys: tooMany }])).rejects.toThrow(
+      await expect(readScopedState(db as unknown as D1Database, "vpr", [{ scopeKind: "team", scopeKeys: tooMany }])).rejects.toThrow(
         /MAX_SCOPE_KEYS_PER_READ/
       );
       expect(db.prepareCallCount).toBe(0);

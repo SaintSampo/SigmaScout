@@ -37,20 +37,28 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 
-# Quick task 260822-wqt: only sigma1 folds LIVE, per tick. Measured on the
-# deployed Worker during plan 04-07 (docs/publish-budget.md's "Worker runtime
-# budget" section): processEvent's estimatedCost for ONE ordinary 3v3 match
-# (6 touched teams) is 18 with sigma1 alone vs. 50 with all three published
-# algorithms, against ~41 subrequests actually available per tick
-# (SUBREQUEST_CAP 50, SUBREQUEST_RESERVE 4, minus ~5 fixed tick costs) — with
-# all three live the event defers every tick, forever. This narrows ONLY
-# what folds LIVE — the published set (D-03) is unchanged: opr, epa and
-# sigma1 all keep being published, and opr/epa refresh at the manual
-# pre/post-event-weekend re-baseline (D-12) instead of per tick. See
-# docs/worker-operations.md's live-folding-tier section before changing
-# this value; a second id here is gated by a test that re-derives the
-# budget (apps/worker/test/liveAlgorithmTier.test.ts).
-LIVE_ALGORITHM_IDS = "sigma1"
+# Quick task 260822-wqt: only the published VPR algorithm folds LIVE, per
+# tick. Measured on the deployed Worker during plan 04-07 (this mechanism was
+# built and measured under the pre-rename id `sigma1` [pre-rename]) —
+# docs/publish-budget.md's "Worker runtime budget" section: processEvent's
+# estimatedCost for ONE ordinary 3v3 match (6 touched teams) is 18 with
+# sigma1 alone vs. 50 with all three published algorithms [pre-rename],
+# against ~41 subrequests actually available per tick (SUBREQUEST_CAP 50,
+# SUBREQUEST_RESERVE 4, minus ~5 fixed tick costs) — with all three live the
+# event defers every tick, forever. This narrows ONLY what folds LIVE — the
+# published set (D-03) is unchanged: opr, epa and vpr all keep being
+# published, and opr/epa refresh at the manual pre/post-event-weekend
+# re-baseline (D-12) instead of per tick. See docs/worker-operations.md's
+# live-folding-tier section before changing this value; a second id here is
+# gated by a test that re-derives the budget
+# (apps/worker/test/liveAlgorithmTier.test.ts).
+#
+# D-04/D-05 (plan 07-16): renamed from "sigma1" to "vpr". This value is
+# INERT against the deployed Worker until 07-19 runs `pnpm worker:deploy` —
+# the live Worker keeps running under the pre-rename tier until then, and
+# the deployed browser is still reading the pre-rename artifact prefix until
+# 07-18.
+LIVE_ALGORITHM_IDS = "vpr"
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
 # expression. An offseason event runs in the fall and championship dates

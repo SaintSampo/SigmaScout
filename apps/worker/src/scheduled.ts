@@ -84,7 +84,8 @@ import {
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import type { AlgorithmsManifest, LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { PIPELINE_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { liveEventsAt, loadAlgorithmsManifest, loadLiveWindowsManifest } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -128,27 +129,32 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
 // ---------------------------------------------------------------------------
 
 /**
- * Quick task 260822-wqt (D-04 regression fix): only sigma1 needs real-time
- * folding during a live event — the user's explicit decision over adding
- * per-algorithm cursor granularity. `processEvent`'s `estimatedCost` for ONE
- * ordinary 3v3 match (6 touched teams) is 18 with sigma1 alone vs. 50 with
- * all three published algorithms live, against ~41 subrequests actually
- * available per tick — with all three live the event defers every tick,
- * forever (measured on the deployed Worker during plan 04-07, recorded in
- * `docs/publish-budget.md`'s "Worker runtime budget" section). This does NOT
- * change what is PUBLISHED (D-03 — opr, epa, sigma1 stay exactly as
- * published); it only narrows what THIS Worker folds LIVE. opr/epa refresh
- * at the manual pre/post-event-weekend re-baseline (D-12) instead. Exported
- * so `parseLiveAlgorithmIds`'s unset/empty fallback and this file's own
- * regression test (`liveAlgorithmTier.test.ts`) bind to the SAME default
- * rather than a re-typed copy.
+ * Quick task 260822-wqt (D-04 regression fix): only the published VPR
+ * algorithm needs real-time folding during a live event [pre-rename: this
+ * mechanism was built and measured under the pre-rename id `sigma1`] — the
+ * user's explicit decision over adding per-algorithm cursor granularity.
+ * `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match (6 touched
+ * teams) is 18 with vpr alone vs. 50 with all three published algorithms
+ * live, against ~41 subrequests actually available per tick — with all
+ * three live the event defers every tick, forever (measured on the deployed
+ * Worker during plan 04-07, recorded in `docs/publish-budget.md`'s "Worker
+ * runtime budget" section). This does NOT change what is PUBLISHED (D-03 —
+ * opr, epa, vpr stay exactly as published); it only narrows what THIS
+ * Worker folds LIVE. opr/epa refresh at the manual pre/post-event-weekend
+ * re-baseline (D-12) instead. Exported so `parseLiveAlgorithmIds`'s
+ * unset/empty fallback and this file's own regression test
+ * (`liveAlgorithmTier.test.ts`) bind to the SAME default rather than a
+ * re-typed copy. Renamed to `vpr` from `sigma1` by plan 07-16 (D-04/D-05) —
+ * this value is validated against `PIPELINE_ALGORITHM_IDS` (the
+ * publisher/Worker-write tier, PD-01), not `PUBLISHED_ALGORITHM_IDS` (the
+ * browser-read tier, unchanged until 07-18).
  */
-export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["sigma1"];
+export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["vpr"];
 
-/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
+/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PIPELINE_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {
   constructor(id: string) {
-    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
+    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PIPELINE_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
     this.name = "UnknownLiveAlgorithmIdError";
   }
 }
@@ -187,7 +193,7 @@ export class EmptyLiveAlgorithmTierError extends Error {
  *    case where a deploy-time `--var` override drops this tracked var).
  *    Falling back is safe; the warn line is what stops it being silent. Only
  *    the ids themselves are logged, never any other binding value.
- *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
+ *  - An id not in `PIPELINE_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
  * Called at the TOP of `runTick`, before the live-windows manifest read, so
  * a misconfigured deploy surfaces on the very next tick — one minute later,
  * in the tail an operator is already watching — rather than lying dormant
@@ -205,7 +211,7 @@ export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   }
 
   for (const id of segments) {
-    if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(id)) {
+    if (!(PIPELINE_ALGORITHM_IDS as readonly string[]).includes(id)) {
       throw new UnknownLiveAlgorithmIdError(id);
     }
   }
@@ -226,10 +232,10 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
       modules.set(entry.id, epa);
       continue;
     }
-    // Every published Sigma1 entry uses the "predictive-variance" link mode
-    // (the `sigma1` id's own default — the manifest schema rejects the four
+    // Every published VPR entry uses the "predictive-variance" link mode
+    // (the `vpr` id's own default — the manifest schema rejects the four
     // harness-only link-mode ids by name, so this branch is only ever
-    // reached for `id === "sigma1"`).
+    // reached for `id === "vpr"`).
     modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
   }
   if (modules.size === 0) {

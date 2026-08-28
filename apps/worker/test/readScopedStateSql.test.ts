@@ -15,9 +15,9 @@
  * real query string, can.
  *
  * Reproduced live (quick task 260822-wqt, Task 2's own deployment
- * verification): with `opr`/`epa` seeded and `sigma1` cold-started (no
+ * verification): with `opr`/`epa` seeded and `vpr` cold-started (no
  * league row of its own yet), the deployed Worker deterministically
- * deserialized OPR's league row as sigma1's own, throwing `TypeError:
+ * deserialized OPR's league row as vpr's own, throwing `TypeError:
  * state.componentOrder is not iterable` in `predict()` on every tick.
  */
 import Database from "better-sqlite3";
@@ -79,7 +79,7 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
   });
 
   it("an algorithm with NO league row of its own returns NO league-scoped row, even when OTHER algorithms' league rows exist and were inserted first", async () => {
-    // Insertion order deliberately puts opr/epa BEFORE sigma1 — a plain table
+    // Insertion order deliberately puts opr/epa BEFORE vpr — a plain table
     // scan (what SQLite falls back to for the unindexable `OR scope_kind =
     // 'league'` branch the pre-fix SQL produced) visits rows in roughly this
     // order, which is exactly the shape that silently "worked" whenever the
@@ -87,11 +87,11 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
     // broke the moment it did not — reproduced here on purpose.
     insertRow(sqlite, { algorithmId: "opr", algorithmVersion: "3.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"opr":true}' });
     insertRow(sqlite, { algorithmId: "epa", algorithmVersion: "1.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"epa":true}' });
-    // sigma1 has team rows (from a prior season) but genuinely NO league row
+    // vpr has team rows (from a prior season) but genuinely NO league row
     // of its own yet — the exact cold-start shape the live rig hit.
-    insertRow(sqlite, { algorithmId: "sigma1", algorithmVersion: "2.0.0+test", scopeKind: "team", scopeKey: "frc254", stateJson: '{"matchCount":3}' });
+    insertRow(sqlite, { algorithmId: "vpr", algorithmVersion: "2.0.0+test", scopeKind: "team", scopeKey: "frc254", stateJson: '{"matchCount":3}' });
 
-    const rows = await readScopedState(db, "sigma1", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
+    const rows = await readScopedState(db, "vpr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
 
     expect(rows.some((r) => r.scopeKind === "league")).toBe(false);
     expect(rows.map((r) => r.scopeKey)).toEqual(["frc254"]);
@@ -99,14 +99,14 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
 
   it("an algorithm WITH its own league row gets exactly that row back — never a different algorithm's, even when the other algorithm's row was inserted first", async () => {
     insertRow(sqlite, { algorithmId: "opr", algorithmVersion: "3.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"opr":true}' });
-    insertRow(sqlite, { algorithmId: "sigma1", algorithmVersion: "2.0.0+test", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"sigma1":true}' });
+    insertRow(sqlite, { algorithmId: "vpr", algorithmVersion: "2.0.0+test", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"vpr":true}' });
 
-    const rows = await readScopedState(db, "sigma1", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
+    const rows = await readScopedState(db, "vpr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
 
     const leagueRows = rows.filter((r) => r.scopeKind === "league");
     expect(leagueRows).toHaveLength(1);
     expect(leagueRows[0]!.algorithmVersion).toBe("2.0.0+test");
-    expect(JSON.parse(leagueRows[0]!.stateJson)).toMatchObject({ sigma1: true });
+    expect(JSON.parse(leagueRows[0]!.stateJson)).toMatchObject({ vpr: true });
   });
 
   it("a multi-selection read (OPR-shaped: event + team) still scopes the league fallback to algorithmId, never another algorithm's row", async () => {

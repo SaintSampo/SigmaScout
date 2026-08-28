@@ -116,7 +116,7 @@ export async function readScopedState(db: D1Database, algorithmId: string, selec
   // algorithm with no league row of its own yet — this returned a DIFFERENT
   // algorithm's league row instead, and `deserializeState` parsed its
   // (differently-shaped) JSON as this algorithm's own, corrupting the fold.
-  // Reproduced live: sigma1, cold-started via the replay rig with opr/epa
+  // Reproduced live: sigma1 [pre-rename], cold-started via the replay rig with opr/epa
   // both already seeded, deterministically deserialized OPR's league row
   // (`{"snapshotShapeVersion":2}`, no `componentOrder` field) as its own,
   // throwing `TypeError: state.componentOrder is not iterable` in
