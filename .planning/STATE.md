@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-18-PLAN.md
-last_updated: "2026-08-29T06:05:34.293Z"
+stopped_at: Completed 07-19-PLAN.md
+last_updated: "2026-08-29T20:45:52.772Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 82
+  completed_plans: 83
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 9 of 20
+Plan: 10 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -116,6 +116,7 @@ Progress: [██████████] 98%
 | Phase 07 P16 | ~70min | 3 tasks | 43 files |
 | Phase 07 P17 | 1h27m | 2 tasks | 2 files |
 | Phase 07 P18 | ~1h20m | 3 tasks | 57 files |
+| Phase 07 P19 | ~50min (continuation) + predecessor sessions | 4 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -267,6 +268,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P18]: PUBLISHED_ALGORITHM_IDS collapsed to [opr, epa, vpr] once precondition confirmed the manifest/artifact live; DEFAULT_ALGORITHM=vpr, DEFAULT_EVENT_TAB=insights, ribbon relabeled OPR/EPA/VPR; every sigma1@/D1 row survives untouched (07-19's job)
 - [Phase ?]: [Phase 07 P18]: algorithmIdentity.test.ts's apps/web/ exclusion deleted (client third of D-05 landed); STRUCTURAL_EXEMPTIONS extended for two permanent negative-rejection tests (Worker tier, D-05 adjacency proof) that must cite the retired id; MARKER_CAP raised 13->19
 - [Phase ?]: [Phase 07 P18]: event-page.spec.ts's tracer was genuinely broken since 07-15 (asserted testids that never shipped) -- first surfaced by this plan's own mandated e2e run, since 07-01 through 07-17 had never been pushed to trigger the deploy workflow; fixed and reverified against the live deployed origin (two pushes, two successful deploys, 42/42 e2e pass)
+- [Phase ?]: [Phase 07 P19]: The R2/D1 cleanup pass completed -- 19,261 sigma1@ R2 keys deleted, 4,599 D1 rows deleted, Worker redeployed onto the vpr live-fold tier -- proven by before/after census (48/60 present -> 0/60), never by exit code; corrected 07-17's DeleteObject billing-class attribution (it is a Free operation, not Class A, per Cloudflare's own pricing page)
+- [Phase ?]: [Phase 07 P19]: Discovered (not fixed -- apps/worker out of scope) a new production finding: the redeployed Worker fails 100% of ticks captured hours later with outcome:exceededCpu and empty logs, contradicting the healthy ticks recorded immediately post-deploy; ledgered WINDOWS.md #16 and routed to a new todo
+- [Phase ?]: [Phase 07 P19]: Developer-directed exclusion of 30 fake 'Off-Season Demo Team' keys (frc9970-frc9999) from the model and every published surface, sequenced to land AFTER this plan and BEFORE 07-20; routed as .planning/todos/pending/exclude-offseason-demo-teams.md with full measured blast radius (6,285 contaminated matches, 428 fully-demo alliances)
 
 ### Pending Todos
 
@@ -313,6 +317,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-29T06:05:34.242Z
-Stopped at: Completed 07-18-PLAN.md
+Last session: 2026-08-29T20:45:52.728Z
+Stopped at: Completed 07-19-PLAN.md
 Resume file: None
