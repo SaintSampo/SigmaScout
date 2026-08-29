@@ -59,6 +59,29 @@ export const LiveWindowsManifestSchema = z.object({
 export type LiveWindowsManifest = z.infer<typeof LiveWindowsManifestSchema>;
 
 /**
+ * The live-windows manifest's PREAMBLE only, with `windows` left as an
+ * unvalidated array. Exists so the Worker's per-tick read path can prove it is
+ * looking at a real, current-schema live-windows manifest *without* paying to
+ * Zod-validate every entry in it — see `apps/worker/src/liveWindows.ts`'s
+ * `loadLiveEventsAt` for the full rationale and the cost measurement that
+ * motivated it. `windows: z.array(z.unknown())` still rejects a manifest whose
+ * `windows` is missing or is not an array; it only defers the PER-ENTRY field
+ * checks to the caller, which runs them on the entries it actually uses.
+ *
+ * Keep this in lockstep with `LiveWindowsManifestSchema` above: every preamble
+ * field there must appear here identically. `manifests.test.ts` asserts
+ * that, so the two cannot drift.
+ */
+export const LiveWindowsManifestEnvelopeSchema = z.object({
+  schemaVersion: z.literal(MANIFEST_SCHEMA_VERSION),
+  generation: z.string().min(1),
+  computedAt: z.string().min(1),
+  windows: z.array(z.unknown()),
+});
+
+export type LiveWindowsManifestEnvelope = z.infer<typeof LiveWindowsManifestEnvelopeSchema>;
+
+/**
  * D-18's single liveness predicate — the offline builder and the Worker
  * share this one definition of "live" rather than each writing their own
  * inequality. Half-open: `[startMs, endMs)`.

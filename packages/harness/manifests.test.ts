@@ -14,6 +14,7 @@ import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
 import {
   AlgorithmsManifestSchema,
   LIVE_WINDOW_PAD_MS,
@@ -116,6 +117,7 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
       seasons: [2026],
       padMs: 5_000,
       generation: "test-gen-1",
+      nowMs: 0,
       computedAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -135,6 +137,7 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
     const manifest = buildLiveWindowsManifest(db, {
       seasons: [2026],
       generation: "test-gen-2",
+      nowMs: 0,
       computedAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -143,7 +146,17 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
     expect(window.endMs).toBe(1_000_000 + LIVE_WINDOW_PAD_MS);
   });
 
-  it("falls back to [start_date 00:00 UTC, +4 days) and flags inferred: true for an event with zero matches", () => {
+  // ---------------------------------------------------------------------------
+  // REGRESSION (2026-08-29 outage, cause B). These replace the old
+  // "falls back to [start_date, +4 days) and flags inferred: true" test — the
+  // behaviour that test pinned is precisely the defect. A zero-match event's
+  // window was a pure guess from `start_date`, and 200 of them sat in the
+  // published manifest silently arming four-day spans in which the deployed
+  // Worker believed an event was live. Two opened on 2026-08-28 and every cron
+  // tick thereafter was killed with `outcome:"exceededCpu"`.
+  // ---------------------------------------------------------------------------
+
+  it("REGRESSION: emits NO window at all for an event with zero matches in the corpus", () => {
     upsertEvent(db, event({ eventKey: "2026scsc", startDate: "2026-08-29" }));
 
     const manifest = buildLiveWindowsManifest(db, {
@@ -152,14 +165,172 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
       computedAt: "2026-08-22T00:00:00.000Z",
     });
 
-    expect(manifest.windows).toHaveLength(1);
-    const window = manifest.windows[0]!;
-    expect(window.inferred).toBe(true);
-    const expectedStart = Date.parse("2026-08-29T00:00:00.000Z");
-    expect(window.startMs).toBe(expectedStart);
-    expect(window.endMs).toBe(expectedStart + 4 * 24 * 60 * 60 * 1000);
+    expect(manifest.windows).toEqual([]);
   });
 
+  it("REGRESSION: a zero-match event is never live, at any instant across the four days its guessed window used to span", () => {
+    // The exact shape of the outage: 2026scsc, offseason, zero matches,
+    // start_date 2026-08-29. The old builder gave it
+    // [2026-08-29T00:00Z, 2026-09-02T00:00Z) and the Worker dutifully ran its
+    // full live path — 38 ms CPU against a 10 ms budget — on every tick in
+    // that span. This asserts the end-to-end consequence, not just the absence
+    // of a row: the liveness predicate the Worker actually calls must answer
+    // "nothing is live" at every hour of the formerly-blind window.
+    upsertEvent(db, event({ eventKey: "2026scsc", startDate: "2026-08-29", eventType: 99, isOffseason: true }));
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-outage",
+      computedAt: "2026-08-28T18:25:43.620Z",
+    });
+
+    const blindWindowStart = Date.parse("2026-08-29T00:00:00.000Z");
+    const oneHourMs = 60 * 60 * 1000;
+    for (let hour = 0; hour < 4 * 24; hour++) {
+      const instant = blindWindowStart + hour * oneHourMs;
+      const live = manifest.windows.filter((w) => isLiveAt(w, instant));
+      expect(live).toEqual([]);
+    }
+  });
+
+  it("REGRESSION: an OFFSEASON event that has real matches still gets a real window — the fix is zero-match, never event_type", () => {
+    // Guards the fix against being "simplified" into an offseason exclusion.
+    // Plan 07-17 deliberately made offseason events first-class; a genuinely
+    // running offseason event must still be folded live.
+    const startMs = Date.parse("2026-08-29T14:00:00.000Z");
+    upsertEvent(db, event({ eventKey: "2026azscor", startDate: "2026-08-28", eventType: 99, isOffseason: true }));
+    upsertMatch(db, match({ matchKey: "2026azscor_qm1", eventKey: "2026azscor", sortTime: startMs }));
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-offseason",
+      computedAt: "2026-08-28T00:00:00.000Z",
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+    expect(manifest.windows[0]!.eventKey).toBe("2026azscor");
+    expect(manifest.windows[0]!.inferred).toBe(false);
+    expect(isLiveAt(manifest.windows[0]!, startMs)).toBe(true);
+  });
+
+  it("never emits inferred: true any more — the field survives for old manifests, the emission path does not", () => {
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: Date.parse("2026-03-01T18:00:00.000Z") }));
+    upsertEvent(db, event({ eventKey: "2026noma", startDate: "2026-03-05" })); // zero matches
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-inferred",
+      computedAt: "2026-02-01T00:00:00.000Z",
+    });
+
+    expect(manifest.windows.every((w) => w.inferred === false)).toBe(true);
+    expect(manifest.windows.map((w) => w.eventKey)).toEqual(["2026azfg"]);
+  });
+});
+
+describe("buildLiveWindowsManifest — retention: windows that can never be live again (2026-08-29 outage, cause A)", () => {
+  // The Worker Zod-validates this manifest inside a 10 ms CPU budget on every
+  // single cron tick. 1,542 of the deployed manifest's 1,581 windows belonged
+  // to seasons that had ended, which made the do-nothing tick cost 5-9 ms
+  // before it did anything at all. Anything that cannot be live for any reader
+  // of this manifest must not be shipped in it.
+
+  function windowEndingAt(endMs: number, padMs: number): void {
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: endMs - padMs }));
+  }
+
+  it("drops a window that had already closed when the manifest was built", () => {
+    windowEndingAt(1_000_000, 5_000);
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-retention-1",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      nowMs: 2_000_000,
+    });
+
+    expect(manifest.windows).toEqual([]);
+  });
+
+  it("drops a window at the exact boundary endMs === nowMs (half-open: it is already not live)", () => {
+    windowEndingAt(1_000_000, 5_000);
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-retention-2",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      nowMs: 1_000_000,
+    });
+
+    expect(manifest.windows).toEqual([]);
+  });
+
+  it("keeps a window one millisecond before that boundary — nowMs === endMs - 1 is still live", () => {
+    windowEndingAt(1_000_000, 5_000);
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-retention-3",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      nowMs: 999_999,
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+    expect(isLiveAt(manifest.windows[0]!, 999_999)).toBe(true);
+  });
+
+  it("keeps a wholly-future window", () => {
+    windowEndingAt(5_000_000, 5_000);
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-retention-4",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      nowMs: 1_000,
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+  });
+
+  it("defaults the retention clock to computedAt when nowMs is omitted", () => {
+    const closedEnd = Date.parse("2026-03-02T00:00:00.000Z");
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: closedEnd - 5_000 }));
+    upsertEvent(db, event({ eventKey: "2026azgg" }));
+    upsertMatch(db, match({ matchKey: "2026azgg_qm1", eventKey: "2026azgg", sortTime: Date.parse("2026-09-02T00:00:00.000Z") }));
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      padMs: 5_000,
+      generation: "test-gen-retention-5",
+      computedAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    expect(manifest.windows.map((w) => w.eventKey)).toEqual(["2026azgg"]);
+  });
+
+  it("refuses to build when computedAt is unparseable and no explicit clock is supplied", () => {
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1" }));
+
+    expect(() =>
+      buildLiveWindowsManifest(db, {
+        seasons: [2026],
+        generation: "test-gen-retention-6",
+        computedAt: "not-a-timestamp",
+      })
+    ).toThrow(/retention filter has no clock/);
+  });
+});
+
+describe("buildLiveWindowsManifest — season scoping", () => {
   it("restricts to the requested seasons only", () => {
     upsertEvent(db, event({ eventKey: "2025azfg", year: 2025, startDate: "2025-03-01" }));
     upsertMatch(
@@ -172,6 +343,7 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
     const manifest = buildLiveWindowsManifest(db, {
       seasons: [2026],
       generation: "test-gen-4",
+      nowMs: 0,
       computedAt: "2026-08-22T00:00:00.000Z",
     });
 
@@ -316,5 +488,52 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[0]);
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[1]);
     expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("vpr");
+  });
+});
+
+describe("LiveWindowsManifestEnvelopeSchema — lockstep with LiveWindowsManifestSchema", () => {
+  // The envelope exists so the Worker's per-tick read path can prove it has a
+  // real, current-schema live-windows manifest without paying to validate all
+  // ~1,581 entries (2026-08-29 outage, cause A — see
+  // `apps/worker/src/liveWindows.ts`'s `loadLiveEventsAt`). That only holds if
+  // the envelope keeps checking EXACTLY the preamble the full schema checks.
+  // If someone adds a preamble field to one and not the other, the Worker
+  // starts trusting a manifest the publisher would not have produced. These
+  // tests are the drift guard the envelope's own doc comment promises.
+
+  const PREAMBLE = { schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" };
+
+  it("declares exactly the same top-level fields", () => {
+    expect(Object.keys(LiveWindowsManifestEnvelopeSchema.shape).sort()).toEqual(
+      Object.keys(LiveWindowsManifestSchema.shape).sort()
+    );
+  });
+
+  it("agrees with the full schema on every preamble violation", () => {
+    const probes: Record<string, unknown> = {
+      "valid, empty windows": { ...PREAMBLE, windows: [] },
+      "wrong schemaVersion": { ...PREAMBLE, schemaVersion: 2, windows: [] },
+      "missing schemaVersion": { generation: "g", computedAt: "c", windows: [] },
+      "missing generation": { schemaVersion: 1, computedAt: "c", windows: [] },
+      "empty generation": { ...PREAMBLE, generation: "", windows: [] },
+      "missing computedAt": { schemaVersion: 1, generation: "g", windows: [] },
+      "empty computedAt": { ...PREAMBLE, computedAt: "", windows: [] },
+      "missing windows": { ...PREAMBLE },
+      "windows is an object": { ...PREAMBLE, windows: {} },
+      "windows is a string": { ...PREAMBLE, windows: "[]" },
+      "not an object at all": 42,
+    };
+
+    for (const [label, probe] of Object.entries(probes)) {
+      const fullAccepts = LiveWindowsManifestSchema.safeParse(probe).success;
+      const envelopeAccepts = LiveWindowsManifestEnvelopeSchema.safeParse(probe).success;
+      expect({ label, envelopeAccepts }).toEqual({ label, envelopeAccepts: fullAccepts });
+    }
+  });
+
+  it("differs from the full schema ONLY in per-entry validation — the one intended relaxation", () => {
+    const withBadEntry = { ...PREAMBLE, windows: [{ eventKey: "", season: "nope", startMs: 0, endMs: 1, inferred: "maybe" }] };
+    expect(LiveWindowsManifestSchema.safeParse(withBadEntry).success).toBe(false);
+    expect(LiveWindowsManifestEnvelopeSchema.safeParse(withBadEntry).success).toBe(true);
   });
 });

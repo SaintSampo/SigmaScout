@@ -85,7 +85,7 @@ import {
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
-import { liveEventsAt, loadAlgorithmsManifest, loadLiveWindowsManifest } from "./liveWindows.js";
+import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
@@ -983,9 +983,14 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // Step 1 (Pattern 2): the ONE manifest read that answers "is anything
   // live" — an idle tick (the overwhelmingly common case, ~10 months of the
   // year) exits right here, having spent zero TBA requests.
+  // `loadLiveEventsAt`, NOT `liveEventsAt(await loadLiveWindowsManifest(...))`:
+  // the composed form Zod-validates all ~1,581 windows before answering a
+  // question about the two that matter, which alone consumed 50-90% of this
+  // tick's entire 10 ms CPU budget and was one of the two causes of the
+  // 2026-08-29 outage. Same binding-call count (one), same selected set — see
+  // `liveWindows.ts`'s `loadLiveEventsAt` header before changing this back.
   budget.consume(1);
-  const liveWindowsManifest = await loadLiveWindowsManifest(env);
-  const liveEvents = liveEventsAt(liveWindowsManifest, nowMs);
+  const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
     return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false };

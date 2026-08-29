@@ -61,13 +61,9 @@ export type { AlgorithmManifestEntry, AlgorithmsManifest, LiveWindowEntry, LiveW
 // D-18: the live-windows manifest (offline builder only — schema above)
 // ---------------------------------------------------------------------------
 
-/** D-18: an event never observed to have any matches at all falls back to a fixed 4-day window starting at its `start_date` (00:00 UTC) — flagged `inferred: true` so a reader can see the window was guessed, not measured. */
-const INFERRED_WINDOW_DURATION_MS = 4 * 24 * 60 * 60 * 1000;
-
 interface EventWindowRow {
   event_key: string;
   year: number;
-  start_date: string;
   min_sort_time: number | null;
   max_sort_time: number | null;
   match_count: number;
@@ -82,6 +78,15 @@ export interface BuildLiveWindowsManifestOptions {
   readonly generation: string;
   /** D-04: ISO timestamp of when this manifest was computed. */
   readonly computedAt: string;
+  /**
+   * The retention clock for the "can this window ever be live again?" filter
+   * below. Defaults to `Date.parse(computedAt)`, so the manifest is pruned
+   * against the instant it was built — deterministic, and derived from a field
+   * every caller already supplies rather than a hidden `Date.now()`.
+   * Tests whose fixture windows sit at arbitrary epoch offsets pass this
+   * explicitly (e.g. `nowMs: 0`) to keep those windows "in the future".
+   */
+  readonly nowMs?: number;
 }
 
 /**
@@ -91,15 +96,62 @@ export interface BuildLiveWindowsManifestOptions {
  * resolves to `actual_time ?? predicted_time ?? time ?? fallback`
  * (`packages/ingest/normalize.ts`) — so a live event's scheduled matches
  * already carry usable predicted times, and the real window is exactly the
- * span of the event's own matches, padded by `LIVE_WINDOW_PAD_MS` on each
- * side. An event with zero matches in the corpus falls back to
- * `[start_date 00:00 UTC, +4 days)`, flagged `inferred: true` — D-18 already
- * accepts this staleness class: the manifest is only as fresh as the last
- * offline publish, and republishing is what fixes it.
+ * span of the event's own matches, padded by `LIVE_WINDOW_PAD_MS` on each side.
+ *
+ * TWO THINGS THIS DELIBERATELY DOES NOT EMIT (both added 2026-08-29)
+ * -----------------------------------------------------------------
+ * Both come out of the outage post-mortem in
+ * `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`.
+ *
+ * 1. NO BLIND WINDOW FOR A ZERO-MATCH EVENT (the outage's trigger).
+ *    This used to fall back to `[start_date 00:00 UTC, +4 days)` flagged
+ *    `inferred: true`, so that a brand-new event could still be "discovered"
+ *    before its schedule reached the corpus. That guess has no observational
+ *    basis at all, and 200 of the corpus's events had zero matches — every one
+ *    of them silently armed a four-day window in which the deployed Worker
+ *    believed an event was live. On 2026-08-28 two such windows opened for
+ *    offseason events that were not running (`2026azscor`, `2026scsc`), the
+ *    tick stopped taking its `liveEvents.length === 0` early exit, and the full
+ *    live path measured 38 ms CPU against a 10 ms budget — 100% of cron ticks
+ *    killed with `outcome:"exceededCpu"`, for days, self-healing only when the
+ *    guessed windows happened to expire.
+ *
+ *    D-18's discovery intent is therefore NARROWED, not preserved-in-part:
+ *    the `else` branch that produced these was EXACTLY the zero-match case
+ *    (`matches.sort_time` is `NOT NULL` in `packages/corpus/schema.sql`, so
+ *    `match_count > 0` always implies non-null `MIN`/`MAX`), leaving no
+ *    legitimate residue to keep. Discovery is now served by the ingest →
+ *    republish cycle instead of a guess: TBA publishes match schedules well
+ *    before an event runs, and `sort_time`'s `predicted_time ?? time` fallback
+ *    means a merely-SCHEDULED event already yields a real, measured window.
+ *    The operational contract this creates is explicit — an event must be
+ *    ingested before it can be folded live. That is the same cadence
+ *    `docs/worker-operations.md` already documents for a stale manifest.
+ *
+ *    NOTE the `inferred` FIELD remains in the schema and the Worker still reads
+ *    it. Manifests published before this change carry 200 `inferred: true`
+ *    entries; removing the field would be a breaking schema change for no gain.
+ *    This builder simply never sets it to `true` any more.
+ *
+ * 2. NO WINDOW THAT CAN NEVER BE LIVE AGAIN (the outage's structural cause).
+ *    A window is dropped when `endMs <= nowMs`, i.e. it had already closed when
+ *    the manifest was built, so it cannot be live at any instant at which this
+ *    manifest could be read. 1,542 of 1,581 windows were in that state. The
+ *    Worker reads this object on EVERY cron tick and must decide liveness from
+ *    it inside a 10 ms CPU budget; shipping years of dead seasons made the
+ *    do-nothing tick cost 5-9 ms before it did anything at all. Pruning here is
+ *    the version of that fix with no validation trade-off — it just costs a
+ *    republish to take effect, which is why `liveWindows.ts` ALSO defends
+ *    itself at read time. Keep both: this one shrinks the artifact, that one
+ *    bounds the cost of whatever the artifact happens to contain.
  */
 export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsManifestOptions): LiveWindowsManifest {
   const { seasons, generation, computedAt } = options;
   const padMs = options.padMs ?? LIVE_WINDOW_PAD_MS;
+  const nowMs = options.nowMs ?? Date.parse(computedAt);
+  if (!Number.isFinite(nowMs)) {
+    throw new Error(`buildLiveWindowsManifest: computedAt "${computedAt}" is not a parseable timestamp and no explicit nowMs was supplied — the retention filter has no clock to prune against`);
+  }
 
   const windows: LiveWindowEntry[] = [];
 
@@ -107,7 +159,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
     const placeholders = seasons.map(() => "?").join(",");
     const rows = db
       .prepare(
-        `SELECT e.event_key AS event_key, e.year AS year, e.start_date AS start_date,
+        `SELECT e.event_key AS event_key, e.year AS year,
                 MIN(m.sort_time) AS min_sort_time, MAX(m.sort_time) AS max_sort_time,
                 COUNT(m.match_key) AS match_count
          FROM events e
@@ -119,24 +171,24 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
       .all(...seasons) as EventWindowRow[];
 
     for (const row of rows) {
-      if (row.match_count > 0 && row.min_sort_time !== null && row.max_sort_time !== null) {
-        windows.push({
-          eventKey: row.event_key,
-          season: row.year,
-          startMs: row.min_sort_time - padMs,
-          endMs: row.max_sort_time + padMs,
-          inferred: false,
-        });
-      } else {
-        const startMs = Date.parse(`${row.start_date}T00:00:00.000Z`);
-        windows.push({
-          eventKey: row.event_key,
-          season: row.year,
-          startMs,
-          endMs: startMs + INFERRED_WINDOW_DURATION_MS,
-          inferred: true,
-        });
-      }
+      // (1) An event with no matches in the corpus gets NO window. Its window
+      // would have to be guessed from `start_date`, and a guessed window is a
+      // window in which the Worker burns its whole CPU budget on an event that
+      // may not be running at all. See this function's header.
+      if (row.match_count === 0 || row.min_sort_time === null || row.max_sort_time === null) continue;
+
+      const endMs = row.max_sort_time + padMs;
+      // (2) A window that had already closed when this manifest was built can
+      // never be live for any reader of this manifest. Don't ship it.
+      if (endMs <= nowMs) continue;
+
+      windows.push({
+        eventKey: row.event_key,
+        season: row.year,
+        startMs: row.min_sort_time - padMs,
+        endMs,
+        inferred: false,
+      });
     }
   }
 
