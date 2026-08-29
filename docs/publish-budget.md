@@ -22,6 +22,88 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
+**Latest run — 2026-08-29, `.planning/todos/completed/exclude-offseason-demo-teams-SUMMARY.md`'s
+post-exclusion full republish (`pnpm publish:seasons`), generation
+`961340e8-9e45-4d91-8e85-f72982ac3d87`.** 56,774 page objects plus 2 manifests (56,776 total
+`PUT`s), 3,309,108,967 bytes (≈3.08 GiB) of page-object payload — **414 fewer objects and
+49,649,158 fewer bytes (-1.48%) than the prior run below**, entirely attributable to this run
+being the FIRST to exclude TBA's 30 `frc9970`-`frc9999` "Off-Season Demo Team" keys from both the
+model (OPR/EPA/VPR ratings) and every published team surface. 23 minutes 38 seconds wall clock
+(`23:28:41Z`-`23:52:19Z`), no concurrent publish processes (`tasklist` confirmed a clean 12-process
+baseline both before and after — no zombie repeat of 07-17's incident).
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key |
+|---|---:|---:|---:|---:|---|
+| `teams/{year}` | 15 | 1,758,192 | 3,705,194 | 3,705,194 | `v1/teams/2024/vpr@2.0.0+tuned-2026-08.json` |
+| `team/{teamKey}/{year}` | 52,596 | 42,208 | 147,846 | 675,943 | `v1/team/frc3538/2024/vpr@2.0.0+tuned-2026-08.json` |
+| `events/{year}` | 15 | 75,225 | 84,113 | 84,113 | `v1/events/2025/vpr@2.0.0+tuned-2026-08.json` |
+| `event/{eventKey}` | 4,143 | 75,389 | 189,464 | 326,941 | `v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json` |
+| `compare/{year}` | 5 | 14,035 | — | 14,133 | `v1/compare/2025.json` |
+| `manifest/live-windows` | 1 | — | — | — | `v1/manifest/live-windows.json` |
+| `manifest/algorithms` | 1 | — | — | — | `v1/manifest/algorithms.json` |
+
+**`team/{teamKey}/{year}`'s object count confirms the todo's own predicted "138 fewer
+team-seasons" exactly**: 53,010 -> 52,596 is precisely 414 fewer objects (138 team-seasons x 3
+algorithms), directly from `publishSeasons`'s own upload tally (`computeSizeStats(uploader.records)`
+over THIS run's actual `PUT` calls) — not projected. `event`/`events`/`compare` moved by less than
+0.01% (ordinary percentile-pool noise from a marginally smaller team field, not a new cause) and
+are otherwise unaffected, confirming the exclusion's blast radius stayed where the todo scoped it.
+
+**Both previously-crossed ceilings stay crossed — neither raised, per the todo's own explicit
+non-goal statement that this fix does not resolve the payload ceilings.**
+
+- `teams/{year}` max moved from 3,732,955 to **3,705,194 bytes** (-27,761 bytes, -0.74%), still over
+  the committed `budgetMaxBytes` of 3,500,000. See `.planning/WINDOWS.md` ledger #11 (figure
+  updated below, left OPEN).
+- `team/{teamKey}/{year}` max moved from 821,938 (`frc9999/2024`, a demo key, no longer published at
+  all) to **675,943 bytes**, for `v1/team/frc3538/2024/vpr@2.0.0+tuned-2026-08.json` — **-145,995
+  bytes, -17.76%**, close to the todo's own pre-run estimate (~682,000 bytes, ~19%). `frc3538/2024`
+  is CONFIRMED (not assumed) as the new maximum-holding team-season, read directly from this run's
+  own `computeSizeStats` output — it is a real team (234 played matches in 2024, `04-CONTEXT.md`'s
+  own previously-measured "max 292 matches per team per season" fact, now the actual page-size
+  ceiling holder since the larger-matchcount `frc9999` was a demo key). Still **over both** the
+  375,000-byte committed `budgetMaxBytes` (80.3% over) and the 600,000-byte absolute structural
+  ceiling `payloadBudget.test.ts` enforces (12.7% over) — `pnpm vitest run
+  packages/harness/payloadBudget.test.ts` stays genuinely RED for these same two assertions, exactly
+  as before this run, per the todo's explicit instruction not to raise either ceiling. See
+  `.planning/WINDOWS.md` ledger #15 (figure updated below, left OPEN).
+
+**Representative real-team rating movement, confirmed against real published bytes on both sides
+of the run (not projected).** `frc4613` (2026 season) shared an alliance with demo team `frc9992`
+at `2026audd`'s playoff finals (`2026audd_f1m1`/`f1m2`). Fetched directly from
+`https://data.sigmascout.org` immediately before and after this run:
+
+| Team | Algorithm | Before (generation `47d020a4-...`) | After (generation `961340e8-...`) |
+|---|---|---|---|
+| `frc4613`/2026 | `vpr` | 205.93 ± 8.47 (percentile 98.0) | 201.86 ± 7.90 (percentile 97.9) |
+| `frc4613`/2026 | `opr` | 262.0 (percentile 99.1) | 274.09 (percentile 99.2) |
+
+Both algorithms' ratings for this real team moved — expected, and the point (the prior generation's
+number folded a fictional demo robot's share into every real teammate it ever shared an alliance
+with). OPR moved up here (an event-scoped fit at `2026audd` specifically, where removing the demo
+column changes that one event's own least-squares solve) while VPR moved down slightly (a
+season-long Kalman filter, where the effect nets out differently) — both are genuine, not a
+regression in either direction; a per-algorithm sign is not predictable in general, only that the
+rating changes.
+
+**Orphaned demo-team objects, honestly noted rather than silently left unexplained.** This
+republish does not retroactively delete the ~414 `team/{teamKey}/{year}` objects the PRIOR
+generation (`47d020a4-...`) wrote for demo keys — R2 has no cascading delete, and `publishSeasons`
+only ever `PUT`s keys it is asked to build. Confirmed directly: `v1/team/frc9992/2026/vpr@...`
+still returns `200` after this run, but carries the STALE `47d020a4-...` generation stamp (not this
+run's `961340e8-...`) — an orphaned object, reachable only by guessing its exact old URL, absent
+from every live surface that actually links to it: confirmed absent from `teams/2026`'s `vpr` and
+`opr` listings (`0` of 3,718 rows match a demo key), and therefore absent from search and ranking
+too (both read the same `teams/{year}` artifact, `apps/web/src/lib/search-index.ts`). A future
+cleanup pass could delete these orphans, generalizing
+`scripts/deleteRetiredAlgorithmObjects.ts`'s enumerate-then-delete-then-census pattern from
+"retired algorithm id" to "excluded team key" — not built here, since the todo's acceptance
+criteria describe the publish-time exclusion (confirmed above), not a bucket-cleanliness guarantee.
+
+**Post-run health check.** `pnpm verify:subset` (35 entries, the committed event subset): 0
+failing, generation uniformity 1 distinct value (`961340e8-9e45-4d91-8e85-f72982ac3d87`) across
+every non-retired-prefix entry checked.
+
 **Latest run — 2026-08-28, plan 07-17's D-18 full republish (`pnpm publish:seasons`, now
 including `--include-offseason` — see the command-scope note below), generation
 `47d020a4-1a16-4331-bd70-ce2f468bf2d1`.** 57,188 page objects plus 2 manifests (57,190 total
@@ -732,24 +814,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-28T18:52:38Z",
-  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- plan 07-17's D-18 full republish under the renamed vpr@ prefix, generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1, first run in this document to include offseason/preseason matches (20,055 additional played matches, +23.8%)",
+  "measuredAt": "2026-08-29T23:52:19Z",
+  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- .planning/todos/completed/exclude-offseason-demo-teams-SUMMARY.md's post-exclusion full republish under the vpr@ prefix, generation 961340e8-9e45-4d91-8e85-f72982ac3d87, first run to exclude TBA's 30 frc9970-frc9999 Off-Season Demo Team keys from every published team surface (414 fewer team-season objects than the prior run: 53,010 -> 52,596)",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 1773535,
-      "p95Bytes": 3732955,
-      "maxBytes": 3732955,
+      "medianBytes": 1758192,
+      "p95Bytes": 3705194,
+      "maxBytes": 3705194,
       "budgetMaxBytes": 3500000,
       "largestKey": "v1/teams/2024/vpr@2.0.0+tuned-2026-08.json"
     },
     "team": {
-      "count": 53010,
-      "medianBytes": 42381,
-      "p95Bytes": 149580,
-      "maxBytes": 821938,
+      "count": 52596,
+      "medianBytes": 42208,
+      "p95Bytes": 147846,
+      "maxBytes": 675943,
       "budgetMaxBytes": 375000,
-      "largestKey": "v1/team/frc9999/2024/vpr@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@2.0.0+tuned-2026-08.json"
     },
     "events": {
       "count": 15,
@@ -761,17 +843,17 @@ rendering of these same numbers, not a second source.
     },
     "event": {
       "count": 4143,
-      "medianBytes": 76937,
-      "p95Bytes": 189578,
-      "maxBytes": 326949,
+      "medianBytes": 75389,
+      "p95Bytes": 189464,
+      "maxBytes": 326941,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 14045,
-      "p95Bytes": 14149,
-      "maxBytes": 14149,
+      "medianBytes": 14035,
+      "p95Bytes": 14133,
+      "maxBytes": 14133,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2025.json"
     }
