@@ -55,6 +55,7 @@ import type {
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
+import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
@@ -1502,9 +1503,22 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   for (const season of seasonsSorted) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
     const scheduled = selectScheduledMatches(db, { year: season, excludeOffseason: !includeOffseason });
+    // Published-surface exclusion (`.planning/todos/pending/exclude-offseason-demo-teams.md`
+    // scope item 2): every one of the 30 `frc9970`-`frc9999` "Off-Season Demo
+    // Team" keys is filtered out of the published team list HERE, the single
+    // place `teamsThisSeason` is built — this is what stops a
+    // `team/{teamKey}/{year}` page, a `teams/{year}` row, a search hit, or a
+    // ranking entry from ever being produced for a demo key. The MODEL-side
+    // exclusion (`demoTeams.ts`, `ratingEligibleTeams`) is independent of
+    // this filter: even if a demo key slipped back into this list, no
+    // algorithm's internal state is ever keyed by a raw demo key (every one
+    // is remapped to the shared, unpublished `DEMO_PSEUDO_TEAM_KEY` before it
+    // reaches any design matrix / per-team state), so `teamMetrics` would
+    // simply return nothing for it — this filter's job is solely to stop an
+    // empty-metrics row/page from being iterated and published at all.
     const teamsThisSeason = Array.from(
       new Set([...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]), ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
-    );
+    ).filter((teamKey) => !isDemoTeamKey(teamKey));
     const eventMeta = selectEventMeta(db, season);
     const offseasonEventKeys = new Set(eventMeta.filter((e) => e.is_offseason === 1).map((e) => e.event_key));
     // D-08 (Phase 6): match_key -> sort_time for every match this season,

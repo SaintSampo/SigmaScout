@@ -1937,6 +1937,113 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
 });
 
 /**
+ * Published-surface exclusion (`.planning/todos/pending/exclude-offseason-demo-teams.md`
+ * scope item 2): no `team/{teamKey}/{year}` page, no `teams/{year}` list
+ * entry, for any of the 30 `frc9970`-`frc9999` "Off-Season Demo Team" keys —
+ * asserted against `publishSeasons`'s real `putObject` calls, not against
+ * `teamsThisSeason` as an internal implementation detail.
+ */
+describe("publishSeasons — off-season demo team exclusion from every published team surface", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-demo-team-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findTeamsArtifact(year: number): { teams: readonly { teamKey: string }[] } {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string) as { teams: readonly { teamKey: string }[] };
+  }
+
+  it("publishes no team/{teamKey}/{year} page for a demo key, even though it played a real, mixed alliance match", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026demo" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026demo_qm1",
+        eventKey: "2026demo",
+        redTeams: ["frc1", "frc2", "frc9985"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const teamCalls = vi.mocked(putObject).mock.calls.filter(([, key]) => (key as string).startsWith("v1/team/"));
+    expect(teamCalls.some(([, key]) => (key as string).startsWith("v1/team/frc9985/"))).toBe(false);
+    // The real teammates DID get published — this is an exclusion, not an
+    // accidental drop of the whole event.
+    expect(teamCalls.some(([, key]) => (key as string).startsWith("v1/team/frc1/"))).toBe(true);
+  });
+
+  it("the teams/{year} list carries no row at all for a demo key", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026demo" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026demo_qm1",
+        eventKey: "2026demo",
+        redTeams: ["frc1", "frc2", "frc9985"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const teamsArtifact = findTeamsArtifact(2026);
+    expect(teamsArtifact.teams.some((row) => row.teamKey === "frc9985")).toBe(false);
+    expect(teamsArtifact.teams.some((row) => row.teamKey === "frc1")).toBe(true);
+  });
+
+  it("excludes every one of the 30 demo keys, including a fully-demo forfeit alliance at a non-qm comp level", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026demo" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026demo_qm1",
+        eventKey: "2026demo",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026demo_sf1m1",
+        eventKey: "2026demo",
+        compLevel: "sf",
+        setNumber: 1,
+        sortTime: 2_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc9970", "frc9971", "frc9972"],
+        redScore: 200,
+        blueScore: 0,
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const teamCalls = vi.mocked(putObject).mock.calls.filter(([, key]) => (key as string).startsWith("v1/team/"));
+    for (const demoKey of ["frc9970", "frc9971", "frc9972"]) {
+      expect(teamCalls.some(([, key]) => (key as string).startsWith(`v1/team/${demoKey}/`))).toBe(false);
+    }
+    const teamsArtifact = findTeamsArtifact(2026);
+    for (const demoKey of ["frc9970", "frc9971", "frc9972"]) {
+      expect(teamsArtifact.teams.some((row) => row.teamKey === demoKey)).toBe(false);
+    }
+  });
+});
+
+/**
  * Plan 07-09 Task 1 (D-10, D-09, D-11): direct unit coverage of
  * `withEventPercentiles` — the exported merge function, tested in isolation
  * from the seeded-corpus publish path below.
