@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 13
 waived_count: 0
 fixed_count: 3
-total_count: 15
-last_updated: 2026-08-28T18:55:00.000Z
+total_count: 16
+last_updated: 2026-08-29T20:41:00.000Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,7 @@ last_updated: 2026-08-28T18:55:00.000Z
 | 12 | 07 | deviation | packages/corpus/integrity.test.ts | 314 | 07-05's mandated full-corpus rankings backfill (zero NULL record_wins/losses/ties/ranking_score corpus-wide) permanently falsifies this pre-existing 07-02 test's nullRows assertion, which expects to still find an event_rankings row with all four columns NULL; out of 07-05's declared scope (plan verification requires packages/corpus/ diff stay empty for the whole plan), so left unfixed and reported here for a future plan to update the stale assertion | resolved | Resolved by the phase-7 orchestrator after wave 5: the no-default assertion moved out of the corpus-backed block and onto a purpose-built pre-migration database (legacy-shaped event_rankings + a row, then opened through openCorpus so the real ALTER TABLE block runs). Phrased that way it tests the migration itself and no backfill can invalidate it. Proven non-vacuous by injecting DEFAULT 0 into the migration and observing exactly this assertion go RED. | 2026-08-28T04:38:17.003Z | 2026-08-28T05:57:27.078Z |  |
 | 13 | 07 | deviation | scripts/verifySubsetPublish.ts |  | 2025isios published alliances:[] against 07-10's committed expectAlliances:populated seed value; confirmed against live TBA (GET /event/2025isios/alliances -> 200, []) as real TBA state, a third D-17 empty-alliances event beyond RESEARCH.md's original two (2025bc, 2026wvrox) -- expectation left unedited per plan's first prohibition, routed to 07-14 | resolved | Resolved by plan 07-19 Task 1: `2025isios`'s seed entry in `scripts/verifySubsetPublish.ts` was corrected from `expectAlliances: "populated"` to `expectAlliances: "empty"`, with an inline comment naming this ledger row, confirming the correction is a stale-seed fix (not an observed-value adjustment to a still-live check) and noting the entry is now `expectAbsent` so its `RENAMED_EVENT_SUBSET` duplicate is the one that actually exercises the corrected `alliances: "empty"` check going forward. Verified live by plan 07-19 Task 4 (2026-08-29): `pnpm verify:subset` reports `2025isios/vpr` GREEN, `alliances=0`, no failing entries attributable to this row. | 2026-08-28T05:45:22.023Z | 2026-08-29T00:00:00.000Z |
 | 14 | 07 | deviation | packages/ingest/normalize.ts |  | 2024orbb/2025orbb (Oregon BunnyBots, offseason event_type 99 running a non-FRC custom game) self-reported a non-integer score_breakdown.{color}.rp value (e.g. 32.5, 34.5, 12.5) on 30 match rows across the two events -- not a real ranking-point count, same family as ledger #4/#5 (self-reported offseason breakdowns not matching the official schema), on the RP side rather than score-breakdown-parse. Blocked 07-17's --include-offseason full republish (TeamSeasonMatchSchema's actualRedRp/actualBlueRp .int() assertion threw). Fixed out-of-scope, authorized at 07-17's checkpoint:decision: normalize.ts's extractRp now requires Number.isInteger and degrades to null; publish.ts's actualRedRp/actualBlueRp assignment gained a toIntegerRpOrNull defence-in-depth guard against any value already sitting in the corpus; the two events were re-ingested (pnpm ingest --event 2024orbb/2025orbb --force), reducing non-integer rows in data/corpus.sqlite from 30 to 0. Tests added in normalize.test.ts and publish.test.ts. | open |  | 2026-08-28T17:50:41.285Z |  |
+| 16 | 07 | deviation | apps/worker/src/scheduled.ts |  | Deployed Worker (version 638da16c-d538-4551-b3a0-a2757a77061f, redeployed by plan 07-19 Task 3) observed exceeding the free-plan CPU budget on 100% of ticks captured (7/7 across two capture windows, several hours after the deploy): outcome:"exceededCpu", cpuTime pinned at 10, empty logs array on every tick -- meaning the tick's own console.log never ran. Directly contradicts the healthy ticks (4 then 3, all "ok":true) recorded immediately post-deploy on the SAME version. No event was live in either observation. Not fixed (apps/worker source change is explicitly out of scope for plan 07-19); routed to .planning/todos/pending/worker-tick-exceeds-cpu-budget.md | open |  | 2026-08-29T20:41:00.000Z |  |
 
 ````json
 [
@@ -211,6 +212,18 @@ last_updated: 2026-08-28T18:55:00.000Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-28T18:55:00.000Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "apps/worker/src/scheduled.ts",
+    "line": null,
+    "description": "Deployed Worker (version 638da16c-d538-4551-b3a0-a2757a77061f, redeployed by plan 07-19 Task 3) observed exceeding the free-plan CPU budget on 100% of ticks captured (7/7 across two capture windows, several hours after the deploy): outcome:\"exceededCpu\", cpuTime pinned at 10, empty logs array on every tick -- meaning the tick's own console.log never ran. Directly contradicts the healthy ticks (4 then 3, all \"ok\":true) recorded immediately post-deploy on the SAME version. No event was live in either observation. Not fixed (apps/worker source change is explicitly out of scope for plan 07-19); routed to .planning/todos/pending/worker-tick-exceeds-cpu-budget.md",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-29T20:41:00.000Z",
     "resolved_at": null
   }
 ]
