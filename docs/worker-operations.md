@@ -240,6 +240,43 @@ forward as a new, high-priority tracked finding** — see
 `.planning/todos/pending/worker-tick-exceeds-cpu-budget.md` — rather than fixed or investigated
 further here.
 
+### Diagnosed, 2026-08-29 — the two paragraphs above are superseded
+
+The cold-start hypothesis offered above is **wrong**, and so is the premise it rested on. Both are
+left in place because the way they misled is itself the lesson. Full investigation:
+`.planning/debug/worker-tick-exceeds-cpu-budget.md`.
+
+- **"No event was live during either observation window" was FALSE.** The operator judged liveness
+  by "is a real competition happening". The Worker judges it by the live-windows manifest, and the
+  deployed manifest said two events were live: `2026azscor` and `2026scsc`. Both were `inferred`
+  windows guessed from `start_date` for offseason events with zero matches in the corpus — the
+  event was not running and had no schedule, so nothing an operator could see contradicted the
+  assumption. **When asking "was anything live?", read the manifest, never the calendar.**
+- **"The tick's own `console.log` never executed, so it died before handler code" was an unsound
+  inference.** `scheduled.ts` emits its only success line as the LAST statement of the tick. An
+  empty `logs` array proves the tick did not FINISH, not that it did not START. A 2026-08-29T21:55Z
+  capture then caught a surviving tick logging `eventsConsidered: 2` at `cpuTime: 38` — the tick
+  was running the full live path all along.
+
+Root cause was an AND-gate, both legs now fixed:
+
+| Leg | What | Fix |
+|---|---|---|
+| A (structural, latent) | The tick Zod-validated all 1,581 windows — 1,542 of them permanently closed — before asking whether any was live. 3.4–3.9 ms cold on a desktop; the 5–9 ms this doc already recorded below for an idle tick. A 1-minute cron on the free plan pays the cold price nearly every tick. | `liveWindows.ts` `loadLiveEventsAt` validates the envelope, prefilters on the interval, then schema-parses only live entries. `buildLiveWindowsManifest` also stops emitting windows that had already closed when it ran. |
+| B (trigger, data) | `buildLiveWindowsManifest` guessed a 4-day window from `start_date` for any event with zero matches — 200 of them. Two opened on 2026-08-28, so the tick stopped taking its `liveEvents.length === 0` early exit and ran a ~38 ms live path against a 10 ms budget. | `buildLiveWindowsManifest` emits no window for a zero-match event. |
+
+**Operational contract this creates — read before an event weekend.** An event is folded live only
+if its matches are in the corpus. There is no longer a blind fallback window, so **ingest an event
+before it runs, then `pnpm publish:seasons`.** This is not onerous: TBA publishes match schedules
+well ahead of an event, and `sort_time` falls back to `predicted_time ?? time`, so a
+merely-scheduled event already produces a real, measured window. The "`eventsConsidered: 0` all
+weekend" row in the troubleshooting table below is the symptom to watch for, and re-running
+`pnpm publish:seasons` is still the fix.
+
+**Also note:** the free plan does not kill every invocation at exactly 10 ms. The 2026-08-29
+capture recorded one tick at `cpuTime: 38` with `outcome: "ok"` alongside ticks killed at exactly
+10. Treat 10 ms as the budget to design against, not as a threshold you will reliably observe.
+
 ---
 
 ## Watching it
