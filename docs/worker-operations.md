@@ -273,9 +273,80 @@ merely-scheduled event already produces a real, measured window. The "`eventsCon
 weekend" row in the troubleshooting table below is the symptom to watch for, and re-running
 `pnpm publish:seasons` is still the fix.
 
-**Also note:** the free plan does not kill every invocation at exactly 10 ms. The 2026-08-29
-capture recorded one tick at `cpuTime: 38` with `outcome: "ok"` alongside ticks killed at exactly
-10. Treat 10 ms as the budget to design against, not as a threshold you will reliably observe.
+### How the CPU budget is actually enforced — corrected 2026-08-29
+
+This project spent an entire investigation assuming the free plan kills any invocation at exactly
+10 ms. **It does not, and that assumption misdirected hours of work.** The constant is right; the
+enforcement model was not.
+
+10 ms is the *configured* CPU limit for a Cron Trigger on Workers Free — confirmed by direct fetch
+of Cloudflare's [limits page](https://developers.cloudflare.com/workers/platform/limits/) on
+**2026-08-29**, and `apps/worker/wrangler.toml` sets no `[limits]` / `cpu_ms` override, so the
+platform default applies. But Cloudflare documents, in that same section:
+
+> Each isolate has some built-in flexibility to allow for cases where your Worker infrequently runs
+> over the configured limit. If your Worker starts hitting the limit consistently, its execution
+> will be terminated according to the limit configured.
+
+This Worker's own numbers prove it independently of the docs. Version `638da16c` returned
+`outcome: "ok"` at `cpuTime: 38` (21:55:44Z) and was killed at `cpuTime: 10` **sixty seconds
+later**, on identical code and an identical manifest. No single threshold explains both.
+
+Everything this Worker has ever recorded:
+
+| outcome | observed `cpuTime` (ms) | where |
+|---|---|---|
+| `ok` | 5, 6, 7, 8, 9 (median 7, n=10) — plus a **14 ms** cold start in the same run | 2026-08-22, v`5a8e0a6f`, idle |
+| `ok` | 5–6 (n=3) | 2026-08-23, v`77fca208`, idle |
+| `ok` | **42**, then **208** | 2026-08-23, v`6cbe6d50`, real folds via the replay rig |
+| `ok` | **38** | 2026-08-29T21:55:44Z, v`638da16c`, full live path |
+| `ok` | 17, 21, 30 | 2026-08-29, v`6c9c93dd`, full live path, post-fix |
+| `exceededCpu` | **exactly 10, on all 11 observations** — never 9, never 11 | 2026-08-29, v`638da16c` |
+
+**How to read a `cpuTime` number, given that:**
+
+- A kill always reports exactly 10 because the invocation is *terminated at* the configured limit.
+  The reading is consumption truncated by the kill — not a measurement of what the tick wanted.
+- **One tick over 10 ms is not a defect.** Infrequent overruns get absorbed. That is all the 14 ms
+  cold start and the 42/208 ms rig folds ever were.
+- **Every tick over 10 ms is a defect, and it is the one that takes the site down.** The operative
+  boundary is not "a tick costs more than 10 ms" but "***every*** tick costs more than 10 ms".
+  That is exactly the transition the 2026-08-28 outage made: a week of 5–9 ms idle ticks, then
+  every tick on a 38 ms live path, then 100% termination — with no deploy in between.
+- Design against 10 ms. **Never design against the flexibility.** Its size, scope and replenishment
+  rate are undocumented and unmeasured here, and the 208 ms success is the least-explained reading
+  in the table above.
+
+**Startup time is a separate budget — module init is not charged to the invocation.** Cloudflare
+allows **1 second** of startup time (limits page, "Worker startup time"), validated at deploy time
+as error `10021`; `wrangler deploy` prints the measured value. This Worker reports **76 ms**, well
+inside it. The proof that init is not billed to the tick is arithmetic rather than documentary: a
+tick completed at `cpuTime: 38`, which is impossible if 76 ms of init came out of the same budget.
+
+---
+
+## Fixed and verified — 2026-08-29, version `6c9c93dd-1dbc-45fd-aee5-5de57e3ffcf3`
+
+`pnpm worker:deploy`: upload 933.39 KiB / gzip 154.48 KiB, **Worker Startup Time 76 ms**, triggers
+deployed, no upload exception and no `ManifestValidationError` against the artifact already in R2.
+
+Three consecutive ticks on a bounded tail: **all `outcome: "ok"`, `exceptions: []`**, at `cpuTime`
+**21 / 30 / 17 ms** (wall 709 / 1250 / 635 ms), two carrying full `"ok":true` log lines with
+`subrequestsUsed: 8`.
+
+**Why this verifies the fix and not the calendar.** Every one of those ticks reported
+`eventsConsidered: 2` — the two phantom windows were *still in the deployed artifact* and the tick
+was *still running the full live path* that measured 38 ms before the fix. Leg B, and the
+build-time half of leg A, only land on the next `pnpm publish:seasons`. So the read-path fix
+**alone** took a 38 ms path down to 17–30 ms, on live traffic, with the trigger still armed — and
+it was captured before the two windows expired on their own (2026-09-01 and 2026-09-02), after
+which no observation could have separated the fix from the calendar. **That window is now closed:
+this is the only such measurement that will ever exist.**
+
+**Still outstanding, and deliberately not blocking:** `pnpm publish:seasons` republishes the
+live-windows manifest, which is what actually removes the 200 `inferred` entries and the 1,542
+permanently-closed windows from the artifact. That is *recurrence prevention*, not verification of
+the fix. It rides along with the republish already queued for the demo-team exclusion workstream.
 
 ---
 
@@ -304,6 +375,14 @@ Measured idle-tick cost (10 consecutive invocations, 2026-08-22, version `5a8e0a
 **7 ms**, range 5–9 ms, with a **14 ms** cold start; wall time median 168 ms; 1 subrequest; 0 TBA
 requests. All ten returned `ok`.
 
+Two things about that line were missed at the time, and both are worth naming. First, a *do-nothing*
+tick spending 5–9 ms of a 10 ms budget is not a healthy baseline — it is a defect with no headroom,
+and it was half the 2026-08-28 outage. Second, the **14 ms cold start that returned `ok`** was, under
+the flat-ceiling model everyone was working from, an impossible observation; it was written down as
+an open question rather than pulled on. It was in fact the first visible evidence of the isolate
+flexibility described under ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29)
+above. An observation your model says is impossible is the most valuable one you have.
+
 ---
 
 ## When something is wrong
@@ -318,6 +397,7 @@ requests. All ten returned `ok`.
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
 | `opr` or `epa` metrics look stale mid-event while `vpr` updates | Expected — only `vpr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
+| `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the 10 ms CPU budget. It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 
 ---
 

@@ -78,3 +78,24 @@ across commits, and no isolated cold-start-only reproduction was performed to co
 - `docs/publish-budget.md` § "Worker deploy and re-measured idle-tick CPU (D-21)" — the historical
   13 ms/14 ms first-invocation figures already flagged this as an open question
 - Out of scope for plan 07-19, which is explicitly prohibited from any `apps/worker` source change
+
+---
+
+## RESOLVED 2026-08-29
+
+Fixed, deployed as version `6c9c93dd-1dbc-45fd-aee5-5de57e3ffcf3`, and verified on three
+consecutive live ticks (`outcome:"ok"`, cpuTime 17/21/30 ms) captured while the data trigger was
+still fully active — so the fix is distinguishable from the calendar self-heal that would have
+arrived on 2026-09-01/09-02.
+
+Root cause was an AND-gate: (A) the tick Zod-validated all 1,581 live-windows before asking whether
+any was live, consuming 50–90% of the budget on a do-nothing tick; (B) a republish opened two
+phantom `inferred` windows for zero-match offseason events, pushing every tick onto a 38 ms live
+path. The premise in "Measured" below that the free plan enforces a flat 10 ms per-invocation
+ceiling is also **wrong** — 10 ms is the configured limit, but each isolate absorbs *infrequent*
+overruns and terminates only when the Worker runs over *consistently*.
+
+Full investigation, evidence and blameless postmortem:
+`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`.
+Enforcement model and the fix-deploy record: `docs/worker-operations.md`.
+Ledger: `.planning/WINDOWS.md` #16 (status `fixed`).
