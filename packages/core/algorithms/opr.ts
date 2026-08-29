@@ -25,6 +25,7 @@
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
+import { isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
 
 /**
  * Logistic scale converting a predicted score margin into a red-win
@@ -83,13 +84,29 @@ export interface OprState {
  * later is a one-line addition to this function's signature, not a data
  * problem.
  */
+/**
+ * Demo-team handling (`.planning/todos/pending/exclude-offseason-demo-teams.md`,
+ * `demoTeams.ts`): every demo key in `teams`/`surrogates` is remapped to the
+ * shared `DEMO_PSEUDO_TEAM_KEY` BEFORE the surrogate filter runs — the
+ * OPPOSITE treatment from surrogates. A surrogate's column is REMOVED (its
+ * contribution subtracted as a known offset instead, see
+ * `allianceObservation`); a demo team's column is KEPT, under a shared
+ * identity, so the design matrix stays balanced and the demo robot's real
+ * contribution to the alliance's real score is never silently reattributed
+ * to its real teammates. This is the ONE choke point every one of this
+ * project's three algorithms routes team identity through (`epa.ts`,
+ * `sigma1/index.ts` both call this same function), so the remap applies
+ * everywhere team eligibility is decided, without a second call site per
+ * algorithm.
+ */
 export function ratingEligibleTeams(
   teams: readonly string[],
   surrogates: readonly string[]
 ): string[] {
-  if (surrogates.length === 0) return [...teams];
-  const surrogateSet = new Set(surrogates);
-  return teams.filter((team) => !surrogateSet.has(team));
+  const remappedTeams = remapDemoTeams(teams);
+  if (surrogates.length === 0) return remappedTeams;
+  const surrogateSet = new Set(remapDemoTeams(surrogates));
+  return remappedTeams.filter((team) => !surrogateSet.has(team));
 }
 
 /**
@@ -131,7 +148,13 @@ export function allianceObservation(
   leagueMeanPerTeamShare: number
 ): OprObservation {
   const eligibleTeams = ratingEligibleTeams(teams, surrogates);
-  const surrogateOffset = surrogates.reduce(
+  // Defense-in-depth remap (surrogates are, in practice, never also demo
+  // teams — but `ratings` is keyed by whatever identity `ratingEligibleTeams`
+  // produces, which is the REMAPPED identity for a demo team, so this lookup
+  // must use the same remapped key or it would silently miss and fall back
+  // to `leagueMeanPerTeamShare` for a surrogate that happens to be a demo key.
+  const remappedSurrogates = remapDemoTeams(surrogates);
+  const surrogateOffset = remappedSurrogates.reduce(
     (sum, team) => sum + (ratings.get(team) ?? leagueMeanPerTeamShare),
     0
   );
@@ -172,6 +195,17 @@ function buildTeamIndex(observations: readonly OprObservation[]): Map<string, nu
  * own `build_Minv_matrix` builds this same Gram matrix and pseudo-inverts
  * it; "improving" this would make our OPR a different computation than
  * TBA's.
+ *
+ * Demo-team handling (`demoTeams.ts`): `obs.teams` can legitimately list the
+ * SAME team key twice in one row (two demo robots on one alliance, both
+ * remapped to `DEMO_PSEUDO_TEAM_KEY` — measured directly against the real
+ * corpus: not a rare case). The column value is therefore ACCUMULATED
+ * (`M.get(row, idx) + 1`), never overwritten to a flat `1` — a repeated key
+ * correctly contributes coefficient 2 to that row, matching what the
+ * alliance's real slot count actually was. Overwriting instead would
+ * silently under-count that row's design-matrix equation for every ordinary
+ * real team it shares a system of equations with, a bias this fix closes
+ * rather than accepts.
  */
 export function solveEventOpr(
   observations: readonly OprObservation[],
@@ -186,7 +220,7 @@ export function solveEventOpr(
   observations.forEach((obs, row) => {
     for (const team of obs.teams) {
       const idx = teamIndex.get(team);
-      if (idx !== undefined) M.set(row, idx, 1);
+      if (idx !== undefined) M.set(row, idx, M.get(row, idx) + 1);
     }
   });
 
@@ -238,6 +272,20 @@ export const opr: AlgorithmModule<OprState> = {
   // not a random draw, so a non-"qm" match is a genuine update() no-op.
   update(state: OprState, result: MatchResult): OprState {
     if (result.compLevel !== "qm") return state;
+    // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest — a
+    // forfeit/no-show bucket or an offseason bracket bye, not a real
+    // opponent. Checked against the RAW (pre-remap) team lists, since
+    // remapping would collapse a fully-demo alliance into repeated pseudo
+    // entries that `isFullyDemoAlliance` would need to see through anyway.
+    // The WHOLE MATCH is skipped — both alliances' observations, not just
+    // the demo side's — because "a real alliance beating three placeholders"
+    // carries no real information about that real alliance either. Measured:
+    // every real-event (non-offseason) occurrence of this is already at a
+    // non-"qm" comp level, so this line is a defensive no-op against today's
+    // corpus for OPR specifically; it is NOT redundant for EPA/Sigma1, which
+    // (unlike OPR) do fold every comp level, including the 195 fully-demo
+    // `qm` rows this corpus carries at offseason events.
+    if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
 
     const eventKey = result.eventKey;
     const eventState: PerEventOprState = state.perEvent.get(eventKey) ?? { observations: [], ratings: new Map() };

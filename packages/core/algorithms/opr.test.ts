@@ -18,6 +18,7 @@ import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "./types.
 import { WalkForwardSimulator } from "../../harness/replay.js";
 import { ALGORITHMS } from "../../harness/cli.js";
 import * as oprModule from "./opr.js";
+import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -619,5 +620,152 @@ describe("opr — disqualification policy (Open Question 3): opposite of surroga
     expect(ratingsAt(state, "2024eventa").has("DQD_TEAM")).toBe(true);
     const observationsForDq = observationsAt(state, "2024eventa").filter((o) => o.teams.includes("DQD_TEAM"));
     expect(observationsForDq.length).toBe(1);
+  });
+});
+
+describe("opr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)", () => {
+  it("case 1: a fully-demo alliance never updates ANY rating for either alliance, even at a qm comp level where OPR would otherwise fold it", () => {
+    let withForfeit: OprState = opr.initState([]);
+    withForfeit = opr.update(
+      withForfeit,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc9970", "frc9971", "frc9972"],
+        redScore: 90,
+        blueScore: 5,
+      })
+    );
+    withForfeit = opr.update(
+      withForfeit,
+      match({
+        matchKey: "2024eventa_qm2",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc4", "frc5"],
+        blueTeams: ["frc2", "frc3", "frc6"],
+        redScore: 60,
+        blueScore: 70,
+      })
+    );
+
+    let withoutForfeit: OprState = opr.initState([]);
+    withoutForfeit = opr.update(
+      withoutForfeit,
+      match({
+        matchKey: "2024eventa_qm2",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc4", "frc5"],
+        blueTeams: ["frc2", "frc3", "frc6"],
+        redScore: 60,
+        blueScore: 70,
+      })
+    );
+
+    // Replaying the forfeit match first, versus never replaying it at all,
+    // must produce byte-identical event ratings — a genuine no-op, not
+    // merely "small effect".
+    expect(ratingsAt(withForfeit, "2024eventa")).toEqual(ratingsAt(withoutForfeit, "2024eventa"));
+    // And no rating exists for the demo pseudo entity itself — the forfeit
+    // row was never folded, not folded-then-hidden.
+    expect(ratingsAt(withForfeit, "2024eventa").has(DEMO_PSEUDO_TEAM_KEY)).toBe(false);
+  });
+
+  it("case 2: a real teammate of a mixed alliance is NOT inflated by the demo exclusion — quantified against what naive column deletion would have produced", () => {
+    // Chosen treatment: the demo slot is REMAPPED to the shared pseudo key,
+    // not deleted — allianceObservation (via ratingEligibleTeams) keeps all
+    // three columns.
+    const chosenObservation = allianceObservation(["frc1", "frc2", "frc9985"], [], 90, new Map(), 30);
+    expect(chosenObservation.teams).toEqual(["frc1", "frc2", DEMO_PSEUDO_TEAM_KEY]);
+    expect(chosenObservation.allianceScore).toBe(90); // no offset subtracted — unlike a surrogate, the demo slot is kept, not paid out of the target.
+    const chosenRatings = solveEventOpr([chosenObservation], buildTeamIndex([chosenObservation]));
+
+    // Naive alternative this design explicitly rejects: delete the demo
+    // team's column outright but keep the alliance's full observed score —
+    // exactly the bug the central design constraint warns against.
+    const naiveObservation: OprObservation = { teams: ["frc1", "frc2"], allianceScore: 90 };
+    const naiveRatings = solveEventOpr([naiveObservation], buildTeamIndex([naiveObservation]));
+
+    // Minimum-norm least squares on a single "a+b+c=90" equation splits it
+    // three ways; naive deletion's "a+b=90" splits it two ways instead.
+    expect(chosenRatings.get("frc1")).toBeCloseTo(30, 9);
+    expect(chosenRatings.get("frc2")).toBeCloseTo(30, 9);
+    expect(naiveRatings.get("frc1")).toBeCloseTo(45, 9);
+    expect(naiveRatings.get("frc2")).toBeCloseTo(45, 9);
+    // The quantified difference this todo requires be reported: naive
+    // deletion would have inflated frc1's fitted rating by a full 50%
+    // (45 vs 30) relative to the chosen treatment, for this one match alone.
+    expect(naiveRatings.get("frc1")!).toBeGreaterThan(chosenRatings.get("frc1")!);
+    expect(naiveRatings.get("frc1")! / chosenRatings.get("frc1")!).toBeCloseTo(1.5, 9);
+  });
+
+  it("case 2, end-to-end through update(): a real team's rating after playing beside one demo teammate is IDENTICAL to playing beside a normal third teammate, given the same alliance score", () => {
+    let withDemo: OprState = opr.initState([]);
+    withDemo = opr.update(
+      withDemo,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc2", "frc9985"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 90,
+        blueScore: 60,
+      })
+    );
+
+    let withRealThird: OprState = opr.initState([]);
+    withRealThird = opr.update(
+      withRealThird,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 90,
+        blueScore: 60,
+      })
+    );
+
+    expect(ratingsAt(withDemo, "2024eventa").get("frc1")).toBeCloseTo(ratingsAt(withRealThird, "2024eventa").get("frc1")!, 9);
+    expect(ratingsAt(withDemo, "2024eventa").get("frc2")).toBeCloseTo(ratingsAt(withRealThird, "2024eventa").get("frc2")!, 9);
+  });
+
+  it("two demo teammates on one real alliance: the design-matrix column accumulates to 2 (not overwritten to 1), and even this single-equation minimum-norm split leaves the real teammate FAR below what naive column deletion would have produced", () => {
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["frc1", "frc9985", "frc9990"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 90,
+        blueScore: 60,
+      })
+    );
+    // Minimum-norm least squares on "a + 2c = 90" (frc1's column coefficient
+    // 1, the pseudo column's coefficient 2, from `M.get(row, idx) + 1`
+    // accumulating both demo occurrences into the same column) solves to
+    // (a, c) = 90/5 * (1, 2) = (18, 36) — NOT an even 30/30/30 three-way
+    // split. Minimum-norm weighting favors a higher-coefficient column, a
+    // property of the L2-minimization objective itself (the identical split
+    // would occur for any repeated real-team column, not something specific
+    // to how demo teams are modeled) — documented here rather than assumed.
+    expect(ratingsAt(state, "2024eventa").get("frc1")).toBeCloseTo(18, 9);
+    expect(ratingsAt(state, "2024eventa").get(DEMO_PSEUDO_TEAM_KEY)).toBeCloseTo(36, 9);
+
+    // The quantified comparison that matters: naive deletion of BOTH demo
+    // columns (dropping them from the design matrix entirely while keeping
+    // the alliance's full observed score, exactly the bug this design
+    // avoids) collapses this same match to the single equation "a = 90" —
+    // frc1 alone credited with the WHOLE alliance score.
+    const naiveObservation: OprObservation = { teams: ["frc1"], allianceScore: 90 };
+    const naiveRatings = solveEventOpr([naiveObservation], buildTeamIndex([naiveObservation]));
+    expect(naiveRatings.get("frc1")).toBeCloseTo(90, 9);
+    // Chosen (18) is 5x LESS than naive deletion would have produced (90) —
+    // the real teammate is not inflated under the chosen treatment, even in
+    // this two-demo-teammate edge case where the minimum-norm split itself
+    // is not a perfectly even three-way share.
+    expect(naiveRatings.get("frc1")! / ratingsAt(state, "2024eventa").get("frc1")!).toBeCloseTo(5, 9);
   });
 });

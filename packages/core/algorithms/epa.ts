@@ -47,6 +47,7 @@
  *     `epaCarryover`.
  */
 import { ratingEligibleTeams } from "./opr.js";
+import { isFullyDemoAlliance } from "./demoTeams.js";
 import {
   componentMapForSeason,
   assertFiniteComponents,
@@ -437,6 +438,15 @@ function applyComponentUpdate(
 }
 
 function update(state: EpaState, result: MatchResult): EpaState {
+  // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest (a
+  // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
+  // MATCH is skipped, both alliances, never just the demo side's own share.
+  // Checked against the RAW (pre-remap) team lists. Unlike OPR, EPA folds
+  // every comp level (D-08), so this is NOT a defensive no-op here — it is
+  // load-bearing for both the 36 real-event playoff matches and the 195
+  // offseason `qm` rows this corpus carries with a fully-demo alliance.
+  if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
+
   const season = state.season ?? deriveSeasonFromEventKey(result.eventKey);
 
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);

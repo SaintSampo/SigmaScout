@@ -11,6 +11,7 @@ import { FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
+import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
 /** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
 function emptyPriorSeasonRatings(): EpaCarryoverPriorRatings {
@@ -505,5 +506,77 @@ describe("breakdown2024.parse — Assumption A1 per-robot field guard", () => {
     for (const key of [...Object.keys(redComponents), ...Object.keys(blueComponents)]) {
       expect(key).not.toMatch(/Robot[123]$/);
     }
+  });
+});
+
+describe("epa — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)", () => {
+  it("case 1: a fully-demo alliance never updates state for either alliance, even though EPA (unlike OPR) folds every comp level", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3"]);
+    const forfeitMatch = matchResult({
+      matchKey: "2024test_sf1m1",
+      compLevel: "sf",
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc9970", "frc9971", "frc9972"],
+      redScore: 200,
+      blueScore: 0,
+    });
+    const afterForfeit = epa.update(initial, forfeitMatch);
+    // A genuine no-op: every field the real corpus update() actually
+    // mutates is untouched, not merely "close".
+    expect(afterForfeit).toEqual(initial);
+  });
+
+  it("case 2: a real teammate of a mixed alliance is computed IDENTICALLY whether the third slot is a demo team or an ordinary real team — not inflated by absorbing the demo slot's share", () => {
+    // `initState` is seeded from `teamsThisSeason` in the real pipeline,
+    // which `publish.ts` filters to exclude every raw demo key (Published-
+    // surface exclusion, scope item 2) — so a demo key is never itself a
+    // seed team, exactly as reproduced here (only the real teams are seeded;
+    // the demo key only ever appears inside a match's `redTeams`/`blueTeams`).
+    const withDemo = epa.update(
+      epa.initState(["frc1", "frc2", "frc4", "frc5", "frc6"]),
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc9985"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 80,
+      })
+    );
+    const withRealThird = epa.update(
+      epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]),
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 80,
+      })
+    );
+
+    // frc1/frc2's own learned component means and match counts are
+    // byte-identical regardless of whether their teammate was a real team
+    // or the shared demo pseudo entity — the observed alliance total is
+    // still divided by the true 3-slot count either way.
+    for (const team of ["frc1", "frc2"]) {
+      expect(withDemo.teamComponents.get(team)).toEqual(withRealThird.teamComponents.get(team));
+      expect(withDemo.teamMatchCounts.get(team)).toBe(withRealThird.teamMatchCounts.get(team));
+    }
+    // The demo pseudo entity itself picked up the third teammate's share
+    // (never left at cold start), but under its OWN shared identity, never
+    // under "frc9985".
+    expect(withDemo.teamComponents.has("frc9985")).toBe(false);
+    expect(withDemo.teamComponents.get(DEMO_PSEUDO_TEAM_KEY)).toEqual(withRealThird.teamComponents.get("frc3"));
+  });
+
+  it("predict(): a real alliance's predicted score is unaffected by whether its teammate is a demo team or an ordinary team, given identical prior state shape", () => {
+    const stateWithDemo = epa.update(
+      epa.initState(["frc1", "frc2", "frc4", "frc5", "frc6"]),
+      matchResult({ redTeams: ["frc1", "frc2", "frc9985"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 80 })
+    );
+    const stateWithReal = epa.update(
+      epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]),
+      matchResult({ redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 80 })
+    );
+    const predictedWithDemo = epa.predict(stateWithDemo, upcoming({ redTeams: ["frc1", "frc2", "frc9985"], blueTeams: ["frc4", "frc5", "frc6"] }));
+    const predictedWithReal = epa.predict(stateWithReal, upcoming({ redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] }));
+    expect(predictedWithDemo.redScore).toBeCloseTo(predictedWithReal.redScore, 9);
   });
 });

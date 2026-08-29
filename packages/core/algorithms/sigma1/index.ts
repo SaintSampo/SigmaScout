@@ -35,6 +35,7 @@
  * term the alliance-sum observation model has no way to identify.
  */
 import { ratingEligibleTeams } from "../opr.js";
+import { isFullyDemoAlliance } from "../demoTeams.js";
 import {
   COMPONENT_GROUP_IDS,
   COMPONENT_GROUP_METRIC_KEYS,
@@ -800,6 +801,13 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
 }
 
 function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): Sigma1State {
+  // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest (a
+  // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
+  // MATCH is skipped, both alliances, never just the demo side's own share.
+  // Checked against the RAW (pre-remap) team lists. Sigma1 folds every comp
+  // level, so this is load-bearing here, not a defensive no-op.
+  if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
+
   const season = state.season ?? deriveSeasonFromEventKey(result.eventKey);
   const seasonMap = componentMapForSeason(season);
   const componentOrder = state.componentOrder.length > 0 ? state.componentOrder : seasonMap.components;

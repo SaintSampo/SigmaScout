@@ -1384,3 +1384,81 @@ describe("vpr — T-03-18b: a malformed self-reported breakdown degrades to the 
     }
   });
 });
+
+describe("vpr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)", () => {
+  it("case 1: a fully-demo alliance never updates state for either alliance", () => {
+    const initial = vpr.initState([]);
+    const forfeitMatch = match({
+      matchKey: "2024test_sf1m1",
+      compLevel: "sf",
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc9970", "frc9971", "frc9972"],
+      redScore: 200,
+      blueScore: 0,
+    });
+    const afterForfeit = vpr.update(initial, forfeitMatch);
+    // A genuine no-op — the forfeit row never touches state at all.
+    expect(afterForfeit).toEqual(initial);
+  });
+
+  it("case 2: a real teammate of a mixed alliance is computed IDENTICALLY whether the third slot is a demo team or an ordinary real team — not inflated by absorbing the demo slot's share", () => {
+    const withDemo = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["frc1", "frc2", "frc9985"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 80,
+      })
+    );
+    const withRealThird = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 80,
+      })
+    );
+
+    for (const team of ["frc1", "frc2"]) {
+      expect(withDemo.teams.get(team)).toEqual(withRealThird.teams.get(team));
+    }
+    // The demo pseudo entity absorbed the third teammate's share under its
+    // own shared identity, never under "frc9985" — matching the real
+    // third-teammate's own resulting state exactly (both cold-started
+    // identically, both folded the same alliance observation).
+    expect(withDemo.teams.has("frc9985")).toBe(false);
+    expect(withDemo.teams.get("demo-pseudo-unregistered")).toEqual(withRealThird.teams.get("frc3"));
+  });
+
+  it("predict(): a real alliance's predicted score/variance is unaffected by whether its teammate is a demo team or an ordinary team", () => {
+    const stateWithDemo = vpr.update(
+      vpr.initState([]),
+      match({ matchKey: "2024test_qm1", redTeams: ["frc1", "frc2", "frc9985"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 80 })
+    );
+    const stateWithReal = vpr.update(
+      vpr.initState([]),
+      match({ matchKey: "2024test_qm1", redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 80 })
+    );
+    const upcomingWithDemo: UpcomingMatch = {
+      matchKey: "2024test_qm2",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 2,
+      redTeams: ["frc1", "frc2", "frc9985"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 0,
+    };
+    const upcomingWithReal: UpcomingMatch = { ...upcomingWithDemo, redTeams: ["frc1", "frc2", "frc3"] };
+    const predictedWithDemo = vpr.predict(stateWithDemo, upcomingWithDemo);
+    const predictedWithReal = vpr.predict(stateWithReal, upcomingWithReal);
+    expect(predictedWithDemo.redScore).toBeCloseTo(predictedWithReal.redScore, 9);
+    expect(predictedWithDemo.redScoreVarianceOwn).toBeCloseTo(predictedWithReal.redScoreVarianceOwn!, 9);
+  });
+});
