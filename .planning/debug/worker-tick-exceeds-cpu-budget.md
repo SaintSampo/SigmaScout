@@ -93,7 +93,10 @@ reasoning_checkpoint:
 
 next_action: DEPLOY READ-BACK. The orchestrator runs `pnpm worker:deploy` then a bounded
   `wrangler tail`, and reports back (a) the reported Worker Startup Time and (b) the post-fix
-  tick `outcome` and `cpuTime`. Judge against the PASS CRITERION in Resolution.verification.
+  tick `outcome` and `cpuTime`. NOTE the two-stage criterion in Resolution.verification: ticks are
+  EXPECTED to still fail after the deploy alone, because A2 and B do not take effect until the
+  live-windows manifest is republished. Full verification requires that republish, and must land
+  before 2026-09-01 or the calendar confounds it.
 
 ## Evidence
 
@@ -457,14 +460,52 @@ verification: |
       It no longer blocks anything: a surviving tick at cpuTime 38 carrying a full log line
       already proves init is not what kills the tick.
 
-  PASS CRITERION for the read-back, stated in advance so it cannot be rationalised afterwards:
-    - PASS: a tick with `outcome:"ok"` and a log line carrying `"ok":true`. Until the manifest is
-      republished the two phantom windows are STILL in the deployed artifact, so expect
-      `eventsConsidered:2` and a cpuTime meaningfully BELOW the pre-fix 38 ms -- that is A1 alone
-      working against a live path. Full relief (`eventsConsidered:0`) arrives with the queued
-      republish, which is when A2 and B take effect.
-    - FAIL: ticks still showing `outcome:"exceededCpu"` with empty logs. That would mean A1 did
-      not recover enough headroom on its own, and the republish must be pulled forward.
+  PRE-FLIGHT (run 2026-08-29, offline, before handing the deploy back): the NEW read path was
+  executed against the REAL deployed artifact through a fake Env. It accepts all 1,581 windows
+  including the 200 `inferred: true` entries, and its selection agrees with the old full-parse
+  path at every probe instant tested (now, -1d, +1d, +3d, +10d), returning
+  [2026azscor, 2026scsc] today and [] after both phantom windows expire. So the deploy will not
+  throw a ManifestValidationError against the artifact currently in R2.
+
+  PASS CRITERION for the read-back, stated in advance so it cannot be rationalised afterwards.
+  READ THE TWO STAGES SEPARATELY -- conflating them will make a working fix look broken:
+
+    STAGE 1, deploy alone (A1 only; A2 and B are inert until a republish).
+      The two phantom windows are STILL in the deployed R2 artifact, so a tick will still enter
+      the live path. A1 recovers only the manifest-validation slice: ~2.5 ms desktop, ~4-6 ms on
+      the platform after the 1.5-2.3x factor, against a live path measured at 38 ms CPU.
+      **Ticks are therefore EXPECTED TO STILL FAIL with outcome:"exceededCpu" at this stage.**
+      That is not a failed fix -- it is arithmetic, and it is exactly why B (which only lands on
+      a republish) is the decisive leg rather than A.
+      What Stage 1 must actually establish:
+        - PASS: the deploy succeeds, reports a Worker Startup Time, and the tail shows the NEW
+          version id with `exceptions: []`. No NEW failure mode -- specifically no
+          ManifestValidationError and no `"ok":false` line.
+        - FAIL: any exception, or a tick logging `"ok":false`, or a startup time at/over 10 ms
+          (which would resurrect module init as a real contributor rather than a dead lead).
+        - The Worker Startup Time reading also settles the one question left formally open all
+          session: whether module init is charged to the invocation's 10 ms or to Cloudflare's
+          separate ~400 ms startup budget.
+
+    STAGE 2, after the live-windows manifest is republished (`pnpm publish:seasons` -- the run
+    already queued for the unrelated workstream; there is no manifest-only publish path, the
+    manifest is written by the `--seasons` run when `skipState` is false).
+      This is where A2 and B take effect and the phantom windows leave the artifact.
+        - PASS: ticks report `outcome:"ok"` with a log line carrying `"ok":true` AND
+          `eventsConsidered:0` -- the early exit restored -- at a cpuTime comfortably under 10.
+        - FAIL: `eventsConsidered` still non-zero (B did not take effect -- check the republished
+          artifact's `generation` and confirm it contains no `inferred: true` entries), or
+          `outcome:"exceededCpu"` on a tick that reports `eventsConsidered:0` (which would mean
+          the idle path is STILL over budget and A1 was insufficient on its own).
+
+    CALENDAR CONFOUND -- the reason the BEFORE evidence was captured today. Both phantom windows
+    expire on their own at 2026-09-01T00:00Z and 2026-09-02T00:00Z. After that the deployed
+    Worker starts returning `ok:true` REGARDLESS of whether any of this was fixed. Any read-back
+    taken after 2026-09-02 therefore cannot distinguish the fix from the calendar and must not be
+    counted as verification. If verification slips past that date, the honest options are to
+    re-verify against the next zero-match event's window or to rely on the offline regression
+    tests, and to say which was done.
+
 
 files_changed:
   - apps/worker/src/liveWindows.ts (new loadLiveEventsAt + LiveWindowShapeError; fix A1)
