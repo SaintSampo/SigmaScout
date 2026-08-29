@@ -96,17 +96,87 @@ export interface SubsetEntry {
   readonly expectEveryAlliancePicks?: number;
   /** Optional assertion that at least one alliance carries no `name` key. */
   readonly expectSomeAllianceWithoutName?: boolean;
+  /**
+   * PD-05 (plan 07-19): when `true`, this entry is checked for ABSENCE
+   * (a 404) rather than for any of the presence-shaped fields above — the
+   * live third of the standing D-05 assertion, re-runnable rather than a
+   * one-shot SUMMARY observation. Requires a literal `version` (below):
+   * `resolvePublishedVersions` cannot supply one for an id no manifest
+   * names once the retired id is dropped from `v1/manifest/algorithms.json`.
+   */
+  readonly expectAbsent?: boolean;
+  /**
+   * Required (and enforced by `assertSubsetEntryShape` at module load,
+   * "construction time" — never left to convention) when `expectAbsent` is
+   * `true`. A hardcoded literal here is a historical record of what was
+   * deleted and cannot go stale, because nothing will ever publish under
+   * this exact `{algorithmId}@{version}` pair again (PD-05).
+   */
+  readonly version?: string;
 }
 
 /**
- * 07-10's committed table, kept BYTE-IDENTICAL to how that plan left it — the
- * old-key control (PD-03). Every number came from a direct corpus
- * measurement recorded in 07-10-PLAN.md's <subset_selection> table; none may
- * be adjusted to match an observed result, including `2025isios`'s
- * `expectAlliances: "populated"` below, which 07-10 itself found publishes
- * `alliances: []` in real production (WINDOWS.md ledger #13, left open by
- * this plan for the same reason: this plan's own first prohibition forbids
- * touching a committed expectation to match an observation).
+ * Shape shared by `SubsetEntry` and `TeamSubsetEntry`'s `expectAbsent`/
+ * `version` pair — a structural (not nominal) constraint so one assertion
+ * serves both tables.
+ */
+interface AbsenceCapableEntry {
+  readonly expectAbsent?: boolean;
+  readonly version?: string;
+}
+
+/** Best-effort human-readable identifier for an error message, working across both `SubsetEntry` (eventKey/algorithmId) and `TeamSubsetEntry` (teamKey/year/algorithmId) shapes without importing either concrete type. */
+function describeAbsenceCapableEntry(entry: AbsenceCapableEntry): string {
+  const record = entry as unknown as Record<string, unknown>;
+  if (typeof record["eventKey"] === "string") return `${record["eventKey"]}/${String(record["algorithmId"])}`;
+  if (typeof record["teamKey"] === "string") return `${record["teamKey"]}/${String(record["year"])}/${String(record["algorithmId"])}`;
+  return JSON.stringify(entry);
+}
+
+/**
+ * PD-05 (plan 07-19), Test 8: throws, naming the offending entry, if any
+ * `expectAbsent: true` entry in `entries` lacks a non-empty literal
+ * `version`. Called immediately after each expectation table is defined
+ * (module load / "construction time"), so a malformed entry fails at
+ * import time — before `pnpm verify:subset` ever issues a single fetch —
+ * rather than merely by convention. `resolvePublishedVersions` cannot
+ * supply a version for an id no manifest names once the retired id is
+ * dropped from `v1/manifest/algorithms.json`, which is exactly why this
+ * field cannot be optional-and-silently-undefined for an absence entry.
+ */
+export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: readonly T[], tableName: string): void {
+  for (const entry of entries) {
+    if (entry.expectAbsent === true && (entry.version === undefined || entry.version.length === 0)) {
+      throw new Error(
+        `${tableName}: entry "${describeAbsenceCapableEntry(entry)}" carries expectAbsent:true but no literal ` +
+          `"version" — PD-05 requires one, since resolvePublishedVersions cannot supply a version for an id no ` +
+          `manifest names`
+      );
+    }
+  }
+}
+
+/**
+ * 07-10's committed table, extended (not otherwise altered) by plan 07-19.
+ * Every number came from a direct corpus measurement recorded in
+ * 07-10-PLAN.md's <subset_selection> table; none may be adjusted to match an
+ * observed result. The FIFTEEN `sigma1` entries below now carry
+ * `expectAbsent: true` plus a literal `version` (PD-05) — this plan's own
+ * live third of the standing D-05 assertion — while the two `opr`/`epa`
+ * arms at `2024casf` remain untouched presence controls.
+ *
+ * ONE exception to "never adjusted to match an observed result," made
+ * explicit here rather than silently: `2025isios`'s `expectAlliances` is
+ * corrected from `"populated"` to `"empty"`, closing WINDOWS.md ledger #13.
+ * This is the first plan whose own task (PD-05's flip) brings this exact
+ * expectation table into direct editing scope, and the correction is a
+ * stale SEED VALUE fix (confirmed live against TBA: `GET
+ * /event/2025isios/alliances` -> 200, `[]`, real production state — not a
+ * data defect), not an adjustment of a still-running check to match an
+ * observation: this entry's own `expectAbsent: true` means it no longer
+ * runs the alliances check at all. The correction exists because its
+ * `RENAMED_EVENT_SUBSET` duplicate — a genuinely live presence check — was
+ * failing on exactly this stale value every single run since 07-10.
  */
 export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
   {
@@ -122,6 +192,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2022ilpe",
@@ -136,6 +208,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 38,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2022mirr",
@@ -150,6 +224,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 15,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cur",
@@ -161,6 +237,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 78,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cnsh",
@@ -172,6 +250,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 0,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023nhgrs",
@@ -185,6 +265,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 39,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024new",
@@ -198,6 +280,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 75,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024vabrb",
@@ -213,6 +297,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectAllianceCount: 5,
     expectEveryAlliancePicks: 2,
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024wvrox",
@@ -227,6 +313,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectAlliances: "populated",
     expectVariance: "present",
     expectSomeAllianceWithoutName: true,
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025flta",
@@ -240,19 +328,28 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 42,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025isios",
     algorithmId: "sigma1",
     note:
       "D-08 / Pitfall 1's headline event (68 matches, zero ranking rows) and 07-20's named D-08 positive case. " +
-      "Only subset event with upcoming qualification rows AND zero elimination matches of any kind.",
+      "Only subset event with upcoming qualification rows AND zero elimination matches of any kind. " +
+      "expectAlliances corrected populated -> empty by plan 07-19 (WINDOWS.md ledger #13): confirmed live " +
+      "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, not a data defect — " +
+      "this was a stale seed expectation, not an observed-value adjustment to a still-live check (the entry " +
+      "itself is now expectAbsent and no longer runs the alliances check at all; the correction exists so its " +
+      "RENAMED_EVENT_SUBSET duplicate, which DOES still check alliances, reads the real value).",
     expectMatches: 43,
     expectUpcoming: 25,
     expectTeams: 45,
     expectRankedTeams: 0,
-    expectAlliances: "populated",
+    expectAlliances: "empty",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025bc",
@@ -266,6 +363,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 62,
     expectAlliances: "empty",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025cmptx",
@@ -280,6 +379,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 0,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2026vache",
@@ -293,6 +394,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 30,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2026wvrox",
@@ -307,6 +410,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 30,
     expectAlliances: "empty",
     expectVariance: "present",
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024casf",
@@ -354,11 +459,20 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
  * once after (this table, run again after Task 3's real publish), is exactly
  * how an `opr`/`epa` overwrite-in-place gets its own before/after proof
  * without a second, redundant table.
+ *
+ * `expectAbsent`/`version` are deliberately CLEARED here rather than
+ * spread through unchanged (PD-05, plan 07-19): the fifteen `sigma1`
+ * entries above are absence checks against the RETIRED prefix, but their
+ * renamed `vpr` duplicates below check for PRESENCE against the live,
+ * still-published prefix — the manifest resolves `vpr`'s current version,
+ * exactly like every other presence entry in this table.
  */
 export const RENAMED_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUBSET.map((entry) => ({
   ...entry,
   algorithmId: entry.algorithmId === "sigma1" ? RENAMED_ALGORITHM_ID : entry.algorithmId,
   note: `[renamed-run duplicate, PD-03] ${entry.note}`,
+  expectAbsent: false,
+  version: undefined,
 }));
 
 /**
@@ -392,6 +506,7 @@ const NEW_2024AUWARP_ENTRY: SubsetEntry = {
  * duplicates, and the one genuinely new `2024auwarp` entry — 35 total.
  */
 export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [...PRE_RENAME_EVENT_SUBSET, ...RENAMED_EVENT_SUBSET, NEW_2024AUWARP_ENTRY];
+assertSubsetEntryShape(PUBLISHED_SUBSET, "PUBLISHED_SUBSET");
 
 // ---------------------------------------------------------------------------
 // PUBLISHED_TEAM_SUBSET — the team-artifact subset (checks 11-13)
@@ -405,6 +520,10 @@ export interface TeamSubsetEntry {
   readonly note: string;
   /** Exact count of `ef`/`qf`/`sf`/`f` match rows expected across this team-season's `events[].matches[]`, measured directly from the corpus. */
   readonly expectPlayoffRows: number;
+  /** PD-05 (plan 07-19): same shape and same rule as `SubsetEntry.expectAbsent` — see its doc comment. */
+  readonly expectAbsent?: boolean;
+  /** PD-05 (plan 07-19): required literal version when `expectAbsent` is `true` — see `SubsetEntry.version`'s doc comment. */
+  readonly version?: string;
 }
 
 /**
@@ -427,9 +546,13 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
     year: 2024,
     algorithmId: "sigma1",
     note:
-      "CONTROL (Task 1 step 6 only): the pre-rename team artifact this check must FAIL against before it is " +
-      "trusted — 83 total matches, 25 playoff rows, zero offseason/preseason involvement in 2024.",
+      "Formerly the CONTROL 07-17's own Task 1 step 6 pointed check 11 at before trusting it against the " +
+      "renamed artifacts — that job is done (07-17-SUMMARY.md: playoffRows=25, 2 of 25 rows carried a stale " +
+      "property). Flipped to expectAbsent by plan 07-19 (PD-05): the retired team object this check now proves " +
+      "is gone, the live third of the standing D-05 assertion at the team-artifact level.",
     expectPlayoffRows: 25,
+    expectAbsent: true,
+    version: "2.0.0+tuned-2026-08",
   },
   {
     teamKey: "frc59",
@@ -480,6 +603,7 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
     expectPlayoffRows: 11,
   },
 ];
+assertSubsetEntryShape(PUBLISHED_TEAM_SUBSET, "PUBLISHED_TEAM_SUBSET");
 
 // ---------------------------------------------------------------------------
 // Fetch + manifest resolution
@@ -772,12 +896,53 @@ export function verifyEntry(
 // Orchestration: resolve, fetch, parse, verify — checks 1 and 2
 // ---------------------------------------------------------------------------
 
+/**
+ * PD-05 (plan 07-19): the absence path for a flipped `expectAbsent: true`
+ * entry. Deliberately bypasses manifest resolution entirely and uses the
+ * entry's own literal `version` — `resolvePublishedVersions` cannot supply
+ * one for an id no manifest names once the retired id is dropped from
+ * `v1/manifest/algorithms.json`. A 200 is the failure: it means either the
+ * enumeration missed this key, or a Worker re-created it.
+ */
+async function verifyAbsenceEntry(origin: string, entry: SubsetEntry, runId: string): Promise<SubsetEntryResult> {
+  const version = entry.version;
+  if (version === undefined) {
+    // Unreachable in practice — assertSubsetEntryShape runs at module load
+    // and would already have thrown. Defensive, not load-bearing.
+    throw new Error(`verifyAbsenceEntry: entry "${entry.eventKey}/${entry.algorithmId}" has expectAbsent:true but no version`);
+  }
+  const key = artifactKey({ page: "event", eventKey: entry.eventKey, algorithmId: entry.algorithmId, version });
+  const fetched = await fetchArtifactFresh(origin, key, runId);
+  const failures: string[] = [];
+  let generation: string | undefined;
+  if (fetched.status === 200) {
+    if (fetched.body !== undefined) {
+      try {
+        generation = (JSON.parse(fetched.body) as { generation?: string }).generation;
+      } catch {
+        generation = undefined;
+      }
+    }
+    failures.push(
+      `absence: expected 404 (object deleted), observed 200 (generation=${generation ?? "unknown"}, bytes=${fetched.bytes}) — ` +
+        `either the enumeration missed this key or a Worker re-created it`
+    );
+  } else if (fetched.status !== 404) {
+    failures.push(`absence: expected 404, observed HTTP ${fetched.status}`);
+  }
+  return { entry, key, version, status: fetched.status, bytes: fetched.bytes, generation, observed: {}, failures };
+}
+
 async function verifyOneEntry(
   origin: string,
   versions: ReadonlyMap<string, string>,
   entry: SubsetEntry,
   runId: string
 ): Promise<SubsetEntryResult> {
+  if (entry.expectAbsent === true) {
+    return verifyAbsenceEntry(origin, entry, runId);
+  }
+
   // Check 1 — the manifest resolves.
   const version = versions.get(entry.algorithmId);
   if (version === undefined) {
@@ -950,12 +1115,44 @@ export function verifyTeamEntry(
   return { observed, failures };
 }
 
+/** PD-05 (plan 07-19): the team-level absence path, mirroring `verifyAbsenceEntry` exactly — see its doc comment. */
+async function verifyAbsenceTeamEntry(origin: string, entry: TeamSubsetEntry, runId: string): Promise<TeamSubsetEntryResult> {
+  const version = entry.version;
+  if (version === undefined) {
+    throw new Error(`verifyAbsenceTeamEntry: entry "${entry.teamKey}/${entry.year}/${entry.algorithmId}" has expectAbsent:true but no version`);
+  }
+  const key = artifactKey({ page: "team", teamKey: entry.teamKey, year: entry.year, algorithmId: entry.algorithmId, version });
+  const fetched = await fetchArtifactFresh(origin, key, runId);
+  const failures: string[] = [];
+  let generation: string | undefined;
+  if (fetched.status === 200) {
+    if (fetched.body !== undefined) {
+      try {
+        generation = (JSON.parse(fetched.body) as { generation?: string }).generation;
+      } catch {
+        generation = undefined;
+      }
+    }
+    failures.push(
+      `absence: expected 404 (object deleted), observed 200 (generation=${generation ?? "unknown"}, bytes=${fetched.bytes}) — ` +
+        `either the enumeration missed this key or a Worker re-created it`
+    );
+  } else if (fetched.status !== 404) {
+    failures.push(`absence: expected 404, observed HTTP ${fetched.status}`);
+  }
+  return { entry, key, version, status: fetched.status, bytes: fetched.bytes, generation, observed: {}, failures };
+}
+
 async function verifyOneTeamEntry(
   origin: string,
   versions: ReadonlyMap<string, string>,
   entry: TeamSubsetEntry,
   runId: string
 ): Promise<TeamSubsetEntryResult> {
+  if (entry.expectAbsent === true) {
+    return verifyAbsenceTeamEntry(origin, entry, runId);
+  }
+
   const version = versions.get(entry.algorithmId);
   if (version === undefined) {
     return {
@@ -1112,6 +1309,13 @@ function filterTeamSubset(options: CliOptions): readonly TeamSubsetEntry[] {
  * `spread` ratio (relative to a veteran's) be seen against real published
  * bytes, isolating D-01/D-02's `√(P+R)` redefinition from the
  * offseason-inclusion methodology change.
+ *
+ * After plan 07-19, the retired id's objects no longer exist — this flag is
+ * a HISTORICAL facility only (it will 404 against any `legacyAlgorithmId`
+ * that has since been deleted), kept for the same reason `--compare-legacy`
+ * itself was kept rather than removed after each prior rename step: a
+ * record of what the tool could observe at the moment it ran, not a claim
+ * that running it again will observe the same thing.
  */
 async function printLegacyComparison(
   origin: string,

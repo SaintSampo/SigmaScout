@@ -132,6 +132,16 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
  *     folding the retired id back in as a member. Citing the exact retired
  *     string is what makes the rejection proof meaningful, identical
  *     reasoning to the `publish.test.ts` entry above.
+ *   - `scripts/deleteRetiredAlgorithmObjects.ts` and its
+ *     `scripts/deleteRetiredAlgorithmObjects.test.ts` (added by plan 07-19
+ *     Task 1, Rule 3 blocking fix — tripped this exact sweep the moment they
+ *     were written) are the one-off tool whose entire purpose is operating
+ *     ON the retired id: refusing it as a `--retired-id` value that is
+ *     itself live, enumerating keys that carry it, and proving both guards
+ *     fire against it in real CLI invocations and unit tests. Identical
+ *     reasoning to this file's own top entry — a sensor is not required to
+ *     sense itself, and a tool built to delete a retired id's objects must
+ *     be permitted to name that id.
  */
 export const STRUCTURAL_EXEMPTIONS: readonly string[] = [
   "packages/harness/algorithmIdentity.test.ts",
@@ -141,6 +151,8 @@ export const STRUCTURAL_EXEMPTIONS: readonly string[] = [
   "scripts/verifySubsetPublish.ts",
   "packages/harness/publish.test.ts",
   "apps/worker/test/liveAlgorithmTier.test.ts",
+  "scripts/deleteRetiredAlgorithmObjects.ts",
+  "scripts/deleteRetiredAlgorithmObjects.test.ts",
 ];
 
 /** The comment marker (PD-05) that exempts a measured-figure citation from the sweep — but ONLY on a comment line. A marker on any other kind of line is a violation, not an exemption (prohibition 2's mechanical form). */
@@ -351,7 +363,10 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
   });
 
   it("STRUCTURAL_EXEMPTIONS (a separate, smaller list from the tier exclusions) has exactly the length it was seeded with", () => {
-    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(7);
+    // 7 -> 9 (plan 07-19 Task 1, Rule 3 blocking fix): the new
+    // deleteRetiredAlgorithmObjects.ts tool and its test file both
+    // legitimately cite the retired id — see this file's own header comment.
+    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(9);
   });
 
   it("a marker on a NON-comment line does NOT exempt — the mechanical form of prohibition 2", () => {

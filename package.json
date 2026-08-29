@@ -26,7 +26,8 @@
     "verify:subset": "tsx scripts/verifySubsetPublish.ts",
     "manifest:algorithms": "tsx --env-file=.env scripts/publishAlgorithmsManifest.ts",
     "worker:deploy": "pnpm --filter worker run deploy",
-    "replay:rig": "tsx --env-file=.env scripts/replayRig.ts"
+    "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",
+    "cleanup:retired-objects": "tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
