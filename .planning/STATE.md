@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-17-PLAN.md
-last_updated: "2026-08-28T19:10:27.833Z"
+stopped_at: Completed 07-18-PLAN.md
+last_updated: "2026-08-29T06:05:34.293Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
   completed_phases: 9
   total_plans: 84
-  completed_plans: 81
+  completed_plans: 82
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 07 (event-pages) — EXECUTING
-Plan: 8 of 20
+Plan: 9 of 20
 Status: Ready to execute
 Last activity: 2026-08-28 — Phase 07 execution started
 
-Progress: [██████████] 96%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -115,6 +115,7 @@ Progress: [██████████] 96%
 | Phase 07 P15 | 45min | 3 tasks | 15 files |
 | Phase 07 P16 | ~70min | 3 tasks | 43 files |
 | Phase 07 P17 | 1h27m | 2 tasks | 2 files |
+| Phase 07 P18 | ~1h20m | 3 tasks | 57 files |
 
 ## Accumulated Context
 
@@ -263,6 +264,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P16]: algorithmIdentity.test.ts's STRUCTURAL_EXEMPTIONS (6 entries) added alongside the plan's own 8-entry IDENTITY_SWEEP_EXCLUSIONS to cover cases the tier-P/C/F list doesn't reach (the sweep's own file, a path-segment false positive, PD-01's dual-tier constant, a frozen-fixture assertion, a live-reality verification script, and a negative rejection-proof test); marker cap raised 12->13 against the real re-grep count
 - [Phase ?]: [Phase 07 P17]: Discovered and recovered from a genuine concurrent-writer incident -- four zombie publish.ts processes from earlier executor-timeout-killed attempts stayed alive on Windows/Git-Bash (the timeout kills only the outer wrapper, not the deep tsx child) and raced a tracked run against the live R2 bucket for its full ~24-minute duration. Killed via PowerShell Stop-Process, confirmed absent, superseded by one clean solitary re-run (generation 47d020a4-1a16-4331-bd70-ce2f468bf2d1) -- safe per PD-05 since every key is deterministic and idempotent. Post-recovery verify:subset confirms one distinct generation across every sampled key
 - [Phase ?]: [Phase 07 P17]: team/{teamKey}/{year} crosses BOTH its 375,000-byte committed budget and payloadBudget.test.ts's separate 600,000-byte absolute structural ceiling for the first time (821,938 bytes, frc9999/2024 -- confirmed a real synthetic/heavily-reused team key with 27 events/289 matches under --include-offseason, not a data-integrity artifact); neither ceiling raised, new WINDOWS.md ledger #15 routed to 07-19
+- [Phase ?]: [Phase 07 P18]: PUBLISHED_ALGORITHM_IDS collapsed to [opr, epa, vpr] once precondition confirmed the manifest/artifact live; DEFAULT_ALGORITHM=vpr, DEFAULT_EVENT_TAB=insights, ribbon relabeled OPR/EPA/VPR; every sigma1@/D1 row survives untouched (07-19's job)
+- [Phase ?]: [Phase 07 P18]: algorithmIdentity.test.ts's apps/web/ exclusion deleted (client third of D-05 landed); STRUCTURAL_EXEMPTIONS extended for two permanent negative-rejection tests (Worker tier, D-05 adjacency proof) that must cite the retired id; MARKER_CAP raised 13->19
+- [Phase ?]: [Phase 07 P18]: event-page.spec.ts's tracer was genuinely broken since 07-15 (asserted testids that never shipped) -- first surfaced by this plan's own mandated e2e run, since 07-01 through 07-17 had never been pushed to trigger the deploy workflow; fixed and reverified against the live deployed origin (two pushes, two successful deploys, 42/42 e2e pass)
 
 ### Pending Todos
 
@@ -309,6 +313,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-28T19:10:27.805Z
-Stopped at: Completed 07-17-PLAN.md
+Last session: 2026-08-29T06:05:34.242Z
+Stopped at: Completed 07-18-PLAN.md
 Resume file: None
