@@ -83,8 +83,7 @@ export interface OprState {
  * `red_dqs`/`blue_dqs` in the corpus regardless, so reversing this call
  * later is a one-line addition to this function's signature, not a data
  * problem.
- */
-/**
+ *
  * Demo-team handling (`.planning/todos/pending/exclude-offseason-demo-teams.md`,
  * `demoTeams.ts`): every demo key in `teams`/`surrogates` is remapped to the
  * shared `DEMO_PSEUDO_TEAM_KEY` BEFORE the surrogate filter runs — the
