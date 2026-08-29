@@ -129,14 +129,18 @@ the next run.
 
 ## Live folding tier (quick task 260822-wqt)
 
-**D-04/D-05 (plan 07-16) transition note — read this before the rest of this section.** The
-TRACKED config now names the renamed publisher-side identity (`LIVE_ALGORITHM_IDS = "vpr"` in
-`apps/worker/wrangler.toml`), but that change is INERT until 07-19 runs `pnpm worker:deploy` — the
-DEPLOYED Worker is still running the pre-rename tier (folding under the id this section's
-historical measurements below were taken against) until that redeploy happens, and the deployed
-browser is still reading the pre-rename R2 object prefix until 07-18 flips the client's request
-target. Nothing below this note describes a state that exists yet on the live site; it describes
-the mechanism and the historical verification that mechanism was built and proven against.
+**D-04/D-05 (plans 07-16/07-18/07-19) transition — FINISHED, observed rather than declared.** The
+tracked config (`LIVE_ALGORITHM_IDS = "vpr"` in `apps/worker/wrangler.toml`) went live on
+2026-08-29 when plan 07-19 Task 3 ran `pnpm worker:deploy` — see the new dated deploy record below
+for the deployed version id and the deploy output's confirmed vars/bindings. Every reader now
+agrees: the publisher writes under `vpr@`, the deployed browser requests `vpr@` exclusively
+(07-18), the deployed Worker folds `vpr` live (this record), the algorithms manifest names exactly
+three ids with the retired one dropped (`v1/manifest/algorithms.json`, generation
+`47d020a4-1a16-4331-bd70-ce2f468bf2d1`, unchanged by the collapse), and the retired identity now
+carries zero objects in R2 under its own prefix (before/after stratified census, 07-19 Task 3/4)
+and zero rows in remote D1 (`GROUP BY` read-back, 07-19 Task 3/4). The historical measurements below this note,
+taken under the pre-rename identity, remain history — new measurements are recorded in their own
+dated sections, never overwriting the old ones.
 
 **Only the published algorithm folds live.** `apps/worker/wrangler.toml`'s `[vars]
 LIVE_ALGORITHM_IDS` is the single place that is configured — a plain tracked value, visible in
@@ -198,6 +202,43 @@ verify. See that file's own comment and `apps/worker/test/readScopedStateSql.tes
 for the fix and its regression test.
 
 Two new rows for this section's symptoms are added to the "When something is wrong" table below.
+
+---
+
+## Live-fold deploy — 2026-08-29, plan 07-19 Task 3 (the transition above, finished)
+
+Deployed version `638da16c-d538-4551-b3a0-a2757a77061f`, confirmed at 100% by `npx wrangler
+deployments list`. `pnpm worker:deploy`'s output listed `env.LIVE_ALGORITHM_IDS ("vpr")` alongside
+`env.TBA_BASE_URL`, all three bindings (`MANIFEST`, `DB`, `ARTIFACTS`), and `schedule: * * * * *`.
+Four consecutive post-deploy ticks (taken by the plan orchestrator, immediately after the deploy)
+reported `"ok":true`, `eventsConsidered:0`, no `live-tier-defaulted` warn line, and no
+`EmptyLiveAlgorithmTierError` — the tracked var reached the deployed Worker and it resolved its
+module set against the (still four-entry, at that point) manifest correctly. The manifest was then
+collapsed to three entries (`pnpm manifest:algorithms --drop-id sigma1`) and three further ticks
+after the collapse were also `"ok":true` — the deployed Worker tolerates the manifest narrowing to
+exactly the ids it folds.
+
+**Known issue, discovered re-verifying this record, NOT fixed by plan 07-19 (out of scope — no
+`apps/worker` source change is authorized in that plan).** Re-tailing the SAME deployed version
+(`638da16c-d538-4551-b3a0-a2757a77061f`) several hours later, on 2026-08-29 at approximately
+13:57–20:00 (two separate capture windows), **every single tick observed — 7 of 7 across both
+windows — returned `outcome: "exceededCpu"`, `cpuTime: 10` (pinned exactly at the free-plan CPU
+budget), and an EMPTY `logs` array**, meaning the tick's own `console.log("tick", ...)` line never
+executed. This contradicts the four/three healthy ticks recorded immediately above, taken on the
+same version shortly after deploy. Nothing about R2 or D1's state changed between the two
+observations in a way that should affect an IDLE tick's cost (an idle tick's early-exit path reads
+one live-windows manifest and returns before touching D1 or any algorithm state at all — see
+`runTick`'s "Step 1" comment in `apps/worker/src/scheduled.ts`), and no event was live during
+either observation window. The most likely explanation, offered here as an unconfirmed hypothesis
+rather than a diagnosis: this Worker's bundle (which statically imports all of
+`packages/core/algorithms/sigma1`, several thousand lines grown across Phase 3) has had its
+cold-start CPU cost creep upward across Phase 7's accumulated commits, and an isolate evicted after
+several idle hours now cold-starts consistently over the 10 ms budget, where the 2026-08-22
+baseline measured only an occasional 13–14 ms cold start (itself already close to the limit, and
+already flagged there as an open question whether the platform enforces it uniformly). **Routed
+forward as a new, high-priority tracked finding** — see
+`.planning/todos/pending/worker-tick-exceeds-cpu-budget.md` — rather than fixed or investigated
+further here.
 
 ---
 

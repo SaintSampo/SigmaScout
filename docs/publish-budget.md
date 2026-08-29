@@ -267,6 +267,96 @@ silently marked done: after this run, a human should open the Cloudflare R2 dash
 count alongside the local numbers above, since the two can differ (multipart uploads, retries, and
 prior runs' objects all count toward the dashboard figure but not this run's local counter).
 
+## Delete pass — 2026-08-29, plan 07-19 Task 3 (D-06, the retired `sigma1` prefix removed)
+
+**This is the section 07-17 assigned here.** After 07-18 moved the deployed client onto the
+renamed `vpr@` prefix exclusively, this pass deleted the orphaned `sigma1@2.0.0+tuned-2026-08`
+objects in R2 and the retired id's rows in remote D1, then redeployed the Worker onto the renamed
+live-fold tier. Four production mutations, run in the order argued in `07-19-PLAN.md`: Worker
+deploy, manifest collapse, D1 row delete, R2 object delete.
+
+**The delete pass's exit code is not the evidence and is not reported as though it were** —
+`deleteObject` treats a missing key as success by S3 contract, so the numbers below are three
+distinct, never-conflated figures, plus a before/after stratified census over the same 60 sampled
+keys (the only proof of *effect* a 404-as-success delete can produce):
+
+```
+pnpm cleanup:retired-objects --retired-id sigma1 --version 2.0.0+tuned-2026-08
+```
+(concurrency 16, the default and the value every committed publish figure was measured at;
+`--seasons` left at its default `2022-2026` full range)
+
+| Figure | Count | Source |
+|---|---:|---|
+| Keys ENUMERATED (the deliberate superset, PD-03) | 19,261 | `enumerateRetiredKeys` — 5 `teams` + 5 `events` + 1,581 `event` + 17,670 `team`, all offseason-inclusive |
+| DELETE calls ISSUED | 19,261 | `reports/publish/07-19-delete.log` — every enumerated key issued exactly one `deleteObject` call, tallied per page kind in the log's own progress lines (matches enumerated exactly: `teams` 5, `events` 5, `event` 1,581, `team` 17,670) |
+| Keys OBSERVED PRESENT before the pass (stratified sample, n=60) | 48/60 (80%) | `reports/publish/07-19-census-before.json` |
+| Keys OBSERVED ABSENT before the pass (over-enumeration measurement) | 12/60, ALL in the `event` kind | same file — the deliberate offseason-inclusive superset catching event keys 07-10 published (or never wrote) under single-event mode |
+| Keys OBSERVED PRESENT after the pass, SAME 60 keys | 0/60 | `reports/publish/07-19-census-after.json` — every key that returned 200 before now returns 404 |
+
+**Reconciling the over-enumeration against RESEARCH.md's ≈18,222 projection.** The sample's 12
+absences concentrate entirely in the `event` kind (12 of 25 sampled `event` keys, 48%), while all
+25 sampled `team` keys and all 10 sampled `teams`/`events` keys were present (0% absent).
+Extrapolating that kind-specific rate rather than a flat overall rate — 48% of the `event` kind's
+1,581 keys, 0% of the remaining 17,680 — projects **≈759 event keys absent** out of the full
+enumeration, for an estimated **≈18,502 objects actually existing** before the pass. That is close
+to RESEARCH.md's independent ≈18,222 estimate (a 280-object, ≈1.5% difference) and is the figure
+this section treats as the actual pre-pass population — a flat extrapolation of the sample's
+overall 20% absence rate would have projected ≈15,409 and materially disagreed with RESEARCH.md's
+number; the per-kind breakdown is what reconciles it.
+
+**Wall clock.** The tool does not embed a per-line timestamp in `reports/publish/07-19-delete.log`
+(only DELETE lines and every-1,000-key progress lines) — stated honestly rather than fabricated.
+The wall clock below is read from the log FILE's own NTFS creation/last-write timestamps, the
+closest available substitute: created `2026-08-29T03:21:29-04:00`, last written
+`2026-08-29T03:23:15-04:00` — **≈1 min 46 sec** for 19,261 `deleteObject` calls at concurrency 16.
+
+**The operation class Cloudflare bills `DeleteObject` under — corrected, not merely confirmed.**
+07-17 attributed `DeleteObject` to Class A and flagged that attribution as unverified. Reading
+Cloudflare's own R2 pricing page at run time
+(`https://developers.cloudflare.com/r2/pricing/`, fetched 2026-08-29) shows this is **wrong**:
+`DeleteObject` is listed under **Free operations** (alongside `DeleteBucket` and
+`AbortMultipartUpload`), not Class A (`PutObject`, `CopyObject`, `ListObjects`, …) or Class B
+(`GetObject`, `HeadObject`, …). The 19,261 `DeleteObject` calls this pass issued therefore cost
+**zero** against either the 1,000,000/month Class A allowance or the 10,000,000/month Class B
+allowance — 07-17's Class-A attribution is corrected here, not merely re-confirmed.
+
+**Post-cleanup storage and object totals.** Before this pass, R2 held two coexisting copies: the
+three live algorithms' complete published set (measured above at 3,358,758,125 bytes of
+page-object payload, 57,188 page objects + 2 manifests) PLUS the orphaned `sigma1@` objects
+(≈18,502 estimated, reconciled above). After this pass, only the live set remains — R2's total
+page-object payload returns to the **already-measured 3,358,758,125 bytes (≈3.13 GiB)** figure in
+the Payload budget table above, since that figure describes the three live algorithms' complete
+set and nothing else now shares the bucket. Against the 10 GiB (10,737,418,240-byte) free-tier
+storage cap: **≈31.3% used, ≈68.7% headroom** — local-counter arithmetic over 07-17's own measured
+total, not a Cloudflare dashboard read (the dashboard cross-check remains the same open manual step
+named below). Total live object count: **57,190** (57,188 page objects + 2 manifests) — down from
+an estimated **≈75,692** while the orphaned set coexisted.
+
+## D1 read-back — post-cleanup
+
+Re-running the identical `GROUP BY` predicate Task 3 used before the delete (`SELECT algorithm_id,
+scope_kind, COUNT(*) AS n FROM algorithm_state GROUP BY 1,2 ORDER BY 1,2`, executed 2026-08-29):
+
+| algorithm_id | scope_kind | rows |
+|---|---|---:|
+| epa | league | 1 |
+| epa | team | 4,773 |
+| opr | event | 247 |
+| opr | league | 1 |
+| opr | team | 3,746 |
+| vpr | league | 1 |
+| vpr | team | 4,773 |
+
+Exactly **three** algorithm ids — `sigma1` carries zero rows, confirmed absent. `npx wrangler d1
+info sigmascout-state` reports **database_size: 27 MB**, comfortably clear of the 500 MB per-database
+free-tier ceiling (≈5.4% used, ≈94.6% headroom) — down from the double-copy transitional peak this
+document's "State-row shape" section describes, now that the retired id's rows are gone.
+
+**These are local-counter/`wrangler`-reported figures, not a Cloudflare dashboard read.** The R2
+dashboard cross-check named above remains the same open manual step it has been since plan 04-04 —
+this pass neither closes it nor fabricates it.
+
 ## Re-baseline cadence (the D-12/D-24 resolution)
 
 The re-baseline that overwrites live state is a **manual, human-triggered operation**, run before

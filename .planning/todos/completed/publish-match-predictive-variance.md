@@ -67,3 +67,12 @@ ahead of it.
 Combine the resulting R2 republish with
 [[republish-playoff-bonus-arrays]] — both rewrite `team/{teamKey}/{year}` and
 event artifacts, and one ~23-min pass should serve both.
+
+## Discharged
+
+**Discharged by plan 07-17 Task 4** (2026-08-28), on real published data. 07-17's D-18 full
+republish (`pnpm publish:seasons`, generation `47d020a4-1a16-4331-bd70-ce2f468bf2d1`) is the first
+republish since this schema/publish change landed, so the field's populated values are now live in
+R2 across all five seasons. Criterion satisfied: the acceptance section's schema/publish
+requirement is met by the shipped `EventMatchSchema` field, and the republish is what made it
+visible on live objects rather than merely present in code.

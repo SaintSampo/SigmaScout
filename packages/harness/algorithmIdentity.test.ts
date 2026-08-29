@@ -6,26 +6,38 @@
  * This is a THREE-WAY split, and this file is only ONE of the three parts —
  * naming all three here is what keeps this test from reading as either a
  * duplicate of a later plan's check or a claim that the rename is finished.
- * TWO of the three thirds have now landed:
+ * ALL THREE thirds have now landed:
  *
  *   - SOURCE (this file, plan 07-16): no identity-shaped occurrence of the
  *     retired id `sigma1` (or its four harness-only variants) survives
  *     anywhere in the tracked tree outside a short, individually-reasoned,
  *     length-asserted exclusion list. LANDED.
- *   - CLIENT (plan 07-18 Task 3, this commit): the client-package exclusion
- *     entry that used to sit in `IDENTITY_SWEEP_EXCLUSIONS` below is DELETED
- *     here — the deployed browser no longer reads the pre-rename R2 prefix
- *     (07-18 Tasks 1-2 moved it), so the gate now walks the client tree with
- *     the rest of the repository and finds nothing. LANDED.
- *   - LIVE (plan 07-19, still outstanding): zero `sigma1@` objects in R2 and
+ *   - CLIENT (plan 07-18 Task 3): the client-package exclusion entry that
+ *     used to sit in `IDENTITY_SWEEP_EXCLUSIONS` below was DELETED there —
+ *     the deployed browser no longer reads the pre-rename R2 prefix (07-18
+ *     Tasks 1-2 moved it), so the gate now walks the client tree with the
+ *     rest of the repository and finds nothing. LANDED.
+ *   - LIVE (plan 07-19 Task 3, 2026-08-29): zero `sigma1@` objects in R2 and
  *     zero `algorithm_id = 'sigma1'` rows in D1 — a fact about the deployed
  *     bucket and database, which no source-level test run on a checkout can
- *     prove. Roughly eighteen thousand objects and a live D1 row still carry
- *     the retired id at this commit, deliberately left in place so this
- *     cutover stays revertible; 07-19 deletes them and redeploys the Worker
- *     under the renamed live-fold tier. A fully green run of THIS file must
- *     never be read as the rename being finished — it proves the source and
- *     client thirds, not the live one.
+ *     prove and which this file therefore does not encode as a running
+ *     assertion (PD-06). Observed rather than merely declared: the Worker
+ *     was redeployed onto the renamed live-fold tier (version
+ *     `638da16c-d538-4551-b3a0-a2757a77061f`, `env.LIVE_ALGORITHM_IDS`
+ *     carrying `vpr`), the algorithms manifest was collapsed to three
+ *     entries (`opr`, `epa`, `vpr`; generation unchanged,
+ *     `47d020a4-1a16-4331-bd70-ce2f468bf2d1`), all 4,599 of the retired id's
+ *     remote D1 rows (`league` 1 + `team` 4,598) were deleted by an exact-id
+ *     `DELETE` with a before/after `GROUP BY` read-back confirming the three
+ *     live ids' counts unchanged, and 19,261 enumerated R2 keys carrying the
+ *     retired segment were issued a `deleteObject` call, with a before
+ *     (48/60 present) / after (0/60 present) stratified census over the SAME
+ *     sampled keys as the only evidence a deletion's own exit code cannot
+ *     provide. The re-runnable form of this assertion lives in
+ *     `scripts/verifySubsetPublish.ts`'s `expectAbsent` entries — a
+ *     credentialed, network-bound check does not belong in a suite that runs
+ *     on every commit (PD-06) — not in this file, whose exclusion list, its
+ *     pinned length, and its marker cap are unchanged by this plan.
  *
  * Walks the repository from its root with `readdirSync` (not `git
  * ls-files` — PD-06: dependency-free, deterministic, no coupling to a git

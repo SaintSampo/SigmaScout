@@ -67,3 +67,12 @@ all and is unaffected by this change.
 2026-08-27. Supersedes this todo's own "no dedicated run needed" resolution: run
 it as part of the phase, but combined with the `EventMatchSchema` predictive-variance
 change from `publish-match-predictive-variance` so R2 is rewritten once, not twice.
+
+## Discharged
+
+**Discharged by plan 07-17 Task 4** (2026-08-28), on real published data. 07-17's D-18 full
+republish confirmed a before/after pair: `frc4206/2024/sigma1` (retained, pre-rename) still carries
+`actualRedBonusRp`/`actualBlueBonusRp` as own properties on 2 of 25 playoff rows, while
+`frc4206/2024/vpr` (the renamed republish this plan produced) carries neither — proven with
+`hasOwnProperty` semantics against real published bytes, not merely a code-path check. Criterion
+satisfied: every playoff row published under the renamed identity is confirmed clean.
