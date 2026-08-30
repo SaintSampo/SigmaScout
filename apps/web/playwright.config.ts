@@ -260,6 +260,25 @@ export default defineConfig({
       // drags via `touchDrag`, which needs `hasTouch` — this plain-chromium
       // project has no device descriptor and so no `hasTouch: true`).
       testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts/,
+      // HARNESS finding, first local-desktop run (260830-p6s Task 3):
+      // no-page-pan.spec.ts's "each of the team page's per-section scrollers
+      // is individually wider than its own viewport" test carries its OWN
+      // premise guard, unconditional (`expect(scrollWidth).toBeGreaterThan
+      // (clientWidth)` for EVERY section scroller, no early return) — its own
+      // comment says why: "a region that never overflows proves nothing."
+      // At 1440px the frc118/2024 fixture's per-section match-table content
+      // (measured 1102px) fits entirely inside the section's own 1440px-wide
+      // container and does not overflow, so the premise is false at this
+      // width — same shape as tab-strip-alignment/tab-strip-trigger-sizing's
+      // own premise guards above, just implemented as an unconditional
+      // expect() rather than an early return. This task's own prohibition
+      // forbids editing any spec other than event-header-overflow.spec.ts's
+      // guard, so the fix lives here instead: `grepInvert` excludes this one
+      // test by title from this project only, on file/config authority, not
+      // a spec-level skip. The file's other three tests (the actual
+      // "document never pans" invariant, real at both widths) still run here
+      // unweakened.
+      grepInvert: /each of the team page's per-section scrollers is individually wider than its own viewport/,
       use: { viewport: { width: 1440, height: 900 }, baseURL: LOCAL_URL },
     },
     {
