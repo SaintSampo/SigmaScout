@@ -3,16 +3,21 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-31T00:30:00Z
+updated: 2026-08-31T02:00:00Z
 ---
 
 ## Current Test
 
 number: 1
-name: Real-device touch scroll sign-off (READY TO RE-RUN — layout fixes are live)
+name: Real-device touch scroll sign-off (READY TO RE-RUN — three MORE layout defects fixed, pending deploy)
 expected: |
-  The three layout defects that blocked this test are fixed and DEPLOYED. Verified live at 390px
-  on the deployed origin. Please re-run the original six touch-arbitration checks on a real phone.
+  Real-device UAT on a phone found three MORE layout defects in the same family as G-1/G-2/G-3
+  (filed below as G-4, G-5, G-6) before the original six touch-arbitration checks could be
+  assessed cleanly: vertical page scroll was blocked over every table/tab-strip (G-4), the tab
+  strip's own trigger widths were force-equalized against varying label widths (G-5), and the tab
+  strip centered its content while overflowing, making the leading tab unreachable by scrolling
+  (G-6). All three are fixed and committed; awaiting deploy and live re-measurement before the
+  original six touch-arbitration checks are re-run on a real phone.
 awaiting: user response
 
 ## Tests
@@ -191,3 +196,116 @@ Proven to bite: ran all three assertion classes locally against the pre-fix comm
 7 of 9 tests failed RED with the exact numbers G-1 reported (e.g. Insights gap 11px, TeamsTable
 body-row gap 56px, pinned width up to 124% of viewport). Restored to the fixed commits: all 9
 GREEN.
+
+### G-4 — Vertical page scroll is blocked on mobile (`touch-action: pan-x` too narrow)
+
+severity: critical
+status: fixed, pending live re-verification
+surfaces: InsightsTab, BreakdownTab, QualsTab, ElimsTab, AlliancesTab, EventSection (team page), the event tab strip
+
+Reported live on a real phone: "it is hard to scroll up and down on the page. I have to do it
+very precisely." `touch-action: pan-x` (Tailwind's `touch-pan-x`) was applied to every
+horizontally-scrolling table AND the event tab strip — `pan-x` permits ONLY horizontal panning, so
+a vertical touch gesture that STARTS on one of these elements is never handed to the page's own
+vertical scroller. Since these regions occupy nearly the whole phone viewport, a real user had to
+hunt for the thin non-table strips to scroll the page at all.
+
+`06-RESEARCH.md` Pitfall 6 ("`touch-action: pan-x` is not fully reliable on iOS Safari") warned
+specifically that a passing Playwright/CDP touch-emulation test does not prove real-device gesture
+arbitration — this is that exact failure mode: `touch-scroll.spec.ts` and
+`event-scroll-regions.spec.ts` were both green with the defect shipped, because CDP's synthetic
+touch dispatcher does not reproduce a real phone's touch-action-driven gesture arbitration.
+
+**Fixed** (commit `fix(07): G-4 permit vertical page scroll and pinch-zoom on every table/tab-strip
+scroller`): added a custom Tailwind utility `touch-pan-xy` (`touch-action: pan-x pan-y
+pinch-zoom`) in `apps/web/src/styles/theme.css`, since Tailwind's own `touch-pan-x`/`touch-pan-y`
+utilities both set the same single-value CSS property and overwrite each other. `pinch-zoom` is
+named explicitly — `pan-x` alone also disables pinch-zoom, an accessibility regression on dense
+data tables the fix would otherwise have silently kept. `overscroll-x-contain` (the property that
+actually stops the PAGE panning sideways, guarded by `no-page-pan.spec.ts`) is untouched
+everywhere it already appears — a completely different CSS property from `touch-action`.
+
+Verified against a local build: Chromium's `getComputedStyle` canonicalizes a computed `touch-action:
+pan-x pan-y pinch-zoom` down to the single equivalent keyword `"manipulation"` rather than echoing
+the three keywords back verbatim.
+
+`QualsTab.test.tsx`'s scroll-region-siblinghood assertion previously pinned `touch-pan-x` as
+expected behaviour — that test encoded the defect itself; updated to assert `touch-pan-xy`.
+
+**Test evidence** (commit `test(07): G-4 add computed touch-action e2e assertions, proven RED
+pre-fix`): `apps/web/e2e/touch-action-vertical-scroll.spec.ts` (phone-390/pixel-10) asserts computed
+`touch-action` permits vertical panning (and `overscroll-behavior-x` stays `"contain"`) across
+every named region. Run against the currently deployed origin (pre-fix): all 7 assertions failed
+RED with computed `touch-action` exactly `"pan-x"` on every region — the event tab strip, all five
+event tables, and the team page's per-event match-table scroller.
+
+Stated honestly (per this test's own file header): this checks the CSS CONTRACT only. It cannot
+and does not prove real-device gesture arbitration — that remains Test 1's human real-device
+check, exactly per Pitfall 6's own warning.
+
+### G-5 — Tab strip trigger widths are force-equalized against varying label widths
+
+severity: medium
+status: fixed, pending live re-verification
+surfaces: event tab strip (`apps/web/src/components/ui/tabs.tsx`'s `TabsTrigger`)
+
+Reported: "visually the tabs are not spaced well." Measured live at 390px — every tab box was
+forced to an identical 67px while the label text varied 36-76px, so the visual gap between
+adjacent labels varied nearly 4x:
+
+| tab | box | text | slack | visual gap to previous |
+|-----------|----:|----:|-----:|-----:|
+| Insights  | 67 | 54 | 14 | - |
+| Breakdown | 67 | **76** | **-9** | 6px |
+| Quals     | 67 | 39 | 28 | 14px |
+| Alliances | 67 | 62 | 5  | 21px |
+| Elims     | 67 | 36 | 31 | 22px |
+
+342px strip / 5 tabs is about 68, so `TabsTrigger`'s base `flex-1` was splitting the container
+evenly — "Breakdown" text at 76px overflowed its own 67px box. Padding (`px-1.5`) and the list's
+own `gap-1` were already uniform; the equalization was the only source of non-uniform spacing.
+
+**Fixed** (commit `fix(07): G-5 size event tab strip triggers to their own content`): added a
+scoped `group-data-[variant=line]/tabs-list:flex-none` override so `line`-variant triggers (the
+only variant this codebase renders in a scrollable strip — event AND team page tab strips both use
+it) size to their own content instead of stretching equally. Scoped to `variant=line` only, not
+applied unconditionally, so a future `default`-variant segmented control (which legitimately wants
+equal-width children) is unaffected. Verified the compiled CSS specificity resolves correctly:
+the override's selector computes to (0,2,0) against the base `.flex-1`'s (0,1,0), winning
+regardless of source order.
+
+Verified against a local build (the tab strip renders independent of artifact data, so this did
+not need the deployed origin's live data): adjacent-label gaps became exactly uniform (18.0px each
+— measured via a Range over each trigger's own text node, not the button's box, since box-to-box
+measurement stays uniform even with the pre-fix defect fully present and would not have caught
+it), previously 6-22px, with zero label overflow.
+
+**Test evidence**: `apps/web/e2e/tab-strip-trigger-sizing.spec.ts` (phone-390/pixel-10) proven RED
+against the currently deployed origin pre-fix: "Breakdown"'s scrollWidth (71px) exceeded its own
+clientWidth (65px), reproducing the exact overflow measured above. Confirmed GREEN against a local
+build of the fixed commit.
+
+### G-6 — Centered justification on an overflowing tab strip hides the leading tab
+
+severity: medium
+status: fixed, pending live re-verification
+surfaces: event tab strip (`apps/web/src/components/ui/tabs.tsx`'s `TabsList`)
+
+The tab strip's `TabsList` computed `justify-content: center` while the strip overflows
+(scrollWidth 358px > clientWidth 342px at 390px). In a scrollable flex container, centered
+justification pushes overflow past the scroll origin, so the leading content cannot be reached by
+scrolling — there is no negative `scrollLeft`.
+
+**Fixed** (commit `fix(07): G-6 start-align the tab strip's TabsList once it overflows`): switched
+`justify-center` to Tailwind's `justify-center-safe` (`justify-content: safe center`) — the CSS
+Box Alignment spec's own answer to exactly this shape: center when the content fits, fall back to
+start-alignment the instant it would overflow. No JS measurement needed, and centering still
+applies (as this gap's own framing asked for) whenever the strip's content is short enough to fit.
+
+Verified against a local build: computed `justify-content` resolved to `"safe center"`, and the
+first tab's left edge (27px) sits inside the scroller's own left edge (24px) at `scrollLeft` 0 —
+reachable, whereas plain `"center"` pre-fix pushed it out of reach.
+
+**Test evidence**: `apps/web/e2e/tab-strip-alignment.spec.ts` (phone-390/pixel-10) proven RED
+against the currently deployed origin pre-fix: `TabsList`'s computed `justify-content` was exactly
+`"center"` while the strip overflows. Confirmed GREEN against a local build of the fixed commit.
