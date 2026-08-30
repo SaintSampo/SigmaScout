@@ -15,6 +15,7 @@ import {
   findIncompleteIngestRuns,
   hasEventRankingRecordColumns,
   openCorpus,
+  parseAllianceRecord,
   recordIngestRun,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
@@ -866,7 +867,7 @@ describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", (
     upsertEventAlliance(db, alliance({ eventKey: "2024casj", allianceNumber: 1, name: "Alliance 1", picks: ["frc3", "frc1", "frc2"] }));
 
     const result = selectEventAlliancesForSeason(db, 2024);
-    expect(result.get("2024casj")).toEqual([{ allianceNumber: 1, name: "Alliance 1", picks: ["frc3", "frc1", "frc2"] }]);
+    expect(result.get("2024casj")).toEqual([{ allianceNumber: 1, name: "Alliance 1", picks: ["frc3", "frc1", "frc2"], record: null }]);
   });
 
   it("a name of null round-trips as null, not an empty string and not a generated label", () => {
@@ -944,6 +945,58 @@ describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", (
     const result = selectEventAlliancesForSeason(db, 2024);
     expect(result.has("2023old")).toBe(false);
     expect(result.has("2024new")).toBe(true);
+  });
+});
+
+describe("parseAllianceRecord — the alliance playoff win-loss-tie record, absence discipline (07-UAT.md G-8)", () => {
+  it("a real TBA status object round-trips its record, extra keys (status/level/double_elim_round) ignored", () => {
+    const statusRaw = JSON.stringify({ record: { losses: 3, ties: 0, wins: 4 }, status: "eliminated", level: "f", double_elim_round: "Finals" });
+    expect(parseAllianceRecord(statusRaw)).toEqual({ wins: 4, losses: 3, ties: 0 });
+  });
+
+  it("null statusRaw (no status ever recorded) returns null, never a fabricated 0-0-0", () => {
+    expect(parseAllianceRecord(null)).toBeNull();
+  });
+
+  it("statusRaw that is not valid JSON returns null rather than throwing", () => {
+    expect(parseAllianceRecord("{not json")).toBeNull();
+  });
+
+  it("statusRaw that parses as JSON but carries no record key at all returns null", () => {
+    expect(parseAllianceRecord(JSON.stringify({ status: "unknown" }))).toBeNull();
+  });
+
+  it("a record object missing one of the three counts (partial shape) returns null, never a two-of-three partial", () => {
+    expect(parseAllianceRecord(JSON.stringify({ record: { wins: 4, losses: 3 } }))).toBeNull();
+  });
+
+  it("a real 0-0-0 record (genuinely no playoff matches decided yet) round-trips as real zeros, distinct from the null-absence case", () => {
+    const result = parseAllianceRecord(JSON.stringify({ record: { wins: 0, losses: 0, ties: 0 } }));
+    expect(result).toEqual({ wins: 0, losses: 0, ties: 0 });
+    expect(result).not.toBeNull();
+  });
+
+  it("selectEventAlliancesForSeason parses a real status_raw round trip through the corpus into `record`", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertEventAlliance(
+      db,
+      alliance({
+        eventKey: "2024casj",
+        allianceNumber: 1,
+        statusRaw: JSON.stringify({ record: { wins: 4, losses: 3, ties: 0 }, status: "eliminated", level: "f" }),
+      }),
+    );
+
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024casj") ?? [];
+    expect(row?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
+  });
+
+  it("selectEventAlliancesForSeason leaves `record` null when statusRaw carries an unmodelled playoff_type shape (no record key)", () => {
+    upsertEvent(db, event({ eventKey: "2024noplayoffs" }));
+    upsertEventAlliance(db, alliance({ eventKey: "2024noplayoffs", allianceNumber: 1, statusRaw: JSON.stringify({ playoff_type: 10 }) }));
+
+    const [row] = selectEventAlliancesForSeason(db, 2024).get("2024noplayoffs") ?? [];
+    expect(row?.record).toBeNull();
   });
 });
 

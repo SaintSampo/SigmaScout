@@ -14,6 +14,7 @@ import Database from "better-sqlite3";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import type { CompLevel, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import {
   detectReplay,
@@ -937,11 +938,83 @@ export interface CorpusEventAlliance {
   fetchedAt: string;
 }
 
-/** The read shape 07-08 maps onto 07-07's `EventAllianceSchema` (D-15, D-16, plan 07-02 Task 1) — deliberately omits `declines`/`statusRaw`, which no Phase 7 consumer reads (see `selectEventAlliancesForSeason`'s own doc comment). */
+/**
+ * The read shape 07-08 maps onto 07-07's `EventAllianceSchema` (D-15, D-16,
+ * plan 07-02 Task 1) — deliberately omits `declines`, which no Phase 7
+ * consumer reads (see `selectEventAlliancesForSeason`'s own doc comment).
+ * `07-UAT.md` G-8 (plan 07-21) widens this with `record`, DERIVED from
+ * `statusRaw` rather than exposing that raw column itself — the only field
+ * any Phase 7 consumer needs out of TBA's `status` object is the playoff
+ * win-loss-tie record.
+ */
 export interface EventAllianceSelection {
   allianceNumber: number;
   name: string | null;
   picks: string[];
+  /**
+   * This alliance's playoff win-loss-tie record, parsed from
+   * `event_alliances.status_raw` by `parseAllianceRecord` below. `null`
+   * covers every honest absence with no distinction between them — no
+   * `status_raw` at all (an event with no playoff bracket yet), a
+   * `status_raw` that fails to parse as JSON, and a `status_raw` that
+   * parses but does not carry a well-formed `{wins, losses, ties}` triple
+   * (a `playoff_type` shape this pipeline has not modelled, per
+   * `schema.sql`'s own comment on the column). Never a fabricated `0-0-0` —
+   * mirrors `tbaAllianceEntrySchema.status`'s `z.unknown().optional()` ->
+   * `statusRaw: null` absence discipline (07-14/`alliances.ts`).
+   */
+  record: { wins: number; losses: number; ties: number } | null;
+}
+
+/**
+ * TBA's `status` object shape this pipeline recognises (07-UAT.md G-8):
+ * `{ record: { wins, losses, ties }, ... }`, with any other keys (`status`,
+ * `level`, `double_elim_round`, all observed live) ignored — Zod's default
+ * object parsing strips unknown keys rather than rejecting them, so this
+ * schema stays valid across every `playoff_type` shape RESEARCH.md Q2
+ * measured (values 0, 4, 8 and 10) as long as the `record` triple itself is
+ * well-formed. All three counts are required TOGETHER — there is no
+ * half-present alliance record the way `EventTeamSchema.record` allows for
+ * TBA's per-team rankings; a `status` object missing any one of the three
+ * fails this schema entirely and `parseAllianceRecord` returns `null`.
+ */
+const AllianceStatusSchema = z.object({
+  record: z.object({
+    wins: z.number().int().nonnegative(),
+    losses: z.number().int().nonnegative(),
+    ties: z.number().int().nonnegative(),
+  }),
+});
+
+/**
+ * Recovers an alliance's playoff win-loss-tie record from
+ * `event_alliances.status_raw` — the verbatim `JSON.stringify` of TBA's
+ * `status` object that `packages/ingest/alliances.ts`'s
+ * `normalizeEventAlliances` stores (`statusRaw`), or `null` when TBA sent
+ * none. Three independent absence paths all collapse to `null`, through the
+ * SAME rule, with no special case for any of them (07-14's own "same rule,
+ * no special case" precedent for `combineAlliancePicks`): `statusRaw` itself
+ * is `null` (no status ever recorded), `statusRaw` is present but is not
+ * valid JSON (defensive — `JSON.stringify` always produces valid JSON, so
+ * this branch should be unreachable against real ingested data, but a
+ * `JSON.parse` is never trusted to succeed without a `try`/`catch` here),
+ * and `statusRaw` parses as JSON but does not satisfy `AllianceStatusSchema`
+ * (a `playoff_type` shape this pipeline has not modelled — RESEARCH.md Q2's
+ * observed values 0/4/8/10 vary in shape). No default of `{wins: 0, losses:
+ * 0, ties: 0}` is ever substituted for any of these — that would fabricate
+ * a real-looking playoff result for an alliance whose record is genuinely
+ * unknown to this pipeline.
+ */
+export function parseAllianceRecord(statusRaw: string | null): { wins: number; losses: number; ties: number } | null {
+  if (statusRaw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(statusRaw);
+  } catch {
+    return null;
+  }
+  const result = AllianceStatusSchema.safeParse(parsed);
+  return result.success ? result.data.record : null;
 }
 
 /**
@@ -980,6 +1053,7 @@ interface EventAllianceRow {
   alliance_number: number;
   name: string | null;
   picks: string;
+  status_raw: string | null;
 }
 
 /**
@@ -990,9 +1064,11 @@ interface EventAllianceRow {
  * filter by season, mirroring `selectEventRankingsForSeason`'s join (this
  * table carries no `year` column either). An event with no upserted
  * alliances is absent from the returned map entirely — no key, no
- * zero-length placeholder entry. `declines` and `status_raw` are
- * intentionally not selected — no Phase 7 consumer reads them — a future
- * consumer widens this SELECT rather than re-ingesting.
+ * zero-length placeholder entry. `declines` is intentionally not selected —
+ * no Phase 7 consumer reads it — a future consumer widens this SELECT
+ * rather than re-ingesting. `status_raw` IS now selected (07-UAT.md G-8,
+ * plan 07-21) and run through `parseAllianceRecord` below to populate
+ * `record` — the raw column itself is never exposed past this function.
  */
 export function selectEventAlliancesForSeason(
   db: Corpus,
@@ -1000,7 +1076,7 @@ export function selectEventAlliancesForSeason(
 ): Map<string, EventAllianceSelection[]> {
   const rows = db
     .prepare(
-      `SELECT ea.event_key, ea.alliance_number, ea.name, ea.picks
+      `SELECT ea.event_key, ea.alliance_number, ea.name, ea.picks, ea.status_raw
        FROM event_alliances ea
        JOIN events e ON e.event_key = ea.event_key
        WHERE e.year = ?
@@ -1014,6 +1090,7 @@ export function selectEventAlliancesForSeason(
       allianceNumber: row.alliance_number,
       name: row.name,
       picks: JSON.parse(row.picks) as string[],
+      record: parseAllianceRecord(row.status_raw),
     });
   }
   return result;
