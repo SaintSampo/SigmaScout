@@ -350,6 +350,48 @@ the fix. It rides along with the republish already queued for the demo-team excl
 
 ---
 
+## Before an event: ingest it, or it will not live-fold
+
+**Operational contract, in force since 2026-08-29.** An event must be in the corpus with at least
+one match before the Worker will ever poll it live. There is no automatic discovery any more.
+
+Until 2026-08-29 the manifest builder synthesised a blind 4-day `inferred` window from an event's
+`start_date` whenever that event had zero matches in the corpus, so a brand-new event could be
+picked up without anything being ingested first. That guess is what caused the outage recorded
+above: 200 events carried one, two of them opened for offseason events that were not running, and
+every cron tick died `exceededCpu` for days. `buildLiveWindowsManifest` no longer emits them.
+
+What replaces it is the ordinary ingest → republish cycle, and it is sufficient **because TBA
+publishes match schedules days before an event runs**. `sort_time` falls back to
+`predicted_time ?? time`, so a merely-SCHEDULED event with no played matches already yields a
+real, measured window — you do not have to wait for the event to start.
+
+What this means in practice, given there is **no cron-scheduled ingest** (`.github/workflows/`
+has only `push`/`pull_request`/`workflow_dispatch` triggers — every ingest is run by hand):
+
+```bash
+# Before an event you want live-folded, once its TBA schedule is published:
+pnpm ingest --event <eventKey>     # or a full pass
+pnpm publish:seasons               # rebuilds live-windows.json with a real window
+```
+
+Skip that and the event simply will not update live — the Worker never learns it exists. This is a
+deliberate trade: a missed live-fold is a visible staleness bug you can fix by running two
+commands, whereas the blind window was an invisible, self-inflicted, recurring outage.
+
+Check what the Worker currently believes is live:
+
+```bash
+curl -s https://data.sigmascout.org/v1/manifest/live-windows.json | \
+  node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const n=Date.now();
+    console.log("windows:",j.windows.length,"live now:",j.windows.filter(w=>w.startMs<=n&&n<w.endMs).length);})'
+```
+
+A count of `0` is normal out of season — it means no event has future scheduled matches in the
+corpus, not that anything is broken.
+
+---
+
 ## Watching it
 
 ```bash
