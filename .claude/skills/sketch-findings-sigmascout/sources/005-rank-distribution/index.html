@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Rank distribution</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:92px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text);
+    -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+
+  /* ---- house variant-nav (copied from 004) ---- */
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:var(--color-surface); border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:var(--color-surface); border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+
+  /* ---- event switcher, second fixed row ---- */
+  #event-nav { position:fixed; top:41px; left:0; right:0; z-index:9997; background:var(--color-chrome); border-bottom:1px solid var(--color-border);
+    padding:7px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  #event-nav .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-right:2px; }
+  .event-tab { border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text-muted); padding:5px 11px; border-radius:99px; cursor:pointer; font:inherit; font-size:12.5px; }
+  .event-tab .regime { opacity:.7; font-size:11px; }
+  .event-tab.active { background:var(--color-primary); color:var(--color-surface); border-color:var(--color-primary); }
+
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; border:1px solid var(--color-border); border-radius:8px; }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  th { text-align:left; font-size:11px; font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border);
+    white-space:nowrap; background:var(--color-chrome); position:sticky; top:0; }
+  th.num, td.num { text-align:right; }
+  td { padding:0 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; height:38px; }
+  td.ctx { padding-top:0; padding-bottom:0; }
+  .team-no { font-weight:600; }
+  .muted { color:var(--color-text-muted); }
+  .rank-idx { color:var(--color-text-muted); width:28px; }
+
+  /* ---- shared axis header cell ---- */
+  th.axisth { padding:4px 0 6px; position:relative; }
+  .axis { position:relative; }
+  .axis .t { position:absolute; top:0; font-size:10px; color:var(--color-text-muted); white-space:nowrap; }
+  .axis .g { position:absolute; top:14px; width:1px; height:6px; background:var(--color-border); }
+  .axis .bound { color:var(--color-text); font-weight:700; }
+
+  /* ---- the plot cell: bars, band, tick, gridlines ---- */
+  td.plotcell { padding:7px 0; }
+  .plot { position:relative; }
+  .bar { position:absolute; bottom:0; background:var(--color-text-muted); opacity:.55; border-radius:1px 1px 0 0; }
+  .band { position:absolute; top:0; background:var(--color-text-muted); opacity:.16; border-radius:4px; }
+  .tick { position:absolute; top:-3px; width:2px; background:var(--color-text); border-radius:1px; }
+  .gridline { position:absolute; top:0; width:1px; background:var(--color-border); opacity:.55; }
+  .endcap { position:absolute; top:100%; margin-top:2px; font-size:9px; color:var(--color-text-muted); }
+
+  .callout { border:1px solid var(--color-border); background:var(--color-chrome); border-radius:8px; padding:12px 14px; font-size:12.5px; line-height:1.65; margin:0 0 14px; }
+  .callout b { color:var(--color-text); }
+  .callout code { background:var(--color-surface); border:1px solid var(--color-border); border-radius:4px; padding:0 4px; font-size:11.5px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; background:var(--color-surface); border:1px solid var(--color-border); color:var(--color-text); }
+  .variant-tab.rejected { color:var(--ss-danger); border-color:var(--ss-danger); }
+  .variant-tab.rejected.active { background:var(--ss-danger); border-color:var(--ss-danger); color:var(--color-surface); }
+
+  .source-line { font-size:12px; color:var(--color-text-muted); margin:0 0 4px; }
+  .event-meta { font-size:12.5px; color:var(--color-text-muted); margin:0 0 14px; }
+
+  /* ---- sketch toolbar: hardcoded dark, independent of theme, per house style ---- */
+  #app { margin:0 auto; transition:max-width .15s ease; }
+  #sketch-toolbar { position:fixed; bottom:16px; right:16px; z-index:9999; display:flex; gap:6px; align-items:center;
+    background:rgba(15,23,42,.92); border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;
+    opacity:.4; transition:opacity .15s ease; box-shadow:0 6px 20px rgba(0,0,0,.35); }
+  #sketch-toolbar:hover { opacity:1; }
+  #sketch-toolbar .tb-label { font-size:10px; color:rgba(255,255,255,.55); text-transform:uppercase; letter-spacing:.05em; margin-right:2px; font-family:var(--font-sans); }
+  #sketch-toolbar button { font:inherit; font-size:11.5px; color:#E2E8F0; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14);
+    border-radius:6px; padding:5px 9px; cursor:pointer; font-variant-numeric:tabular-nums; }
+  #sketch-toolbar button:hover { background:rgba(255,255,255,.18); }
+  #sketch-toolbar button.active { background:#4F46E5; border-color:#4F46E5; color:#fff; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" data-v="a" onclick="setVariant('a', this)">A: Full shared axis (1..N)</button>
+  <button class="variant-tab" data-v="b" onclick="setVariant('b', this)">B: Interpolated band edges</button>
+  <button class="variant-tab rejected" data-v="c" onclick="setVariant('c', this)">C: Compact per-row — REJECTED</button>
+  <span class="spacer"></span>
+  <span class="note">Rank-distribution table &middot; 1000-draw simulation</span>
+</div>
+
+<div id="event-nav">
+  <span class="lbl">Event</span>
+  <button class="event-tab active" data-e="2023nhgrs" onclick="setEvent('2023nhgrs', this)">2023nhgrs <span class="regime">heterogeneous, hard case</span></button>
+  <button class="event-tab" data-e="2025flta" onclick="setEvent('2025flta', this)">2025flta <span class="regime">near-locked</span></button>
+  <button class="event-tab" data-e="2022ispr" onclick="setEvent('2022ispr', this)">2022ispr <span class="regime">wide-open, nothing played</span></button>
+</div>
+
+<div id="app"><div id="wrap"></div></div>
+
+<div id="sketch-toolbar">
+  <span class="tb-label">Viewport</span>
+  <button onclick="setViewport(390, this)">390</button>
+  <button onclick="setViewport(768, this)">768</button>
+  <button onclick="setViewport(1280, this)">1280</button>
+  <button class="active" onclick="setViewport('full', this)">Full</button>
+</div>
+
+<script src="data.js"></script>
+<script>
+/*
+ * How should a team's simulated rank distribution be drawn, given what real data actually looks
+ * like? Three variants, one x(rank) function each (see rankToX below — bars, band, median tick,
+ * axis ticks and gridlines all read the same function, never independently hand-tuned).
+ *
+ * Colour is deliberately neutral throughout: no tier colours, no accent, no alliance red/blue.
+ * The rank plot marks are var(--color-text-muted) / var(--color-text) only.
+ */
+
+var PLOT_W = 470;      // UI-SPEC's locked shared-axis width
+var PLOT_H = 30;        // bars area height
+var BAR_MAX_H = 24;
+var AXIS_H = 20;
+var C_PLOT_W = 130;     // variant C's compact per-row cell
+var C_PLOT_H = 22;
+var C_BAR_MAX_H = 17;
+
+var EVENT_ORDER = ['2023nhgrs', '2025flta', '2022ispr'];
+var state = { variant: 'a', event: '2023nhgrs' };
+
+/* ---- the one computed source every mark reads from ---- */
+function rankToX(rank, domain, plotW) {
+  var span = domain[1] - domain[0];
+  if (span <= 0) return 0;
+  return ((rank - domain[0]) / span) * plotW;
+}
+function rankBarWidth(domain, plotW) {
+  var slots = (domain[1] - domain[0] + 1) || 1;
+  return plotW / slots;
+}
+
+/* Continuous quantile from a binned rank histogram. Treats rank r as occupying
+ * the interval [r-0.5, r+0.5) with its probability mass spread uniformly inside
+ * it, which makes the CDF piecewise-linear and the quantile continuous instead
+ * of snapping to whichever integer rank the target percentile happens to land
+ * on. Matches R's default type-7 quantile behaviour on binned data. Bounded:
+ * never returns below 0.5 or above dist.length + 0.5. */
+function continuousQuantile(dist, p, draws) {
+  var target = p * draws;
+  var cum = 0;
+  for (var i = 0; i < dist.length; i++) {
+    var m = dist[i];
+    if (m === 0) continue;
+    if (cum + m >= target) {
+      var frac = (target - cum) / m;
+      return (i + 1) - 0.5 + frac;
+    }
+    cum += m;
+  }
+  return dist.length + 0.5;
+}
+
+/* Rows whose p10/p90 are the same integer draw a zero-width — invisible —
+ * band under variant A's integer-snapped edges. Computed live per event. */
+function zeroWidthInfo(ev) {
+  var count = 0;
+  ev.rows.forEach(function (r) { if (r.p10 === r.p90) count++; });
+  return { count: count, total: ev.rows.length };
+}
+
+/* "Nice" tick step so labels don't collide, endpoints always included. */
+function niceTicks(lo, hi) {
+  var range = Math.max(1, hi - lo);
+  var raw = range / 7;
+  var mag = Math.pow(10, Math.floor(Math.log10(Math.max(1, raw))));
+  var cands = [1, 2, 5, 10].map(function (m) { return m * mag; });
+  var step = cands[cands.length - 1];
+  for (var i = 0; i < cands.length; i++) { if (cands[i] >= raw) { step = cands[i]; break; } }
+  step = Math.max(1, Math.round(step));
+  var ticks = [];
+  for (var t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
+  if (ticks.length === 0 || ticks[0] !== lo) ticks.unshift(lo);
+  if (ticks[ticks.length - 1] !== hi) ticks.push(hi);
+  return ticks;
+}
+
+function axisHeaderHTML(domain, ticks, plotW) {
+  var out = '<div class="axis" style="width:' + plotW + 'px;height:' + AXIS_H + 'px;">';
+  ticks.forEach(function (t, i) {
+    var xPos = rankToX(t, domain, plotW);
+    var align = i === 0 ? 'left:' + xPos + 'px' : (i === ticks.length - 1 ? 'left:' + xPos + 'px;transform:translateX(-100%)' : 'left:' + xPos + 'px;transform:translateX(-50%)');
+    var isBound = (t === domain[0] || t === domain[1]);
+    out += '<span class="t' + (isBound ? ' bound' : '') + '" style="' + align + '">' + t + '</span>';
+    out += '<div class="g" style="left:' + xPos + 'px;"></div>';
+  });
+  out += '</div>';
+  return out;
+}
+
+/* One plot builder, reused by every variant — only the domain and size options differ. */
+function plotHTML(row, domain, opts) {
+  var barW = Math.max(1, rankBarWidth(domain, opts.plotW) - (opts.gap || 1));
+  var maxCount = Math.max.apply(null, row.dist);
+  var bars = '';
+  row.dist.forEach(function (c, i) {
+    if (c <= 0) return;
+    var rank = i + 1;
+    if (rank < domain[0] || rank > domain[1]) return;
+    var h = Math.max(1, (c / maxCount) * opts.barMaxH);
+    bars += '<div class="bar" style="left:' + rankToX(rank, domain, opts.plotW).toFixed(2) + 'px;width:' + barW.toFixed(2) + 'px;height:' + h.toFixed(2) + 'px;"></div>';
+  });
+  var slotW = rankBarWidth(domain, opts.plotW);
+  var bandLeft, bandWidth;
+  if (opts.contBand) {
+    /* Continuous edges: no half-slot snap to a full rank cell, just the two
+     * continuous rank coordinates run through the same rankToX() as everything
+     * else on the plot — one x-scale, not a second one. */
+    bandLeft = rankToX(opts.contBand[0], domain, opts.plotW);
+    var bandRightCont = rankToX(opts.contBand[1], domain, opts.plotW);
+    bandWidth = Math.max(2, bandRightCont - bandLeft);
+  } else {
+    bandLeft = rankToX(Math.max(domain[0], row.p10), domain, opts.plotW);
+    var bandRight = rankToX(Math.min(domain[1], row.p90), domain, opts.plotW) + slotW;
+    bandWidth = Math.max(2, bandRight - bandLeft);
+  }
+  var band = '<div class="band" style="left:' + bandLeft.toFixed(2) + 'px;width:' + bandWidth.toFixed(2) + 'px;height:' + opts.plotH + 'px;"></div>';
+  var tickX = rankToX(row.median, domain, opts.plotW) + slotW / 2 - 1;
+  var tick = '<div class="tick" style="left:' + tickX.toFixed(2) + 'px;height:' + (opts.plotH + 6) + 'px;"></div>';
+  var grid = '';
+  if (opts.gridTicks) {
+    grid = opts.gridTicks.map(function (t) {
+      return '<div class="gridline" style="left:' + rankToX(t, domain, opts.plotW).toFixed(2) + 'px;height:' + opts.plotH + 'px;"></div>';
+    }).join('');
+  }
+  return '<div class="plot" style="width:' + opts.plotW + 'px;height:' + opts.plotH + 'px;">' + grid + bars + band + tick + '</div>';
+}
+
+function pageHeader(ev) {
+  return '<header style="background:var(--color-chrome);padding:12px 16px;">' +
+    '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+      '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;">SigmaScout</span>' +
+      '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;">' +
+        '<span class="muted">Teams</span><span class="muted">Events</span>' +
+        '<span style="border-bottom:2px solid var(--color-primary);color:var(--color-primary);padding-bottom:2px;">Simulation</span></nav>' +
+      '<span style="flex:1"></span><span style="font-size:13px" class="muted">' + ev.teams + ' teams &middot; ' + ev.draws + ' draws</span>' +
+    '</div></header>';
+}
+
+function sourceAndMeta(ev) {
+  return '<p class="source-line">Source: <code style="font-size:11.5px;background:var(--color-chrome);border:1px solid var(--color-border);border-radius:4px;padding:0 4px;">data.js</code> — real 1000-draw Monte Carlo output over published win probabilities and RP distributions. Generated 2026-08-30. Not synthetic.</p>' +
+    '<p class="event-meta"><b style="color:var(--color-text);font-weight:600;">' + ev.label + '</b> — ' + ev.note + '</p>';
+}
+
+/* ==================== Variant A / B: shared axis ==================== */
+
+function zeroWidthReadout(ev) {
+  var zw = zeroWidthInfo(ev);
+  return '<p class="event-meta"><b style="color:var(--color-text);font-weight:600;">Zero-width bands under A:</b> ' +
+    zw.count + ' of ' + zw.total + ' rows have integer p10 = p90 — a locked team&rsquo;s 10th&ndash;90th band draws at ' +
+    '0px and is invisible in the histogram. Computed live from this event&rsquo;s <code>dist</code> arrays.</p>';
+}
+
+function interpCallout(ev) {
+  var zw = zeroWidthInfo(ev);
+  return '<div class="callout">' +
+    '<b>Same axis, same bars, same median tick — the only change is continuous band edges.</b> Method: treat rank ' +
+    '<code>r</code> as occupying the interval <code>[r-0.5, r+0.5)</code> with its probability mass spread uniformly ' +
+    'inside it, which makes the CDF piecewise-linear and the quantile continuous instead of snapping to whichever ' +
+    'integer rank the 10th/90th percentile happens to land on (matches R&rsquo;s default type-7 quantile behaviour on ' +
+    'binned data). Bounded: an edge can never fall below rank 0.5 or above rank N+0.5. This fixes two things variant A ' +
+    'hides: the ' + zw.count + ' zero-width row' + (zw.count === 1 ? '' : 's') + ' flagged above now draw a real, ' +
+    'nonzero band instead of vanishing outright, and two rows that happen to share the same integer 10th&ndash;90th ' +
+    'label (e.g. both reading &ldquo;2&ndash;3&rdquo;) can now show visibly different band widths if their underlying ' +
+    'distributions differ. Cost: the printed range is one decimal place wider to read, e.g. <code>10th&ndash;90th: ' +
+    '1.7&ndash;3.2</code> instead of a clean integer pair.' +
+    '</div>';
+}
+
+function buildAB(ev, variant) {
+  var N = ev.teams;
+  var domain = [1, N];
+  var ticks = niceTicks(domain[0], domain[1]);
+  var pxPerRank = (PLOT_W / N).toFixed(1);
+
+  var rowsHtml = ev.rows.map(function (r) {
+    var plotOpts = { plotW: PLOT_W, barMaxH: BAR_MAX_H, plotH: PLOT_H, gridTicks: ticks };
+    var rangeLabel = r.p10 + '&ndash;' + r.p90;
+    if (variant === 'b') {
+      var cq10 = continuousQuantile(r.dist, 0.10, ev.draws);
+      var cq90 = continuousQuantile(r.dist, 0.90, ev.draws);
+      plotOpts.contBand = [cq10, cq90];
+      rangeLabel = cq10.toFixed(1) + '&ndash;' + cq90.toFixed(1);
+    }
+    var plot = plotHTML(r, domain, plotOpts);
+    return '<tr><td class="team-no">' + r.team + '</td><td class="num">' + r.baseRp + '</td><td class="num muted">' + r.mp + '</td>' +
+      '<td class="num team-no">' + r.median + '</td><td class="num muted">' + rangeLabel + '</td>' +
+      '<td class="plotcell">' + plot + '</td></tr>';
+  }).join('');
+
+  return pageHeader(ev) +
+    '<div class="page" style="padding-top:16px;">' +
+    '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 6px;">Predicted quals rank</h1>' +
+    sourceAndMeta(ev) +
+    zeroWidthReadout(ev) +
+    (variant === 'b' ? interpCallout(ev) : '') +
+    '<div class="tablewrap"><table><thead><tr>' +
+      '<th>Team</th><th class="num">RP</th><th class="num">MP</th><th class="num">Median</th><th>10th&ndash;90th</th>' +
+      '<th class="axisth">' + axisHeaderHTML(domain, ticks, PLOT_W) + '</th>' +
+    '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+    '<p class="caption">' + (variant === 'a'
+      ? '<b>Variant A — full shared axis, 1..' + N + ', as the UI-SPEC locks it.</b> Optimises for: total honesty about ' +
+        'relative certainty, on one scale you can trust across every row <i>and</i> every event — a locked team and a spread ' +
+        'team are directly comparable by eye. Costs: at ' + N + ' teams that is ' + pxPerRank + 'px per rank, so a 1-rank spread ' +
+        'renders as a sliver of colour in ' + PLOT_W + 'px of mostly empty cell. Look at 2022ispr (17 teams, nothing played) versus ' +
+        '2025flta (42 teams) to see the same honesty problem at very different team counts. Its integer-snapped band edges are ' +
+        'also where the zero-width rows above come from — variant B fixes that without touching anything else on this axis.'
+      : '<b>Variant B — same shared axis, 1..' + N + ', same bars, same median tick — interpolated band edges.</b> ' +
+        'Optimises for: an honest 10th&ndash;90th band for every row, including the locked ones A renders as nothing at ' +
+        'all, without adding a second scale or breaking cross-row comparability (still one <code>rankToX()</code>, just fed ' +
+        'a continuous rank instead of an integer one). Costs: see the callout above for the method and its one extra digit ' +
+        'of label width. This replaces the earlier version of variant B, which clipped the shared axis to the observed data ' +
+        '— that turned out to be a mathematical no-op on any full-field table (every rank 1..N is always occupied by some ' +
+        'team), confirmed independently when this reached review and A and B were indistinguishable by eye.') +
+    '</p></div>';
+}
+
+/* ==================== Variant C: compact per-row, own scale ==================== */
+
+function rowDomain(row, N) {
+  var minIdx = null, maxIdx = null;
+  row.dist.forEach(function (c, i) { if (c > 0) { if (minIdx === null) minIdx = i; maxIdx = i; } });
+  var lo = Math.max(1, minIdx + 1 - 1), hi = Math.min(N, maxIdx + 1 + 1);
+  return [lo, hi];
+}
+
+function buildC(ev) {
+  var N = ev.teams;
+  var rowsHtml = ev.rows.map(function (r) {
+    var domain = rowDomain(r, N);
+    var plot = plotHTML(r, domain, { plotW: C_PLOT_W, barMaxH: C_BAR_MAX_H, plotH: C_PLOT_H, gap: 0.5 });
+    var endcaps = '<span class="endcap" style="left:0;">' + domain[0] + '</span><span class="endcap" style="right:0;">' + domain[1] + '</span>';
+    return '<tr><td class="team-no">' + r.team + '</td><td class="num">' + r.baseRp + '</td><td class="num muted">' + r.mp + '</td>' +
+      '<td class="num team-no">' + r.median + '</td><td class="num muted">' + r.p10 + '&ndash;' + r.p90 + '</td>' +
+      '<td class="plotcell" style="position:relative;padding-bottom:14px;">' + plot + endcaps + '</td></tr>';
+  }).join('');
+
+  return pageHeader(ev) +
+    '<div class="page" style="padding-top:16px;">' +
+    '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 6px;">Predicted quals rank</h1>' +
+    sourceAndMeta(ev) +
+    '<div class="callout"><b>No shared axis.</b> Each row&rsquo;s plot is scaled to that team&rsquo;s own occupied-rank range ' +
+      '(padded &plusmn;1, clamped to 1..' + N + '), shown as the small numbers under each bar. Two cells the same width can ' +
+      'represent completely different spreads — a locked team&rsquo;s 1-rank cell and a 12-rank cell render identically wide. ' +
+      'This is the honest cost, not an oversight.</div>' +
+    '<div class="tablewrap"><table><thead><tr>' +
+      '<th>Team</th><th class="num">RP</th><th class="num">MP</th><th class="num">Median</th><th>10th&ndash;90th</th><th>Own-scale distribution</th>' +
+    '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+    '<p class="caption"><b>Variant C — compact, per-row scale.</b> Optimises for: maximum legibility of every single row on ' +
+      'its own terms — a locked team fills its cell decisively, a 12-rank-spread team fills its cell just as clearly, at any ' +
+      'team count. Costs: cross-row comparison is destroyed. The median tick position and bar width carry no meaning between ' +
+      'rows — you must read the numeric columns, not the plot, to know which team is more certain. This also directly violates ' +
+      '<code>uncertainty-display.md</code>&rsquo;s &ldquo;one shared scale per view, never per row&rdquo; rule. Built anyway, on ' +
+      'purpose, so the cost of breaking that rule is something you can actually look at rather than take on faith. ' +
+      '<b style="color:var(--ss-danger);">Rejected by the user on review, 2026-08-30</b> — verbatim: &ldquo;rank distribution C ' +
+      'is terrible.&rdquo; Kept here for the record only; not a live candidate.</p></div>';
+}
+
+/* ==================== wiring ==================== */
+
+function render() {
+  var ev = window.RANK_DATA[state.event];
+  var html = state.variant === 'c' ? buildC(ev) : buildAB(ev, state.variant);
+  document.getElementById('wrap').innerHTML = html;
+  window.scrollTo(0, 0);
+}
+function setVariant(v, el) {
+  state.variant = v;
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  render();
+}
+function setEvent(k, el) {
+  state.event = k;
+  document.querySelectorAll('.event-tab').forEach(function (t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  render();
+}
+function setViewport(w, el) {
+  document.getElementById('app').style.maxWidth = (w === 'full') ? 'none' : (w + 'px');
+  document.querySelectorAll('#sketch-toolbar button').forEach(function (b) { b.classList.remove('active'); });
+  el.classList.add('active');
+}
+
+render();
+</script>
+</body>
+</html>

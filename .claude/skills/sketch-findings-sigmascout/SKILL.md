@@ -16,7 +16,7 @@ win/loss, alliance — and never decorates. Dense and fast, but not austere.
 **Reference points:** Statbotics and The Blue Alliance, the tools this audience already knows.
 Statbotics' percentile-boxed metric cells are the direct ancestor of the tier system below.
 
-Sketch sessions wrapped: 2026-08-25
+Sketch sessions wrapped: 2026-08-25, 2026-08-30
 </context>
 
 <design_direction>
@@ -56,24 +56,35 @@ blue; FRC alliance red/blue is validated and safe as-is.
 | Colour & rarity tiers | `references/colour-and-tiers.md` | Percentile tiers with Common unboxed; blue must stay sky for CVD |
 | Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; one ± quantity, everywhere (D-01, Phase 7) |
 | Chart craft | `references/chart-craft.md` | Derive coupled geometry; grouping is proximity; mock against the real distribution |
+| Simulation & Compare | `references/simulation-and-compare.md` | Interpolated (continuous) rank-band edges; plain-language-first calibration; near-ties render as ties |
 
 ## Read this first if you are…
 
 - **building a table with metric values** → `colour-and-tiers.md`
 - **building anything showing a prediction, a range, or a ±** → `uncertainty-display.md`
 - **building any chart, or debugging one that looks subtly wrong** → `chart-craft.md`
+- **building the rank simulation, the calibration display, or the Compare table** → `simulation-and-compare.md`
 
 ## Blocked on data (check before building)
 
-Two decisions here need values the published artifacts do not yet carry:
+**Both of this section's original blockers are now RESOLVED** (verified against live published
+artifacts, 2026-08-30). Kept as a record so they are not re-investigated:
 
-1. **Per-metric percentiles** for the tier system — pipeline-published or client-derived, undecided.
-2. **Match-level predictive variance** (D-10's `P + Q + R`) — computed by the harness to produce
-   `pRedWin`. Published on the team artifact since Phase 6 D-01 (`TeamSeasonMatchSchema`'s
-   `redScoreVarianceOwn`/`blueScoreVarianceOwn`), so TEAM-05 is satisfied. NOT yet on the event
-   artifact — `EventMatchSchema` gains these fields in Phase 7 plan 07-07 and 07-08 populates them.
-   Until then, any EVENT-page match interval display is wrong. Filed at
-   `.planning/todos/pending/publish-match-predictive-variance.md`, folded into Phase 7 as D-18 item 3.
+1. ~~**Per-metric percentiles**~~ — resolved. `TeamMetricSchema.percentile` (0–100) ships on the
+   per-team artifact; the teams-table artifact carries the compact `tier` instead
+   (`rare`/`epic`/`legendary`, omitted for Common). The split was a measured payload decision:
+   publishing `percentile` on every metric costs +42% gzipped, `tier` costs +10%.
+2. ~~**Match-level predictive variance on the event artifact**~~ — resolved by Phase 7 plans 07-07
+   and 07-08. `redScoreVarianceOwn`/`blueScoreVarianceOwn` are live on `EventMatchSchema` and on
+   `EventUpcomingMatchSchema`.
+
+**One genuinely open item, for Phase 8:**
+
+- **Played event matches carry no `redRpPmf`/`blueRpPmf`.** Only `upcoming[]` does — verified live on
+  `2025flta`. The harness *does* compute them (the team artifact publishes them on played matches), so
+  this is publisher plumbing, not new computation. Phase 8 D-03 adds them at ~84 bytes/match against
+  ~22.7KB of headroom under the 350,000-byte event-artifact budget. **Until that republish lands, the
+  rank simulation can only run on the ~3% of events with genuinely unplayed qualification matches.**
 
 ## Theme
 
@@ -92,6 +103,9 @@ running against real published data.
 - 001-teams-table-polish — *partial*: findings kept, visual direction superseded
 - 003-alliance-axes — winner: variant C (event table, one shared scale)
 - 004-rarity-tiers — winner: variant B (Common unboxed)
+- 005-rank-distribution — winner: variant B (shared 1..N axis, interpolated band edges); variant C rejected outright
+- 006-calibration-curve — winner: variant C (plain-language first)
+- 007-compare-table — winner: variant A (season rows, algorithm columns)
 
 **Excluded:** 002-palette-options — all four continuous ramps rejected by the user. Its rejection is
 recorded in `colour-and-tiers.md` under "What to Avoid" so the directions are not re-proposed.

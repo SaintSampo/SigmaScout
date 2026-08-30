@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Calibration curve</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+  text { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--color-text-muted); }
+  code { background:var(--color-chrome); padding:1px 5px; border-radius:4px; font-size:11.5px; }
+
+  /* ---- fixed sketch chrome: variant tabs + data controls ---- */
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer, #data-nav .spacer { flex:1; }
+  #variant-nav .note, #data-nav .note { color:var(--color-text-muted); font-size:12px; }
+
+  #data-nav { position:fixed; left:0; right:0; z-index:9997; background:var(--color-chrome); border-bottom:1px solid var(--color-border);
+    padding:7px 12px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:12.5px; }
+  .ctrl-group { display:flex; gap:4px; align-items:center; }
+  .ctrl-label { color:var(--color-text-muted); font-weight:600; margin-right:2px; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  .ctrl-btn { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:4px 10px; border-radius:5px; cursor:pointer; font:inherit; font-variant-numeric:tabular-nums; }
+  .ctrl-btn.active { background:var(--color-primary); color:#fff; border-color:var(--color-primary); }
+
+  /* ---- resizable stage (toolbar viewport presets act on this) ---- */
+  #stage { margin:0 auto; transition:max-width .15s ease; }
+
+  .variant { display:none; } .variant.active { display:block; }
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .intro { max-width:780px; margin:0 0 14px; font-size:13.5px; line-height:1.6; color:var(--color-text-muted); }
+  .intro b { color:var(--color-text); }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+  .warn { border:1px solid #FCD34D; background:#FFFBEB; color:#78350F; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin:0 0 16px; }
+  .warn b { }
+
+  .chart-card { background:var(--color-surface); border:1px solid var(--color-border); border-radius:10px; padding:18px 20px 10px; max-width:720px; }
+
+  .legend { display:flex; gap:16px; flex-wrap:wrap; align-items:center; font-size:12.5px; margin:10px 0 4px; }
+  .legend .item { display:flex; align-items:center; gap:6px; }
+  .legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex:none; }
+  .legend .label { color:var(--color-text); font-weight:600; }
+
+  .size-legend, .opacity-legend { display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-size:11.5px; color:var(--color-text-muted); margin:2px 0 16px; padding-top:8px; border-top:1px dashed var(--color-border); }
+  .sl-title { font-weight:600; color:var(--color-text); margin-right:2px; }
+  .sl-item, .ol-item { display:flex; align-items:center; gap:5px; }
+  .ol-swatch { width:20px; height:12px; border-radius:3px; display:inline-block; background:var(--color-text-muted); }
+
+  /* ---- variant C: plain-language cards ---- */
+  .card-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:18px; margin-top:6px; }
+  .algo-card { background:var(--color-surface); border:1px solid var(--color-border); border-radius:10px; padding:16px; }
+  .algo-card-header { display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .algo-card-header .dot { width:12px; height:12px; border-radius:50%; flex:none; }
+  .algo-name { font-weight:700; font-size:15px; color:var(--color-text); }
+  .algo-stats { margin:2px 0 12px; font-size:11.5px; color:var(--color-text-muted); }
+  .algo-stats b { color:var(--color-text); font-weight:600; }
+  .headline-sentence { font-size:15.5px; line-height:1.55; margin:0 0 14px; color:var(--color-text); }
+  .headline-sentence b { font-weight:700; }
+  .tag-sparse { display:inline-block; font-size:10.5px; font-weight:600; color:#92400E; background:#FEF3C7; border-radius:99px; padding:2px 8px; margin-left:2px; vertical-align:1px; white-space:nowrap; }
+
+  .bin-rows { display:flex; flex-direction:column; gap:1px; margin-bottom:12px; border-top:1px solid var(--color-border); padding-top:8px; }
+  .bin-row { display:grid; grid-template-columns:74px 1fr auto; gap:8px; align-items:baseline; padding:3.5px 0; font-size:12.5px; }
+  .bin-row.sparse { opacity:.6; }
+  .bin-row.empty { opacity:.5; font-style:italic; }
+  .br-range { color:var(--color-text-muted); font-variant-numeric:tabular-nums; }
+  .br-text b { color:var(--color-text); }
+  .br-n { color:var(--color-text-muted); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+  .mini-chart-wrap { border-top:1px solid var(--color-border); padding-top:8px; }
+  .mini-label { margin:0 0 4px; font-size:11px; }
+
+  /* ---- sketch toolbar: independent of theme, always dark ---- */
+  #sketch-toolbar { position:fixed; bottom:14px; right:14px; z-index:9999; background:rgba(15,23,42,.92);
+    opacity:.4; transition:opacity .15s ease; border-radius:9px; padding:6px 7px; display:flex; gap:4px; box-shadow:0 4px 16px rgba(0,0,0,.25); }
+  #sketch-toolbar:hover { opacity:1; }
+  #sketch-toolbar button { background:transparent; border:1px solid rgba(255,255,255,.32); color:#fff; font-size:11px;
+    padding:5px 9px; border-radius:5px; cursor:pointer; font-family:inherit; font-variant-numeric:tabular-nums; }
+  #sketch-toolbar button.active { background:rgba(255,255,255,.28); border-color:#fff; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav"></div>
+<div id="data-nav"></div>
+
+<div id="stage"><div id="wrap"></div></div>
+
+<div id="sketch-toolbar">
+  <button data-vp="390" onclick="setViewport('390')">390</button>
+  <button data-vp="768" onclick="setViewport('768')">768</button>
+  <button data-vp="1280" onclick="setViewport('1280')">1280</button>
+  <button data-vp="full" class="active" onclick="setViewport('full')">Full</button>
+</div>
+
+<script src="data.js"></script>
+<script>
+/*
+ * Calibration curve — three variants over the same nine slices (3 algorithms x 3 match-type
+ * views) per year, 2022-2026, from the REAL published /v1/compare/{year}.json artifacts in
+ * data.js. See README.md for the full design rationale, the series-colour validation, and what
+ * the real data revealed.
+ */
+
+/* ---------- series colour constants (named once, referenced everywhere — binding rule #5) ----
+ * orange / violet / teal. Validated with the dataviz skill's validate_palette.js, --pairs all,
+ * light mode, surface #FFFFFF: CVD (worst pair, protan/tritan) dE 13.6-13.8, normal-vision dE
+ * 28.8 (target >=8 / floor >=15) -- comfortably clear. Chosen to avoid FRC alliance red/blue
+ * (#DC2626 / #2563EB, reserved for alliance meaning) and this app's win/loss tokens (emerald
+ * #059669 / rose #E11D48). See README for the full rejected-candidate list.
+ */
+var SERIES = { opr: '#EA580C', epa: '#7C3AED', vpr: '#0D9488' };
+
+var ALGO_ORDER = ['opr', 'epa', 'vpr'];
+var ALGO_LABEL = { opr: 'OPR', epa: 'EPA', vpr: 'VPR' };
+var VIEW_ORDER = ['combined', 'qualification', 'elimination'];
+var VIEW_LABEL = { combined: 'Combined', qualification: 'Qualification', elimination: 'Elimination' };
+var YEAR_ORDER = ['2022', '2023', '2024', '2025', '2026'];
+var SPARSE_N = 30; /* absolute floor below which a bin is tagged "small sample" everywhere */
+
+var VARIANTS = [
+  { id: 'a', tab: 'A: Reliability diagram', title: 'Calibration curve — reliability diagram' },
+  { id: 'b', tab: 'B: Deviation from zero', title: 'Calibration curve — deviation from perfect' },
+  { id: 'c', tab: 'C: Plain language first', title: 'Calibration curve — plain language first' }
+];
+
+/* Default to the year/view where the sparse-bin problem AND a genuine, well-evidenced
+ * miscalibration both show up clearly (2026 OPR qualification: bin 0.8-0.9 is n=395, not sparse,
+ * and still 32.5 points off) -- see README. */
+var STATE = { year: '2026', view: 'qualification', variant: 'a' };
+
+/* ---------- data access ---------- */
+function getSlice(year, algo, view) {
+  var slices = window.COMPARE_DATA[year].slices;
+  for (var i = 0; i < slices.length; i++) {
+    if (slices[i].algorithmId === algo && slices[i].compLevelView === view) return slices[i];
+  }
+  return null;
+}
+function validBins(slice) {
+  return slice.calibrationBins.filter(function (b) { return b.count > 0 && b.meanPredicted !== null; });
+}
+function fmtPct(x, d) { return (x * 100).toFixed(d == null ? 0 : d); }
+function fmtN(n) { return n.toLocaleString('en-US'); }
+
+/* ---------- shared stats: the ONE computed source coupled marks are derived from ---------- */
+function countStats(year, view) {
+  var counts = [];
+  ALGO_ORDER.forEach(function (a) { validBins(getSlice(year, a, view)).forEach(function (b) { counts.push(b.count); }); });
+  counts.sort(function (a, b) { return a - b; });
+  return { min: counts[0], max: counts[counts.length - 1], median: counts[Math.floor(counts.length / 2)] };
+}
+function maxAbsDeviation(year, view) {
+  var m = 0;
+  ALGO_ORDER.forEach(function (a) {
+    validBins(getSlice(year, a, view)).forEach(function (b) { m = Math.max(m, Math.abs(b.observedFrequency - b.meanPredicted)); });
+  });
+  return m;
+}
+function niceCeil(v, step) { return Math.max(step, Math.ceil(v / step) * step); }
+
+/* ---------- geometry: every mark in a chart reads its position off one of these ---------- */
+function makeProbScale(W, H, margin) {
+  var x0 = margin.left, x1 = W - margin.right, y0 = H - margin.bottom, y1 = margin.top;
+  return { x0: x0, x1: x1, y0: y0, y1: y1, x: function (p) { return x0 + p * (x1 - x0); }, y: function (f) { return y0 - f * (y0 - y1); } };
+}
+function makeDevScale(W, H, margin, D) {
+  var x0 = margin.left, x1 = W - margin.right, y0 = H - margin.bottom, y1 = margin.top;
+  var sc = { x0: x0, x1: x1, y0: y0, y1: y1, D: D };
+  sc.x = function (p) { return x0 + p * (x1 - x0); };
+  sc.yDev = function (d) { var t = (d + D) / (2 * D); return y0 - t * (y0 - y1); };
+  return sc;
+}
+/* count -> mark weight. sqrt so AREA (not radius/opacity linearly) tracks count -- perceptually
+ * correct for a quantity encoded by size. Same function backs both the actual marks and their
+ * legend swatches, called with the same maxCount, so they cannot drift apart (chart-craft rule). */
+function sizeScale(count, maxCount) { var minR = 3.5, maxR = 16; var t = Math.sqrt(count) / Math.sqrt(maxCount); return minR + t * (maxR - minR); }
+function opacityScale(count, maxCount) { var minA = 0.28, maxA = 1; var t = Math.sqrt(count) / Math.sqrt(maxCount); return minA + t * (maxA - minA); }
+
+/* ---------- shared app-chrome header, matches the 004 skeleton ---------- */
+function pageHeader(year, view) {
+  return '<header style="background:var(--color-chrome);padding:12px 16px;">' +
+    '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+      '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;">SigmaScout</span>' +
+      '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;">' +
+        '<span class="muted">Teams</span><span class="muted">Events</span>' +
+        '<span style="border-bottom:2px solid var(--color-primary);color:var(--color-primary);padding-bottom:2px;">Compare</span></nav>' +
+      '<span style="flex:1"></span><span style="font-size:13px" class="muted">' + year + ' &middot; ' + VIEW_LABEL[view] + ' matches</span>' +
+    '</div></header>';
+}
+function build(id, title, introHtml, warnHtml, bodyHtml, captionHtml) {
+  return '<div id="v-' + id + '" class="variant">' +
+    pageHeader(STATE.year, STATE.view) +
+    '<div class="page" style="padding-top:16px;">' +
+      '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 4px;">' + title + '</h1>' +
+      '<p class="intro">' + introHtml + '</p>' +
+      warnHtml + bodyHtml +
+    '</div><p class="caption">' + captionHtml + '</p></div>';
+}
+
+/* ================= Variant A — classic reliability diagram ================= */
+function renderVariantA(year, view) {
+  var W = 680, H = 460, margin = { left: 58, right: 20, top: 20, bottom: 54 };
+  var sc = makeProbScale(W, H, margin);
+  var stats = countStats(year, view);
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;height:auto;display:block;" role="img" aria-label="Calibration reliability diagram">';
+  for (var i = 0; i <= 10; i++) {
+    var p = i / 10, gx = sc.x(p), gy = sc.y(p);
+    svg += '<line x1="' + gx + '" y1="' + sc.y0 + '" x2="' + gx + '" y2="' + sc.y1 + '" stroke="var(--color-border)" stroke-width="1"/>';
+    svg += '<line x1="' + sc.x0 + '" y1="' + gy + '" x2="' + sc.x1 + '" y2="' + gy + '" stroke="var(--color-border)" stroke-width="1"/>';
+    if (i % 2 === 0) {
+      svg += '<text x="' + gx + '" y="' + (sc.y0 + 17) + '" font-size="10.5" fill="var(--color-text-muted)" text-anchor="middle">' + Math.round(p * 100) + '%</text>';
+      svg += '<text x="' + (sc.x0 - 8) + '" y="' + (gy + 3.5) + '" font-size="10.5" fill="var(--color-text-muted)" text-anchor="end">' + Math.round(p * 100) + '%</text>';
+    }
+  }
+  svg += '<text x="' + ((sc.x0 + sc.x1) / 2) + '" y="' + (H - 8) + '" font-size="11.5" font-weight="600" fill="var(--color-text)" text-anchor="middle">Predicted probability red wins</text>';
+  var midY = (sc.y0 + sc.y1) / 2;
+  svg += '<text x="16" y="' + midY + '" font-size="11.5" font-weight="600" fill="var(--color-text)" text-anchor="middle" transform="rotate(-90 16 ' + midY + ')">Observed frequency red won</text>';
+
+  svg += '<line x1="' + sc.x(0) + '" y1="' + sc.y(0) + '" x2="' + sc.x(1) + '" y2="' + sc.y(1) + '" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.75"/>';
+  /* Well-calibrated points cluster right where this label sits (top-right, near the diagonal's
+   * end) — a halo keeps it legible when a mark lands under it, rather than hoping it never does. */
+  svg += '<text x="' + (sc.x(1) - 4) + '" y="' + (sc.y(1) + 14) + '" font-size="10" fill="var(--color-text-muted)" text-anchor="end" paint-order="stroke" stroke="var(--color-surface)" stroke-width="3" stroke-linejoin="round">perfectly calibrated →</text>';
+
+  ALGO_ORDER.forEach(function (algo) {
+    var slice = getSlice(year, algo, view);
+    var bins = validBins(slice);
+    var pts = bins.map(function (b) { return sc.x(b.meanPredicted).toFixed(1) + ',' + sc.y(b.observedFrequency).toFixed(1); }).join(' ');
+    svg += '<polyline points="' + pts + '" fill="none" stroke="' + SERIES[algo] + '" stroke-width="2" opacity="0.8"/>';
+    bins.forEach(function (b) {
+      var r = sizeScale(b.count, stats.max);
+      svg += '<circle cx="' + sc.x(b.meanPredicted).toFixed(1) + '" cy="' + sc.y(b.observedFrequency).toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + SERIES[algo] + '" fill-opacity="0.82" stroke="var(--color-surface)" stroke-width="1.3"/>';
+    });
+    slice.calibrationBins.forEach(function (b) {
+      if (b.count === 0) {
+        var nominal = (b.binStart + b.binEnd) / 2;
+        svg += '<line x1="' + sc.x(nominal) + '" y1="' + (sc.y0 - 5) + '" x2="' + sc.x(nominal) + '" y2="' + (sc.y0 + 5) + '" stroke="var(--color-text-muted)" stroke-width="1.5"/>';
+      }
+    });
+  });
+  svg += '</svg>';
+
+  var legend = '<div class="legend">' + ALGO_ORDER.map(function (a) {
+    return '<span class="item"><span class="dot" style="background:' + SERIES[a] + '"></span><span class="label">' + ALGO_LABEL[a] + '</span></span>';
+  }).join('') + '</div>';
+
+  var sizeLegend = '<div class="size-legend"><span class="sl-title">Point size = matches in that bin:</span>' +
+    [stats.min, stats.median, stats.max].map(function (c) {
+      var r = sizeScale(c, stats.max);
+      return '<span class="sl-item"><svg width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="' + r.toFixed(1) + '" fill="var(--color-text-muted)" fill-opacity="0.55"/></svg><span>' + fmtN(c) + '</span></span>';
+    }).join('') + '</div>';
+
+  var warn = '<div class="warn"><b>Sample size varies enormously.</b> In this view, calibration bins range from ' +
+    fmtN(stats.min) + ' to ' + fmtN(stats.max) + ' matches. Point <b>size</b> (area, not radius) encodes bin count, ' +
+    'so a small faint dot sitting far from the diagonal is easy to over-read as a finding — it usually is not. ' +
+    'Bins with zero matches draw as a small tick on the axis instead of a point.</div>';
+
+  return { warn: warn, chart: '<div class="chart-card">' + svg + legend + sizeLegend + '</div>' };
+}
+
+/* ================= Variant B — deviation from zero ================= */
+function renderVariantB(year, view) {
+  var W = 680, H = 440, margin = { left: 66, right: 20, top: 22, bottom: 46 };
+  var D = niceCeil(maxAbsDeviation(year, view), 0.05);
+  var sc = makeDevScale(W, H, margin, D);
+  var stats = countStats(year, view);
+  var zeroY = sc.yDev(0);
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;height:auto;display:block;" role="img" aria-label="Calibration deviation chart">';
+
+  [-D, -D / 2, 0, D / 2, D].forEach(function (d) {
+    var gy = sc.yDev(d), isZero = Math.abs(d) < 1e-9;
+    svg += '<line x1="' + sc.x0 + '" y1="' + gy.toFixed(1) + '" x2="' + sc.x1 + '" y2="' + gy.toFixed(1) + '" stroke="' + (isZero ? 'var(--color-text-muted)' : 'var(--color-border)') + '" stroke-width="' + (isZero ? 1.75 : 1) + '" ' + (isZero ? 'stroke-dasharray="5 4"' : '') + '/>';
+    var label = (d > 0 ? '+' : '') + Math.round(d * 100) + 'pp';
+    svg += '<text x="' + (sc.x0 - 8) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10.5" fill="var(--color-text-muted)" text-anchor="end">' + label + '</text>';
+  });
+  /* Halo on all three annotations: bars can land under any of them (a well-calibrated bin sits
+   * right at the zero line; an extreme-confidence bin sits in the top/bottom-left corners). */
+  var HALO = ' paint-order="stroke" stroke="var(--color-surface)" stroke-width="3" stroke-linejoin="round"';
+  svg += '<text x="' + (sc.x1 - 4) + '" y="' + (zeroY - 7).toFixed(1) + '" font-size="10" fill="var(--color-text-muted)" text-anchor="end"' + HALO + '>perfectly calibrated</text>';
+  svg += '<text x="' + (sc.x0 + 2) + '" y="' + (sc.y1 + 12) + '" font-size="10" fill="var(--color-text-muted)"' + HALO + '>↑ underconfident here</text>';
+  svg += '<text x="' + (sc.x0 + 2) + '" y="' + (sc.y0 - 6) + '" font-size="10" fill="var(--color-text-muted)"' + HALO + '>↓ overconfident here</text>';
+
+  for (var i = 0; i <= 10; i++) {
+    var p = i / 10, gx = sc.x(p);
+    svg += '<line x1="' + gx + '" y1="' + sc.y0 + '" x2="' + gx + '" y2="' + sc.y1 + '" stroke="var(--color-border)" stroke-width="1"/>';
+    if (i % 2 === 0) svg += '<text x="' + gx + '" y="' + (sc.y0 + 17) + '" font-size="10.5" fill="var(--color-text-muted)" text-anchor="middle">' + Math.round(p * 100) + '%</text>';
+  }
+  svg += '<text x="' + ((sc.x0 + sc.x1) / 2) + '" y="' + (H - 6) + '" font-size="11.5" font-weight="600" fill="var(--color-text)" text-anchor="middle">Predicted probability (bin)</text>';
+  var midY2 = (sc.y0 + sc.y1) / 2;
+  svg += '<text x="18" y="' + midY2 + '" font-size="11.5" font-weight="600" fill="var(--color-text)" text-anchor="middle" transform="rotate(-90 18 ' + midY2 + ')">Observed − predicted</text>';
+
+  var slotW = (sc.x1 - sc.x0) / 10;
+  var barW = slotW * 0.24;
+  var offsets = [-1, 0, 1];
+
+  for (var bi = 0; bi < 10; bi++) {
+    ALGO_ORDER.forEach(function (algo, ai) {
+      var slice = getSlice(year, algo, view);
+      var b = slice.calibrationBins[bi];
+      var nominal = (b.binStart + b.binEnd) / 2;
+      var cx = sc.x(nominal) + offsets[ai] * (barW + 2);
+      if (b.count === 0) {
+        svg += '<line x1="' + (cx - barW / 2).toFixed(1) + '" y1="' + zeroY.toFixed(1) + '" x2="' + (cx + barW / 2).toFixed(1) + '" y2="' + zeroY.toFixed(1) + '" stroke="var(--color-text-muted)" stroke-width="1.5"/>';
+        return;
+      }
+      var dev = b.observedFrequency - b.meanPredicted;
+      var y = sc.yDev(dev);
+      var top = Math.min(y, zeroY), h = Math.max(Math.abs(y - zeroY), 1);
+      var alpha = opacityScale(b.count, stats.max);
+      svg += '<rect x="' + (cx - barW / 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + SERIES[algo] + '" fill-opacity="' + alpha.toFixed(2) + '" rx="1.5"/>';
+    });
+  }
+  svg += '</svg>';
+
+  var legend = '<div class="legend">' + ALGO_ORDER.map(function (a) {
+    return '<span class="item"><span class="dot" style="background:' + SERIES[a] + '"></span><span class="label">' + ALGO_LABEL[a] + '</span></span>';
+  }).join('') + '</div>';
+
+  var opLegend = '<div class="opacity-legend"><span class="sl-title">Bar opacity = matches in that bin:</span>' +
+    [stats.min, stats.median, stats.max].map(function (c) {
+      var a = opacityScale(c, stats.max);
+      return '<span class="ol-item"><span class="ol-swatch" style="opacity:' + a.toFixed(2) + '"></span><span>' + fmtN(c) + '</span></span>';
+    }).join('') + '</div>';
+
+  var warn = '<div class="warn"><b>Sample size varies enormously.</b> In this view, calibration bins range from ' +
+    fmtN(stats.min) + ' to ' + fmtN(stats.max) + ' matches. Bar <b>opacity</b> encodes bin count, so a tall, ' +
+    'washed-out bar is a bin daring you to over-trust it — read the faint ones as noise, not signal. ' +
+    'Bins with zero matches draw as a small tick on the zero line.</div>';
+
+  return { warn: warn, chart: '<div class="chart-card">' + svg + legend + opLegend + '</div>' };
+}
+
+/* ================= Variant C — plain language first ================= */
+function renderVariantC(year, view) {
+  var D = niceCeil(maxAbsDeviation(year, view), 0.05); /* shared with B: same D drives the mini-charts below */
+  var stats = countStats(year, view);
+
+  var cards = ALGO_ORDER.map(function (algo) {
+    var slice = getSlice(year, algo, view);
+    var bins = slice.calibrationBins;
+    var valid = validBins(slice);
+    var headline = valid.slice().sort(function (a, b) { return Math.abs(a.meanPredicted - 0.7) - Math.abs(b.meanPredicted - 0.7); })[0];
+    var headlineSentence, sparseTag = '';
+    if (headline) {
+      headlineSentence = 'When <b>' + ALGO_LABEL[algo] + '</b> put red’s win chance at about <b>' + fmtPct(headline.meanPredicted) +
+        '%</b>, red actually won <b>' + fmtPct(headline.observedFrequency) + '%</b> of the time — across <b>' + fmtN(headline.count) + '</b> matches.';
+      if (headline.count < SPARSE_N) sparseTag = ' <span class="tag-sparse">small sample</span>';
+    } else {
+      headlineSentence = 'No usable bins in this view.';
+    }
+
+    var rows = bins.map(function (b) {
+      var range = Math.round(b.binStart * 100) + '–' + Math.round(b.binEnd * 100) + '%';
+      if (b.count === 0) {
+        return '<div class="bin-row empty"><span class="br-range">' + range + '</span><span class="br-text muted">No matches landed in this confidence range.</span><span class="br-n"></span></div>';
+      }
+      var sparse = b.count < SPARSE_N;
+      return '<div class="bin-row' + (sparse ? ' sparse' : '') + '"><span class="br-range">' + range + '</span>' +
+        '<span class="br-text">predicted <b>' + fmtPct(b.meanPredicted) + '%</b> &rarr; actual <b>' + fmtPct(b.observedFrequency) + '%</b></span>' +
+        '<span class="br-n">' + fmtN(b.count) + (sparse ? ' <span class="tag-sparse">small sample</span>' : '') + '</span></div>';
+    }).join('');
+
+    var mw = 260, mh = 88, mmargin = { left: 8, right: 8, top: 8, bottom: 18 };
+    var msc = makeDevScale(mw, mh, mmargin, D);
+    var mzero = msc.yDev(0);
+    var mSlotW = (msc.x1 - msc.x0) / 10;
+    var mBarW = mSlotW * 0.62;
+    var msvg = '<svg viewBox="0 0 ' + mw + ' ' + mh + '" style="width:100%;max-width:' + mw + 'px;height:auto;display:block;" role="img" aria-label="' + ALGO_LABEL[algo] + ' mini deviation chart">';
+    msvg += '<line x1="' + msc.x0 + '" y1="' + mzero.toFixed(1) + '" x2="' + msc.x1 + '" y2="' + mzero.toFixed(1) + '" stroke="var(--color-text-muted)" stroke-width="1" stroke-dasharray="3 3"/>';
+    for (var i = 0; i < 10; i++) {
+      var b = bins[i];
+      var nominal = (b.binStart + b.binEnd) / 2;
+      var cx = msc.x(nominal);
+      if (b.count === 0) {
+        msvg += '<line x1="' + (cx - mBarW / 2).toFixed(1) + '" y1="' + mzero.toFixed(1) + '" x2="' + (cx + mBarW / 2).toFixed(1) + '" y2="' + mzero.toFixed(1) + '" stroke="var(--color-text-muted)" stroke-width="1"/>';
+        continue;
+      }
+      var dev = b.observedFrequency - b.meanPredicted;
+      var y = msc.yDev(dev);
+      var top = Math.min(y, mzero), h = Math.max(Math.abs(y - mzero), 1);
+      var alpha = opacityScale(b.count, stats.max);
+      msvg += '<rect x="' + (cx - mBarW / 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + mBarW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + SERIES[algo] + '" fill-opacity="' + alpha.toFixed(2) + '" rx="1"/>';
+    }
+    msvg += '<text x="' + msc.x0 + '" y="' + (mh - 4) + '" font-size="9" fill="var(--color-text-muted)">0%</text>';
+    msvg += '<text x="' + msc.x1 + '" y="' + (mh - 4) + '" font-size="9" fill="var(--color-text-muted)" text-anchor="end">100%</text>';
+    msvg += '</svg>';
+
+    var statsLine = 'Brier <b>' + slice.brierScore.toFixed(3) + '</b> &middot; winner accuracy <b>' + fmtPct(slice.winnerAccuracy, 1) + '%</b> &middot; ' + fmtN(slice.scoredCount) + ' matches scored';
+
+    return '<div class="algo-card">' +
+      '<div class="algo-card-header"><span class="dot" style="background:' + SERIES[algo] + '"></span><span class="algo-name">' + ALGO_LABEL[algo] + '</span></div>' +
+      '<p class="algo-stats">' + statsLine + '</p>' +
+      '<p class="headline-sentence">' + headlineSentence + sparseTag + '</p>' +
+      '<div class="bin-rows">' + rows + '</div>' +
+      '<div class="mini-chart-wrap"><p class="mini-label muted">Same story, at a glance:</p>' + msvg + '</div>' +
+    '</div>';
+  }).join('');
+
+  var warn = '<div class="warn"><b>Sample size varies enormously.</b> In this view, calibration bins range from ' +
+    fmtN(stats.min) + ' to ' + fmtN(stats.max) + ' matches. Rather than a mark you have to notice is faint or small, ' +
+    'every row under ' + SPARSE_N + ' matches is tagged <b>small sample</b> directly in the sentence.</div>';
+
+  return warn + '<div class="card-row">' + cards + '</div>';
+}
+
+/* ---------- assemble + render ---------- */
+function renderAll() {
+  var year = STATE.year, view = STATE.view;
+
+  var aOut = renderVariantA(year, view);
+  var bOut = renderVariantB(year, view);
+  var cOut = renderVariantC(year, view);
+
+  var html =
+    build('a', VARIANTS[0].title,
+      'A calibration curve checks whether the model’s confidence is honest: when it says a side has a 70% chance to win, ' +
+      'does that side actually win about 70% of the time? A point sitting on the dashed diagonal means <b>yes, exactly</b>. ' +
+      'Above the line, the model was underconfident there; below it, overconfident.',
+      aOut.warn, aOut.chart,
+      '<b>The convention a statistician expects.</b> Predicted probability on x, observed frequency on y, one point per confidence ' +
+      'bin per algorithm, judged against the 45&deg; &ldquo;perfectly calibrated&rdquo; diagonal. Point size encodes how many matches ' +
+      'back each point, so a lone point far from the line at the smallest size on the chart reads as noise rather than a finding — ' +
+      'but that discipline only works if the reader holds the size key in their head while looking. Cost: size-as-evidence is itself ' +
+      'something to learn, and this is the variant most likely to intimidate someone who has never seen a reliability diagram.'
+    ) +
+    build('b', VARIANTS[1].title,
+      'Same question, read a different way: instead of comparing each point to a diagonal, this chart plots directly how far off ' +
+      'each bin was — <b>observed minus predicted</b> — against a flat line at zero. Bars above zero mean the model undersold ' +
+      'its own confidence there; bars below mean it oversold it.',
+      bOut.warn, bOut.chart,
+      '<b>Easier to read at a glance, at the cost of the familiar shape.</b> &ldquo;How far off were we&rdquo; becomes a bar height ' +
+      'against a straight reference instead of a distance-from-diagonal judgment — a shorter path to &ldquo;that bar is tall, that’s ' +
+      'bad&rdquo; for a first-time reader. The trade is real: a statistician’s eye goes looking for the diagonal and it isn’t here, ' +
+      'and the y-axis unit (percentage points of deviation) needs its own explanation that a probability-shaped axis gets for free.'
+    ) +
+    build('c', VARIANTS[2].title,
+      'In plain language: does &ldquo;70% confident&rdquo; really mean 70%? Read the sentences below for the story a scout or ' +
+      'student actually wants; the small chart under each card is the same data, for anyone who wants to check it visually.',
+      '', cOut,
+      '<b>Optimises for the FRC audience over the statistical one.</b> The headline sentence for each algorithm is the single ' +
+      'most legible thing in this entire sketch — no axis to learn, no diagonal to interpret. Every bin still gets its own row, ' +
+      'and bins under ' + SPARSE_N + ' matches are tagged &ldquo;small sample&rdquo; in the text itself rather than left to a faint ' +
+      'mark to communicate — the most direct handling of the sparse-bin problem of any variant here. Cost: it is the least standard ' +
+      'artifact — nothing here resembles the calibration plots a stats-literate visitor already knows, and the ' + SPARSE_N + '-match ' +
+      'cutoff is a judgment call presented as if it were a fact.'
+    );
+
+  document.getElementById('wrap').innerHTML = html;
+  VARIANTS.forEach(function (v) { document.getElementById('v-' + v.id).classList.toggle('active', v.id === STATE.variant); });
+  syncControls();
+  layoutNav();
+}
+
+/* ---------- nav chrome ---------- */
+function buildNav() {
+  var navEl = document.getElementById('variant-nav');
+  navEl.innerHTML = VARIANTS.map(function (v) {
+    return '<button class="variant-tab" data-variant="' + v.id + '" onclick="setVariant(\'' + v.id + '\')">' + v.tab + '</button>';
+  }).join('') +
+    '<span class="spacer"></span>' +
+    '<span class="note">Real <code>/v1/compare/{year}.json</code> artifacts, fetched 2026-08-30 from data.sigmascout.org &middot; 2022&ndash;2026 &middot; opr / epa / vpr</span>';
+
+  var dataEl = document.getElementById('data-nav');
+  var yearBtns = YEAR_ORDER.map(function (y) { return '<button class="ctrl-btn" data-year="' + y + '" onclick="setYear(\'' + y + '\')">' + y + '</button>'; }).join('');
+  var viewBtns = VIEW_ORDER.map(function (v) { return '<button class="ctrl-btn" data-view="' + v + '" onclick="setView(\'' + v + '\')">' + VIEW_LABEL[v] + '</button>'; }).join('');
+  dataEl.innerHTML =
+    '<div class="ctrl-group"><span class="ctrl-label">Year</span>' + yearBtns + '</div>' +
+    '<div class="ctrl-group"><span class="ctrl-label">Matches</span>' + viewBtns + '</div>' +
+    '<span class="spacer"></span><span class="note" id="slice-note"></span>';
+}
+function syncControls() {
+  document.querySelectorAll('.variant-tab').forEach(function (btn) { btn.classList.toggle('active', btn.getAttribute('data-variant') === STATE.variant); });
+  document.querySelectorAll('.ctrl-btn[data-year]').forEach(function (btn) { btn.classList.toggle('active', btn.getAttribute('data-year') === STATE.year); });
+  document.querySelectorAll('.ctrl-btn[data-view]').forEach(function (btn) { btn.classList.toggle('active', btn.getAttribute('data-view') === STATE.view); });
+  var stats = countStats(STATE.year, STATE.view);
+  var note = document.getElementById('slice-note');
+  if (note) note.textContent = fmtN(stats.min) + '–' + fmtN(stats.max) + ' matches per bin in this view';
+}
+function layoutNav() {
+  var navH = document.getElementById('variant-nav').offsetHeight;
+  var dataEl = document.getElementById('data-nav');
+  dataEl.style.top = navH + 'px';
+  document.body.style.paddingTop = (navH + dataEl.offsetHeight) + 'px';
+}
+window.addEventListener('resize', layoutNav);
+
+function setYear(y) { STATE.year = y; renderAll(); }
+function setView(v) { STATE.view = v; renderAll(); }
+function setVariant(id) { STATE.variant = id; renderAll(); window.scrollTo(0, 0); }
+
+function setViewport(vp) {
+  var stage = document.getElementById('stage');
+  if (vp === 'full') { stage.style.maxWidth = 'none'; stage.style.boxShadow = 'none'; }
+  else { stage.style.maxWidth = vp + 'px'; stage.style.boxShadow = '0 0 0 1px var(--color-border), 0 8px 24px rgba(0,0,0,.10)'; }
+  document.querySelectorAll('#sketch-toolbar button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-vp') === vp); });
+  layoutNav();
+}
+
+buildNav();
+renderAll();
+</script>
+</body>
+</html>

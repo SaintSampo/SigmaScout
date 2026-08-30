@@ -227,8 +227,15 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 
   Load this before building or changing any UI. It carries the decided rarity-tier palette and its
   accessibility constraints, the uncertainty/interval display rules, and a set of chart-craft
-  mechanics each learned by getting it wrong in a sketch first. It also records two pipeline gaps
-  (per-metric percentiles, match-level predictive variance) that block building on those decisions.
+  mechanics each learned by getting it wrong in a sketch first. As of the 2026-08-30 wrap-up it also
+  carries `references/simulation-and-compare.md` — interpolated (continuous) rank-band edges,
+  plain-language-first calibration, and the rule that differences too small to call render as ties
+  rather than defeats.
+
+  The two pipeline gaps this blurb used to name (per-metric percentiles, match-level predictive
+  variance) are both **resolved** — verified against live artifacts 2026-08-30. One gap remains and
+  is Phase 8's: played event matches carry no `redRpPmf`/`blueRpPmf`, so the rank simulation cannot
+  rewind into played matches until that republish lands.
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
