@@ -27,7 +27,8 @@
     "manifest:algorithms": "tsx --env-file=.env scripts/publishAlgorithmsManifest.ts",
     "worker:deploy": "pnpm --filter worker run deploy",
     "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",
-    "cleanup:retired-objects": "tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts"
+    "cleanup:retired-objects": "tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts",
+    "cleanup:orphaned-demo-teams": "tsx --env-file=.env scripts/deleteOrphanedDemoTeamObjects.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
