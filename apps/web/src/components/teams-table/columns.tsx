@@ -25,6 +25,57 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 export const PINNED_COLUMN_IDS = ["rank", "teamNumber", "nickname"] as const;
 
 /**
+ * The narrow-viewport pinned set (07-UAT.md G-2): ALWAYS derived as
+ * `PINNED_COLUMN_IDS` minus `"nickname"`, never a second hand-typed
+ * `["rank", "teamNumber"]` literal — the exact "one list, not an
+ * independently-drifting copy" discipline `PINNED_COLUMN_IDS`'s own doc
+ * comment states, applied to its own narrow variant. Below
+ * `MOBILE_BREAKPOINT_PX` (`lib/breakpoints.ts`), nickname stops being
+ * pinned and scrolls with the data — G-2's finding was that
+ * rank+teamNumber+nickname pinned (380px declared) leaves no room for a
+ * single prediction metric on a 390px screen; team number is FRC's
+ * canonical row identity and rank is implicit in row order on a
+ * rank-ordered table, so nickname is the one that gives way. `Insights`
+ * and `TeamsTable` share this identical derivation (`Breakdown` has its own
+ * copy in `BreakdownTab.tsx` since it has no rank column to derive from).
+ */
+export const MOBILE_PINNED_COLUMN_IDS = PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
+
+/**
+ * The two identity columns' declared width BELOW `MOBILE_BREAKPOINT_PX`
+ * (07-UAT.md G-2). Derived from real rendered geometry
+ * (`scripts/measure-cell-width.mjs`, run against the app's actual compiled
+ * Tailwind CSS + `@fontsource-variable/inter`, not eyeballed):
+ *  - rank needs to hold a 4-digit value without clipping — `TeamsTable`'s
+ *    own rank column ranks the full season-wide team pool (~3,750 teams per
+ *    D-01), so "130" (Insights' own worst real case, a large event roster)
+ *    is NOT this column's worst case; "9999" is, measured at a real
+ *    `numeric-cell`/`text-role-body` cell width of 52.3px including the
+ *    real 8px+8px `p-2` padding. `RANK_COLUMN_WIDTH_NARROW_PX` adds a ~4px
+ *    safety margin for cross-browser font-hinting variance (measured on
+ *    Chromium; the real device is iOS Safari) and is shared by both
+ *    `TeamsTable` and `InsightsTab` (whose own worst case, a 3-digit event
+ *    rank, is a strict subset of this) rather than each table picking its
+ *    own number.
+ *  - teamNumber needs to hold a 5-digit value ("10000" — FRC numbers now
+ *    exceed 9999) without clipping, measured at a real cell width of
+ *    61.4px; `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX` adds a larger ~10px
+ *    margin, matching the "Team #" header's own real measured width
+ *    (58.6px) so the header text is not forced to truncate at this width
+ *    either (a bonus, not a hard requirement — only the VALUE's non-clip is
+ *    a hard constraint).
+ * The WIDE-viewport sizes (`buildColumns`'s existing 96/88 for `TeamsTable`,
+ * `buildInsightsColumns`'s existing 72/88) are DELIBERATELY left unchanged:
+ * both already exceed these narrow minimums with room to spare, so leaving
+ * them alone is a zero-risk way to satisfy G-2's "do not degrade the wide
+ * layout" constraint — there is no header-truncation or value-clipping
+ * regression to reason about above the breakpoint because nothing there
+ * changes at all.
+ */
+export const RANK_COLUMN_WIDTH_NARROW_PX = 56;
+export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
+
+/**
  * Registered once, module-level, and re-exported so `TeamsTable.tsx`
  * constructs `useTable` with the SAME features object `createColumnHelper`
  * below was instantiated against (05-04-SUMMARY.md's v9 API note: pinning
@@ -74,8 +125,15 @@ function formatRecord(record: TeamRow["record"]): string {
  * prefer threading since both values are already parameters here. `tab` is
  * fixed to `"overview"`: D-16's own default, and there is no "previous team
  * search" to preserve a tab choice from when arriving from a different route.
+ *
+ * `isNarrow` (07-UAT.md G-2): below `MOBILE_BREAKPOINT_PX`, `rank`/
+ * `teamNumber` shrink to `RANK_COLUMN_WIDTH_NARROW_PX`/
+ * `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX` — see those constants' own doc
+ * comments for the real-geometry derivation. At/above the breakpoint the
+ * sizes are UNCHANGED (96/88), so wide-viewport rendering is byte-for-byte
+ * identical to before this fix.
  */
-export function buildColumns(algorithmId: string, season: number) {
+export function buildColumns(algorithmId: string, season: number, isNarrow: boolean) {
   const metricKeys = metricKeysFor(algorithmId, season);
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
@@ -92,16 +150,20 @@ export function buildColumns(algorithmId: string, season: number) {
     // `algorithmDisplayLabel` at render time, never a literal, so a
     // wrong-provenance claim (naming an algorithm that didn't produce the
     // ordering) is structurally unreachable and 07-18's D-04 relabel
-    // carries this header for free. `size` grows from 56 to 96: the header
-    // string grows from four characters ("Rank") to eight or nine
-    // ("Sigma1 Rank"/"VPR Rank"), and `TeamsTable.tsx` derives every pinned
-    // cell's sticky `left` offset from this column's declared size — a
-    // stale 56 would clip the new header inside its own box on the one
-    // column the whole table is ordered by.
-    columnHelper.accessor("rank", { header: `${algorithmDisplayLabel(algorithm)} Rank`, size: 96 }),
+    // carries this header for free. `size` grows from 56 to 96 at/above the
+    // breakpoint: the header string grows from four characters ("Rank") to
+    // eight or nine ("Sigma1 Rank"/"VPR Rank"), and `TeamsTable.tsx` derives
+    // every pinned cell's sticky `left` offset from this column's declared
+    // size — a stale 56 would clip the new header inside its own box on the
+    // one column the whole table is ordered by. Below the breakpoint it
+    // tightens to `RANK_COLUMN_WIDTH_NARROW_PX` (G-2) — the header may
+    // ellipsis-truncate there (it already carries `truncate`), which is an
+    // accepted narrow-mode trade for two extra metric columns' worth of
+    // width; the VALUE itself never clips at either size.
+    columnHelper.accessor("rank", { header: `${algorithmDisplayLabel(algorithm)} Rank`, size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 96 }),
     columnHelper.accessor("teamNumber", {
       header: "Team #",
-      size: 88,
+      size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
           {info.getValue()}

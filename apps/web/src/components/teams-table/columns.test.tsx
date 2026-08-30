@@ -12,7 +12,7 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TeamsTable } from "./TeamsTable";
-import { buildColumns, PINNED_COLUMN_IDS, sortableColumnIds } from "./columns";
+import { buildColumns, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, RANK_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX, sortableColumnIds } from "./columns";
 import type { TeamRow } from "./rowModel";
 
 // Same jsdom layout-engine workaround as TeamsTable.test.tsx — see that
@@ -119,13 +119,13 @@ describe("teams-table columns — team-number/nickname links (E11)", () => {
 
 describe("buildColumns — D-20's per-algorithm rank header", () => {
   it("Test 1: the leading column header names the selected algorithm, read from algorithmDisplayLabel, never a string literal", () => {
-    const columns = buildColumns("vpr", 2024);
+    const columns = buildColumns("vpr", 2024, false);
     const rankColumn = columns[0] as { header: unknown };
     expect(rankColumn.header).toBe(`${algorithmDisplayLabel("vpr")} Rank`);
   });
 
   it("Test 2: opr, epa and vpr each produce a distinct leading header, all ending in the same trailing word", () => {
-    const headers = (["opr", "epa", "vpr"] as const).map((algorithmId) => (buildColumns(algorithmId, 2024)[0] as { header: string }).header);
+    const headers = (["opr", "epa", "vpr"] as const).map((algorithmId) => (buildColumns(algorithmId, 2024, false)[0] as { header: string }).header);
     expect(new Set(headers).size).toBe(3);
     for (const header of headers) {
       expect(header.endsWith("Rank")).toBe(true);
@@ -135,5 +135,33 @@ describe("buildColumns — D-20's per-algorithm rank header", () => {
   it("Test 3: nothing else moved — PINNED_COLUMN_IDS still leads with rank, and the rank id is not sortable", () => {
     expect(PINNED_COLUMN_IDS).toEqual(["rank", "teamNumber", "nickname"]);
     expect(sortableColumnIds("vpr", 2024)).not.toContain("rank");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 07-UAT.md G-2 — narrow-viewport column-size derivation
+// ---------------------------------------------------------------------------
+
+describe("buildColumns — G-2's isNarrow column-size switch", () => {
+  it("wide (isNarrow=false): rank/teamNumber sizes are UNCHANGED at 96/88 — the wide layout never regresses", () => {
+    const columns = buildColumns("vpr", 2024, false) as { id?: string; size: number }[];
+    const rank = columns[0]!;
+    const teamNumber = columns[1]!;
+    expect(rank.size).toBe(96);
+    expect(teamNumber.size).toBe(88);
+  });
+
+  it("narrow (isNarrow=true): rank/teamNumber shrink to the shared, real-geometry-derived narrow constants", () => {
+    const columns = buildColumns("vpr", 2024, true) as { id?: string; size: number }[];
+    const rank = columns[0]!;
+    const teamNumber = columns[1]!;
+    expect(rank.size).toBe(RANK_COLUMN_WIDTH_NARROW_PX);
+    expect(teamNumber.size).toBe(TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX);
+  });
+
+  it("MOBILE_PINNED_COLUMN_IDS is PINNED_COLUMN_IDS minus nickname, never an independently-typed literal", () => {
+    expect(MOBILE_PINNED_COLUMN_IDS).toEqual(["rank", "teamNumber"]);
+    expect(PINNED_COLUMN_IDS).toContain("nickname");
+    expect(MOBILE_PINNED_COLUMN_IDS).not.toContain("nickname");
   });
 });

@@ -27,6 +27,8 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TierKeyRow } from "@/components/team/TierKeyRow";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
+import { useIsMobile } from "@/lib/breakpoints";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
@@ -38,6 +40,18 @@ type EventTeamMetrics = EventTeam["metrics"];
 
 /** The Breakdown tab's leading, frozen columns — two ids, not the Teams table's three, because D-11 carries no rank column to pin. */
 export const BREAKDOWN_PINNED_COLUMN_IDS = ["teamNumber", "nickname"] as const;
+
+/**
+ * The narrow-viewport pinned set (07-UAT.md G-2) — `BREAKDOWN_PINNED_COLUMN_IDS`
+ * minus `"nickname"`, the same derivation `teams-table/columns.tsx`'s own
+ * `MOBILE_PINNED_COLUMN_IDS` uses for its three-column sibling, restated
+ * locally (not imported) because this module's pinned set has no `rank`
+ * member to begin with — there is no shared three-element list to filter
+ * from across the module boundary. Below `MOBILE_BREAKPOINT_PX`, team
+ * number (FRC's canonical row identity) is the one identity column that
+ * stays pinned; nickname scrolls with the data.
+ */
+export const BREAKDOWN_MOBILE_PINNED_COLUMN_IDS = BREAKDOWN_PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
 
 /** One team's Breakdown row — no `rank` field exists here at all (D-11). */
 export interface BreakdownRow {
@@ -109,7 +123,7 @@ function cellClassName(columnId: string): string {
  * season)` in that function's own order — never a Breakdown-specific list
  * and never derived from a fetched row's own key order.
  */
-function buildBreakdownColumns(algorithmId: string, season: number) {
+function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
   // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
@@ -121,7 +135,11 @@ function buildBreakdownColumns(algorithmId: string, season: number) {
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
       header: "Team #",
-      size: 88,
+      // `size` (07-UAT.md G-2): 88 at/above the breakpoint (unchanged),
+      // `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX` below it — the same
+      // real-geometry-derived constant `TeamsTable`/`InsightsTab` share
+      // (`teams-table/columns.tsx`'s own doc comment has the derivation).
+      size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
           {info.getValue()}
@@ -214,14 +232,20 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
  * `artifact.teams` is empty.
  */
 export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProps) {
+  // 07-UAT.md G-2: same sitewide breakpoint hook `TeamsTable.tsx`/`InsightsTab.tsx` reuse.
+  const isNarrow = useIsMobile();
   const rows = useMemo(() => buildBreakdownRows(artifact, algorithmId), [artifact, algorithmId]);
-  const columns = useMemo(() => buildBreakdownColumns(algorithmId, season), [algorithmId, season]);
+  const columns = useMemo(() => buildBreakdownColumns(algorithmId, season, isNarrow), [algorithmId, season, isNarrow]);
+  const columnPinning = useMemo(
+    () => ({ start: isNarrow ? [...BREAKDOWN_MOBILE_PINNED_COLUMN_IDS] : [...BREAKDOWN_PINNED_COLUMN_IDS], end: [] }),
+    [isNarrow],
+  );
 
   const table = useTable({
     features,
     columns,
     data: rows,
-    initialState: { columnPinning: { start: [...BREAKDOWN_PINNED_COLUMN_IDS], end: [] } },
+    state: { columnPinning },
   });
 
   if (artifact.teams.length === 0) {

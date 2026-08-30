@@ -31,7 +31,8 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TierKeyRow } from "@/components/team/TierKeyRow";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
-import { PINNED_COLUMN_IDS } from "@/components/teams-table/columns";
+import { MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, RANK_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
+import { useIsMobile } from "@/lib/breakpoints";
 import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
@@ -209,7 +210,7 @@ function cellClassName(columnId: string): string {
  * (`rank`, `teamNumber`, `nickname`) rather than the constant being adapted
  * to them.
  */
-function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource) {
+function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
   // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
@@ -222,10 +223,15 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     // D-08/T-07-11-02: in fallback mode the header itself names the
     // algorithm whose ordering it is showing — a model-derived ordinal must
     // never sit under a bare "Rank" header a reader parses as official.
+    // `size` (07-UAT.md G-2): 72 at/above the breakpoint (unchanged —
+    // comfortably fits both "Rank" and the longer "VPR Rank"-style fallback
+    // header with no truncation), `RANK_COLUMN_WIDTH_NARROW_PX` below it —
+    // see that constant's own doc comment in `teams-table/columns.tsx` for
+    // the real-geometry derivation shared with `TeamsTable`.
     columnHelper.accessor((row) => row.displayRank, {
       id: "rank",
       header: rankHeader,
-      size: 72,
+      size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72,
       cell: (info) => {
         const value = info.getValue();
         return <span className="numeric-cell">{value === undefined ? "—" : value}</span>;
@@ -233,7 +239,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     }),
     columnHelper.accessor("teamNumber", {
       header: "Team #",
-      size: 88,
+      size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
           {info.getValue()}
@@ -353,14 +359,26 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
  * value, never through a raw-markup sink (T-07-11-01).
  */
 export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps) {
+  // 07-UAT.md G-2: same sitewide breakpoint hook `TeamsTable.tsx` reuses —
+  // see that component's own doc comment for why (one "mobile" definition
+  // for the whole page, live on resize/rotation via `matchMedia`'s `change`
+  // event).
+  const isNarrow = useIsMobile();
   const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
-  const columns = useMemo(() => buildInsightsColumns(algorithmId, season, orderSource), [algorithmId, season, orderSource]);
+  const columns = useMemo(
+    () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow),
+    [algorithmId, season, orderSource, isNarrow],
+  );
+  const columnPinning = useMemo(
+    () => ({ start: isNarrow ? [...MOBILE_PINNED_COLUMN_IDS] : [...PINNED_COLUMN_IDS], end: [] }),
+    [isNarrow],
+  );
 
   const table = useTable({
     features,
     columns,
     data: rows,
-    initialState: { columnPinning: { start: [...PINNED_COLUMN_IDS], end: [] } },
+    state: { columnPinning },
   });
 
   if (artifact.teams.length === 0) {

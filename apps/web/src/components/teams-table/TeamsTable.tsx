@@ -21,7 +21,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { buildColumns, features, PINNED_COLUMN_IDS, sortableColumnIds } from "./columns";
+import { useIsMobile } from "@/lib/breakpoints";
+import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, sortableColumnIds } from "./columns";
 import type { SortDirection, TeamRow } from "./rowModel";
 
 const ROW_HEIGHT_PX = 44;
@@ -59,14 +60,29 @@ function cellClassName(columnId: string): string {
 export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDirection, onSortChange, onRetry }: TeamsTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const columns = useMemo(() => buildColumns(algorithmId, season), [algorithmId, season]);
+  // 07-UAT.md G-2: below `MOBILE_BREAKPOINT_PX`, nickname unpins and
+  // rank/teamNumber tighten (`buildColumns`'s own `isNarrow` doc comment).
+  // Reuses the SAME sitewide breakpoint hook `Ribbon.tsx`/`SearchBox.tsx`
+  // already switch their own compact treatment on, rather than a new
+  // ResizeObserver-based mechanism — one definition of "mobile" for the
+  // whole page, so this table's compact pinning and the ribbon's compact
+  // layout always agree on which viewports are narrow. `useIsMobile`
+  // subscribes to `matchMedia`'s `change` event, so a resize or device
+  // rotation re-evaluates it live, not just on first mount.
+  const isNarrow = useIsMobile();
+
+  const columns = useMemo(() => buildColumns(algorithmId, season, isNarrow), [algorithmId, season, isNarrow]);
   const sortableIds = useMemo(() => new Set(sortableColumnIds(algorithmId, season)), [algorithmId, season]);
+  const columnPinning = useMemo(
+    () => ({ start: isNarrow ? [...MOBILE_PINNED_COLUMN_IDS] : [...PINNED_COLUMN_IDS], end: [] }),
+    [isNarrow],
+  );
 
   const table = useTable({
     features,
     columns,
     data: rows as TeamRow[],
-    initialState: { columnPinning: { start: [...PINNED_COLUMN_IDS], end: [] } },
+    state: { columnPinning },
   });
 
   const tableRows = table.getRowModel().rows;
