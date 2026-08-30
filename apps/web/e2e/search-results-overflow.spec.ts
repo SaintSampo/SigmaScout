@@ -49,26 +49,86 @@ test("desktop: search results overlay the page below the header instead of scrol
   });
   console.log(JSON.stringify({ test: "search-results-overflow desktop", ...overflow }));
 
+  // Supporting signal, not the primary proof (07-UAT.md G-12 correction):
+  // `overflow-y: auto`/`scroll` are the only computed values that CAN make an
+  // element a scroll container, so ruling both out is still meaningful. What
+  // it does NOT prove is that the element currently scrolls — `scrollHeight >
+  // clientHeight` is true here even post-fix, because `overflow-y: visible`
+  // still reports the full extent of the overflowing, absolutely-positioned
+  // results list in `scrollHeight`. That made the old assertion (`scrollHeight
+  // <= clientHeight`) a FALSE POSITIVE: it measured content extent, not
+  // scrolling behaviour. The behavioural check below (`actuallyScrollable`)
+  // is the real proof.
   expect(
     overflow.overflowY,
-    `header computed overflow-y is "${overflow.overflowY}" — "auto" means the header silently became a scroll container`,
-  ).not.toBe("auto");
+    `header computed overflow-y is "${overflow.overflowY}" — "auto"/"scroll" means the header CAN become a scroll container`,
+  ).not.toMatch(/^(auto|scroll)$/);
+
+  // The behavioural proof, per the developer's actual report ("results turn
+  // the ribbon into a scrollable area"): attempt to move the header's own
+  // scroll position and confirm it does not move. `scrollHeight >
+  // clientHeight` is an unreliable proxy for "is scrollable" — with
+  // `overflow-y: visible` an absolutely-positioned overflowing child still
+  // inflates `scrollHeight` even though the element has zero scrolling
+  // behaviour. Setting `scrollTop` and reading it back is what a user
+  // dragging/wheeling the header would actually experience.
+  const scrollability = await header.evaluate((el) => {
+    const before = el.scrollTop;
+    el.scrollTop = 50;
+    const after = el.scrollTop;
+    el.scrollTop = before; // restore — this is a shared page, not a fresh element
+    return { before, after, actuallyScrollable: after !== before };
+  });
+  console.log(JSON.stringify({ test: "search-results-overflow desktop scrollability", ...scrollability }));
+
   expect(
-    overflow.scrollHeight,
-    `header scrollHeight ${overflow.scrollHeight} exceeds clientHeight ${overflow.clientHeight} — the header itself is scrolling instead of letting the dropdown overlay the page`,
-  ).toBeLessThanOrEqual(overflow.clientHeight + 1);
+    scrollability.actuallyScrollable,
+    `header scrollTop moved from ${scrollability.before} to ${scrollability.after} when set to 50 — the header is genuinely scrollable, meaning results are trapped inside it instead of overlaying the page`,
+  ).toBe(false);
 
   const headerBox = await header.boundingBox();
   const resultsBox = await resultsList.boundingBox();
   if (headerBox === null || resultsBox === null) {
     throw new Error("expected both the header and the results list to have a real bounding box");
   }
-  console.log(JSON.stringify({ test: "search-results-overflow desktop boxes", headerBottom: headerBox.y + headerBox.height, resultsBottom: resultsBox.y + resultsBox.height }));
+  const headerBottom = headerBox.y + headerBox.height;
+  const resultsBottom = resultsBox.y + resultsBox.height;
+  console.log(JSON.stringify({ test: "search-results-overflow desktop boxes", headerBottom, resultsBottom }));
 
   expect(
-    resultsBox.y + resultsBox.height,
-    `results list bottom (${resultsBox.y + resultsBox.height}px) does not extend below the header's own bottom edge (${headerBox.y + headerBox.height}px) — results are still confined inside the header`,
-  ).toBeGreaterThan(headerBox.y + headerBox.height);
+    resultsBottom,
+    `results list bottom (${resultsBottom}px) does not extend below the header's own bottom edge (${headerBottom}px) — results are still confined inside the header`,
+  ).toBeGreaterThan(headerBottom);
+
+  // Hit-test, not just geometry: a box CAN extend below the header's bottom
+  // edge while still being clipped/unpainted there (e.g. by an ancestor's
+  // `overflow: hidden`). Sample a point just below the header's bottom edge,
+  // horizontally centered in the results list, and confirm the element
+  // actually painted there is the results list itself (or a descendant of
+  // it) — proof the dropdown is genuinely visible and hit-testable overlaying
+  // the page, not merely reported as such by `getBoundingClientRect`.
+  const probeX = resultsBox.x + resultsBox.width / 2;
+  const probeY = headerBottom + 5;
+  if (probeY >= resultsBottom) {
+    throw new Error(`probe point y=${probeY} is not within the results list's own box (bottom ${resultsBottom}) — cannot hit-test`);
+  }
+  const hitTest = await page.evaluate(
+    ({ x, y, selector }) => {
+      const el = document.elementFromPoint(x, y);
+      const resultsListEl = document.querySelector(selector);
+      return {
+        hitTag: el?.tagName ?? null,
+        paintedInsideResultsList: resultsListEl !== null && el !== null && resultsListEl.contains(el),
+      };
+    },
+    { x: probeX, y: probeY, selector: '[data-slot="command-list"]' },
+  );
+  console.log(JSON.stringify({ test: "search-results-overflow desktop hit-test", probeX, probeY, ...hitTest }));
+
+  expect(
+    hitTest.paintedInsideResultsList,
+    `elementFromPoint(${probeX}, ${probeY}) — just below the header's bottom edge — hit a "${hitTest.hitTag}" that is not inside the results list; the dropdown is not actually painted/hit-testable below the header`,
+  ).toBe(true);
 });
 
 test("390px: header stays non-scrolling with the search dialog open (regression guard, not a reproduction — the dialog is portaled outside the header)", async ({ page }) => {

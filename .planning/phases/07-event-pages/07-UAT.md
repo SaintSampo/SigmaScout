@@ -871,7 +871,7 @@ against `https://sigmascout.org` for GREEN confirmation on `pixel-10` for Insigh
 ### G-12 — Search results turned the ribbon into a scrollable area instead of overlaying the page
 
 severity: high
-status: fixed, pending deploy + live re-verification
+status: fixed, verified live (assertion corrected post-deploy — see below)
 surfaces: `Ribbon.tsx` (both header sites), `__root.tsx`
 
 Developer report: "the search bar is kinda broken. results turn the ribbon into a scrollable area
@@ -922,10 +922,58 @@ CSS property itself was still wrong). Full project `npx vitest run`: 2056 passed
 failures — both the pre-accepted `payloadBudget.test.ts` ledger entries (#11, #15); no new
 failures. `apps/web/tsc --noEmit`: clean.
 
-Pending: deploy, then live re-verification of `search-results-overflow.spec.ts` against
-`https://sigmascout.org` for GREEN confirmation at both widths, plus a manual re-check that
-`no-page-pan.spec.ts` stays green (unaffected by this change — `overflow-x-clip` blocks the same
-horizontal overflow `overflow-x-hidden` did).
+**Post-deploy correction — the assertion, not the fix, was wrong.** Live re-verification against
+the deployed build found the fix genuinely working but `search-results-overflow.spec.ts`'s desktop
+test failing (180 passed / 1 failed across the full suite). Measured live, dropdown open:
+
+```
+overflow-x: clip          overflow-y: visible
+listExtendsBelowHeader : true    (list bottom 170 vs header bottom 78)
+listPaintedBelowHeader  : true    (elementFromPoint below the header hits the list)
+scrollHeight 170  clientHeight 78
+scrollTop := 50  ->  actual scrollTop 0
+ACTUALLY_SCROLLABLE: false
+```
+
+The results genuinely overlay the page below the header, and the header genuinely cannot scroll —
+the fix is correct. The failing assertion was `scrollHeight <= clientHeight`, used as a proxy for
+"is the header scrollable." That proxy was reliable pre-fix (when `overflow-y` was the CSS-forced
+`auto`) but became a **false positive** post-fix: with `overflow-y: visible`, `scrollHeight` still
+reports the full extent of the results list's absolutely-positioned, overflowing content — even
+though the header has zero scrolling behaviour. The proxy measured content extent, not scrolling.
+
+Corrected `apps/web/e2e/search-results-overflow.spec.ts` (commit `fix(07): G-12 correct false
+positive proxy in search-results-overflow.spec.ts` — a test correction, not a weakening) to assert
+the property actually reported ("results turn the ribbon into a scrollable area"):
+
+- **Behavioural check (new, primary):** set `header.scrollTop = 50`, read it back, restore it.
+  Asserts it did not move — this is what a user dragging/wheeling the header would experience,
+  and cannot be fooled by `scrollHeight` inflation from an overflowing child.
+- **Computed-style check (kept, now a supporting signal):** `overflow-y` is not `auto`/`scroll`.
+  Necessary but not sufficient — `visible` still allows the old false positive, which is why the
+  behavioural check is primary.
+- **Below-header extension (kept unchanged):** results list bottom edge extends past the header's
+  own bottom edge.
+- **Hit-test (new, strengthens the above):** `elementFromPoint` just below the header's bottom
+  edge, horizontally centered in the results list, actually resolves to an element inside the
+  results list — proof the dropdown is genuinely painted and hit-testable there, not merely
+  reported as extending there by `getBoundingClientRect`.
+
+Proven to still BITE: temporarily forced `header.style.overflowY = "auto"` (simulating the pre-fix
+computed value) in a throwaway test before the assertion, ran it, and got the expected RED:
+`{"before":0,"after":50,"actuallyScrollable":true}` — assertion failed as designed. The throwaway
+test was deleted before commit; it exists only as the manual proof step, not in the committed spec.
+
+Re-ran the corrected assertion against the deployed origin (real, unmodified fix in place):
+`{"overflowX":"clip","overflowY":"visible","scrollHeight":433,"clientHeight":78}`,
+`{"before":0,"after":0,"actuallyScrollable":false}`, `{"headerBottom":78,"resultsBottom":433}`,
+hit-test resolved to a `DIV` inside the results list. Full suite: **181 passed / 0 failed**.
+`no-page-pan.spec.ts`: 12/12 passed on both mobile projects — `overflow-x-clip` still blocks the
+Phase 5 horizontal page-pan regression it guards, unaffected by this change. `npx vitest run`: 2058
+passed, 1 skipped, 2 failures — the same pre-accepted `payloadBudget.test.ts` ledger entries (#11,
+#15); no new failures.
+
+Status: **fixed and verified live.**
 
 ### G-13 — Metric History chart's Y-axis renders float-noise, clipped tick labels for extreme values
 
