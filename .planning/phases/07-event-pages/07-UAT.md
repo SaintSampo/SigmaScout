@@ -733,3 +733,36 @@ scroll distance can only decrease, never regress.
 Pending: deploy, then live re-verification of `breakdown-desktop-overflow.spec.ts` against
 `https://sigmascout.org` for GREEN confirmation at the new bounds, and developer sign-off on the
 team page's wider-box superscript treatment specifically.
+
+---
+
+## Developer decisions, 2026-08-30 (closing G-7 / G-10)
+
+**G-7 / G-10 — Breakdown desktop overflow: ACCEPTED AT 464px. Not a defect; a decision.**
+
+Three passes, each a real reduction, measured live at 1440px:
+
+| pass | overflow |
+|------|---------:|
+| original | 836px |
+| G-7 widen container + wrap headers | 596px |
+| G-10 superscript metric cell | **464px** |
+
+Styling has run out of room. The remaining floor is the Total column's genuine worst case
+(`284.89 ± 8.75`, from the live 2026alhu artifact) — real data width, not waste. Reaching zero at
+1440px would need ~1904px of viewport. The only remaining lever is showing fewer columns by
+default (a column picker), which the developer declined in favour of banking the 45% reduction.
+
+Breakdown therefore remains horizontally scrollable on desktop, deliberately. `Total` is still
+off-screen at 1440px. Do NOT reopen this as a bug — reopen it only as a column-picker feature.
+
+**G-10 — superscript metric cell: KEPT ON ALL FOUR SURFACES.**
+
+The team page's wider season-header metric boxes read visually sparse with the 9px superscript
+(flagged rather than silently shipped). The developer chose consistency across team page, Teams
+table, Insights and Breakdown over per-surface optimisation. If that box is revisited later, adjust
+its padding rather than reintroducing a second `±` treatment.
+
+Contrast validated via the dataviz skill's `validate_palette.js`: grey `#475569` measures 6.42-7.24:1
+across page, surface, and all four tier tints — above the 4.5:1 small-text floor. Row height
+unchanged (43px). Accessible text byte-identical.
