@@ -3,7 +3,7 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-31T02:00:00Z
+updated: 2026-08-31T20:00:00Z
 ---
 
 ## Current Test
@@ -309,3 +309,102 @@ reachable, whereas plain `"center"` pre-fix pushed it out of reach.
 **Test evidence**: `apps/web/e2e/tab-strip-alignment.spec.ts` (phone-390/pixel-10) proven RED
 against the currently deployed origin pre-fix: `TabsList`'s computed `justify-content` was exactly
 `"center"` while the strip overflows. Confirmed GREEN against a local build of the fixed commit.
+
+### G-8 — Alliances tab rebuilt to spec (nicknames, pick labels, tiering, record) — real-device UAT
+
+severity: high
+status: fixed, pending live re-verification (deploy + full republish)
+surfaces: AlliancesTab, packages/harness (pageArtifacts.ts, publish.ts), packages/corpus (db.ts)
+
+Real-device UAT on `2023cur` alliance 1 found five separate defects/gaps in the Alliances tab,
+gathered directly from the developer against the deployed site:
+
+1. **Nicknames rendered alongside team numbers** (`5940BREAD`) — the developer wants team numbers
+   ONLY, no names anywhere on this tab.
+2. **The pick columns were mislabelled** — `picks[1]` (TBA's own FIRST additional pick) rendered
+   under the header "Pick 2", `picks[2]` under "Pick 3", and the 4th/backup pick under "Backup".
+   The first pick has been labelled "Pick 2" since this tab shipped — a correctness fix, not
+   cosmetics.
+3. **No per-team metric was visible on a pick cell** — only the raw number and nickname. Each
+   team's own `metrics.total` (`{value, spread, percentile}`) is already published per event team;
+   nothing stopped rendering it.
+4. **The Combined Total carried no tier at all** — correctly, since no percentile is published for
+   a 3-team sum (`apps/web/src/lib/metricGroups.ts`'s own header: "nor can a percentile be
+   derived, since a sum's rank is not a function of its parts' ranks"). The developer chose a
+   lighter client-side APPROXIMATION over the pipeline-side fix Phase 6 gave the Auto/Teleop/
+   Endgame phase tiles for the identical problem: divide the combined value by 3 and interpolate
+   that per-team-equivalent against the event's own published (total.value, total.percentile)
+   pairs.
+5. **The alliance's playoff win-loss-tie record existed in the corpus but was never published** —
+   `event_alliances.status_raw` already carries TBA's verbatim `status` object (e.g. `{"record":
+   {"losses":3,"ties":0,"wins":4},"status":"eliminated","level":"f","double_elim_round":"Finals"}`)
+   but `EventAllianceSchema` published only `allianceNumber`/`name`/`picks`.
+
+Separately, the developer made two decisions to STATE explicitly rather than change:
+
+- The Combined Total's `√(Σσ²)` arithmetic is correct and unchanged (D-15) — it already sums only
+  the first three picks and already renders a `±`. What was missing was a code comment recording
+  that it assumes ZERO inter-team covariance, that `sigma1`'s `covEwmaAlpha`/`covShrinkage` govern
+  only a single team's own per-component covariance fold (never a cross-team one —
+  `packages/core/algorithms/sigma1/covariance.ts`'s own header, D-06 of Phase 2), and that this is
+  the same trade-off `metricGroups.ts` records being resolved the OTHER way for the phase tiles.
+- The approximate 3x-heuristic tier must be visibly, honestly labelled as an estimate — never
+  presented with the same confidence as a team's own exact published tier.
+
+**Fixed**, four commits:
+
+- `feat(07-21): parse alliance playoff record from status_raw` — `packages/corpus/db.ts` gains
+  `parseAllianceRecord`, a Zod-validated extraction of `{wins, losses, ties}` from TBA's `status`
+  object, collapsing every honest absence (no `status_raw`, unparseable JSON, an unmodelled
+  `playoff_type` shape, a partial record) to `null` through one rule — never a fabricated `0-0-0`.
+  `selectEventAlliancesForSeason` now selects `status_raw` and populates
+  `EventAllianceSelection.record`.
+- `feat(07-21): client 3x heuristic for an alliance's combined-total tier` —
+  `apps/web/src/lib/allianceTierApproximation.ts` (new file):
+  `buildTeamValuePercentilePoints`/`estimateCombinedTier` implement the developer's chosen method
+  exactly (divide by 3, interpolate against the event's own published per-team points, clamp
+  outside the observed range, skip teams with no published percentile rather than treating them as
+  0). 11 unit tests.
+- `feat(07-21): publish an alliance's playoff win-loss-tie record` — `EventAllianceSchema` gains an
+  optional `record` (reusing the existing `RecordSchema`), and `buildEventArtifact` threads it
+  through with the same undefined-or-null-omits-the-key discipline every other optional field in
+  this file already uses.
+- `feat(07-21): rebuild the Alliances tab per real-device UAT` — `AlliancesTab.tsx`: dropped
+  `nickname` from `AlliancePick` entirely (not merely un-rendered — the field no longer exists on
+  the interface); relabelled the headers to `Captain / Pick 1 / Pick 2 / Pick 3 / Combined Total /
+  Record` (column ids unchanged — `pick0`/`pick1`/`pick2`/`pickBackup`/`combined`, plus a new
+  `record` — so the existing e2e suite's testid-keyed assertions did not need to change); each pick
+  cell now renders the team's own total metric via `MetricValue`, tiered by
+  `tierForPercentile(pick.total?.percentile)` — its OWN exact published percentile, never the
+  alliance's approximate one; the Combined Total cell renders the 3x-heuristic tier through the
+  SAME `MetricValue` component plus a quiet `≈` marker (rendered only when a tier box actually
+  draws — Common has nothing to qualify) carrying a `title`/`aria-label` disclosure; the
+  independence assumption is now documented inline on `combineAlliancePicks` per the two decisions
+  above, with NO arithmetic change; a new Record column renders `formatAllianceRecord` (mirrors
+  `InsightsTab.tsx`'s `formatEventRecord` convention, restated rather than imported across the
+  module boundary).
+
+**Table-layout re-evaluated** (design_context ask): this tab's pick columns previously ran
+`table-layout: auto` because they relied on auto layout's free growth to show a full, untruncated
+nickname (recorded in G-1's own write-up as the deliberate reason this tab was excluded from that
+gap's `fixed` fix). Dropping the nickname removes that reason entirely — every pick cell now
+renders only a team number plus a `MetricValue`, whose width is bounded by CSS
+(`.metric-tier`'s own `min-width: 80px`), never free-growing text. Switched to `table-layout:
+fixed`, matching every other event table. This tab has no pinned columns, so there was never a
+sticky-offset defect either layout choice could introduce or fix here — the only property in play
+is declared-vs-actual column width, which `fixed` makes equal by construction.
+
+**Test evidence**: 26 new/changed unit tests across `packages/corpus/db.test.ts`,
+`packages/harness/pageArtifacts.test.ts`, `packages/harness/publish.test.ts`,
+`apps/web/src/lib/allianceTierApproximation.test.ts` and
+`apps/web/src/components/event/AlliancesTab.test.tsx` (rewritten sections for the dropped
+nickname, corrected labels, per-pick tiering, 3x-heuristic tiering, and the new Record column).
+Full project `npx vitest run`: 2052 passed, 1 skipped, 2 failures — both the pre-accepted
+`payloadBudget.test.ts` ledger entries (#11, #15); two ADDITIONAL failures observed in
+`BreakdownTab.test.tsx` are pre-existing in a concurrent, uncommitted, in-progress edit to that
+file by a different agent working the same phase in parallel (out of this gap's ownership scope,
+per this plan's explicit file-ownership boundary) — not caused by, or fixed by, this gap's work.
+
+Pending: the full republish (`pnpm publish:seasons`) to actually populate `record` on
+already-published artifacts, and live re-verification against the deployed origin once that
+republish and this commit both ship.
