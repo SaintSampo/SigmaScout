@@ -232,7 +232,17 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
       <div data-testid="breakdown-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
-        <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+        <table
+          style={{
+            // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
+            // comment for the full mechanism.
+            tableLayout: "fixed",
+            width: "100%",
+            minWidth: table.getTotalSize(),
+            borderCollapse: "separate",
+            borderSpacing: 0,
+          }}
+        >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

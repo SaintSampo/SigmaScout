@@ -381,7 +381,20 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
         </div>
       )}
       <div data-testid="insights-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
-        <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+        <table
+          style={{
+            // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
+            // comment for the full mechanism — `auto` let the browser
+            // resize columns past their declared `size`, desyncing every
+            // pinned column's sticky `left` from where its neighbour
+            // actually rendered (measured live: nickname 220→348px).
+            tableLayout: "fixed",
+            width: "100%",
+            minWidth: table.getTotalSize(),
+            borderCollapse: "separate",
+            borderSpacing: 0,
+          }}
+        >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

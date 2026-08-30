@@ -366,6 +366,26 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+        {/*
+          07-UAT.md G-1 deliberately does NOT apply `table-layout: fixed`
+          here — evaluated and measured, not skipped by default. This tab
+          has no pinned columns at all, so there is no sticky-`left`
+          desync to fix (the defect class G-1 targets does not exist here;
+          live measurement found a 0px gap). Measured live (`pick0`/
+          `pick1`/`pick2`, `scripts/measure-tables.mjs`): each pick column's
+          ACTUAL rendered width is ~386px against a declared 180px, because
+          `PickCell`'s nickname span relies on `truncate` inside a `flex`
+          row with no accompanying `min-width: 0` — a well-known flexbox
+          gap where `overflow: hidden`/`text-overflow: ellipsis` alone
+          cannot shrink a flex item below its content's intrinsic width.
+          Auto layout's free growth is currently HIDING that gap by
+          growing the column to fit instead of truncating. Switching to
+          `fixed` without also fixing that flex/min-width interaction would
+          clamp these columns to 180px and likely spill the untruncated
+          nickname over the next column — a new, real visual regression on
+          a tab that is not broken today. Fixing the flex/truncate
+          interaction is a separate, non-G-1 change; left alone here.
+        */}
         <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

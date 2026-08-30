@@ -129,7 +129,27 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
       data-testid="teams-table-scroll"
       style={{ overflow: "auto", height: scrollHeight, width: "100%", position: "relative" }}
     >
-      <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+      <table
+        style={{
+          // 07-UAT.md G-1: `table-layout: fixed` makes every column's
+          // ACTUAL rendered width equal its DECLARED `size` — with `auto`
+          // (the prior default), the browser treated `width` as a hint and
+          // resized columns to content instead, desyncing every pinned
+          // column's sticky `left` (`getStart("start")`, derived from
+          // DECLARED sizes) from where its neighbour actually rendered.
+          // This table's own virtualizer-driven `position: absolute` rows
+          // partly masked the bug in the HEADER row (only the header
+          // participates in `auto`'s column-width algorithm once body rows
+          // are taken out of normal flow) but not in the BODY rows
+          // themselves, where the desync was real and measured — see
+          // `07-UAT.md` G-1's own table for the live numbers.
+          tableLayout: "fixed",
+          width: "100%",
+          minWidth: table.getTotalSize(),
+          borderCollapse: "separate",
+          borderSpacing: 0,
+        }}
+      >
         <TableHeader style={{ position: "sticky", top: 0, zIndex: 3 }}>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
@@ -147,7 +167,14 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
                     aria-sort={ariaSort}
                     className="text-role-label truncate"
                     style={{
+                      // `minWidth`/`maxWidth` paired with `width`: see the
+                      // body `TableCell`'s identical style-object comment
+                      // below for why (the header row itself never needed
+                      // this — it stays in normal table flow — but carries
+                      // the same pair for defense in depth).
                       width: header.getSize(),
+                      minWidth: header.getSize(),
+                      maxWidth: header.getSize(),
                       position: pinned ? "sticky" : undefined,
                       left: pinned ? header.getStart("start") : undefined,
                       zIndex: pinned ? 4 : 3,
@@ -210,7 +237,31 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
                         data-pinned={pinned ? "true" : "false"}
                         className={cellClassName(cell.column.id)}
                         style={{
+                          // 07-UAT.md G-1, measured finding beyond the plain
+                          // `table-layout: fixed` fix: a `<tr>` with
+                          // `position: absolute` (this table's own row
+                          // virtualizer) is blockified by the CSS Display
+                          // spec's "absolutely positioned boxes are
+                          // blockified" rule, which disconnects its `<td>`s
+                          // from the real table's column grid — each
+                          // virtualized row's cells get rebuilt into their
+                          // own anonymous one-row table, where `auto` sizing
+                          // and content-driven growth apply regardless of
+                          // `tableLayout: "fixed"` on the table element
+                          // above (verified live: `width` alone left a real
+                          // ~31px sticky gap even after that fix). Pairing
+                          // `width` with an EQUAL `minWidth`/`maxWidth`
+                          // forces an exact box size that a table-cell must
+                          // honor even inside that anonymous auto-layout
+                          // table — re-measured at 0px gap. `HEADER` cells
+                          // never needed this (they stay in normal table
+                          // flow, so `tableLayout: "fixed"` alone already
+                          // sizes them correctly) but carry the same pair
+                          // for defense in depth against the same class of
+                          // future regression.
                           width: cell.column.getSize(),
+                          minWidth: cell.column.getSize(),
+                          maxWidth: cell.column.getSize(),
                           position: pinned ? "sticky" : undefined,
                           left: pinned ? cell.column.getStart("start") : undefined,
                           zIndex: pinned ? 1 : undefined,
