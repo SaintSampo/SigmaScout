@@ -22,6 +22,38 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
+**Latest run — 2026-08-30, `07-UAT.md` G-8's full republish (`pnpm publish:seasons`), generation
+`882249ad-be97-419d-b929-042aa17afb41`.** 56,774 page objects plus 2 manifests (56,776 total
+`PUT`s), 3,310,309,807 bytes of page-object payload, ≈19 min 6 sec wall clock
+(`05:16:02Z`-`05:35:08Z`), no concurrent publish processes (`tasklist` confirmed a clean 12-process
+baseline both before and after). Object counts and per-kind byte figures are IDENTICAL to the
+2026-08-29 run below for every page kind except `event/{eventKey}` — the only artifact this gap's
+work (`EventAllianceSchema.record`, G-8 item 5) touches:
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Change vs. 2026-08-29 run |
+|---|---:|---:|---:|---:|---|
+| `event/{eventKey}` | 4,143 | 75,709 | 189,784 | 327,261 | **+320 bytes on median, p95 AND max alike** (was 75,389 / 189,464 / 326,941) |
+| `teams/{year}` | 15 | 1,758,192 | 3,705,194 | 3,705,194 | unchanged |
+| `team/{teamKey}/{year}` | 52,596 | 42,208 | 147,846 | 675,943 | unchanged, same key (`v1/team/frc3538/2024/...`) |
+| `events/{year}` | 15 | 75,225 | 84,113 | 84,113 | unchanged |
+| `compare/{year}` | 5 | 14,035 | — | 14,133 | unchanged |
+
+The identical +320-byte shift across median, p95 AND max is itself the finding: it is the signature
+of a field that landed on every event artifact roughly uniformly (a short, mostly fixed-size
+`record: {wins, losses, ties}` object, present on the ~6/7 of alliances that have run a playoff
+bracket) rather than a change whose cost scales with an event's own size. Confirmed directly: the
+largest object's own key is unchanged (`v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json`), so the
++320 bytes at `max` is the SAME object growing by the SAME amount every other event grew by, not a
+different, larger event taking over the maximum. **Neither ceiling this page kind is measured
+against moves as a result** — `event/{eventKey}`'s committed `budgetMaxBytes` is 350,000 and its
+new max (327,261) clears it with 22,739 bytes (6.9%) to spare, comfortably inside the pre-existing
+headroom this small a shift could not threaten.
+
+Alliance records verified against the live public origin, not merely asserted from the local run:
+`https://data.sigmascout.org/v1/event/2023cur/vpr@2.0.0+tuned-2026-08.json` alliance 1 reads back
+`{"wins":4,"losses":3,"ties":0}` — the exact value independently read from the corpus's raw
+`status_raw` column before this republish.
+
 **Latest run — 2026-08-29, `.planning/todos/completed/exclude-offseason-demo-teams-SUMMARY.md`'s
 post-exclusion full republish (`pnpm publish:seasons`), generation
 `961340e8-9e45-4d91-8e85-f72982ac3d87`.** 56,774 page objects plus 2 manifests (56,776 total
@@ -824,8 +856,8 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-29T23:52:19Z",
-  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- .planning/todos/completed/exclude-offseason-demo-teams-SUMMARY.md's post-exclusion full republish under the vpr@ prefix, generation 961340e8-9e45-4d91-8e85-f72982ac3d87, first run to exclude TBA's 30 frc9970-frc9999 Off-Season Demo Team keys from every published team surface (414 fewer team-season objects than the prior run: 53,010 -> 52,596)",
+  "measuredAt": "2026-08-30T05:35:08Z",
+  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- 07-UAT.md G-8's full republish, generation 882249ad-be97-419d-b929-042aa17afb41, publishing EventAllianceSchema.record (an alliance's playoff win-loss-tie record) for the first time; every page kind is byte-identical to the prior 961340e8 run except event/{eventKey}, which carries the new field",
   "pages": {
     "teams": {
       "count": 15,
@@ -853,9 +885,9 @@ rendering of these same numbers, not a second source.
     },
     "event": {
       "count": 4143,
-      "medianBytes": 75389,
-      "p95Bytes": 189464,
-      "maxBytes": 326941,
+      "medianBytes": 75709,
+      "p95Bytes": 189784,
+      "maxBytes": 327261,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json"
     },
