@@ -357,15 +357,32 @@ body {
 }
 
 /*
- * Alternating match-row tint (`MatchTable.tsx`) — the "existing secondary
- * surface band" the chart-craft reference's own zebra-tint lesson calls
- * for on this exact table (`sketch-findings-sigmascout` skill,
- * `chart-craft.md`: "A zebra tint on alternate rows reinforces the
- * block"). Applied INSIDE an `.event-card`, so the untinted row quietly
- * inherits the card's own `--color-bg-surface` and this tint's
- * `--color-bg-page` is the one that visibly pops — same two existing
- * tokens as everywhere else in this file, no third shade invented.
+ * Alternating match-row stripe (`MatchTable.tsx`, `EventMatchTable.tsx`) —
+ * the "existing secondary surface band" the chart-craft reference's own
+ * zebra-tint lesson calls for on this exact table (`sketch-findings-sigmascout`
+ * skill, `chart-craft.md`: "A zebra tint on alternate rows reinforces the
+ * block").
+ *
+ * G-9 (07-UAT.md): BOTH alternating states are painted explicitly here, each
+ * from an existing token (`.match-row-untinted` from `--color-bg-surface`,
+ * `.match-row-tint` from `--color-bg-page`) — no third shade invented (D-06).
+ * This block's original comment assumed the untinted row was always rendered
+ * inside an `.event-card` (which paints `--color-bg-surface`), so the
+ * untinted row could stay `transparent` and quietly borrow that colour,
+ * leaving only the tint's own `--color-bg-page` to visibly "pop." That
+ * assumption held on the team page (`EventSection.tsx` wraps `MatchTable` in
+ * an `.event-card`) but not on the event page's Quals/Elims tabs, which
+ * render `EventMatchTable` with no card ancestor at all — there the untinted
+ * row fell through to the PAGE's own background, which happens to be the
+ * exact colour the tint paints, so every tinted row rendered invisible.
+ * Painting both states explicitly makes the stripe self-contained and
+ * correct on any backdrop; the two colours are unchanged from before, so the
+ * team page's rendered output is byte-identical to when it inherited its
+ * untinted colour from the card.
  */
+.match-row-untinted {
+  background-color: var(--color-bg-surface);
+}
 .match-row-tint {
   background-color: var(--color-bg-page);
 }

@@ -203,8 +203,8 @@ function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow
   const blueLoses = row.played && row.actualWinner === "red";
 
   return (
-    <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted && "match-row-tint")}>
-      <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "bg-[var(--color-bg-surface)]")}>
+    <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
+      <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         <div className="flex min-w-0 flex-col gap-[1px]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(row)}</span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">

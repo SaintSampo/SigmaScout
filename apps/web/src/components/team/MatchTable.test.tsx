@@ -214,6 +214,35 @@ describe("MatchTable", () => {
     expect(row1.className).not.toBe(row2.className);
   });
 
+  /**
+   * G-9 (07-UAT.md): the untinted row must carry its OWN explicit
+   * `match-row-untinted` class rather than being left transparent — this
+   * table happens to render correctly today only because `EventSection.tsx`
+   * wraps it in `.event-card`, which quietly supplied the untinted colour by
+   * inheritance. Asserting the explicit class here (rather than only "the
+   * two rows differ") is what would have caught `EventMatchTable.tsx`
+   * sharing this exact CSS class without that ancestor.
+   */
+  it("the untinted row carries its own explicit match-row-untinted class, not a bare transparent background", () => {
+    render(
+      <MatchTable
+        matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" })]}
+        domain={DOMAIN}
+        teamKey="frc118"
+        season={2024}
+      />,
+    );
+    const row1 = screen.getByTestId("match-row-m1");
+    const row2 = screen.getByTestId("match-row-m2");
+    expect(row1.className).toContain("match-row-untinted");
+    expect(row2.className).toContain("match-row-tint");
+
+    const stickyCell1 = within(row1).getByText(matchLabel(makeMatch({ matchKey: "m1" }))).closest("td")!;
+    const stickyCell2 = within(row2).getByText(matchLabel(makeMatch({ matchKey: "m2" }))).closest("td")!;
+    expect(stickyCell1.className).toContain("match-row-untinted");
+    expect(stickyCell2.className).toContain("match-row-tint");
+  });
+
   it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {
     render(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118"
         season={2024}

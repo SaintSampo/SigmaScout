@@ -45,6 +45,44 @@ describe("Structure and the dropped highlight rule", () => {
     expect(screen.getAllByRole("columnheader")).toHaveLength(EVENT_MATCH_TABLE_COLUMN_COUNT);
     expect(screen.getAllByTestId("axis-ticks")).toHaveLength(1);
   });
+
+  /**
+   * G-9 (07-UAT.md): the untinted row must carry its OWN explicit background
+   * class (`match-row-untinted`), never `transparent` with no class at all —
+   * a transparent untinted row is exactly the bug this table shipped with,
+   * since this component (unlike `MatchTable.tsx`) has no `.event-card`
+   * ancestor to quietly borrow a colour from. Also asserts the sticky first
+   * cell's own class always matches its row's state, so the pinned column
+   * never desyncs from the row's own stripe.
+   */
+  it("both zebra-stripe states are painted with their own explicit class — never left to inherit a transparent background from an ancestor", () => {
+    render(
+      <EventMatchTable
+        rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" }), makeRow({ matchKey: "m3" })]}
+        domain={DOMAIN}
+        season={2024}
+      />,
+    );
+    const row1 = screen.getByTestId("match-row-m1");
+    const row2 = screen.getByTestId("match-row-m2");
+    const row3 = screen.getByTestId("match-row-m3");
+
+    expect(row1.className).toContain("match-row-untinted");
+    expect(row1.className).not.toContain("match-row-tint");
+    expect(row2.className).toContain("match-row-tint");
+    expect(row3.className).toContain("match-row-untinted");
+    expect(row3.className).not.toContain("match-row-tint");
+    expect(row1.className).not.toBe(row2.className);
+
+    // The sticky first cell (the Match column) must carry the SAME state
+    // class as its own row, in both directions — never a bare
+    // `bg-[var(--color-bg-surface)]` literal that could drift from the
+    // row's own token.
+    const stickyCell1 = within(row1).getByText("Qual 1").closest("td")!;
+    const stickyCell2 = within(row2).getByText("Qual 1").closest("td")!;
+    expect(stickyCell1.className).toContain("match-row-untinted");
+    expect(stickyCell2.className).toContain("match-row-tint");
+  });
 });
 
 describe("Played rows", () => {

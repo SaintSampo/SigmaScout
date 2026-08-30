@@ -100,8 +100,12 @@ export default defineConfig({
       // default) and overrides the viewport itself per-test (1440 AND 1280 —
       // the two widths G-7 was measured at) via `page.setViewportSize`, so it
       // does not need a second project of its own.
+      // Widened by 07-UAT.md G-9's own fix task: zebra-stripe-full-row.spec.ts
+      // asserts a CSS-painted background colour, not a layout-dependent
+      // measurement — the defect and its fix are viewport-agnostic, so this
+      // project's default 1440x900 is a fine home rather than a new project.
       testMatch:
-        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts/,
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {

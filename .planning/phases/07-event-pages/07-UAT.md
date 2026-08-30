@@ -508,3 +508,101 @@ per this plan's explicit file-ownership boundary) — not caused by, or fixed by
 Pending: the full republish (`pnpm publish:seasons`) to actually populate `record` on
 already-published artifacts, and live re-verification against the deployed origin once that
 republish and this commit both ship.
+
+### G-9 — Zebra striping invisible on Quals/Elims: the untinted row borrowed its colour from an ancestor that does not exist there
+
+severity: high
+status: fixed, pending live re-verification
+surfaces: EventMatchTable (Quals, Elims), theme.css's `.match-row-tint`
+
+Developer report: "zebra stripes seem broken on event quals/elims pages."
+
+Measured on the deployed site, `2023cur` Quals at 1280px, first three body rows:
+
+```
+row0 (untinted)  tr.bg=transparent
+   td0 ownBg=rgb(241,245,249)   effective=rgb(241,245,249)
+   td1..3 ownBg=transparent      effective=rgb(248,250,252)
+row1 (TINTED)    tr.bg=rgb(248,250,252)  tr.class="match-row-tint"
+   td0 ownBg=rgb(248,250,252)   effective=rgb(248,250,252)
+   td1..3 ownBg=transparent      effective=rgb(248,250,252)
+```
+
+`.match-row-tint` is `background-color: var(--color-bg-page)`. Its own comment stated the
+assumption it depended on: "Applied INSIDE an `.event-card`, so the untinted row quietly inherits
+the card's own `--color-bg-surface` and this tint's `--color-bg-page` is the one that visibly
+pops." That holds on the team page (`EventSection.tsx` wraps `MatchTable` in `.event-card`), but
+`EventMatchTable` (shared by Quals and Elims) has no card ancestor — verified live,
+`tinted.closest(".event-card")` is `false` on the event page. There the untinted row fell through
+to the PAGE background, which is the exact colour the tint paints, so tinted rows rendered
+invisible. The only thing that still visibly alternated was the sticky first `<td>`, which carries
+its own opaque background for an unrelated reason (staying readable over horizontally-scrolling
+content) — a real user sees one darker square per alternate row and no full-width stripe.
+
+**Fixed** (commit `fix(07): G-9 paint both zebra-stripe states explicitly, independent of ancestor`):
+both alternating states are now painted explicitly from existing tokens rather than one state
+staying `background: transparent` and inheriting whatever happens to sit behind it —
+`theme.css` gains `.match-row-untinted { background-color: var(--color-bg-surface); }` alongside
+the existing `.match-row-tint { background-color: var(--color-bg-page); }`. `EventMatchTable.tsx`
+and `MatchTable.tsx` (D-06: shared fix, both tables render the identical CSS classes) now apply
+`tinted ? "match-row-tint" : "match-row-untinted"` to both the `<tr>` and its sticky first `<td>`
+uniformly — the sticky cell previously carried an independent `bg-[var(--color-bg-surface)]`
+literal in its untinted branch, which happened to equal the intended colour but was a second,
+separately-maintained source of the same fact; it now reads off the same two classes the row
+itself uses, so the pinned cell can never drift from its own row's stripe.
+
+No third colour was invented (D-06): the two tokens are unchanged from before this fix
+(`--color-bg-surface` / `--color-bg-page`), so the team page's rendered output is byte-identical to
+when it inherited its untinted colour from `.event-card` — confirmed by this task's own e2e proof
+(the team page assertion passed both before and after, since it was never broken).
+
+**Contrast, checked against the decided palette (not invented):** the pair's rgb values differ by
+~7/255 (~2.7%), a subtle delta. The `sketch-findings-sigmascout` skill's `colour-and-tiers.md` and
+`chart-craft.md` name `--color-bg-page`/`--color-bg-surface` as the two tokens this exact zebra
+tint is built from (`chart-craft.md`: "A zebra tint on alternate rows reinforces the block";
+`theme.css`'s own header: these are the 60%/30% dominant/secondary surface tokens, the only two
+neutral background tokens in the palette) and neither reference proposes an alternative, higher-
+contrast pairing for this purpose. This is the genuinely decided pair — kept as-is rather than
+inventing a third shade the skill does not name. The full-width fix itself (rather than a
+one-darker-square accent) is what restores legibility: the same subtle delta reads clearly once it
+spans the entire row rather than one ~50px sticky cell.
+
+**Dark mode:** not applicable — this app has no dark theme. `theme.css` defines exactly one
+`@theme` block with no `.dark` class or `prefers-color-scheme` override, and no component ever
+toggles one (the stray `dark:` classes inside a handful of generated `src/components/ui/*`
+primitives are unused shadcn boilerplate — no ancestor ever carries a `.dark` class for them to
+match). Nothing to verify.
+
+**Other event tables audited (Insights, Breakdown, Alliances, Teams table):** none of these render
+zebra striping at all — verified by grep, no `match-row-tint`/`index % 2`-style row-tinting pattern
+exists anywhere in `InsightsTab.tsx`, `BreakdownTab.tsx`, `AlliancesTab.tsx` or `TeamsTable.tsx`.
+Their rows use only the shadcn `TableRow` primitive's default `border-b` separator between rows
+(`apps/web/src/components/ui/table.tsx`) — never unstriped-by-a-bug, unstriped by design. This
+gap's fix is therefore scoped correctly to the one CSS class (`match-row-tint`/
+`match-row-untinted`) and the two components (`MatchTable.tsx`, `EventMatchTable.tsx`) that
+actually implement this pattern.
+
+**Test evidence**:
+- Unit tests (`MatchTable.test.tsx`, `EventMatchTable.test.tsx`): both now assert the untinted row
+  and its sticky cell carry the explicit `match-row-untinted` class (never merely "the two rows'
+  classes differ," which the pre-fix transparent-background code already satisfied) — this is the
+  assertion shape that would have caught `EventMatchTable.tsx` sharing the class without the
+  `.event-card` ancestor `MatchTable.tsx` happened to have.
+- New `apps/web/e2e/zebra-stripe-full-row.spec.ts` (desktop project, deployed origin): asserts the
+  EFFECTIVE background colour (walking up the ancestor chain past any `transparent` box, mirroring
+  exactly how this defect was diagnosed live) of the first 4 cells in each of 3 consecutive body
+  rows differs from the row before it — on Quals, Elims, and the team page — plus that the sticky
+  first cell's own background always matches its row's effective background. Proven RED against
+  the currently-deployed origin pre-fix: Quals and Elims both failed with cells 1-3 measuring an
+  IDENTICAL `rgb(248, 250, 252)` across every row (only cell 0, the sticky column, alternated:
+  `rgb(241, 245, 249)` / `rgb(248, 250, 252)`), and the sticky-cell-matches-own-row assertion failed
+  with the sticky cell reading `rgb(241, 245, 249)` while its row's own effective background read
+  `rgb(248, 250, 252)` — reproducing this gap's own live diagnosis exactly. The team page assertion
+  passed unmodified both before and after (it was never broken), serving as this fix's own
+  regression guard.
+- Full project `npx vitest run` (repo root): 2056 passed, 1 skipped, 2 failures — both the
+  pre-accepted `payloadBudget.test.ts` ledger entries (#11, #15); no new failures.
+
+Pending: deploy, then live re-verification of `zebra-stripe-full-row.spec.ts` against
+`https://sigmascout.org` for GREEN confirmation on Quals/Elims (the team page assertion already
+passes and is a regression guard only).
