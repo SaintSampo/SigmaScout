@@ -65,6 +65,8 @@ function matchResult(overrides: Partial<MatchResult> = {}): MatchResult {
     blueScore: 80,
     redRpEarned: 2,
     blueRpEarned: 0,
+    redDqs: [],
+    blueDqs: [],
     hasScoreBreakdown: true,
     scoreBreakdownRaw: breakdown2024Json(),
     ...overrides,
@@ -578,5 +580,82 @@ describe("epa — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)
     const predictedWithDemo = epa.predict(stateWithDemo, upcoming({ redTeams: ["frc1", "frc2", "frc9985"], blueTeams: ["frc4", "frc5", "frc6"] }));
     const predictedWithReal = epa.predict(stateWithReal, upcoming({ redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] }));
     expect(predictedWithDemo.redScore).toBeCloseTo(predictedWithReal.redScore, 9);
+  });
+});
+
+describe("epa — whole-alliance DQ zero-score exclusion (.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md)", () => {
+  it("a fully-DQ'd, zero-score alliance gets NO component update — its teamComponents stay at the pre-match cold-start record, while the opposing alliance's real fold is completely unaffected by the DQ", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "D1", "D2", "D3"]);
+    const afterDq = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: ["D1", "D2", "D3"],
+        redScore: 0,
+        blueScore: 90,
+      })
+    );
+    const afterNoDq = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: [],
+        redScore: 0,
+        blueScore: 90,
+      })
+    );
+
+    // The DQ'd teams never received any component update — still exactly
+    // the cold-start record initState seeded, match count still 0.
+    for (const team of ["D1", "D2", "D3"]) {
+      expect(afterDq.teamComponents.get(team)).toEqual(initial.teamComponents.get(team));
+      expect(afterDq.teamMatchCounts.get(team)).toBe(0);
+    }
+    // Without the fix (redDqs ignored), the SAME 0 score would have been
+    // fitted as real per-component performance — this pins that contrast.
+    expect(afterNoDq.teamComponents.get("D1")).not.toEqual(initial.teamComponents.get("D1"));
+
+    // Blue's real observation is a genuine, ordinary fold either way — the
+    // DQ on the OPPOSING alliance never touches it.
+    for (const team of ["frc1", "frc2", "frc3"]) {
+      expect(afterDq.teamComponents.get(team)).toEqual(afterNoDq.teamComponents.get(team));
+      expect(afterDq.teamMatchCounts.get(team)).toBe(afterNoDq.teamMatchCounts.get(team));
+    }
+  });
+
+  it("partial DQ (redDqs populated but not covering the whole alliance) still contributes exactly as if redDqs were empty — leave it exactly as today", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "D1"]);
+    const withPartialDq = epa.update(
+      initial,
+      matchResult({ redTeams: ["D1", "frc1", "frc2"], blueTeams: ["frc3"], redDqs: ["D1"], redScore: 68, blueScore: 40 })
+    );
+    const withoutDq = epa.update(
+      initial,
+      matchResult({ redTeams: ["D1", "frc1", "frc2"], blueTeams: ["frc3"], redDqs: [], redScore: 68, blueScore: 40 })
+    );
+
+    for (const team of ["D1", "frc1", "frc2", "frc3"]) {
+      expect(withPartialDq.teamComponents.get(team)).toEqual(withoutDq.teamComponents.get(team));
+      expect(withPartialDq.teamMatchCounts.get(team)).toBe(withoutDq.teamMatchCounts.get(team));
+    }
+  });
+
+  it("guards the inverse error: a whole-alliance DQ with a NON-zero recorded score is still counted, exactly like an ordinary observation", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "D1", "D2", "D3"]);
+    const withNonZeroDq = epa.update(
+      initial,
+      matchResult({ redTeams: ["D1", "D2", "D3"], blueTeams: ["frc1", "frc2", "frc3"], redDqs: ["D1", "D2", "D3"], redScore: 45, blueScore: 30 })
+    );
+    const noDq = epa.update(
+      initial,
+      matchResult({ redTeams: ["D1", "D2", "D3"], blueTeams: ["frc1", "frc2", "frc3"], redDqs: [], redScore: 45, blueScore: 30 })
+    );
+
+    for (const team of ["D1", "D2", "D3", "frc1", "frc2", "frc3"]) {
+      expect(withNonZeroDq.teamComponents.get(team)).toEqual(noDq.teamComponents.get(team));
+      expect(withNonZeroDq.teamMatchCounts.get(team)).toBe(noDq.teamMatchCounts.get(team));
+    }
   });
 });

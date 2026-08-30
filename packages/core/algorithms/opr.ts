@@ -26,6 +26,7 @@ import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 import { isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
+import { isFullyDqZeroScoreAlliance } from "./dq.js";
 
 /**
  * Logistic scale converting a predicted score margin into a red-win
@@ -68,21 +69,25 @@ export interface OprState {
  * accounted for — see `allianceObservation` — via a subtracted offset, not
  * simply discarded).
  *
- * Disqualification policy (Open Question 3, RESEARCH.md — no locked
- * decision covers this; deliberately the OPPOSITE policy from surrogates,
- * see `allianceObservation` for the fuller reasoning): a disqualified team
- * physically played the match and physically contributed to the alliance's
- * score. A disqualification is a ranking-and-record ruling, not a
- * statement that the robot was absent, and OPR models score contribution —
- * so removing a disqualified team's column would misattribute its real
- * contribution to its teammates. Disqualified teams are therefore
- * deliberately NOT filtered here: `MatchResult` carries no dq field at all,
- * by design, so a disqualified team is indistinguishable from any other
- * participant to this function and keeps its column, with its rating
- * updated, exactly like a normal player. Plan 03 stores
- * `red_dqs`/`blue_dqs` in the corpus regardless, so reversing this call
- * later is a one-line addition to this function's signature, not a data
- * problem.
+ * Disqualification policy (Open Question 3, RESEARCH.md — narrowed by
+ * `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
+ * 2026-08-30; deliberately the OPPOSITE policy from surrogates for a
+ * PARTIAL disqualification, see `allianceObservation` for the fuller
+ * reasoning): a disqualified team physically played the match and
+ * physically contributed to the alliance's score. A disqualification is a
+ * ranking-and-record ruling, not a statement that the robot was absent, and
+ * OPR models score contribution — so removing a disqualified team's column
+ * would misattribute its real contribution to its teammates. A disqualified
+ * team therefore still keeps its column here, and this function does NOT
+ * filter individual DQ'd teams out of an otherwise-normal alliance. What
+ * changed: `update()` below now drops the entire alliance observation (this
+ * function is never even called for it) in the narrower case where EVERY
+ * team on the alliance is disqualified AND TBA recorded the alliance's
+ * score as 0 (`isFullyDqZeroScoreAlliance`, `dq.ts`) — there, the "real
+ * contribution to misattribute" this comment describes does not exist; only
+ * a 0 describing the ruling does. `MatchResult` now DOES carry
+ * `redDqs`/`blueDqs` (added alongside this narrowing), populated end-to-end
+ * from `red_dqs`/`blue_dqs` in the corpus.
  *
  * Demo-team handling (`.planning/todos/pending/exclude-offseason-demo-teams.md`,
  * `demoTeams.ts`): every demo key in `teams`/`surrogates` is remapped to the
@@ -125,19 +130,20 @@ export function ratingEligibleTeams(
  * from the target alliance score, so its teammates keep a correctly-scaled
  * observation instead of one inflated by absorbing the surrogate's share.
  *
- * Disqualification policy (Open Question 3, RESEARCH.md — no locked
- * decision covers this; this plan takes the opposite position from
- * surrogates and states why): a disqualified team physically played the
- * match and physically contributed to the alliance's score. A
+ * Disqualification policy (Open Question 3, RESEARCH.md — narrowed by
+ * `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
+ * 2026-08-30; this plan takes the opposite position from surrogates for a
+ * PARTIAL disqualification and states why): a disqualified team physically
+ * played the match and physically contributed to the alliance's score. A
  * disqualification is a ranking-and-record ruling, not a statement that
  * the robot was absent, and OPR models score contribution — so removing a
  * disqualified team's column would misattribute its real contribution to
- * its teammates. The column is kept and the rating IS updated, the
- * opposite policy from surrogates. Concretely, `MatchResult` carries no dq
- * field at all, so there is nothing to special-case here; Plan 03 already
- * stores `red_dqs`/`blue_dqs` in the corpus regardless, so reversing this
- * call later is a one-line addition to this function's signature, not a
- * data problem.
+ * its teammates. The column is kept here and the rating IS updated, the
+ * opposite policy from surrogates — but only when the alliance is NOT the
+ * narrower whole-alliance-DQ-with-zero-score case: `update()` below never
+ * even calls this function for that case (`isFullyDqZeroScoreAlliance`,
+ * `dq.ts`), since there the "real contribution to misattribute" this
+ * comment describes does not exist — only a 0 describing the ruling does.
  */
 export function allianceObservation(
   teams: readonly string[],
@@ -241,7 +247,14 @@ export const opr: AlgorithmModule<OprState> = {
   id: "opr",
   // Bumped 2.0.0 -> 3.0.0 (D-13's version-identity scheme): no artifact may
   // show one code version standing for two structurally different algorithms.
-  version: "3.0.0+baseline",
+  // Bumped again 3.0.0 -> 3.1.0
+  // (`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
+  // 2026-08-30): `update()`'s observable output changed — a whole-alliance
+  // disqualification with a recorded 0 score is now dropped as a rating
+  // observation instead of fitted as real performance
+  // (`isFullyDqZeroScoreAlliance`, `dq.ts`), the same D-13 invariant this
+  // comment already names.
+  version: "3.1.0+baseline",
 
   initState(): OprState {
     return { perEvent: new Map(), lastEventByTeam: new Map() };
@@ -293,10 +306,28 @@ export const opr: AlgorithmModule<OprState> = {
     const redObservation = allianceObservation(result.redTeams, result.redSurrogates, result.redScore, eventState.ratings, meanShare);
     const blueObservation = allianceObservation(result.blueTeams, result.blueSurrogates, result.blueScore, eventState.ratings, meanShare);
 
-    // An alliance whose every listed team is a surrogate contributes no row
-    // (filtered here, not pushed in as an all-zero row); if both alliances
-    // were fully surrogate, nothing to re-solve — a genuine no-op.
-    const newRows = [redObservation, blueObservation].filter((obs) => obs.teams.length > 0);
+    // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`:
+    // an alliance whose every rating-eligible team is disqualified AND whose
+    // RAW recorded score (never `redObservation.allianceScore`, which is
+    // already surrogate-offset-adjusted) is exactly 0 contributes no row —
+    // the same treatment as an all-surrogate alliance below, and for the
+    // same reason: nothing left to attribute to any real teammate. Checked
+    // per-alliance, NOT per-match like `isFullyDemoAlliance` above — the
+    // opposing alliance's own score is still a genuine observation of real
+    // robots and must not be dropped just because this alliance's own
+    // ruling zeroed its score.
+    const redRow = isFullyDqZeroScoreAlliance(redObservation.teams, result.redDqs, result.redScore)
+      ? { teams: [], allianceScore: 0 }
+      : redObservation;
+    const blueRow = isFullyDqZeroScoreAlliance(blueObservation.teams, result.blueDqs, result.blueScore)
+      ? { teams: [], allianceScore: 0 }
+      : blueObservation;
+
+    // An alliance whose every listed team is a surrogate (or, per the DQ
+    // check just above, fully disqualified with a zero score) contributes no
+    // row (filtered here, not pushed in as an all-zero row); if both
+    // alliances end up empty, nothing to re-solve — a genuine no-op.
+    const newRows = [redRow, blueRow].filter((obs) => obs.teams.length > 0);
     if (newRows.length === 0) return state;
 
     const observations = [...eventState.observations, ...newRows];

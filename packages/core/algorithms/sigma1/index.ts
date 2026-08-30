@@ -36,6 +36,7 @@
  */
 import { ratingEligibleTeams } from "../opr.js";
 import { isFullyDemoAlliance } from "../demoTeams.js";
+import { isFullyDqZeroScoreAlliance } from "../dq.js";
 import {
   COMPONENT_GROUP_IDS,
   COMPONENT_GROUP_METRIC_KEYS,
@@ -815,6 +816,22 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
 
+  // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: an
+  // alliance whose every rating-eligible team is disqualified AND whose RAW
+  // recorded score is exactly 0 gets NO update at all this match — fed `[]`
+  // to `applyAllianceUpdate`/`foldRpObservation` below, the same no-op input
+  // both functions already handle for an all-surrogate alliance. Checked
+  // per-alliance, NOT per-match like `isFullyDemoAlliance` above: the
+  // opposing alliance's own score (and RP threshold variables) is still a
+  // genuine observation of real robots and proceeds unaffected. `redTeams`/
+  // `blueTeams` themselves stay UNCHANGED below — `predictedComponentTotals`/
+  // `fallbackObserved` read the OPPONENT's already-existing belief state,
+  // which this override has no bearing on.
+  const redIsDqZero = isFullyDqZeroScoreAlliance(redTeams, result.redDqs, result.redScore);
+  const blueIsDqZero = isFullyDqZeroScoreAlliance(blueTeams, result.blueDqs, result.blueScore);
+  const redUpdateTeams = redIsDqZero ? [] : redTeams;
+  const blueUpdateTeams = blueIsDqZero ? [] : blueTeams;
+
   const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
   const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
   const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
@@ -875,7 +892,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     state.teams,
     state.league,
     componentOrder,
-    redTeams,
+    redUpdateTeams,
     redObserved,
     measurementNoiseMultiplier,
     result.eventKey,
@@ -886,7 +903,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     afterRed.teams,
     afterRed.league,
     componentOrder,
-    blueTeams,
+    blueUpdateTeams,
     blueObserved,
     measurementNoiseMultiplier,
     result.eventKey,
@@ -894,10 +911,14 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     rpVariableCount
   );
 
-  // Pitfall EPA-1's fix, reused here: fold both alliances' observed totals
+  // Pitfall EPA-1's fix, reused here: fold each alliance's observed total
   // into the expanding-window SD — the score itself is always known, even
-  // when its breakdown is not.
-  const allianceScoreStats = foldObservation(foldObservation(state.allianceScoreStats, result.redScore), result.blueScore);
+  // when its breakdown is not — EXCEPT a whole-alliance-DQ zero, which is a
+  // ruling, not an observed score, and would otherwise pull this season SD
+  // toward zero for no real reason.
+  let allianceScoreStats = state.allianceScoreStats;
+  if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
+  if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
   // D-09: the RP threshold-variable fold, kept SEPARATE from the score-side
   // fold above — never touches `afterBlue.teams`' score fields, never
@@ -944,7 +965,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
       teams: state.teams,
       league: rpLeague,
       ruleModule,
-      allianceTeams: redTeams,
+      allianceTeams: redUpdateTeams,
       observedThresholdVariables: redRpParsed.thresholdVariables,
       scoreResidualsByTeam: afterRed.residualsByTeam,
       componentCount: componentOrder.length,
@@ -955,7 +976,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
       teams: state.teams,
       league: redRpFold.league,
       ruleModule,
-      allianceTeams: blueTeams,
+      allianceTeams: blueUpdateTeams,
       observedThresholdVariables: blueRpParsed.thresholdVariables,
       scoreResidualsByTeam: afterBlue.residualsByTeam,
       componentCount: componentOrder.length,

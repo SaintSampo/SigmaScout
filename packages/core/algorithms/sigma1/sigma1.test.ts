@@ -37,6 +37,8 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueTeams: [],
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
     winner: "red",
     redScore: 0,
     blueScore: 0,
@@ -787,6 +789,8 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
       blueScore: UNIFORM_TOTAL,
       redRpEarned: null,
       blueRpEarned: null,
+      redDqs: [],
+      blueDqs: [],
       hasScoreBreakdown: true,
       scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
     };
@@ -799,6 +803,122 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
     expect(nextState.teams.has("S2")).toBe(false);
     expect(nextState.teams.has("S3")).toBe(false);
     expect(nextState.teams.has("B1")).toBe(true);
+  });
+});
+
+describe("vpr — whole-alliance DQ zero-score exclusion (.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md)", () => {
+  it("a fully-DQ'd, zero-score alliance is a genuine no-op — no throw, no NaN, and no team state created for the DQ'd alliance, while the opposing alliance updates normally", () => {
+    const state = vpr.initState([]);
+    const upcoming: UpcomingMatch = {
+      matchKey: "2024test_qm1",
+      eventKey: "2024test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 1,
+      redTeams: ["D1", "D2", "D3"],
+      blueTeams: ["B1", "B2", "B3"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 0,
+    };
+
+    expect(() => vpr.predict(state, upcoming)).not.toThrow();
+    const prediction = vpr.predict(state, upcoming);
+    expect(Number.isNaN(prediction.pRedWin)).toBe(false);
+    expect(Number.isNaN(prediction.variance)).toBe(false);
+
+    const result: MatchResult = {
+      ...upcoming,
+      winner: "blue",
+      redScore: 0,
+      blueScore: UNIFORM_TOTAL,
+      redRpEarned: null,
+      blueRpEarned: null,
+      redDqs: ["D1", "D2", "D3"],
+      blueDqs: [],
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+    };
+    expect(() => vpr.update(state, result)).not.toThrow();
+    const nextState = vpr.update(state, result);
+    // Red is fully DQ'd with a zero score -> a genuine no-op for red's
+    // teams (mirrors the all-surrogate no-op immediately above); blue's own
+    // real observation still updates, exactly as an ordinary match would.
+    expect(nextState.teams.has("D1")).toBe(false);
+    expect(nextState.teams.has("D2")).toBe(false);
+    expect(nextState.teams.has("D3")).toBe(false);
+    expect(nextState.teams.has("B1")).toBe(true);
+    // The DQ never touched the expanding-window season-score SD either — a
+    // ruling's 0 is not a real alliance-score observation.
+    expect(nextState.allianceScoreStats.count).toBe(1);
+  });
+
+  it("partial DQ (redDqs populated but not covering the whole alliance) still contributes exactly as if redDqs were empty — leave it exactly as today", () => {
+    const withPartialDq = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["D1", "R1", "R2"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: ["D1"],
+        redScore: 68,
+        blueScore: 40,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    const withoutDq = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["D1", "R1", "R2"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: [],
+        redScore: 68,
+        blueScore: 40,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+
+    for (const team of ["D1", "R1", "R2", "B1", "B2", "B3"]) {
+      expect(withPartialDq.teams.get(team)).toEqual(withoutDq.teams.get(team));
+    }
+    expect(withPartialDq.allianceScoreStats).toEqual(withoutDq.allianceScoreStats);
+  });
+
+  it("guards the inverse error: a whole-alliance DQ with a NON-zero recorded score is still counted, exactly like an ordinary observation", () => {
+    const withNonZeroDq = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: ["D1", "D2", "D3"],
+        redScore: 45,
+        blueScore: 30,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    const noDq = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: [],
+        redScore: 45,
+        blueScore: 30,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+
+    for (const team of ["D1", "D2", "D3", "B1", "B2", "B3"]) {
+      expect(withNonZeroDq.teams.get(team)).toEqual(noDq.teams.get(team));
+    }
+    expect(withNonZeroDq.allianceScoreStats).toEqual(noDq.allianceScoreStats);
   });
 });
 

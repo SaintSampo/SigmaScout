@@ -30,6 +30,8 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueTeams: [],
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
     winner: "red",
     redScore: 0,
     blueScore: 0,
@@ -160,9 +162,9 @@ describe("opr — public export surface (SC-1)", () => {
     ]);
   });
 
-  it("identifies itself as opr, version 3.0.0+baseline", () => {
+  it("identifies itself as opr, version 3.1.0+baseline", () => {
     expect(opr.id).toBe("opr");
-    expect(opr.version).toBe("3.0.0+baseline");
+    expect(opr.version).toBe("3.1.0+baseline");
   });
 });
 
@@ -620,6 +622,116 @@ describe("opr — disqualification policy (Open Question 3): opposite of surroga
     expect(ratingsAt(state, "2024eventa").has("DQD_TEAM")).toBe(true);
     const observationsForDq = observationsAt(state, "2024eventa").filter((o) => o.teams.includes("DQD_TEAM"));
     expect(observationsForDq.length).toBe(1);
+  });
+
+  it("partial DQ (redDqs populated but not covering the whole alliance) still contributes exactly as if redDqs were empty — leave it exactly as today", () => {
+    let withPartialDq: OprState = opr.initState([]);
+    withPartialDq = opr.update(
+      withPartialDq,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "P1", "P2"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redDqs: ["D1"],
+        redScore: 68,
+        blueScore: 40,
+      })
+    );
+
+    let withoutDq: OprState = opr.initState([]);
+    withoutDq = opr.update(
+      withoutDq,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "P1", "P2"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redDqs: [],
+        redScore: 68,
+        blueScore: 40,
+      })
+    );
+
+    // redDqs alone (without covering every rating-eligible team AND a zero
+    // score) must never change the fit — byte-identical either way.
+    expect(ratingsAt(withPartialDq, "2024eventa")).toEqual(ratingsAt(withoutDq, "2024eventa"));
+    expect(ratingsAt(withPartialDq, "2024eventa").has("D1")).toBe(true);
+  });
+});
+
+describe("opr — whole-alliance DQ zero-score exclusion (.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md)", () => {
+  it("a fully-DQ'd, zero-score alliance contributes NO observation — byte-identical to an all-surrogate alliance's existing no-op treatment, and the opposing alliance's real score still updates", () => {
+    let viaDq: OprState = opr.initState([]);
+    viaDq = opr.update(
+      viaDq,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: ["D1", "D2", "D3"],
+        redScore: 0,
+        blueScore: 90,
+      })
+    );
+
+    let viaSurrogate: OprState = opr.initState([]);
+    viaSurrogate = opr.update(
+      viaSurrogate,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redSurrogates: ["D1", "D2", "D3"],
+        redScore: 0,
+        blueScore: 90,
+      })
+    );
+
+    expect(ratingsAt(viaDq, "2024eventa")).toEqual(ratingsAt(viaSurrogate, "2024eventa"));
+    expect(ratingsAt(viaDq, "2024eventa").has("D1")).toBe(false);
+    expect(observationsAt(viaDq, "2024eventa").some((o) => o.teams.includes("D1"))).toBe(false);
+    // Blue's real observation is untouched — this is a per-alliance drop,
+    // never a whole-match drop like isFullyDemoAlliance's.
+    expect(ratingsAt(viaDq, "2024eventa").has("frc1")).toBe(true);
+  });
+
+  it("guards the inverse error: a whole-alliance DQ with a NON-zero recorded score is still counted, exactly like an ordinary observation", () => {
+    let withNonZeroDq: OprState = opr.initState([]);
+    withNonZeroDq = opr.update(
+      withNonZeroDq,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: ["D1", "D2", "D3"],
+        redScore: 45,
+        blueScore: 30,
+      })
+    );
+
+    let noDq: OprState = opr.initState([]);
+    noDq = opr.update(
+      noDq,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["D1", "D2", "D3"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: [],
+        redScore: 45,
+        blueScore: 30,
+      })
+    );
+
+    // A non-zero score for a whole-alliance DQ must be fitted exactly as if
+    // no DQ were recorded at all — the todo's own named guard against the
+    // inverse error.
+    expect(ratingsAt(withNonZeroDq, "2024eventa")).toEqual(ratingsAt(noDq, "2024eventa"));
+    expect(ratingsAt(withNonZeroDq, "2024eventa").has("D1")).toBe(true);
   });
 });
 

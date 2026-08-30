@@ -48,6 +48,7 @@
  */
 import { ratingEligibleTeams } from "./opr.js";
 import { isFullyDemoAlliance } from "./demoTeams.js";
+import { isFullyDqZeroScoreAlliance } from "./dq.js";
 import {
   componentMapForSeason,
   assertFiniteComponents,
@@ -491,19 +492,40 @@ function update(state: EpaState, result: MatchResult): EpaState {
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
-  const afterRed = applyComponentUpdate(state.teamComponents, state.teamMatchCounts, redTeams, redObserved, componentCount);
+  // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: an
+  // alliance whose every rating-eligible team is disqualified AND whose RAW
+  // recorded score is exactly 0 gets NO component update at all — fed `[]`
+  // to `applyComponentUpdate`, the same no-op input that function already
+  // handles for an all-surrogate alliance (see its own doc comment). Checked
+  // per-alliance, NOT per-match like `isFullyDemoAlliance` above: the
+  // opposing alliance's own score is still a genuine observation of real
+  // robots and its own component update proceeds unaffected.
+  const redIsDqZero = isFullyDqZeroScoreAlliance(redTeams, result.redDqs, result.redScore);
+  const blueIsDqZero = isFullyDqZeroScoreAlliance(blueTeams, result.blueDqs, result.blueScore);
+
+  const afterRed = applyComponentUpdate(
+    state.teamComponents,
+    state.teamMatchCounts,
+    redIsDqZero ? [] : redTeams,
+    redObserved,
+    componentCount
+  );
   const afterBlue = applyComponentUpdate(
     afterRed.teamComponents,
     afterRed.teamMatchCounts,
-    blueTeams,
+    blueIsDqZero ? [] : blueTeams,
     blueObserved,
     componentCount
   );
 
-  // Fold both alliances' observed totals into the expanding-window SD — the
+  // Fold each alliance's observed total into the expanding-window SD — the
   // score itself is always known, even when its breakdown is not (Pitfall
-  // EPA-1: this must only ever incorporate matches already replayed).
-  const allianceScoreStats = foldObservation(foldObservation(state.allianceScoreStats, result.redScore), result.blueScore);
+  // EPA-1: this must only ever incorporate matches already replayed) — EXCEPT
+  // a whole-alliance-DQ zero, which is a ruling, not an observed score, and
+  // would otherwise pull this season SD toward zero for no real reason.
+  let allianceScoreStats = state.allianceScoreStats;
+  if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
+  if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
   return {
     season,
@@ -612,7 +634,16 @@ export const epa: AlgorithmModule<EpaState> = {
   // without this. EPA has no separate tuned parameter set (D-04: frozen at
   // Statbotics' own published constants, never searched), so "baseline" is
   // the honest, single named set.
-  version: "1.0.0+baseline",
+  //
+  // Bumped 1.0.0 -> 1.1.0
+  // (`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
+  // 2026-08-30): `update()`'s observable output changed — a whole-alliance
+  // disqualification with a recorded 0 score is now dropped as a rating
+  // observation instead of fitted as real performance
+  // (`isFullyDqZeroScoreAlliance`, `dq.ts`) — the same D-13 invariant
+  // `opr.ts`'s own version-bump comment names ("no artifact may show one
+  // code version standing for two structurally different algorithms").
+  version: "1.1.0+baseline",
   initState,
   predict,
   update,

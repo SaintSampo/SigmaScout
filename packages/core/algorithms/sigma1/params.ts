@@ -51,8 +51,22 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * Bumped from Phase 2's `"1.0.0"` because parameterizing Sigma1 changes the
  * module's observable contract (a `makeSigma1` call site now accepts
  * `params`/`paramSetName`, and `version` is derived rather than hardcoded).
+ *
+ * Bumped `"2.0.0"` -> `"2.1.0"`
+ * (`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
+ * 2026-08-30): `update()`'s observable output changed — a whole-alliance
+ * disqualification with a recorded 0 score is now dropped as a rating
+ * observation instead of fitted as real performance
+ * (`isFullyDqZeroScoreAlliance`, `../dq.ts`) — the same `codeVersion` string
+ * must never stand for two different computations (D-13's own invariant,
+ * enforced live by `digest.test.ts`'s bitwise reproducibility check against
+ * every committed `data/algorithm-versions/*.json` file). The two
+ * previously-committed `vpr@2.0.0+*.json` files were retired and re-promoted
+ * as `vpr@2.1.0+*.json` from the SAME search artifacts/params in the same
+ * commit — this was a code fix, not a re-tune, so no new hyperparameter
+ * search was needed.
  */
-export const SIGMA1_CODE_VERSION = "2.0.0";
+export const SIGMA1_CODE_VERSION = "2.1.0";
 
 /**
  * A cold-start team's typical total contribution to an alliance's score, in
