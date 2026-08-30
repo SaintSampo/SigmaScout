@@ -3,7 +3,7 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-30T23:59:00Z
+updated: 2026-08-31T00:30:00Z
 ---
 
 ## Current Test
@@ -126,6 +126,49 @@ Measured locally at 390px: Insights' pinned block drops from 380px declared (484
 pre-G-1) to 128px declared/actual with a 0px sticky gap — matching this gap's own ~128px target
 exactly, independently derived rather than copied. Awaiting live re-measurement on the deployed
 origin.
+
+**G-2 part 2 — the fix above still left zero data pixels visible.** Live re-measurement (the
+orchestrator, deployed origin, 390px, insights/`2023cur`) found the unpinning fix worked for the
+SCROLLED state but the first-paint state was still broken: nickname's own `size` stayed at 220,
+so `rank(56) + teamNumber(72) + nickname(220) = 348px` still exceeded the 342px scroller (390
+minus the page's 24px-each-side padding) before any data column began — 0 of 342 scroller pixels
+carrying data, measured live, across all three tables.
+
+**Fixed** (commit `fix(07): G-2 part 2 narrow nickname below breakpoint so data reaches first
+paint`): added a shared `NICKNAME_COLUMN_WIDTH_NARROW_PX = 90` (`teams-table/columns.tsx`), applied
+below `MOBILE_BREAKPOINT_PX` to all three tables' nickname columns, the wide-viewport size (220)
+untouched. 90 is the largest width that still leaves TeamsTable's layout — the one table where a
+full 120px metric column sits immediately after nickname, unlike Insights (`record` at 100) or
+Breakdown (only `teamNumber` pinned, 72px budget) — with a real, fully-visible metric column at
+scroll 0: `128 (pinned) + 90 (nickname) + 120 (metric) = 338px`, 4px under the 342px scroller (pure
+declared-pixel arithmetic under `table-layout: fixed`, not a font-measurement margin — there is no
+cross-browser hinting variance to buffer against here). Insights clears its own binding constraint
+(`record` at 100) with 24px to spare; Breakdown clears with 60px.
+
+Verified against real nicknames at 90px (Playwright + the app's actual compiled `text-role-body`
+CSS + `@fontsource-variable/inter` font): `"Black Hawk Robotics"` → `"Black Haw…"`, `"The Bucks'
+Wrath"` → `"The Bucks…"`, `"FIRST Israel Off Season"` → `"FIRST Isra…"` — a readable multi-word
+prefix in every case. A single shared constant (matching `RANK_COLUMN_WIDTH_NARROW_PX`/
+`TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`'s own precedent) rather than three independently-tuned numbers,
+even though only TeamsTable's layout is the binding constraint.
+
+**Judgement call:** the team number is FRC's canonical identifier and stays fully visible pinned at
+72px, so nickname is supplementary once unpinned — the choice was between spending more of the
+scroller on nickname readability versus getting real data on screen, and the task's own framing (a
+match-PREDICTION site showing zero predictions on first paint) makes that trade favor data. A
+2-column-visible target (nickname ~30px) was tried and rejected: at that width every tested
+nickname renders as a bare `"…"` with no readable characters at all, which is worse than showing
+one full data column and a readable nickname prefix. 90px was chosen as the largest width clearing
+every table's own binding constraint, rather than picking a number and hoping it worked.
+
+Extended `table-layout-quality.spec.ts` with a new assertion class ("G-2 part 2"): at least one
+non-pinned, non-nickname header cell fully visible inside the scroll region at scroll 0, discovered
+dynamically via `data-pinned="false"` (not a hardcoded metric-key id, since that set is
+season/algorithm-dependent). Proven RED against the deployed origin pre-fix, both `phone-390` (342px
+scroller) and `pixel-10` (312px scroller): all six table/viewport combinations failed at 0 of N data
+columns fully visible (0-50px total visible), matching the reported defect exactly — e.g. Insights
+`phone-390`: `0 of 5 data columns fully visible ... (total 0.0px of data-column pixels visible)`.
+Awaiting live re-measurement on the deployed origin for GREEN confirmation.
 
 ### G-3 — 122 passing e2e tests did not catch either defect
 
