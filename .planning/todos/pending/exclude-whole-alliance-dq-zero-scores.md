@@ -87,3 +87,39 @@ means the accuracy record is re-measured once against the final model rather tha
 - `packages/core/algorithms/opr.ts` — the recorded DQ reasoning this partially overturns
 - `packages/core/algorithms/demoTeams.ts` — `isFullyDemoAlliance`, the precedent to mirror
 - [[remeasure-accuracy-record-offseason-inclusion]] — sequence this BEFORE that re-measurement
+
+## Smoking gun — measured on live published data, 2026-08-30
+
+This is not a subtle aggregate effect. **One** disqualified match can make a team's published rating
+physically impossible.
+
+`frc4788`, 2026 season, live from `v1/teams/2026/vpr@2.0.0+tuned-2026-08.json`:
+
+```
+total = -1354.13   spread = 230.19   matches = 30
+```
+
+For scale, in the same published file: the next-worst team is `frc237` at -113.83, and the single
+BEST team on the site is `frc1690` at +419.08. A -1354-point contribution has no physical meaning.
+
+Cross-referencing the corpus, `frc4788` played 30 matches in 2026 and was disqualified in exactly
+**one** of them:
+
+```
+2026ausc_sf12m1   score=0   dq=3/3   WHOLE ALLIANCE
+```
+
+That is the entire cause. The mechanism is a textbook least-squares outlier failure: to make an
+alliance's contributions sum to an observed 0 while its other two members carry real positive
+ratings, the solver must assign the third member a large negative value. One 0-score observation in
+thirty is enough to dominate the fit.
+
+Note the model does signal its own doubt — `spread` is 230.19, by far the largest on the site — but
+the value is published and rendered regardless, so a visitor sees `-1354.13` on a real team page.
+
+**Corpus-wide:** 85 teams currently publish a negative total for 2026 and 2 are below -100. Not all
+of those are necessarily DQ-caused, but this case establishes the mechanism concretely and shows the
+severity is per-team catastrophic rather than a small aggregate bias.
+
+This raises the priority: the defect is not merely a fairness issue for carded teams, it publishes
+values the site's own honest-uncertainty premise cannot defend.
