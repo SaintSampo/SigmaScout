@@ -49,7 +49,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 002 | palette-options | Which hue carries percentile shading? | **rejected** — superseded by 004 | palette, teams-table, sequential |
 | 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | **B — Common unboxed** | palette, percentile, rarity, accessibility |
 | 003 | alliance-axes | How should match predictions with uncertainty be laid out, at what scale? | **C — event table, one shared scale** | match-prediction, uncertainty, phase-6, phase-7 |
-| 005 | rank-distribution | How should a team's simulated rank distribution be drawn, given what real data actually looks like? | C rejected; A vs interpolated-B open | simulation, rank-distribution, uncertainty, phase-8 |
+| 005 | rank-distribution | How should a team's simulated rank distribution be drawn, given what real data actually looks like? | **B — interpolated band edges** | simulation, rank-distribution, uncertainty, phase-8 |
 | 006 | calibration-curve | How do you draw a calibration curve an FRC student understands in one read? | **C — plain-language first** | compare, calibration, uncertainty, accessibility, phase-8 |
 | 007 | compare-table | How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits? | **A — season rows, algorithm columns** | compare, accuracy, table, density, phase-8 |
 
