@@ -183,6 +183,37 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   (re-measured 2026-08-30, `docs/models/offseason-inclusion-remeasurement.md`). Do not
   word this as "offseason events are ignored"; they are not.
 
+- **D-11: Differences too small to call render as a visual TIE, not as a defeat.** Added
+  2026-08-30 after sketch 007 measured something neither this phase nor SC-3 had exposed:
+  VPR wins Brier in all 15 season × view slices, but loses **winner accuracy** to OPR on
+  elimination matches in 2022, 2024 and 2025.
+
+  | Season | VPR | OPR | Gap | In matches | Naive 1 SE |
+  |---|---|---|---|---|---|
+  | 2022 | .7824 | .7930 | 1.06pp | ~28 of 2,613 | 1.14pp |
+  | 2024 | .7092 | .7094 | **0.02pp** | **0.6 of 2,867** | 1.20pp |
+  | 2025 | .7552 | .7578 | 0.25pp | ~8 of 3,056 | 1.10pp |
+
+  Every gap is inside one standard error; 2024's is smaller than a single match. **Caveat
+  stated so nobody over-reads it:** that SE treats the algorithms as independent when they
+  are scored on the same matches. A paired (McNemar) test would use a smaller error and
+  might find 2022's gap real — but it needs the count of matches where the two disagreed,
+  which the artifact does not publish. The defensible claim is therefore narrow: *the
+  published data cannot tell a reader whether these gaps are real.*
+
+  So: below a chosen threshold, both values render in full ink, neither greyed. The page
+  must state that the threshold is a judgement call, not a computed significance level.
+  Rejected: publishing bootstrap intervals or paired-disagreement counts (real harness +
+  publisher work plus a republish on an already-sizeable phase), and declaring winners
+  regardless of margin.
+
+  This **qualifies** `chart-craft.md`'s "grey the loser's number, never its mark" — that
+  rule assumes a loser exists. Where the data cannot establish one, neither value is greyed.
+
+  **This does NOT touch SC-3**, which is measured on the combined view, where VPR wins both
+  metrics in both holdout seasons. This is a sub-slice the Compare page exposes for the
+  first time.
+
 - **D-10: Parity check (SC-4) is a Vitest component test rendering the Compare page
   against a committed copy of a real published `v1/compare/{year}.json`.** Chosen on the
   user's instruction to take the least time. Hermetic, no network, fast.
