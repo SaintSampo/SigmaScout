@@ -23,7 +23,16 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-8 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none",
+  // 07-UAT.md G-6: `justify-center` (plain) centers this flex container's
+  // items even while the container itself overflows its own scroll region
+  // (measured live: strip scrollWidth 358px > clientWidth 342px at 390px) —
+  // centered overflow pushes the LEADING tab past the scroll origin, which a
+  // native horizontal scroller can never reach (there is no negative
+  // scrollLeft). `justify-center-safe` (`justify-content: safe center`) is
+  // the CSS Box Alignment spec's own answer to exactly this shape: center
+  // when the content fits, fall back to start-alignment the moment it would
+  // overflow — conditional centering with no JS measurement needed.
+  "group/tabs-list inline-flex w-fit items-center justify-center-safe rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-8 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
