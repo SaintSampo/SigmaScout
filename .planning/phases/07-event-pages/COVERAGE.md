@@ -50,21 +50,21 @@ reads consistently.
 | `GET /event/{key}/matches` | INTEGRATE | already ingested by Phase 1 (`fetchEventMatches`) — the corpus's 102,877-row match spine |
 | `GET /event/{key}/teams` | INTEGRATE | already ingested by Phase 1 (`fetchEventTeams`) — the team-to-event edge set |
 | `If-None-Match` / ETag conditional request (304) | INTEGRATE | the mechanism that makes a repeat full pass cost bandwidth-free 304s; enforced inside `tbaFetch` for every endpoint including the new one |
-| offseason and preseason events in ingest scope | INTEGRATE | 06.1's PD-01 remains in force for this endpoint, and RESEARCH.md Q2 measured **both** live empty-array alliance cases (`2025bc`, `2026wvrox`) at offseason events — excluding offseason would specifically hide the absent-data case D-17's disabled tab is designed for. See note [4] |
+| offseason and preseason events in ingest scope | INTEGRATE | 06.1 PD-01 still applies. Both live empty-alliance cases (`2025bc`, `2026wvrox`) are offseason, so excluding offseason would hide the absent-data case D-17's disabled tab exists for. See note [4] |
 | `GET /event/{key}/simple` | OPT-OUT | a payload-reduced form of `/event/{key}`, which is already taken in full; two fetch paths for one fact is redundant request volume against a volunteer-run service |
 | `GET /event/{key}/matches/simple` | OPT-OUT | same reasoning — a reduced form of `/event/{key}/matches`, and the omitted fields include `score_breakdown`, which is the single most load-bearing field this pipeline reads |
 | `GET /event/{key}/matches/keys` | OPT-OUT | key-only form of an endpoint already taken in full; the keys are already in the corpus's own `matches` table |
 | `GET /event/{key}/matches/timeseries` | OPT-OUT | live in-match telemetry with sparse historical coverage and no v1 requirement referencing it; nothing in this project reads sub-match state |
 | `GET /event/{key}/teams/simple` | OPT-OUT | reduced form of `/event/{key}/teams`, already taken in full |
 | `GET /event/{key}/teams/keys` | OPT-OUT | key-only form of the same; the edges are already in the corpus |
-| `GET /event/{key}/teams/statuses` | OPT-OUT | overlaps facts already taken from two other endpoints — qualification standing comes from `/rankings`, playoff outcome rides verbatim inside the alliance `status` object this phase stores — and a third source for the same fact is the drift surface note [5] describes |
+| `GET /event/{key}/teams/statuses` | OPT-OUT | duplicates facts already sourced elsewhere: standings from `/rankings`, playoff outcome from the stored alliance `status` object. A third source for one fact is the drift surface note [5] describes |
 | `GET /event/{key}/awards` | OPT-OUT | no v1 requirement references awards; Phase 1's matrix already opted out of the team-scoped equivalent for the same reason and nothing in Phase 7 changed it |
 | `GET /event/{key}/district_points` | OPT-OUT | district points are a separate district-ranking concept from event standing; no v1 requirement references them, and D-07's Insights column set names rank, record and RP only |
-| `GET /event/{key}/insights` | OPT-OUT | a season-specific aggregate statistics blob whose vocabulary changes every year (the same season-varying-vocabulary problem `sort_order_info` has), with no display slot in this phase's five-tab contract |
+| `GET /event/{key}/insights` | OPT-OUT | a season-specific aggregate blob whose vocabulary changes yearly (same problem as `sort_order_info`), with no display slot in this phase's five-tab contract |
 | `GET /event/{key}/oprs` | OPT-OUT | this project computes its own event-scoped OPR (`packages/core/algorithms/opr.ts`, `solveEventOpr`) as one of its three v1 algorithms — see note [5] |
 | `GET /event/{key}/coprs` | OPT-OUT | component OPRs, same reasoning as `/oprs` plus the same walk-forward leakage hazard — see note [5] |
 | `GET /event/{key}/predictions` | OPT-OUT | TBA's own match predictions are the exact quantity this project's whole reason for existing is to beat and to score itself against honestly — see note [5] |
-| `Cache-Control` header respect | OPT-OUT | the corpus's generic `http_cache` ETag table is the caching mechanism this pipeline already uses for every TBA endpoint; a second header-driven TTL layer would be a parallel cache with its own independent drift |
+| `Cache-Control` header respect | OPT-OUT | the corpus's `http_cache` ETag table already caches every TBA endpoint; a second header-driven TTL layer would be a parallel cache with its own independent drift |
 
 ---
 
@@ -88,7 +88,7 @@ Field set confirmed live against 40 real events spanning 2022–2026 and all 8 o
 | `name` ABSENT entirely (key not present) | INTEGRATE | a real, live-observed TBA shape (`2024wvrox`), stored as SQL NULL and never as an empty string or a fabricated label — see note [2] |
 | `declines` (array of declined team keys) | INTEGRATE | stored verbatim as `event_alliances.declines` for source provenance; read by nothing in Phase 7 — see note [6] |
 | `status` (whole object, verbatim) | INTEGRATE | serialized whole into `event_alliances.status_raw` because its shape varies by `playoff_type` — see note [6] |
-| `status` ABSENT entirely (key not present) | INTEGRATE | live-discovered against the real full 2022 season (plan 07-03 Task 2, not in RESEARCH.md's 40-event sample) — several alliance objects at real 2022 events carry no `status` key at all; `tbaAllianceEntrySchema.status` is `z.unknown().optional()`, and absence normalizes to `statusRaw: null`, the same absence-not-fabrication treatment `name` gets — see note [6] |
+| `status` ABSENT entirely (key not present) | INTEGRATE | live-discovered in the full 2022 season (07-03 Task 2, outside RESEARCH.md's sample): some alliances have no `status` key. Schema is `z.unknown().optional()`; absence gives `statusRaw: null`. Note [6] |
 | top-level `null` response body | INTEGRATE | a distinct real TBA answer ("no alliance structure exists for this event", live at `2022ispr`) — tallied as `nullBodyCount`, stores zero rows — see note [3] |
 | empty array response (`[]`) | INTEGRATE | a distinct real TBA answer ("this event ran quals but never held an alliance selection", live at `2025bc` and `2026wvrox`) — tallied as `emptyAlliancesCount`, stores zero rows — see note [3] |
 | `status.status` (`"won"` / `"eliminated"`) | OPT-OUT | not modelled and not read by any Phase 7 consumer; rides verbatim inside `status_raw` — see note [6] |
