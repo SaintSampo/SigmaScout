@@ -31,7 +31,13 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TierKeyRow } from "@/components/team/TierKeyRow";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
-import { MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, RANK_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
+import {
+  MOBILE_PINNED_COLUMN_IDS,
+  NICKNAME_COLUMN_WIDTH_NARROW_PX,
+  PINNED_COLUMN_IDS,
+  RANK_COLUMN_WIDTH_NARROW_PX,
+  TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX,
+} from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
@@ -248,7 +254,11 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     }),
     columnHelper.accessor("nickname", {
       header: "Nickname",
-      size: 220,
+      // 07-UAT.md G-2 part 2 ("first-paint half"): 220 at/above the
+      // breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it —
+      // see that constant's own doc comment in `teams-table/columns.tsx` for
+      // the real-geometry derivation shared with `TeamsTable`/`BreakdownTab`.
+      size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
           to="/team/$teamNumber"

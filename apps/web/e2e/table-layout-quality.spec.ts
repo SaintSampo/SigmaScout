@@ -213,3 +213,65 @@ test.describe("G-3 layout quality — pinned width bound (all three tables)", ()
     });
   }
 });
+
+/**
+ * 07-UAT.md G-2 part 2 (the "first-paint half"): G-2 part 1 unpinned
+ * nickname and tightened rank/teamNumber, which fixed the SCROLLED state
+ * (panning right now reaches real data), but left nickname's own `size: 220`
+ * unchanged — on a real 390px phone `rank(56) + teamNumber(72) +
+ * nickname(220) = 348px` still exceeded the 342px scroller before ANY data
+ * column began, measured live at exactly 0 data pixels visible at scroll 0.
+ * This is a DIFFERENT assertion from the pinned-width bound above: that test
+ * bounds the PINNED block alone and would pass even with nickname at 220,
+ * since nickname is no longer pinned — this test is the one that actually
+ * bites on "the first thing a user sees contains no data," matching the
+ * class of bug G-3's own header comment describes 122 prior e2e assertions
+ * not catching.
+ */
+test.describe("G-2 part 2 — at least one full data column visible at scroll 0 (no scrolling)", () => {
+  for (const spec of TABLES) {
+    test(`${spec.name}: at least one non-pinned, non-nickname column is fully visible inside the scroll region at scroll 0`, async ({ page }) => {
+      await gotoTable(page, spec);
+      const region = page.getByTestId(spec.regionTestId);
+      const regionBox = await region.boundingBox();
+      if (regionBox === null) throw new Error(`${spec.name} scroll region has no bounding box`);
+
+      // Reads `data-pinned="false"` DIRECTLY off the DOM (same technique the
+      // pinned-width-bound test above uses for `data-pinned="true"`) rather
+      // than hardcoding a metric-key column id — the metric-key set is
+      // season/algorithm-dependent (`metricKeysFor`). Nickname's own header
+      // cell is deliberately excluded (`:not([data-testid$="-nickname"])`):
+      // nickname is supplementary identity once unpinned, not the
+      // prediction/competition data 07-UAT.md G-2's own acceptance wording
+      // ("two real metric columns visible on first paint") is about — a fix
+      // that merely left nickname itself barely fitting must not pass this.
+      const dataHeaders = page.locator(`[data-testid^="${spec.headerPrefix}-"][data-pinned="false"]:not([data-testid$="-nickname"])`);
+      const dataCount = await dataHeaders.count();
+      expect(dataCount, `${spec.name}: no non-pinned, non-nickname header cell found — is the testid prefix right?`).toBeGreaterThan(0);
+
+      let fullyVisibleCount = 0;
+      let totalVisiblePx = 0;
+      const report: string[] = [];
+      for (let i = 0; i < dataCount; i++) {
+        const header = dataHeaders.nth(i);
+        const box = await header.boundingBox();
+        if (box === null) continue;
+        const testId = await header.getAttribute("data-testid");
+        const start = box.x - regionBox.x;
+        const visible = Math.max(0, Math.min(box.x + box.width, regionBox.x + regionBox.width) - Math.max(box.x, regionBox.x));
+        totalVisiblePx += visible;
+        if (visible >= box.width - SUBPIXEL_TOLERANCE_PX) fullyVisibleCount++;
+        report.push(`  ${testId}: w=${box.width.toFixed(1)} start=${start.toFixed(1)} visible=${visible.toFixed(1)}`);
+      }
+
+      expect(
+        fullyVisibleCount,
+        `${spec.name}: 0 of ${dataCount} data columns fully visible at scroll 0 inside a ${regionBox.width.toFixed(
+          1,
+        )}px scroller (total ${totalVisiblePx.toFixed(
+          1,
+        )}px of data-column pixels visible) — this is the exact "zero data pixels visible on first paint" G-2 part 2 defect (07-UAT.md). Columns:\n${report.join("\n")}`,
+      ).toBeGreaterThan(0);
+    });
+  }
+});

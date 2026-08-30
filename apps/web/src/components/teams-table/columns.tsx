@@ -76,6 +76,52 @@ export const RANK_COLUMN_WIDTH_NARROW_PX = 56;
 export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
 
 /**
+ * Nickname's declared width BELOW `MOBILE_BREAKPOINT_PX` (07-UAT.md G-2 part
+ * 2 — "first-paint half"). G-2 part 1 (`MOBILE_PINNED_COLUMN_IDS`) unpinned
+ * nickname but left its `size: 220` unchanged, so on a real 390px phone
+ * `rank(56) + teamNumber(72) + nickname(220) = 348px` still consumed the
+ * ENTIRE 342px scroller (390 minus the page's `p-[var(--spacing-lg)]` 24px
+ * each side, `routes/event.$eventKey.tsx`/`routes/teams.tsx`) before a
+ * single data column began — zero data pixels visible at scroll 0, measured
+ * live. Nickname is supplementary once unpinned (the pinned team number is
+ * FRC's canonical identifier, `MOBILE_PINNED_COLUMN_IDS`'s own doc comment),
+ * so it is the column that gives further ground here, the same trade G-2
+ * part 1 already made for the pinned block itself.
+ *
+ * 90 is the largest width that still leaves TeamsTable's tightest layout —
+ * the only one of the three tables where a full 120px metric column sits
+ * immediately after nickname (`buildColumns` below: rank, teamNumber,
+ * nickname, then `metricKeys` at `size: 120` each; `InsightsTab`/
+ * `BreakdownTab` both put a smaller column there instead) — with a real,
+ * fully-visible metric column at scroll 0: `128 (pinned) + 90 (nickname) +
+ * 120 (metric) = 338px`, 4px under the 342px scroller. Insights (`record` at
+ * size 100 follows nickname) clears with 24px to spare; Breakdown (pinned
+ * width only 72, teamNumber alone) clears with 60px. This 4px margin is pure
+ * declared-pixel arithmetic, not a font-rendering measurement — G-1's
+ * `table-layout: fixed` makes every declared width exactly the rendered
+ * width, so there is no cross-browser hinting variance to buffer against
+ * here (unlike `RANK_COLUMN_WIDTH_NARROW_PX`/`TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`
+ * above, which size a column to hold specific glyphs without clipping).
+ *
+ * Verified against real nicknames at this width (Playwright + the app's
+ * actual compiled `text-role-body` CSS and `@fontsource-variable/inter`
+ * font, not eyeballed): "Black Hawk Robotics" → "Black Haw…", "The Bucks'
+ * Wrath" → "The Bucks…", "FIRST Israel Off Season" → "FIRST Isra…" — a
+ * readable multi-word prefix in every case, never a bare ellipsis (that only
+ * happens by ~30px, where two-word FRC team names lose all their
+ * characters). A single shared constant, not a per-table number, matching
+ * `RANK_COLUMN_WIDTH_NARROW_PX`/`TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`'s own
+ * "one number, not three independently-drifting copies" precedent — even
+ * though only `TeamsTable`'s layout is the binding constraint, `InsightsTab`
+ * and `BreakdownTab` both clear it with room to spare, so there is no
+ * argument for giving them a separately-tuned, larger value.
+ *
+ * The WIDE-viewport size (220, unchanged) is untouched — this narrowing
+ * applies only below `MOBILE_BREAKPOINT_PX`.
+ */
+export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 90;
+
+/**
  * Registered once, module-level, and re-exported so `TeamsTable.tsx`
  * constructs `useTable` with the SAME features object `createColumnHelper`
  * below was instantiated against (05-04-SUMMARY.md's v9 API note: pinning
@@ -172,7 +218,11 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     }),
     columnHelper.accessor("nickname", {
       header: "Nickname",
-      size: 220,
+      // 07-UAT.md G-2 part 2: 220 at/above the breakpoint (unchanged),
+      // `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
+      // doc comment for the real-geometry derivation (this table's own
+      // layout is the binding constraint the shared constant is sized to).
+      size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
           to="/team/$teamNumber"

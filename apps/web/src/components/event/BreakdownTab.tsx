@@ -27,7 +27,7 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TierKeyRow } from "@/components/team/TierKeyRow";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
-import { TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
+import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
@@ -148,7 +148,12 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
     }),
     columnHelper.accessor("nickname", {
       header: "Nickname",
-      size: 220,
+      // 07-UAT.md G-2 part 2: 220 at/above the breakpoint (unchanged),
+      // `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it — the same real-geometry-
+      // derived constant `TeamsTable`/`InsightsTab` share (`teams-table/columns.tsx`'s
+      // own doc comment has the derivation; this table clears its binding
+      // constraint, TeamsTable's layout, with the most margin of the three).
+      size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
           to="/team/$teamNumber"
