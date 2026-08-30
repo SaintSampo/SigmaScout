@@ -30,9 +30,16 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 - **D-06's token discipline held through all of Phase 5** — verified zero hex literals in component code
   outside shadcn's generated files. A palette change is a token swap, not a component sweep.
 - The `X ± Y` sigma display (D-07) is the stated differentiator and must survive any visual direction.
-- **D-09 vs D-10:** the team-page ± (match-to-match consistency) and the match-prediction ± (full
-  predictive variance) are deliberately *different quantities*. Any design touching both must label them
-  as such — conflating them is how sketch 003 initially drew bands that were far too narrow.
+- **~~D-09 vs D-10~~ — SUPERSEDED 2026-08-30 by Phase 7 D-01.** This file previously said the
+  team-page ± (match-to-match consistency) and the match-prediction ± (full predictive variance)
+  were deliberately *different quantities*. **They are not, any more.** Phase 7 D-01 rejected that
+  two-quantity design outright: **every `±` on this site, in every table and every plot, is one
+  standard deviation of the full predictive variance `√(P + R)`.** D-09 consistency is still
+  computed but is never displayed and never published. Drawing a band from only part of the
+  variance produces bands wrong by 7–10σ.
+
+  Corollary for any new sketch: a spread that is *not* that quantity — a rank percentile range,
+  for instance — must never be labelled with a `±` glyph at all. Write the range explicitly.
 
 ## Sketches
 
@@ -42,6 +49,9 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 002 | palette-options | Which hue carries percentile shading? | **rejected** — superseded by 004 | palette, teams-table, sequential |
 | 004 | rarity-tiers | Statbotics-style percentile boxes in rarity colours — where do tiers earn their place? | **B — Common unboxed** | palette, percentile, rarity, accessibility |
 | 003 | alliance-axes | How should match predictions with uncertainty be laid out, at what scale? | **C — event table, one shared scale** | match-prediction, uncertainty, phase-6, phase-7 |
+| 005 | rank-distribution | How should a team's simulated rank distribution be drawn, given what real data actually looks like? | TBD | simulation, rank-distribution, uncertainty, phase-8 |
+| 006 | calibration-curve | How do you draw a calibration curve an FRC student understands in one read? | TBD | compare, calibration, uncertainty, accessibility, phase-8 |
+| 007 | compare-table | How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits? | TBD | compare, accuracy, table, density, phase-8 |
 
 ## Findings so far
 

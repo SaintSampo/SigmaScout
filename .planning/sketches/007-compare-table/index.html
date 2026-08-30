@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Compare table</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  .muted { color:var(--color-text-muted); }
+
+  /* --- house variant-nav, copied from 004 --- */
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; max-width:520px; text-align:right; line-height:1.45; }
+  .variant { display:none; } .variant.active { display:block; }
+
+  /* --- viewport-preview frame (toolbar resizes this, nav stays real fixed-viewport width) --- */
+  #frame-backdrop { background:var(--color-border); min-height:calc(100vh - 52px); }
+  #frame { margin:0 auto; max-width:none; background:var(--color-bg); overflow-x:hidden; box-shadow:0 0 0 1px var(--color-border); }
+
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md) var(--space-lg); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:var(--text-body); }
+  th { text-align:left; font-size:var(--text-label); font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:7px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .rowlabel { font-weight:700; }
+  .rowlabel-h { vertical-align:bottom; }
+
+  /* winner / loser — typographic only, never colour-coded (chart-craft: grey the loser's number) */
+  td.win { font-weight:700; color:var(--color-text); }
+  td.lose { color:var(--color-text-muted); font-weight:400; }
+  span.win { font-weight:700; color:var(--color-text); }
+  span.lose { color:var(--color-text-muted); font-weight:400; }
+
+  .algo-group, .season-group { border-left:1px solid var(--color-border); }
+  th.metric-h { font-weight:600; }
+  th.metric-h .dir { display:block; font-weight:400; font-size:10px; color:var(--color-text-muted); text-transform:none; letter-spacing:0; white-space:nowrap; }
+
+  /* --- match-type switcher --- */
+  .switcher { display:flex; gap:0; border:1px solid var(--color-border); border-radius:var(--radius); overflow:hidden; width:max-content; margin-bottom:4px; }
+  .switch-btn { border:none; background:var(--color-surface); color:var(--color-text); padding:9px 18px; font:inherit; font-weight:600; font-size:13.5px; cursor:pointer; border-right:1px solid var(--color-border); }
+  .switch-btn:last-child { border-right:none; }
+  .switch-btn.active { background:var(--color-primary); color:#fff; }
+  .switch-hint { margin:8px 0 18px; font-size:12.5px; color:var(--color-text-muted); max-width:660px; line-height:1.55; }
+  .switch-hint b { color:var(--color-text); }
+
+  /* --- data coverage --- */
+  .datacov { margin-top:26px; }
+  .datacov h2 { font-size:14px; font-weight:600; margin:0 0 4px; }
+  .datacov .sub { font-size:12.5px; color:var(--color-text-muted); max-width:780px; line-height:1.55; margin:0 0 10px; }
+  table.small { font-size:12.5px; }
+  table.small th, table.small td { padding:5px 8px; }
+
+  /* --- methodology note --- */
+  .note { border:1px solid var(--color-border); background:var(--color-surface); border-radius:8px; padding:12px 14px; font-size:12.5px; line-height:1.6; color:var(--color-text-muted); margin-top:28px; max-width:900px; }
+  .note b { color:var(--color-text); }
+  .note code { background:var(--color-chrome); padding:1px 5px; border-radius:4px; font-size:11.5px; }
+
+  /* --- variant C: small-multiple panels --- */
+  .panels { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:26px; }
+  .panel { flex:1 1 230px; border:1px solid var(--color-border); border-radius:10px; padding:14px 16px; background:var(--color-surface); min-width:230px; }
+  .panel h3 { margin:0 0 2px; font-size:15px; font-weight:700; }
+  .panel .tally { margin:0 0 12px; font-size:11.5px; color:var(--color-text-muted); }
+  .spark-row + .spark-row { margin-top:12px; }
+  .spark-label { font-size:11px; font-weight:600; color:var(--color-text-muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:.03em; }
+  .spark-label .dir { text-transform:none; font-weight:400; letter-spacing:0; }
+  .spark-body { display:flex; align-items:center; gap:10px; }
+  .spark-vals { display:flex; flex-direction:column; font-size:11.5px; font-variant-numeric:tabular-nums; gap:2px; }
+  .spark-line { fill:none; stroke:var(--color-primary); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .spark-base { stroke:var(--color-border); stroke-width:1; }
+  .spark-dot-end { fill:var(--color-primary); }
+  .spark-dot-start { fill:var(--color-text-muted); }
+  .fulltable-h { font-size:14px; font-weight:600; margin:0 0 8px; }
+  @media (max-width:480px) {
+    .panels { flex-direction:column; }
+    .panel { min-width:0; }
+  }
+
+  /* --- sketch toolbar: hardcoded dark, independent of theme --- */
+  #sketch-tools { position:fixed; bottom:12px; right:12px; z-index:9999; font-family:system-ui,sans-serif; font-size:12px; background:rgba(0,0,0,0.75); color:#fff; padding:8px 10px; border-radius:8px; opacity:.4; transition:opacity .2s; }
+  #sketch-tools:hover { opacity:1; }
+  #sketch-tools .vp-row { display:flex; gap:5px; align-items:center; }
+  #sketch-tools .vp-label { opacity:.65; margin-right:2px; }
+  .vp-btn { background:rgba(255,255,255,.16); color:#fff; border:none; padding:4px 9px; border-radius:4px; cursor:pointer; font:inherit; }
+  .vp-btn.active { background:#fff; color:#111; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('a', this)">A: Season rows</button>
+  <button class="variant-tab" onclick="show('b', this)">B: Algorithm rows</button>
+  <button class="variant-tab" onclick="show('c', this)">C: Small multiples</button>
+  <span class="spacer"></span>
+  <span class="note">Real published <code>v1/compare/{year}.json</code> artifacts, fetched 2026-08-30 from data.sigmascout.org &middot; not mock data</span>
+</div>
+
+<div id="frame-backdrop">
+  <div id="frame">
+    <div id="wrap"></div>
+  </div>
+</div>
+
+<div id="sketch-tools">
+  <div class="vp-row">
+    <span class="vp-label">Viewport</span>
+    <button class="vp-btn" data-px="390" onclick="setViewport(390)">390</button>
+    <button class="vp-btn" data-px="768" onclick="setViewport(768)">768</button>
+    <button class="vp-btn" data-px="1280" onclick="setViewport(1280)">1280</button>
+    <button class="vp-btn active" data-px="0" onclick="setViewport(0)">Full</button>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+/*
+ * Design question: how do you lay out 45 accuracy numbers (3 algorithms x 5 seasons x 3
+ * metrics-worth-of-columns) so the reader sees the RESULT, not a wall of digits?
+ *
+ * No per-algorithm hue is used anywhere in this sketch. OPR/EPA/VPR identity is carried by
+ * column/row position and label text only. That sidesteps the binding constraint entirely
+ * (never reuse alliance red/blue or the rarity-tier sky/purple/amber for a new meaning) rather
+ * than hunting for a fourth "safe" hue — SigmaScout has already spent red, blue, sky, purple,
+ * amber, teal/cyan/indigo (percentile tiers) and green/rose (win/loss) on other meanings, and a
+ * 3-way comparison table doesn't need colour to disambiguate three spatially-separated,
+ * clearly-labelled columns. The ONLY colour doing work here is the existing indigo interactive
+ * accent (switcher/nav active state, sparkline ink) and text-weight/text-colour for win vs lose
+ * — "grey the loser's number, never its mark" from chart-craft.md, applied to plain numerals
+ * since there are no marks to grey here.
+ */
+
+var DATA = window.COMPARE_DATA;
+var YEARS = ['2022', '2023', '2024', '2025', '2026'];
+var ALGOS = ['opr', 'epa', 'vpr'];
+var ALGO_LABEL = { opr: 'OPR', epa: 'EPA', vpr: 'VPR' };
+var VIEWS = [
+  { id: 'combined', label: 'Combined' },
+  { id: 'qualification', label: 'Qualification' },
+  { id: 'elimination', label: 'Elimination' }
+];
+var VIEW_LABEL = { combined: 'Combined', qualification: 'Qualification', elimination: 'Elimination' };
+
+/* Lookup: SLICE[year][algorithmId][compLevelView] = slice object */
+var SLICE = {};
+YEARS.forEach(function (y) {
+  SLICE[y] = {};
+  DATA[y].slices.forEach(function (s) {
+    SLICE[y][s.algorithmId] = SLICE[y][s.algorithmId] || {};
+    SLICE[y][s.algorithmId][s.compLevelView] = s;
+  });
+});
+
+function fmtBrier(v) { return v.toFixed(4); }
+function fmtAcc(v) { return (v * 100).toFixed(1) + '%'; }
+function n(v) { return v.toLocaleString('en-US'); }
+
+function seriesFor(algo, view, metric) {
+  return YEARS.map(function (y) {
+    var s = SLICE[y][algo][view];
+    return metric === 'acc' ? s.winnerAccuracy : s.brierScore;
+  });
+}
+
+/* Winner per (year, view, metric) among the 3 algorithms — real float comparison, no rounding. */
+function winnerAlgo(year, view, metric) {
+  var best = null, bestVal = null;
+  ALGOS.forEach(function (a) {
+    var s = SLICE[year][a][view];
+    var v = metric === 'acc' ? s.winnerAccuracy : s.brierScore;
+    if (bestVal === null || (metric === 'acc' ? v > bestVal : v < bestVal)) { bestVal = v; best = a; }
+  });
+  return best;
+}
+function winTally(algo, view, metric) {
+  var c = 0;
+  YEARS.forEach(function (y) { if (winnerAlgo(y, view, metric) === algo) c++; });
+  return c;
+}
+function metricRange(view, metric) {
+  var vals = [];
+  ALGOS.forEach(function (a) { vals = vals.concat(seriesFor(a, view, metric)); });
+  return [Math.min.apply(null, vals), Math.max.apply(null, vals)];
+}
+
+function metricCell(year, view, algo, metric) {
+  var s = SLICE[year][algo][view];
+  var v = metric === 'acc' ? s.winnerAccuracy : s.brierScore;
+  var text = metric === 'acc' ? fmtAcc(v) : fmtBrier(v);
+  var isWinner = winnerAlgo(year, view, metric) === algo;
+  return '<td class="num ' + (isWinner ? 'win' : 'lose') + '">' + text + '</td>';
+}
+
+function metricHeadPair() {
+  return '<th class="num metric-h">Accuracy<span class="dir">&uarr; higher better</span></th>' +
+         '<th class="num metric-h">Brier<span class="dir">&darr; lower better</span></th>';
+}
+
+/* ---------- Variant A: season rows, algorithm column-groups ---------- */
+/* Every algorithm group (including the first) carries a left border, so the header's colspan-2
+   group border and the body cells' group border land on the same column — both always apply it,
+   rather than trying to skip the first group and drifting out of alignment with the header. */
+function tableA(view) {
+  var head1 = '<tr><th rowspan="2" class="rowlabel-h">Season</th>' +
+    ALGOS.map(function (a) { return '<th colspan="2" class="algo-group">' + ALGO_LABEL[a] + '</th>'; }).join('') + '</tr>';
+  var head2 = '<tr>' + ALGOS.map(function () {
+    return metricHeadPair().replace('<th class="num metric-h">', '<th class="num metric-h algo-group">');
+  }).join('') + '</tr>';
+  var rows = YEARS.map(function (y) {
+    var cells = ALGOS.map(function (a) {
+      var acc = metricCell(y, view, a, 'acc').replace('<td class="num', '<td class="num algo-group');
+      return acc + metricCell(y, view, a, 'brier');
+    }).join('');
+    return '<tr><td class="rowlabel">' + y + '</td>' + cells + '</tr>';
+  }).join('');
+  return '<div class="tablewrap"><table><thead>' + head1 + head2 + '</thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+/* ---------- Variant B: algorithm rows, season column-groups ---------- */
+function tableB(view) {
+  var head1 = '<tr><th rowspan="2" class="rowlabel-h">Algorithm</th>' +
+    YEARS.map(function (y) { return '<th colspan="2" class="season-group">' + y + '</th>'; }).join('') + '</tr>';
+  var head2 = '<tr>' + YEARS.map(function () {
+    return metricHeadPair().replace('<th class="num metric-h">', '<th class="num metric-h season-group">');
+  }).join('') + '</tr>';
+  var rows = ALGOS.map(function (a) {
+    var cells = YEARS.map(function (y) {
+      var acc = metricCell(y, view, a, 'acc').replace('<td class="num', '<td class="num season-group');
+      return acc + metricCell(y, view, a, 'brier');
+    }).join('');
+    return '<tr><td class="rowlabel">' + ALGO_LABEL[a] + '</td>' + cells + '</tr>';
+  }).join('');
+  return '<div class="tablewrap"><table><thead>' + head1 + head2 + '</thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+/* ---------- Variant C: small multiples + full table beneath ---------- */
+function sparkline(values, lo, hi) {
+  var w = 132, h = 40, pad = 5;
+  var range = (hi - lo) || 1;
+  var stepX = (w - pad * 2) / (values.length - 1);
+  var pts = values.map(function (v, i) {
+    var x = pad + i * stepX;
+    var y = pad + (1 - (v - lo) / range) * (h - pad * 2);
+    return [x, y];
+  });
+  var path = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+  var first = pts[0], last = pts[pts.length - 1];
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    '<line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" class="spark-base"/>' +
+    '<path d="' + path + '" class="spark-line"/>' +
+    '<circle cx="' + first[0].toFixed(1) + '" cy="' + first[1].toFixed(1) + '" r="2.5" class="spark-dot-start"/>' +
+    '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3.5" class="spark-dot-end"/>' +
+    '</svg>';
+}
+function sparkRow(label, dirGlyph, dirText, algo, view, metric) {
+  var vals = seriesFor(algo, view, metric);
+  var range = metricRange(view, metric);
+  var fmt = metric === 'acc' ? fmtAcc : fmtBrier;
+  var lastYear = YEARS[YEARS.length - 1];
+  var isWinnerLast = winnerAlgo(lastYear, view, metric) === algo;
+  return '<div class="spark-row">' +
+    '<div class="spark-label">' + label + ' <span class="dir">' + dirGlyph + ' ' + dirText + '</span></div>' +
+    '<div class="spark-body">' + sparkline(vals, range[0], range[1]) +
+      '<div class="spark-vals"><span class="muted">' + YEARS[0] + ' &middot; ' + fmt(vals[0]) + '</span>' +
+      '<span class="' + (isWinnerLast ? 'win' : 'lose') + '">' + lastYear + ' &middot; ' + fmt(vals[4]) + '</span></div>' +
+    '</div></div>';
+}
+function panel(algo, view) {
+  var accWins = winTally(algo, view, 'acc'), brierWins = winTally(algo, view, 'brier');
+  return '<div class="panel">' +
+    '<h3>' + ALGO_LABEL[algo] + '</h3>' +
+    '<p class="tally">Wins ' + accWins + '/5 seasons on accuracy &middot; ' + brierWins + '/5 on Brier &mdash; ' + VIEW_LABEL[view] + '</p>' +
+    sparkRow('Accuracy', '&uarr;', 'higher is better', algo, view, 'acc') +
+    sparkRow('Brier', '&darr;', 'lower is better', algo, view, 'brier') +
+  '</div>';
+}
+function tableC(view) {
+  var panels = '<div class="panels">' + ALGOS.map(function (a) { return panel(a, view); }).join('') + '</div>';
+  return panels + '<h2 class="fulltable-h">Full numbers</h2>' + tableA(view);
+}
+
+/* ---------- data coverage (season-level, algorithm-independent) ---------- */
+function dataCoverage(view) {
+  var rows = YEARS.map(function (y) {
+    var s = SLICE[y]['epa'][view]; /* candidate/scored/exclusions are identical across algorithms for a given season+view */
+    var ex = s.exclusionCounts;
+    return '<tr><td class="rowlabel">' + y + '</td>' +
+      '<td class="num">' + n(s.candidateCount) + '</td>' +
+      '<td class="num">' + n(s.scoredCount) + '</td>' +
+      '<td class="num">' + n(ex.offseason) + '</td>' +
+      '<td class="num">' + n(ex.surrogateAffected) + '</td>' +
+      '<td class="num">' + n(ex.missingResult + ex.quarantined) + '</td>' +
+      '<td class="num">' + n(s.tieCount) + '</td></tr>';
+  }).join('');
+  return '<div class="datacov"><h2>Data coverage &mdash; ' + VIEW_LABEL[view] + '</h2>' +
+    '<p class="sub">Offseason matches <b>feed the model</b> — every algorithm trains on them the same as any other match — but are ' +
+    '<b>excluded from scoring</b> here, because TBA&rsquo;s offseason coverage is too inconsistent across events to score a fair ' +
+    'comparison against it. The gap between Candidate and Scored below is that exclusion, plus a small number of ' +
+    'surrogate-affected, missing-result, and quarantined matches.</p>' +
+    '<div class="tablewrap"><table class="small"><thead><tr><th>Season</th><th class="num">Candidate</th><th class="num">Scored</th>' +
+    '<th class="num">Offseason (fed model, excluded from scoring)</th><th class="num">Surrogate-affected</th>' +
+    '<th class="num">Missing / quarantined</th><th class="num">Ties</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+}
+
+function methodologyNote() {
+  return '<div class="note"><b>Methodology.</b> 2022&ndash;2024 are tuning seasons (<code>seasonLabel: tune</code>) — models were ' +
+    'fit against them. 2025&ndash;2026 are held out from tuning (<code>seasonLabel: holdout</code>) and are ' +
+    '<code>headlineEligible</code>: the only two seasons the published season-over-season headline claim is allowed to cite. ' +
+    'Every season above gets the exact same visual treatment regardless of that label — no tier, no shading, no separate table ' +
+    'for holdout years. This paragraph is the only place that distinction is disclosed.</div>';
+}
+
+function switchHint(view) {
+  if (view === 'elimination') {
+    return '<p class="switch-hint"><b>You’re on Elimination — look at 2025:</b> OPR’s Brier is <b>0.1767</b>, ' +
+      'beating EPA’s 0.1897, even though OPR loses badly to EPA on Qualification that same season (0.2192 vs 0.1950). ' +
+      'That reversal does not exist in Combined.</p>';
+  }
+  return '<p class="switch-hint">Switch to <b>Elimination</b> and check 2025 &mdash; there’s a reversal Combined alone hides.</p>';
+}
+
+function switcherButtons(id, current) {
+  return VIEWS.map(function (v) {
+    return '<button class="switch-btn' + (v.id === current ? ' active' : '') + '" onclick="setView(\'' + id + '\',\'' + v.id + '\')">' + v.label + '</button>';
+  }).join('');
+}
+
+var STATE = { a: 'combined', b: 'combined', c: 'combined' };
+var TABLE_FN = { a: tableA, b: tableB, c: tableC };
+function setView(id, view) {
+  STATE[id] = view;
+  document.getElementById('switch-' + id).innerHTML = switcherButtons(id, view);
+  document.getElementById('dyn-' + id).innerHTML = switchHint(view) + TABLE_FN[id](view) + dataCoverage(view);
+}
+
+function headerChrome() {
+  return '<header style="background:var(--color-chrome);padding:12px 16px;">' +
+    '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+      '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;">SigmaScout</span>' +
+      '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;">' +
+        '<span class="muted">Teams</span><span class="muted">Events</span>' +
+        '<span style="border-bottom:2px solid var(--color-primary);color:var(--color-primary);padding-bottom:2px;">Compare</span></nav>' +
+      '<span style="flex:1"></span><span style="font-size:13px" class="muted">Algorithm accuracy &middot; 2022&ndash;2026</span>' +
+    '</div></header>';
+}
+
+function buildVariant(id, caption) {
+  return '<div id="v-' + id + '" class="variant">' +
+    headerChrome() +
+    '<div class="page" style="padding-top:16px;">' +
+      '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 2px;">Compare &mdash; Algorithm Accuracy</h1>' +
+      '<p class="muted" style="margin:0 0 16px;font-size:13px;">Winner accuracy and Brier score, OPR vs EPA vs VPR, 2022&ndash;2026. Lower Brier is better; higher accuracy is better.</p>' +
+      '<div id="switch-' + id + '" class="switcher">' + switcherButtons(id, 'combined') + '</div>' +
+      '<div id="dyn-' + id + '">' + switchHint('combined') + TABLE_FN[id]('combined') + dataCoverage('combined') + '</div>' +
+      methodologyNote() +
+    '</div><p class="caption">' + caption + '</p></div>';
+}
+
+document.getElementById('wrap').innerHTML =
+  buildVariant('a',
+    '<b>Chronological read.</b> Five rows, one per season, so a reader traces whether an algorithm is trending up or down ' +
+    'year over year within its own column-group — 2022&rsquo;s VPR Brier (0.1592) versus 2026&rsquo;s (0.1501) sits in the ' +
+    'same visual column, three rows apart. Cost: three algorithm column-groups side by side means six data columns before ' +
+    'the row label even starts, so comparing OPR against VPR for one season means scanning across the row rather than down ' +
+    'a column — the head-to-head read variant B gives for free costs more eye movement here.') +
+  buildVariant('b',
+    '<b>Head-to-head read.</b> Three rows &mdash; one per algorithm &mdash; put OPR, EPA, and VPR directly above and below ' +
+    'each other, so a reader scans down one season-column and sees who won that year without moving their eyes sideways; ' +
+    'VPR&rsquo;s row reads almost entirely bold, OPR&rsquo;s and EPA&rsquo;s almost entirely grey, and that pattern alone ' +
+    'tells the story before any digit is read. Cost: five season column-groups (ten data columns) makes this the widest ' +
+    'table of the three, and the one most dependent on horizontal scroll at narrow widths.') +
+  buildVariant('c',
+    '<b>Shape before digits.</b> Three small panels give each algorithm&rsquo;s five-season trend at a glance on a shared ' +
+    'vertical scale, so VPR&rsquo;s panel visibly sits apart from OPR&rsquo;s and EPA&rsquo;s before a single number is ' +
+    'read; the win tally (&ldquo;5/5 seasons&rdquo;) answers the headline question in one line. Cost: the shared scale ' +
+    'that makes panels comparable to each other also compresses small differences &mdash; 2022&rsquo;s near-tie between ' +
+    'OPR and VPR on elimination Brier (0.14721 vs 0.14717) is invisible in the sparkline &mdash; which is exactly why the ' +
+    'full table stays attached beneath it rather than replacing it.');
+document.getElementById('v-a').classList.add('active');
+
+function show(id, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('v-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+function setViewport(px) {
+  document.getElementById('frame').style.maxWidth = px ? px + 'px' : 'none';
+  document.querySelectorAll('.vp-btn').forEach(function (b) { b.classList.toggle('active', parseInt(b.dataset.px, 10) === px); });
+}
+</script>
+</body>
+</html>
