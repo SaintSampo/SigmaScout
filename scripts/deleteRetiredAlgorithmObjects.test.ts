@@ -12,21 +12,33 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CorpusEvent, CorpusMatch } from "../packages/ingest/normalize.js";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../packages/corpus/db.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import {
   assertKeySegment,
+  assertVersionNotCurrentlyLive,
   enumerateRetiredKeys,
+  enumerateSupersededVersionKeys,
   EnumerationOutOfBoundsError,
   KeySegmentMismatchError,
+  LiveManifestFetchError,
   parseCliOptions,
   RefusedLiveAlgorithmIdError,
+  RefusedLiveVersionError,
   RETIRED_KEY_COUNT_BOUNDS,
+  runProbe,
   stratifiedSample,
 } from "./deleteRetiredAlgorithmObjects.js";
 import { assertSubsetEntryShape, type SubsetEntry, type TeamSubsetEntry } from "./verifySubsetPublish.js";
+
+const TEST_ORIGIN = "https://example.test";
+
+/** Mirrors `publishAlgorithmsManifest.test.ts`'s own `jsonResponse` helper — builds a `v1/manifest/algorithms.json` response body directly, no real network. */
+function manifestResponse(algorithms: readonly { id: string; version: string }[], status = 200): Response {
+  return new Response(JSON.stringify({ algorithms }), { status, headers: { "content-type": "application/json" } });
+}
 
 const RETIRED_ID = "sigma1";
 const VERSION = "2.0.0+tuned-2026-08";
@@ -350,6 +362,175 @@ describe("deleteRetiredAlgorithmObjects", () => {
       expect(sample).toHaveLength(60);
       const kinds = new Set(sample.map((k) => k.split("/")[1]));
       expect(kinds).toEqual(new Set(["teams", "events", "event", "team"]));
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Version-retirement mode (--supersedes-live) — 07-19-follow-up.
+  // Each case is proven to bite: refusing the live version, refusing on
+  // manifest fetch failure, allowing a genuinely superseded version, and
+  // the probe-path live-id refusal (07-SECURITY.md Observation 1).
+  // ---------------------------------------------------------------------
+  describe("assertVersionNotCurrentlyLive — the version-retirement guard", () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("refuses the version the live manifest currently names, naming the id, the refused version, and the live version", async () => {
+      fetchMock.mockResolvedValueOnce(manifestResponse([{ id: "vpr", version: "2.1.0+tuned-2026-08" }]));
+
+      let thrown: unknown;
+      try {
+        await assertVersionNotCurrentlyLive(TEST_ORIGIN, "vpr", "2.1.0+tuned-2026-08");
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(RefusedLiveVersionError);
+      const message = (thrown as Error).message;
+      expect(message).toContain("vpr");
+      expect(message).toContain("2.1.0+tuned-2026-08");
+    });
+
+    it("fails CLOSED (refuses) when the manifest fetch itself throws — a network error never means 'proceed'", async () => {
+      fetchMock.mockRejectedValueOnce(new Error("ECONNRESET"));
+
+      let thrown: unknown;
+      try {
+        await assertVersionNotCurrentlyLive(TEST_ORIGIN, "vpr", "2.0.0+tuned-2026-08");
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(LiveManifestFetchError);
+      expect((thrown as Error).message).toContain("ECONNRESET");
+    });
+
+    it("fails CLOSED when the manifest responds with a non-2xx status", async () => {
+      fetchMock.mockResolvedValueOnce(manifestResponse([], 500));
+
+      let thrown: unknown;
+      try {
+        await assertVersionNotCurrentlyLive(TEST_ORIGIN, "vpr", "2.0.0+tuned-2026-08");
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(LiveManifestFetchError);
+      expect((thrown as Error).message).toContain("500");
+    });
+
+    it("fails CLOSED when the manifest body is not valid JSON", async () => {
+      fetchMock.mockResolvedValueOnce(new Response("not json", { status: 200 }));
+
+      let thrown: unknown;
+      try {
+        await assertVersionNotCurrentlyLive(TEST_ORIGIN, "vpr", "2.0.0+tuned-2026-08");
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(LiveManifestFetchError);
+    });
+
+    it("allows a genuinely superseded version — resolves without throwing when the manifest names a DIFFERENT version for the same live id", async () => {
+      fetchMock.mockResolvedValueOnce(
+        manifestResponse([
+          { id: "opr", version: "3.1.0+baseline" },
+          { id: "epa", version: "1.1.0+baseline" },
+          { id: "vpr", version: "2.1.0+tuned-2026-08" },
+        ])
+      );
+
+      await expect(assertVersionNotCurrentlyLive(TEST_ORIGIN, "vpr", "2.0.0+tuned-2026-08")).resolves.toBeUndefined();
+    });
+  });
+
+  describe("enumerateSupersededVersionKeys — end to end against a seeded corpus", () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("refuses via RefusedLiveVersionError before ever touching the corpus, when the target IS the live version", async () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+      fetchMock.mockResolvedValueOnce(manifestResponse([{ id: "vpr", version: "2.1.0+tuned-2026-08" }]));
+
+      let thrown: unknown;
+      try {
+        await enumerateSupersededVersionKeys(db, {
+          retiredId: "vpr",
+          versions: ["2.1.0+tuned-2026-08"],
+          seasons: [2026],
+          origin: TEST_ORIGIN,
+          bounds: { min: 0, max: Number.MAX_SAFE_INTEGER },
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(RefusedLiveVersionError);
+    });
+
+    it("never runs the id-level RefusedLiveAlgorithmIdError check — a live algorithm id with a genuinely superseded version enumerates real keys, every one carrying the superseded segment", async () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+      fetchMock.mockResolvedValueOnce(manifestResponse([{ id: "vpr", version: "2.1.0+tuned-2026-08" }]));
+
+      const keys = await enumerateSupersededVersionKeys(db, {
+        retiredId: "vpr",
+        versions: ["2.0.0+tuned-2026-08"],
+        seasons: [2026],
+        origin: TEST_ORIGIN,
+        bounds: { min: 0, max: Number.MAX_SAFE_INTEGER },
+      });
+
+      expect(keys.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        expect(key).toContain("vpr@2.0.0+tuned-2026-08");
+      }
+    });
+
+    it("still enforces EnumerationOutOfBoundsError even in version-retirement mode", async () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+      fetchMock.mockResolvedValueOnce(manifestResponse([{ id: "vpr", version: "2.1.0+tuned-2026-08" }]));
+
+      let thrown: unknown;
+      try {
+        await enumerateSupersededVersionKeys(db, {
+          retiredId: "vpr",
+          versions: ["2.0.0+tuned-2026-08"],
+          seasons: [2026],
+          origin: TEST_ORIGIN,
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(EnumerationOutOfBoundsError);
+    });
+  });
+
+  describe("runProbe — the live-id refusal is uniform across both entry points (07-SECURITY.md Observation 1)", () => {
+    it("refuses every member of PUBLISHED_ALGORITHM_IDS before issuing any PUT, matching enumerateRetiredKeys's own refusal", async () => {
+      for (const liveId of PUBLISHED_ALGORITHM_IDS) {
+        let thrown: unknown;
+        try {
+          await runProbe({ bucket: "unused-bucket", retiredId: liveId, version: "2.0.0+tuned-2026-08", origin: TEST_ORIGIN });
+        } catch (err) {
+          thrown = err;
+        }
+        expect(thrown, `expected runProbe("${liveId}") to throw before any PUT`).toBeInstanceOf(RefusedLiveAlgorithmIdError);
+      }
     });
   });
 });
