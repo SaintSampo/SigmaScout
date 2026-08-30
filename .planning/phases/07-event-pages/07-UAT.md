@@ -3,7 +3,7 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-31T20:00:00Z
+updated: 2026-08-30T06:27:04Z
 ---
 
 ## Current Test
@@ -606,3 +606,130 @@ actually implement this pattern.
 Pending: deploy, then live re-verification of `zebra-stripe-full-row.spec.ts` against
 `https://sigmascout.org` for GREEN confirmation on Quals/Elims (the team page assertion already
 passes and is a regression guard only).
+
+### G-10 — Metric-cell redesign (superscript spread) to recover Breakdown's residual overflow
+
+severity: high
+status: fixed, pending deploy + live re-verification
+surfaces: `MetricValue.tsx` (shared cell — Team page, Teams table, Insights, Breakdown), `theme.css`'s `.metric-tier`, `BreakdownTab.tsx`
+
+G-7 left Breakdown's desktop overflow at 596px/756px (1440px/1280px) because it could not touch
+`MetricValue.tsx`'s shared value-display geometry — narrowing it was flagged there as a follow-up
+product/design decision, not something that fix could resolve unilaterally. The developer's own
+verbatim direction for that follow-up: "I like the idea of redesigning the metric cell. make the
+glyph and the spread smaller, make them grey, and make them like a superscript, top aligned with
+the value number." The value stays full-size; only the `±` glyph and the spread number shrink,
+grey, and rise.
+
+**Fixed**, three files:
+
+- `MetricValue.tsx`: the `± {spread}` suffix now renders through a new `.metric-spread-superscript`
+  class instead of `.text-role-spread-suffix` — a deliberately SEPARATE class, not a redefinition,
+  because `.text-role-spread-suffix` is also consumed by `EventMatchTable.tsx`/`MatchTable.tsx`'s
+  own inline match-row sd suffix (a different surface this fix never measured or screenshotted).
+  The value span, the DOM text content, and the digit/rounding logic are all byte-identical to
+  before — confirmed by `MetricValue.test.tsx`'s existing assertions passing unchanged (37/37).
+- `theme.css`: `.metric-spread-superscript` (9px/400/line-height 1, `position: relative; top:
+  -3.5px`) and `.metric-tier`'s `min-width` lowered from 80px to 58px (a box-alignment floor, not
+  a universal size — the real worst-case wide value still exceeds it and renders at its own natural
+  width). `position: relative` was chosen deliberately over `vertical-align: super`/`<sup>`'s own
+  default styling: both participate in the inline box's own line-height calculation and can grow
+  row height, exactly the risk this table's 130-row Breakdown/Insights tables cannot absorb.
+  `position: relative` paints the element offset from its normal position but keeps its ORIGINAL
+  in-flow box for layout purposes, so the line box is computed as if `top` were never set.
+- `BreakdownTab.tsx`: the redesign only meaningfully narrows a column's real content when the VALUE
+  itself is small, so metric columns now take one of two declared widths instead of a uniform
+  120px — `BREAKDOWN_METRIC_COLUMN_WIDTH_PX = 110` for the 13 non-Total columns,
+  `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX = 118` for `TOTAL_KEY` alone, whose value can run to six digits.
+
+**Accessibility, computed not assumed (constraint from the developer's own brief):** the suffix's
+colour is unchanged — it still resolves through `text-muted-foreground` / `--color-text-muted`
+(`#475569`), the same token `.text-role-spread-suffix` already used. Superscripting makes the text
+SMALLER, so the WCAG bar is the full 4.5:1 normal-text floor, not the relaxed 3:1 large-text one.
+Measured live with the dataviz skill's `validate_palette.js` (its exported `contrast()` — the same
+WCAG relative-luminance formula the skill uses for its own "Contrast vs surface" check) against
+every background this text lands on:
+
+| background | ratio |
+|---|---|
+| `--color-bg-page` (#f8fafc) | 7.24:1 |
+| `--color-bg-surface` (#f1f5f9) | 6.92:1 |
+| `--tier-rare-bg` (#E0F2FE) | 6.60:1 |
+| `--tier-epic-bg` (#F3E8FF) | 6.42:1 |
+| `--tier-legendary-bg` (#FEF3C7) | 6.81:1 |
+
+All five clear 4.5:1 with room to spare (worst case 6.42:1, ~1.4x the floor) — no palette change
+needed or made.
+
+**Accessible name:** unaffected — this is a presentation-only change over the identical
+`" ± {spread}"` string, same DOM order, same text nodes. `MetricValue.test.tsx`'s own assertions
+(e.g. `"88.20 ± 3.10"` as one concatenated `textContent`) pass unchanged, proving the accessible
+name a screen reader reads is byte-identical to before this fix.
+
+**Row height, verified not assumed:** measured a Breakdown row's height with the new
+`.metric-spread-superscript` (43px) against the same row with `.metric-spread-superscript`
+CSS-overridden back to the OLD suffix geometry (12px, static position, no raise) — both measured
+**43px**, byte-identical, confirming the `position: relative` choice above does not grow row height.
+
+**Overflow, measured honestly against 0 (not just against the 836px original baseline):**
+
+```
+Table width: 88 (teamNumber) + 220 (nickname) + 13x110 + 1x118 = 1856px   (was 1988px, -132px)
+1440px: scroller 1392px, overflow 464px   (was 596px)
+1280px: scroller 1232px, overflow 624px   (was 756px)
+```
+
+**Does NOT reach zero.** Reaching zero at 1440px needs the 14 metric columns to average ~77px
+(1392 - 308 identity columns, / 14) — below even this fix's own redesigned non-Total floor
+(94-102px minimum real content, `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`'s own doc comment). The Total
+column's own floor is wider still (six-digit values, e.g. `"284.89 ± 8.75"`, measured live against
+the deployed 2026alhu artifact — 95.8px of real content). Eliminating the remaining ~460-620px
+needs one of: a wider target viewport (roughly **1904px**, down from G-7's ~2036px estimate),
+fewer default-visible metric columns, or hiding/collapsing the spread entirely on this one dense
+table — each a further product/design decision, not something this fix resolves unilaterally.
+
+**All four sharing surfaces shown, per-surface verdict:**
+
+- **Breakdown** — the intended target. Narrower cells recover 132px of table width (details above);
+  no clipping across 672 cells checked (48-team 2026alhu roster x 14 columns), same 43px row height.
+- **Teams table** — reads well: tier boxes are visibly more compact, no readability loss, screenshot
+  reviewed live against the deployed 2024 season data.
+- **Insights** — reads well, same as Teams table; the tier-key legend row (`TierKeyRow.tsx`, plain
+  percentile-range text, no spread) is unaffected by the `min-width` change since its own content
+  never approached either the old or new floor.
+- **Team page (Overview season header + per-event grid)** — **flagged, not vetoed by this fix.**
+  These boxes are much WIDER than a table cell (they fill a flex row, ~390px+), and at that width a
+  9px superscript reads visually sparse against the box's own size — screenshotted live
+  (`13.10 ± 2.57` in the season header) for the developer's own judgement. This is exactly the risk
+  named in this fix's own brief ("the team page... where the old full-size ± may have been serving
+  a purpose"). Left as-is pending developer sign-off — a per-surface size variant (e.g. a larger
+  superscript specifically on wide boxes) is a straightforward follow-up if the developer vetoes
+  this surface, but was not built speculatively here.
+
+**Mobile 390px, re-verified (no regression):** Breakdown's pinned `teamNumber` block measures 72px
+(inside the existing 72-128px band), declared==actual within 1px, and the first non-pinned metric
+column is fully visible at scroll 0 (x=96, inside the 24-366px scroller) — all unaffected by this
+fix since neither the pinned identity columns nor the mobile breakpoint logic changed. The new
+110px/118px metric-column widths are strictly narrower than the pre-fix 120px, so mobile horizontal
+scroll distance can only decrease, never regress.
+
+**Test evidence**:
+- `MetricValue.test.tsx` (37 tests, unchanged): pass unmodified, proving the DOM text/accessible
+  name is byte-identical.
+- `apps/web/e2e/breakdown-desktop-overflow.spec.ts` updated (per this gap's own instruction not to
+  leave a stale bound): `OVERFLOW_BOUNDS_PX` moved from `{1440: 620, 1280: 780}` to `{1440: 490,
+  1280: 650}` (real measured 464px/624px plus the same ~25px cross-environment buffer G-7 used);
+  the prior G-7 bound is retained as `PRE_G10_OVERFLOW_PX` so the file asserts improvement over
+  BOTH the original 836px baseline and G-7's own intermediate one. Added a new clipping regression
+  guard (`no metric-tier cell content clips at the narrowed column widths`) run against both
+  2024new (the file's primary target) and 2026alhu (the six-digit-Total worst case this fix's
+  column widths were sized against) — 6 tests total, all pass locally against a fixture-backed
+  dev server serving the real, deployed 2024new/2026alhu artifacts (same measurement method this
+  file's own G-7 section established; `data.sigmascout.org`'s CORS excludes localhost).
+- Full project `npx vitest run` (repo root): 2056 passed, 1 skipped, 2 failures — both the
+  pre-accepted `payloadBudget.test.ts` ledger entries (#11, #15); no new failures.
+- `apps/web/tsc --noEmit`: clean.
+
+Pending: deploy, then live re-verification of `breakdown-desktop-overflow.spec.ts` against
+`https://sigmascout.org` for GREEN confirmation at the new bounds, and developer sign-off on the
+team page's wider-box superscript treatment specifically.

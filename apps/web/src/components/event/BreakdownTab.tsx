@@ -159,6 +159,42 @@ function cellClassName(columnId: string): string {
 const WRAPPING_HEADER_CLASS_NAME = "h-auto min-h-10 py-2 align-top whitespace-normal break-words text-role-label";
 
 /**
+ * 07-UAT.md G-10: the per-metric column width, post metric-cell redesign
+ * (`MetricValue.tsx`'s `.metric-spread-superscript` — the ± glyph and spread
+ * number now render smaller/grey/raised beside the value, per the
+ * developer's own design direction). Two sizes, not one: the redesign only
+ * meaningfully narrows a column's REAL content when the VALUE itself is a
+ * small number. `TOTAL_KEY`'s own value can run to six digits ("284.89",
+ * the real worst case measured live against the deployed 2026alhu VPR
+ * artifact, 48 teams), so it keeps its own, slightly wider size rather than
+ * forcing every other column to carry Total's width — the same
+ * "differently-worst-case columns get differently-sized floors" pattern
+ * `teams-table/columns.tsx`'s `RANK_COLUMN_WIDTH_NARROW_PX`/
+ * `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`/`NICKNAME_COLUMN_WIDTH_NARROW_PX`
+ * already establish.
+ *
+ * `BREAKDOWN_METRIC_COLUMN_WIDTH_PX` (110): the real worst-case NON-Total
+ * cell measured live against the deployed 2026alhu VPR artifact —
+ * `"69.80 ± 3.64"` etc. at 86.7px rendered content — plus the existing 16px
+ * `TableCell` `p-2` padding (`ui/table.tsx`) and a 6px cross-browser
+ * font-hinting buffer (the same small numeric-column margin
+ * `RANK_COLUMN_WIDTH_NARROW_PX` uses, not the larger truncation-driven
+ * margin `NICKNAME_COLUMN_WIDTH_NARROW_PX` uses — nothing rendered through
+ * `MetricValue` ever truncates, so only hinting variance needs a buffer).
+ *
+ * `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX` (118): the real worst-case Total cell,
+ * same measurement and method — `"284.89 ± 8.75"` at 95.8px rendered
+ * content.
+ *
+ * Both are DOWN from the prior uniform 120px (07-UAT.md G-7's own baseline)
+ * — a real, measured width recovery from the metric-cell redesign, not a
+ * cosmetic relabeling of the same number. See this table's own
+ * `07-UAT.md G-10` entry for the resulting overflow reduction at 1440/1280.
+ */
+export const BREAKDOWN_METRIC_COLUMN_WIDTH_PX = 110;
+export const BREAKDOWN_TOTAL_COLUMN_WIDTH_PX = 118;
+
+/**
  * The Breakdown tab's column set is EXACTLY `metricKeysFor(algorithmId,
  * season)` in that function's own order — never a Breakdown-specific list
  * and never derived from a fetched row's own key order.
@@ -216,7 +252,7 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
       columnHelper.accessor((row) => row.metrics[key], {
         id: key,
         header: metricLabel(key),
-        size: 120,
+        size: key === TOTAL_KEY ? BREAKDOWN_TOTAL_COLUMN_WIDTH_PX : BREAKDOWN_METRIC_COLUMN_WIDTH_PX,
         cell: (info) => {
           const entry = info.getValue();
           return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;

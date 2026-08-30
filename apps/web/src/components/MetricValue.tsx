@@ -32,6 +32,19 @@ export interface DisplayMetric {
  * value/spread output in the `.metric-tier`/`.metric-tier--{tier}` box
  * (`theme.css`) via `cn()`, changing only background/foreground/padding —
  * never the type scale, never a re-round of either number.
+ *
+ * The ± glyph and spread number render through `.metric-spread-superscript`
+ * (07-UAT.md G-10, the developer's own design direction) — smaller, grey,
+ * and raised beside the value like an exponent, top-aligned with it. The
+ * VALUE itself is untouched: same `.text-role-body` size/weight, same
+ * `toFixed(2)` digits, same DOM text content and order as before — this is
+ * a presentation-only change over the identical " ± {spread}" string
+ * `.text-role-spread-suffix` used to render, so the accessible name/text
+ * content read by assistive tech is byte-identical to before this change.
+ * See `theme.css`'s own doc comment on `.metric-spread-superscript` for why
+ * this is a NEW class rather than a redefinition of `.text-role-spread-suffix`
+ * (that class is also consumed by two match-table surfaces outside this
+ * fix's scope).
  */
 export function MetricValue({ metric, tier, className }: { metric?: DisplayMetric; tier?: Tier; className?: string }) {
   if (metric === undefined) {
@@ -46,7 +59,7 @@ export function MetricValue({ metric, tier, className }: { metric?: DisplayMetri
     <span className={cn("numeric-cell whitespace-nowrap", boxed && "metric-tier", boxed && `metric-tier--${tier}`, className)}>
       <span className="text-role-body">{valueText}</span>
       {hasSpread && (
-        <span className="text-role-spread-suffix text-muted-foreground">{` ± ${metric.spread?.toFixed(2)}`}</span>
+        <span className="metric-spread-superscript text-muted-foreground">{` ± ${metric.spread?.toFixed(2)}`}</span>
       )}
     </span>
   );
