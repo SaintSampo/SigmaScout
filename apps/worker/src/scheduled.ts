@@ -62,6 +62,27 @@
  * both stay accurate as of the last offline publish until a future plan
  * extends this mechanism or a manual republish runs. Documented as a Known
  * Stub in this plan's SUMMARY, not a silent gap.
+ *
+ * OFF-SEASON DEMO TEAM EXCLUSION (`.planning/todos/completed/
+ * exclude-offseason-demo-teams-SUMMARY.md`, "gap 1"): `packages/core/
+ * algorithms/demoTeams.ts`'s two predicates are already applied INSIDE every
+ * published algorithm's `update()`/`predict()` (via `ratingEligibleTeams`),
+ * so no raw `frc9970`-`frc9999` key ever enters an algorithm's own per-team
+ * state or design matrix, and a fully-demo alliance is already a no-op fold
+ * — nothing in THIS file needs to re-implement either of those. What this
+ * file alone is responsible for is `touchedTeams` (`processEvent` below),
+ * the RAW per-match roster used to (a) decide which "team" scope keys Phase A
+ * reads/initializes in D1 and (b) which `team/{teamKey}/{year}` artifacts
+ * Phase B writes. `realTouchedTeams` strips every demo key out of that list
+ * BEFORE either use — the same choke point `publish.ts`'s `teamsThisSeason`
+ * is for the offline path — so a demo key can neither acquire its own D1
+ * state row (a real risk at `algorithm.initState` cold-start, which seeds an
+ * entry for every key it is GIVEN, not every key an algorithm actually
+ * folds) nor produce a published team page. The RAW `touchedTeams` list is
+ * still passed to `mergeEventArtifact` unfiltered, matching `publish.ts`'s
+ * own unfiltered `eventTeamKeys` — event pages are deliberately untouched by
+ * this exclusion (a demo robot's real historical presence in an event's own
+ * match/alliance record stays visible).
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
@@ -72,6 +93,7 @@ import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
+import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { deserializeState, serializeState } from "../../../packages/harness/stateSnapshot.js";
 import {
   artifactKey,
@@ -704,13 +726,20 @@ async function processEvent(
     }
 
     const touchedTeams = [...new Set(newlyFolded.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
+    // Off-season demo team exclusion (see this module's header) — every one
+    // of the 30 `frc9970`-`frc9999` keys stripped out BEFORE `touchedTeams`
+    // drives any D1 state read/init or any `team/{teamKey}/{year}` artifact
+    // write. `touchedTeams` itself stays RAW for the event artifact's own
+    // standings row below.
+    const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
     // Estimate the WHOLE event's remaining subrequest cost up front (D-15) —
     // see this module's header for why atomicity (all-or-nothing per event)
-    // is the safe choice here.
+    // is the safe choice here. Sized off `realTouchedTeams`, not the raw
+    // roster — Phase B no longer spends a read+write pair on any demo key.
     const algorithmCount = algorithmModules.size;
-    const estimatedCost = estimateEventSubrequestCost(algorithmCount, touchedTeams.length);
+    const estimatedCost = estimateEventSubrequestCost(algorithmCount, realTouchedTeams.length);
     if (budget.remaining < estimatedCost) {
       return { status: "deferred" };
     }
@@ -748,7 +777,10 @@ async function processEvent(
       const perAlgorithm = new Map<string, { readonly algorithm: AlgorithmModule<any>; readonly newPredictions: Map<string, Prediction>; readonly upcomingPredictions: Map<string, Prediction>; readonly touchedMetrics: Record<string, Record<string, TeamMetric>> }>();
 
       for (const [algorithmId, algorithm] of algorithmModules) {
-        const selections = selectionsFor(algorithmId, eventKey, touchedTeams);
+        // `realTouchedTeams` (demo keys stripped) — see this module's header
+        // and gap-1 comment above: a demo key must never seed a `team` scope
+        // row via `algorithm.initState` at cold start.
+        const selections = selectionsFor(algorithmId, eventKey, realTouchedTeams);
 
         budget.consume(1);
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
@@ -777,7 +809,7 @@ async function processEvent(
         perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics });
       }
 
-      return await runPhaseBAndReport(env, budget, window, eventKey, newlyFoldedResults, stillUpcomingViews, touchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, budget, window, eventKey, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
       // Revert the claim: state did not actually advance, so a future tick
       // (or another invocation) must be free to re-attempt folding these
@@ -803,7 +835,15 @@ async function processEvent(
   }
 }
 
-/** PHASE B — artifact writes, best-effort, factored out only so `processEvent`'s Phase-A try/catch (which must revert the CAS claim on failure) does not also have to special-case Phase B's own best-effort try/catch. A failure inside Phase B does not change the event's "advanced" outcome (state has genuinely advanced); a skipped artifact stays one tick stale until this team's next match at this event, per this module's header's documented limitation. */
+/** PHASE B — artifact writes, best-effort, factored out only so `processEvent`'s Phase-A try/catch (which must revert the CAS claim on failure) does not also have to special-case Phase B's own best-effort try/catch. A failure inside Phase B does not change the event's "advanced" outcome (state has genuinely advanced); a skipped artifact stays one tick stale until this team's next match at this event, per this module's header's documented limitation.
+ *
+ * `touchedTeams` (RAW roster) feeds ONLY the event artifact's own standings
+ * row, matching `publish.ts`'s unfiltered `eventTeamKeys` (event pages are
+ * deliberately untouched by the demo-team exclusion). `realTouchedTeams`
+ * (demo keys stripped, see this module's header) is what actually drives
+ * `team/{teamKey}/{year}` writes and the `touchedTeamsByAlgorithm` feed that
+ * `runGlobalRebuild` folds into `teams/{year}` — a demo key must reach
+ * neither. */
 async function runPhaseBAndReport(
   env: Env,
   budget: SubrequestBudget,
@@ -812,6 +852,7 @@ async function runPhaseBAndReport(
   newlyFoldedResults: readonly MatchResult[],
   stillUpcomingViews: readonly UpcomingMatch[],
   touchedTeams: readonly string[],
+  realTouchedTeams: readonly string[],
   matchIndexByKey: ReadonlyMap<string, number>,
   perAlgorithm: ReadonlyMap<string, { readonly algorithm: AlgorithmModule<any>; readonly newPredictions: Map<string, Prediction>; readonly upcomingPredictions: Map<string, Prediction>; readonly touchedMetrics: Record<string, Record<string, TeamMetric>> }>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
@@ -841,7 +882,7 @@ async function runPhaseBAndReport(
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
       const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
 
-      for (const teamKey of touchedTeams) {
+      for (const teamKey of realTouchedTeams) {
         const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: info.algorithm.version };
         const existingTeam = await readExistingTeam(env, budget, teamParams);
         const teamMatches = newlyFoldedResults.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));

@@ -596,6 +596,119 @@ describe("runTick — algorithm module construction (Pitfall 4)", () => {
   });
 });
 
+describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-demo-teams-SUMMARY.md)", () => {
+  it("a live match containing a demo team writes no team/{demoKey} artifact and acquires no D1 state for it, while real teammates ARE updated and the event page stays untouched", async () => {
+    const window: WindowFixture = { eventKey: "2026demo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [
+        tbaMatch({
+          key: "2026demo_qm1",
+          eventKey: "2026demo",
+          matchNumber: 1,
+          redTeams: ["frc1", "frc2", "frc9985"],
+          blueTeams: BLUE_TEAMS,
+          redScore: 120,
+          blueScore: 95,
+          actualTimeSec: Math.floor(NOW_MS / 1000) - 60,
+        }),
+      ],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+
+    // No team/{demoKey} artifact for the demo teammate.
+    const demoTeamPutKey = artifactKey({ page: "team", teamKey: "frc9985", year: SEASON, algorithmId: "opr", version: "3.0.0+baseline" });
+    expect(r2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
+
+    // The real teammate AND the real opposing alliance's teams DO get published
+    // — this is an exclusion of the demo key, not an accidental drop of the
+    // whole match's real teammates.
+    for (const teamKey of ["frc1", "frc2", ...BLUE_TEAMS]) {
+      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: "3.0.0+baseline" });
+      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
+    }
+
+    // No D1 state row is ever created under the raw demo key.
+    expect(d1.algorithmState.has("opr::team::frc9985")).toBe(false);
+    // The real teammate's own state DID acquire a row.
+    expect(d1.algorithmState.has("opr::team::frc1")).toBe(true);
+
+    // The event page's own standings are deliberately untouched by this
+    // exclusion — a demo robot's real historical presence in an event's own
+    // match/alliance record stays visible, matching `publish.ts`'s unfiltered
+    // `eventTeamKeys`.
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026demo", algorithmId: "opr", version: "3.0.0+baseline" });
+    const eventPut = r2.puts.find((p) => p.key === eventPutKey);
+    expect(eventPut).toBeDefined();
+    const eventArtifact = JSON.parse(eventPut!.body) as { teams: readonly { teamKey: string }[] };
+    expect(eventArtifact.teams.some((t) => t.teamKey === "frc9985")).toBe(true);
+  });
+
+  it("a fully-demo alliance is a no-op fold — resulting rating state is byte-identical to never having replayed the match at all, and no demo key ever acquires D1 state or an artifact", async () => {
+    const RED = ["frc1", "frc2", "frc3"];
+    const baselineMatch = tbaMatch({
+      key: "2026demo_qm1",
+      eventKey: "2026demo",
+      matchNumber: 1,
+      redTeams: RED,
+      blueTeams: BLUE_TEAMS,
+      redScore: 120,
+      blueScore: 95,
+      actualTimeSec: Math.floor(NOW_MS / 1000) - 120,
+    });
+    const fullyDemoMatch = tbaMatch({
+      key: "2026demo_qm2",
+      eventKey: "2026demo",
+      matchNumber: 2,
+      redTeams: RED,
+      blueTeams: ["frc9970", "frc9971", "frc9972"],
+      redScore: 200,
+      blueScore: 0,
+      actualTimeSec: Math.floor(NOW_MS / 1000) - 60,
+    });
+
+    // Baseline: only the real-vs-real match ever gets folded at this event.
+    const baselineWindow: WindowFixture = { eventKey: "2026demo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const baselineKv = makeKv([baselineWindow]);
+    const baselineD1 = new FakeD1Database();
+    const baselineR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", { etag: "etag-1", eventType: 0, season: SEASON, matches: [baselineMatch] }]])));
+    await runTick(makeEnv(baselineKv, baselineD1, baselineR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const baselineEventState = baselineD1.algorithmState.get("opr::event::2026demo")?.state_json;
+    const baselineTeamState = baselineD1.algorithmState.get("opr::team::frc1")?.state_json;
+    expect(baselineEventState).toBeDefined();
+    expect(baselineTeamState).toBeDefined();
+    vi.unstubAllGlobals();
+
+    // Test: the SAME real-vs-real match, PLUS a fully-demo forfeit at the
+    // same event — should fold as a complete no-op for every real team.
+    const testWindow: WindowFixture = { eventKey: "2026demo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const testKv = makeKv([testWindow]);
+    const testD1 = new FakeD1Database();
+    const testR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", { etag: "etag-2", eventType: 0, season: SEASON, matches: [baselineMatch, fullyDemoMatch] }]])));
+    await runTick(makeEnv(testKv, testD1, testR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(testD1.algorithmState.get("opr::event::2026demo")?.state_json).toBe(baselineEventState);
+    expect(testD1.algorithmState.get("opr::team::frc1")?.state_json).toBe(baselineTeamState);
+
+    // No D1 state row or published artifact ever acquired under a raw demo key.
+    for (const demoKey of ["frc9970", "frc9971", "frc9972"]) {
+      expect(testD1.algorithmState.has(`opr::team::${demoKey}`)).toBe(false);
+      const demoTeamPutKey = artifactKey({ page: "team", teamKey: demoKey, year: SEASON, algorithmId: "opr", version: "3.0.0+baseline" });
+      expect(testR2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
+    }
+  });
+});
+
 describe("runTick — global rebuild (D-16)", () => {
   it("fires on the event-boundary trigger (an event completing its last scheduled match this tick)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
