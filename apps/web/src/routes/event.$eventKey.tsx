@@ -276,7 +276,7 @@ function EventPage() {
           table's own `breakdown-table-scroll` region — never its ancestor
           and never its descendant, so the two can never trap one another.
         */}
-        <div data-testid="event-tab-strip-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
+        <div data-testid="event-tab-strip-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
           <TabsList variant="line" className="border-b border-[var(--color-border)]">
             <TabsTrigger value="insights" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Insights

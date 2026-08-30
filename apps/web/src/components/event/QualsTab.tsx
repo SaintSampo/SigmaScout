@@ -12,10 +12,11 @@ import type { EventArtifact } from "../../../../../packages/harness/pageArtifact
  *
  * `matches[]`/`upcoming[]` are read-only inputs — `mergeEventMatches`
  * mutates neither, which is the assertion protecting Phase 8's input
- * (D-13). The scroll region carries `min-w-0`, `touch-pan-x`,
- * `overflow-x-auto` and `overscroll-x-contain`, and is a DOM SIBLING of the
- * tab strip's own scroll region — neither contains the other
- * (07-RESEARCH.md Open Question 5).
+ * (D-13). The scroll region carries `min-w-0`, `touch-pan-xy` (07-UAT.md
+ * G-4 — permits vertical page scroll AND pinch-zoom; the old `touch-pan-x`
+ * blocked every vertical gesture starting on this element), `overflow-x-auto`
+ * and `overscroll-x-contain`, and is a DOM SIBLING of the tab strip's own
+ * scroll region — neither contains the other (07-RESEARCH.md Open Question 5).
  */
 export interface QualsTabProps {
   artifact: EventArtifact;
@@ -38,7 +39,7 @@ const QUALS_SKELETON_ROW_COUNT = 6;
  */
 export function QualsTabSkeleton() {
   return (
-    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTableSkeleton rowCount={QUALS_SKELETON_ROW_COUNT} />
     </div>
   );
@@ -69,7 +70,7 @@ export function QualsTab({ artifact, season }: QualsTabProps) {
   }
 
   return (
-    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTable rows={rows} domain={domain} season={season} />
     </div>
   );

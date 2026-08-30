@@ -325,7 +325,7 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
   void algorithmId;
   void season;
   return (
-    <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+    <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader>
           <TableRow>
@@ -365,7 +365,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
-      <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
           07-UAT.md G-1 deliberately does NOT apply `table-layout: fixed`
           here — evaluated and measured, not skipped by default. This tab

@@ -13,9 +13,11 @@ import type { MetricHistoryRow } from "../../../../../packages/harness/metricHis
  * is the highest-risk surface in the phase (D-10) — it recurs once per event
  * section, so every flex/grid ancestor of the scroller below carries
  * `min-w-0`, and the scroller itself is a single native `overflow-x-auto`
- * element with `touch-pan-x`/`overscroll-x-contain` (Tailwind utilities for
- * `touch-action: pan-x` / `overscroll-behavior-x: contain`), never fused with
- * the page's own vertical scroll.
+ * element with `touch-pan-xy`/`overscroll-x-contain` (07-UAT.md G-4: a
+ * custom Tailwind utility for `touch-action: pan-x pan-y pinch-zoom` — the
+ * plain `touch-pan-x` this used to carry blocked every vertical touch
+ * gesture starting here — / `overscroll-behavior-x: contain`), never fused
+ * with the page's own vertical scroll.
  */
 export interface EventSectionProps {
   event: TeamSeasonEvent;
@@ -133,7 +135,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
         </div>
       )}
 
-      <div data-testid={`match-table-scroll-${event.eventKey}`} className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div data-testid={`match-table-scroll-${event.eventKey}`} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <MatchTable matches={event.matches} domain={domain} teamKey={teamKey} season={season} />
       </div>
     </section>

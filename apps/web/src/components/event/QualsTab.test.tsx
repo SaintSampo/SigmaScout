@@ -170,11 +170,20 @@ describe("Empty state (EVNT-04 empty, UI-SPEC E5 empty)", () => {
 });
 
 describe("Scroll-region siblinghood (structural half)", () => {
-  it("quals-table-scroll carries overflow-x-auto, touch-pan-x, overscroll-x-contain and min-w-0", () => {
+  // 07-UAT.md G-4: this assertion used to pin `touch-pan-x`, which is the
+  // defect itself — `touch-action: pan-x` permits ONLY horizontal panning,
+  // so a vertical touch gesture starting on this element was never handed to
+  // the page's own scroller (a real phone reported "hard to scroll up and
+  // down... have to do it very precisely"). Updated to assert `touch-pan-xy`
+  // (a custom utility, `apps/web/src/styles/theme.css`, for
+  // `touch-action: pan-x pan-y pinch-zoom`), which restores vertical page
+  // scroll and pinch-zoom while `overscroll-x-contain` — unchanged, asserted
+  // below — keeps horizontal panning trapped inside this scroller.
+  it("quals-table-scroll carries overflow-x-auto, touch-pan-xy, overscroll-x-contain and min-w-0", () => {
     const matches = [makePlayedMatch({ matchKey: "p1" })];
     render(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
     const scroll = screen.getByTestId("quals-table-scroll");
-    for (const cls of ["overflow-x-auto", "touch-pan-x", "overscroll-x-contain", "min-w-0"]) {
+    for (const cls of ["overflow-x-auto", "touch-pan-xy", "overscroll-x-contain", "min-w-0"]) {
       expect(scroll.className).toContain(cls);
     }
   });

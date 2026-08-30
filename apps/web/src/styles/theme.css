@@ -189,6 +189,39 @@ body {
 }
 
 /*
+ * G-4 (07-UAT.md, real-device UAT): `touch-action: pan-x` alone permits ONLY
+ * horizontal panning — a vertical touch gesture that STARTS on an element
+ * bearing it is never handed to the page's own vertical scroller. Since
+ * every horizontally-scrolling table and the tab strip occupy nearly the
+ * whole phone viewport, a real user had to hunt for the thin non-table
+ * strips to scroll the page at all ("I have to do it very precisely").
+ * Tailwind's own `touch-pan-x`/`touch-pan-y` utilities both set the same
+ * single-value `touch-action` CSS property and so overwrite each other —
+ * this custom utility emits BOTH axis keywords plus `pinch-zoom` in one
+ * declaration, restoring vertical page scroll AND pinch-zoom (`pan-x` alone
+ * also disables pinch-zoom, an accessibility regression on dense data
+ * tables — CSS Pointer Events' `touch-action` only permits the keywords
+ * explicitly listed, so pinch-zoom must be named to survive).
+ *
+ * `overscroll-x-contain` (Tailwind's own built-in utility for
+ * `overscroll-behavior-x: contain`) is UNTOUCHED wherever it already
+ * appears alongside this class — that is the property stopping the PAGE
+ * from panning sideways (`apps/web/e2e/no-page-pan.spec.ts`'s guarded
+ * invariant), a completely different CSS property from `touch-action`, and
+ * this fix must never be read as license to weaken it.
+ *
+ * `06-RESEARCH.md` Pitfall 6 warned that a passing Playwright/CDP
+ * touch-emulation test does not prove real-device gesture arbitration on
+ * iOS Safari — this exact failure mode (shipped `touch-pan-x`, all
+ * automated touch specs green, a real phone still broken) is why that
+ * pitfall's warning is cited here rather than only in the fix's commit
+ * message.
+ */
+@utility touch-pan-xy {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+/*
  * Digit columns (rank, team #, metric values, win rate, week number) align
  * vertically — 05-UI-SPEC.md "Design System" Font row.
  */

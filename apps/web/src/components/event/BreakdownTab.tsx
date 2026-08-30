@@ -216,7 +216,7 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
@@ -266,7 +266,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div data-testid="breakdown-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div data-testid="breakdown-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object

@@ -351,7 +351,7 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
@@ -422,7 +422,7 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           <span>{insightsFallbackNotice(algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>
         </div>
       )}
-      <div data-testid="insights-table-scroll" className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain">
+      <div data-testid="insights-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
