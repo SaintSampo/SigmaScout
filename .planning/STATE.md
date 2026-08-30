@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 8
 current_phase_name: Simulation & Compare
 status: planning
-stopped_at: Phase 8 context gathered
-last_updated: "2026-08-30T20:43:29.743Z"
+stopped_at: Phase 8 UI-SPEC approved
+last_updated: "2026-08-30T21:35:10.951Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
 progress:
@@ -323,6 +323,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-30T20:43:29.684Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-simulation-compare/08-CONTEXT.md
+Last session: 2026-08-30T21:35:10.893Z
+Stopped at: Phase 8 UI-SPEC approved
+Resume file: .planning/phases/08-simulation-compare/08-UI-SPEC.md
