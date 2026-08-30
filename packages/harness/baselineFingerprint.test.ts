@@ -140,6 +140,20 @@ const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
  */
 const EVENT_SCOPED_FINGERPRINT_FILE = "opr-event-scoped-2026-08.json";
 
+/**
+ * `.planning/todos/pending/remeasure-accuracy-record-offseason-inclusion.md`
+ * (2026-08-30): the SC-3 re-measurement under the offseason-inclusive
+ * publish methodology (07-17 PD-02), folded together with the demo-team
+ * exclusion and whole-alliance-DQ-zero-score fixes that landed the same
+ * day — a fourth committed fingerprint, distinct from both the two
+ * retired-implementation runs and the event-scoped re-run above. Excluded
+ * by name from the "retired-implementation" loop below (its `opr` entry is
+ * `3.1.0+baseline`, not the retired `2.0.0+baseline`) and from
+ * `EVENT_SCOPED_FINGERPRINT_FILE`'s own five-algorithm-entry assertion
+ * (this run only scores `opr,epa,vpr` — the three SC-3 needs).
+ */
+const OFFSEASON_INCLUSIVE_FINGERPRINT_FILE = "sc3-offseason-inclusive-2026-08.json";
+
 describe("committed baseline fingerprints", () => {
   it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
@@ -161,7 +175,10 @@ describe("committed baseline fingerprints", () => {
 
   it("both retired-implementation fingerprints record OPR's own pre-rewrite id/version, not anything later", () => {
     const files = readdirSync(BASELINES_DIR).filter(
-      (name) => name.endsWith(".json") && name !== EVENT_SCOPED_FINGERPRINT_FILE
+      (name) =>
+        name.endsWith(".json") &&
+        name !== EVENT_SCOPED_FINGERPRINT_FILE &&
+        name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -220,9 +237,29 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 3 committed fingerprints: two retired-implementation runs plus the event-scoped re-run", () => {
+  it("data/baselines/ contains exactly 4 committed fingerprints: two retired-implementation runs, the event-scoped re-run, and the offseason-inclusive SC-3 re-measurement", () => {
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(3);
+    expect(files).toHaveLength(4);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
+    expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
+  });
+
+  /**
+   * `.planning/todos/pending/remeasure-accuracy-record-offseason-inclusion.md`:
+   * the new fingerprint must carry exactly the three algorithms SC-3 compares
+   * (not the five-algorithm shape `EVENT_SCOPED_FINGERPRINT_FILE` carries),
+   * under their current, post-rename/post-code-bump ids and versions — never
+   * silently reusing the retired `opr@2.0.0+baseline`/`sigma1` identities.
+   */
+  it("the offseason-inclusive fingerprint carries exactly opr/epa/vpr, at their current post-fix versions", () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(join(BASELINES_DIR, OFFSEASON_INCLUSIVE_FINGERPRINT_FILE), "utf8")
+    );
+    const parsed = BaselineFingerprintSchema.parse(raw);
+    const byId = new Map(parsed.algorithms.map((a) => [a.id, a.version]));
+    expect(Array.from(byId.keys()).sort()).toEqual(["epa", "opr", "vpr"]);
+    expect(byId.get("opr")).toBe("3.1.0+baseline");
+    expect(byId.get("epa")).toBe("1.1.0+baseline");
+    expect(byId.get("vpr")).toBe("2.1.0+tuned-2026-08");
   });
 });

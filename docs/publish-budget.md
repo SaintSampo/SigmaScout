@@ -201,7 +201,10 @@ replay**, and 6,729 of 17,670 team-seasons (38%) carry at least one played offse
 therefore publish different numbers than the figures every earlier section in this document
 describes. `docs/models/` and `data/baselines/` were measured on the narrower (offseason-excluded)
 stream and have not been re-run — that divergence is a standing finding routed forward, not
-resolved here. Two events (`2024orbb`, `2025orbb`) self-reported a non-integer `rp` value that
+resolved here. **Resolved 2026-08-30** by
+`.planning/todos/pending/remeasure-accuracy-record-offseason-inclusion.md`: see
+`docs/models/offseason-inclusion-remeasurement.md` for the re-measured Brier/accuracy figures and
+the SC-3 re-verdict (still 8/8 PASS). Two events (`2024orbb`, `2025orbb`) self-reported a non-integer `rp` value that
 first blocked this run's `--include-offseason` dry-run; fixed out-of-scope and authorized at this
 plan's own `checkpoint:decision` (`packages/ingest/normalize.ts`'s `extractRp` now degrades a
 non-integer self-reported RP to `null` rather than passing it through — see

@@ -7,6 +7,14 @@ See `docs/models/opr-baseline-change.md` for the full narrative — why the swit
 numbers side by side, and the required framing for what a widened Sigma1 margin does and does not
 mean.
 
+**Offseason-inclusive re-measurement (2026-08-30):** every table below was measured on the
+offseason-EXCLUDED corpus, before 07-17's `--include-offseason` widening and before the 2026-08-30
+demo-team-exclusion and whole-alliance-DQ-zero-score fixes. Nothing below has been edited — this is
+what was actually measured at the time. `docs/models/offseason-inclusion-remeasurement.md` is the
+dated re-run against the model as it publishes today: **SC-3 still passes 8/8**, with one holdout
+season (2025) measurably worse for both EPA and VPR and the other (2026) measurably better,
+reported there in full alongside this document's original figures.
+
 The committed answer to Phase 3's four questions: did the offline search actually find something
 (ALGO-04), does tuned Sigma1 beat OPR and EPA on holdout Brier *and* winner accuracy on both
 holdout seasons (SC-3), does within-season adaptation improve holdout score (ALGO-05), and does
@@ -370,3 +378,4 @@ Measured but not resolved by this plan — named here rather than left implicit:
 *Phase: 03-tuning-ranking-points-versioning*
 *Generated: 2026-08-17, from `reports/tuned-v3/artifact.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/tuned-v3`, `runTimestamp: 2026-08-17T01:11:06.668Z`) — EPA/Sigma1 figures throughout this document are from this run, unchanged*
 *OPR figures re-issued 2026-08-21 (Phase 3.2), from `data/baselines/opr-event-scoped-2026-08.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/event-scoped-v1`, `runTimestamp: 2026-08-21T17:48:49.076Z`)*
+*Re-measured under the offseason-inclusive, demo-excluded, DQ-fixed model 2026-08-30 — see `docs/models/offseason-inclusion-remeasurement.md` and `data/baselines/sc3-offseason-inclusive-2026-08.json`; nothing in this document was edited*

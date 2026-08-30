@@ -139,6 +139,13 @@ D-02's literal reading, preserved unchanged: tuned Sigma1 must beat **both** OPR
 holdout Brier **and** holdout winner accuracy, on **both** holdout seasons (2025, 2026) —
 evaluated as eight separate yes/no comparisons.
 
+**A later re-measurement exists, beside this one, not over it.** The table below was measured
+before 07-17's `--include-offseason` widening and before the 2026-08-30 demo-team-exclusion and
+whole-alliance-DQ-zero-score fixes. `docs/models/offseason-inclusion-remeasurement.md` re-runs
+this exact structure against the model as it publishes today: SC-3 still passes 8/8, with 2025
+measurably worse and 2026 measurably better for both EPA and VPR — OPR itself is unchanged, on
+every season, to full precision. Nothing below has been edited.
+
 ### Current verdict — measured against event-scoped OPR (2026-08-21)
 
 Computed directly from `data/baselines/opr-event-scoped-2026-08.json`.
@@ -334,3 +341,4 @@ precedent — nothing here is softened to look more finished than it is.
 ---
 *Phase: 03.2-swap-opr-to-event-scoped-and-re-issue-affected-figures*
 *Generated: 2026-08-21, from `data/baselines/opr-event-scoped-2026-08.json` (`pnpm harness --seasons 2022-2026 --algorithm opr,epa,sigma1,sigma1-defaults,sigma1-adapt --out reports/event-scoped-v1`, `runTimestamp: 2026-08-21T17:48:49.076Z`)*
+*Re-measured under the offseason-inclusive, demo-excluded, DQ-fixed model 2026-08-30 — see `docs/models/offseason-inclusion-remeasurement.md` and `data/baselines/sc3-offseason-inclusive-2026-08.json`; nothing in this document was edited*
