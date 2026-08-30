@@ -3,7 +3,7 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-30T02:40:00Z
+updated: 2026-08-30T23:59:00Z
 ---
 
 ## Current Test
@@ -13,7 +13,12 @@ name: Real-device touch scroll sign-off (BLOCKED by layout defect — re-run aft
 expected: |
   Blocked. A layout defect was found on a real phone before the six touch-arbitration checks
   could be assessed. See Gaps G-1 and G-2. Re-run this test once the fix lands.
-awaiting: layout fix
+awaiting: |
+  G-1/G-2/G-3 code fixes are committed (see Gaps section below) and verified locally against a
+  fixture-backed dev server — data.sigmascout.org's R2 CORS policy excludes localhost, so a real
+  device/deployed-origin re-run was not possible from this session. Awaiting `wrangler deploy`
+  (blocked for subagents) and a live re-measurement + the original six touch-arbitration checks,
+  both on the deployed origin.
 
 ## Tests
 
@@ -51,7 +56,7 @@ blocked: 0
 ### G-1 — Sticky column offsets desync from rendered widths (the visible gaps)
 
 severity: high
-status: failed
+status: fixed, pending live re-verification
 surfaces: InsightsTab, BreakdownTab, TeamsTable
 
 Every event/teams table renders with `table-layout: auto` while setting an explicit per-column
@@ -79,10 +84,25 @@ was built. Phase 7 copied the `width:100% + minWidth:getTotalSize()` pattern fro
 Proven fix: `table-layout: fixed` makes actual equal declared on every column and every sticky
 gap 0px. Verified by live style injection at 390px against the deployed site.
 
+**Fixed** (commit `fix(07): G-1 table-layout:fixed to stop pinned sticky offsets desyncing`):
+`table-layout: fixed` applied to InsightsTab/BreakdownTab/TeamsTable. TeamsTable additionally
+needed `minWidth`/`maxWidth` paired with `width` on every cell — its row virtualizer
+absolutely-positions each `<tr>`, which the CSS Display spec blockifies and disconnects from the
+real table's column grid into an anonymous per-row auto-layout table, so `table-layout: fixed`
+alone left a real ~31-56px gap in the BODY rows even though the header row (still in normal table
+flow) looked fine. AlliancesTab deliberately left on `table-layout: auto` — no pinned columns (no
+sticky-offset defect to fix, 0px gap measured), and its pick columns currently rely on auto
+layout's free growth to show a full nickname (a separate, non-G-1 flex/`min-width:0` truncation
+bug); switching to `fixed` there would likely spill the untruncated nickname instead.
+
+Verified locally against a fixture-backed dev server (real compiled CSS/fonts, crafted worst-case
+data) since `data.sigmascout.org`'s CORS excludes localhost: gaps dropped from 11-56px to 0px
+across all three tables at 390px. Awaiting live re-measurement on the deployed origin.
+
 ### G-2 — Pinned identity columns consume the entire mobile viewport
 
 severity: high
-status: failed
+status: fixed, pending live re-verification
 surfaces: InsightsTab (worst), BreakdownTab, TeamsTable
 
 Rank (72) + Team # (88) + Nickname (220) = 380px pinned on a 390px screen. Even with G-1 fixed,
@@ -95,10 +115,22 @@ row identity visible while scrolling data horizontally; that needs one identifie
 number is the canonical one in FRC. Rank is implicit in row order on a rank-ordered table.
 Nickname alone is 56% of the viewport and is already truncated.
 
+**Fixed** (commit `fix(07): G-2 unpin nickname and tighten rank/team# widths below 768px`): below
+`MOBILE_BREAKPOINT_PX` (the existing sitewide 768px mobile/desktop line, reused via `useIsMobile()`
+rather than a new breakpoint), nickname stops being pinned on all three tables and rank/teamNumber
+tighten to real-geometry-derived widths (56px/72px) sized to each column's true worst case — a
+4-digit rank (TeamsTable ranks the full ~3,750-team season pool) and a 5-digit team number (FRC
+numbers now exceed 9999). Wide-viewport sizes are left byte-for-byte unchanged.
+
+Measured locally at 390px: Insights' pinned block drops from 380px declared (484px actual
+pre-G-1) to 128px declared/actual with a 0px sticky gap — matching this gap's own ~128px target
+exactly, independently derived rather than copied. Awaiting live re-measurement on the deployed
+origin.
+
 ### G-3 — 122 passing e2e tests did not catch either defect
 
 severity: medium
-status: failed
+status: fixed
 surfaces: apps/web/e2e/
 
 07-20's suite asserts scroll ARBITRATION ("only the table moved", "the strip did not shift") and
@@ -107,3 +139,17 @@ on screen — and still pass all 122 assertions. This is why the defect reached 
 
 Any fix must add an assertion that bites on this class: declared-vs-actual column width, and a
 bound on pinned width as a fraction of the viewport.
+
+**Fixed** (commit `test(07): G-3 add layout-quality e2e assertions, proven RED pre-fix`): added
+`apps/web/e2e/table-layout-quality.spec.ts` with three assertion classes over Insights/Breakdown/
+TeamsTable at phone width — declared-vs-actual column width, sticky offset correctness (0px gap
+between consecutive pinned columns, checked on both the header row and the first body row), and
+pinned width bounded at 50% of the viewport (read dynamically from `data-pinned="true"`, so a
+future re-pinning regression is still caught). Also corrected `event-scroll-regions.spec.ts`'s
+E3/E4 pinned-column assertions, which had encoded the pre-G-2 "nickname stays pinned" behavior
+this fix deliberately changes.
+
+Proven to bite: ran all three assertion classes locally against the pre-fix commit (3c2b356f) —
+7 of 9 tests failed RED with the exact numbers G-1 reported (e.g. Insights gap 11px, TeamsTable
+body-row gap 56px, pinned width up to 124% of viewport). Restored to the fixed commits: all 9
+GREEN.
