@@ -36,17 +36,28 @@ import { defineConfig, devices } from "@playwright/test";
  *    unrelated horizontal-scroll step before a sort header is even
  *    clickable — irrelevant to either spec here, but why 1440x900 was
  *    chosen originally.)
- *  - `iphone-17`/`pixel-10`: `e2e/touch-scroll.spec.ts` only, using
- *    Playwright's built-in device descriptors for a recent iPhone and a
- *    recent Pixel (`hasTouch: true` on both, already set by each
- *    descriptor). The iPhone project pins `browserName: "chromium"` rather
- *    than the descriptor's own WebKit default — the spec drives a real
- *    multi-point touch drag via `Input.dispatchTouchEvent` over a Chromium
- *    CDP session (`e2e/touch-scroll.spec.ts`'s `touchDrag` helper), and
- *    `context.newCDPSession()` only exists for Chromium; WebKit's public
+ *  - `iphone-17`/`pixel-10`: `e2e/touch-scroll.spec.ts` (and, since
+ *    07-20-PLAN.md Task 1, `e2e/event-scroll-regions.spec.ts` on `pixel-10`
+ *    only — see below), using Playwright's built-in device descriptors for a
+ *    recent iPhone and a recent Pixel (`hasTouch: true` on both, already set
+ *    by each descriptor). The iPhone project pins `browserName: "chromium"`
+ *    rather than the descriptor's own WebKit default — the spec drives a
+ *    real multi-point touch drag via `Input.dispatchTouchEvent` over a
+ *    Chromium CDP session (`e2e/support/touchDrag.ts`'s `touchDrag` helper),
+ *    and `context.newCDPSession()` only exists for Chromium; WebKit's public
  *    surface here is `page.touchscreen.tap()` alone, which cannot express a
  *    drag. The iPhone descriptor's viewport, user agent, `hasTouch` and
  *    `isMobile` flags are unaffected by the engine override.
+ *  - `phone-390`: added by 07-20-PLAN.md Task 1, Decision 1. Neither
+ *    `iphone-17` (402x681) nor `pixel-10` (360x732) is the 390px width
+ *    `07-UI-SPEC.md`, `no-page-pan.spec.ts`'s own header, Phase 5 D-04 and
+ *    Phase 6 D-10 all name specifically. Spreads `devices["iPhone 17"]`,
+ *    overrides `browserName` to `"chromium"` (same CDP-drag reason as
+ *    `iphone-17` above) and overrides `viewport` to `{ width: 390, height:
+ *    844 }`. Runs `e2e/event-scroll-regions.spec.ts` and
+ *    `e2e/event-header-overflow.spec.ts` — `event-scroll-regions.spec.ts`
+ *    ALSO runs on `pixel-10` at 360px (the narrower, more adversarial width),
+ *    so its evidence spans two widths rather than one.
  */
 export default defineConfig({
   testDir: "e2e",
@@ -77,7 +88,14 @@ export default defineConfig({
       // which both 06-01 and 06-05 hit — event-page.spec.ts needs the same
       // 1440x900 desktop project (the tracer only asserts a rendered event
       // key and team count, no layout-dependent assertion).
-      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts/,
+      // Widened by 07-20-PLAN.md Task 1, step 2: event-header-overflow.spec.ts
+      // and event-live-artifact.spec.ts both need a real desktop width —
+      // neither spec's claims are viewport-dependent (event-header-overflow's
+      // desktop half deliberately asserts wholeness/layout, not truncation;
+      // event-live-artifact fetches artifacts directly via the `request`
+      // fixture and never renders a layout-dependent assertion) — same
+      // "matches no project's testMatch" failure mode as every widening above.
+      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
@@ -95,8 +113,22 @@ export default defineConfig({
     },
     {
       name: "pixel-10",
-      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts/,
+      // Widened by 07-20-PLAN.md Task 1, step 2: event-scroll-regions.spec.ts
+      // also runs at this narrower (360px), more adversarial width, so its
+      // sibling-scroll-region evidence spans two widths rather than one —
+      // same "matches no project's testMatch" failure mode as every widening
+      // above.
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
+    },
+    {
+      name: "phone-390",
+      // Added by 07-20-PLAN.md Task 1, Decision 1 — see this file's header
+      // comment for the full rationale (neither existing mobile project pins
+      // the 390px width UI-SPEC/no-page-pan.spec.ts/Phase 5 D-04/Phase 6 D-10
+      // all name specifically).
+      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts/,
+      use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
   ],
 });

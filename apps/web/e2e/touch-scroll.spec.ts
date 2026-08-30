@@ -20,12 +20,20 @@
  * Drives real touch drag gestures (touchstart/touchmove/touchend, not mouse
  * wheel events): wheel scrolling does not exercise the same gesture
  * arbitration a real vertical-virtualized + horizontal-overflow touch drag
- * competes over, so `touchDrag` below scripts a real multi-point touch
- * sequence via the Chromium DevTools Protocol's `Input.dispatchTouchEvent`
- * rather than any mouse-based shortcut — Playwright's public
- * `page.touchscreen` only exposes `tap()`, which cannot express a drag.
+ * competes over, so `touchDrag` scripts a real multi-point touch sequence via
+ * the Chromium DevTools Protocol's `Input.dispatchTouchEvent` rather than any
+ * mouse-based shortcut — Playwright's public `page.touchscreen` only exposes
+ * `tap()`, which cannot express a drag.
+ *
+ * `touchDrag`/`scrollPosition` are now imported from `e2e/support/touchDrag.ts`
+ * (07-20-PLAN.md Task 1, Decision 2) rather than defined locally — one shared
+ * gesture helper, so this file's touch evidence and the event page's
+ * (`event-scroll-regions.spec.ts`) cannot diverge in what a "drag" means.
+ * This edit is a pure move: same signature, same `steps` default, same
+ * per-move wait, same settle delay, re-run green below to prove it.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { scrollPosition, touchDrag } from "./support/touchDrag.js";
 
 const TEAMS_URL = "/teams?year=2024&algorithm=vpr&sort=total&sortDir=desc";
 const SCROLL_CONTAINER = '[data-testid="teams-table-scroll"]';
@@ -36,32 +44,6 @@ const ROW = '[data-testid="teams-row"]';
  * drifts every event) — the assertion only needs "far fewer rows are in the
  * DOM than a full unvirtualized render would produce." */
 const MAX_PLAUSIBLE_VIRTUALIZED_ROWS = 120;
-
-async function touchDrag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, steps = 12) {
-  const client = await page.context().newCDPSession(page);
-  const points = Array.from({ length: steps + 1 }, (_, i) => ({
-    x: from.x + ((to.x - from.x) * i) / steps,
-    y: from.y + ((to.y - from.y) * i) / steps,
-  }));
-  await client.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x: points[0].x, y: points[0].y }],
-  });
-  for (const point of points.slice(1)) {
-    await client.send("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [{ x: point.x, y: point.y }],
-    });
-    await page.waitForTimeout(16);
-  }
-  await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  // Let native momentum settle before reading the scroll position.
-  await page.waitForTimeout(300);
-}
-
-async function scrollPosition(page: Page) {
-  return page.locator(SCROLL_CONTAINER).evaluate((el) => ({ top: el.scrollTop, left: el.scrollLeft }));
-}
 
 test.beforeEach(async ({ page }) => {
   await page.goto(TEAMS_URL);
@@ -75,11 +57,11 @@ test.beforeEach(async ({ page }) => {
 test("a vertical drag inside the body advances vertical scroll and leaves horizontal scroll unchanged", async ({ page }) => {
   const box = await page.locator(SCROLL_CONTAINER).boundingBox();
   if (!box) throw new Error("scroll container has no bounding box");
-  const before = await scrollPosition(page);
+  const before = await scrollPosition(page, SCROLL_CONTAINER);
 
   await touchDrag(page, { x: box.x + box.width / 2, y: box.y + box.height * 0.8 }, { x: box.x + box.width / 2, y: box.y + box.height * 0.2 });
 
-  const after = await scrollPosition(page);
+  const after = await scrollPosition(page, SCROLL_CONTAINER);
   expect(after.top).toBeGreaterThan(before.top);
   expect(after.left).toBe(before.left);
 });
@@ -87,13 +69,13 @@ test("a vertical drag inside the body advances vertical scroll and leaves horizo
 test("a horizontal drag across the unpinned region advances horizontal scroll and leaves vertical scroll unchanged", async ({ page }) => {
   const box = await page.locator(SCROLL_CONTAINER).boundingBox();
   if (!box) throw new Error("scroll container has no bounding box");
-  const before = await scrollPosition(page);
+  const before = await scrollPosition(page, SCROLL_CONTAINER);
 
   // Starts near the right edge of the visible unpinned region and drags
   // left, well clear of the pinned rank/team#/nickname group.
   await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 40, y: box.y + box.height / 2 });
 
-  const after = await scrollPosition(page);
+  const after = await scrollPosition(page, SCROLL_CONTAINER);
   expect(after.left).toBeGreaterThan(before.left);
   expect(after.top).toBe(before.top);
 });
