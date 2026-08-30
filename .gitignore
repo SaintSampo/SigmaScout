@@ -33,3 +33,6 @@ apps/web/playwright-report/
 # files. They hold no unmerged work: the cleanup wave strips the .git file
 # before it fails, so anything committed there is already merged.
 .claude/worktrees/
+
+# UI audit screenshots (gsd-ui-review) — large PNGs, regenerable from the deployed site
+.planning/ui-reviews/
