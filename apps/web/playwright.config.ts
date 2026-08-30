@@ -95,7 +95,13 @@ export default defineConfig({
       // event-live-artifact fetches artifacts directly via the `request`
       // fixture and never renders a layout-dependent assertion) — same
       // "matches no project's testMatch" failure mode as every widening above.
-      testMatch: /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts/,
+      // Widened by 07-UAT.md G-7's own fix task: breakdown-desktop-overflow.spec.ts
+      // needs a real desktop width to load from (1440x900, this project's
+      // default) and overrides the viewport itself per-test (1440 AND 1280 —
+      // the two widths G-7 was measured at) via `page.setViewportSize`, so it
+      // does not need a second project of its own.
+      testMatch:
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {

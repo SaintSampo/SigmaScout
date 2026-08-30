@@ -18,7 +18,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { BreakdownTab, buildBreakdownRows, type BreakdownRow } from "./BreakdownTab";
+import { BreakdownTab, buildBreakdownRows, metricLabel, type BreakdownRow } from "./BreakdownTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
 
@@ -121,8 +121,14 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     const expected = ["Team #", "Nickname", ...metricKeysFor("vpr", 2024)];
-    // metricLabel maps TOTAL_KEY -> "Total"; every other key renders as itself.
-    const expectedLabels = expected.map((key) => (key === TOTAL_KEY ? "Total" : key));
+    // 07-UAT.md G-7: `metricLabel` humanizes every non-Total header into
+    // space-separated Title Case (e.g. "autoLeave" -> "Auto Leave") so a
+    // wrapped header has real word-break points. `metricLabel("Team #")`/
+    // `metricLabel("Nickname")` are no-ops (no camelCase/digit boundary to
+    // split), so mapping the whole array through it uniformly is safe and
+    // avoids a special-cased branch here that could drift from the real
+    // implementation.
+    const expectedLabels = expected.map((key) => metricLabel(key));
     expect(headers).toEqual(expectedLabels);
     expect(headers).toHaveLength(16);
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
@@ -149,7 +155,7 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expectedLabels = ["Team #", "Nickname", ...orderedKeys.map((key) => (key === TOTAL_KEY ? "Total" : key))];
+    const expectedLabels = ["Team #", "Nickname", ...orderedKeys.map((key) => metricLabel(key))];
     expect(headers).toEqual(expectedLabels);
   });
 });

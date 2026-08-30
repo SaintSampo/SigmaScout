@@ -310,6 +310,106 @@ reachable, whereas plain `"center"` pre-fix pushed it out of reach.
 against the currently deployed origin pre-fix: `TabsList`'s computed `justify-content` was exactly
 `"center"` while the strip overflows. Confirmed GREEN against a local build of the fixed commit.
 
+### G-7 — Breakdown table overflows its scroller on desktop; not all columns reachable without horizontal scroll
+
+severity: high
+status: partially fixed (real, measured improvement — full elimination is architecturally blocked, see below), pending deploy
+surfaces: BreakdownTab (`apps/web/src/components/event/BreakdownTab.tsx`), the event route's content container (`apps/web/src/routes/event.$eventKey.tsx`)
+
+Developer report, desktop: "on breakdown, I should see every column always. I have to jank scroll
+right to see total" — "jank" meaning awkward/fiddly to reach, not stuttery (a fitting problem, not
+a rendering-performance one).
+
+Measured live on the deployed site, `2024new` Breakdown tab, at both 1440px and 1280px (both
+capped identically by the shared `max-w-[1200px]` content column — same class team pages use):
+
+```
+scroller = 1152px      tableTotal = 1988px      OVERFLOW = 836px
+16 columns: teamNumber(88) + nickname(220) + 14 metric columns @120px
+```
+
+**Approved approach (developer-directed):** widen the Breakdown tab's own container (scoped to
+this tab only) and allow header labels to wrap.
+
+**Fixed** (this task):
+1. **Container widened, scoped to Breakdown only.** `event.$eventKey.tsx`'s content wrapper drops
+   the shared `max-w-[1200px]` cap specifically when `activeTab === "breakdown"` — every other tab
+   (Insights/Quals/Alliances/Elims) and the team page keep the cap unchanged, since Quals/Elims's
+   own fixed 470px plot-width math depends on it. `BreakdownTab.tsx`'s own `<table>` now declares
+   an EXACT pixel `width` (`table.getTotalSize()`, replacing `width: "100%"` + a `minWidth` floor)
+   rather than stretching to fill the container — this is what makes the widen safe on any monitor:
+   the table can never grow past its own declared column total, so widening the container beyond
+   that total just leaves harmless blank space to the table's right, never inflated (G-1-breaking)
+   column widths.
+2. **Header labels humanized and wrapped, desktop only.** `metricLabel()` now splits a declared
+   camelCase key at its own casing/digit boundaries into space-separated Title Case
+   (`teleopSpeakerNoteAmplified` -> `"Teleop Speaker Note Amplified"`, `hubShift1` -> `"Hub Shift
+   1"`) — necessary, not cosmetic: a bare camelCase string carries no whitespace, so allowing a
+   header to wrap without also inserting real spaces would force the browser to break mid-character
+   rather than at a real word boundary. `TableHead`'s fixed `h-10`/`whitespace-nowrap` is overridden
+   (`h-auto`/`whitespace-normal`) so the header row grows to fit wrapped text instead of truncating
+   to an ellipsis. Scoped to `!isNarrow` (desktop) only — mobile keeps the exact pre-existing
+   single-line `truncate` treatment; the pending-state skeleton also keeps `truncate` (only its
+   label TEXT is humanized), since it carries no `isNarrow` signal of its own and its transient,
+   briefly-visible row height was never covered by any G-1/G-2/G-3 measurement.
+
+**Real-geometry finding — full elimination is NOT achievable within this task's scope:**
+
+The 120px metric-column width was **not** narrowed, despite the container widen freeing up real
+space, because doing so is unsafe. Measured directly (Playwright, `min-width` disabled to read the
+box's true content need) against the real DEPLOYED `2024new` and `2026alhu` artifacts: the widest
+real `"value ± spread"` string `MetricValue.tsx` ever renders needs **~97-106px of content width**
+on its own (`.metric-tier`'s shared `min-width: 80px` floor in `theme.css` turns out not even to be
+the binding constraint — the real text run for a 2-decimal value plus a 2-decimal spread, e.g.
+`"284.89 ± 8.75"`, is 12-13 tabular-numeral characters and is what actually needs the room).
+Combined with `TableCell`'s own `p-2` padding, this leaves essentially no room to shrink a metric
+column below its current 120px without risking the box visually bleeding into the next column — a
+regression the developer explicitly asked this fix to avoid ("do not shrink columns so far that
+values collide").
+
+Given that hard floor, the arithmetic does not close at either target viewport, even using the
+FULL viewport width (no cap at all) for the container:
+
+```
+1440px: scroller (viewport - 48px padding) = 1392px;  table total (unchanged) = 1988px;  residual overflow = 596px
+1280px: scroller (viewport - 48px padding) = 1232px;  table total (unchanged) = 1988px;  residual overflow = 756px
+```
+
+Both are a **real, substantial improvement** over the 836px baseline (29% reduction at 1440px, 10%
+at 1280px — 1280px is only slightly wider than the OLD 1200px cap, so it gains less), but neither
+reaches zero. **What width would fit:** with the metric-column width held at its current
+collision-safe 120px, all 14 columns need `308px (identity) + 14 x 120px = 1988px` of table width,
+i.e. a viewport of roughly **2036px** (1988 + 48px padding) — wider than any conventional laptop
+display, though within reach of a 1920px/2560px external monitor with some margin either way.
+
+**Why this wasn't resolved further:** the binding constraint is `MetricValue.tsx`'s shared
+value-display geometry (`theme.css`'s `.metric-tier`), which renders on the Team page, the Teams
+table, and Insights as well as Breakdown — narrowing it is a cross-page design change, explicitly
+outside this task's file ownership (`BreakdownTab.tsx` and this route's container only) and outside
+the developer's own approved approach (container width + header wrap, not a value-display
+redesign). Per this task's own instruction to surface infeasibility with numbers rather than ship a
+silent partial fix, this is flagged here for a follow-up product/design decision: accept the
+residual scroll, reduce the default-visible metric-column count (e.g. group into Auto/Teleop/
+Endgame phase totals with a drill-down), target a wider desktop breakpoint only, or redesign
+`MetricValue`'s box to be narrower specifically on this page.
+
+**Test evidence**: `apps/web/e2e/breakdown-desktop-overflow.spec.ts` (new; `desktop` project,
+overrides viewport to 1440px and 1280px per test). Proven RED against the currently-deployed origin
+pre-fix: both viewports measured `scroller=1152.0px table=1988.0px overflow=836.0px`, exactly
+matching this gap's own reported numbers. The overflow assertions bound the EXPECTED post-deploy
+result (<=620px at 1440px, <=780px at 1280px — both comfortably under the 836px baseline, with a
+~25px buffer for cross-environment font rendering) rather than a false "zero overflow" claim; a
+header-wrap-clipping assertion and a G-1 declared-vs-actual/sticky-gap regression check both pass
+already (unaffected by whether the overflow fix itself is deployed). Awaiting deploy for GREEN
+confirmation on the two overflow assertions.
+
+**Out-of-scope discovery, not fixed here:** verifying this change against
+`table-layout-quality.spec.ts` surfaced a PRE-EXISTING, unrelated failure on the deployed origin —
+G-2 part 2's "at least one full data column visible at scroll 0" assertion fails on the `pixel-10`
+project (312px scroller) for Insights and TeamsTable (not Breakdown, which passes on both mobile
+projects). Reproduced twice with retries; not a flake. Outside this task's file ownership
+(`InsightsTab.tsx`/`TeamsTable.tsx`) — logged to `deferred-items.md` rather than fixed here.
+
 ### G-8 — Alliances tab rebuilt to spec (nicknames, pick labels, tiering, record) — real-device UAT
 
 severity: high

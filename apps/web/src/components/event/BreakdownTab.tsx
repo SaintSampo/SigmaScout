@@ -110,13 +110,53 @@ export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string)
 const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, BreakdownRow>();
 
-function metricLabel(key: string): string {
-  return key === TOTAL_KEY ? "Total" : key;
+/**
+ * 07-UAT.md G-7: humanizes a declared component key (raw camelCase, e.g.
+ * `teleopSpeakerNoteAmplified`, `hubShift1`) into space-separated Title Case
+ * words (`"Teleop Speaker Note Amplified"`, `"Hub Shift 1"`). This is not
+ * cosmetic — G-7's own header-wrapping fix depends on it: a bare camelCase
+ * string carries NO whitespace, so `whitespace-normal` has no break
+ * opportunity except mid-character (`overflow-wrap: anywhere`'s ugly
+ * fallback). Inserting real spaces at camelCase/digit boundaries gives the
+ * wrapped header real word-break points, at the same word boundaries a
+ * reader would mentally parse the key at anyway.
+ *
+ * Exported (not module-private) so `BreakdownTab.test.tsx` computes its own
+ * expected header strings through this exact function rather than a second,
+ * independently-drifting regex.
+ */
+export function metricLabel(key: string): string {
+  if (key === TOTAL_KEY) return "Total";
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])([0-9])/g, "$1 $2")
+    .replace(/^[a-z]/, (c) => c.toUpperCase());
 }
 
 function cellClassName(columnId: string): string {
   return columnId === "nickname" ? "truncate text-role-body" : "numeric-cell text-role-body";
 }
+
+/**
+ * 07-UAT.md G-7: overrides `TableHead`'s own fixed `h-10`/`whitespace-nowrap`
+ * (`ui/table.tsx`) so a wrapped, multi-word humanized label (above) can grow
+ * the header row instead of truncating to an ellipsis. `twMerge` (via `cn()`
+ * inside `TableHead`) resolves the conflicting height/whitespace/alignment
+ * utility groups in favour of whichever class appears LAST, so this string
+ * — passed as this component's own `className` prop, always after
+ * `TableHead`'s base classes — wins outright, no `!important` needed.
+ * Applied to every header cell in the row (not just the metric columns) so
+ * "Team #"/"Nickname" sit at the same baseline as a taller wrapped
+ * neighbour rather than looking vertically mismatched.
+ *
+ * Desktop-only (`!isNarrow`, applied at the call site below) — this task's
+ * own objective and every measurement in it are scoped to desktop
+ * viewports; mobile keeps the EXACT pre-existing single-line `truncate`
+ * treatment (07-UAT.md G-1/G-2/G-4's own 390px measurements never assumed a
+ * taller header row, and nothing about G-7's desktop overflow fix needs one
+ * there — mobile already accepts horizontal scrolling for this tab).
+ */
+const WRAPPING_HEADER_CLASS_NAME = "h-auto min-h-10 py-2 align-top whitespace-normal break-words text-role-label";
 
 /**
  * The Breakdown tab's column set is EXACTLY `metricKeysFor(algorithmId,
@@ -220,6 +260,21 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
+              {/*
+                07-UAT.md G-7: the skeleton keeps the ORIGINAL single-line
+                `truncate` treatment at every viewport (only the label TEXT
+                is humanized, via `metricLabel` above) — it has no `isNarrow`
+                input of its own (its column set is static, sized only by
+                `metricKeysFor(algorithmId, season).length`, never
+                viewport-aware), so it cannot reproduce the real table's
+                desktop-only wrap below without inventing a second signal
+                this placeholder was never built to carry. A skeleton row
+                that is briefly a different height than the real table it
+                precedes is the smaller, pre-existing risk class; this keeps
+                it unchanged rather than adding a new geometry surface (and a
+                new pinned-vs-scrolled-viewport branch) to a component no
+                G-1/G-2/G-3 measurement ever covered.
+              */}
               {headers.map((label) => (
                 <TableHead key={label} className="text-role-label truncate">
                   {label}
@@ -271,9 +326,24 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
             // comment for the full mechanism.
+            //
+            // 07-UAT.md G-7: `width` is now the EXACT declared total
+            // (`table.getTotalSize()`), not `"100%"` with a `minWidth`
+            // floor. G-7 widens this tab's own container (`event.$eventKey.tsx`)
+            // beyond the shared `max-w-[1200px]`, which the OLD `width:
+            // "100%"` would have read literally: once the container's
+            // available width exceeds the declared column total, `100%`
+            // stretches the table wider than that total, and `table-layout:
+            // fixed` then distributes the SURPLUS across the fixed-width
+            // columns — inflating every actual column width past its
+            // declared `size` and silently breaking G-1's declared==actual
+            // invariant on any monitor wide enough to trigger it. A literal
+            // pixel `width` can never stretch past itself, so the table
+            // simply left-aligns inside a wider scroller with blank space to
+            // its right — cosmetically inert, and correct at every viewport
+            // width, not just the two this gap was measured at.
             tableLayout: "fixed",
-            width: "100%",
-            minWidth: table.getTotalSize(),
+            width: table.getTotalSize(),
             borderCollapse: "separate",
             borderSpacing: 0,
           }}
@@ -288,7 +358,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                       key={header.id}
                       data-testid={`breakdown-header-${header.column.id}`}
                       data-pinned={pinned ? "true" : "false"}
-                      className="text-role-label truncate"
+                      className={isNarrow ? "text-role-label truncate" : WRAPPING_HEADER_CLASS_NAME}
                       style={{
                         width: header.getSize(),
                         position: pinned ? "sticky" : undefined,
