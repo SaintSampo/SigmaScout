@@ -9,16 +9,11 @@ updated: 2026-08-31T00:30:00Z
 ## Current Test
 
 number: 1
-name: Real-device touch scroll sign-off (BLOCKED by layout defect — re-run after fix)
+name: Real-device touch scroll sign-off (READY TO RE-RUN — layout fixes are live)
 expected: |
-  Blocked. A layout defect was found on a real phone before the six touch-arbitration checks
-  could be assessed. See Gaps G-1 and G-2. Re-run this test once the fix lands.
-awaiting: |
-  G-1/G-2/G-3 code fixes are committed (see Gaps section below) and verified locally against a
-  fixture-backed dev server — data.sigmascout.org's R2 CORS policy excludes localhost, so a real
-  device/deployed-origin re-run was not possible from this session. Awaiting `wrangler deploy`
-  (blocked for subagents) and a live re-measurement + the original six touch-arbitration checks,
-  both on the deployed origin.
+  The three layout defects that blocked this test are fixed and DEPLOYED. Verified live at 390px
+  on the deployed origin. Please re-run the original six touch-arbitration checks on a real phone.
+awaiting: user response
 
 ## Tests
 
