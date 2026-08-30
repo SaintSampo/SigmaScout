@@ -2,7 +2,7 @@
 sketch: 007
 name: compare-table
 question: "How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits?"
-winner: null
+winner: "A — season rows, algorithm columns"
 tags: [compare, accuracy, table, density, phase-8]
 ---
 
@@ -151,6 +151,22 @@ there *is* a loser. Where the data cannot establish one, neither value is greyed
 
 **Carry-forward:** this decision must reach the Phase 8 planner. It is not yet in `08-CONTEXT.md`.
 
-## Winner
+## Winner — A, season rows / algorithm columns (user, 2026-08-30)
 
-TBD — awaiting user review.
+Jacob picked **A**: five season rows, three algorithm column-groups, six data columns.
+
+**Consequence to carry into planning, measured not assumed:** A does NOT reflow at 390px — it needs
+horizontal scrolling inside its scroll region, as does B (which is worse at 10 data columns). Only
+C's summary panel genuinely stacks. This is acceptable rather than a defect: horizontally scrolling
+a wide table inside `.tablewrap` is the established shipped pattern on this site, and Phase 7 built
+an e2e suite around exactly that behaviour (only the table moves; the page never pans). A therefore
+inherits a solved problem instead of introducing a new one — but the plan must wire the same
+scroll-arbitration guarantees, not assume them.
+
+**Also locked here:** the tie-band decision recorded above, now carried into `08-CONTEXT.md` as D-11.
+
+**A second near-tie this sketch measured, which strengthens D-11:** 2022 Elimination *Brier* is
+OPR `0.14721` vs VPR `0.14717`. VPR still wins — that is why the "VPR leads Brier in all 15 slices"
+statement holds — but the margin is `0.00004`, and both render as `0.1472` at display precision.
+Without a tie band the page prints two identical-looking numbers, one bold and one grey, which a
+reader will reasonably read as a rendering bug rather than a result.

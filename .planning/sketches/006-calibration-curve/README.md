@@ -2,7 +2,7 @@
 sketch: 006
 name: calibration-curve
 question: "How do you draw a calibration curve so an FRC student, mentor, or scout understands it in one read — and how do you keep sparse bins from overstating their own reliability?"
-winner: TBD — awaiting user review
+winner: "C — plain-language first"
 tags: [compare, calibration, uncertainty, accessibility, phase-8]
 ---
 
@@ -165,3 +165,24 @@ label-collision fix above was found this way, not by inspection.
 - `data.js` — real published `/v1/compare/{year}.json` artifacts, 2022–2026 (pre-existing, not
   regenerated for this sketch)
 - Theme: `../themes/default.css`
+
+## Winner — C, plain-language first (user, 2026-08-30)
+
+Jacob picked **C**. The chart is demoted to support; the primary content is a sentence a reader
+already knows how to parse — .
+
+**Why this is the right call for this audience.** A reliability diagram (A) asks the reader to judge
+distance from a 45-degree line, which is a learned skill; the deviation view (B) is easier but still
+asks them to read a chart before they know what question it answers. C states the question and the
+answer in one line, and the chart becomes evidence for a claim already made rather than a puzzle to
+solve first.
+
+**What it must carry to be honest.** Bin counts range from a single match to 5,950, so the sentence
+form MUST print the count and MUST flag small samples — a confident-sounding sentence backed by 12
+matches is worse than a chart, because prose hides sparsity that a shrunken point makes obvious.
+The sparse-bin encoding is not optional decoration under this variant; it is what keeps it truthful.
+
+**The case it has to surface.** 2026 qualification, OPR: predicted 85.3%, observed 52.8%, across 395
+matches — a 32.5pp overconfidence gap in a well-populated bin, while OPR's headline accuracy (74.8%)
+sits only four points behind VPR's. That single row is the argument for putting calibration on the
+Compare page at all, and C is the variant most likely to make a non-statistician notice it.

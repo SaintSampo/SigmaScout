@@ -61,6 +61,8 @@
   .callout b { color:var(--color-text); }
   .callout code { background:var(--color-surface); border:1px solid var(--color-border); border-radius:4px; padding:0 4px; font-size:11.5px; }
   .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; background:var(--color-surface); border:1px solid var(--color-border); color:var(--color-text); }
+  .variant-tab.rejected { color:var(--ss-danger); border-color:var(--ss-danger); }
+  .variant-tab.rejected.active { background:var(--ss-danger); border-color:var(--ss-danger); color:var(--color-surface); }
 
   .source-line { font-size:12px; color:var(--color-text-muted); margin:0 0 4px; }
   .event-meta { font-size:12.5px; color:var(--color-text-muted); margin:0 0 14px; }
@@ -82,8 +84,8 @@
 
 <div id="variant-nav">
   <button class="variant-tab active" data-v="a" onclick="setVariant('a', this)">A: Full shared axis (1..N)</button>
-  <button class="variant-tab" data-v="b" onclick="setVariant('b', this)">B: Shared axis, clipped</button>
-  <button class="variant-tab" data-v="c" onclick="setVariant('c', this)">C: Compact per-row</button>
+  <button class="variant-tab" data-v="b" onclick="setVariant('b', this)">B: Interpolated band edges</button>
+  <button class="variant-tab rejected" data-v="c" onclick="setVariant('c', this)">C: Compact per-row — REJECTED</button>
   <span class="spacer"></span>
   <span class="note">Rank-distribution table &middot; 1000-draw simulation</span>
 </div>
@@ -138,6 +140,35 @@ function rankBarWidth(domain, plotW) {
   return plotW / slots;
 }
 
+/* Continuous quantile from a binned rank histogram. Treats rank r as occupying
+ * the interval [r-0.5, r+0.5) with its probability mass spread uniformly inside
+ * it, which makes the CDF piecewise-linear and the quantile continuous instead
+ * of snapping to whichever integer rank the target percentile happens to land
+ * on. Matches R's default type-7 quantile behaviour on binned data. Bounded:
+ * never returns below 0.5 or above dist.length + 0.5. */
+function continuousQuantile(dist, p, draws) {
+  var target = p * draws;
+  var cum = 0;
+  for (var i = 0; i < dist.length; i++) {
+    var m = dist[i];
+    if (m === 0) continue;
+    if (cum + m >= target) {
+      var frac = (target - cum) / m;
+      return (i + 1) - 0.5 + frac;
+    }
+    cum += m;
+  }
+  return dist.length + 0.5;
+}
+
+/* Rows whose p10/p90 are the same integer draw a zero-width — invisible —
+ * band under variant A's integer-snapped edges. Computed live per event. */
+function zeroWidthInfo(ev) {
+  var count = 0;
+  ev.rows.forEach(function (r) { if (r.p10 === r.p90) count++; });
+  return { count: count, total: ev.rows.length };
+}
+
 /* "Nice" tick step so labels don't collide, endpoints always included. */
 function niceTicks(lo, hi) {
   var range = Math.max(1, hi - lo);
@@ -180,9 +211,20 @@ function plotHTML(row, domain, opts) {
     bars += '<div class="bar" style="left:' + rankToX(rank, domain, opts.plotW).toFixed(2) + 'px;width:' + barW.toFixed(2) + 'px;height:' + h.toFixed(2) + 'px;"></div>';
   });
   var slotW = rankBarWidth(domain, opts.plotW);
-  var bandLeft = rankToX(Math.max(domain[0], row.p10), domain, opts.plotW);
-  var bandRight = rankToX(Math.min(domain[1], row.p90), domain, opts.plotW) + slotW;
-  var band = '<div class="band" style="left:' + bandLeft.toFixed(2) + 'px;width:' + Math.max(2, bandRight - bandLeft).toFixed(2) + 'px;height:' + opts.plotH + 'px;"></div>';
+  var bandLeft, bandWidth;
+  if (opts.contBand) {
+    /* Continuous edges: no half-slot snap to a full rank cell, just the two
+     * continuous rank coordinates run through the same rankToX() as everything
+     * else on the plot — one x-scale, not a second one. */
+    bandLeft = rankToX(opts.contBand[0], domain, opts.plotW);
+    var bandRightCont = rankToX(opts.contBand[1], domain, opts.plotW);
+    bandWidth = Math.max(2, bandRightCont - bandLeft);
+  } else {
+    bandLeft = rankToX(Math.max(domain[0], row.p10), domain, opts.plotW);
+    var bandRight = rankToX(Math.min(domain[1], row.p90), domain, opts.plotW) + slotW;
+    bandWidth = Math.max(2, bandRight - bandLeft);
+  }
+  var band = '<div class="band" style="left:' + bandLeft.toFixed(2) + 'px;width:' + bandWidth.toFixed(2) + 'px;height:' + opts.plotH + 'px;"></div>';
   var tickX = rankToX(row.median, domain, opts.plotW) + slotW / 2 - 1;
   var tick = '<div class="tick" style="left:' + tickX.toFixed(2) + 'px;height:' + (opts.plotH + 6) + 'px;"></div>';
   var grid = '';
@@ -212,61 +254,47 @@ function sourceAndMeta(ev) {
 
 /* ==================== Variant A / B: shared axis ==================== */
 
-function computeDomainB(ev) {
-  var N = ev.teams;
-  var minOcc = null, maxOcc = null;
-  ev.rows.forEach(function (r) {
-    r.dist.forEach(function (c, i) {
-      if (c > 0) {
-        var rank = i + 1;
-        if (minOcc === null || rank < minOcc) minOcc = rank;
-        if (maxOcc === null || rank > maxOcc) maxOcc = rank;
-      }
-    });
-  });
-  var span = maxOcc - minOcc;
-  var pad = Math.max(1, Math.round(span * 0.05));
-  var paddedLo = minOcc - pad, paddedHi = maxOcc + pad;
-  var lo = Math.max(1, paddedLo), hi = Math.min(N, paddedHi);
-  return { domain: [lo, hi], raw: [minOcc, maxOcc], padded: [paddedLo, paddedHi], pad: pad };
+function zeroWidthReadout(ev) {
+  var zw = zeroWidthInfo(ev);
+  return '<p class="event-meta"><b style="color:var(--color-text);font-weight:600;">Zero-width bands under A:</b> ' +
+    zw.count + ' of ' + zw.total + ' rows have integer p10 = p90 — a locked team&rsquo;s 10th&ndash;90th band draws at ' +
+    '0px and is invisible in the histogram. Computed live from this event&rsquo;s <code>dist</code> arrays.</p>';
 }
 
-function clipCallout(ev, info) {
-  var N = ev.teams;
-  var same = (info.domain[0] === 1 && info.domain[1] === N);
-  var rankSpanFull = N - 1;
-  var rankSpanClip = info.domain[1] - info.domain[0];
-  var pxReclaimed = rankSpanFull > 0 ? Math.round(((rankSpanFull - rankSpanClip) / rankSpanFull) * PLOT_W) : 0;
-  var verdict = same
-    ? '<b>0px reclaimed — pixel-identical to the unclipped axis.</b>'
-    : '<b>' + pxReclaimed + 'px reclaimed</b> of ' + PLOT_W + 'px (domain narrowed from 1..' + N + ' to ' + info.domain[0] + '..' + info.domain[1] + ').';
+function interpCallout(ev) {
+  var zw = zeroWidthInfo(ev);
   return '<div class="callout">' +
-    '<b>Computed live, for this event:</b> raw occupied ranks (any team, any nonzero draw) = <code>[' + info.raw[0] + ', ' + info.raw[1] + ']</code>. ' +
-    'Padded &plusmn;' + info.pad + ' &rarr; <code>[' + info.padded[0] + ', ' + info.padded[1] + ']</code>, clamped to valid ranks 1..' + N + ' &rarr; ' +
-    '<code>[' + info.domain[0] + ', ' + info.domain[1] + ']</code>. ' + verdict +
-    (same ? ' <b>Why:</b> every draw assigns each of the ' + N + ' ranks to exactly one team, so for any fixed rank position the counts across all ' + N +
-      ' teams&rsquo; <code>dist[i]</code> sum to exactly ' + ev.draws + ' — verified for every rank in this event. Every rank from 1 to ' + N +
-      ' is therefore occupied by <i>some</i> team, always, in any complete-field simulation. &ldquo;Clip to the union of occupied ranks&rdquo; can only reclaim ' +
-      'space when the table shows a partial slice of teams (a single team&rsquo;s own row, a bubble range) — never the whole field.' : '') +
+    '<b>Same axis, same bars, same median tick — the only change is continuous band edges.</b> Method: treat rank ' +
+    '<code>r</code> as occupying the interval <code>[r-0.5, r+0.5)</code> with its probability mass spread uniformly ' +
+    'inside it, which makes the CDF piecewise-linear and the quantile continuous instead of snapping to whichever ' +
+    'integer rank the 10th/90th percentile happens to land on (matches R&rsquo;s default type-7 quantile behaviour on ' +
+    'binned data). Bounded: an edge can never fall below rank 0.5 or above rank N+0.5. This fixes two things variant A ' +
+    'hides: the ' + zw.count + ' zero-width row' + (zw.count === 1 ? '' : 's') + ' flagged above now draw a real, ' +
+    'nonzero band instead of vanishing outright, and two rows that happen to share the same integer 10th&ndash;90th ' +
+    'label (e.g. both reading &ldquo;2&ndash;3&rdquo;) can now show visibly different band widths if their underlying ' +
+    'distributions differ. Cost: the printed range is one decimal place wider to read, e.g. <code>10th&ndash;90th: ' +
+    '1.7&ndash;3.2</code> instead of a clean integer pair.' +
     '</div>';
 }
 
 function buildAB(ev, variant) {
   var N = ev.teams;
   var domain = [1, N];
-  var callout = '';
-  if (variant === 'b') {
-    var info = computeDomainB(ev);
-    domain = info.domain;
-    callout = clipCallout(ev, info);
-  }
   var ticks = niceTicks(domain[0], domain[1]);
   var pxPerRank = (PLOT_W / N).toFixed(1);
 
   var rowsHtml = ev.rows.map(function (r) {
-    var plot = plotHTML(r, domain, { plotW: PLOT_W, barMaxH: BAR_MAX_H, plotH: PLOT_H, gridTicks: ticks });
+    var plotOpts = { plotW: PLOT_W, barMaxH: BAR_MAX_H, plotH: PLOT_H, gridTicks: ticks };
+    var rangeLabel = r.p10 + '&ndash;' + r.p90;
+    if (variant === 'b') {
+      var cq10 = continuousQuantile(r.dist, 0.10, ev.draws);
+      var cq90 = continuousQuantile(r.dist, 0.90, ev.draws);
+      plotOpts.contBand = [cq10, cq90];
+      rangeLabel = cq10.toFixed(1) + '&ndash;' + cq90.toFixed(1);
+    }
+    var plot = plotHTML(r, domain, plotOpts);
     return '<tr><td class="team-no">' + r.team + '</td><td class="num">' + r.baseRp + '</td><td class="num muted">' + r.mp + '</td>' +
-      '<td class="num team-no">' + r.median + '</td><td class="num muted">' + r.p10 + '&ndash;' + r.p90 + '</td>' +
+      '<td class="num team-no">' + r.median + '</td><td class="num muted">' + rangeLabel + '</td>' +
       '<td class="plotcell">' + plot + '</td></tr>';
   }).join('');
 
@@ -274,7 +302,8 @@ function buildAB(ev, variant) {
     '<div class="page" style="padding-top:16px;">' +
     '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 6px;">Predicted quals rank</h1>' +
     sourceAndMeta(ev) +
-    callout +
+    zeroWidthReadout(ev) +
+    (variant === 'b' ? interpCallout(ev) : '') +
     '<div class="tablewrap"><table><thead><tr>' +
       '<th>Team</th><th class="num">RP</th><th class="num">MP</th><th class="num">Median</th><th>10th&ndash;90th</th>' +
       '<th class="axisth">' + axisHeaderHTML(domain, ticks, PLOT_W) + '</th>' +
@@ -284,11 +313,15 @@ function buildAB(ev, variant) {
         'relative certainty, on one scale you can trust across every row <i>and</i> every event — a locked team and a spread ' +
         'team are directly comparable by eye. Costs: at ' + N + ' teams that is ' + pxPerRank + 'px per rank, so a 1-rank spread ' +
         'renders as a sliver of colour in ' + PLOT_W + 'px of mostly empty cell. Look at 2022ispr (17 teams, nothing played) versus ' +
-        '2025flta (42 teams) to see the same honesty problem at very different team counts.'
-      : '<b>Variant B — same shared axis, clipped to the observed data, plus padding.</b> Optimises for: reclaiming the ' +
-        'whitespace variant A leaves, without breaking cross-row comparability (still one scale, just a narrower one). Costs: ' +
-        'see the callout above — on all three real events tested, it reclaims nothing, because a full-field table can never have ' +
-        'an unoccupied rank. The idea only pays off on a partial roster.') +
+        '2025flta (42 teams) to see the same honesty problem at very different team counts. Its integer-snapped band edges are ' +
+        'also where the zero-width rows above come from — variant B fixes that without touching anything else on this axis.'
+      : '<b>Variant B — same shared axis, 1..' + N + ', same bars, same median tick — interpolated band edges.</b> ' +
+        'Optimises for: an honest 10th&ndash;90th band for every row, including the locked ones A renders as nothing at ' +
+        'all, without adding a second scale or breaking cross-row comparability (still one <code>rankToX()</code>, just fed ' +
+        'a continuous rank instead of an integer one). Costs: see the callout above for the method and its one extra digit ' +
+        'of label width. This replaces the earlier version of variant B, which clipped the shared axis to the observed data ' +
+        '— that turned out to be a mathematical no-op on any full-field table (every rank 1..N is always occupied by some ' +
+        'team), confirmed independently when this reached review and A and B were indistinguishable by eye.') +
     '</p></div>';
 }
 
@@ -328,7 +361,9 @@ function buildC(ev) {
       'team count. Costs: cross-row comparison is destroyed. The median tick position and bar width carry no meaning between ' +
       'rows — you must read the numeric columns, not the plot, to know which team is more certain. This also directly violates ' +
       '<code>uncertainty-display.md</code>&rsquo;s &ldquo;one shared scale per view, never per row&rdquo; rule. Built anyway, on ' +
-      'purpose, so the cost of breaking that rule is something you can actually look at rather than take on faith.</p></div>';
+      'purpose, so the cost of breaking that rule is something you can actually look at rather than take on faith. ' +
+      '<b style="color:var(--ss-danger);">Rejected by the user on review, 2026-08-30</b> — verbatim: &ldquo;rank distribution C ' +
+      'is terrible.&rdquo; Kept here for the record only; not a live candidate.</p></div>';
 }
 
 /* ==================== wiring ==================== */
