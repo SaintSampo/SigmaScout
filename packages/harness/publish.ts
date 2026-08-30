@@ -354,11 +354,20 @@ export interface EventArtifactIdentityInput {
  * truncating this array anywhere would erase a real team's competition
  * result from the only published account of that event's selection.
  * <!-- planner-discipline-allow: captain --> <!-- planner-discipline-allow: backup -->
+ *
+ * `record` (07-UAT.md G-8, plan 07-21): optional (unlike
+ * `EventAllianceSelection.record`, which the corpus always computes as
+ * either an object or `null`) so every existing direct-construction call
+ * site of this interface — every test in this file that builds an
+ * `EventAllianceInput` literal without a corpus round trip — keeps
+ * compiling unchanged. `undefined` and `null` are treated identically by
+ * `buildEventArtifact` below: neither publishes a `record` key.
  */
 export interface EventAllianceInput {
   readonly allianceNumber: number;
   readonly name: string | null;
   readonly picks: readonly string[];
+  readonly record?: { wins: number; losses: number; ties: number } | null;
 }
 
 export interface BuildEventArtifactParams {
@@ -616,6 +625,12 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     // from 07-14's summed arithmetic, not from this published record of who
     // was on the alliance.
     picks: [...sel.picks],
+    // 07-UAT.md G-8, plan 07-21: `undefined` and `null` both omit the key —
+    // no playoff record exists to publish, never a fabricated `{wins: 0,
+    // losses: 0, ties: 0}`. Two explicit `!==` comparisons (never truthiness,
+    // never a loose `!=`), matching `eventTeamRankingFields`'s own style
+    // just above for the identical undefined-or-null shape.
+    ...(sel.record !== null && sel.record !== undefined ? { record: sel.record } : {}),
   }));
 
   const candidate = {

@@ -725,6 +725,21 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
     expect(artifact.alliances?.[1]).not.toHaveProperty("name");
     expect(artifact.alliances?.[2]?.name).toBe("Real Name");
   });
+
+  it("Test 11 (07-UAT.md G-8): a real playoff record round-trips whole, and an absent one publishes no record key at all", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        alliances: [
+          { allianceNumber: 1, name: null, picks: ["frc1", "frc2", "frc3"], record: { wins: 4, losses: 3, ties: 0 } },
+          { allianceNumber: 2, name: null, picks: ["frc4", "frc5", "frc6"], record: null },
+          { allianceNumber: 3, name: null, picks: ["frc7", "frc8", "frc9"] },
+        ],
+      })
+    );
+    expect(artifact.alliances?.[0]?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
+    expect(artifact.alliances?.[1]).not.toHaveProperty("record");
+    expect(artifact.alliances?.[2]).not.toHaveProperty("record");
+  });
 });
 
 /**
@@ -788,6 +803,35 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
 
     const artifact = findEventArtifact("2026noselect", vpr.id);
     expect(artifact.alliances).toEqual([]);
+  });
+
+  it("Test 11c (07-UAT.md G-8): a real status_raw round-trips through the corpus to the published record, and an absent status_raw publishes no record key", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj2" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026casj2_qm1", eventKey: "2026casj2" }));
+    upsertEventAlliance(db, {
+      eventKey: "2026casj2",
+      allianceNumber: 1,
+      name: null,
+      picks: ["frc1", "frc2", "frc3"],
+      declines: [],
+      statusRaw: JSON.stringify({ record: { wins: 4, losses: 3, ties: 0 }, status: "eliminated", level: "f" }),
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+    });
+    upsertEventAlliance(db, {
+      eventKey: "2026casj2",
+      allianceNumber: 2,
+      name: null,
+      picks: ["frc4", "frc5", "frc6"],
+      declines: [],
+      statusRaw: null,
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026casj2", vpr.id);
+    expect(artifact.alliances?.[0]?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
+    expect(artifact.alliances?.[1]).not.toHaveProperty("record");
   });
 });
 

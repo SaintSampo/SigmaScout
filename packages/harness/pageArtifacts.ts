@@ -799,11 +799,21 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
  * the record of who was on the alliance, so truncating `picks` to three
  * anywhere in this pipeline would erase a real team's competition result
  * from the only published account of that event's selection.
+ *
+ * `record` (07-UAT.md G-8, plan 07-21): this alliance's playoff win-loss-tie
+ * record, sourced from TBA's own `status` object
+ * (`event_alliances.status_raw`) via `packages/corpus/db.ts`'s
+ * `parseAllianceRecord`. Optional for the same two reasons `EventTeamSchema
+ * .record` already states: a real absence (no playoff bracket has run yet,
+ * or a `playoff_type` shape this pipeline has not modelled) and the
+ * pre-republish window. Reuses `RecordSchema` unchanged — the identical
+ * `{wins, losses, ties}` shape, never a formatted string.
  */
 const EventAllianceSchema = z.object({
   allianceNumber: z.number().int().positive(),
   name: z.string().min(1).optional(),
   picks: z.array(z.string().min(1)).min(1),
+  record: RecordSchema.optional(),
 });
 
 /**

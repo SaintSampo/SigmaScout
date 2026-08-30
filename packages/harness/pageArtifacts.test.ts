@@ -738,6 +738,32 @@ describe("EventAllianceSchema / EventArtifactSchema identity fields (D-18 items 
     expect(composeEventLocation("CA", null)).toBe("CA");
     expect(composeEventLocation(null, null)).toBeNull();
   });
+
+  it("Test 10 (07-UAT.md G-8) — an alliance's playoff record round-trips whole when present", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: 3, ties: 0 } }] } })
+    );
+    expect(parsed.alliances![0]!.record).toEqual({ wins: 4, losses: 3, ties: 0 });
+  });
+
+  it("Test 11 (07-UAT.md G-8) — an alliance with no record key parses and reads back undefined, never a fabricated 0-0-0", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS }] } }));
+    expect(parsed.alliances![0]!.record).toBeUndefined();
+  });
+
+  it("Test 12 (07-UAT.md G-8) — a record missing one of the three counts is rejected, mirroring RecordSchema's existing all-or-nothing shape", () => {
+    const result = EventArtifactSchema.safeParse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: 3 } }] } })
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 13 (07-UAT.md G-8) — a negative count is rejected through RecordSchema's existing nonnegative()", () => {
+    const result = EventArtifactSchema.safeParse(
+      eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: -1, ties: 0 } }] } })
+    );
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 1)", () => {
