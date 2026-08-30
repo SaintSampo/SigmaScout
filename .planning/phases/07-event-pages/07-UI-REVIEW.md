@@ -1,3 +1,20 @@
+---
+phase: 07-event-pages
+audited: 2026-08-30
+auditor: gsd-ui-auditor
+baseline: 07-UI-SPEC.md
+overall_score: 20
+max_score: 24
+pillars:
+  copywriting: 4
+  visuals: 3
+  color: 4
+  typography: 3
+  spacing: 3
+  experience_design: 3
+priority_findings: 3
+minor_recommendations: 2
+---
 # Phase 7 — UI Review
 
 **Audited:** 2026-08-30
