@@ -194,3 +194,36 @@ No `.env` value was ever rendered to any output stream, log, command, or file in
 - `.planning/todos/pending/remeasure-accuracy-record-offseason-inclusion.md` may now run — this
   exclusion landed first, per its own sequencing requirement.
 - Phase 07 plan 07-20 (backstop e2e evidence) can now run against genuinely final pages.
+
+## Scope clarification — developer decision, 2026-08-30
+
+This todo's own wording said the demo keys must be excluded from "every published surface." That
+phrasing is **wider than what shipped, and wider than what the developer subsequently decided
+should ship.** Recorded here so the record matches reality rather than the original aspiration.
+
+**What IS excluded** (`frc9970`–`frc9999`, all 30 keys):
+
+- Every algorithm's ratings — no rating is learned for a demo key, and the 428 fully-demo
+  alliances (forfeit/no-show playoffs at real regionals and districts) are dropped as non-contests.
+- `team/{teamKey}/{year}` pages — 138 team-seasons × 3 algorithms stopped publishing, and the 414
+  pre-exclusion orphans were deleted from R2 and read-back confirmed 404.
+- `teams/{year}` lists, search, and team rankings.
+- The Worker's incremental fold path, so a live offseason event cannot re-create any of the above.
+
+**What is NOT excluded, deliberately:** an event artifact's own `teams[]` roster. Demo keys still
+appear as rows on the event page's Insights and Breakdown tabs, carrying the `rank` and `record`
+TBA itself publishes for them, with an EMPTY `metrics` object — no rating, so they cannot distort
+any prediction.
+
+Surfaced by code review as finding WR-02 (`07-REVIEW.md`) and verified live: `2025auwarp` returns
+30 event teams of which 20 are demo keys, each with `metrics: {}` and a real TBA rank.
+
+**Why it was left that way.** An event's team list is a record of who was physically on the field,
+and TBA's own rankings for that event include these entries at exactly these ranks. Removing them
+would put this site's event rank column in disagreement with TBA's published rankings and leave
+gaps in the rank sequence — against this project's standing preference to match the convention the
+FRC community already reads. They carry no rating, so the contamination this todo existed to fix
+does not reach them.
+
+The accurate scope statement is therefore: **excluded from the model and from every TEAM-scoped
+published surface; retained as unrated roster rows in event-scoped artifacts.**
