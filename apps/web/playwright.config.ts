@@ -104,8 +104,13 @@ export default defineConfig({
       // asserts a CSS-painted background colour, not a layout-dependent
       // measurement — the defect and its fix are viewport-agnostic, so this
       // project's default 1440x900 is a fine home rather than a new project.
+      // Widened by 07-UAT.md G-12's own fix task: search-results-overflow.spec.ts
+      // needs a real desktop width for its primary (reproducing) case and
+      // overrides the viewport itself per-test (1440 AND 390, mirroring
+      // breakdown-desktop-overflow.spec.ts's own precedent above) rather than
+      // needing a second project.
       testMatch:
-        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts/,
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
