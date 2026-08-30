@@ -111,6 +111,50 @@ describe("MetricHistoryChart", () => {
     expect(container.querySelectorAll(".recharts-line-curve").length).toBe(1);
   });
 
+  it("G-13 (07-UAT.md): renders no float-noise Y-axis tick labels for an extreme, negative domain", () => {
+    // Mirrors the live-reported case (frc4788/2026/vpr): a deeply negative
+    // total alongside a small positive one, the exact domain shape that
+    // surfaced Recharts' own floating-point interval-arithmetic noise
+    // (e.g. "-1349.99999997") before this fix's `tickFormatter`.
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, spread: 155.53 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, spread: 5 }),
+      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: -700, spread: 30 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const ticks = Array.from(container.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value"));
+    expect(ticks.length).toBeGreaterThan(0);
+    for (const tick of ticks) {
+      // At most 2 decimal places (this project's own display-metric
+      // precision, packages/harness/rounding.ts's ROUNDING_RULE.metric) —
+      // never a long float tail.
+      expect(tick.textContent ?? "").toMatch(/^-?\d+(\.\d{1,2})?$/);
+    }
+  });
+
+  it("G-13 (07-UAT.md): widens the Y axis for a wide extreme label, narrower for a typical short one — never a fixed magic number", () => {
+    const extremeRows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, spread: 155.53 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, spread: 5 }),
+    ];
+    const normalRows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
+    ];
+
+    const { container: extremeContainer } = render(<MetricHistoryChart rows={extremeRows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container: normalContainer } = render(<MetricHistoryChart rows={normalRows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const extremeWidth = Number(extremeContainer.querySelector(".recharts-yAxis .recharts-cartesian-axis-line")?.getAttribute("width"));
+    const normalWidth = Number(normalContainer.querySelector(".recharts-yAxis .recharts-cartesian-axis-line")?.getAttribute("width"));
+
+    expect(extremeWidth).toBeGreaterThan(normalWidth);
+    // The extreme label ("-1354.13", 8 characters) must not be narrower than
+    // Recharts' own 60px default that clipped it pre-fix.
+    expect(extremeWidth).toBeGreaterThan(60);
+  });
+
   it("plots only the Total metric — never a component key — for a mixed metrics payload", () => {
     const rows: MetricHistoryRow[] = [
       { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "vpr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 200, spread: 8 }, autoPoints: { value: 20, spread: 2 } } },

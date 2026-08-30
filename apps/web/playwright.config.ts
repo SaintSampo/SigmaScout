@@ -109,8 +109,11 @@ export default defineConfig({
       // overrides the viewport itself per-test (1440 AND 390, mirroring
       // breakdown-desktop-overflow.spec.ts's own precedent above) rather than
       // needing a second project.
+      // Widened by 07-UAT.md G-13's own fix task: metric-history-axis-legibility.spec.ts
+      // needs a real desktop width to render the Metric History tab's chart
+      // at a stable, non-mobile layout; not viewport-dependent otherwise.
       testMatch:
-        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts/,
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
