@@ -1,0 +1,215 @@
+/**
+ * 07-UAT.md G-3: 07-20's 122 e2e assertions all test scroll ARBITRATION
+ * ("only the table moved", "the strip did not shift") and never LAYOUT
+ * QUALITY — a table with wrong column widths, visible sticky gaps and no
+ * data reachable on screen passed every one of them, which is why a human
+ * found G-1/G-2 on a real phone and CI did not.
+ *
+ * This file adds the three assertion classes G-3 calls for, over the three
+ * tables G-1/G-2 fixed (Insights, Breakdown, TeamsTable):
+ *
+ *  1. Declared-vs-actual column width: for every SIZED column, the
+ *     rendered width equals the declared `size` (within a 1px subpixel
+ *     rounding tolerance). This is exactly the class of bug `table-layout:
+ *     auto` produced (a column's actual width silently diverging from its
+ *     declared `size`) and is the thing `table-layout: fixed` (G-1)
+ *     guarantees.
+ *  2. Sticky offset correctness: each pinned column's right edge meets the
+ *     next pinned column's left edge with a 0px gap (within the same
+ *     tolerance) — the literal "page-coloured stripe between pinned
+ *     headers" G-1 found. A column whose actual width diverges from
+ *     declared desyncs this even when every column's own individual width
+ *     assertion (#1) looks fine in isolation, because TanStack's sticky
+ *     `left` offsets are derived from DECLARED sizes, not actual ones.
+ *  3. Pinned width as a fraction of the viewport, bounded at phone width:
+ *     a future change that re-pins nickname (or widens the identity
+ *     columns back toward their pre-G-2 sizes) would reproduce G-2's core
+ *     complaint — no room for a single metric column — without failing
+ *     assertions #1/#2 at all, since #1/#2 only check that DECLARED and
+ *     ACTUAL agree, never that the declared total itself is reasonable.
+ *     Bounded at 50% of the viewport: G-2's fixed 2-column pinned block
+ *     measures ~33% of 390px (128/390) with real margin under this line,
+ *     while the pre-fix 3-column block measured 97% (380/390) — a bound at
+ *     the midpoint cleanly separates "some room left for data" from "the
+ *     whole screen is identity columns," independent of any single pixel
+ *     constant either side might later drift toward.
+ *
+ * Runs on `phone-390`/`pixel-10` only (both at 390px UI-SPEC's own named
+ * width, matching this repo's existing narrow-viewport convention rather
+ * than a new one) — this is a narrow-viewport defect class, not one this
+ * file needs to also re-prove at desktop width.
+ *
+ * PROVEN TO BITE (07-UAT.md's own requirement): run locally against
+ * `scripts/fixture-server.mjs` + a local dev server pinned at the
+ * pre-G-1/G-2 commit, all three assertion classes failed RED — see this
+ * task's commit message / SUMMARY for the captured failure output. Restored
+ * to the post-fix commit, all three pass GREEN. `data.sigmascout.org`'s R2
+ * CORS policy excludes `localhost`, so that RED/GREEN proof could not be run
+ * through this exact file against the deployed origin locally; it is
+ * committed here to run for real against the deployed origin once deployed
+ * (this repo's own established e2e convention — see `playwright.config.ts`'s
+ * header comment).
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
+
+/** 1px: real-world subpixel rounding tolerance for width/position comparisons — tight enough that a real desync (measured 11-56px pre-fix) cannot pass by accident, loose enough that browser subpixel rounding never produces a false failure. */
+const SUBPIXEL_TOLERANCE_PX = 1;
+
+/** G-3's bound (see file header for the derivation): a pinned block may never consume more than half of a phone viewport. */
+const MAX_PINNED_FRACTION_OF_VIEWPORT = 0.5;
+
+interface ColumnSpec {
+  id: string;
+  /** `true` for a column expected to be pinned at THIS viewport (390px is below MOBILE_BREAKPOINT_PX for every table G-1/G-2 touched). */
+  pinned: boolean;
+}
+
+interface TableSpec {
+  name: string;
+  url: string;
+  regionTestId: string;
+  headerPrefix: string;
+  cellPrefix: string;
+  rowTestId: string;
+  /** Declared-size columns to check, header-row order — must include every pinned column, in pinned order, first. */
+  columns: ColumnSpec[];
+}
+
+const TABLES: TableSpec[] = [
+  {
+    name: "Insights (2023cur, widest real roster)",
+    url: "/event/2023cur?tab=insights&algorithm=vpr",
+    regionTestId: "insights-table-scroll",
+    headerPrefix: "insights-header",
+    cellPrefix: "insights-cell",
+    rowTestId: "insights-row",
+    columns: [
+      { id: "rank", pinned: true },
+      { id: "teamNumber", pinned: true },
+      { id: "nickname", pinned: false },
+      { id: "record", pinned: false },
+    ],
+  },
+  {
+    name: "Breakdown (2024new, widest column set)",
+    url: "/event/2024new?tab=breakdown&algorithm=vpr",
+    regionTestId: "breakdown-table-scroll",
+    headerPrefix: "breakdown-header",
+    cellPrefix: "breakdown-cell",
+    rowTestId: "breakdown-row",
+    columns: [
+      { id: "teamNumber", pinned: true },
+      { id: "nickname", pinned: false },
+    ],
+  },
+  {
+    name: "TeamsTable (2024 season)",
+    url: "/teams?year=2024&algorithm=vpr&sort=total&sortDir=desc",
+    regionTestId: "teams-table-scroll",
+    headerPrefix: "teams-header",
+    cellPrefix: "teams-cell",
+    rowTestId: "teams-row",
+    columns: [
+      { id: "rank", pinned: true },
+      { id: "teamNumber", pinned: true },
+      { id: "nickname", pinned: false },
+    ],
+  },
+];
+
+/** Reads a `<th>`/`<td>`'s DECLARED pixel width straight from its own inline `style.width` — the exact value `header.getSize()`/`cell.column.getSize()` wrote, never a CSS cascade guess. */
+async function declaredWidthPx(locator: Locator): Promise<number> {
+  const raw = await locator.evaluate((el) => (el as HTMLElement).style.width);
+  const parsed = Number.parseFloat(raw);
+  if (Number.isNaN(parsed)) throw new Error(`element has no numeric inline style.width (got "${raw}") — is this a sized column?`);
+  return parsed;
+}
+
+async function gotoTable(page: Page, spec: TableSpec): Promise<void> {
+  await page.goto(spec.url, { waitUntil: "networkidle" });
+  await page.locator(`[data-testid="${spec.regionTestId}"]`).waitFor({ state: "visible", timeout: 15_000 });
+  await page.getByTestId(spec.rowTestId).first().waitFor({ state: "visible", timeout: 15_000 });
+}
+
+for (const spec of TABLES) {
+  test.describe(`G-3 layout quality — ${spec.name}`, () => {
+    test("declared vs actual: every sized column's rendered width equals its declared size", async ({ page }) => {
+      await gotoTable(page, spec);
+
+      for (const column of spec.columns) {
+        const header = page.getByTestId(`${spec.headerPrefix}-${column.id}`);
+        const declared = await declaredWidthPx(header);
+        const box = await header.boundingBox();
+        if (box === null) throw new Error(`${column.id} header has no bounding box`);
+        expect(
+          Math.abs(box.width - declared),
+          `${spec.name} column "${column.id}": declared ${declared}px, actual ${box.width}px — table-layout:auto (or an anonymous per-row table under a virtualizer) is letting content override the declared size`,
+        ).toBeLessThanOrEqual(SUBPIXEL_TOLERANCE_PX);
+      }
+    });
+
+    test("sticky offset correctness: each pinned column's right edge meets the next pinned column's left edge with a 0px gap", async ({ page }) => {
+      await gotoTable(page, spec);
+
+      const pinnedIds = spec.columns.filter((c) => c.pinned).map((c) => c.id);
+      expect(pinnedIds.length, `${spec.name} declares no pinned columns for this test to check`).toBeGreaterThan(0);
+
+      // Check both the header row (always in normal table flow) and the
+      // FIRST body row (TeamsTable's own virtualizer absolutely-positions
+      // rows, which is exactly the case that partially masked this defect
+      // in the header alone — 07-UAT.md G-1's own finding).
+      for (const rowKind of ["header", "body"] as const) {
+        const boxes: { id: string; box: { x: number; width: number } }[] = [];
+        for (const id of pinnedIds) {
+          const locator = rowKind === "header" ? page.getByTestId(`${spec.headerPrefix}-${id}`) : page.getByTestId(`${spec.cellPrefix}-${id}`).first();
+          const box = await locator.boundingBox();
+          if (box === null) throw new Error(`${spec.name} ${rowKind} cell "${id}" has no bounding box`);
+          boxes.push({ id, box });
+        }
+
+        for (let i = 0; i < boxes.length - 1; i++) {
+          const current = boxes[i]!;
+          const next = boxes[i + 1]!;
+          const gap = next.box.x - (current.box.x + current.box.width);
+          expect(
+            Math.abs(gap),
+            `${spec.name} ${rowKind} row: gap of ${gap}px between pinned "${current.id}" and pinned "${next.id}" — a non-zero gap here is the exact "page-coloured stripe between pinned headers" 07-UAT.md G-1 found on a real phone`,
+          ).toBeLessThanOrEqual(SUBPIXEL_TOLERANCE_PX);
+        }
+      }
+    });
+  });
+}
+
+test.describe("G-3 layout quality — pinned width bound (all three tables)", () => {
+  for (const spec of TABLES) {
+    test(`${spec.name}: pinned columns never consume more than ${MAX_PINNED_FRACTION_OF_VIEWPORT * 100}% of the viewport`, async ({ page }) => {
+      await gotoTable(page, spec);
+      const viewport = page.viewportSize();
+      if (viewport === null) throw new Error("no viewport size");
+
+      // Reads `data-pinned="true"` DIRECTLY off the DOM rather than from
+      // this file's own `spec.columns` list — a future regression that
+      // re-pins a column this file does not currently expect (e.g.
+      // nickname) must still be caught here. Hardcoding the pinned id list
+      // would make this bound blind to exactly the "re-pin everything"
+      // regression it exists to catch.
+      const pinnedHeaders = page.locator(`[data-testid^="${spec.headerPrefix}-"][data-pinned="true"]`);
+      const pinnedCount = await pinnedHeaders.count();
+      expect(pinnedCount, `${spec.name}: no pinned header cells found via data-pinned="true" — is the testid prefix right?`).toBeGreaterThan(0);
+
+      let pinnedTotal = 0;
+      for (let i = 0; i < pinnedCount; i++) {
+        const box = await pinnedHeaders.nth(i).boundingBox();
+        if (box === null) throw new Error(`${spec.name} pinned header #${i} has no bounding box`);
+        pinnedTotal += box.width;
+      }
+
+      const fraction = pinnedTotal / viewport.width;
+      expect(
+        fraction,
+        `${spec.name}: pinned columns total ${pinnedTotal}px of a ${viewport.width}px viewport (${(fraction * 100).toFixed(1)}%) — this reproduces G-2's "no room for a single metric column" complaint regardless of which exact columns are pinned`,
+      ).toBeLessThanOrEqual(MAX_PINNED_FRACTION_OF_VIEWPORT);
+    });
+  }
+});

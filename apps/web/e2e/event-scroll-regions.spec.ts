@@ -346,7 +346,7 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
   ] as const;
 
   for (const { eventKey, rowCount } of CASES) {
-    test(`${eventKey}: exactly ${rowCount} rows, three pinned identity columns hold position after a full-width drag`, async ({ page }) => {
+    test(`${eventKey}: exactly ${rowCount} rows, two pinned identity columns hold position after a full-width drag (nickname unpinned below 768px, 07-UAT.md G-2)`, async ({ page }) => {
       await page.goto(eventUrl(eventKey, "insights"), { waitUntil: "networkidle" });
       const region = page.locator('[data-testid="insights-table-scroll"]');
       await region.waitFor({ state: "visible", timeout: 15_000 });
@@ -357,24 +357,36 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 
       await assertOverflows(region);
 
-      const pinnedIds = ["rank", "teamNumber", "nickname"] as const;
+      // 07-UAT.md G-2: at this spec's phone-width projects (390px/360px,
+      // both below MOBILE_BREAKPOINT_PX=768), nickname is DELIBERATELY no
+      // longer pinned — see `teams-table/columns.tsx`'s `MOBILE_PINNED_COLUMN_IDS`.
+      // Only rank+teamNumber stay pinned; nickname now behaves like any
+      // other unpinned column (it must MOVE with the drag, not hold).
+      const pinnedIds = ["rank", "teamNumber"] as const;
       const pinnedHeaders = pinnedIds.map((id) => page.getByTestId(`insights-header-${id}`));
+      const nicknameHeader = page.getByTestId("insights-header-nickname");
       const unpinnedHeader = page.getByTestId("insights-header-record");
 
+      expect(await nicknameHeader.getAttribute("data-pinned")).toBe("false");
+
       const pinnedBefore = await Promise.all(pinnedHeaders.map((h) => h.boundingBox()));
+      const nicknameBefore = await nicknameHeader.boundingBox();
       const unpinnedBefore = await unpinnedHeader.boundingBox();
-      if (pinnedBefore.some((b) => b === null) || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
+      if (pinnedBefore.some((b) => b === null) || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
 
       const { box, midY } = await visibleMidpoint(page, region);
       await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
 
       const pinnedAfter = await Promise.all(pinnedHeaders.map((h) => h.boundingBox()));
+      const nicknameAfter = await nicknameHeader.boundingBox();
       const unpinnedAfter = await unpinnedHeader.boundingBox();
-      if (pinnedAfter.some((b) => b === null) || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
+      if (pinnedAfter.some((b) => b === null) || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
 
       pinnedAfter.forEach((after, index) => {
         expect(after!.x).toBeCloseTo(pinnedBefore[index]!.x, 0);
       });
+      // Nickname now scrolls with the data, exactly like any other unpinned column.
+      expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
       expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
     });
   }
@@ -386,7 +398,7 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("E4 — Breakdown tab at the app's widest column set", () => {
-  test("2024new: exactly 16 header columns, both pinned headers hold position and stay opaque after a full-width drag", async ({ page }) => {
+  test("2024new: exactly 16 header columns, one pinned header holds position and stays opaque after a full-width drag (nickname unpinned below 768px, 07-UAT.md G-2)", async ({ page }) => {
     await page.goto(eventUrl("2024new", "breakdown"), { waitUntil: "networkidle" });
     const region = page.locator('[data-testid="breakdown-table-scroll"]');
     await region.waitFor({ state: "visible", timeout: 15_000 });
@@ -396,24 +408,31 @@ test.describe("E4 — Breakdown tab at the app's widest column set", () => {
 
     await assertOverflows(region);
 
-    const pinnedIds = ["teamNumber", "nickname"] as const;
-    const pinnedHeaders = pinnedIds.map((id) => page.getByTestId(`breakdown-header-${id}`));
+    // 07-UAT.md G-2: below MOBILE_BREAKPOINT_PX (this spec's phone-width
+    // projects), only teamNumber stays pinned — see
+    // `BreakdownTab.tsx`'s `BREAKDOWN_MOBILE_PINNED_COLUMN_IDS`. Nickname is
+    // no longer pinned and must move with the drag like any other column.
+    const pinnedHeader = page.getByTestId("breakdown-header-teamNumber");
+    const nicknameHeader = page.getByTestId("breakdown-header-nickname");
     const unpinnedHeader = page.getByTestId("breakdown-header-total");
 
-    const pinnedBefore = await Promise.all(pinnedHeaders.map((h) => h.boundingBox()));
+    expect(await nicknameHeader.getAttribute("data-pinned")).toBe("false");
+
+    const pinnedBefore = await pinnedHeader.boundingBox();
+    const nicknameBefore = await nicknameHeader.boundingBox();
     const unpinnedBefore = await unpinnedHeader.boundingBox();
-    if (pinnedBefore.some((b) => b === null) || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
+    if (pinnedBefore === null || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
 
     const { box, midY } = await visibleMidpoint(page, region);
     await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
 
-    const pinnedAfter = await Promise.all(pinnedHeaders.map((h) => h.boundingBox()));
+    const pinnedAfter = await pinnedHeader.boundingBox();
+    const nicknameAfter = await nicknameHeader.boundingBox();
     const unpinnedAfter = await unpinnedHeader.boundingBox();
-    if (pinnedAfter.some((b) => b === null) || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
+    if (pinnedAfter === null || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
 
-    pinnedAfter.forEach((after, index) => {
-      expect(after!.x).toBeCloseTo(pinnedBefore[index]!.x, 0);
-    });
+    expect(pinnedAfter.x).toBeCloseTo(pinnedBefore.x, 0);
+    expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
     expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
 
     // A see-through pinned column is how a wide table fails at phone width

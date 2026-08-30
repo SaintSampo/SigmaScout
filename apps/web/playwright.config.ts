@@ -118,7 +118,7 @@ export default defineConfig({
       // sibling-scroll-region evidence spans two widths rather than one —
       // same "matches no project's testMatch" failure mode as every widening
       // above.
-      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts/,
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts|table-layout-quality\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
     {
@@ -127,7 +127,10 @@ export default defineConfig({
       // comment for the full rationale (neither existing mobile project pins
       // the 390px width UI-SPEC/no-page-pan.spec.ts/Phase 5 D-04/Phase 6 D-10
       // all name specifically).
-      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts/,
+      // table-layout-quality.spec.ts added by this task (07-UAT.md G-3):
+      // the same 390px width its own pinned-width-fraction bound reasons
+      // about.
+      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
   ],
