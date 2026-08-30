@@ -3,7 +3,7 @@ status: testing
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-30T06:27:04Z
+updated: 2026-08-30T15:02:03Z
 ---
 
 ## Current Test
@@ -867,3 +867,129 @@ new failures. `apps/web/tsc --noEmit`: clean.
 Pending: deploy, then live re-verification of `table-layout-quality.spec.ts`'s "G-2 part 2" suite
 against `https://sigmascout.org` for GREEN confirmation on `pixel-10` for Insights and TeamsTable
 (Breakdown's own assertion already passes and is unaffected by this fix).
+
+### G-12 — Search results turned the ribbon into a scrollable area instead of overlaying the page
+
+severity: high
+status: fixed, pending deploy + live re-verification
+surfaces: `Ribbon.tsx` (both header sites), `__root.tsx`
+
+Developer report: "the search bar is kinda broken. results turn the ribbon into a scrollable area
+instead of flowing down into the page."
+
+Root cause, confirmed by measurement: `Ribbon.tsx`'s `<header>` (both the mobile and desktop
+branches) carried `overflow-x-hidden` with no authored `overflow-y`. Per the CSS Overflow spec, an
+`overflow-x`/`overflow-y` pair where one side is non-`visible` and the other is left at its
+`visible` default forces the `visible` side's USED value to `auto` — the header silently became a
+Y-axis scroll container the instant `SearchBox`'s absolutely-positioned results list made the
+header's content taller than the header itself. Instead of the dropdown overlaying the page below
+the ribbon, the ribbon scrolled and the results were clipped to (and reachable only by scrolling)
+the header's own box.
+
+This is the SECOND time this exact CSS rule has bitten this codebase this phase — the 07-20 agent
+hit it as a false positive in `assertNoIntermediateScroller` when `__root.tsx`'s own
+`overflow-x-hidden` div was flagged as a scroller.
+
+Measured live against the deployed site (desktop, 8 combined team/event results open):
+
+```
+header computed overflow-x: hidden   overflow-y: auto (never authored — the used value CSS forces)
+header scrollHeight 433   clientHeight 78   headerScrolls: TRUE
+```
+
+**Fixed** (commit `fix(07): G-12 use overflow-x-clip on ribbon and root layout to stop vertical
+scroll capture`): `overflow-x-hidden` replaced with `overflow-x-clip` on both of `Ribbon.tsx`'s
+`<header>` sites. `clip` blocks horizontal overflow identically to `hidden` (`no-page-pan.spec.ts`,
+the property this token exists to guard, is unaffected — confirmed by compiling the real Tailwind
+CSS output: `.overflow-x-clip{overflow-x:clip}`) but does not force a scroll container onto the Y
+axis, so the dropdown escapes the header and overlays the page normally.
+
+`__root.tsx`'s root layout div carries the identical `overflow-x-hidden`-with-no-`overflow-y`
+pattern. It has never scrolled in practice (`min-h-screen` keeps its content taller than the
+viewport today), but that is incidental to page content length, not a property the element
+guarantees, and this exact rule has now produced two real defects in this codebase — changed
+proactively to `overflow-x-clip` as well, at no cost.
+
+**Test evidence**: `apps/web/e2e/search-results-overflow.spec.ts` (new; `desktop` project, viewport
+set per-test to 1440px and 390px). Proven RED against the currently-deployed origin pre-fix:
+desktop measured `overflowY: "auto"`, `scrollHeight: 433` vs `clientHeight: 78` (matching this
+gap's own reported shape almost exactly). The 390px case is a regression guard, not a second
+reproduction — at that width `SearchBox` renders the 44x44 icon trigger and `CommandDialog`, whose
+`DialogContent` renders through a Radix `Portal` straight to `document.body`, entirely outside the
+header's DOM subtree — but the header's own computed `overflow-y` is still measurably `"auto"`
+there too pre-fix (`scrollHeight`/`clientHeight` both 118, i.e. never actually overflowed, but the
+CSS property itself was still wrong). Full project `npx vitest run`: 2056 passed, 1 skipped, 2
+failures — both the pre-accepted `payloadBudget.test.ts` ledger entries (#11, #15); no new
+failures. `apps/web/tsc --noEmit`: clean.
+
+Pending: deploy, then live re-verification of `search-results-overflow.spec.ts` against
+`https://sigmascout.org` for GREEN confirmation at both widths, plus a manual re-check that
+`no-page-pan.spec.ts` stays green (unaffected by this change — `overflow-x-clip` blocks the same
+horizontal overflow `overflow-x-hidden` did).
+
+### G-13 — Metric History chart's Y-axis renders float-noise, clipped tick labels for extreme values
+
+severity: high
+status: fixed, pending deploy + live re-verification
+surfaces: `MetricHistoryChart.tsx` (`<YAxis>`)
+
+Developer report: "There is some kind of overflow problem on the Y axis of the metric history
+tab." Reproduced on `https://sigmascout.org/team/4788?year=2026&algorithm=vpr` (Metric History
+tab): the axis rendered labels reading `99999997` — the visible tail of clipped values like
+`-1349.99999997` — alongside one readable `62.69`.
+
+Two distinct defects, both in the shared `<YAxis>` element:
+
+1. **No `tickFormatter`.** Recharts generates its own tick VALUES via floating-point interval
+   arithmetic over the domain, which surfaces noise like `-1349.99999997` rather than the clean
+   `-1350` a reader expects — this is a chart-library-generated tick, never a published datum
+   (`packages/harness/rounding.ts`'s publish-time rounding rule governs published values only).
+2. **No explicit `width`.** Recharts' 60px default clipped any label wider than that, and the
+   `domain={["dataMin", "dataMax"]}` extremes this component already used made a wide label
+   inevitable for any team whose total swings deeply negative.
+
+Measured live against the deployed site (`frc4788`/2026/vpr, before this fix):
+
+```
+tick "-2126.0299999999997"   left -70.7px relative to the SVG's own left edge (clipped)
+tick "-1576.0299999999997"   left -70.2px
+tick "-1026.0299999999997"   left -71.3px
+tick "-476.0299999999997"    left -65.9px
+tick "62.69"                 left  27.2px  (the one readable label, matching the report exactly)
+```
+
+This is latent, not new: for a normal team (values roughly 0-400) labels are short and fit inside
+the 60px default fine — confirmed live against `frc254`/2026/vpr, which already passes cleanly
+(`116.9`, `186.9`, `256.9`, `326.9`, `379.03`, all unclipped, no noise). It only became visible
+because `frc4788` publishes a deeply negative `total` (a separate, already-filed modelling defect —
+`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md` — NOT fixed here; this fix only
+makes the CHART render legibly whatever value it is handed).
+
+**Fixed** (commit `fix(07): G-13 format Y-axis ticks and size axis width in metric history chart`):
+`formatYAxisTick` rounds a tick to 2 decimals via `toFixed(2)` (correctly rounds the float-noise
+case) then round-trips through `Number`/`toString` to strip trailing zeros (`-1350.00` ->
+`-1350`). `computeYAxisWidth` derives the axis's `width` from the SAME set of Y-axis domain values
+(chart-craft.md's "derive coupled geometry" rule) — the widest formatted label's character count
+times a measured per-character estimate, floored at 48px — so the width and the formatter can
+never disagree, and a typical short-label team gets a NARROWER axis than the old 60px default
+(more room for the plot) while an extreme one gets wider. Only Recharts-generated tick display is
+touched; the plotted `value`/`band` series and `packages/harness/rounding.ts`'s publish-time
+rounding are unaffected — confirmed by all 9 pre-existing `MetricHistoryChart.test.tsx` assertions
+passing unmodified.
+
+**Test evidence**:
+- Two new `MetricHistoryChart.test.tsx` unit tests (11 total, all passing): no rendered Y-axis tick
+  exceeds 2 decimal places on an extreme negative domain mirroring `frc4788`'s own shape, and the
+  Y axis widens for a wide extreme label / narrows for a short typical one (extreme computed 96px,
+  normal computed 51px — both bounded by `computeYAxisWidth`'s own floor/character-width formula,
+  never a fixed magic number).
+- New `apps/web/e2e/metric-history-axis-legibility.spec.ts` (`desktop` project). Proven RED against
+  the currently-deployed origin pre-fix on the extreme case with the exact live measurements above;
+  the normal-team case already passes cleanly and serves as this fix's regression guard.
+- Full project `npx vitest run`: 2058 passed, 1 skipped, 2 failures — both the pre-accepted
+  `payloadBudget.test.ts` ledger entries (#11, #15); no new failures. `apps/web/tsc --noEmit`:
+  clean.
+
+Pending: deploy, then live re-verification of `metric-history-axis-legibility.spec.ts` against
+`https://sigmascout.org` for GREEN confirmation on the extreme case (the normal-team case already
+passes and is unaffected by this fix).
