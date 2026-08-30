@@ -118,7 +118,7 @@ export default defineConfig({
       // sibling-scroll-region evidence spans two widths rather than one —
       // same "matches no project's testMatch" failure mode as every widening
       // above.
-      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts|table-layout-quality\.spec\.ts/,
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
     {
@@ -129,8 +129,10 @@ export default defineConfig({
       // all name specifically).
       // table-layout-quality.spec.ts added by this task (07-UAT.md G-3):
       // the same 390px width its own pinned-width-fraction bound reasons
-      // about.
-      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts/,
+      // about. touch-action-vertical-scroll.spec.ts (07-UAT.md G-4,
+      // real-device UAT follow-up) reuses the same 390px real-device-reported
+      // width rather than a new one.
+      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
   ],
