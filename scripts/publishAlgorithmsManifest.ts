@@ -82,6 +82,39 @@ export class EmptyManifestError extends Error {
   }
 }
 
+/**
+ * Thrown (WR-01, added retroactively by code review) when a post-write fetch of
+ * `ALGORITHMS_MANIFEST_KEY` back through the public origin does not carry the same
+ * `algorithms` entries this run just composed and PUT. This is the single shared,
+ * algorithm-agnostic manifest every Worker cron tick and every browser page reads to
+ * resolve which algorithms are live — a stale KV propagation racing the R2 write, a
+ * truncated body, or a transient 5xx treated as success would otherwise degrade the
+ * whole site silently, never surfacing here as a failure.
+ */
+export class ManifestReadBackMismatchError extends Error {
+  constructor(expected: readonly AlgorithmManifestEntry[], observed: readonly AlgorithmManifestEntry[]) {
+    super(
+      `publishAlgorithmsManifest: FATAL — post-write read-back of "${ALGORITHMS_MANIFEST_KEY}" does not match what ` +
+        `this run just composed and published. Expected ${expected.length} entries ` +
+        `[${expected.map((e) => `${e.id}@${e.version}`).join(", ")}], observed ${observed.length} entries ` +
+        `[${observed.map((e) => `${e.id}@${e.version}`).join(", ")}]. Every browser page and Worker cron tick reads ` +
+        `this exact key — do not trust this write until this is resolved.`
+    );
+    this.name = "ManifestReadBackMismatchError";
+  }
+}
+
+/**
+ * Structural equality over an `algorithms` array — both sides are always the product of
+ * `AlgorithmsManifestSchema.parse` (in `composeManifest` and in `fetchLiveManifest`
+ * respectively), which builds its output in the schema's own declared key order
+ * regardless of input order, so a plain `JSON.stringify` comparison is stable here
+ * rather than a false-negative risk from key-order drift.
+ */
+function algorithmsMatch(expected: readonly AlgorithmManifestEntry[], observed: readonly AlgorithmManifestEntry[]): boolean {
+  return JSON.stringify(expected) === JSON.stringify(observed);
+}
+
 export interface ComposeManifestMutations {
   /** Appended to the end of `source.algorithms` — a stable order, the added entry always last. */
   readonly addEntry?: AlgorithmManifestEntry;
@@ -241,6 +274,18 @@ export async function run(options: CliOptions): Promise<AlgorithmsManifest> {
     cacheControl: "public, max-age=60",
   });
   console.log(`publishAlgorithmsManifest: published "${ALGORITHMS_MANIFEST_KEY}" to bucket "${options.bucket}" (${body.length} bytes).`);
+
+  // WR-01: this object is the single, shared, algorithm-agnostic manifest every browser page and
+  // every Worker cron tick reads — a bad or truncated write here degrades the whole site silently.
+  // Re-fetch through the public origin (cache-busted, via the same `fetchLiveManifest` helper used
+  // above) and assert the entries actually landed as composed before declaring success.
+  const readBack = await fetchLiveManifest(options.origin);
+  if (!algorithmsMatch(composed.algorithms, readBack.algorithms)) {
+    throw new ManifestReadBackMismatchError(composed.algorithms, readBack.algorithms);
+  }
+  console.log(
+    `publishAlgorithmsManifest: read-back verified — ${readBack.algorithms.length} entries [${readBack.algorithms.map((a) => a.id).join(", ")}] match what was just published.`
+  );
   return composed;
 }
 
