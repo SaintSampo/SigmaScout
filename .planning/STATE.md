@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 8
 current_phase_name: Simulation & Compare
 status: planning
-stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-08-30T21:35:10.951Z"
+stopped_at: Completed quick task 260830-p6s (local Playwright render loop)
+last_updated: "2026-08-30T22:31:49.325Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 07 complete, transitioned to Phase 8
 progress:
@@ -277,6 +277,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P20]: 2022ilpe/2022nhgrs elimination order corrected to WALL-CLOCK (not the series-major sequence 07-13 originally measured) -- eventMatchAxis.ts's compareEventMatchRows has prioritized sortTime presence since its one commit (07-12's tracer); both fixtures now render wall-clock live, closing the bracket-order product decision this plan's own checkpoint originally framed
 - [Phase ?]: [Phase 07 P20]: the alliance-uncertainty identity (ledger row 9) was rewritten from a near-equality assertion to a monotone-narrowing assertion after developer-confirmed evidence (280 alliance-pairs, 2024new: mean gap 1.130 first half vs 0.373 second half) showed the original design compared an as-of-event quantity against an as-of-that-match one, which can never hold as an identity regardless of tolerance; the TRUE identity is routed to .planning/todos/pending/publish-as-of-match-team-metrics.md
 - [Phase ?]: [Phase 07 P20]: Phase 07 (event-pages) is now fully complete -- 20/20 plans, all seven UI-SPEC backstop rows and five non-UI-SPEC backstop markers have evidence (10 automated, 2 carried to 07-UAT.md for /gsd-verify-work 7 pending physical hardware)
+- [Phase ?]: [Quick 260830-p6s]: Local Playwright render loop closes G-06-2 -- Vite server/preview proxies /v1 to https://data.sigmascout.org (same-origin, no CORS change needed), new local-desktop/local-phone-390 projects cover all 12 layout/visual specs at the width(s) where each spec's own premise holds; deployed-origin projects/use.baseURL untouched. First real desktop-width run of no-page-pan.spec.ts found one HARNESS-class premise mismatch (fixed via grepInvert, not a spec edit) -- no layout defects found or fixed by this task
 
 ### Pending Todos
 
@@ -306,6 +307,7 @@ None yet.
 | 260819-2x6 | Close EVAL-01/SC-4 outcome-leakage descriptor and enumeration bypasses: add getOwnPropertyDescriptor and ownKeys traps to toLeakProofUpcoming's Proxy handler | 2026-08-19 | e70b31df | [260819-2x6-add-getownpropertydescriptor-and-ownkeys](./quick/260819-2x6-add-getownpropertydescriptor-and-ownkeys/) |
 | 260821-ncc | Assert sigma1-adapt reads 2.0.0+tune-joint-on-winner in the committed event-scoped fingerprint, so a missing gitignored reports/tune-joint-on.json cannot silently substitute the 2.0.0+defaults-adapt fallback undetected (SECURITY A-01, threat T-03.2-13) | 2026-08-21 | a912c22b | [260821-ncc-assert-sigma1-adapt-version-in-the-commi](./quick/260821-ncc-assert-sigma1-adapt-version-in-the-commi/) |
 | 260822-wqt | Restrict the Worker's live folding tier to sigma1 via a tracked LIVE_ALGORITHM_IDS var, fixing the measured defect where three live algorithms cost 50 subrequests against ~41 usable and deferred every ordinary match forever; all three algorithms remain published. Also fixed an AND/OR precedence bug in readScopedState that leaked one algorithm's league row into another's read | 2026-08-23 | a37f40e7 | [260822-wqt-restrict-live-folding-to-sigma1](./quick/260822-wqt-restrict-live-folding-to-sigma1/) |
+| 260830-p6s | Give apps/web's layout/visual e2e specs a local page origin via a Vite preview /v1 proxy to real R2 artifact bytes and two new local Playwright projects, closing the render-and-look loop G-06-2 found structurally broken (no-page-pan.spec.ts had never actually run) | 2026-08-30 | 6b13a449 | [260830-p6s-add-a-local-render-loop-to-playwright-so](./quick/260830-p6s-add-a-local-render-loop-to-playwright-so/) |
 
 ### Roadmap Evolution
 
@@ -323,6 +325,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-30T21:35:10.893Z
-Stopped at: Phase 8 UI-SPEC approved
-Resume file: .planning/phases/08-simulation-compare/08-UI-SPEC.md
+Last session: 2026-08-30T22:30:39.032Z
+Stopped at: Completed quick task 260830-p6s (local Playwright render loop)
+Resume file: None
