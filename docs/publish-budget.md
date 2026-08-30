@@ -22,6 +22,49 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
+**Latest run — 2026-08-30,
+`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`'s post-fix full republish
+(`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
+generation `1c11cdd8-720d-479e-a737-fad94c4105a9`.** 56,774 page objects plus 2 manifests (56,776
+total `PUT`s), 3,309,138,056 bytes of page-object payload, ≈16 min 55 sec wall clock
+(`18:28:08Z`-`18:45:03Z`), no concurrent publish processes (`tasklist` confirmed a clean 12-process
+baseline both before and after). Object count is IDENTICAL to the prior run below (this fix changes
+which OBSERVATIONS feed the fit, never which artifacts get built) — every byte-figure movement is
+small and consistent with changed decimal VALUES rather than a changed shape:
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Change vs. 2026-08-30 (`07-UAT` G-8) run |
+|---|---:|---:|---:|---:|---|
+| `teams/{year}` | 15 | 1,757,866 | 3,704,776 | 3,704,776 | -418 bytes (-0.011%) |
+| `team/{teamKey}/{year}` | 52,596 | 42,217 | 147,853 | 675,956 | +13 bytes (+0.002%), same key |
+| `events/{year}` | 15 | 75,225 | 84,113 | 84,113 | unchanged |
+| `event/{eventKey}` | 4,143 | 75,689 | 189,570 | 327,172 | -89 bytes (-0.027%) |
+| `compare/{year}` | 5 | 14,029 | — | 14,144 | +11 bytes (+0.078%) |
+
+Total page-object payload moved by -1,171,751 bytes (-0.035%) — the whole-alliance-DQ-zero-score
+exclusion drops roughly 316 alliance-observations corpus-wide (158 real matches x 2, per the todo's
+own measured scope), each dropped observation removing a few Kalman/OPR/EPA state updates whose
+downstream numeric outputs round to marginally different digit counts; there is no new field and no
+removed field on any artifact, so a shape-level regression would be the actual concern here and none
+occurred. **Neither pre-existing ceiling moves in a way that changes its status** — both remain
+crossed by essentially the same margin as the prior run (`teams/{year}`: 3,704,776 vs. the
+3,500,000 `budgetMaxBytes`, still open, ledger #11; `team/{teamKey}/{year}`: 675,956 vs. the
+375,000 `budgetMaxBytes` and the 600,000 absolute ceiling, still open, ledger #15) — see
+`.planning/WINDOWS.md`, figures refreshed there too, both left OPEN per this todo's explicit
+instruction not to resolve either ceiling as part of this fix.
+
+Live verification against the public origin (not merely the local run's own tally):
+`https://data.sigmascout.org/v1/team/frc4788/2026/vpr@2.1.0+tuned-2026-08.json` now reads
+`total: {value: 94.03, spread: 9.83, percentile: 82.5}` — the exact case this todo's "smoking gun"
+named, previously `-1354.13`. Corpus-wide 2026 `total` distribution (`v1/teams/2026/vpr@...`, 3,718
+teams): 61 teams publish a negative total (was 85), 2 remain below -100 (`frc237` -116.93, `frc6524`
+-113.58 — a materially different, ordinary "genuinely weak team" range, not a DQ artifact; was
+`frc237` -113.83 and one other unnamed team before), minimum -116.93 (was -1354.13), maximum 419.09
+(was 419.08, unchanged team `frc1690`, noise-level movement). A spot-checked partial-DQ team
+(`frc7163`, three matches with one teammate DQ'd but never a whole-alliance-zero) publishes
+20.34 ± 10.09 (21.5th percentile) — an ordinary below-average rating showing no sign of having lost
+real matches, consistent with the regression suite's own byte-identical proof that a partial DQ is
+untouched by this fix.
+
 **Latest run — 2026-08-30, `07-UAT.md` G-8's full republish (`pnpm publish:seasons`), generation
 `882249ad-be97-419d-b929-042aa17afb41`.** 56,774 page objects plus 2 manifests (56,776 total
 `PUT`s), 3,310,309,807 bytes of page-object payload, ≈19 min 6 sec wall clock
@@ -856,24 +899,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-30T05:35:08Z",
-  "run": "pnpm publish:seasons (tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason) -- 07-UAT.md G-8's full republish, generation 882249ad-be97-419d-b929-042aa17afb41, publishing EventAllianceSchema.record (an alliance's playoff win-loss-tie record) for the first time; every page kind is byte-identical to the prior 961340e8 run except event/{eventKey}, which carries the new field",
+  "measuredAt": "2026-08-30T18:45:03Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- exclude-whole-alliance-dq-zero-scores.md's post-fix full republish, generation 1c11cdd8-720d-479e-a737-fad94c4105a9; every page kind moved by less than 0.1% versus the prior 882249ad run (dropped alliance-observations changed computed VALUES, not any published field's shape)",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 1758192,
-      "p95Bytes": 3705194,
-      "maxBytes": 3705194,
+      "medianBytes": 1757866,
+      "p95Bytes": 3704776,
+      "maxBytes": 3704776,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2024/vpr@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/teams/2024/vpr@2.1.0+tuned-2026-08.json"
     },
     "team": {
       "count": 52596,
-      "medianBytes": 42208,
-      "p95Bytes": 147846,
-      "maxBytes": 675943,
+      "medianBytes": 42217,
+      "p95Bytes": 147853,
+      "maxBytes": 675956,
       "budgetMaxBytes": 375000,
-      "largestKey": "v1/team/frc3538/2024/vpr@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@2.1.0+tuned-2026-08.json"
     },
     "events": {
       "count": 15,
@@ -881,23 +924,23 @@ rendering of these same numbers, not a second source.
       "p95Bytes": 84113,
       "maxBytes": 84113,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/events/2025/vpr@2.1.0+tuned-2026-08.json"
     },
     "event": {
       "count": 4143,
-      "medianBytes": 75709,
-      "p95Bytes": 189784,
-      "maxBytes": 327261,
+      "medianBytes": 75689,
+      "p95Bytes": 189570,
+      "maxBytes": 327172,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024arc/vpr@2.0.0+tuned-2026-08.json"
+      "largestKey": "v1/event/2024gal/vpr@2.1.0+tuned-2026-08.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 14035,
-      "p95Bytes": 14133,
-      "maxBytes": 14133,
+      "medianBytes": 14029,
+      "p95Bytes": 14144,
+      "maxBytes": 14144,
       "budgetMaxBytes": 20000,
-      "largestKey": "v1/compare/2025.json"
+      "largestKey": "v1/compare/2026.json"
     }
   }
 }
