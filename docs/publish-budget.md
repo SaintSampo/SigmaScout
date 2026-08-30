@@ -86,19 +86,29 @@ season-long Kalman filter, where the effect nets out differently) — both are g
 regression in either direction; a per-algorithm sign is not predictable in general, only that the
 rating changes.
 
-**Orphaned demo-team objects, honestly noted rather than silently left unexplained.** This
-republish does not retroactively delete the ~414 `team/{teamKey}/{year}` objects the PRIOR
-generation (`47d020a4-...`) wrote for demo keys — R2 has no cascading delete, and `publishSeasons`
-only ever `PUT`s keys it is asked to build. Confirmed directly: `v1/team/frc9992/2026/vpr@...`
-still returns `200` after this run, but carries the STALE `47d020a4-...` generation stamp (not this
-run's `961340e8-...`) — an orphaned object, reachable only by guessing its exact old URL, absent
-from every live surface that actually links to it: confirmed absent from `teams/2026`'s `vpr` and
-`opr` listings (`0` of 3,718 rows match a demo key), and therefore absent from search and ranking
-too (both read the same `teams/{year}` artifact, `apps/web/src/lib/search-index.ts`). A future
-cleanup pass could delete these orphans, generalizing
-`scripts/deleteRetiredAlgorithmObjects.ts`'s enumerate-then-delete-then-census pattern from
-"retired algorithm id" to "excluded team key" — not built here, since the todo's acceptance
-criteria describe the publish-time exclusion (confirmed above), not a bucket-cleanliness guarantee.
+**Orphaned demo-team objects — since deleted.** At the time of the run described above, this
+republish did not retroactively delete the ~414 `team/{teamKey}/{year}` objects the PRIOR
+generation (`47d020a4-...`) had written for demo keys — R2 has no cascading delete, and
+`publishSeasons` only ever `PUT`s keys it is asked to build. That gap was closed on 2026-08-29 by
+`scripts/deleteOrphanedDemoTeamObjects.ts` (`pnpm cleanup:orphaned-demo-teams -- --execute`),
+generalizing `scripts/deleteRetiredAlgorithmObjects.ts`'s enumerate-then-delete-then-census pattern
+from "retired algorithm id" to "excluded team key": the deterministic, corpus-free candidate set (30
+demo keys x 5 seasons x 3 algorithms = 450 keys) was enumerated, censused, deleted, and
+read-back-verified against the live origin —
+
+| | Count |
+|---|---:|
+| Candidate keys enumerated | 450 |
+| Present (`200`) before the delete pass | 414 (exactly this document's earlier estimate) |
+| Present (`200`) after the delete pass | 0 |
+| Control keys checked (`frc3538/2024` x opr/epa/vpr) | 3 present (`200`) before AND after |
+
+Every one of the 414 keys the pre-delete census found now returns `404`; the real control team's
+pages were unaffected both before and after. No object count or byte figure in the Payload budget
+table above changes as a result — those figures were always drawn from the live generation's own
+`PUT` tally (`961340e8-...`), never from stale orphaned objects under a prior generation stamp, so
+this cleanup has no effect on either payload ceiling (`.planning/WINDOWS.md` ledgers #11/#15 remain
+OPEN, unrelated to this cleanup).
 
 **Post-run health check.** `pnpm verify:subset` (35 entries, the committed event subset): 0
 failing, generation uniformity 1 distinct value (`961340e8-9e45-4d91-8e85-f72982ac3d87`) across
