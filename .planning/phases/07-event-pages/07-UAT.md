@@ -766,3 +766,104 @@ its padding rather than reintroducing a second `±` treatment.
 Contrast validated via the dataviz skill's `validate_palette.js`: grey `#475569` measures 6.42-7.24:1
 across page, surface, and all four tier tints — above the 4.5:1 small-text floor. Row height
 unchanged (43px). Accessible text byte-identical.
+
+### G-11 — G-2 part 2 still RED on `pixel-10` (312px scroller): Insights `record` and TeamsTable's first metric column both miss by a few pixels
+
+severity: high
+status: fixed, pending deploy + live re-verification
+surfaces: `teams-table/columns.tsx` (`RECORD_COLUMN_WIDTH_NARROW_PX`, `buildColumns`), `InsightsTab.tsx`
+
+Logged in `deferred-items.md` during G-7 as out-of-scope for that task; promoted to a gap and fixed
+here. `table-layout-quality.spec.ts`'s "G-2 part 2 — at least one full data column visible at
+scroll 0" failed on `pixel-10` (312px scroller, 360px viewport) for Insights and TeamsTable only
+(Breakdown already passed both mobile projects). Measured live against the deployed origin:
+
+```
+insights @390px  scroller=342  rank:56/56  teamNumber:72/72  nickname:90/90  record:100/100 ✓  rp:84/24
+insights @360px  scroller=312  rank:56/56  teamNumber:72/72  nickname:90/90  record:100/94  ✗  rp:84/0
+teams    @390px  scroller=342  rank:56/56  teamNumber:72/72  nickname:90/90  autoLeave:120/120 ✓
+teams    @360px  scroller=312  rank:56/56  teamNumber:72/72  nickname:90/90  autoLeave:120/94  ✗
+```
+
+Identity (rank+teamNumber+nickname) is 218px at both widths; `phone-390`'s 342px scroller leaves
+124px (enough for the old 100-120px column), `pixel-10`'s 312px scroller leaves only 94px. G-2
+part 2's own `NICKNAME_COLUMN_WIDTH_NARROW_PX` derivation was checked only against `phone-390`;
+this is the same class of miss, one scroller-width narrower.
+
+**Investigated and rejected: narrowing the metric-tier column itself.** G-10's superscript redesign
+lowered `.metric-tier`'s `min-width` from 80 to 58, freeing real space — the first candidate fix was
+narrowing the shared 120px metric column to fit inside the 94px budget (~88-90px). Checked against
+real rendered geometry before committing to it: G-10's own live measurement (this file, above)
+already established the real worst-case NON-Total value+spread string needs ~86.7px of rendered box
+width on its own, which already exceeds 94px before `TableCell`'s 16px `p-2` padding is even added
+(86.7 + 16 = 102.7px minimum, zero buffer). Independently re-confirmed live against every published
+`teams/{year}/{vpr,opr,epa}@*.json` and `event/2026alhu/{opr,epa}@*.json` artifact (2022-2026): OPR/
+EPA carry no spread at all (`"total: 429.48"`, 2026 OPR, no `±`) but VPR's spread-bearing values
+reach `"total: 100.13 ± 26.24"` (2025) at full magnitude. A `.metric-tier` box genuinely cannot
+shrink to 94px without a real risk of a value visually bleeding into its neighbour's cell — table
+cells default to `overflow: visible`, so this would not even fail as a clean, detectable clip. Per
+this gap's own "do not clip metric values" instruction, this path was rejected with the arithmetic
+above rather than forced.
+
+Separately discovered and NOT fixed here (out of scope, logged to `deferred-items.md`): the current
+`2026` VPR artifact carries an extreme outlier — `total: -1354.13`, `hubEndgame: -1141.94 ± 155.53`
+— almost certainly a cold-start artifact for a team with ~0 matches this (barely started) season
+(`coldStartTeamTotal`/`coldStartConsistencyVariance` in the published VPR params). This number alone
+would already break the *existing, shipped* `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`/`_TOTAL_` no-clip
+guarantee if it ever renders in a metric-tier box; it is a modelling/pipeline concern, not a layout
+one, and outside this gap's file ownership.
+
+**Fixed** (commit `fix(07): G-11 narrow record's column and reorder it ahead of TeamsTable's
+metrics below the breakpoint`): a new `RECORD_COLUMN_WIDTH_NARROW_PX = 80`
+(`teams-table/columns.tsx`), applied below `MOBILE_BREAKPOINT_PX` to both `InsightsTab`'s and
+`TeamsTable`'s `record` column (Breakdown has no `record` column). `record`'s content
+(`formatRecord`/`formatEventRecord`'s `{wins}-{losses}-{ties}`) renders through `numeric-cell`,
+which carries `font-feature-settings: "tnum"` (tabular digits) — so its rendered width is a pure
+function of CHARACTER COUNT, never the specific digits. Verified live against the app's real
+compiled CSS/font: `"121-42-4"`, `"165-99-9"` and `"999-99-9"` (all 8 characters) render at the
+identical 56.48px. Queried every published `teams/{year}/vpr@*.json` artifact 2022-2026
+(3,100-3,757 teams/year): the real worst case is an 8-character `WWW-LL-T` string (e.g.
+`"121-42-4"`, max wins observed across all five years: 165) — never 9+ characters in any published
+season. 56.48px + `TableCell`'s 16px `p-2` padding + a 6px cross-browser font-hinting buffer (the
+same margin `RANK_COLUMN_WIDTH_NARROW_PX` uses) rounds up to 80.
+
+`InsightsTab.tsx` already places `record` immediately after `nickname` — only the width needed to
+shrink. `TeamsTable`'s `buildColumns` puts the metric columns there instead (`record` normally
+trails after them), so `record` is additionally REORDERED to sit right after `nickname` below the
+breakpoint only — at/above the breakpoint the order is byte-for-byte unchanged (metrics, then
+record, then win rate). `record` was never sortable either way (`sortableColumnIds` never lists
+it), so this is a presentation-only reorder, not a behaviour change.
+
+**Arithmetic, both widths:**
+
+```
+Insights  @360px (312 scroller): 56+72+90+80 = 298   -> 14px margin (was -6px)
+Insights  @390px (342 scroller): 56+72+90+80 = 298   -> 44px margin (was 0px, now more headroom)
+Teams     @360px (312 scroller): 56+72+90+80 = 298   -> 14px margin (was -26px)
+Teams     @390px (342 scroller): 56+72+90+80 = 298   -> 44px margin (record now first; previously
+                                                          a 120px metric column was first with 4px
+                                                          margin — this trades "a real predictive
+                                                          metric visible at 390px only" for "a
+                                                          fully-visible column at both 360px and
+                                                          390px, consistently, without ever risking
+                                                          a metric value clipping")
+```
+
+At `phone-390`, TeamsTable no longer shows a real metric column at scroll 0 (it showed one before,
+with only 4px of margin). This is a deliberate trade, not an oversight: `record` is real,
+meaningful competitive data (not a placeholder), G-2's own original complaint was about ZERO data
+being visible on first paint (not specifically an algorithmic metric), and a single `isNarrow`
+boolean cannot special-case 390px differently from 360px without a second breakpoint (which this
+gap's own instructions rule out). Both widths pass with identical, comfortable margin.
+
+**Test evidence**: `apps/web/src/components/teams-table/columns.test.tsx` and
+`apps/web/src/components/event/InsightsTab.test.tsx`'s existing suites (93 tests total across
+`columns.test.tsx`/`TeamsTable.test.tsx`/`InsightsTab.test.tsx`/`BreakdownTab.test.tsx`) pass
+unmodified — none asserted a specific column order beyond `columns[0]`/`columns[1]`
+(rank/teamNumber), which this fix never touches. Full project `npx vitest run`: 2056 passed, 1
+skipped, 2 failures — both the pre-accepted `payloadBudget.test.ts` ledger entries (#11, #15); no
+new failures. `apps/web/tsc --noEmit`: clean.
+
+Pending: deploy, then live re-verification of `table-layout-quality.spec.ts`'s "G-2 part 2" suite
+against `https://sigmascout.org` for GREEN confirmation on `pixel-10` for Insights and TeamsTable
+(Breakdown's own assertion already passes and is unaffected by this fix).

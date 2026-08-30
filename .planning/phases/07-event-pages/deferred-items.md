@@ -3,7 +3,26 @@
 Out-of-scope discoveries logged during execution, per the executor's scope-boundary rule
 (fix only what the current task's own changes touch; log everything else here instead).
 
-## G-2 part 2 still RED on `pixel-10` (312px scroller) for Insights and TeamsTable
+## RESOLVED — VPR 2026 cold-start extreme outlier (`total: -1354.13`, `hubEndgame: -1141.94 ± 155.53`)
+
+**Discovered during:** G-11 (07-UAT.md), while independently re-confirming the real worst-case
+metric-tier content width across every published season/algorithm before deciding whether a
+metric column could safely narrow to fit a 94px mobile budget.
+
+**Not fixed here** — this is a modelling/pipeline concern (VPR's cold-start prior for a team with
+~0 matches in the barely-started 2026 season), not a layout one, and is outside `columns.tsx`/
+`InsightsTab.tsx`'s file ownership. Flagged because it is a real, currently-live number that
+already exceeds the previously-accepted worst case (`"284.89 ± 8.75"`, G-10) this site's shipped
+`BREAKDOWN_METRIC_COLUMN_WIDTH_PX`/`_TOTAL_` no-clip guarantee was sized against — if this value
+renders inside a `.metric-tier` box anywhere (Breakdown, Team page, Teams table, Insights), it will
+overflow that box's declared width regardless of this phase's mobile-layout fixes.
+
+**Recommendation:** either bound VPR's published value/spread magnitude for teams with
+near-zero season match counts (a pipeline-side fix), or re-measure `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`/
+`_TOTAL_PX` against this new worst case once the 2026 season has enough real matches to judge
+whether it is a transient cold-start artifact or a durable one.
+
+## RESOLVED — G-2 part 2 still RED on `pixel-10` (312px scroller) for Insights and TeamsTable
 
 **Discovered during:** G-7 (Breakdown desktop-overflow fix, `apps/web/e2e/table-layout-quality.spec.ts`
 regression check against the deployed origin, 2026-08-30).
@@ -32,3 +51,10 @@ constraint at the narrower 312px scroller Pixel 10 presents.
 `NICKNAME_COLUMN_WIDTH_NARROW_PX`/`RANK_COLUMN_WIDTH_NARROW_PX`/`TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`
 against the tighter 312px scroller as the binding constraint, or confirm 312px is out of this
 site's supported viewport range if it is not.
+
+**Resolved by 07-UAT.md G-11**: `nickname`/`rank`/`teamNumber` were not the binding constraint after
+all (they already fit) — the column immediately following them (Insights' `record`, TeamsTable's
+first metric column) was too wide for the 94px `pixel-10` budget. Fixed via a new
+`RECORD_COLUMN_WIDTH_NARROW_PX` (80px) plus a narrow-only reorder in `TeamsTable`'s `buildColumns`
+that puts `record` ahead of the metric columns. See G-11 for the full arithmetic and why the
+metric-tier column itself could not be narrowed instead.

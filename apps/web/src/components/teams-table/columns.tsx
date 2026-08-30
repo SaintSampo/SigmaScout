@@ -122,6 +122,59 @@ export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
 export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 90;
 
 /**
+ * `record`'s declared width BELOW `MOBILE_BREAKPOINT_PX` (07-UAT.md G-11).
+ * G-2 part 2's own `NICKNAME_COLUMN_WIDTH_NARROW_PX` derivation was checked
+ * only against `phone-390`'s 342px scroller and left `pixel-10`'s narrower
+ * 312px scroller RED for Insights and TeamsTable: at 312px,
+ * `rank(56) + teamNumber(72) + nickname(90) = 218px` leaves only 94px before
+ * the scroller boundary, and the column that used to sit there next — a
+ * 100-120px cell — no longer fits (measured live: Insights' `record` missed
+ * by 6px, TeamsTable's first metric column by 26px).
+ *
+ * The metric-tier value cell (`MetricValue.tsx`'s `.metric-tier` box) is NOT
+ * the column narrowed here, even though G-10 freed real space inside it
+ * (`min-width` 80 -> 58): G-10's own live measurement against the deployed
+ * 2026alhu artifact found the real worst-case NON-Total value+spread string
+ * needs ~86.7px of rendered box width on its own
+ * (`BREAKDOWN_METRIC_COLUMN_WIDTH_PX`'s doc comment), which already exceeds
+ * this 94px budget before `TableCell`'s own 16px `p-2` padding is even
+ * added (86.7 + 16 = 102.7px minimum, no buffer). Narrowing a metric column
+ * to fit inside 94px would silently risk a real value bleeding into its
+ * neighbour's cell (table cells default to `overflow: visible`, so this
+ * would not even show as a clean clip) the first time a team's value
+ * approaches that worst case — unacceptable per this gap's own "do not clip
+ * metric values" instruction. `record` is narrowed instead, below.
+ *
+ * Derived from real rendered geometry, not guessed: `formatRecord`/
+ * `formatEventRecord` both emit `{wins}-{losses}-{ties}`, and this column's
+ * `numeric-cell` class carries `font-feature-settings: "tnum"`
+ * (tabular/fixed-width digits), so the string's rendered width is a pure
+ * function of its CHARACTER COUNT, never its specific digits — confirmed by
+ * measuring "121-42-4", "165-99-9" and "999-99-9" (all 8 characters) against
+ * the app's real compiled CSS/font and finding all three render at the exact
+ * same 56.48px. The real worst case, queried live against every published
+ * `teams/{year}/vpr@*.json` artifact 2022-2026 (3,100-3,750 teams/year): an
+ * 8-character `WWW-LL-T` string (e.g. "121-42-4", 2022; max wins observed
+ * across all five years: 165) — never 9+ characters in any published season.
+ * 56.48px content + `TableCell`'s 16px `p-2` padding + a 6px cross-browser
+ * font-hinting buffer (the same small numeric-column margin
+ * `RANK_COLUMN_WIDTH_NARROW_PX` uses) = ~78.5px, rounded up to 80 for a
+ * clean number with a couple of spare pixels.
+ *
+ * 80 clears the 94px budget with 14px to spare at `pixel-10` (312px
+ * scroller) and comfortably at `phone-390` (124px available) — see this
+ * table's own `07-UAT.md G-11` entry for the full arithmetic, including why
+ * `TeamsTable` also REORDERS `record` to sit immediately after `nickname`
+ * below the breakpoint (its own layout puts the metric columns there first,
+ * unlike `InsightsTab`, which already has `record` in that position).
+ *
+ * The WIDE-viewport size (100, unchanged) is untouched — this narrowing
+ * applies only below `MOBILE_BREAKPOINT_PX`, matching every other narrow
+ * constant in this file.
+ */
+export const RECORD_COLUMN_WIDTH_NARROW_PX = 80;
+
+/**
  * Registered once, module-level, and re-exported so `TeamsTable.tsx`
  * constructs `useTable` with the SAME features object `createColumnHelper`
  * below was instantiated against (05-04-SUMMARY.md's v9 API note: pinning
@@ -188,6 +241,42 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
   // crossing a component-prop boundary, not a new, unvalidated assumption.
   const algorithm = algorithmId as PublishedAlgorithmId;
 
+  const metricColumns = metricKeys.map((key) =>
+    columnHelper.accessor((row) => row.metrics[key], {
+      id: key,
+      header: metricLabel(key),
+      size: 120,
+      // D-17's rarity tiers, the same ones the team page's metric grid
+      // applies and the same `.metric-tier--*` tokens — so a number does
+      // not change meaning between the Teams table and the team page it
+      // links to. Read from the artifact's own `tier` field rather than
+      // derived from a percentile: the teams artifact deliberately carries
+      // the compact tier instead (see pageArtifacts.ts's `tier` doc).
+      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier} />,
+    }),
+  );
+
+  // 07-UAT.md G-11: below MOBILE_BREAKPOINT_PX, `record` moves to sit
+  // immediately after `nickname` (before the metric columns) — see
+  // `RECORD_COLUMN_WIDTH_NARROW_PX`'s own doc comment for why the metric
+  // columns themselves cannot safely narrow enough to occupy that position
+  // instead. At/above the breakpoint the order is UNCHANGED (metrics, then
+  // record, then win rate) — this reorder is a narrow-viewport-only
+  // presentation change, not a data or sort-behaviour change (`record` was
+  // never sortable either way, `sortableColumnIds` above never lists it).
+  const recordColumn = columnHelper.accessor("record", {
+    header: "Record",
+    size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
+    cell: (info) => formatRecord(info.getValue()),
+  });
+
+  const winRateColumn = columnHelper.accessor("winRate", {
+    id: WIN_RATE_SORT_KEY,
+    header: "Win %",
+    size: 84,
+    cell: (info) => formatWinRate(info.getValue()),
+  });
+
   return columnHelper.columns([
     // D-20: this column ranks by the SELECTED algorithm's Total regardless
     // of which column the reader currently sorts by — `rowModel.ts`'s
@@ -241,30 +330,13 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
         </Link>
       ),
     }),
-    ...metricKeys.map((key) =>
-      columnHelper.accessor((row) => row.metrics[key], {
-        id: key,
-        header: metricLabel(key),
-        size: 120,
-        // D-17's rarity tiers, the same ones the team page's metric grid
-        // applies and the same `.metric-tier--*` tokens — so a number does
-        // not change meaning between the Teams table and the team page it
-        // links to. Read from the artifact's own `tier` field rather than
-        // derived from a percentile: the teams artifact deliberately carries
-        // the compact tier instead (see pageArtifacts.ts's `tier` doc).
-        cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier} />,
-      }),
-    ),
-    columnHelper.accessor("record", {
-      header: "Record",
-      size: 100,
-      cell: (info) => formatRecord(info.getValue()),
-    }),
-    columnHelper.accessor("winRate", {
-      id: WIN_RATE_SORT_KEY,
-      header: "Win %",
-      size: 84,
-      cell: (info) => formatWinRate(info.getValue()),
-    }),
+    // 07-UAT.md G-11: below MOBILE_BREAKPOINT_PX, `record` (narrow, safe
+    // content) sits here, ahead of the metric columns — see
+    // `RECORD_COLUMN_WIDTH_NARROW_PX`'s doc comment. At/above the breakpoint
+    // this array is empty and `record` stays in its original trailing spot.
+    ...(isNarrow ? [recordColumn] : []),
+    ...metricColumns,
+    ...(isNarrow ? [] : [recordColumn]),
+    winRateColumn,
   ]);
 }

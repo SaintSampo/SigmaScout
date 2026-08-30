@@ -36,6 +36,7 @@ import {
   NICKNAME_COLUMN_WIDTH_NARROW_PX,
   PINNED_COLUMN_IDS,
   RANK_COLUMN_WIDTH_NARROW_PX,
+  RECORD_COLUMN_WIDTH_NARROW_PX,
   TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX,
 } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
@@ -287,7 +288,13 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     }),
     columnHelper.accessor("record", {
       header: "Record",
-      size: 100,
+      // 07-UAT.md G-11: 100 at/above the breakpoint (unchanged),
+      // `RECORD_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
+      // doc comment in `teams-table/columns.tsx` for the real-geometry
+      // derivation (shared with `TeamsTable`, which additionally reorders
+      // this column at narrow viewports; here `record` already sits
+      // immediately after `nickname`, so only the width needs to shrink).
+      size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
       cell: (info) => <span className="numeric-cell">{formatEventRecord(info.getValue())}</span>,
     }),
     // RP: a plain numeric-cell span, NEVER MetricValue and NEVER a tier
