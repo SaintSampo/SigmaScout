@@ -1,6 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
+ * The local page origin (quick task 260830-p6s, G-06-2). Four places must
+ * agree on this exact value — `webServer.url` below, `vite.config.ts`'s
+ * `preview.port`, each local project's `baseURL`, and the
+ * `VITE_ARTIFACT_ORIGIN` baked into the build — so it is one named constant
+ * used everywhere, not four separate literals that could drift apart.
+ */
+const LOCAL_URL = "http://localhost:4173";
+
+/**
  * Harness for the phase's real-artifact E2E specs (05-08-PLAN.md Task 3):
  * `e2e/touch-scroll.spec.ts` (D-04's touch-scroll proof, RETARGETED at the
  * real `TeamsTable` — its own throwaway spike, `src/spike/TableSpike.tsx`,
@@ -68,6 +77,27 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: "https://sigmascout.org",
+  },
+  // Top-level ONLY — Playwright has no per-project `webServer` form, so any
+  // run (even one that selects only a deployed-origin project) also builds
+  // and starts the local preview server. `reuseExistingServer: true` makes
+  // the second and later runs skip that cost; see this file's header comment
+  // for the full two-origin rationale (quick task 260830-p6s, G-06-2).
+  webServer: {
+    command: "pnpm build && pnpm preview",
+    url: LOCAL_URL,
+    reuseExistingServer: true,
+    // A cold production build plus server start does not fit the default 60s.
+    timeout: 180_000,
+    env: {
+      // Bakes `http://localhost:4173/v1/...` into the built bundle instead of
+      // the default absolute `https://data.sigmascout.org` host — this is
+      // what makes `vite.config.ts`'s `preview.proxy['/v1']` reachable at
+      // all. Picked up by Vite's env loader straight off `process.env`
+      // (no `.env` file involved — `.env*` is gitignored in this repo, so an
+      // env FILE would not even be a shareable solution here).
+      VITE_ARTIFACT_ORIGIN: LOCAL_URL,
+    },
   },
   projects: [
     {
@@ -153,6 +183,19 @@ export default defineConfig({
       // rather than a new one.
       testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|tab-strip-alignment\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "local-phone-390",
+      // The 390px real-device-reported width, but against the LOCAL page
+      // origin (`vite.config.ts`'s `preview` server + `/v1` artifact proxy)
+      // instead of the deployed apex — quick task 260830-p6s, G-06-2. Mirrors
+      // `phone-390`'s device/engine/viewport triple deliberately: this is the
+      // iPhone 17 descriptor pinned to the specs' own named 390px width, not
+      // a new device, and the `chromium` override is what
+      // `e2e/support/touchDrag.ts`'s CDP `Input.dispatchTouchEvent` helper
+      // requires (`context.newCDPSession()` is Chromium-only).
+      testMatch: /no-page-pan\.spec\.ts/,
+      use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 }, baseURL: LOCAL_URL },
     },
   ],
 });
