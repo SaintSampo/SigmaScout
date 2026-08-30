@@ -46,6 +46,47 @@ const DEFAULT_CHART_WIDTH = 640;
 const CHART_HEIGHT = 280;
 const MAX_EVENT_LABEL_CHARS = 18;
 
+/**
+ * G-13 (07-UAT.md): the Y axis's tick STRINGS and its WIDTH share one source
+ * — the same domain values that drive both, per chart-craft.md's "derive
+ * coupled geometry" rule — rather than an independently hand-tuned formatter
+ * and a hand-tuned width magic-numbered against a "typical" team's short
+ * labels. Neither touches a PUBLISHED datum: Recharts generates these tick
+ * VALUES itself via floating-point interval arithmetic over the domain
+ * (`packages/harness/rounding.ts`'s publish-time rounding rule governs
+ * published values only, never a chart library's own generated tick
+ * positions), and the plotted `value`/`band` series below is untouched.
+ */
+const Y_AXIS_TICK_DECIMALS = 2;
+const Y_AXIS_CHAR_WIDTH_PX = 9;
+const Y_AXIS_WIDTH_PADDING_PX = 24;
+const MIN_Y_AXIS_WIDTH_PX = 48;
+
+/**
+ * Rounds a Recharts-generated tick value to `Y_AXIS_TICK_DECIMALS` and
+ * strips trailing zeros — `toFixed` first (correctly rounds, e.g.
+ * `(-1349.99999997).toFixed(2)` is `"-1350.00"`), then round-tripping through
+ * `Number`/`toString` collapses that to `"-1350"` rather than leaving a
+ * padded `"-1350.00"` on every tick.
+ */
+function formatYAxisTick(value: number): string {
+  return Number(value.toFixed(Y_AXIS_TICK_DECIMALS)).toString();
+}
+
+/**
+ * The widest tick label Recharts could plausibly render is bounded by the
+ * widest value actually reachable on this axis — the plotted `value` line
+ * AND the `band` area (drawn from `value - spread` to `value + spread`),
+ * since both share this one YAxis. A domain of only `value` would
+ * underestimate the axis's real range whenever a spread pushes the visible
+ * extreme further than the line itself does.
+ */
+function computeYAxisWidth(domainValues: readonly number[]): number {
+  if (domainValues.length === 0) return MIN_Y_AXIS_WIDTH_PX;
+  const longestLabelLength = domainValues.reduce((max, value) => Math.max(max, formatYAxisTick(value).length), 0);
+  return Math.max(MIN_Y_AXIS_WIDTH_PX, longestLabelLength * Y_AXIS_CHAR_WIDTH_PX + Y_AXIS_WIDTH_PADDING_PX);
+}
+
 function truncateEventLabel(name: string): string {
   return name.length > MAX_EVENT_LABEL_CHARS ? `${name.slice(0, MAX_EVENT_LABEL_CHARS - 1)}…` : name;
 }
@@ -115,6 +156,17 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
 
   const xDomain: [number, number] | [string, string] = points.length === 0 ? [0, 1] : ["dataMin", "dataMax"];
 
+  // Every finite value actually reachable on the Y axis — the line's own
+  // `value` plus the band's `[low, high]` pair — feeds BOTH the tick
+  // formatter and the axis width below, so they can never disagree (see the
+  // constants' own doc comment above).
+  const yAxisDomainValues: number[] = [];
+  for (const datum of data) {
+    if (datum.value !== null) yAxisDomainValues.push(datum.value);
+    if (datum.band !== null) yAxisDomainValues.push(datum.band[0], datum.band[1]);
+  }
+  const yAxisWidth = computeYAxisWidth(yAxisDomainValues);
+
   return (
     <div ref={containerRef} className="h-[280px] w-full" data-testid="metric-history-chart">
       <ComposedChart width={width} height={CHART_HEIGHT} data={data} margin={{ top: 24, right: 16, bottom: 24, left: 8 }}>
@@ -142,6 +194,8 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
         />
         <YAxis
           domain={points.length === 0 ? undefined : ["dataMin", "dataMax"]}
+          width={yAxisWidth}
+          tickFormatter={formatYAxisTick}
           tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
           label={{ value: "Total", angle: -90, position: "insideLeft", fill: "var(--color-text-muted)", fontSize: 12 }}
         />
