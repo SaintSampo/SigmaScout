@@ -1,24 +1,18 @@
 ---
-status: testing
+status: passed
 phase: 07-event-pages
 source: [07-20-SUMMARY.md]
 started: 2026-08-30T01:29:13Z
-updated: 2026-08-30T15:02:03Z
+updated: 2026-08-30T23:59:59Z
 ---
 
 ## Current Test
 
-number: 1
-name: Real-device touch scroll sign-off (READY TO RE-RUN — three MORE layout defects fixed, pending deploy)
+number: —
+name: All tests complete
 expected: |
-  Real-device UAT on a phone found three MORE layout defects in the same family as G-1/G-2/G-3
-  (filed below as G-4, G-5, G-6) before the original six touch-arbitration checks could be
-  assessed cleanly: vertical page scroll was blocked over every table/tab-strip (G-4), the tab
-  strip's own trigger widths were force-equalized against varying label widths (G-5), and the tab
-  strip centered its content while overflowing, making the leading tab unreachable by scrolling
-  (G-6). All three are fixed and committed; awaiting deploy and live re-measurement before the
-  original six touch-arbitration checks are re-run on a real phone.
-awaiting: user response
+  Both tests passed on real hardware, 2026-08-30. Nothing awaiting.
+awaiting: nothing
 
 ## Tests
 
@@ -28,10 +22,13 @@ expected: |
   strip drags move only the strip, vertical drags scroll the page, diagonal drags resolve
   cleanly, momentum settles without rubber-banding leaking or pinned-column bleed-through,
   and Breakdown's two pinned columns stay opaque throughout.
-result: ISSUE — layout defect found before touch behaviour could be assessed.
-  Reported on a real phone: the Rank / Team # / Nickname columns take the full width with
-  visible gaps between them. Reproduced and measured at 390px — see G-1 and G-2.
-  Touch checks 1-6 remain UNANSWERED; the layout defect blocked assessment. Re-run after fix.
+result: PASSED (2026-08-30, real device, after G-1..G-13 fixes)
+  All six touch-arbitration checks pass on all three URLs. Initially blocked by a layout defect
+  (see G-1/G-2); re-run after the fixes landed and confirmed good. Note check 3 (vertical page
+  scroll over a table) was genuinely broken by G-4's `touch-action: pan-x` and is the check this
+  test existed to catch — 06-RESEARCH.md Pitfall 6 predicted exactly this and said no automated
+  Chromium test could prove it. It could only ever be closed by a human on a phone, and now is.
+
 
 ### 2. Plot density at high row counts (look-and-decide)
 expected: |
@@ -40,16 +37,23 @@ expected: |
   continuous vertical texture. Compare against a team page's ~40-row section, e.g.
   https://sigmascout.org/team/118?year=2024&algorithm=vpr — the row density the current plot
   geometry (matchAxis.ts) was argued for, before Phase 7 put up to 130 rows on one tab.
-result: [pending]
+result: PASSED (2026-08-30, real device)
+  At 130 rows each match still reads as its own band-tick-dot group rather than one continuous
+  vertical texture. The plot geometry argued for at ~40 rows holds at 130. Developer judgement,
+  recorded as given.
 
 ## Summary
 
 total: 2
-passed: 0
-issues: 1
-pending: 2
+passed: 2
+issues: 0
+pending: 0
 skipped: 0
 blocked: 0
+
+All 13 gaps found during this UAT (G-1 through G-13) were fixed, deployed, and verified live
+before the tests were re-run. Full Playwright suite: 181 passed / 0 failed against the deployed
+origin. See the Gaps section for each.
 
 ## Gaps
 
