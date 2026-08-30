@@ -25,6 +25,7 @@ import {
   alliancesIncompleteNotice,
   buildAllianceRows,
   combineAlliancePicks,
+  formatAllianceRecord,
   hasAllianceData,
 } from "./AlliancesTab";
 
@@ -173,31 +174,33 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
   });
 });
 
-describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
-  it("renders exactly six column headers in the declared order for a vpr/2024 fixture", async () => {
+describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G-8)", () => {
+  it("renders exactly seven column headers in the corrected order for a vpr/2024 fixture", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "vpr", 2024);
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Alliance #",
       "Captain",
+      "Pick 1",
       "Pick 2",
       "Pick 3",
-      "Backup",
       "Combined Total",
+      "Record",
     ]);
   });
 
-  it("renders exactly six column headers in the declared order for an opr/2024 fixture — column count is algorithm-independent", async () => {
+  it("renders exactly seven column headers in the corrected order for an opr/2024 fixture — column count is algorithm-independent", async () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance()], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
     renderAlliances(artifact, "opr", 2024);
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Alliance #",
       "Captain",
+      "Pick 1",
       "Pick 2",
       "Pick 3",
-      "Backup",
       "Combined Total",
+      "Record",
     ]);
   });
 
@@ -223,16 +226,39 @@ describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
     expect(await screen.findByTestId("alliances-cell-pickBackup")).toHaveProperty("textContent", "—");
   });
 
-  it("the Combined Total cell carries no class containing metric-tier, even when all three picks publish a percentile of 99", async () => {
+  it("the Combined Total cell has NO tier box when no event team publishes a percentile to interpolate against (07-UAT.md G-8)", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.querySelector(".metric-tier")).toBeNull();
+    expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
+  });
+
+  it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier and a quiet marker when the interpolated percentile lands above Common (07-UAT.md G-8)", async () => {
+    // Every event team at value 10, percentile 99 (Legendary): combined 30 / 3 = 10 matches
+    // exactly, so the interpolated percentile is exactly 99, not merely "some non-common value".
     const highPercentileTeams = FOUR_TEAMS.map((t) => ({
       ...t,
       metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 99, tier: "legendary" as const } },
     }));
     renderAlliances(makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
-    expect(cell.className).not.toContain("metric-tier");
-    const inner = cell.querySelector(".numeric-cell");
-    expect(inner?.className ?? "").not.toContain("metric-tier");
+    expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
+    const marker = within(cell).getByTestId("alliances-combined-approx-marker");
+    expect(marker.getAttribute("title")).toContain("Approximate");
+    expect(marker.getAttribute("aria-label")).toBe(marker.getAttribute("title"));
+  });
+
+  it("the Combined Total cell renders NO tier box and no marker when the interpolated percentile lands in Common, even though a percentile WAS interpolated (07-UAT.md G-8)", async () => {
+    // Every event team at value 10, percentile 10 (Common): combined 30 / 3 = 10 matches
+    // exactly, interpolated percentile 10 -> Common -> no box, per MetricValue's own contract.
+    const commonPercentileTeams = FOUR_TEAMS.map((t) => ({
+      ...t,
+      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 10 } },
+    }));
+    renderAlliances(makeArtifact(commonPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.querySelector(".metric-tier")).toBeNull();
+    expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
   });
 
   it("does not render TierKeyRow — there is no tier box on this tab to explain", async () => {
@@ -252,12 +278,39 @@ describe("AlliancesTab — six-column anatomy (EVNT-05, D-15/D-16)", () => {
     expect(within(caveat).queryByRole("button")).toBeNull();
   });
 
-  it("a pick's team number and nickname link to /team/{number} with year/algorithm/tab=overview, matching the sibling tables", async () => {
+  it("a pick's team number links to /team/{number} with year/algorithm/tab=overview, matching the sibling tables", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]), "vpr", 2024);
-    const link = await screen.findByRole("link", { name: /Alpha/ });
+    const cell = await screen.findByTestId("alliances-cell-pick0");
+    const link = within(cell).getByRole("link");
     await waitFor(() => expect(link.getAttribute("href")).toContain("/team/1"));
     expect(link.getAttribute("href")).toContain("algorithm=vpr");
     expect(link.getAttribute("href")).toContain("year=2024");
+  });
+
+  it("no nickname text renders anywhere on the tab, even though every fixture team carries one (07-UAT.md G-8)", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    await screen.findByTestId("alliances-table-scroll");
+    expect(screen.queryByText("Alpha")).toBeNull();
+    expect(screen.queryByText("Beta")).toBeNull();
+    expect(screen.queryByText("Gamma")).toBeNull();
+    expect(screen.queryByText("Delta")).toBeNull();
+  });
+
+  it("each pick cell shows the team's own total metric, tiered by its OWN exact published percentile (07-UAT.md G-8)", async () => {
+    const teams = [
+      team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 74.76, spread: 3.47, percentile: 99.6, tier: "legendary" as const } } }),
+      team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 67.89, spread: 3.49, percentile: 99, tier: "legendary" as const } } }),
+      team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 50.37, spread: 3.48, percentile: 92.5, tier: "epic" as const } } }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    expect(captainCell.textContent).toContain("74.76");
+    expect(captainCell.textContent).toContain("± 3.47");
+    expect(captainCell.querySelector(".metric-tier--legendary")).not.toBeNull();
+
+    const pick2Cell = screen.getByTestId("alliances-cell-pick2");
+    expect(pick2Cell.textContent).toContain("50.37");
+    expect(pick2Cell.querySelector(".metric-tier--epic")).not.toBeNull();
   });
 });
 
@@ -290,22 +343,25 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(cell.textContent).not.toContain("20.00");
   });
 
-  it("a two-pick alliance (modelled on 2024vabrb) renders an em-dash Combined Total through the SAME rule, with no special case — Captain/Pick 2 filled, Pick 3 and Backup em-dash", async () => {
+  it("a two-pick alliance (modelled on 2024vabrb) renders an em-dash Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 and Pick 3 em-dash", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
     expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
     expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pick0").textContent).toContain("Alpha");
-    expect(screen.getByTestId("alliances-cell-pick1").textContent).toContain("Beta");
+    // Team numbers render as the FIRST text node in each cell, immediately
+    // before the metric value — a reliable prefix check given every fixture
+    // team key here uses a single-digit team number.
+    expect(screen.getByTestId("alliances-cell-pick0").textContent?.startsWith("1")).toBe(true);
+    expect(screen.getByTestId("alliances-cell-pick1").textContent?.startsWith("2")).toBe(true);
   });
 
-  it("a one-pick alliance renders em-dash Combined Total and em-dashes in Pick 2, Pick 3 and Backup, with the single pick in Captain", async () => {
+  it("a one-pick alliance renders em-dash Combined Total and em-dashes in Pick 1, Pick 2 and Pick 3, with the single pick in Captain", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
     expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("—");
     expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
     expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pick0").textContent).toContain("Alpha");
+    expect(screen.getByTestId("alliances-cell-pick0").textContent?.startsWith("1")).toBe(true);
   });
 
   it("all three sum positions resolve but only two publish a spread — the summed value renders with NO plus-minus suffix", async () => {
@@ -404,7 +460,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
     expect(within(backupCell).getAllByRole("link")).toHaveLength(2);
   });
 
-  it("a pick whose team key has no teams row still renders its team number as a link; the nickname position renders an em-dash", async () => {
+  it("a pick whose team key has no teams row still renders its team number as a link; its total metric renders an em-dash", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc9", "frc1", "frc2"] })]));
     const captainCell = await screen.findByTestId("alliances-cell-pick0");
     expect(captainCell.textContent).toContain("9");
@@ -415,23 +471,59 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
   it("a one-alliance fixture and an eight-alliance fixture render identical header rows and body-row counts of 1 and 8 — the count is never branched on", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(1));
-    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
     cleanup();
 
     const eightAlliances = Array.from({ length: 8 }, (_, i) => alliance({ allianceNumber: i + 1, picks: ["frc1", "frc2", "frc3"] }));
     renderAlliances(makeArtifact(FOUR_TEAMS, eightAlliances));
     await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(8));
-    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 07-UAT.md G-8 — the Record column: TBA's own playoff win-loss-tie record,
+// published on EventAllianceSchema.record via packages/corpus/db.ts's
+// parseAllianceRecord. Absence discipline: undefined renders an em-dash,
+// never a fabricated 0-0-0, and a REAL 0-0-0 is distinguishable from it.
+// ---------------------------------------------------------------------------
+
+describe("formatAllianceRecord — the wins-losses-ties formatter (07-UAT.md G-8)", () => {
+  it("joins wins, losses and ties with hyphens", () => {
+    expect(formatAllianceRecord({ wins: 4, losses: 3, ties: 0 })).toBe("4-3-0");
   });
 
-  it("a 60-character nickname renders in full inside the cell's title attribute and the cell carries a truncation class — never a sliced text node", async () => {
-    const longNickname = "A".repeat(60);
-    const teams = [team({ teamKey: "frc1", teamNumber: 1, nickname: longNickname }), team({ teamKey: "frc2", teamNumber: 2 }), team({ teamKey: "frc3", teamNumber: 3 })];
-    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
-    const captainCell = await screen.findByTestId("alliances-cell-pick0");
-    const nicknameSpan = within(captainCell).getByTitle(longNickname);
-    expect(nicknameSpan.textContent).toBe(longNickname);
-    expect(nicknameSpan.className).toContain("truncate");
+  it("renders a single em-dash for an absent record", () => {
+    expect(formatAllianceRecord(undefined)).toBe("—");
+  });
+
+  it("a real 0-0-0 record formats as literal zeros, never the em-dash absence marker", () => {
+    expect(formatAllianceRecord({ wins: 0, losses: 0, ties: 0 })).toBe("0-0-0");
+    expect(formatAllianceRecord({ wins: 0, losses: 0, ties: 0 })).not.toBe("—");
+  });
+});
+
+describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
+  it("renders the published wins-losses-ties record in the Record cell", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"], record: { wins: 4, losses: 3, ties: 0 } })]));
+    expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("4-3-0");
+  });
+
+  it("renders an em-dash when this alliance has no published record", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("—");
+  });
+
+  it("buildAllianceRows carries the alliance's record straight through onto the row model, keyed by row not recomputed", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"], record: { wins: 4, losses: 3, ties: 0 } })]);
+    const rows = buildAllianceRows(artifact, "vpr");
+    expect(rows[0]?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
+  });
+
+  it("a row with no published record carries record: undefined on the row model, never a fabricated zero triple", () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]);
+    const rows = buildAllianceRows(artifact, "vpr");
+    expect(rows[0]?.record).toBeUndefined();
   });
 });
 

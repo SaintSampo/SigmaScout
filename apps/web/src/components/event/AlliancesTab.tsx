@@ -1,15 +1,25 @@
 /**
  * The Alliances tab (EVNT-05, 07-14-PLAN.md): one row per published alliance
- * in TBA's own seed order, columns Alliance # / Captain / Pick 2 / Pick 3 /
- * Backup / Combined Total. This is the ONLY component in the application
- * that computes a number rather than rendering a published one — the
- * authority is D-15, not convenience. It is legitimate here (while 07-01
- * forbids the identical move on Breakdown) because an alliance's cross-team
- * covariance is zero by the model's own construction —
- * `packages/core/algorithms/sigma1/covariance.ts`'s header states the
+ * in TBA's own seed order, columns Alliance # / Captain / Pick 1 / Pick 2 /
+ * Pick 3 / Combined Total / Record. This is the ONLY component in the
+ * application that computes a number rather than rendering a published
+ * one — the authority is D-15, not convenience. It is legitimate here
+ * (while 07-01 forbids the identical move on Breakdown) because an
+ * alliance's cross-team covariance is zero by the model's own construction
+ * — `packages/core/algorithms/sigma1/covariance.ts`'s header states the
  * model's covariance is between a single team's own components and never
  * between teams — whereas a component group's off-diagonal terms are real
- * and unpublished (D-11's `phaseAuto`/`phaseTeleop`/`phaseEndgame` reasoning).
+ * and unpublished (D-11's `phaseAuto`/`phaseTeleop`/`phaseEndgame`
+ * reasoning).
+ *
+ * 07-UAT.md G-8 (real-device UAT, plan 07-21) rebuilt this tab: dropped
+ * every nickname (team numbers only), corrected the pick-column labels
+ * (`picks[1]` had been mislabelled "Pick 2" — it is the FIRST pick), added
+ * each pick's own tiered total metric, added a client-side approximate tier
+ * for the Combined Total (the 3x heuristic, `@/lib/allianceTierApproximation`),
+ * documented the independence assumption `combineAlliancePicks` already made
+ * (the arithmetic itself is UNCHANGED), and added the published playoff
+ * Record column. See that gap's write-up for the full before/after.
  */
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo } from "react";
@@ -21,6 +31,8 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
+import { tierForPercentile } from "@/lib/tiers";
+import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
@@ -28,20 +40,36 @@ type EventTeam = EventArtifact["teams"][number];
 type EventAlliance = NonNullable<EventArtifact["alliances"]>[number];
 
 /**
- * D-16: only the first three picks (captain, second, third) enter the
- * combined arithmetic. A fourth/backup pick is displayed on the row but
- * excluded from the sum so the column stays comparable across rows — an
- * alliance with a backup and one without would otherwise render two
- * differently-sized sums under the identical header.
+ * D-16: only the first three picks enter the combined arithmetic. A
+ * fourth/backup pick is displayed on the row but excluded from the sum so
+ * the column stays comparable across rows — an alliance with a backup and
+ * one without would otherwise render two differently-sized sums under the
+ * identical header.
  */
 export const ALLIANCE_COMBINED_PICK_COUNT = 3;
 
-/** One alliance pick, as rendered — identity fields never invented, `total` left `undefined` when the artifact does not resolve one. */
+/**
+ * One alliance pick's own published total metric, as rendered — the same
+ * `{value, spread}` `MetricValue` already consumes, widened with the
+ * optional `percentile` `EventTeamSchema.metrics` also carries (G-8): this
+ * tab tiers each pick's OWN total by its own exact published percentile,
+ * never by the alliance's approximate combined one.
+ */
+interface AlliancePickTotal extends DisplayMetric {
+  percentile?: number;
+}
+
+/**
+ * One alliance pick, as rendered — identity fields never invented, `total`
+ * left `undefined` when the artifact does not resolve one. G-8 drops
+ * `nickname` entirely (team numbers only, developer decision from
+ * real-device UAT) — there is no longer a name field on this interface at
+ * all, not merely an unrendered one.
+ */
 export interface AlliancePick {
   teamKey: string;
   teamNumber: number;
-  nickname: string | undefined;
-  total: DisplayMetric | undefined;
+  total: AlliancePickTotal | undefined;
 }
 
 /** One alliance's row model. `combinable` mirrors whether `combined` is defined — one fact, not two independently-consulted ones (07-11's own discriminant precedent). */
@@ -50,6 +78,22 @@ export interface AllianceRow {
   picks: AlliancePick[];
   combined: DisplayMetric | undefined;
   combinable: boolean;
+  /**
+   * G-8's 3x heuristic approximate tier for `combined` — `undefined` when
+   * `combined` itself is `undefined` (nothing to tier), or when this event
+   * publishes no team with a percentile to interpolate against at all. This
+   * is NEVER an exact tier; see `@/lib/allianceTierApproximation`'s header
+   * comment for the full method and why one cannot be published instead.
+   */
+  combinedApproxTier: AllianceApproxTier | undefined;
+  /**
+   * TBA's own reported playoff win-loss-tie record for this alliance (G-8),
+   * sourced from `EventAllianceSchema.record`. `undefined` for an honest
+   * absence (no playoff bracket has run yet, or a `playoff_type` shape the
+   * pipeline's `parseAllianceRecord` does not recognise) — never a
+   * fabricated `0-0-0`.
+   */
+  record: { wins: number; losses: number; ties: number } | undefined;
 }
 
 /**
@@ -81,6 +125,29 @@ export interface AllianceRow {
  * variances, and never to an individual term. No default of zero ever
  * stands in for an absent published value — that would make an alliance
  * with a missing pick look catastrophically weak rather than unknown.
+ *
+ * INDEPENDENCE ASSUMPTION, STATED (07-UAT.md G-8, developer decision
+ * 2026-08-30): this `√(Σσ²)` combination assumes ZERO covariance between
+ * the three picks' own variances — a cross-team correlation term is never
+ * added, only each team's own variance, squared and summed. This is not an
+ * incidental gap in this one function: `packages/core/algorithms/sigma1/
+ * covariance.ts`'s own header states the model computes covariance only
+ * among a SINGLE team's own components (`covEwmaAlpha`/`covShrinkage`
+ * govern that per-team fold) and never between teammates — D-06 of Phase 2
+ * rules out a cross-team latent structure entirely, so there is no existing
+ * quadratic form over an inter-team covariance matrix this function could
+ * consult even if it wanted to; building one would be new modelling work,
+ * not a lookup. The developer chose to accept this independence assumption
+ * here rather than fund that work — the SAME trade-off
+ * `apps/web/src/lib/metricGroups.ts`'s header records being resolved the
+ * OTHER way for the Auto/Teleop/Endgame phase tiles (there, the pipeline
+ * was widened to compute the true quadratic-form variance instead of
+ * assuming independence). Consequence, stated plainly: every real
+ * correlation between alliance partners (shared field conditions, a
+ * defender suppressing the opponent, a partner breaking down) is positive,
+ * so the published σ here is a FLOOR — the true uncertainty is at least
+ * this large. `ALLIANCES_INDEPENDENCE_CAVEAT` below says so in the reader's
+ * own words, unconditionally, beneath the table.
  */
 export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined)[]): DisplayMetric | undefined {
   // PROHIBITION: never sum over a present subset when fewer than three
@@ -121,14 +188,18 @@ function byAllianceNumberThenFirstPick(a: EventAlliance, b: EventAlliance): numb
   return firstA < firstB ? -1 : firstA > firstB ? 1 : 0;
 }
 
-/** Looks a pick's team key up in the artifact's `teams` array. A key with no row keeps its number (from the key's own digits) and loses only its nickname — the identity is never dropped and never invented. */
+/**
+ * Looks a pick's team key up in the artifact's `teams` array. A key with no
+ * row keeps its number (from the key's own digits) — G-8 drops nicknames
+ * entirely, so there is no name to lose on a missing row anymore; the
+ * identity carried is the team number alone, never invented.
+ */
 function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): AlliancePick {
   const teamRow = teams.find((candidate) => candidate.teamKey === teamKey);
   const teamNumber = teamRow?.teamNumber ?? teamNumberFromKey(teamKey);
   return {
     teamKey,
     teamNumber,
-    nickname: teamRow?.nickname,
     total: teamRow?.metrics[TOTAL_KEY],
   };
 }
@@ -138,12 +209,16 @@ function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): Alliance
  * an `AllianceRow`, ordered by ascending `allianceNumber` (never array
  * index). `picks` is read positionally — 07-07's PD-02 declares no field for
  * the leader position or the reserve robot, so a parallel field on
- * `AllianceRow` would be a copy that can drift.
+ * `AllianceRow` would be a copy that can drift. G-8 additionally computes
+ * the combined total's approximate tier (against the FULL event roster, not
+ * just this alliance's three picks — `estimateCombinedTier`'s own contract)
+ * and carries the alliance's published playoff record straight through.
  */
 export function buildAllianceRows(artifact: EventArtifact, algorithmId: string): AllianceRow[] {
   void algorithmId; // reserved for signature symmetry with the column builder; the row model does not vary by algorithm beyond which metrics the artifact already carries
   const alliances = artifact.alliances ?? [];
   const ordered = [...alliances].sort(byAllianceNumberThenFirstPick);
+  const tierPoints = buildTeamValuePercentilePoints(artifact.teams);
 
   return ordered.map((alliance) => {
     const picks = alliance.picks.map((teamKey) => pickFromTeamKey(teamKey, artifact.teams));
@@ -153,6 +228,8 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
       picks,
       combined,
       combinable: combined !== undefined,
+      combinedApproxTier: combined !== undefined ? estimateCombinedTier(combined.value, tierPoints) : undefined,
+      record: alliance.record,
     };
   });
 }
@@ -179,10 +256,22 @@ export function hasAllianceData(artifact: EventArtifact): boolean {
  * model's covariance is never between teams, so the zero cross-team
  * covariance this arithmetic assumes is the model's construction rather than
  * an unpublished quantity; every real correlation between teammates is
- * positive, so the published σ is a floor.
+ * positive, so the published σ is a floor. UNCHANGED by G-8 — the
+ * arithmetic behind it did not change, only its documentation did (see
+ * `combineAlliancePicks`'s own doc comment).
  */
 export const ALLIANCES_INDEPENDENCE_CAVEAT =
   "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown.";
+
+/**
+ * G-8's approximate-tier disclosure, surfaced as a `title`/`aria-label` on
+ * the small marker next to a tiered Combined Total (never a bolted-on
+ * banner — "quiet and consistent with the design language" per the
+ * sketch-findings skill's stated direction). Cites the same reasoning
+ * `@/lib/allianceTierApproximation.ts`'s header comment gives in full.
+ */
+export const ALLIANCE_APPROX_TIER_DISCLOSURE =
+  "Approximate tier: no percentile is published for a 3-team sum, so this is estimated by dividing the combined total by 3 and comparing that to this event's own single-team totals.";
 
 /**
  * The incomplete-combination notice (Task 2, Claude's Discretion — no
@@ -198,18 +287,42 @@ export function alliancesIncompleteNotice(incomplete: number, total: number, alg
   return `${incomplete} of ${total} alliances ${verb} missing a combined value because one of ${possessive} first three picks has no published ${algorithmLabel} total.`;
 }
 
-const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 2", "Pick 3", "Backup", "Combined Total"] as const;
+/**
+ * `formatAllianceRecord(record)`: wins-losses-ties joined by hyphens,
+ * mirroring `apps/web/src/components/event/InsightsTab.tsx`'s
+ * `formatEventRecord` (restated, not imported, following that function's
+ * own established precedent of copying across the event/ module boundary
+ * rather than reaching into a sibling tab file) — G-8's alliance-level
+ * counterpart. `undefined` renders a single em-dash: an event with no
+ * playoff bracket yet, or a `status` shape `parseAllianceRecord` does not
+ * recognise, are both honest absences, never a fabricated `0-0-0`.
+ */
+export function formatAllianceRecord(record: { wins: number; losses: number; ties: number } | undefined): string {
+  if (record === undefined) return "—";
+  return `${record.wins}-${record.losses}-${record.ties}`;
+}
+
+/**
+ * G-8: the corrected column labels. `picks[1]`/`picks[2]` had been rendered
+ * under the headers "Pick 2"/"Pick 3" — off by one against TBA's own
+ * `picks` array, where index 1 is the FIRST additional pick. Treated as a
+ * correctness fix, not cosmetics. "Backup" is renamed "Pick 3" (the backup
+ * robot is FRC's third overall pick) — the column id `pickBackup` is
+ * unchanged (external e2e tests key off it), only its header label moves.
+ */
+const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "Pick 3", "Combined Total", "Record"] as const;
 
 /**
  * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
  * every sibling tab's own header comment): pinning offsets require
  * `columnSizingFeature` registered alongside `columnPinningFeature`, or
- * `getStart`/`getSize` do not exist at all. Pin nothing here — at six
+ * `getStart`/`getSize` do not exist at all. Pin nothing here — at seven
  * columns there is no leading group worth freezing.
  */
 const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, AllianceRow>();
 
+/** One pick's team number plus its own tiered total metric — G-8 drops the nickname this cell used to render alongside the number. */
 function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined; season: number; algorithm: PublishedAlgorithmId }) {
   if (pick === undefined) {
     return <span className="numeric-cell">{"—"}</span>;
@@ -222,13 +335,7 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
       className="flex items-center gap-[var(--spacing-xs)]"
     >
       <span className="numeric-cell">{pick.teamNumber}</span>
-      {pick.nickname === undefined ? (
-        <span className="text-role-body text-[var(--color-text-muted)]">{"—"}</span>
-      ) : (
-        <span className="truncate text-role-body" title={pick.nickname}>
-          {pick.nickname}
-        </span>
-      )}
+      <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
     </Link>
   );
 }
@@ -238,7 +345,9 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
  * `EventAllianceSchema.picks` declares a minimum of one entry and no
  * maximum, and a render that read only one further position would silently
  * erase a real team from the only published account of this event's
- * alliance selection.
+ * alliance selection. G-8 adds the same tiered total metric `PickCell`
+ * renders, dropping the nickname this cell never carried in the first
+ * place.
  */
 function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId }) {
   if (picks.length === 0) {
@@ -255,9 +364,40 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
           className="flex items-center gap-[var(--spacing-xs)]"
         >
           <span className="numeric-cell">{pick.teamNumber}</span>
+          <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
           <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>
         </Link>
       ))}
+    </span>
+  );
+}
+
+/**
+ * The Combined Total cell (G-8): the published `√(Σσ²)` value/spread through
+ * `MetricValue`, tiered by the 3x heuristic's APPROXIMATE percentile when
+ * one is available, plus a small, quiet marker disclosing the
+ * approximation — never a loud banner, matching the sketch-findings skill's
+ * "serious tool, more alive" direction. The marker renders only when a tier
+ * BOX is actually drawn (Common renders no box at all, so there is nothing
+ * for the marker to qualify); it carries both `title` and `aria-label` so
+ * the disclosure reaches a mouse-hover reader and a screen-reader user
+ * alike (mirrors `BonusRpDots.tsx`'s own title+aria-label pairing).
+ */
+function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined }) {
+  const boxed = approx !== undefined && approx.tier !== "common";
+  return (
+    <span className="flex items-center gap-[var(--spacing-xs)]">
+      <MetricValue metric={metric} tier={approx?.tier} />
+      {boxed && (
+        <span
+          data-testid="alliances-combined-approx-marker"
+          className="text-role-label text-[var(--color-text-muted)]"
+          title={ALLIANCE_APPROX_TIER_DISCLOSURE}
+          aria-label={ALLIANCE_APPROX_TIER_DISCLOSURE}
+        >
+          {"≈"}
+        </span>
+      )}
     </span>
   );
 }
@@ -279,35 +419,38 @@ function buildAllianceColumns(algorithmId: string, season: number) {
     columnHelper.accessor((row) => row.picks[0], {
       id: "pick0",
       header: ALLIANCES_COLUMN_HEADERS[1],
-      size: 180,
+      size: 190,
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks[1], {
       id: "pick1",
       header: ALLIANCES_COLUMN_HEADERS[2],
-      size: 180,
+      size: 190,
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks[2], {
       id: "pick2",
       header: ALLIANCES_COLUMN_HEADERS[3],
-      size: 180,
+      size: 190,
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT), {
       id: "pickBackup",
       header: ALLIANCES_COLUMN_HEADERS[4],
-      size: 220,
+      size: 240,
       cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor("combined", {
       id: "combined",
       header: ALLIANCES_COLUMN_HEADERS[5],
-      size: 140,
-      // No tier prop, ever: there is no published percentile for a
-      // three-team sum, and none could honestly be derived
-      // (`TeamMetricSchema.percentile`'s own season-pool-only definition).
-      cell: (info) => <MetricValue metric={info.getValue()} />,
+      size: 160,
+      cell: (info) => <CombinedCell metric={info.getValue()} approx={info.row.original.combinedApproxTier} />,
+    }),
+    columnHelper.accessor("record", {
+      id: "record",
+      header: ALLIANCES_COLUMN_HEADERS[6],
+      size: 100,
+      cell: (info) => <span className="numeric-cell">{formatAllianceRecord(info.getValue())}</span>,
     }),
   ]);
 }
@@ -320,13 +463,13 @@ export interface AlliancesTabProps {
 
 export const ALLIANCES_SKELETON_ROW_COUNT = 6;
 
-/** The pending state's placeholder — the six real headers above skeleton rows, inside the same scroll-region wrapper shape the populated tab uses. */
+/** The pending state's placeholder — the seven real headers above skeleton rows, inside the same scroll-region wrapper shape the populated tab uses. */
 export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void algorithmId;
   void season;
   return (
     <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+      <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader>
           <TableRow>
             {ALLIANCES_COLUMN_HEADERS.map((label) => (
@@ -345,15 +488,15 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
 }
 
 /**
- * The Alliances tab: the six-column table in its own native scroll region (a
- * DOM SIBLING of the tab strip's own scroll region, never its ancestor or
+ * The Alliances tab: the seven-column table in its own native scroll region
+ * (a DOM SIBLING of the tab strip's own scroll region, never its ancestor or
  * descendant), D-15's independence caveat unconditionally beneath it, and
  * Task 2's incomplete-combination notice when (and only when) at least one
  * row cannot combine. Reads no match array of any kind and performs no
  * arithmetic on any published quantity other than `combineAlliancePicks`'s
- * three-term combination. Every string originating in the published
- * artifact renders as a plain JSX text node or a `title` attribute value —
- * never through a raw-markup sink.
+ * three-term combination and G-8's client-side 3x tier approximation. Every
+ * string originating in the published artifact renders as a plain JSX text
+ * node or a `title` attribute value — never through a raw-markup sink.
  */
 export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProps) {
   const rows = useMemo(() => buildAllianceRows(artifact, algorithmId), [artifact, algorithmId]);
@@ -367,26 +510,22 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
-          07-UAT.md G-1 deliberately does NOT apply `table-layout: fixed`
-          here — evaluated and measured, not skipped by default. This tab
-          has no pinned columns at all, so there is no sticky-`left`
-          desync to fix (the defect class G-1 targets does not exist here;
-          live measurement found a 0px gap). Measured live (`pick0`/
-          `pick1`/`pick2`, `scripts/measure-tables.mjs`): each pick column's
-          ACTUAL rendered width is ~386px against a declared 180px, because
-          `PickCell`'s nickname span relies on `truncate` inside a `flex`
-          row with no accompanying `min-width: 0` — a well-known flexbox
-          gap where `overflow: hidden`/`text-overflow: ellipsis` alone
-          cannot shrink a flex item below its content's intrinsic width.
-          Auto layout's free growth is currently HIDING that gap by
-          growing the column to fit instead of truncating. Switching to
-          `fixed` without also fixing that flex/min-width interaction would
-          clamp these columns to 180px and likely spill the untruncated
-          nickname over the next column — a new, real visual regression on
-          a tab that is not broken today. Fixing the flex/truncate
-          interaction is a separate, non-G-1 change; left alone here.
+          07-UAT.md G-1 originally left this table on `table-layout: auto`,
+          because the pick columns relied on auto layout's free growth to
+          show a full nickname — measured live, that growth was hiding a
+          real flex/`min-width:0` truncation gap underneath. G-8 (2026-08-30,
+          real-device UAT) drops the nickname entirely, which removes the
+          reason `auto` was chosen: every pick cell now renders only a team
+          number plus a `MetricValue` whose width is bounded by CSS
+          (`.metric-tier`'s own `min-width: 80px`, never free-growing text).
+          Re-evaluated and switched to `table-layout: fixed` here, matching
+          every other event table (Insights/Breakdown/TeamsTable, G-1's own
+          fix) — this table has no pinned columns, so there is no
+          sticky-offset defect either layout choice could introduce or fix;
+          the only property in play is declared-vs-actual column width, and
+          `fixed` makes them equal by construction.
         */}
-        <table style={{ width: "100%", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+        <table style={{ width: "100%", tableLayout: "fixed", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
