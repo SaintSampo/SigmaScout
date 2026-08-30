@@ -114,9 +114,18 @@ test.describe("E1 — the longest published event name renders whole, truncates 
  * (`assertOverflows`'s own rule) — that rule is about a REGION that never
  * overflows proving nothing; this is about a CLAIM that is only meaningful
  * at one specific, pinned viewport in the first place.
+ *
+ * Guard widened to a SUFFIX match (quick task 260830-p6s, G-06-2): this spec
+ * also now runs on `local-phone-390` (`playwright.config.ts`), the same
+ * 390px width against the local page origin. A literal `!== "phone-390"`
+ * guard would return early — and pass having asserted NOTHING — under that
+ * project name too, which is the exact vacuous-pass shape this whole task
+ * exists to eliminate. `endsWith("phone-390")` matches both `phone-390` and
+ * `local-phone-390` (and any future project that follows the same naming
+ * convention) without weakening a single assertion below.
  */
 test("phone-390 only: the heading genuinely overflows its own box at 390px, proving the ellipsis rule above is doing real truncation work", async ({ page }, testInfo) => {
-  if (testInfo.project.name !== "phone-390") return;
+  if (!testInfo.project.name.endsWith("phone-390")) return;
 
   await page.goto("/event/2026vache?algorithm=vpr", { waitUntil: "networkidle" });
   const heading = page.getByRole("heading", { level: 1 });

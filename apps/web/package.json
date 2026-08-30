@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:local": "playwright test --project=local-desktop --project=local-phone-390",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "deploy": "wrangler pages deploy dist --project-name sigmascout-web"
   },

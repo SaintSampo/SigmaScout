@@ -10,6 +10,56 @@ import { defineConfig, devices } from "@playwright/test";
 const LOCAL_URL = "http://localhost:4173";
 
 /**
+ * TWO ORIGINS, TWO FAMILIES OF PROOF (quick task 260830-p6s, G-06-2).
+ *
+ * **Why this split exists.** G-06-2, verbatim: "the loop that catches bad UI
+ * is rendering it and looking. In this phase that loop was structurally
+ * broken ... `no-page-pan.spec.ts`" — a spec that already encoded the exact
+ * bug a human later found by looking — "had never actually run", because
+ * this file had no local `webServer` and every project asserted only against
+ * the deployed origin, while the deploy workflow itself had been dead. Phase
+ * 7 then shipped 8 more visible layout defects that only became specs AFTER
+ * a human found them by looking. This split closes that loop: a developer
+ * can now render-and-look at a page they just built, locally, before any
+ * deploy.
+ *
+ * **Deployed** (`https://sigmascout.org`, `use.baseURL` below, UNCHANGED):
+ * `deep-link.spec.ts` (the PRODUCTION build's router and SPA fallback — an
+ * explicit requirement of that spec, not swappable), `static-shell.spec.ts`,
+ * `team-page.spec.ts`, `event-page.spec.ts`, and `event-live-artifact.spec.ts`
+ * (asserts REAL PUBLISHED R2 BYTES fetched via `APIRequestContext` against
+ * the absolute `https://data.sigmascout.org` — an ARTIFACT origin, not the
+ * page origin, so `baseURL` is irrelevant to it; it stays with the deployed
+ * family because a published-artifact proof is what it fundamentally IS).
+ *
+ * **Local** (`http://localhost:4173`, `local-desktop`/`local-phone-390`
+ * below): the layout/visual specs, which need a page the developer just
+ * built, not one that shipped days ago.
+ *
+ * **How the CORS objection below is answered, not routed around.** This
+ * file's original comment (still true, kept below) explains why there was no
+ * local `webServer`: `https://data.sigmascout.org`'s R2 CORS policy (Phase 5
+ * D-18) does not allow-list `localhost`, so a local page's direct artifact
+ * fetches would CORS-fail and every page would render empty. The fix is
+ * `vite.config.ts`'s `preview.proxy['/v1']`: the local build's artifact
+ * origin (`VITE_ARTIFACT_ORIGIN`, set in `webServer.env` below) is the
+ * preview server ITSELF, so the browser's request is same-origin, and the
+ * proxy forwards it server-side to the real R2 custom domain. R2's CORS
+ * policy is unchanged and `localhost` is still not allow-listed — it no
+ * longer needs to be.
+ *
+ * **The cost.** Playwright's `webServer` is top-level — there is no
+ * per-project form — so running ONLY a deployed-origin project now also
+ * builds and starts the local preview server. `reuseExistingServer: true`
+ * (below) makes the second and subsequent runs skip that build entirely.
+ *
+ * **The staleness foot-gun.** With `reuseExistingServer: true`, an
+ * already-running preview server is reused AS-IS. After changing app source,
+ * stop that server before the next run, or it will assert against a stale
+ * build.
+ */
+
+/**
  * Harness for the phase's real-artifact E2E specs (05-08-PLAN.md Task 3):
  * `e2e/touch-scroll.spec.ts` (D-04's touch-scroll proof, RETARGETED at the
  * real `TeamsTable` — its own throwaway spike, `src/spike/TableSpike.tsx`,
@@ -185,6 +235,34 @@ export default defineConfig({
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
     {
+      name: "local-desktop",
+      // Plain desktop chromium at the same 1440x900 the deployed `desktop`
+      // project uses, no device spread — against the LOCAL page origin.
+      // Quick task 260830-p6s, G-06-2. A spec runs here at the width its OWN
+      // premise holds:
+      //  - no-page-pan / event-header-overflow / zebra-stripe-full-row: real
+      //    at both widths (mirrors their deployed-origin assignment above).
+      //  - breakdown-desktop-overflow / search-results-overflow /
+      //    metric-history-axis-legibility: each sets its OWN viewport size
+      //    per test via `page.setViewportSize` (1440 and a second width), so
+      //    a `local-phone-390` run would just get overridden and re-run the
+      //    same two widths twice — not assigned there.
+      // NOT assigned here (and why, matching the discipline `testMatch`
+      // comments already use for the deployed origin's own widening
+      // history): table-layout-quality (its own header records a
+      // phone-390/pixel-10-only scoping decision — "a narrow-viewport defect
+      // class, not one this file needs to also re-prove at desktop width"),
+      // tab-strip-alignment / tab-strip-trigger-sizing (both open with a
+      // premise guard asserting the strip OVERFLOWS; at 1440px the strip
+      // does not overflow, so a desktop run would fail on the premise before
+      // ever reaching the layout claim), event-scroll-regions /
+      // touch-action-vertical-scroll / touch-scroll (all drive real touch
+      // drags via `touchDrag`, which needs `hasTouch` — this plain-chromium
+      // project has no device descriptor and so no `hasTouch: true`).
+      testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts/,
+      use: { viewport: { width: 1440, height: 900 }, baseURL: LOCAL_URL },
+    },
+    {
       name: "local-phone-390",
       // The 390px real-device-reported width, but against the LOCAL page
       // origin (`vite.config.ts`'s `preview` server + `/v1` artifact proxy)
@@ -194,7 +272,16 @@ export default defineConfig({
       // a new device, and the `chromium` override is what
       // `e2e/support/touchDrag.ts`'s CDP `Input.dispatchTouchEvent` helper
       // requires (`context.newCDPSession()` is Chromium-only).
-      testMatch: /no-page-pan\.spec\.ts/,
+      // Widened by 260830-p6s Task 2 to mirror `phone-390`'s full 390px
+      // spec set (table-layout-quality / tab-strip-alignment /
+      // tab-strip-trigger-sizing / event-scroll-regions /
+      // touch-action-vertical-scroll / touch-scroll), plus the three shared
+      // specs (no-page-pan / event-header-overflow / zebra-stripe-full-row)
+      // that also run on `local-desktop` above — see that project's comment
+      // for why the other three deployed-`desktop`-only specs are absent
+      // here too.
+      testMatch:
+        /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|table-layout-quality\.spec\.ts|tab-strip-alignment\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|event-scroll-regions\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|touch-scroll\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 }, baseURL: LOCAL_URL },
     },
   ],
