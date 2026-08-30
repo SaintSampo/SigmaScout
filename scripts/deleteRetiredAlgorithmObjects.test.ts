@@ -126,6 +126,26 @@ describe("deleteRetiredAlgorithmObjects", () => {
   });
 
   // ---------------------------------------------------------------------
+  // Test 2b — CR-01: destruction is opt-in via --execute, matching
+  // deleteOrphanedDemoTeamObjects.ts's own pinned default.
+  // ---------------------------------------------------------------------
+  describe("Test 2b — --execute default (CR-01)", () => {
+    it("defaults to execute:false — omitting --execute never deletes anything, even with --retired-id/--version supplied", () => {
+      expect(parseCliOptions(["--retired-id", RETIRED_ID, "--version", VERSION]).execute).toBe(false);
+    });
+
+    it("--execute flips execute:true", () => {
+      expect(parseCliOptions(["--retired-id", RETIRED_ID, "--version", VERSION, "--execute"]).execute).toBe(true);
+    });
+
+    it("--dry-run is still accepted and does not error when combined with the new flag set", () => {
+      const options = parseCliOptions(["--retired-id", RETIRED_ID, "--version", VERSION, "--dry-run"]);
+      expect(options.dryRun).toBe(true);
+      expect(options.execute).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Test 3 — the compare page and the manifest are unreachable.
   // ---------------------------------------------------------------------
   describe("Test 3 — compare page and manifest structurally unreachable", () => {

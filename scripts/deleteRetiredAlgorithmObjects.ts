@@ -12,8 +12,8 @@
  * plan's own `must_haves.truths` for the census-based evidence this
  * limitation requires instead.
  *
- * Two mechanical guards make this tool structurally unable to run against
- * the wrong scope:
+ * Three mechanical guards make this tool structurally unable to run against
+ * the wrong scope, or to run destructively at all without explicit intent:
  *
  *   - `RefusedLiveAlgorithmIdError` — `--retired-id` is required with no
  *     default, and any value that is a member of the currently PUBLISHED
@@ -25,6 +25,15 @@
  *     produces a small, plausible-looking key count and a fast, clean,
  *     entirely wrong run. `RETIRED_KEY_COUNT_BOUNDS` turns that into a loud
  *     abort instead.
+ *   - `--execute` (CR-01, added retroactively by code review) — destruction
+ *     is opt-in, matching `scripts/deleteOrphanedDemoTeamObjects.ts`'s own
+ *     convention. The default (no flags at all) runs the census-only path
+ *     and deletes nothing; `--retired-id`/`--version` alone, however
+ *     plausible a first invocation, are scope guards, not an intent gate,
+ *     and no longer trigger a real delete pass on their own. `--dry-run`/
+ *     `--census-only` remain accepted and still mean "delete nothing," now
+ *     redundant with omitting `--execute` but never an error, for backwards
+ *     compatibility with every caller already passing them.
  *
  * Every selection in this file is EXACT — `artifactKey`'s own
  * `{algorithmId}@{version}` segment construction, an `includes` membership
@@ -387,6 +396,7 @@ export interface CliOptions {
   readonly retiredId: string;
   readonly versions: readonly string[];
   readonly seasons: string;
+  readonly execute: boolean;
   readonly dryRun: boolean;
   readonly census: number;
   readonly censusOnly: boolean;
@@ -395,7 +405,18 @@ export interface CliOptions {
   readonly bucket: string;
 }
 
-/** Parses and validates CLI flags. `--retired-id`/`--version` have no default and throw when absent — an ops tool whose destructive target has a default is a footgun (PD-04). */
+/**
+ * Parses and validates CLI flags. `--retired-id`/`--version` have no default and throw when absent
+ * — an ops tool whose destructive target has a default is a footgun (PD-04).
+ *
+ * `--execute` (CR-01) has NO default and defaults to `false`, matching
+ * `scripts/deleteOrphanedDemoTeamObjects.ts`'s own convention: destruction is opt-in. Omitting it
+ * always runs the census-only path below, no matter what else is passed — including the previously
+ * execute-by-default combination of `--retired-id`/`--version` alone. `--dry-run` and `--census-only`
+ * remain accepted and still mean "delete nothing" (now redundant with omitting `--execute`, but kept
+ * for backwards compatibility with every existing caller — `docs/publish-budget.md`, prior plan/summary
+ * invocations — that already passes `--dry-run` expecting that exact behavior).
+ */
 export function parseCliOptions(argv: readonly string[]): CliOptions {
   const { values } = parseArgs({
     args: [...argv],
@@ -403,6 +424,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
       "retired-id": { type: "string" },
       version: { type: "string", multiple: true },
       seasons: { type: "string" },
+      execute: { type: "boolean" },
       "dry-run": { type: "boolean" },
       census: { type: "string" },
       "census-only": { type: "boolean" },
@@ -424,6 +446,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
     retiredId: values["retired-id"],
     versions,
     seasons: values.seasons ?? "2022-2026",
+    execute: values.execute === true,
     dryRun: values["dry-run"] === true,
     census: values.census !== undefined ? Number.parseInt(values.census, 10) : 60,
     censusOnly: values["census-only"] === true,
@@ -453,6 +476,7 @@ async function runDeletePass(options: {
   retiredId: string;
   versions: readonly string[];
   seasonsSpec: string;
+  execute: boolean;
   dryRun: boolean;
   censusSize: number;
   censusOnly: boolean;
@@ -479,7 +503,12 @@ async function runDeletePass(options: {
   );
   for (const [kind, count] of tallyByKind) console.log(`  ${kind}: ${count}`);
 
-  if (options.dryRun || options.censusOnly) {
+  // CR-01: destruction is opt-in. `--execute` must be explicitly passed, independent of whether
+  // `--dry-run`/`--census-only` were passed — mirroring `deleteOrphanedDemoTeamObjects.ts`'s
+  // `--execute`-gated shape. `--dry-run`/`--census-only` remain accepted and still mean "delete
+  // nothing" for every existing caller that already passes them expecting that behavior; they are
+  // now redundant with omitting `--execute`, never an error.
+  if (!options.execute || options.dryRun || options.censusOnly) {
     const runId = randomUUID();
     const sample = stratifiedSample(keys, options.censusSize);
     console.log(`deleteRetiredAlgorithmObjects: censusing ${sample.length} of ${keys.length} keys against ${options.origin}`);
@@ -496,7 +525,8 @@ async function runDeletePass(options: {
     );
     console.log(`deleteRetiredAlgorithmObjects: census saved to ${outPath}`);
 
-    console.log("deleteRetiredAlgorithmObjects: --dry-run/--census-only — deleting nothing.");
+    const reason = !options.execute ? "--execute not passed" : options.dryRun ? "--dry-run" : "--census-only";
+    console.log(`deleteRetiredAlgorithmObjects: ${reason} — deleting nothing. Pass --execute (with neither --dry-run nor --census-only) to actually delete.`);
     return;
   }
 
@@ -515,6 +545,7 @@ async function main(): Promise<void> {
     retiredId: options.retiredId,
     versions: options.versions,
     seasonsSpec: options.seasons,
+    execute: options.execute,
     dryRun: options.dryRun,
     censusSize: options.census,
     censusOnly: options.censusOnly,
