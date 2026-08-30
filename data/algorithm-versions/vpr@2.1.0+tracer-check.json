@@ -1,0 +1,60 @@
+{
+  "id": "vpr",
+  "codeVersion": "2.1.0",
+  "paramSetName": "tracer-check",
+  "version": "2.1.0+tracer-check",
+  "params": {
+    "processNoiseWithinEvent": 0.5,
+    "processNoiseEventBoundary": 4,
+    "consistencyEwmaAlpha": 0.2,
+    "shrinkagePriorMatches": 8,
+    "minConsistencyVariance": 1,
+    "covEwmaAlpha": 0.1,
+    "covShrinkage": 0.3,
+    "linkC": 1,
+    "coldStartTeamTotal": 20,
+    "coldStartConsistencyVariance": 25,
+    "fallbackScoreSd": 25,
+    "consistencyCarryDecay": 0.5,
+    "carryMeanReversion": 0.4,
+    "carryLastYearWeight": 0.7,
+    "carryPriorYearWeight": 0.3,
+    "rpMonteCarloSeed": 42,
+    "rpMonteCarloDraws": 2000,
+    "adaptationEnabled": false,
+    "adaptationEwmaAlpha": 0.2,
+    "adaptationExponent": 0.5,
+    "adaptationMinFactor": 0.25,
+    "adaptationMaxFactor": 4,
+    "adaptationMinObservations": 3
+  },
+  "provenance": {
+    "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
+    "corpusIdentity": "data/corpus.sqlite",
+    "promotedAt": "2026-08-30T18:09:54.370Z",
+    "objective": 0.17465514532650941,
+    "tuneSeasons": [
+      2022
+    ],
+    "searchArtifactSha256": "00147cbf5bab99f1e275b742b42ad6b92e75d601bf6315e3fb79886138aa67f9",
+    "objectiveDefinition": "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+    "evaluationCount": 1
+  },
+  "digest": {
+    "sliceSeason": 2022,
+    "sliceEventKeys": [
+      "2022alhu",
+      "2022azfl",
+      "2022azva"
+    ],
+    "sliceMatchCount": 265,
+    "predictionStreamSha256": "ef623c9dcf38f2ce339a1d0974a10fc653210c7b628894841774b3fe229d940a",
+    "headlineMetrics": [
+      {
+        "season": 2022,
+        "brierScore": 0.17816057795263934,
+        "winnerAccuracy": 0.7206477732793523
+      }
+    ]
+  }
+}

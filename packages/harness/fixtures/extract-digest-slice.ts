@@ -50,7 +50,10 @@ import { openCorpusReadOnly, selectMatchesChronological } from "../../corpus/db.
 import { PromotedVersionSchema } from "../promote.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
-const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
+// `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
+// (2026-08-30): re-pinned to the `2.1.0` re-promotion alongside
+// `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` — see that constant's comment.
+const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.1.0+tuned-2026-08.json");
 const OUTPUT_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 
 /** The committed fixture's on-disk shape — `digest.test.ts` reads this back and re-validates `sliceEventKeys`/`sliceSeason` still match whichever promoted version it is checking. */

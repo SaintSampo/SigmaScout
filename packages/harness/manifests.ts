@@ -216,7 +216,10 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
  * before reading it, exactly as `applyPromotedOverrides` does, so a newer
  * committed version file is exactly as loud here as it is in a harness run.
  */
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
+// `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
+// (2026-08-30): kept identical to `cli.ts`'s own re-pin — see that
+// constant's comment.
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.1.0+tuned-2026-08.json");
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 export interface BuildAlgorithmsManifestOptions {

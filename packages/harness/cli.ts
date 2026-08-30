@@ -123,7 +123,13 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
+// `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
+// (2026-08-30): re-pinned from `vpr@2.0.0+tuned-2026-08.json` to the
+// `2.1.0` re-promotion after Sigma1's `SIGMA1_CODE_VERSION` bump (see that
+// constant's own doc comment, `sigma1/params.ts`) — same params, same
+// search artifact, re-promoted only because the code underneath the
+// version identity changed.
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.1.0+tuned-2026-08.json");
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**

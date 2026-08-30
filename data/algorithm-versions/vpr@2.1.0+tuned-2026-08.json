@@ -1,0 +1,114 @@
+{
+  "id": "vpr",
+  "codeVersion": "2.1.0",
+  "paramSetName": "tuned-2026-08",
+  "version": "2.1.0+tuned-2026-08",
+  "params": {
+    "processNoiseWithinEvent": 0.14522393520915602,
+    "processNoiseEventBoundary": 1,
+    "consistencyEwmaAlpha": 0.03444905576109887,
+    "shrinkagePriorMatches": 8,
+    "minConsistencyVariance": 1,
+    "covEwmaAlpha": 0.2600009894482791,
+    "covShrinkage": 0.12817359956447036,
+    "linkC": 1.2398308984401685,
+    "coldStartTeamTotal": 20,
+    "coldStartConsistencyVariance": 16.75421168559074,
+    "fallbackScoreSd": 25,
+    "consistencyCarryDecay": 0.4142244359478354,
+    "carryMeanReversion": 0.06930459369905292,
+    "carryLastYearWeight": 0.7,
+    "carryPriorYearWeight": 0.3,
+    "rpMonteCarloSeed": 42,
+    "rpMonteCarloDraws": 2000,
+    "adaptationEnabled": false,
+    "adaptationEwmaAlpha": 0.2,
+    "adaptationExponent": 0.5,
+    "adaptationMinFactor": 0.25,
+    "adaptationMaxFactor": 4,
+    "adaptationMinObservations": 3
+  },
+  "provenance": {
+    "searchArtifact": "reports/tune-joint-off.json",
+    "corpusIdentity": "data/corpus.sqlite",
+    "promotedAt": "2026-08-30T18:09:10.515Z",
+    "objective": 0.17076606538105618,
+    "tuneSeasons": [
+      2022,
+      2023,
+      2024
+    ],
+    "searchArtifactSha256": "d08926da7c0d7362efbb87b856ef1617453653d3614ca4fdfd506d230b0dd991",
+    "objectiveDefinition": "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+    "evaluationCount": 60,
+    "seed": 42,
+    "screenArtifact": "reports/sensitivity-screen.json",
+    "survivors": [
+      "carryMeanReversion",
+      "coldStartConsistencyVariance",
+      "consistencyCarryDecay",
+      "consistencyEwmaAlpha",
+      "covEwmaAlpha",
+      "covShrinkage",
+      "linkC",
+      "processNoiseEventBoundary",
+      "processNoiseWithinEvent"
+    ],
+    "losoSummary": {
+      "folds": [
+        {
+          "heldOutSeason": 2022,
+          "trainingSeasons": [
+            2023,
+            2024
+          ],
+          "losoWinnerIndex": 76,
+          "losoWinnerHeldOutBrier": 0.16356447180917277,
+          "losoWinnerHeldOutAccuracy": 0.760414463945866,
+          "matchesPooledWinner": true
+        },
+        {
+          "heldOutSeason": 2023,
+          "trainingSeasons": [
+            2022,
+            2024
+          ],
+          "losoWinnerIndex": 76,
+          "losoWinnerHeldOutBrier": 0.17219164454715022,
+          "losoWinnerHeldOutAccuracy": 0.7415437987857763,
+          "matchesPooledWinner": true
+        },
+        {
+          "heldOutSeason": 2024,
+          "trainingSeasons": [
+            2022,
+            2023
+          ],
+          "losoWinnerIndex": 71,
+          "losoWinnerHeldOutBrier": 0.1801810155621288,
+          "losoWinnerHeldOutAccuracy": 0.7286447148651873,
+          "matchesPooledWinner": false
+        }
+      ],
+      "pooledWinnerPerSeasonBrierSpread": 0.01297760797767275
+    },
+    "adaptationMode": "off"
+  },
+  "digest": {
+    "sliceSeason": 2022,
+    "sliceEventKeys": [
+      "2022alhu",
+      "2022azfl",
+      "2022azva"
+    ],
+    "sliceMatchCount": 265,
+    "predictionStreamSha256": "c708a43028554deaaec4a877aab67bb7d6d08ddc65883f3265486f679c84c390",
+    "headlineMetrics": [
+      {
+        "season": 2022,
+        "brierScore": 0.1740753693923784,
+        "winnerAccuracy": 0.7327935222672065
+      }
+    ]
+  }
+}

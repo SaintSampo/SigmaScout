@@ -25,7 +25,7 @@ import {
   isLiveAt,
 } from "./manifests.js";
 
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.1.0+tuned-2026-08.json");
 
 let dir: string;
 let corpusPath: string;

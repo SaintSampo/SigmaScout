@@ -30,9 +30,9 @@ import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algori
  * `vpr` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
  * unlike `reports/tune-joint-on.json` it is always present, in CI included.
  */
-const PROMOTED_VERSION_IDENTITY = "2.0.0+tuned-2026-08";
-const DEFAULTS_VERSION_IDENTITY = "2.0.0+defaults";
-const ADAPT_VERSION_IDENTITY = "2.0.0+defaults-adapt";
+const PROMOTED_VERSION_IDENTITY = "2.1.0+tuned-2026-08";
+const DEFAULTS_VERSION_IDENTITY = "2.1.0+defaults";
+const ADAPT_VERSION_IDENTITY = "2.1.0+defaults-adapt";
 
 let tempDir: string | undefined;
 
@@ -63,6 +63,8 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueTeams: [],
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
     winner: "red",
     redScore: 0,
     blueScore: 0,
@@ -211,7 +213,7 @@ describe("loadPromotedVpr (ALGO-06)", () => {
 
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr");
-    expect(loaded?.version).toBe("2.0.0+test-tuned");
+    expect(loaded?.version).toBe("2.1.0+test-tuned");
   });
 
   it("threads the file's params into the module's actual predict/update path — a tuned file produces a DIFFERENT prediction stream than defaults", () => {
@@ -281,7 +283,7 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
     const loaded = loadSearchWinnerVpr("vpr-adapt", artifactPath, "tune-joint-on-winner");
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr-adapt");
-    expect(loaded?.version).toBe("2.0.0+tune-joint-on-winner");
+    expect(loaded?.version).toBe("2.1.0+tune-joint-on-winner");
 
     // The restore is only observable through predict(): rpPmfForMatch
     // short-circuits to no pmf at 0 draws. A control module built with the
