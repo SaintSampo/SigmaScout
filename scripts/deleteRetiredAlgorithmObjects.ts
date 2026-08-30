@@ -523,7 +523,8 @@ async function deleteKeys(bucket: string, keys: readonly string[], concurrency: 
 // throwaway object this task also removes.
 // ---------------------------------------------------------------------------
 
-async function runProbe(options: { bucket: string; retiredId: string; version: string; origin: string }): Promise<void> {
+/** Exported so its live-id refusal (07-SECURITY.md Observation 1) can be exercised directly, without needing a real bucket/origin for the PUT/DELETE path the refusal throws before ever reaching. */
+export async function runProbe(options: { bucket: string; retiredId: string; version: string; origin: string }): Promise<void> {
   // 07-SECURITY.md Observation 1: this guard was previously applied only in enumerateRetiredKeys,
   // not here — `--probe --retired-id <live-id>` could PUT-then-DELETE under a live algorithm id.
   // Applying the same id-level refusal here makes the guard uniform across both entry points.
