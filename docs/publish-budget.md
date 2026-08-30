@@ -524,6 +524,151 @@ document's "State-row shape" section describes, now that the retired id's rows a
 dashboard cross-check named above remains the same open manual step it has been since plan 04-04 —
 this pass neither closes it nor fabricates it.
 
+## Delete pass — 2026-08-30, superseded opr/epa/vpr generation removed (version-retirement mode)
+
+**A different kind of retirement than the section above.** The 07-19 delete pass (previous section)
+retired a whole DEAD algorithm id (`sigma1`). This pass retires a superseded VERSION of a STILL-LIVE
+algorithm — the whole-alliance-DQ-zero-score fix (see the Payload budget section's 2026-08-30 entry)
+bumped all three algorithms' code versions, forcing a new republish and leaving the prior generation's
+objects orphaned in R2 under `vpr@2.0.0+tuned-2026-08`, `opr@3.0.0+baseline`, `epa@1.0.0+baseline` —
+while `vpr@2.1.0+tuned-2026-08`, `opr@3.1.0+baseline`, `epa@1.1.0+baseline` remained (and remain) live.
+Two full generations coexisting in R2 (6.62 GB, 66% of the 10 GB free tier) put one more
+version-bumping republish within reach of the tier's wall (9.93 GB, 99%) — this pass reclaimed the
+first generation before that happened.
+
+`scripts/deleteRetiredAlgorithmObjects.ts` gained a `--supersedes-live` mode for exactly this case
+(see "Version-retirement procedure" below). Run once per algorithm, census-first then `--execute`,
+each invocation independently checked against the live manifest at run time:
+
+```bash
+pnpm cleanup:retired-objects -- --retired-id vpr --version 2.0.0+tuned-2026-08 --supersedes-live --execute
+pnpm cleanup:retired-objects -- --retired-id opr --version 3.0.0+baseline       --supersedes-live --execute
+pnpm cleanup:retired-objects -- --retired-id epa --version 1.0.0+baseline       --supersedes-live --execute
+```
+
+**Guard behavior, confirmed rather than assumed.** Before any execute pass, each invocation fetched
+`v1/manifest/algorithms.json` from the live public origin and confirmed the target version was NOT
+the one named there (`opr@3.1.0+baseline`, `epa@1.1.0+baseline`, `vpr@2.1.0+tuned-2026-08` — the
+manifest's actual live content at run time, not assumed). Had any target matched the live manifest,
+`RefusedLiveVersionError` would have aborted before enumeration; a manifest fetch failure of any kind
+would have aborted via `LiveManifestFetchError` — neither path fires here, confirmed by successful
+enumeration.
+
+**Per-algorithm figures, identical shape across all three (same corpus, same enumeration):**
+
+| Figure | vpr | opr | epa | Source |
+|---|---:|---:|---:|---|
+| Keys ENUMERATED (the deliberate superset, per algorithm) | 19,261 | 19,261 | 19,261 | `enumerateSupersededVersionKeys` — 5 `teams` + 5 `events` + 1,581 `event` + 17,670 `team` |
+| DELETE calls ISSUED | 19,261 | 19,261 | 19,261 | `reports/publish/07-19-delete.log` (each run's own tally, overwritten in place per invocation — confirmed matching enumerated count each time) |
+| Keys OBSERVED PRESENT before (stratified sample, n=60) | 55/60 | 55/60 | 55/60 | scratch census before-JSON, same deterministic sample each run |
+| Keys OBSERVED PRESENT after, SAME 60 keys | 0/60 | 0/60 | 0/60 | scratch census after-JSON — every key that returned 200 before now returns 404 |
+
+Total: **57,783 DELETE calls issued** (19,261 × 3), all now confirmed absent by the same
+before/after stratified-sample method the 07-19 pass established. The sample's per-kind absence
+concentrates entirely in the `event` kind (5/25 sampled `event` keys absent, 20%; 0% absent across
+`teams`/`events`/`team`) — the same shape 07-19's own reconciliation found, reflecting the same
+offseason-inclusive superset over-enumerating a handful of `event` keys that were never written or
+were written only under single-event mode.
+
+**Exact real object count — read directly from this document's own prior measurement, not
+projected.** The superseded generation is `882249ad-be97-419d-b929-042aa17afb41` — confirmed live
+(not assumed) via the pre-delete census, which read this exact generation stamp back off the
+`vpr@2.0.0+tuned-2026-08` objects before deleting them. That generation's own full-publish run is
+already recorded above ("07-UAT.md G-8's full republish" entry): **56,774 page objects** total
+across all three algorithms and every page kind, of which **56,769** (15 `teams` + 52,596 `team` +
+15 `events` + 4,143 `event`) sit under the `teams`/`events`/`event`/`team` prefixes this pass
+enumerates and deletes — 18,923 per algorithm, matching the stratified sample's own ≈18,945
+per-algorithm extrapolation (55/60 + the per-kind-weighted event absence rate) within measurement
+noise. The remaining 5 objects are that generation's `compare/{year}` set — algorithm-agnostic,
+overwritten in place by every publish rather than versioned per algorithm, structurally unreachable
+by this tool's enumeration (D-02's exception), and confirmed untouched below.
+
+**Recovered storage.** That generation's own documented page-object payload total is **3,310,309,807
+bytes**. Subtracting its `compare/{year}` portion (5 objects, ≈14,035 median bytes each ≈ 70,175
+bytes — negligible, and the ONLY part of that generation's byte count this pass did not remove, since
+`compare` was never versioned per algorithm) gives **≈3,310,239,632 bytes (≈3.31 GB) recovered**:
+
+| | Bytes | % of 10 GB free tier |
+|---|---:|---:|
+| Before this pass (two generations coexisting: live `1c11cdd8-...` + superseded `882249ad-...`) | 6,619,377,688 | 66.2% |
+| After this pass (live generation only) | 3,309,138,056 | 33.1% |
+| **Recovered** | **3,310,239,632** | **33.1 percentage points** |
+
+One more version-bumping republish now lands at ≈66.2% of the tier (the same two-generations-deep
+state this pass just resolved), not ≈99% — this pass restored exactly the headroom a version bump
+consumes, rather than merely deferring the wall.
+
+**`DeleteObject` remains a free R2 operation** (07-19's own correction, Cloudflare's pricing page,
+`developers.cloudflare.com/r2/pricing/`) — the 57,783 `DeleteObject` calls this pass issued cost zero
+against either Class A or Class B free-tier allowances.
+
+**D1 is untouched by this pass, by design.** Unlike the 07-19 algorithm-retirement pass (which
+deleted the retired id's own rows via `GROUP BY`), D1's `algorithm_state` table is keyed by
+`algorithm_id` alone, never `algorithm_id@version` — `opr`/`epa`/`vpr` remain the live ids in D1
+before and after this pass, so a version bump changes nothing D1-side. No D1 read-back was run for
+this pass; none was needed.
+
+**Live verification, by HTTP against the public origin, not merely the local tool's own tally.**
+Every superseded key sampled below returned 404; every current key returned 200; the live manifest
+is unchanged; the site itself still loads:
+
+```
+404  v1/teams/2024/vpr@2.0.0+tuned-2026-08.json      200  v1/teams/2024/vpr@2.1.0+tuned-2026-08.json
+404  v1/teams/2024/opr@3.0.0+baseline.json            200  v1/teams/2024/opr@3.1.0+baseline.json
+404  v1/teams/2024/epa@1.0.0+baseline.json            200  v1/teams/2024/epa@1.1.0+baseline.json
+404  v1/events/2024/vpr@2.0.0+tuned-2026-08.json      200  v1/events/2024/vpr@2.1.0+tuned-2026-08.json
+404  v1/event/2024casj/vpr@2.0.0+tuned-2026-08.json   200  v1/event/2024casj/vpr@2.1.0+tuned-2026-08.json
+404  v1/team/frc254/2024/vpr@2.0.0+tuned-2026-08.json 200  v1/team/frc254/2024/vpr@2.1.0+tuned-2026-08.json
+200  v1/compare/2024.json (never enumerated, never touched)
+```
+
+`v1/manifest/algorithms.json` still reads exactly `["opr@3.1.0+baseline", "epa@1.1.0+baseline",
+"vpr@2.1.0+tuned-2026-08"]`, generation `1c11cdd8-720d-479e-a737-fad94c4105a9`, byte-identical to
+before this pass. `https://sigmascout.org/teams?year=2026` and
+`https://sigmascout.org/event/2024casj` both return 200.
+
+**Wall clock and process hygiene.** All three census-only, all three `--execute`, and all three
+post-delete-census invocations ran sequentially, one at a time — `tasklist`'s node.exe count stayed
+at the documented 12-process baseline before and after every single invocation (nine invocations
+total), confirming zero concurrent or zombie publish/delete processes at any point, per the standing
+Windows/Git-Bash zombie-process risk this document's 07-17 section first named.
+
+### Version-retirement procedure (routine, for the next algorithm bump)
+
+Every future algorithm code-version bump orphans the prior generation exactly this way. The routine:
+
+1. **Confirm the situation, by HTTP, before doing anything.** Fetch
+   `v1/manifest/algorithms.json` and confirm which `{id}@{version}` pairs it names as live. Fetch
+   the OLD version's key for one page kind (e.g. `v1/teams/2024/{id}@{old-version}.json`) and
+   confirm it still returns 200 — that confirms the prior generation is genuinely still present,
+   not already reclaimed.
+2. **Census first, for every algorithm whose version changed** (one invocation per algorithm — the
+   `RETIRED_KEY_COUNT_BOUNDS` band is sized for one algorithm's key set, not three at once):
+   ```bash
+   pnpm cleanup:retired-objects -- --retired-id <id> --version <old-version> --supersedes-live
+   ```
+   Confirm the printed enumerated count sits inside `[15000, 25000]` and the census result is
+   consistent with the prior pass's own shape (≈90% present is normal; the deliberate
+   offseason-inclusive superset over-enumerates a handful of `event` keys).
+3. **Execute, once satisfied the census looks right:**
+   ```bash
+   pnpm cleanup:retired-objects -- --retired-id <id> --version <old-version> --supersedes-live --execute
+   ```
+   If the tool refuses with `RefusedLiveVersionError`, STOP — the manifest still names that version
+   as live, which means either the wrong version string was passed or the republish that was
+   supposed to supersede it has not actually landed yet. If it refuses with
+   `LiveManifestFetchError`, STOP and fix the fetch (network, origin, manifest shape) before
+   retrying — never re-run with a stale assumption about what is live.
+4. **Verify by HTTP afterward**, exactly as this section did: the old version 404s across all four
+   page kinds, the new version still 200s on the same keys, the manifest is unchanged, and the site
+   itself still loads.
+5. **Check `tasklist`'s node.exe count before and after every invocation** (baseline 12 on this
+   machine) — the same zombie-process risk 07-17/07-19's delete passes already carry applies
+   identically here; never start a second invocation before confirming the previous one is
+   genuinely finished.
+6. D1 needs no action for a version-only bump (see above) — only a full algorithm retirement
+   (`enumerateRetiredKeys`, no `--supersedes-live`) touches D1's rows.
+
 ## Re-baseline cadence (the D-12/D-24 resolution)
 
 The re-baseline that overwrites live state is a **manual, human-triggered operation**, run before

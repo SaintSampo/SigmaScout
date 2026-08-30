@@ -125,6 +125,19 @@ Skipping it breaks nothing — the site stays up and approximately fresh. It jus
 between the Worker's incremental folding and a from-scratch offline replay goes uncorrected until
 the next run.
 
+**A re-baseline that also bumps an algorithm's code version orphans the prior generation in R2.**
+`pnpm publish:seasons` only ever `PUT`s the keys it is asked to build under the CURRENT
+`{id}@{version}` — it has no cascading delete, so a version bump (e.g. a bug fix that changes an
+algorithm's `codeVersion`) leaves every object under the OLD version's prefix sitting in R2
+unreferenced by the manifest, still counting against the 10 GB free tier. This does NOT require a
+Worker redeploy or a D1 re-seed on its own — D1's `algorithm_state` rows are keyed by
+`algorithm_id` alone, never `algorithm_id@version`, so they carry over unchanged. It DOES require a
+follow-up R2 cleanup pass — see `docs/publish-budget.md`'s "Version-retirement procedure" (under
+its "Delete pass" sections) for the routine `--supersedes-live` invocation. Two full generations
+coexisting is not itself a site-breaking problem (the manifest, and therefore every reader,
+resolves only the current version), but it is a real, measured 66% chunk of the free tier — worth
+reclaiming before the next version bump would push past it.
+
 ---
 
 ## Live folding tier (quick task 260822-wqt)
