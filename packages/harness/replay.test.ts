@@ -24,6 +24,8 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     blueScore: 80,
     redRpEarned: 2,
     blueRpEarned: 0,
+    redDqs: [],
+    blueDqs: [],
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
     eventType: 0,
@@ -44,6 +46,8 @@ const ALL_OUTCOME_KEYS = [
   "blueScore",
   "redRpEarned",
   "blueRpEarned",
+  "redDqs",
+  "blueDqs",
   "hasScoreBreakdown",
   "scoreBreakdownRaw",
 ] as const;

@@ -40,6 +40,8 @@ function minimalMatch(eventKey: string, teamKey: string): MatchResult {
     blueScore: 0,
     redRpEarned: null,
     blueRpEarned: null,
+    redDqs: [],
+    blueDqs: [],
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
   };

@@ -25,6 +25,8 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     blueTeams: ["frc4", "frc5", "frc6"],
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
     winner: "red",
     redScore: 100,
     blueScore: 80,

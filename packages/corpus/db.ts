@@ -436,6 +436,8 @@ interface MatchRow {
   blue_teams: string;
   red_surrogates: string;
   blue_surrogates: string;
+  red_dqs: string;
+  blue_dqs: string;
   winner: string | null;
   red_score: number | null;
   blue_score: number | null;
@@ -490,6 +492,7 @@ export function selectMatchesChronological(
     .prepare(
       `SELECT m.match_key, m.event_key, m.comp_level, m.match_number, m.set_number,
               m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
+              m.red_dqs, m.blue_dqs,
               m.winner, m.red_score, m.blue_score, m.red_rp_earned, m.blue_rp_earned,
               m.has_score_breakdown, m.score_breakdown_raw, e.event_type
        FROM matches m
@@ -517,6 +520,8 @@ export function selectMatchesChronological(
     blueTeams: JSON.parse(row.blue_teams) as string[],
     redSurrogates: JSON.parse(row.red_surrogates) as string[],
     blueSurrogates: JSON.parse(row.blue_surrogates) as string[],
+    redDqs: JSON.parse(row.red_dqs) as string[],
+    blueDqs: JSON.parse(row.blue_dqs) as string[],
     winner: row.winner as "red" | "blue" | "tie",
     redScore: row.red_score ?? 0,
     blueScore: row.blue_score ?? 0,

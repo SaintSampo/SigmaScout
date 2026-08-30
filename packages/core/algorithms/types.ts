@@ -49,6 +49,32 @@ export interface MatchResult extends UpcomingMatch {
   blueScore: number;
   redRpEarned: number | null;
   blueRpEarned: number | null;
+  /**
+   * `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: TBA's
+   * `dq_team_keys` for each alliance, verbatim (populated end-to-end by
+   * `packages/ingest/normalize.ts` and stored in the corpus's
+   * `matches.red_dqs`/`blue_dqs` columns since Phase 3 — this is the one
+   * place that data was, until now, dropped on the way into an algorithm).
+   * Outcome-bearing: a disqualification is a ranking-and-record ruling
+   * resolved alongside the match result, not a fact knowable before the
+   * match is played, so this is added to `packages/harness/replay.ts`'s
+   * `OUTCOME_KEYS` in the same commit that adds this field — mirrors
+   * `scoreBreakdownRaw`'s doc comment below. Required, not optional (an
+   * empty array is the honest "no DQ" value, matching `redSurrogates`'/
+   * `blueSurrogates`' own required-array convention just above): the corpus
+   * always has an answer for this column (`NOT NULL` in schema.sql), so a
+   * silently-defaulted `undefined` here would be exactly the failure mode
+   * `eventType`'s own doc comment above warns against.
+   *
+   * Consumed by `packages/core/algorithms/dq.ts`'s
+   * `isFullyDqZeroScoreAlliance` — see that module's header for the policy
+   * this field exists to implement, and `opr.ts`'s "Disqualification
+   * policy" comment for the narrower, corrected version of the reasoning
+   * that used to justify carrying no DQ field here at all.
+   */
+  redDqs: readonly string[];
+  /** The blue alliance's counterpart to `redDqs` — see its doc comment for the full contract. */
+  blueDqs: readonly string[];
   hasScoreBreakdown: boolean;
   /**
    * Verbatim TBA `score_breakdown` JSON for this match, or `null` when TBA

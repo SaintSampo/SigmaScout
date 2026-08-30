@@ -104,6 +104,8 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     blueTeams: [],
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
     winner: "red",
     redScore: 0,
     blueScore: 0,

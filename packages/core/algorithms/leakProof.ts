@@ -36,6 +36,8 @@ export const OUTCOME_KEYS = new Set<string>([
   "blueScore",
   "redRpEarned",
   "blueRpEarned",
+  "redDqs",
+  "blueDqs",
   "hasScoreBreakdown",
   "scoreBreakdownRaw",
 ]);

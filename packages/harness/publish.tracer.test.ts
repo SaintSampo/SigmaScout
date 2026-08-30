@@ -30,6 +30,8 @@ function fixtureMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     blueScore: 95,
     redRpEarned: 2,
     blueRpEarned: 0,
+    redDqs: [],
+    blueDqs: [],
     hasScoreBreakdown: true,
     scoreBreakdownRaw: "{}",
     ...overrides,

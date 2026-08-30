@@ -214,6 +214,8 @@ function matchResult(overrides: Partial<MatchResult> = {}): MatchResult {
     blueScore: 80,
     redRpEarned: 2,
     blueRpEarned: 0,
+    redDqs: [],
+    blueDqs: [],
     hasScoreBreakdown: true,
     scoreBreakdownRaw: breakdown2024Json(),
     ...overrides,
