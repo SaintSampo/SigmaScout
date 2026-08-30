@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: event-pages
 status: executing
-stopped_at: Completed 07-19-PLAN.md
-last_updated: "2026-08-29T20:45:52.772Z"
+stopped_at: Completed 07-20-PLAN.md -- Phase 07 (event-pages) fully complete, 20/20 plans
+last_updated: "2026-08-30T01:35:33.861Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 10
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 84
-  completed_plans: 83
+  completed_plans: 84
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 ## Current Position
 
-Phase: 07 (event-pages) — EXECUTING
-Plan: 10 of 20
-Status: Ready to execute
-Last activity: 2026-08-28 — Phase 07 execution started
+Phase: 07 (event-pages) — COMPLETE
+Plan: 20 of 20
+Status: All plans executed. 07-UAT.md carries 2 pending hardware-dependent items (real-device touch sign-off, plot-density judgement) for /gsd-verify-work 7.
+Last activity: 2026-08-29 — Phase 07 execution completed (plan 07-20)
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -117,6 +117,7 @@ Progress: [██████████] 99%
 | Phase 07 P17 | 1h27m | 2 tasks | 2 files |
 | Phase 07 P18 | ~1h20m | 3 tasks | 57 files |
 | Phase 07 P19 | ~50min (continuation) + predecessor sessions | 4 tasks | 12 files |
+| Phase 07 P20 | ~4h | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -271,6 +272,10 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P19]: The R2/D1 cleanup pass completed -- 19,261 sigma1@ R2 keys deleted, 4,599 D1 rows deleted, Worker redeployed onto the vpr live-fold tier -- proven by before/after census (48/60 present -> 0/60), never by exit code; corrected 07-17's DeleteObject billing-class attribution (it is a Free operation, not Class A, per Cloudflare's own pricing page)
 - [Phase ?]: [Phase 07 P19]: Discovered (not fixed -- apps/worker out of scope) a new production finding: the redeployed Worker fails 100% of ticks captured hours later with outcome:exceededCpu and empty logs, contradicting the healthy ticks recorded immediately post-deploy; ledgered WINDOWS.md #16 and routed to a new todo
 - [Phase ?]: [Phase 07 P19]: Developer-directed exclusion of 30 fake 'Off-Season Demo Team' keys (frc9970-frc9999) from the model and every published surface, sequenced to land AFTER this plan and BEFORE 07-20; routed as .planning/todos/pending/exclude-offseason-demo-teams.md with full measured blast radius (6,285 contaminated matches, 428 fully-demo alliances). **RESOLVED 2026-08-29**: fully-demo alliances (case 1) now a no-op update() in all three algorithms; mixed alliances (case 2) remap every demo key to one shared, never-published pseudo entity rather than deleting the column (deletion would have inflated real teammates -- quantified in opr.test.ts: naive deletion would have been 1.5x-5x the chosen treatment's value for a representative match). Full republish (generation 961340e8-9e45-4d91-8e85-f72982ac3d87) confirms 414 fewer team-season objects (53,010 -> 52,596) and a real team's rating moving on both algorithms. WINDOWS.md ledger #11/#15 figures updated (teams max 3,732,955->3,705,194; team max 821,938->675,943 at frc3538/2024, confirmed) and left open per the todo's explicit non-goal. See .planning/todos/completed/exclude-offseason-demo-teams-SUMMARY.md for the full accounting.
+- [Phase ?]: [Phase 07 P20]: assertNoIntermediateScroller requires an actual overflow on the flagged axis, not merely a permissive computed overflow style -- a naive version false-positived on __root.tsx's own overflow-x-hidden div due to the CSS coupled-axis overflow-x/overflow-y resolution rule, proven both ways via a live bite-check
+- [Phase ?]: [Phase 07 P20]: 2022ilpe/2022nhgrs elimination order corrected to WALL-CLOCK (not the series-major sequence 07-13 originally measured) -- eventMatchAxis.ts's compareEventMatchRows has prioritized sortTime presence since its one commit (07-12's tracer); both fixtures now render wall-clock live, closing the bracket-order product decision this plan's own checkpoint originally framed
+- [Phase ?]: [Phase 07 P20]: the alliance-uncertainty identity (ledger row 9) was rewritten from a near-equality assertion to a monotone-narrowing assertion after developer-confirmed evidence (280 alliance-pairs, 2024new: mean gap 1.130 first half vs 0.373 second half) showed the original design compared an as-of-event quantity against an as-of-that-match one, which can never hold as an identity regardless of tolerance; the TRUE identity is routed to .planning/todos/pending/publish-as-of-match-team-metrics.md
+- [Phase ?]: [Phase 07 P20]: Phase 07 (event-pages) is now fully complete -- 20/20 plans, all seven UI-SPEC backstop rows and five non-UI-SPEC backstop markers have evidence (10 automated, 2 carried to 07-UAT.md for /gsd-verify-work 7 pending physical hardware)
 
 ### Pending Todos
 
@@ -317,6 +322,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-29T20:45:52.728Z
-Stopped at: Completed 07-19-PLAN.md
+Last session: 2026-08-30T01:35:33.835Z
+Stopped at: Completed 07-20-PLAN.md -- Phase 07 (event-pages) fully complete, 20/20 plans
 Resume file: None
