@@ -35,6 +35,33 @@
  *     redundant with omitting `--execute` but never an error, for backwards
  *     compatibility with every caller already passing them.
  *
+ * **Version-retirement mode (`--supersedes-live`).** The guards above assume the whole
+ * `--retired-id` is dead. A superseded VERSION of a still-live algorithm (a version bump that
+ * forces a republish, leaving the prior generation orphaned in R2 — see `docs/publish-budget.md`)
+ * needs a different, STRICTER refusal, because a mistake here deletes what the site is serving
+ * right now rather than something already dead:
+ *
+ *   - `assertVersionNotCurrentlyLive` — fetches `v1/manifest/algorithms.json` from the PUBLIC
+ *     ORIGIN at run time (never a CLI argument, a local constant, or a version file on disk) and
+ *     throws `RefusedLiveVersionError` if the manifest currently names `{retired-id}@{version}` as
+ *     published. Fetch or parse failure of ANY kind throws `LiveManifestFetchError` and refuses —
+ *     fail CLOSED, never proceed on the assumption that nothing is live.
+ *   - Every other guard still applies unchanged: `assertKeySegment` over every enumerated key,
+ *     `RETIRED_KEY_COUNT_BOUNDS` (sized for one algorithm's key set — this mode is invoked once
+ *     per algorithm id, same as the retired-algorithm path, so the existing band stays meaningful
+ *     rather than needing to widen for multiple algorithms at once), the `--execute` gate, and
+ *     read-back verification.
+ *   - `--supersedes-live` does NOT replace `RefusedLiveAlgorithmIdError` — it is a separate code
+ *     path (`enumerateSupersededVersionKeys`, not `enumerateRetiredKeys`) that never runs the
+ *     id-level check at all, since a live id is exactly what this mode expects. Omitting the flag
+ *     always runs the original id-level-refusal path, so no existing invocation's behavior changes.
+ *
+ * `07-SECURITY.md` Observation 1: `runProbe` now applies the same `RefusedLiveAlgorithmIdError`
+ * check `enumerateRetiredKeys` applies, closing the gap where `--probe --retired-id <live-id>`
+ * could PUT-then-DELETE under a live algorithm id (blast radius was nil in practice — the fixed
+ * `PROBE_EVENT_KEY` cannot collide with a real event key — but the guard is now uniform across
+ * both entry points).
+ *
  * Every selection in this file is EXACT — `artifactKey`'s own
  * `{algorithmId}@{version}` segment construction, an `includes` membership
  * check against the imported live-id array, never a prefix or substring
@@ -61,7 +88,7 @@ import { openCorpusReadOnly, selectTeamKeysForYear, selectScheduledMatches, type
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import { artifactKey } from "../packages/harness/pageArtifacts.js";
 import { deleteObject, putObject } from "../packages/harness/r2Client.js";
-import { DEFAULT_ARTIFACT_ORIGIN, fetchArtifactFresh } from "./verifySubsetPublish.js";
+import { ALGORITHMS_MANIFEST_KEY, DEFAULT_ARTIFACT_ORIGIN, fetchArtifactFresh } from "./verifySubsetPublish.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
@@ -98,6 +125,41 @@ export class RefusedLiveAlgorithmIdError extends Error {
   }
 }
 
+/**
+ * Thrown by `assertVersionNotCurrentlyLive` when the live manifest currently names the exact
+ * `{algorithmId}@{version}` pair this invocation was asked to treat as retired. Stricter than
+ * `RefusedLiveAlgorithmIdError`'s id-level check on purpose: a mistake here deletes what the site
+ * is serving right now, not something already dead.
+ */
+export class RefusedLiveVersionError extends Error {
+  constructor(algorithmId: string, version: string, liveVersion: string) {
+    super(
+      `deleteRetiredAlgorithmObjects: refusing to treat "${algorithmId}@${version}" as a superseded version — the ` +
+        `live manifest currently names "${algorithmId}@${liveVersion}" as the published version. This tool ` +
+        `structurally cannot be pointed at what the manifest says is live right now; pass the actual superseded ` +
+        `version.`
+    );
+    this.name = "RefusedLiveVersionError";
+  }
+}
+
+/**
+ * Thrown by `assertVersionNotCurrentlyLive` when fetching or parsing the live manifest fails for
+ * any reason — network error, non-2xx status, invalid JSON, or a malformed body. Fails CLOSED:
+ * a version-retirement pass must never proceed on the assumption that nothing is live just because
+ * it could not confirm otherwise.
+ */
+export class LiveManifestFetchError extends Error {
+  constructor(origin: string, reason: string) {
+    super(
+      `deleteRetiredAlgorithmObjects: failed to fetch or parse the live manifest from ${origin} (${reason}) — ` +
+        `refusing to proceed. A version-retirement pass must never run without confirming, at run time, what the ` +
+        `manifest currently names as live; failing OPEN here would risk deleting the live generation.`
+    );
+    this.name = "LiveManifestFetchError";
+  }
+}
+
 export class EnumerationOutOfBoundsError extends Error {
   constructor(observedCount: number, bounds: { readonly min: number; readonly max: number }) {
     super(
@@ -125,6 +187,60 @@ export class KeySegmentMismatchError extends Error {
 export function assertKeySegment(key: string, retiredId: string): void {
   if (!key.includes(`${retiredId}@`)) {
     throw new KeySegmentMismatchError(key, retiredId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// assertVersionNotCurrentlyLive — the version-retirement mode's own guard
+// ---------------------------------------------------------------------------
+
+interface ManifestAlgorithmEntry {
+  readonly id?: unknown;
+  readonly version?: unknown;
+}
+
+interface ManifestBody {
+  readonly algorithms?: unknown;
+}
+
+/**
+ * Fetches `v1/manifest/algorithms.json` from `origin` — the PUBLIC ORIGIN, at RUN TIME, never a
+ * CLI argument, a local constant, or a version file on disk — and throws `RefusedLiveVersionError`
+ * if it currently names `{algorithmId}@{version}` as the published pair. Any failure to fetch or
+ * parse the manifest throws `LiveManifestFetchError` and refuses — fail CLOSED, never proceed on
+ * the assumption that nothing is live. This is the mechanism that makes version-retirement mode
+ * STRICTER than `enumerateRetiredKeys`'s id-level refusal, not looser: retiring a version of a
+ * still-live algorithm is more dangerous than retiring a dead algorithm, because a mistake here
+ * deletes what the site is serving right now.
+ */
+export async function assertVersionNotCurrentlyLive(origin: string, algorithmId: string, version: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${origin}/${ALGORITHMS_MANIFEST_KEY}`, { cache: "no-store" });
+  } catch (err) {
+    throw new LiveManifestFetchError(origin, err instanceof Error ? err.message : String(err));
+  }
+  if (!res.ok) {
+    throw new LiveManifestFetchError(origin, `HTTP ${res.status}`);
+  }
+
+  let body: ManifestBody;
+  try {
+    body = (await res.json()) as ManifestBody;
+  } catch (err) {
+    throw new LiveManifestFetchError(origin, `invalid JSON — ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!Array.isArray(body.algorithms)) {
+    throw new LiveManifestFetchError(origin, 'manifest body does not carry an "algorithms" array');
+  }
+
+  for (const entry of body.algorithms as ManifestAlgorithmEntry[]) {
+    if (typeof entry.id !== "string" || typeof entry.version !== "string") {
+      throw new LiveManifestFetchError(origin, `manifest entry missing string "id"/"version": ${JSON.stringify(entry)}`);
+    }
+    if (entry.id === algorithmId && entry.version === version) {
+      throw new RefusedLiveVersionError(algorithmId, version, entry.version);
+    }
   }
 }
 
@@ -162,23 +278,15 @@ export interface EnumerateRetiredKeysOptions {
 }
 
 /**
- * Builds the full retired-id key set over `seasons` × `versions`, in this
- * order (PD-04): refuse a live id, build the superset (`teams`/`events`
- * once per season, `event` once per event row INCLUDING offseason, `team`
- * once per (team, season) pair over the UNION of every match's roster and
- * every scheduled match's roster, offseason INCLUDED in both), assert every
- * key carries the retired segment, then check the total against the bounds.
- * Never enumerates the `compare` page kind (D-02's documented
- * algorithm-agnostic exception) or the manifest key.
+ * The shared superset construction both `enumerateRetiredKeys` and
+ * `enumerateSupersededVersionKeys` build from: `teams`/`events` once per season, `event` once per
+ * event row INCLUDING offseason, `team` once per (team, season) pair over the UNION of every
+ * match's roster and every scheduled match's roster, offseason INCLUDED in both. Never enumerates
+ * the `compare` page kind (D-02's documented algorithm-agnostic exception) or the manifest key.
+ * Carries NO refusal check of its own — every caller applies its own guard(s) before calling this,
+ * so this function alone must never be exported or invoked without one preceding it.
  */
-export function enumerateRetiredKeys(db: Corpus, options: EnumerateRetiredKeysOptions): string[] {
-  const { retiredId, versions, seasons } = options;
-  const bounds = options.bounds ?? RETIRED_KEY_COUNT_BOUNDS;
-
-  if ((PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(retiredId)) {
-    throw new RefusedLiveAlgorithmIdError(retiredId, PUBLISHED_ALGORITHM_IDS);
-  }
-
+function buildRetirementKeySuperset(db: Corpus, id: string, versions: readonly string[], seasons: readonly number[]): string[] {
   const keys: string[] = [];
   for (const season of seasons) {
     const eventKeysThisSeason = selectEventKeysForSeason(db, season);
@@ -188,16 +296,80 @@ export function enumerateRetiredKeys(db: Corpus, options: EnumerateRetiredKeysOp
     ]);
 
     for (const version of versions) {
-      keys.push(artifactKey({ page: "teams", year: season, algorithmId: retiredId, version }));
-      keys.push(artifactKey({ page: "events", year: season, algorithmId: retiredId, version }));
+      keys.push(artifactKey({ page: "teams", year: season, algorithmId: id, version }));
+      keys.push(artifactKey({ page: "events", year: season, algorithmId: id, version }));
       for (const eventKey of eventKeysThisSeason) {
-        keys.push(artifactKey({ page: "event", eventKey, algorithmId: retiredId, version }));
+        keys.push(artifactKey({ page: "event", eventKey, algorithmId: id, version }));
       }
       for (const teamKey of teamKeysThisSeason) {
-        keys.push(artifactKey({ page: "team", teamKey, year: season, algorithmId: retiredId, version }));
+        keys.push(artifactKey({ page: "team", teamKey, year: season, algorithmId: id, version }));
       }
     }
   }
+  return keys;
+}
+
+/**
+ * Builds the full retired-id key set over `seasons` × `versions`, in this
+ * order (PD-04): refuse a live id, build the superset (see
+ * `buildRetirementKeySuperset`), assert every key carries the retired
+ * segment, then check the total against the bounds.
+ */
+export function enumerateRetiredKeys(db: Corpus, options: EnumerateRetiredKeysOptions): string[] {
+  const { retiredId, versions, seasons } = options;
+  const bounds = options.bounds ?? RETIRED_KEY_COUNT_BOUNDS;
+
+  if ((PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(retiredId)) {
+    throw new RefusedLiveAlgorithmIdError(retiredId, PUBLISHED_ALGORITHM_IDS);
+  }
+
+  const keys = buildRetirementKeySuperset(db, retiredId, versions, seasons);
+
+  for (const key of keys) {
+    assertKeySegment(key, retiredId);
+  }
+
+  if (keys.length < bounds.min || keys.length > bounds.max) {
+    throw new EnumerationOutOfBoundsError(keys.length, bounds);
+  }
+
+  return keys;
+}
+
+// ---------------------------------------------------------------------------
+// enumerateSupersededVersionKeys — version-retirement mode (--supersedes-live)
+// ---------------------------------------------------------------------------
+
+export interface EnumerateSupersededVersionKeysOptions {
+  readonly retiredId: string;
+  readonly versions: readonly string[];
+  readonly seasons: readonly number[];
+  /** The public origin `assertVersionNotCurrentlyLive` fetches the live manifest from — never a bucket read, always the same origin the browser reads. */
+  readonly origin: string;
+  /** Test-only override of `RETIRED_KEY_COUNT_BOUNDS` — same rule as `EnumerateRetiredKeysOptions.bounds`. */
+  readonly bounds?: { readonly min: number; readonly max: number };
+}
+
+/**
+ * The version-retirement counterpart to `enumerateRetiredKeys`. Deliberately never runs
+ * `RefusedLiveAlgorithmIdError`'s id-level check — a live algorithm id is exactly what this mode
+ * expects — and instead awaits `assertVersionNotCurrentlyLive` for every requested version before
+ * building anything, fetching the live manifest fresh on every call. Refuses (fail-closed) on a
+ * manifest fetch/parse failure, and refuses (fail-closed on the data itself) if the manifest
+ * currently names any `{retiredId}@{version}` pair as live. Every other guard is unchanged:
+ * `assertKeySegment` over every enumerated key and `RETIRED_KEY_COUNT_BOUNDS` (unwidened — this
+ * mode is invoked once per algorithm id, exactly like `enumerateRetiredKeys`, so the existing
+ * per-algorithm band stays meaningful).
+ */
+export async function enumerateSupersededVersionKeys(db: Corpus, options: EnumerateSupersededVersionKeysOptions): Promise<string[]> {
+  const { retiredId, versions, seasons, origin } = options;
+  const bounds = options.bounds ?? RETIRED_KEY_COUNT_BOUNDS;
+
+  for (const version of versions) {
+    await assertVersionNotCurrentlyLive(origin, retiredId, version);
+  }
+
+  const keys = buildRetirementKeySuperset(db, retiredId, versions, seasons);
 
   for (const key of keys) {
     assertKeySegment(key, retiredId);
@@ -352,6 +524,13 @@ async function deleteKeys(bucket: string, keys: readonly string[], concurrency: 
 // ---------------------------------------------------------------------------
 
 async function runProbe(options: { bucket: string; retiredId: string; version: string; origin: string }): Promise<void> {
+  // 07-SECURITY.md Observation 1: this guard was previously applied only in enumerateRetiredKeys,
+  // not here — `--probe --retired-id <live-id>` could PUT-then-DELETE under a live algorithm id.
+  // Applying the same id-level refusal here makes the guard uniform across both entry points.
+  if ((PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(options.retiredId)) {
+    throw new RefusedLiveAlgorithmIdError(options.retiredId, PUBLISHED_ALGORITHM_IDS);
+  }
+
   const key = `v1/event/${PROBE_EVENT_KEY}/${options.retiredId}@${options.version}.json`;
   assertKeySegment(key, options.retiredId);
 
@@ -403,6 +582,15 @@ export interface CliOptions {
   readonly probe: boolean;
   readonly concurrency: number;
   readonly bucket: string;
+  /**
+   * Switches into version-retirement mode (`enumerateSupersededVersionKeys`, never
+   * `enumerateRetiredKeys`): `--retired-id` is expected to be a currently-live algorithm id, and
+   * the id-level `RefusedLiveAlgorithmIdError` check is skipped in favor of the stricter,
+   * run-time-manifest-backed `assertVersionNotCurrentlyLive` check applied to every `--version`
+   * value. Defaults to `false` — every existing invocation that never passes this flag keeps
+   * running the original id-level-refusal path unchanged.
+   */
+  readonly supersedesLive: boolean;
 }
 
 /**
@@ -416,6 +604,9 @@ export interface CliOptions {
  * remain accepted and still mean "delete nothing" (now redundant with omitting `--execute`, but kept
  * for backwards compatibility with every existing caller — `docs/publish-budget.md`, prior plan/summary
  * invocations — that already passes `--dry-run` expecting that exact behavior).
+ *
+ * `--supersedes-live` (no default, `false`) opts into version-retirement mode — see `CliOptions`'s
+ * own doc comment.
  */
 export function parseCliOptions(argv: readonly string[]): CliOptions {
   const { values } = parseArgs({
@@ -431,6 +622,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
       probe: { type: "boolean" },
       concurrency: { type: "string" },
       bucket: { type: "string" },
+      "supersedes-live": { type: "boolean" },
     },
   });
 
@@ -453,6 +645,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
     probe: values.probe === true,
     concurrency: values.concurrency !== undefined ? Number.parseInt(values.concurrency, 10) : 16,
     bucket: values.bucket ?? DEFAULT_BUCKET,
+    supersedesLive: values["supersedes-live"] === true,
   };
 }
 
@@ -483,12 +676,15 @@ async function runDeletePass(options: {
   concurrency: number;
   bucket: string;
   origin: string;
+  supersedesLive: boolean;
 }): Promise<void> {
   const seasons = parseSeasonsRange(options.seasonsSpec);
   const db = openCorpusReadOnly(CORPUS_PATH);
   let keys: string[];
   try {
-    keys = enumerateRetiredKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons });
+    keys = options.supersedesLive
+      ? await enumerateSupersededVersionKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons, origin: options.origin })
+      : enumerateRetiredKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons });
   } finally {
     db.close();
   }
@@ -552,6 +748,7 @@ async function main(): Promise<void> {
     concurrency: options.concurrency,
     bucket: options.bucket,
     origin: DEFAULT_ARTIFACT_ORIGIN,
+    supersedesLive: options.supersedesLive,
   });
 }
 
