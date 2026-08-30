@@ -229,7 +229,13 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
           params={{ teamNumber: String(info.row.original.teamNumber) }}
           search={{ year: season, algorithm, tab: "overview" }}
           title={info.getValue()}
-          className="block max-w-full"
+          // `truncate`, not just `block max-w-full` — see
+          // `InsightsTab.tsx`'s identical anchor for the full mechanism:
+          // the cell's own ellipsis only fires on ITS OWN overflowing
+          // content, and this anchor's box already fills the cell exactly,
+          // so the cell never sees an overflow. The anchor's own text was
+          // the thing overflowing and getting hard-clipped mid-character.
+          className="block max-w-full truncate"
         >
           {info.getValue()}
         </Link>

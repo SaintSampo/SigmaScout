@@ -228,6 +228,76 @@ test.describe("G-3 layout quality — pinned width bound (all three tables)", ()
  * class of bug G-3's own header comment describes 122 prior e2e assertions
  * not catching.
  */
+/**
+ * Post-G-2 follow-up: G-2 part 2's `NICKNAME_COLUMN_WIDTH_NARROW_PX = 90`
+ * narrowing exposed a PRE-EXISTING truncation defect (latent at the old
+ * 220px width, where most nicknames fit) — nickname cells hard-clip
+ * mid-character instead of showing an ellipsis. Diagnosed live at 390px on
+ * the deployed site: `"The Bucks' Wrath"` rendered as `"The Bucks' \""`,
+ * `"Robowranglers"` as `"Robowrangle"`, `"Steel Falcons"` as `"Steel
+ * Falcon"` — no `…` in any of them.
+ *
+ * Root cause, measured in the browser: the CELL (`<td>`) carries
+ * `overflow:hidden`/`text-overflow:ellipsis`, but the element that actually
+ * overflows is the INNER anchor (`display:block`, `white-space:nowrap` via
+ * inheritance, `overflow:visible`, `text-overflow:clip`). `text-overflow:
+ * ellipsis` only ever applies to the element that is itself clipping its
+ * own overflowing content — the cell's declaration has nothing to attach to
+ * because the anchor's own box already fills the cell's content width
+ * exactly (no box-level overflow the cell can see), so the cell hard-clips
+ * the anchor's overflowing PAINTED text at the pixel level with no ellipsis
+ * glyph. The fix moves `truncate` (Tailwind's `overflow:hidden;
+ * text-overflow:ellipsis; white-space:nowrap`) onto the anchor itself.
+ *
+ * This can't be asserted by reading the anchor's `textContent`/`innerText`:
+ * `text-overflow: ellipsis` is a paint-time effect that never mutates the
+ * DOM text, so both the pre-fix hard-clip and the post-fix ellipsis report
+ * the identical full string via `innerText`. The only way to distinguish
+ * "this box truncates its own overflow with an ellipsis" from "this box
+ * paints past its own edges and relies on an ancestor to hard-clip it" is
+ * to read the actually-overflowing element's OWN computed `overflow-x`/
+ * `text-overflow` — which is exactly the root-cause mechanism above, read
+ * live from the rendered page rather than assumed from source.
+ */
+test.describe("nickname ellipsis — overflowing nickname text truncates with an ellipsis, not a hard mid-character clip", () => {
+  /** Real Insights (2023cur) roster rows independently confirmed (07-UAT.md's own prior Playwright snapshot) to overflow the 90px narrow nickname column and, pre-fix, exhibit the reported hard-clip defect. */
+  const OVERFLOWING_NICKNAME_CASES: { teamNumber: number; nickname: string }[] = [
+    { teamNumber: 6329, nickname: "The Bucks' Wrath" },
+    { teamNumber: 3310, nickname: "Black Hawk Robotics" },
+    { teamNumber: 148, nickname: "Robowranglers" },
+  ];
+
+  test("Insights (2023cur): the actually-overflowing element (the nickname cell's inner link) clips its OWN content with an ellipsis", async ({ page }) => {
+    const spec = TABLES[0]!; // Insights
+    await gotoTable(page, spec);
+
+    for (const { teamNumber, nickname } of OVERFLOWING_NICKNAME_CASES) {
+      const row = page.locator(`[data-testid="${spec.rowTestId}"][data-team-number="${teamNumber}"]`);
+      const link = row.getByTestId(`${spec.cellPrefix}-nickname`).locator("a");
+
+      const measured = await link.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, overflowX: style.overflowX, textOverflow: style.textOverflow };
+      });
+
+      expect(
+        measured.scrollWidth,
+        `team ${teamNumber} ("${nickname}") link scrollWidth=${measured.scrollWidth} clientWidth=${measured.clientWidth} — this nickname is expected to overflow the 90px narrow nickname column; if it now fits, this case no longer exercises the defect and should be swapped for a longer nickname`,
+      ).toBeGreaterThan(measured.clientWidth);
+
+      expect(
+        measured.overflowX,
+        `team ${teamNumber} ("${nickname}") link overflow-x is "${measured.overflowX}" — the element that ACTUALLY overflows (the inner <a>, not just its ancestor <td>) must itself clip its own content, or the cell's ellipsis declaration never fires. This is the exact defect diagnosed live at 390px: the <td> declares text-overflow:ellipsis but the <a> that actually overflows had overflow:visible, producing a hard mid-character clip with no "…" glyph (e.g. "The Bucks' Wrath" rendering as "The Bucks' \\"")`,
+      ).not.toBe("visible");
+
+      expect(
+        measured.textOverflow,
+        `team ${teamNumber} ("${nickname}") link text-overflow is "${measured.textOverflow}", not "ellipsis" — without text-overflow:ellipsis on the element that actually overflows, the browser hard-clips mid-character instead of showing "…"`,
+      ).toBe("ellipsis");
+    }
+  });
+});
+
 test.describe("G-2 part 2 — at least one full data column visible at scroll 0 (no scrolling)", () => {
   for (const spec of TABLES) {
     test(`${spec.name}: at least one non-pinned, non-nickname column is fully visible inside the scroll region at scroll 0`, async ({ page }) => {

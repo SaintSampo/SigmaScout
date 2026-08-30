@@ -265,7 +265,21 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
           params={{ teamNumber: String(info.row.original.teamNumber) }}
           search={{ year: season, algorithm, tab: "overview" }}
           title={info.getValue()}
-          className="block max-w-full"
+          // `truncate` (not just `block max-w-full`): the CELL's own
+          // `overflow:hidden`/`text-overflow:ellipsis` (`cellClassName`
+          // below) only ever applies to content that overflows the CELL
+          // itself. This anchor's box already fills the cell's content
+          // width exactly (block, auto width) — nothing overflows the
+          // anchor's OWN box at the box-model level, so the cell never sees
+          // an overflow to ellipsize. What actually overflows is the
+          // anchor's inline text content spilling past its own border box
+          // (`white-space:nowrap` + no `overflow`/`text-overflow` of its
+          // own), which the cell then hard-clips at the pixel level with no
+          // ellipsis glyph at all — measured live at 390px on real
+          // nicknames ("The Bucks' Wrath" rendered as "The Bucks' \"", cut
+          // mid-character). `truncate` must sit on the element that is
+          // itself the overflowing box, not merely its ancestor.
+          className="block max-w-full truncate"
         >
           {info.getValue()}
         </Link>
