@@ -95,7 +95,16 @@ export function Ribbon() {
 
   if (isMobile) {
     return (
-      <header className="shadow-sm w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+      // G-12 (07-UAT.md): `overflow-x-hidden` alone forces `overflow-y`'s
+      // USED value to `auto` per the CSS Overflow spec — this header
+      // silently became a Y-axis scroll container, so SearchBox's
+      // absolutely-positioned results list was clipped to (and scrolled
+      // within) the header instead of overlaying the page below it.
+      // `overflow-x-clip` clips the X axis WITHOUT forcing a scroll
+      // container on Y, so the dropdown escapes normally. Still blocks
+      // horizontal overflow exactly as `hidden` did — `no-page-pan.spec.ts`
+      // (the property this token exists to guard) is unaffected.
+      <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
         <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
@@ -115,7 +124,10 @@ export function Ribbon() {
   }
 
   return (
-    <header className="shadow-sm w-full max-w-full overflow-x-hidden bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+    // Same G-12 fix as the mobile branch above — `overflow-x-clip` in place
+    // of `overflow-x-hidden` (never authored `overflow-y`, so the used value
+    // was silently forced to `auto`).
+    <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
       <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
         {wordmark}
         <NavLinks />

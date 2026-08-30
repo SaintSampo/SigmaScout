@@ -20,8 +20,19 @@ import { Ribbon } from "../components/ribbon/Ribbon.js";
  * this plan's SUMMARY.md).
  */
 function RootLayout() {
+  // G-12 (07-UAT.md): same latent trap as `Ribbon.tsx`'s header —
+  // `overflow-x-hidden` with no authored `overflow-y` forces the Y axis's
+  // USED value to `auto` per the CSS Overflow spec, silently turning this
+  // element into a scroll container the instant its content is ever exactly
+  // as tall as the viewport (today `min-h-screen` keeps it taller, so it has
+  // never fired here, but that is incidental to page content length, not a
+  // property this element guarantees). `overflow-x-clip` clips horizontal
+  // overflow identically without that risk. Changed proactively for the same
+  // reason this rule already produced two real bugs in this codebase this
+  // phase (this gap, and a `assertNoIntermediateScroller` false positive on
+  // this exact div) — the fix costs nothing and removes the trap at its root.
   return (
-    <div className="min-h-screen overflow-x-hidden">
+    <div className="min-h-screen overflow-x-clip">
       <Ribbon />
       <Outlet />
     </div>
