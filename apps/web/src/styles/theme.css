@@ -103,6 +103,31 @@
   --tier-legendary-fg: #B45309;
 
   /*
+   * Compare page calibration-chart series colours (08-10, sketch 006 winner
+   * C) — the OPR/EPA/VPR reliability-diagram line colours. This is sketch
+   * 006's own validated trio, used verbatim, never re-derived. Run through
+   * the dataviz skill's `validate_palette.js` as a categorical palette under
+   * `--pairs all` against these exact shipped values, the trio alone passes
+   * every check on both the page background and the section-card surface —
+   * worst all-pairs separation comfortably above both the CVD and the
+   * normal-vision floors.
+   *
+   * Run a second time against these three values PLUS the three
+   * `--tier-*-fg` tokens above, `--compare-algo-epa` measures
+   * indistinguishable from `--tier-epic-fg` under both simulated and normal
+   * colour vision. Neither value may move to resolve that — the trio is
+   * locked by sketch 006's own CVD-validated result and the tier palette is
+   * locked by `colour-and-tiers.md`'s own "do not fix this" warning — so the
+   * two colour systems are instead kept off one rendered surface, enforced
+   * by `apps/web/src/components/compare/comparePalette.test.ts` rather than
+   * left to memory. See that file's own header comment for the measured
+   * figures this paragraph deliberately omits.
+   */
+  --compare-algo-opr: #EA580C;
+  --compare-algo-epa: #7C3AED;
+  --compare-algo-vpr: #0D9488;
+
+  /*
    * Rank-distribution plot cell marks (08-04, UI-SPEC's Color section,
    * D-05) — the Simulation tab's per-team histogram bar, 10th-90th
    * percentile band overlay, and median tick. All three derive from
@@ -545,6 +570,28 @@ body {
   border-color: var(--color-border);
   color: var(--color-border);
   background-color: transparent;
+}
+
+/*
+ * Compare page calibration-chart series colour utility classes (08-10) —
+ * consumed here for the same reason the `.sim-*` block below states: Tailwind
+ * v4 only reliably keeps a custom property in the built stylesheet when
+ * something in THIS file consumes it, independent of whether any component
+ * ever applies the generated class (`--sim-hist-bar` above is retained today
+ * by the exact same mechanism, ahead of the Simulation tab component that
+ * will use it). `CalibrationChart.tsx` (08-10) applies these classes to its
+ * `<Line>` strokes, its dot fills and its size-key swatches — never a raw
+ * `var(--compare-algo-*)` string typed directly into a component, so the
+ * token can never silently be pruned out from under a real render.
+ */
+.compare-algo-opr {
+  color: var(--compare-algo-opr);
+}
+.compare-algo-epa {
+  color: var(--compare-algo-epa);
+}
+.compare-algo-vpr {
+  color: var(--compare-algo-vpr);
 }
 
 /*
