@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-08-31T17:52:00.710Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-08-31T18:10:32.092Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 85
+  completed_plans: 86
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 2 of 15
+Plan: 3 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -120,6 +120,7 @@ Progress: [█████████░] 86%
 | Phase 07 P19 | ~50min (continuation) + predecessor sessions | 4 tasks | 12 files |
 | Phase 07 P20 | ~4h | 3 tasks | 9 files |
 | Phase 08 P01 | 15min | 3 tasks | 13 files |
+| Phase 08 P02 | 15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -280,6 +281,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P20]: Phase 07 (event-pages) is now fully complete -- 20/20 plans, all seven UI-SPEC backstop rows and five non-UI-SPEC backstop markers have evidence (10 automated, 2 carried to 07-UAT.md for /gsd-verify-work 7 pending physical hardware)
 - [Phase ?]: [Quick 260830-p6s]: Local Playwright render loop closes G-06-2 -- Vite server/preview proxies /v1 to https://data.sigmascout.org (same-origin, no CORS change needed), new local-desktop/local-phone-390 projects cover all 12 layout/visual specs at the width(s) where each spec's own premise holds; deployed-origin projects/use.baseURL untouched. First real desktop-width run of no-page-pan.spec.ts found one HARNESS-class premise mismatch (fixed via grepInvert, not a spec edit) -- no layout defects found or fixed by this task
 - [Phase ?]: 08-01: Compare page tracer + AccuracyTable — five real published v1/compare/{year}.json artifacts committed as fixtures, D-08-complete accuracy table shipped, D-10 parity proof (15 parameterized cases) landed; ErrorState.year made optional
+- [Phase ?]: [Phase 08 P02]: EventMatchSchema converted to a refine-chained schema (PD-01), gaining redRpPmf/blueRpPmf (D-03) and actualRedRp/actualBlueRp (D-12) on played event-match rows -- both filled by buildEventArtifact from the prediction/match already in scope, ungated on competition level (PD-02, proven by a new cross-builder equivalence test against buildTeamSeasonArtifact); zero published bytes moved, the single republish is 08-05's alone
 
 ### Pending Todos
 
@@ -327,6 +329,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T17:52:00.650Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-08-31T18:10:32.030Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
