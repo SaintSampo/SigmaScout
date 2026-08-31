@@ -259,7 +259,12 @@ export default defineConfig({
       // touch-action-vertical-scroll / touch-scroll (all drive real touch
       // drags via `touchDrag`, which needs `hasTouch` — this plain-chromium
       // project has no device descriptor and so no `hasTouch: true`).
-      testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts/,
+      // Widened by 08-13-PLAN.md Task 3: simulation-run.spec.ts needs this
+      // project's local origin `/v1` proxy to reach real published artifact
+      // bytes for SC-2's representative measurement — the same "matches no
+      // project's testMatch" failure mode this file's comment history
+      // already records five times above.
+      testMatch: /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|simulation-run\.spec\.ts/,
       // HARNESS finding, first local-desktop run (260830-p6s Task 3):
       // no-page-pan.spec.ts's "each of the team page's per-section scrollers
       // is individually wider than its own viewport" test carries its OWN
