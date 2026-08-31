@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-05-PLAN.md (republish + widened probe)
-last_updated: "2026-08-31T19:52:25.189Z"
+stopped_at: Completed 08-06-PLAN.md
+last_updated: "2026-08-31T20:45:44.080Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 89
+  completed_plans: 90
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 6 of 15
+Plan: 7 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -124,6 +124,7 @@ Progress: [█████████░] 90%
 | Phase 08 P03 | 35min | 3 tasks | 3 files |
 | Phase 08 P04 | ~15min | 3 tasks | 5 files |
 | Phase 08 P05 | 24min | 3 tasks | 3 files |
+| Phase 08 P06 | 17min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -291,6 +292,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P04]: rankBandExtent clamps each raw band edge into [0, PLOT_W] independently before computing width (rather than clamping a pre-computed span), which is what makes left>=0 and left+width<=PLOT_W hold unconditionally, proven against the two-team 235px-per-side overflow case and the degenerate one-team roster, not just the three measured real events
 - [Phase ?]: 08-05: User checkpoint widened the pre-flight byte probe from 2 to 18 events before republishing; 2024gal confirmed as max both before (327,172B) and after (342,405B, 2.17% margin under 350,000)
 - [Phase ?]: 08-05: pmf array length is season-dependent (5 for 2022-2024's two RP bonuses, 7 for 2025-2026's three), corrected from the plan's own 'always length 7' claim; a degenerate length-1 pmf also lands on every playoff row at an RP-eligible event
+- [Phase ?]: compareTie.ts's two leader resolvers share one private resolveLeaderPair skeleton so D-11's Brier and Winner Accuracy tie rules cannot silently drift apart
+- [Phase ?]: CompLevelSwitcher renders unconditionally above every compare.tsx state branch (404/error/pending/populated), matching the page title's own always-rendered rule -- required narrowing one pre-existing 08-01 test assertion
+- [Phase ?]: MethodologyNote's figures stay pinned to the combined view even though AccuracyTable follows the switcher (Decision 5) -- re-slicing to elimination would falsify the note's own best-season clause against the committed data
 
 ### Pending Todos
 
@@ -338,6 +342,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T19:52:25.160Z
-Stopped at: Completed 08-05-PLAN.md (republish + widened probe)
+Last session: 2026-08-31T20:45:44.042Z
+Stopped at: Completed 08-06-PLAN.md
 Resume file: None
