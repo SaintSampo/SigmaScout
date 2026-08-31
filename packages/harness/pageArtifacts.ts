@@ -377,6 +377,35 @@ const EventMatchSchema = z
     actualWinner: z.enum(["red", "blue", "tie"]),
     actualRedScore: z.number(),
     actualBlueScore: z.number(),
+    /**
+     * D-12, plan 08-02 Task 2: this alliance's actual bonus ranking points
+     * for this match — the same quantity under the same name that
+     * `TeamSeasonMatchSchema.actualRedRp` has carried since Phase 6 (see that
+     * field's doc comment for the full provenance through the ingest's
+     * ranking-point extraction, not restated here). Three published states,
+     * none conflated: the key **absent** entirely means this artifact
+     * predates the field; an explicit **`null`** means the fact is not
+     * derivable from the available data; a present **integer**, including a
+     * real `0`, is TBA's own reported bonus RP for that alliance. `null` is
+     * never coerced to `0` — a coerced zero would be a positive claim that
+     * an alliance earned no ranking points, and D-12's summed fallback then
+     * sums exactly these values into a team's already-earned baseline on the
+     * events where TBA's own Ranking Score is absent, which are precisely
+     * the events where the data is weakest. It is an integer count published
+     * unrounded, with no `ROUNDING_RULE` entry. It is explicitly NOT the
+     * same quantity as `EventTeamSchema.rp`, which is TBA's Ranking Score, a
+     * per-match AVERAGE, a real number, rounded at its own
+     * `ROUNDING_RULE.rankingPoints` — the two share three letters and
+     * nothing else, and D-12's precedence rule reads one when the other is
+     * absent, so a reader who conflates them will implement the wrong
+     * fallback. D-12's summed fallback (owned by 08-11) consumes this field
+     * across a team's played qualification rows only when `EventTeamSchema
+     * .rp` is absent, with a `null` contributing nothing to that sum while
+     * marking the team's baseline as known-incomplete.
+     */
+    actualRedRp: z.number().int().nullable().optional(),
+    /** D-12, plan 08-02 Task 2: the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full three-state contract. */
+    actualBlueRp: z.number().int().nullable().optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
     message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",

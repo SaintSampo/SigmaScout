@@ -555,6 +555,60 @@ describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, pla
 });
 
 /**
+ * Plan 08-02 Task 2 (D-12): `buildEventArtifact`'s `matches` row builder
+ * gains `actualRedRp`/`actualBlueRp`, mirroring `buildTeamSeasonArtifact`'s
+ * played branch exactly through the existing `toIntegerRpOrNull` guard —
+ * direct assignment, never a conditional spread and never a nullish-
+ * coalescing default (PD-04).
+ */
+describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-12, plan 08-02 Task 2)", () => {
+  it("Test 7: the builder publishes both, including a real zero, derived from fixtureMatch's own redRpEarned/blueRpEarned", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    expect(artifact.matches[0]?.actualRedRp).toBe(fixtureMatch().redRpEarned);
+    expect(artifact.matches[0]?.actualBlueRp).toBe(0);
+  });
+
+  it("Test 8 (ledger #14 regression): a non-integer corpus value degrades to null rather than aborting the build", () => {
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [{ match: fixtureMatch({ redRpEarned: 32.5, blueRpEarned: 7.5 }), prediction: fixturePrediction() }],
+    });
+    expect(artifact.matches[0]?.actualRedRp).toBeNull();
+    expect(artifact.matches[0]?.actualBlueRp).toBeNull();
+  });
+
+  it("Test 9: a null source value publishes as null, never as 0", () => {
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [{ match: fixtureMatch({ redRpEarned: null }), prediction: fixturePrediction() }],
+    });
+    expect(artifact.matches[0]?.actualRedRp).toBeNull();
+    expect(artifact.matches[0]?.actualRedRp).not.toBe(0);
+  });
+
+  it("Test 10: both keys are present on every played row after a JSON round trip, even when one is null", () => {
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [{ match: fixtureMatch({ redRpEarned: null }), prediction: fixturePrediction() }],
+    });
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    expect(roundTripped.matches[0]).toHaveProperty("actualRedRp");
+    expect(roundTripped.matches[0]).toHaveProperty("actualBlueRp");
+  });
+
+  it("Test 11: a playoff row carries the pair too — elimination matches award no bonus RP, so a real zero from TBA is the honest published value, not an omission", () => {
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [
+        { match: fixtureMatch({ matchKey: "2026casj_sf1m1", compLevel: "sf", redRpEarned: 0, blueRpEarned: 0 }), prediction: fixturePrediction() },
+      ],
+    });
+    expect(artifact.matches[0]?.actualRedRp).toBe(0);
+    expect(artifact.matches[0]?.actualBlueRp).toBe(0);
+  });
+});
+
+/**
  * Plan 07-08 Task 1, Tests 7-8: the seeded-corpus `publishSeasons` harness,
  * proving the variance/sortTime seam and the folded playoff bonus-RP
  * criterion against REAL published JSON bytes rather than in-memory

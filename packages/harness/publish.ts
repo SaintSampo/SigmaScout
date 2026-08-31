@@ -550,6 +550,20 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
+    // D-12, plan 08-02 Task 2: the same quantity and the same guard as
+    // `buildTeamSeasonArtifact`'s own pair (see it rather than this comment
+    // restating it) — routed through `toIntegerRpOrNull` rather than a raw
+    // read, because ledger #14 records 30 non-integer ranking-point rows at
+    // 2024orbb/2025orbb that would otherwise throw the schema's `.int()`
+    // assertion and abort 08-05's 23-to-25-minute republish. Direct
+    // assignment, never a conditional spread and never a nullish-coalescing
+    // default (PD-04): every row here is a played match by construction, so
+    // both keys are always present, which is what lets 08-11 tell a
+    // pre-republish artifact from a not-derivable value. A `null` is never
+    // turned into a `0` here, because a `0` is a positive claim about a
+    // team's standing that D-12's fallback then sums.
+    actualRedRp: toIntegerRpOrNull(match.redRpEarned),
+    actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
   }));
 
   const upcoming = (params.upcoming ?? []).map(({ match, prediction }) => ({

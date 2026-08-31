@@ -668,6 +668,42 @@ describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", ()
   });
 });
 
+describe("EventMatchSchema — actualRedRp/actualBlueRp (D-12, plan 08-02 Task 2)", () => {
+  it("Test 1 — round trip: a real integer and a real zero both read back exactly", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { actualRedRp: 5, actualBlueRp: 0 } }));
+    expect(parsed.matches[0]!.actualRedRp).toBe(5);
+    expect(parsed.matches[0]!.actualBlueRp).toBe(0);
+  });
+
+  it("Test 2 — null is representable and survives, distinguishable from a real 0", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { actualRedRp: null, actualBlueRp: 0 } }));
+    expect(parsed.matches[0]!.actualRedRp).toBeNull();
+    expect(parsed.matches[0]!.actualRedRp).not.toBe(0);
+    expect(parsed.matches[0]!.actualBlueRp).toBe(0);
+  });
+
+  it("Test 3 — absence is a third state, distinguishable from both a real 0 and an explicit null", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.matches[0]!.actualRedRp).toBeUndefined();
+    expect(parsed.matches[0]!.actualBlueRp).toBeUndefined();
+  });
+
+  it("Test 4 — integrality is enforced: a non-integer actualRedRp is rejected", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { actualRedRp: 2.5 } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 5 — the two fields are independently optional", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { actualRedRp: 3 } }));
+    expect(parsed.matches[0]!.actualRedRp).toBe(3);
+    expect(parsed.matches[0]!.actualBlueRp).toBeUndefined();
+  });
+
+  it("Test 6 — backward compatibility holds a second time: the unmodified fixture still parses", () => {
+    expect(() => EventArtifactSchema.parse(validEventFixture())).not.toThrow();
+  });
+});
+
 describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-07 Task 2)", () => {
   it("Test 1 — the D-08 no-ranking case: a team row carrying none of the three parses, all three read back undefined", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254" } }));
