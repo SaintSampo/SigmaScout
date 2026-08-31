@@ -4,6 +4,9 @@ import {
   SIMULATION_DRAWS,
   PROGRESS_CHUNK_DRAWS,
   DEFAULT_SIMULATION_SEED,
+  MAX_SIMULATION_DRAWS,
+  MAX_SIMULATION_MATCHES,
+  INVALID_REQUEST_ERROR_NAME,
   runSimulationJob,
 } from "./simulationProtocol.js";
 import type { SimulationRequest, SimulationOutboundMessage, SimulationResultMessage } from "./simulationProtocol.js";
@@ -298,6 +301,84 @@ describe("simulationProtocol — Task 2: the Vite seam, constructed through crea
       expect(instance!.options?.type).toBe("module");
     } finally {
       handle.restore();
+    }
+  });
+});
+
+describe("simulationProtocol — Task 3: input validation and error translation, asserted rather than assumed", () => {
+  it("P7: a non-conforming payload yields exactly one INVALID_REQUEST_ERROR_NAME error, no progress, no result, and no throw escapes runSimulationJob", () => {
+    const badPayloads: unknown[] = [null, "not a request", { type: "nope" }];
+    for (const payload of badPayloads) {
+      const emitted: SimulationOutboundMessage[] = [];
+      expect(() => runSimulationJob(payload, (m) => emitted.push(m))).not.toThrow();
+      expect(emitted.length).toBe(1);
+      const only = emitted[0];
+      expect(only?.type).toBe("error");
+      if (only?.type === "error") {
+        expect(only.name).toBe(INVALID_REQUEST_ERROR_NAME);
+      }
+    }
+  });
+
+  it("P8: a throw from the core (an unknown team key) is translated into exactly one error message — no result, no progress after it, no stack field", () => {
+    const { matches, baselines } = buildFixture();
+    // Name a team in the first match's red alliance that is absent from
+    // baselines — 08-03's simulateRanks raises UnknownTeamKeyError for
+    // exactly this shape, rather than silently dropping the team from the
+    // accumulation and producing a plausible-but-wrong result.
+    const firstMatch = matches[0]!;
+    const brokenMatches: SimMatchInput[] = [
+      { ...firstMatch, redTeamKeys: ["frcUnknown", firstMatch.redTeamKeys[1]!, firstMatch.redTeamKeys[2]!] },
+      ...matches.slice(1),
+    ];
+    const request: SimulationRequest = {
+      type: "run",
+      matches: brokenMatches,
+      baselines,
+      draws: SIMULATION_DRAWS,
+      seed: DEFAULT_SIMULATION_SEED,
+    };
+    const emitted: SimulationOutboundMessage[] = [];
+    runSimulationJob(request, (m) => emitted.push(m));
+
+    expect(emitted.length).toBe(1);
+    const only = emitted[0];
+    expect(only?.type).toBe("error");
+    if (only?.type === "error") {
+      // Asserted against the landed name (08-03's rankSimulation.ts), not
+      // this plan's guess — recorded in the SUMMARY per the plan's
+      // instruction if it ever differs.
+      expect(only.name).toBe("UnknownTeamKeyError");
+      expect(only.message).toContain("frcUnknown");
+      expect(only as unknown as Record<string, unknown>).not.toHaveProperty("stack");
+    }
+  });
+
+  it("P9: bounds are enforced before any draw runs — zero progress messages for four out-of-bounds requests, proving rejection happens before the loop, not during it", () => {
+    const { matches, baselines } = buildFixture();
+    const base = { type: "run" as const, matches, baselines, seed: DEFAULT_SIMULATION_SEED };
+    const oversizedMatches = Array.from({ length: MAX_SIMULATION_MATCHES + 1 }, () => matches[0]!);
+    const badRequests: unknown[] = [
+      { ...base, draws: 0 },
+      { ...base, draws: 1.5 },
+      { ...base, draws: MAX_SIMULATION_DRAWS + 1 },
+      { ...base, matches: oversizedMatches, draws: SIMULATION_DRAWS },
+    ];
+
+    for (const request of badRequests) {
+      const emitted: SimulationOutboundMessage[] = [];
+      runSimulationJob(request, (m) => emitted.push(m));
+      const progressCount = emitted.filter((m) => m.type === "progress").length;
+      // The assertion that matters: ZERO progress messages, which is what
+      // proves the rejection happened before the draw loop rather than
+      // partway through it.
+      expect(progressCount).toBe(0);
+      expect(emitted.length).toBe(1);
+      const only = emitted[0];
+      expect(only?.type).toBe("error");
+      if (only?.type === "error") {
+        expect(only.name).toBe(INVALID_REQUEST_ERROR_NAME);
+      }
     }
   });
 });

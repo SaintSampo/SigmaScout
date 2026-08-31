@@ -30,6 +30,16 @@ export type MockWorkerScript = (message: unknown, ctx: { post(message: unknown):
 export interface MockWorkerOptions {
   /** The job the installed mock `Worker` class runs on every `postMessage`. Omit to install a `Worker` that records traffic but never responds. */
   script?: MockWorkerScript;
+  /**
+   * When set, every `new Worker(...)` call while installed throws this
+   * error from the constructor, before any instance state exists — the
+   * construction half of UI-SPEC's S2 error state (an unsupported browser
+   * throws synchronously from `new Worker(...)`, which is exactly why
+   * `createSimulationWorker.ts`'s doc comment tells 08-13 to wrap
+   * construction in `try`/`catch`). Exists for 08-13's Error-state test and
+   * 08-15's forced-failure evidence — not unused test scaffolding.
+   */
+  failOnConstruct?: Error;
 }
 
 export interface MockWorkerHandle {
@@ -95,6 +105,15 @@ export class MockWorkerInstance {
    * inbound message is cloned and recorded immediately (matching a real
    * `postMessage` call's own synchronous clone-and-enqueue semantics), but
    * the installed `script` does not run until a later microtask.
+   *
+   * A throw from `script` is caught and dispatched to `onerror` — the
+   * mid-run half of UI-SPEC's S2 error state, and the shape 08-15's
+   * forced-failure evidence is built on. This double does not "catch and
+   * continue" the way `runSimulationJob`'s own `try`/`catch` translates a
+   * thrown error into one `error` message and stops: this is a SEPARATE
+   * boundary, modeling what happens if the worker SCRIPT ITSELF throws
+   * (e.g. a bug in the entry file, not a throw `runSimulationJob` already
+   * caught and translated).
    */
   postMessage(message: unknown): void {
     if (this.#terminated) return;
@@ -104,14 +123,22 @@ export class MockWorkerInstance {
     if (!script) return;
     queueMicrotask(() => {
       if (this.#terminated) return;
-      script(cloned, {
-        post: (outbound: unknown) => {
-          if (this.#terminated) return;
-          const clonedOutbound = cloneMessage(outbound);
-          this.posted.push(clonedOutbound);
-          this.onmessage?.({ data: clonedOutbound });
-        },
-      });
+      try {
+        script(cloned, {
+          post: (outbound: unknown) => {
+            if (this.#terminated) return;
+            const clonedOutbound = cloneMessage(outbound);
+            this.posted.push(clonedOutbound);
+            this.onmessage?.({ data: clonedOutbound });
+          },
+        });
+      } catch (error) {
+        if (this.#terminated) return;
+        this.onerror?.({
+          message: error instanceof Error ? error.message : String(error),
+          error,
+        });
+      }
     });
   }
 
@@ -141,6 +168,12 @@ export function installMockWorker(options: MockWorkerOptions = {}): MockWorkerHa
 
   class InstalledMockWorker extends MockWorkerInstance {
     constructor(url: string | URL, workerOptions?: WorkerOptions) {
+      if (options.failOnConstruct) {
+        // Legal to throw before `super()` as long as `this` is never
+        // referenced beforehand: no instance exists yet, matching a real
+        // unsupported browser's `new Worker(...)` throw.
+        throw options.failOnConstruct;
+      }
       super(url, workerOptions, options.script);
       instances.push(this);
     }
