@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   hasSimulatableRankInputs,
   SIMULATION_EMPTY_STATE_BODY,
@@ -19,6 +19,10 @@ import {
   START_MATCH_ROW_TESTID_PREFIX,
   rewindCaptionText,
 } from "./StartMatchPicker.js";
+import { RUN_ERROR_BODY, RUN_LABEL_IDLE, RUN_LABEL_RERUN, RUN_RETRY_LABEL } from "./RunControl.js";
+import { installMockWorker } from "../../test/mockWorker.js";
+import type { MockWorkerScript } from "../../test/mockWorker.js";
+import { runSimulationJob } from "../../workers/simulationProtocol.js";
 import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -348,6 +352,158 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
     });
     rerender(<SimulationTab artifact={artifact2} algorithmId="vpr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+  });
+});
+
+/**
+ * 08-13-PLAN.md Task 2's integration cases (I1-I7). Every test here installs
+ * its OWN `installMockWorker()` for the duration of the test and restores it
+ * before the test ends — `installMockWorker`'s temporary substitution of
+ * `globalThis.Worker` with `InstalledMockWorker` is a DIFFERENT class from
+ * the module-scope `SpyWorker` this file stubs at the top, so real
+ * construction through these tests never touches `workerConstructorSpy` —
+ * the final "08-11: still no Worker" block below still covers this file's
+ * cases (it runs LAST, in declaration order, and this describe block is
+ * declared before it).
+ */
+describe("08-13: the run control", () => {
+  it("I1: one press, one full round trip, one completion line — exactly one Worker constructed, exactly one request posted", async () => {
+    const realRunScript: MockWorkerScript = (message, ctx) => runSimulationJob(message, ctx.post);
+    const handle = installMockWorker({ script: realRunScript });
+    try {
+      const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+
+      fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+
+      await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
+      expect(handle.instances).toHaveLength(1);
+      expect(handle.instances[0]!.received).toHaveLength(1);
+      expect(screen.getByRole("button", { name: RUN_LABEL_RERUN })).toBeDefined();
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("I2: UI-SPEC S2, construction half — failOnConstruct renders the inline error + Retry, with no progressbar at any point", async () => {
+    const handle = installMockWorker({ failOnConstruct: new Error("no module workers here") });
+    try {
+      const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+
+      await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
+      expect(screen.getByRole("button", { name: RUN_RETRY_LABEL })).toBeDefined();
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("I3: UI-SPEC S2, mid-run half — a throwing script ends in the same rendered error state, and the rank-table position still shows the pre-run placeholder", async () => {
+    const throwingScript: MockWorkerScript = (_message, ctx) => {
+      ctx.post({ type: "progress", completedDraws: 1, totalDraws: 1000 });
+      throw new Error("simulated worker script crash");
+    };
+    const handle = installMockWorker({ script: throwingScript });
+    try {
+      const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+
+      await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
+      expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("I4: the picker goes inert during the run — a click on a different picker row does not change the selection", async () => {
+    const neverResolvingScript: MockWorkerScript = (_message, ctx) => {
+      ctx.post({ type: "progress", completedDraws: 50, totalDraws: 1000 });
+      // Never posts a result — the run stays "running" for the duration of this test.
+    };
+    const handle = installMockWorker({ script: neverResolvingScript });
+    try {
+      const artifact = baseArtifact({
+        upcoming: [
+          upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2, sortTime: 100 }),
+          upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm3", matchNumber: 3, sortTime: 200 }),
+        ],
+      });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+      expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
+
+      fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`));
+
+      expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+      expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`).getAttribute("data-selected")).toBeNull();
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("I5: the placeholder holds for the whole run — still rendered once progress has arrived and before the result lands", async () => {
+    const neverResolvingScript: MockWorkerScript = (_message, ctx) => {
+      ctx.post({ type: "progress", completedDraws: 50, totalDraws: 1000 });
+    };
+    const handle = installMockWorker({ script: neverResolvingScript });
+    try {
+      const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
+
+      expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("I6: pressing nothing constructs nothing — no Worker mock installed for this test, no error thrown, no progressbar", () => {
+    const callsBefore = workerConstructorSpy.mock.calls.length;
+    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+    expect(() => render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />)).not.toThrow();
+    expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined();
+    expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    // RESEARCH Pitfall 1's lazy-construction rule, enforced: rendering alone
+    // (picker present, Run button present, never clicked) constructs no
+    // Worker of any kind — not even through the module-scope spy.
+    expect(workerConstructorSpy.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("I7: changing the start match after a completed run clears the completion line in the same frame (PD-02, render-time comparison)", async () => {
+    const realRunScript: MockWorkerScript = (message, ctx) => runSimulationJob(message, ctx.post);
+    const handle = installMockWorker({ script: realRunScript });
+    try {
+      const artifact = baseArtifact({
+        upcoming: [
+          upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2, sortTime: 100 }),
+          upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm3", matchNumber: 3, sortTime: 200 }),
+        ],
+      });
+      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
+      expect(screen.getByRole("button", { name: RUN_LABEL_RERUN })).toBeDefined();
+
+      fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`));
+
+      expect(screen.queryByText(/^Simulated \d+ draws in/)).toBeNull();
+      expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined();
+      expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
+    } finally {
+      handle.restore();
+    }
   });
 });
 
