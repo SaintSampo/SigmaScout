@@ -22,6 +22,92 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
+**Latest run — 2026-08-31, plan 08-05's D-03/D-12 republish
+(`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
+generation `e2d220d9-e97b-480a-bcf1-82d3e2076b42`.** 56,774 page objects plus 2 manifests (56,776
+total `PUT`s) — object count IDENTICAL to the prior run below, confirming this run changed what
+four optional fields on existing rows CONTAIN, never which artifacts get built. 3,325,231,704 bytes
+of page-object payload, 23 min 20 sec wall clock (`19:15:53Z`-`19:39:13Z`, 2026-08-31), backgrounded
+from the first invocation (`run_in_background: true`, never a foreground call and never a retry).
+Zero concurrent publish processes: an untruncated command-line-filtered `Get-CimInstance` query
+returned zero real `publish.ts` processes both immediately before and immediately after the run
+(only the query's own command line self-matched the filter string, excluded by an additional
+`-notlike '*Get-CimInstance*'` clause). Exactly ONE distinct `generation` value
+(`e2d220d9-e97b-480a-bcf1-82d3e2076b42`) was observed across every key `pnpm verify:subset`
+sampled — the concurrent-writer detector — and it equals the run's own summary line.
+
+**What changed in this run:** D-03's `redRpPmf`/`blueRpPmf` (each alliance's predicted
+distribution over its total qualification-match ranking points) and D-12's
+`actualRedRp`/`actualBlueRp` (the earned ranking points actually scored) now populate every played
+row of every `event/{eventKey}` artifact for the first time — four optional/nullable fields on
+existing `vpr@`/`opr@`/`epa@` keys, nothing added, nothing deleted, nothing renamed.
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key | Change vs. 2026-08-30 run |
+|---|---:|---:|---:|---:|---|---|
+| `teams/{year}` | 15 | 1,757,866 | 3,704,776 | 3,704,776 | `v1/teams/2024/vpr@2.1.0+tuned-2026-08.json` | unchanged — D-03/D-12 land on `event` matches only |
+| `team/{teamKey}/{year}` | 52,596 | 42,217 | 147,853 | 675,956 | `v1/team/frc3538/2024/vpr@2.1.0+tuned-2026-08.json` | unchanged, same key |
+| `events/{year}` | 15 | 75,225 | 84,113 | 84,113 | `v1/events/2025/vpr@2.1.0+tuned-2026-08.json` | unchanged |
+| `event/{eventKey}` | 4,143 | 78,127 | 197,483 | **342,405** | `v1/event/2024gal/vpr@2.1.0+tuned-2026-08.json` | +2,438 median (+3.2%), +7,913 p95 (+4.2%), **+15,233 max (+4.66%)**, same largest key |
+| `compare/{year}` | 5 | 14,029 | — | 14,144 | `v1/compare/2026.json` | unchanged |
+
+**The `event` page kind's post-republish maximum (342,405 bytes, still `2024gal`) clears the
+350,000-byte `budgetMaxBytes`/`EVENT_PAGE_ABSOLUTE_MAX_BYTES` ceiling with 7,595 bytes (2.17%) of
+margin remaining.** `2024gal` held the maximum both before (327,172) and after this run — the
+widened pre-flight probe (18 events across the five 2024 Championship-Division-family events
+clustered within ~1,200 bytes of `2024gal`, plus District Championships, offseason controls, and
+prior-season peers) found no candidate that overtook it; see this plan's own SUMMARY
+(`08-05-SUMMARY.md`) for the full probed-candidate table. `teams/{year}` and `team/{teamKey}/{year}`
+are entirely unaffected — neither field lands on those page kinds — so ledger #11's and #15's
+open, accepted overages move by zero bytes in this run.
+
+**Post-run health check.** `pnpm verify:subset` (35 entries, the committed event subset): 0
+failing. Every RP-eligible `vpr` entry (one each from 2022, 2023, 2024, 2025 and 2026 — `2022ilpe`,
+`2023cur`/`2023nhgrs`, `2024casf`/`2024new`, `2025flta`, `2026vache`) reports
+`playedQmBothPmfCount` exactly equal to its own `playedQmRowCount`. Every offseason `vpr` entry and
+both the `opr@3.1.0+baseline`/`epa@1.1.0+baseline` arms at `2024casf` report ZERO rows carrying
+either pmf field, while still reporting `actualRedRp`/`actualBlueRp` present on every played row —
+the negative half that makes the positive half non-vacuous. `2024auwarp` reports 47 played `qm`
+rows, `actualRedRp`/`actualBlueRp` present (key-count 47) on all of them, zero null values, and
+zero teams carrying `rp` — the real published object D-12's summed-fallback precedence path is
+falsifiable against.
+
+**A measured pmf-array-length finding, corrected from this plan's own pre-run text.** The plan's
+`<behavior>` section stated "D-03 records the measured shape as always length 7"; the real
+published bytes show length **5** for a played or upcoming qualification-match pmf (covering RP
+totals 0-4: 2 for a win plus up to 2 ranking-point bonuses), and a **degenerate length-1** pmf on
+every non-qualification (playoff) row at an RP-eligible event — sigma1 predicts a certain,
+single-outcome distribution for playoff matches rather than omitting the field, since pmf
+production is gated on event type, not competition level (`publish.ts`'s `matches` row builder
+comment: "Not gated on the competition level, deliberately"). Confirmed directly from
+`pmfLengthHistogram`, e.g. `2024casf/vpr`: `{"1":30,"5":144}` — 30 = 15 non-qm played rows × 2
+alliances, 144 = 72 played qm rows × 2 alliances. This degenerate playoff-row pmf is also why the
+republish's measured `event` max (342,405) exceeded the pre-flight dry-run probe's measurement for
+the same key (341,949, Task 1) by 456 bytes — the probe's projection used qm-row counts only.
+
+**A materially non-zero `actualRedRp`/`actualBlueRp` null rate, found on three offseason entries —
+routed to 08-11.** `2023cnsh` (58/58 played qm rows null), `2024vabrb` (16/16 null), and
+`2025isios` (43/43 null) report a **100%** null rate for both fields — every other subset entry
+reports zero nulls. `MatchResult.redRpEarned`/`blueRpEarned` was never derivable for these three
+offseason events (`toIntegerRpOrNull`'s honest `null`, D-12 rule: never coerced to `0`), most
+likely because their TBA score-breakdown data lacks the fields the RP-earned calculation reads.
+08-11's known-incomplete-baseline branch needs this: a per-season null rate is not uniformly low,
+and these three entries are real published objects it can test against.
+
+**The offseason pmf gap, confirmed on real published bytes (PD-06) — routed to 08-09 and 08-11.**
+Seven offseason `vpr` subset entries (`2022mirr`, `2023cnsh`, `2024vabrb`, `2024wvrox`, `2025bc`,
+`2025isios`, `2026wvrox`) publish `actualRedRp`/`actualBlueRp` on every played row and ZERO
+`redRpPmf`/`blueRpPmf` on any row, because `isRpEligibleEventType` excludes event type 99 from
+Sigma1's `predict()` pmf production. STATE.md's Phase 06.1 ingest record puts 368 offseason events
+in the full corpus. A Simulation-tab empty state gated on zero `qm` rows will not catch this case
+— "qm rows exist, no pmf" is a distinct state this republish makes directly observable for the
+first time.
+
+**Neither pre-existing ceiling is affected by this run, and neither is touched.** `teams/{year}`
+(ledger #11, `budgetMaxBytes` 3,500,000, measured 3,704,776) and `team/{teamKey}/{year}` (ledger
+#15, `budgetMaxBytes` 375,000 / absolute 600,000, measured 675,956) are unchanged from the
+2026-08-30 run — D-03 and D-12 land only on `event/{eventKey}` matches. Both ledger entries remain
+OPEN, both ceilings remain unraised, per this plan's own prohibition.
+
 **Latest run — 2026-08-30,
 `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`'s post-fix full republish
 (`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
