@@ -22,6 +22,14 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../../packages/harness/publishedA
 import { buildAccuracyRows, buildRowEmphasis, COMPARE_ACCURACY_SCROLL_TESTID } from "../components/compare/AccuracyTable.js";
 import { compLevelSegmentTestId } from "../components/compare/CompLevelSwitcher.js";
 import { METHODOLOGY_NOTE_TESTID, buildMethodologyFigures } from "../components/compare/MethodologyNote.js";
+import {
+  CALIBRATION_EXPLAINER,
+  CALIBRATION_LEGEND_TESTID,
+  CALIBRATION_SENTENCE_TESTID,
+  CALIBRATION_YEAR_SELECT_TESTID,
+} from "../components/compare/CalibrationSection.js";
+import { formatCalibrationSentence, selectHeadlinePoint, validCalibrationPoints, type CompareSlice } from "../components/compare/calibrationSeries.js";
+import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
 import { Route as CompareRouteImport } from "./compare.js";
 import compare2022 from "./__fixtures__/compare-2022.json";
 import compare2023 from "./__fixtures__/compare-2023.json";
@@ -406,5 +414,125 @@ describe("/compare route — page states", () => {
     await waitFor(() => expect(screen.getByText("Compare")).toBeDefined());
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.getByRole("columnheader", { name: "Year" })).toBeDefined();
+  });
+});
+
+describe("/compare route — Calibration section (08-10, D-10 parity)", () => {
+  afterEach(() => cleanup());
+
+  const calibrationFetchCalls: string[] = [];
+
+  function mockFetch() {
+    calibrationFetchCalls.length = 0;
+    global.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      calibrationFetchCalls.push(url);
+      const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
+      const year = match ? Number(match[1]) : undefined;
+      const body = year !== undefined ? FIXTURES_BY_YEAR[year] : undefined;
+      if (body === undefined) throw new Error(`unexpected fetch URL: ${url}`);
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }) as typeof fetch;
+  }
+
+  function calibrationSliceFor(year: number, algorithmId: string, compLevelView: string): CompareSlice {
+    const fixture = FIXTURES_BY_YEAR[year]!;
+    const slice = fixture.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === compLevelView) as
+      | CompareSlice
+      | undefined;
+    if (slice === undefined) throw new Error(`fixture for ${year} carries no ${compLevelView} slice for ${algorithmId}`);
+    return slice;
+  }
+
+  it("default render (before any interaction): the sentence shows VPR's 2026 combined-view headline, derived from the real fixture", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+
+    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "vpr", "combined")))!;
+    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
+
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+  });
+
+  it("OPR (via the calibration legend) + Qualification (via the page's compLevelView switcher) + 2026 (the year Select's own default): the sentence equals the fixture-recomputed headline — the case that justifies the whole section", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+
+    const legend = screen.getByTestId(CALIBRATION_LEGEND_TESTID);
+    const oprButton = Array.from(legend.querySelectorAll("button")).find((b) => b.textContent === "OPR")!;
+    fireEvent.click(oprButton);
+    fireEvent.click(screen.getByTestId(compLevelSegmentTestId("qualification")));
+
+    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "opr", "qualification")))!;
+    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("opr"), headline);
+
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+  });
+
+  it("clicking the EPA legend entry changes the sentence and moves aria-pressed; changing the year Select to 2024 changes it again — global.fetch call count unchanged across both", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(""));
+
+    const fetchCallCountBefore = calibrationFetchCalls.length;
+
+    const legend = screen.getByTestId(CALIBRATION_LEGEND_TESTID);
+    const epaButton = Array.from(legend.querySelectorAll("button")).find((b) => b.textContent === "EPA")!;
+    fireEvent.click(epaButton);
+
+    const epaHeadline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "epa", "combined")))!;
+    const epaSentence = formatCalibrationSentence(algorithmDisplayLabel("epa"), epaHeadline);
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(epaSentence));
+    expect(epaButton.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
+    fireEvent.click(await screen.findByRole("option", { name: "2024" }));
+
+    const epa2024Headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2024, "epa", "combined")))!;
+    const epa2024Sentence = formatCalibrationSentence(algorithmDisplayLabel("epa"), epa2024Headline);
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(epa2024Sentence));
+
+    expect(calibrationFetchCalls.length).toBe(fetchCallCountBefore);
+  });
+
+  it("hovering a real chart point swaps the sentence to that point's own fact, and blurring restores the headline sentence", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+
+    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "vpr", "combined")))!;
+    const headlineSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
+
+    // Re-queried before each interaction rather than cached — a hover
+    // triggers a state update in CalibrationSection, and Recharts' own
+    // re-render is not guaranteed to keep the SAME dot <g> node identity, so
+    // a stale reference could dispatch an event nothing is listening on.
+    function firstDotGroup(): Element {
+      const circle = document.querySelector('[data-testid="calibration-chart"] .recharts-surface circle');
+      const group = circle?.closest("g");
+      if (group === null || group === undefined) throw new Error("chart dot not yet rendered");
+      return group;
+    }
+
+    await waitFor(() => firstDotGroup());
+    fireEvent.focus(firstDotGroup());
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(headlineSentence));
+
+    fireEvent.blur(firstDotGroup());
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
+  });
+
+  it("renders the corrected diagonal-orientation explainer; the UI-SPEC's inverted form does not appear", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+
+    expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
+    expect(CALIBRATION_EXPLAINER).toContain("below the diagonal means the algorithm was more confident");
+    expect(CALIBRATION_EXPLAINER).not.toContain("above the diagonal means the algorithm was more confident");
   });
 });

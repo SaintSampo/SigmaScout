@@ -7,6 +7,7 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/AccuracyTable.js";
 import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
 import { MethodologyNote } from "../components/compare/MethodologyNote.js";
+import { CalibrationSection } from "../components/compare/CalibrationSection.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -105,6 +106,10 @@ function ComparePage() {
           <div className="mt-[var(--spacing-md)]">
             <MethodologyNote artifactsByYear={artifactsByYear} />
           </div>
+          {/* Beneath the methodology note, above where 08-12 will add its
+              data-coverage section — fed the SAME compLevelView state the
+              accuracy table receives above (one state, two consumers, D-09). */}
+          <CalibrationSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
         </>
       )}
     </div>
