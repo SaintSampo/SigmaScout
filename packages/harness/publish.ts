@@ -530,6 +530,23 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     blueScoreVarianceOwn:
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
+    // D-03, plan 08-02 Task 1: each alliance's predicted distribution over
+    // its total ranking points for this match — the same quantity, same
+    // field names, same rounding rule as the `upcoming` builder's own pair
+    // just below (see it rather than this comment restating it). Not gated
+    // on the competition level, deliberately: sigma1 returns a real
+    // one-entry degenerate distribution for a non-qualification match rather
+    // than nothing, and both the `upcoming` builder here and
+    // `buildTeamSeasonArtifact` publish that ungated already, so a gate here
+    // would make this the only surface in the pipeline that drops what the
+    // model returned (PD-02). Read directly off `prediction`, the same
+    // `Prediction` object the walk-forward replay's own `predict()` call
+    // produced for this match, and never synthesized — where the model
+    // produced no distribution the key stays absent, which is a real
+    // published state OPR and EPA occupy for every match they will ever
+    // have.
+    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
+    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,

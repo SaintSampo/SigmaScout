@@ -587,6 +587,87 @@ describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/bl
   });
 });
 
+describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", () => {
+  it("Test 1 — backward-compatibility: the unmodified fixture, carrying none of this plan's new keys, still parses", () => {
+    expect(() => EventArtifactSchema.parse(validEventFixture())).not.toThrow();
+  });
+
+  it("Test 2 — a played row carries both pmf arrays, read back off the parsed result", () => {
+    const redRpPmf = [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05];
+    const blueRpPmf = [0.1, 0.15, 0.2, 0.25, 0.15, 0.1, 0.05];
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redRpPmf, blueRpPmf } }));
+    // Direct property access (no cast) is load-bearing (PD-06): before
+    // EventMatchSchema declares these fields, this line is a `pnpm
+    // typecheck` error (TS2339), not merely a runtime `undefined`.
+    expect(parsed.matches[0]!.redRpPmf).toEqual(redRpPmf);
+    expect(parsed.matches[0]!.blueRpPmf).toEqual(blueRpPmf);
+  });
+
+  it("Test 3a — the copied refine fires on a played row's redRpPmf, naming the pmf rule", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { redRpPmf: [0.2, 0.2] } }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must be non-empty and sum to 1"))).toBe(true);
+    }
+  });
+
+  it("Test 3b — the copied refine fires on a played row's blueRpPmf, naming the pmf rule", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { blueRpPmf: [0.2, 0.2] } }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message.includes("must be non-empty and sum to 1"))).toBe(true);
+    }
+  });
+
+  it("Test 3c — an empty played redRpPmf is rejected — a non-empty distribution is required, matching EventUpcomingMatchSchema's own rule", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { redRpPmf: [] } }));
+    expect(result.success).toBe(false);
+  });
+
+  it("Test 4 — the pre-existing EventUpcomingMatchSchema refines still fire: a played row's valid pmf pair alongside an invalid upcoming pmf still fails, naming the upcoming path", () => {
+    const result = EventArtifactSchema.safeParse(
+      eventFixtureWith({
+        match: { redRpPmf: [0.5, 0.5], blueRpPmf: [0.5, 0.5] },
+        upcoming: { redRpPmf: [0.2, 0.2] },
+      })
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "upcoming.0.redRpPmf")).toBe(true);
+    }
+  });
+
+  it("Test 5 — the two pmf fields are independently optional on a played row", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redRpPmf: [0.5, 0.5] } }));
+    expect(parsed.matches[0]!.redRpPmf).toEqual([0.5, 0.5]);
+    expect(parsed.matches[0]!.blueRpPmf).toBeUndefined();
+  });
+
+  it("Test 6 — the OPR/EPA case: a played row carrying neither pmf key parses and reads both back undefined", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.matches[0]!.redRpPmf).toBeUndefined();
+    expect(parsed.matches[0]!.blueRpPmf).toBeUndefined();
+  });
+
+  it("Test 7 — a one-entry pmf, the shape a playoff row genuinely carries (PD-02), is valid", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redRpPmf: [1], blueRpPmf: [1] } }));
+    expect(parsed.matches[0]!.redRpPmf).toEqual([1]);
+    expect(parsed.matches[0]!.blueRpPmf).toEqual([1]);
+  });
+
+  it("Test 8 — regression floor: EventArtifactSchema.upcoming's own pmf cases still pass unmodified", () => {
+    const fixture: Record<string, unknown> = validEventFixture();
+    fixture.upcoming = [
+      {
+        ...(validEventFixture().upcoming[0] as object),
+        redRpPmf: [0.1, 0.2, 0.3, 0.4],
+        blueRpPmf: [0.4, 0.3, 0.2, 0.1],
+      },
+    ];
+    expect(() => EventArtifactSchema.parse(fixture)).not.toThrow();
+  });
+});
+
 describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-07 Task 2)", () => {
   it("Test 1 — the D-08 no-ranking case: a team row carrying none of the three parses, all three read back undefined", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254" } }));

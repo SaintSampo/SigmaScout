@@ -53,7 +53,7 @@ import {
   type PublishedObjectRecord,
 } from "./publish.js";
 import { artifactKey } from "./pageArtifacts.js";
-import { roundTo, ROUNDING_RULE } from "./rounding.js";
+import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { HISTORY_PERCENTILE_METRIC_KEYS, percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
@@ -505,6 +505,52 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
     const roundTrippedNoMap = JSON.parse(JSON.stringify(withNoMap)) as typeof withNoMap;
     expect(roundTrippedNoMap.matches[0]).not.toHaveProperty("sortTime");
     void match; // referenced for clarity that this map deliberately omits this match's key
+  });
+});
+
+/**
+ * Plan 08-02 Task 1 (D-03): `buildEventArtifact`'s `matches` row builder gains
+ * `redRpPmf`/`blueRpPmf`, a two-line mirror of the `upcoming` builder's own
+ * pair immediately below it. Every case asserts on the built/published value,
+ * never merely that a call did not throw (PD-06).
+ */
+describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, plan 08-02 Task 1)", () => {
+  it("Test 9 (regression floor): a call supplying no prediction pmf leaves matches[0]'s pmf keys undefined", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    expect(artifact.matches[0]?.redRpPmf).toBeUndefined();
+    expect(artifact.matches[0]?.blueRpPmf).toBeUndefined();
+  });
+
+  it("Test 10: a played prediction's pmf reaches the published row, rounded via the same roundPmf the upcoming builder uses, and sums to exactly 1", () => {
+    const redRpPmf = [0.123456, 0.234567, 0.345678, 0.111111, 0.098765, 0.055555, 0.030868];
+    const blueRpPmf = [0.2, 0.2, 0.2, 0.15, 0.1, 0.1, 0.05];
+    const artifact = buildEventArtifact(eventArtifactParams({ prediction: { redRpPmf, blueRpPmf } }));
+    expect(artifact.matches[0]?.redRpPmf).toEqual(roundPmf(redRpPmf));
+    expect(artifact.matches[0]?.blueRpPmf).toEqual(roundPmf(blueRpPmf));
+    expect(artifact.matches[0]?.redRpPmf?.reduce((a, b) => a + b, 0)).toBe(1);
+    expect(artifact.matches[0]?.blueRpPmf?.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("Test 11: the published value traces to the model's own output, never a synthesis — a red-only prediction publishes the red array and no blue key at all after a JSON round trip", () => {
+    const redRpPmf = [0.4, 0.3, 0.3];
+    const artifact = buildEventArtifact(eventArtifactParams({ prediction: { redRpPmf } }));
+    expect(artifact.matches[0]?.redRpPmf).toEqual(roundPmf(redRpPmf));
+    expect(artifact.matches[0]?.blueRpPmf).toBeUndefined();
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    expect(roundTripped.matches[0]).not.toHaveProperty("blueRpPmf");
+  });
+
+  it("Test 12 (PD-02 mirror of Test 5): an OPR row carries neither pmf key, in memory nor after a JSON round trip", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", algorithmVersion: "3.0.0+baseline" }));
+    expect(artifact.matches[0]?.redRpPmf).toBeUndefined();
+    expect(artifact.matches[0]?.blueRpPmf).toBeUndefined();
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    expect(roundTripped.matches[0]).not.toHaveProperty("redRpPmf");
+    expect(roundTripped.matches[0]).not.toHaveProperty("blueRpPmf");
+  });
+
+  it("Test 13 (PD-07, the builder's own failure path): a played prediction carrying an EMPTY redRpPmf throws through buildEventArtifact, naming the distribution rule", () => {
+    expect(() => buildEventArtifact(eventArtifactParams({ prediction: { redRpPmf: [] } }))).toThrow(/distribution/);
   });
 });
 

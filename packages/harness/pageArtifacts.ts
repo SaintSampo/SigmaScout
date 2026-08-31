@@ -286,66 +286,106 @@ function isValidPmf(pmf: readonly number[] | undefined): boolean {
   return Math.abs(sum - 1) <= RP_PMF_SUM_TOLERANCE;
 }
 
-/** One played match's prediction-vs-actual row. Field names match `packages/harness/predictions.ts`'s `PredictionRecordSchema` so a reader never has to translate between the sidecar and the published file. */
-const EventMatchSchema = z.object({
-  matchKey: z.string().min(1),
-  compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
-  setNumber: z.number().int(),
-  matchNumber: z.number().int(),
-  /**
-   * D-13, plan 07-07 Task 1: this match's chronological sort key, in epoch
-   * seconds — the same field and the same spelling as
-   * `TeamSeasonMatchSchema.sortTime` (see its doc comment for the
-   * epoch-seconds unit and the played-row-shows-actual-time semantics, not
-   * restated here). It does two jobs on an event page: it is the ordering
-   * key D-13's client-side merge of `matches[]` and `upcoming[]` sorts on —
-   * the two arrays remain two distinct arrays on the wire so Phase 8's
-   * simulation input is untouched, which means the browser has no other
-   * basis for interleaving them — and, on an UPCOMING row specifically, it is
-   * additionally the value displayed in the Actual column as a scheduled
-   * time (a played row's Actual column shows `actualRedScore`/
-   * `actualBlueScore` instead). Optional, and deliberately never
-   * `.nullable()`: `matches.sort_time` is `NOT NULL` in
-   * `packages/corpus/schema.sql`, so a null is not a representable source
-   * state and accepting one here would invent a third case D-13's merge
-   * would then have to handle for no reason. `undefined` means only "this
-   * artifact predates the field" — 07-12 found no match row in the live
-   * `2024casf` artifact carrying this key. 07-08 sources this from
-   * `selectScheduledMatchTimes` (`packages/harness/publish.ts`), which
-   * already runs for the team artifact; no new corpus query is needed.
-   */
-  sortTime: z.number().int().optional(),
-  redTeams: z.array(z.string()),
-  blueTeams: z.array(z.string()),
-  predictedWinner: z.enum(["red", "blue"]),
-  pRedWin: z.number(),
-  predictedRedScore: z.number(),
-  predictedBlueScore: z.number(),
-  redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
-  blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
-  /**
-   * D-18 item 3, plan 07-07 Task 1: this alliance's own predicted-score
-   * variance — the same quantity, under the same field name, that
-   * `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
-   * (see that field's doc comment for the full contract; not restated
-   * here). Left `undefined` by OPR and EPA, neither of which models an
-   * alliance-level own variance — following `TeamSeasonMatchSchema.variance`'s
-   * own optional convention. Rounded exactly once, at the publish boundary,
-   * at `ROUNDING_RULE.variance` (`rounding.ts`); the call itself belongs to
-   * 07-08. Under this file's header rule (D-01) it equals the sum of its
-   * three teams' published `TeamMetric.spread` squares — the additivity
-   * identity plan 07-06 pinned against `predict()`'s own output — which is
-   * what makes the Alliances tab's combined uncertainty (07-14) and the
-   * Elims band (07-13) the same number rather than two numbers that happen
-   * to agree.
-   */
-  redScoreVarianceOwn: z.number().optional(),
-  /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
-  blueScoreVarianceOwn: z.number().optional(),
-  actualWinner: z.enum(["red", "blue", "tie"]),
-  actualRedScore: z.number(),
-  actualBlueScore: z.number(),
-});
+/**
+ * One played match's prediction-vs-actual row. Field names match
+ * `packages/harness/predictions.ts`'s `PredictionRecordSchema` so a reader
+ * never has to translate between the sidecar and the published file — as of
+ * D-03/D-12 (plan 08-02) this includes the ranking-point distribution pair
+ * and the actual-ranking-point pair, closing the one divergence that
+ * remained: the sidecar carried both pairs on a played record from the
+ * start, and this published row did not, until now.
+ */
+const EventMatchSchema = z
+  .object({
+    matchKey: z.string().min(1),
+    compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
+    setNumber: z.number().int(),
+    matchNumber: z.number().int(),
+    /**
+     * D-13, plan 07-07 Task 1: this match's chronological sort key, in epoch
+     * seconds — the same field and the same spelling as
+     * `TeamSeasonMatchSchema.sortTime` (see its doc comment for the
+     * epoch-seconds unit and the played-row-shows-actual-time semantics, not
+     * restated here). It does two jobs on an event page: it is the ordering
+     * key D-13's client-side merge of `matches[]` and `upcoming[]` sorts on —
+     * the two arrays remain two distinct arrays on the wire so Phase 8's
+     * simulation input is untouched, which means the browser has no other
+     * basis for interleaving them — and, on an UPCOMING row specifically, it is
+     * additionally the value displayed in the Actual column as a scheduled
+     * time (a played row's Actual column shows `actualRedScore`/
+     * `actualBlueScore` instead). Optional, and deliberately never
+     * `.nullable()`: `matches.sort_time` is `NOT NULL` in
+     * `packages/corpus/schema.sql`, so a null is not a representable source
+     * state and accepting one here would invent a third case D-13's merge
+     * would then have to handle for no reason. `undefined` means only "this
+     * artifact predates the field" — 07-12 found no match row in the live
+     * `2024casf` artifact carrying this key. 07-08 sources this from
+     * `selectScheduledMatchTimes` (`packages/harness/publish.ts`), which
+     * already runs for the team artifact; no new corpus query is needed.
+     */
+    sortTime: z.number().int().optional(),
+    redTeams: z.array(z.string()),
+    blueTeams: z.array(z.string()),
+    predictedWinner: z.enum(["red", "blue"]),
+    pRedWin: z.number(),
+    predictedRedScore: z.number(),
+    predictedBlueScore: z.number(),
+    redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
+    blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
+    /**
+     * D-18 item 3, plan 07-07 Task 1: this alliance's own predicted-score
+     * variance — the same quantity, under the same field name, that
+     * `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
+     * (see that field's doc comment for the full contract; not restated
+     * here). Left `undefined` by OPR and EPA, neither of which models an
+     * alliance-level own variance — following `TeamSeasonMatchSchema.variance`'s
+     * own optional convention. Rounded exactly once, at the publish boundary,
+     * at `ROUNDING_RULE.variance` (`rounding.ts`); the call itself belongs to
+     * 07-08. Under this file's header rule (D-01) it equals the sum of its
+     * three teams' published `TeamMetric.spread` squares — the additivity
+     * identity plan 07-06 pinned against `predict()`'s own output — which is
+     * what makes the Alliances tab's combined uncertainty (07-14) and the
+     * Elims band (07-13) the same number rather than two numbers that happen
+     * to agree.
+     */
+    redScoreVarianceOwn: z.number().optional(),
+    /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+    blueScoreVarianceOwn: z.number().optional(),
+    /**
+     * D-03, plan 08-02 Task 1: this alliance's predicted distribution over
+     * its TOTAL ranking points for this match — index `i` is the predicted
+     * probability that this alliance earns exactly `i` ranking points, with
+     * win, tie and bonus ranking points already folded into the domain by
+     * the harness's own joint Monte Carlo draw. This is NOT a per-bonus
+     * marginal like `TeamSeasonMatchSchema.redBonusRp`/`redBonusRp` — see
+     * `TeamSeasonMatchSchema.redRpPmf` and `redBonusRp` for the fuller
+     * statement of that distinction, not restated here. Omitted entirely
+     * (never an empty array) for an algorithm that does not model ranking
+     * points — every OPR and EPA row. Validated non-empty and summing to 1
+     * within this file's shared `RP_PMF_SUM_TOLERANCE` by the refines below.
+     * Rounded exactly once, at the publish boundary, at `ROUNDING_RULE.pmf`
+     * (`rounding.ts`), through the existing `roundPmf` — the call itself
+     * belongs to plan 08-02. This is the input Phase 8's client-side
+     * 1000-draw rank simulation draws from for every match at or after a
+     * chosen start match, which is why it must exist on a PLAYED row and not
+     * only an upcoming one — a rewind start match is the common case (1,312
+     * of 1,353 corpus events have no unplayed qualification match at all).
+     */
+    redRpPmf: z.array(z.number()).optional(),
+    /** D-03, plan 08-02 Task 1: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
+    blueRpPmf: z.array(z.number()).optional(),
+    actualWinner: z.enum(["red", "blue", "tie"]),
+    actualRedScore: z.number(),
+    actualBlueScore: z.number(),
+  })
+  .refine((row) => isValidPmf(row.redRpPmf), {
+    message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["redRpPmf"],
+  })
+  .refine((row) => isValidPmf(row.blueRpPmf), {
+    message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["blueRpPmf"],
+  });
 
 /** D-08: an upcoming match's full predicted-parameters shape — what Phase 8's rank simulation consumes, published here rather than recomputed there. `redRpPmf`/`blueRpPmf` are omitted entirely (never an empty array) for an algorithm that does not model RP, matching `Prediction`'s existing convention. */
 const EventUpcomingMatchSchema = z
