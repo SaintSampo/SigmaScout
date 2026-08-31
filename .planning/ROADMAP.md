@@ -491,7 +491,59 @@ Plans:
   3. The Compare page shows winner accuracy and Brier score for every algorithm for every year 2022–2026.
   4. The numbers rendered on the Compare page are identical to the versioned artifact the offline harness produced for that algorithm version — verified by an automated check, not by eye.
 
-**Plans**: TBD
+**Plans**: 15 plans in 7 waves
+
+- [ ] 08-01-PLAN.md
+- [ ] 08-02-PLAN.md
+- [ ] 08-03-PLAN.md
+- [ ] 08-04-PLAN.md
+- [ ] 08-05-PLAN.md
+- [ ] 08-06-PLAN.md
+- [ ] 08-07-PLAN.md
+- [ ] 08-08-PLAN.md
+- [ ] 08-09-PLAN.md
+- [ ] 08-10-PLAN.md
+- [ ] 08-11-PLAN.md
+- [ ] 08-12-PLAN.md
+- [ ] 08-13-PLAN.md
+- [ ] 08-14-PLAN.md
+- [ ] 08-15-PLAN.md
+
+**Wave 1** *(no dependencies)*
+
+  - `08-01` — TRACER: /compare route -> per-year artifact fetch -> accuracy table + D-10 fixture parity proof (COMP-01, EVAL-05)
+  - `08-02` — D-03 + D-12 published-contract change: pmfs + actual RP on played EventMatchSchema rows (EVNT-07)
+  - `08-03` — browser-safe shared simulation core (draw / accumulate / rank), D-14 tie handling (EVNT-07)
+  - `08-04` — interpolated band-edge quantile port + locked rank-axis geometry + --sim-* tokens (EVNT-07)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - `08-05` — the one full republish, backgrounded; byte-budget hard gate (EVNT-07, EVAL-05)
+  - `08-06` — compLevel switcher + D-11 near-tie rule + D-08 methodology note (COMP-01, EVAL-05)
+  - `08-07` — the app first Web Worker: protocol, Vite seam, hand-rolled mock (EVNT-07)
+  - `08-08` — D-02 rewind-overconfidence control run -> measured figure for the caption (EVNT-07)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - `08-09` — sixth event tab + D-04 plain-disabled on OPR/EPA + SimulationTab shell states (EVNT-07)
+  - `08-10` — calibration section, sentence-first, demoted chart + palette re-validation (COMP-01)
+
+**Wave 4** *(blocked on Wave 3)*
+
+  - `08-11` — start-match picker + D-12 input builder (RP unit conversion) + honesty caption (EVNT-07)
+  - `08-12` — data-coverage table with D-09 offseason wording + page loading/error states (COMP-01, EVAL-05)
+
+**Wave 5** *(blocked on Wave 4)*
+
+  - `08-13` — run control: progress, timer, lazy Worker; owns SC-2 recorded runtime (EVNT-07)
+
+**Wave 6** *(blocked on Wave 5)*
+
+  - `08-14` — mock-before-build pass, then the rank table (histogram + band + median) (EVNT-07)
+
+**Wave 7** *(blocked on Wave 6)*
+
+  - `08-15` — backstop evidence at 390px / 78 teams + human-verify touch checkpoint (EVNT-07, COMP-01, EVAL-05)
 **UI hint**: yes
 
 ## Progress
@@ -509,7 +561,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
-| 8. Simulation & Compare | 0/TBD | Not started | - |
+| 8. Simulation & Compare | 0/15 | Planned | - |
 
 ## Coverage
 
