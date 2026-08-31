@@ -7,6 +7,7 @@ import {
   runSimulationJob,
 } from "./simulationProtocol.js";
 import type { SimulationRequest, SimulationOutboundMessage, SimulationResultMessage } from "./simulationProtocol.js";
+import { createSimulationWorker } from "./createSimulationWorker.js";
 import { simulateRanks, mulberry32 } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { SimMatchInput, SimTeamBaseline } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
@@ -241,6 +242,62 @@ describe("simulationProtocol — Task 1: chunking equivalence and clone survival
       // in this environment, the assertion is not silently dropped — it is
       // recorded as a skipped comparison, explicit in the SUMMARY.
       expect(typeof structuredClone).toBe("undefined");
+    }
+  });
+});
+
+describe("simulationProtocol — Task 2: the Vite seam, constructed through createSimulationWorker()", () => {
+  const { matches, baselines } = buildFixture();
+
+  it("Test 6: the round trip through createSimulationWorker() — same terminal conditions as Test 1, plus the URL/options contract the mock instance recorded", async () => {
+    const handle = installMockWorker({
+      script: (message, ctx) => runSimulationJob(message, ctx.post),
+    });
+    let resultMessage: SimulationResultMessage | undefined;
+    try {
+      const worker = createSimulationWorker();
+      await new Promise<void>((resolve) => {
+        worker.onmessage = (event: MessageEvent) => {
+          const data = event.data as SimulationOutboundMessage;
+          if (data.type === "result") {
+            resultMessage = data;
+            resolve();
+          }
+        };
+        const request: SimulationRequest = {
+          type: "run",
+          matches,
+          baselines,
+          draws: SIMULATION_DRAWS,
+          seed: DEFAULT_SIMULATION_SEED,
+        };
+        worker.postMessage(request);
+      });
+
+      if (resultMessage === undefined) throw new Error("createSimulationWorker() round trip produced no result message");
+      expect(resultMessage.rankHistograms.size).toBe(baselines.length);
+      for (const histogram of resultMessage.rankHistograms.values()) {
+        let sum = 0;
+        for (const count of histogram) sum += count;
+        expect(sum).toBe(SIMULATION_DRAWS);
+      }
+
+      // The closest a jsdom test can get to the real bundling seam: pin
+      // both halves of the contract createSimulationWorker() promises —
+      // the URL it constructed with, and the module-worker option.
+      expect(handle.instances.length).toBe(1);
+      const instance = handle.instances[0];
+      expect(instance).toBeDefined();
+      // Vite's own transform of `new Worker(new URL("./simulation.worker.ts",
+      // import.meta.url), ...)` appends a `?worker_file&type=module` query
+      // suffix to the resolved URL under this test's Vite/vite-node
+      // pipeline — genuine evidence Vite recognized the worker-detection
+      // shape even inside a jsdom test transform, not just at build time.
+      // `.toContain` (not an exact suffix match) is deliberate.
+      expect(String(instance!.url)).toContain("simulation.worker.ts");
+      expect(instance!.options?.type).toBe("module");
+    } finally {
+      handle.restore();
     }
   });
 });
