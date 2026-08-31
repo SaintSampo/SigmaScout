@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
-import { EVENT_TABS, EventSearchSchema, EventsSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
+import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
 
 describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
   // Test 1 — the default algorithm.
@@ -62,30 +62,36 @@ describe("TeamSearchSchema", () => {
   });
 });
 
-describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights by 07-18 Task 2)", () => {
-  // Test 4 (plan 07-18 Task 2): ordering is untouched — asserted separately
-  // from the default so the two facts (WHICH tab is active vs. WHERE tabs
-  // sit in the strip) cannot be conflated.
-  it("EVENT_TABS is the five fixed ids in UI-SPEC order, with the default's id first", () => {
-    expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims"]);
+describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights by 07-18 Task 2; sixth id 'simulation' added by 08-09-PLAN.md Task 1)", () => {
+  // Test 4 (plan 07-18 Task 2, rewritten by 08-09 Task 1 PD-09): ordering is
+  // untouched — asserted separately from the default so the two facts (WHICH
+  // tab is active vs. WHERE tabs sit in the strip) cannot be conflated. The
+  // expected array grows from five ids to six, with "simulation" appended
+  // last, matching UI-SPEC's declared order.
+  it("EVENT_TABS is the six fixed ids in UI-SPEC order, with the default's id first and 'simulation' last", () => {
+    expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims", "simulation"]);
   });
 
-  // Test 3 (plan 07-18 Task 2): an explicit tab still wins for every one of
-  // the five ids, so the default change did not turn the field into a
-  // constant.
-  it("parses each of the five explicit tab ids back unchanged", () => {
+  // Test 3 (plan 07-18 Task 2, rewritten by 08-09 Task 1): an explicit tab
+  // still wins for every one of the now-SIX ids, so the default change did
+  // not turn the field into a constant — this case covers the sixth id
+  // automatically once the tuple grows, so it now runs six iterations rather
+  // than leaving the coverage implicit.
+  it("parses each of the six explicit tab ids back unchanged (six iterations)", () => {
+    expect(EVENT_TABS).toHaveLength(6);
     for (const tab of EVENT_TABS) {
       expect(EventSearchSchema.parse({ tab }).tab).toBe(tab);
     }
   });
 
   // Test 2 (plan 07-18 Task 2): a malformed tab still falls back, to the NEW
-  // default.
+  // default. Unmodified by 08-09 Task 1 — run to confirm it still passes.
   it("falls back to insights (the new default) on a bogus tab value", () => {
     expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("insights");
   });
 
-  // Test 1 (plan 07-18 Task 2): the empty-input path.
+  // Test 1 (plan 07-18 Task 2): the empty-input path. Unmodified by 08-09
+  // Task 1 — run to confirm it still passes.
   it("defaults to insights when tab is absent", () => {
     expect(EventSearchSchema.parse({}).tab).toBe("insights");
   });
@@ -94,5 +100,15 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
     const parsed = EventSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
     expect(parsed.algorithm).toBe("vpr");
+  });
+
+  // New case, 08-09-PLAN.md Task 1: the separation plan 07-18 already
+  // insisted on — which tab is active on arrival vs. where tabs sit in the
+  // strip are different facts — asserted here against the specific failure
+  // mode of "appended an id and moved the default while I was in there."
+  it("DEFAULT_EVENT_TAB is still exactly 'insights' and is NOT the last element of EVENT_TABS", () => {
+    expect(DEFAULT_EVENT_TAB).toBe("insights");
+    expect(EVENT_TABS.at(-1)).toBe("simulation");
+    expect(EVENT_TABS.at(-1)).not.toBe(DEFAULT_EVENT_TAB);
   });
 });

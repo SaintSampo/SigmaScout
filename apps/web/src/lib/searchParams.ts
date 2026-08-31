@@ -216,17 +216,25 @@ export const TeamSearchSchema = RootSearchSchema.extend({
 export type TeamSearch = z.infer<typeof TeamSearchSchema>;
 
 /**
- * The event page's five tab ids (07-01-PLAN.md Task 1), in the fixed order
- * 07-UI-SPEC.md's E2 populated row and its Copywriting Contract's Tab-labels
- * row both state: Insights, Breakdown, Quals, Alliances, Elims. This enum
- * stays over all five ids for the whole phase even though only `breakdown`
- * is REGISTERED (has a trigger and a content panel) by this plan — the
- * route's own `REGISTERED_EVENT_TABS` array (Task 3) is the narrower,
- * per-wave subset. Keeping the URL contract stable across the phase means
- * every later plan's own `searchParams.ts` edit is a no-op here; only
- * `REGISTERED_EVENT_TABS` in the route grows.
+ * The event page's six tab ids (07-01-PLAN.md Task 1; grown to six by
+ * 08-09-PLAN.md Task 1, EVNT-07/D-04), in the fixed order 07-UI-SPEC.md's E2
+ * populated row and its Copywriting Contract's Tab-labels row both state:
+ * Insights, Breakdown, Quals, Alliances, Elims, Simulation. This enum stays
+ * over all six ids for the whole phase even though only `breakdown` was
+ * REGISTERED (had a trigger and a content panel) by 07-01 — the route's own
+ * `REGISTERED_EVENT_TABS` array is the narrower, per-wave subset. Keeping the
+ * URL contract stable across each phase means every later plan's own
+ * `searchParams.ts` edit is a no-op here; only `REGISTERED_EVENT_TABS` in the
+ * route grows.
+ *
+ * `simulation` (08-09) is a THIRD kind of state this tuple did not previously
+ * have to describe: an id can be a member of this tuple, registered in the
+ * route (has a trigger and a panel), and STILL not reachable — D-04's
+ * VPR-only rule plain-disables the Simulation trigger on OPR/EPA. That
+ * reachability rule lives in the route (`event.$eventKey.tsx`), not here, so
+ * a reader looking for an algorithm condition should look there.
  */
-export const EVENT_TABS = ["insights", "breakdown", "quals", "alliances", "elims"] as const;
+export const EVENT_TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
 
 /**
  * The event page's default tab — Insights, the event's landing tab per
