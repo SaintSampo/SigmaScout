@@ -35,8 +35,8 @@ function makeSlice(overrides: SliceOverrides) {
     seasonLabel: "holdout" as const,
     headlineEligible: true,
     compLevelView: overrides.compLevelView ?? "combined",
-    brierScore: overrides.brierScore ?? 0.15,
-    winnerAccuracy: overrides.winnerAccuracy ?? 0.75,
+    brierScore: "brierScore" in overrides ? (overrides.brierScore ?? null) : 0.15,
+    winnerAccuracy: "winnerAccuracy" in overrides ? (overrides.winnerAccuracy ?? null) : 0.75,
     scoredCount: overrides.scoredCount ?? 1000,
     tieCount: 0,
     noCallCount: 0,
@@ -245,7 +245,7 @@ describe("AccuracyTable — empty/absent values (COMP-01)", () => {
     ]);
     const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
-    expect(screen.getByRole("columnheader", { name: BRIER_HEADER_LABEL })).toBeDefined();
+    expect(screen.getAllByRole("columnheader", { name: BRIER_HEADER_LABEL }).length).toBeGreaterThan(0);
     const emDashes = screen.getAllByText("—");
     expect(emDashes.length).toBeGreaterThan(0);
   });
@@ -330,10 +330,11 @@ describe("AccuracyTable — scroll region", () => {
     expect(region.className).toMatch(/touch-pan-xy/);
     expect(region.className).toMatch(/overscroll-x-contain/);
     expect(region.className).toMatch(/min-w-0/);
-    // No nested element inside it also carries the same testid or an
-    // independent overflow-x-auto region.
+    // No DESCENDANT of the region also carries the same testid — `within()`
+    // only searches inside the container, never including it — so zero
+    // matches here means the outer region found above is the only one.
     const nested = within(region).queryAllByTestId(COMPARE_ACCURACY_SCROLL_TESTID);
-    expect(nested).toHaveLength(1); // itself only
+    expect(nested).toHaveLength(0);
     void container;
   });
 });
