@@ -56,11 +56,24 @@
  * `EventMatchSchema`/`EventUpcomingMatchSchema`'s own `redScoreVarianceOwn`/
  * `blueScoreVarianceOwn` pair — it is the identical physical quantity at the
  * event-page aggregation level, so a second key here would be drift wearing
- * documentation's clothes, not a genuinely new field class. D-02's actual RP
+ * documentation's clothes, not a genuinely new field class. D-03, plan 08-02
+ * Task 3: `EventMatchSchema`'s ranking-point distribution pair
+ * (`redRpPmf`/`blueRpPmf`, played rows) reuses `ROUNDING_RULE.pmf` unchanged
+ * through the existing `roundPmf`, too — the identical physical quantity as
+ * the two schemas that already carry a pmf (`EventUpcomingMatchSchema`,
+ * `TeamSeasonMatchSchema`), so no new key. This rule's own stated reason in
+ * the table above was written anticipating this exact field — Phase 8's
+ * 1000-draw simulation is the reason this table already gives for the
+ * pmf row's 5-decimal precision — so this is the field that row was sized
+ * for, not a new class needing its own precision. D-02's actual RP
  * fields are integral by construction
  * (`packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema.actualRedRp`/
  * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
- * `ROUNDING_RULE` entry for RP either. `EventTeamSchema.rank` and
+ * `ROUNDING_RULE` entry for RP either. D-12, plan 08-02 Task 2 extends this
+ * same no-entry disposition to `EventMatchSchema.actualRedRp`/`actualBlueRp`
+ * (played rows) — the identical `z.number().int().nullable().optional()`
+ * expression, integral by construction and published unrounded, for the
+ * same reason. `EventTeamSchema.rank` and
  * `record.wins`/`record.losses`/`record.ties` (Phase 7, D-18 item 6, plan
  * 07-07 Task 2), and `EventArtifactSchema.week` and
  * `EventAllianceSchema.allianceNumber` (Phase 7, D-18 items 7/8, plan 07-07

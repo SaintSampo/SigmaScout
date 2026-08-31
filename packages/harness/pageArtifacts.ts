@@ -416,7 +416,22 @@ const EventMatchSchema = z
     path: ["blueRpPmf"],
   });
 
-/** D-08: an upcoming match's full predicted-parameters shape — what Phase 8's rank simulation consumes, published here rather than recomputed there. `redRpPmf`/`blueRpPmf` are omitted entirely (never an empty array) for an algorithm that does not model RP, matching `Prediction`'s existing convention. */
+/**
+ * D-08: an upcoming (not-yet-played) match's full predicted-parameters
+ * shape. `redRpPmf`/`blueRpPmf` are omitted entirely (never an empty array)
+ * for an algorithm that does not model RP, matching `Prediction`'s existing
+ * convention — see `EventMatchSchema.redRpPmf` for the shared contract, not
+ * restated here.
+ *
+ * D-03, plan 08-02 Task 3: corrected division of labour — Phase 8's rank
+ * simulation reads BOTH this array and `EventMatchSchema`'s, not this one
+ * alone. A rewind start match that has already been played is the COMMON
+ * case (1,312 of 1,353 corpus events have no unplayed qualification match
+ * at all), so `EventMatchSchema`'s played rows are the simulation's primary
+ * input on nearly every browsable event; this array remains exactly what it
+ * has always been, the shape for a genuinely not-yet-played match, and is
+ * the exact and leak-free input for the live case (D-01).
+ */
 const EventUpcomingMatchSchema = z
   .object({
     matchKey: z.string().min(1),
@@ -895,8 +910,9 @@ const EventAllianceSchema = z.object({
  * omitting the key entirely. Left optional, "not populated yet" and "this
  * event genuinely has no teams" were indistinguishable, and the event
  * page's standings table would have rendered empty instead of failing
- * loudly on a real gap. `matches` is unchanged from the 04-01 tracer's
- * shape.
+ * loudly on a real gap. `matches` has since widened past the 04-01 tracer's
+ * shape — see the 07-07 and 08-02 paragraphs below for the two rounds of
+ * additive widening it has carried.
  *
  * D-18 items 7/8, plan 07-07 Task 3 widen this with the event's own
  * identity (`name`/`startDate`/`location`/`week`) and its playoff alliance
@@ -905,6 +921,16 @@ const EventAllianceSchema = z.object({
  * page kind are backward-compatible for any reader, matching
  * `EventsListRowSchema`'s own EVNT-01 precedent in this same file (plan
  * 05-02) for the identical class of change.
+ *
+ * D-03/D-12, plan 08-02 widen `matches` a second time with each played
+ * row's ranking-point distribution pair (`redRpPmf`/`blueRpPmf`) and actual
+ * ranking-point pair (`actualRedRp`/`actualBlueRp`) — both additive and
+ * optional (the pmf pair) or nullable-and-optional (the actual-RP pair), so
+ * a pre-republish artifact carrying neither still parses. Again no
+ * `PAGE_ARTIFACT_SCHEMA_VERSION` bump, for the same reason the 07-07
+ * additions needed none. `matches` and `upcoming` remain two distinct
+ * arrays on the wire — Phase 7's D-13 split is preserved, and this plan
+ * widens the played array rather than merging it into the upcoming one.
  *
  * `name`/`startDate` are optional but never null: TBA has both for any real
  * event, and 07-08 falls back to the event key exactly as

@@ -609,6 +609,59 @@ describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-1
 });
 
 /**
+ * Plan 08-02 Task 3 (PD-02): the claim that `buildEventArtifact` and
+ * `buildTeamSeasonArtifact` agree on all four of this plan's fields for the
+ * SAME match and the SAME prediction, proven rather than asserted in prose —
+ * one rule across three row builders (the third, `EventUpcomingMatchSchema`'s
+ * own `upcoming` builder, is covered by Task 1's Test 10/11), not a fourth
+ * convention that could silently diverge if a future contributor added a
+ * competition-level gate to one builder and not the others.
+ */
+describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equivalence on D-03/D-12's four fields (PD-02, plan 08-02 Task 3)", () => {
+  it("agree on redRpPmf/blueRpPmf/actualRedRp/actualBlueRp for one shared elimination match and one shared prediction", () => {
+    const sharedMatch = fixtureMatch({ matchKey: "2026casj_sf1m1", compLevel: "sf", redRpEarned: 0, blueRpEarned: 0 });
+    const sharedPrediction = fixturePrediction({ redRpPmf: [1], blueRpPmf: [1] });
+
+    const eventArtifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [{ match: sharedMatch, prediction: sharedPrediction }],
+    });
+    const teamArtifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+test",
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: sharedMatch, prediction: sharedPrediction }],
+        },
+      ],
+      metricHistory: [],
+      generation: "g-cross-builder",
+      computedAt: "2026-08-31T00:00:00.000Z",
+    });
+
+    const eventRow = eventArtifact.matches[0]!;
+    const teamRow = teamArtifact.events[0]!.matches[0]!;
+    expect(eventRow.redRpPmf).toEqual(teamRow.redRpPmf);
+    expect(eventRow.blueRpPmf).toEqual(teamRow.blueRpPmf);
+    expect(eventRow.actualRedRp).toBe(teamRow.actualRedRp);
+    expect(eventRow.actualBlueRp).toBe(teamRow.actualBlueRp);
+    // Non-vacuity: the elimination match's degenerate one-entry pmf and its
+    // real zero actual RP are the exact playoff-row shape PD-02 records —
+    // asserting the agreement is non-trivial (not two undefined values).
+    expect(eventRow.redRpPmf).toEqual([1]);
+    expect(eventRow.actualRedRp).toBe(0);
+  });
+});
+
+/**
  * Plan 07-08 Task 1, Tests 7-8: the seeded-corpus `publishSeasons` harness,
  * proving the variance/sortTime seam and the folded playoff bonus-RP
  * criterion against REAL published JSON bytes rather than in-memory
