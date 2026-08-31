@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-08-31T18:42:49.769Z"
+stopped_at: Completed 08-05-PLAN.md (republish + widened probe)
+last_updated: "2026-08-31T19:52:25.189Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 88
+  completed_plans: 89
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 5 of 15
+Plan: 6 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -123,6 +123,7 @@ Progress: [█████████░] 89%
 | Phase 08 P02 | 15min | 3 tasks | 5 files |
 | Phase 08 P03 | 35min | 3 tasks | 3 files |
 | Phase 08 P04 | ~15min | 3 tasks | 5 files |
+| Phase 08 P05 | 24min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -288,6 +289,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P03]: EVNT-07 intentionally left Pending in REQUIREMENTS.md despite appearing in plan 08-03's frontmatter requirements list -- this plan ships only the shared simulation-math core; the user-facing Simulation tab that fulfills the requirement text is owned by 08-07/08-09/08-11/08-13/08-14, matching the EVNT-02/EVNT-04/EVNT-05/EVNT-06 precedent Phase 7 already established
 - [Phase ?]: [Phase 08 P04]: medianTickLeft's centering property tested at mid-table rank 20 rather than the plan's literal rank-1 example -- x(1,N) is always exactly 0, so the tick's raw left edge is always negative and the clamp always binds at rank 1 for any nonzero MEDIAN_TICK_W, making exact centering there mathematically impossible regardless of clamp implementation; rank 1 remains covered by the separate box-containment test
 - [Phase ?]: [Phase 08 P04]: rankBandExtent clamps each raw band edge into [0, PLOT_W] independently before computing width (rather than clamping a pre-computed span), which is what makes left>=0 and left+width<=PLOT_W hold unconditionally, proven against the two-team 235px-per-side overflow case and the degenerate one-team roster, not just the three measured real events
+- [Phase ?]: 08-05: User checkpoint widened the pre-flight byte probe from 2 to 18 events before republishing; 2024gal confirmed as max both before (327,172B) and after (342,405B, 2.17% margin under 350,000)
+- [Phase ?]: 08-05: pmf array length is season-dependent (5 for 2022-2024's two RP bonuses, 7 for 2025-2026's three), corrected from the plan's own 'always length 7' claim; a degenerate length-1 pmf also lands on every playoff row at an RP-eligible event
 
 ### Pending Todos
 
@@ -335,6 +338,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T18:42:49.706Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-08-31T19:52:25.160Z
+Stopped at: Completed 08-05-PLAN.md (republish + widened probe)
 Resume file: None
