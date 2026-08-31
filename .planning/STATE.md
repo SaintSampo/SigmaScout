@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-09-PLAN.md
-last_updated: "2026-08-31T21:54:07.199Z"
+stopped_at: Completed 08-10-PLAN.md
+last_updated: "2026-08-31T22:38:41.307Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 93
+  completed_plans: 94
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 10 of 15
+Plan: 11 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 94%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -128,6 +128,7 @@ Progress: [█████████░] 94%
 | Phase 08 P07 | ~50min | 3 tasks | 6 files |
 | Phase 08 P08 | ~21min | 3 tasks | 5 files |
 | Phase 08 P09 | ~50min | 3 tasks | 6 files |
+| Phase 08 P10 | 55min | 4 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -304,6 +305,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 08-09: resolveActiveTab takes a named-field options object (PD-01) rather than a second positional boolean, and D-04's isSimulationDisabled is derived only from the resolved algorithm search param (never query state), in contrast to isAlliancesDisabled's data-claim gating
 - [Phase ?]: 08-09: hasSimulatableRankInputs (SimulationTab.tsx) answers only whether an event is in the pmf-bearing class at all (PD-06) -- per-row pmf completeness after a chosen start match is routed to 08-11's simulationInputs.ts
 - [Phase ?]: 08-09: minted two new Copywriting Contract strings (SIMULATION_UNAVAILABLE_HEADING/BODY) for the no-pmf offseason-gap state 08-05 discovered after UI-SPEC was signed off -- flagged for a future ui-phase pass to adopt
+- [Phase ?]: [Phase 08 P10]: theme.css's new --compare-algo-* tokens needed a real consuming CSS block (Tailwind v4 prunes an otherwise-unreferenced custom property from the compiled stylesheet) -- same mechanism already keeping --sim-hist-bar alive ahead of its own consumer
+- [Phase ?]: [Phase 08 P10]: CalibrationChart gained an onPointDeselect prop (onBlur/onMouseLeave) beyond the plan's original sketch -- Task 4's 'moving away restores the headline point' contract has no other place to attach since CalibrationChart owns every dot's event wiring
+- [Phase ?]: [Phase 08 P10]: calibrationSeries.ts's radius property test uses count 400 instead of the plan's literal 395 -- 395 collides with the same task's own hand-typed-figure negative grep (85.3|52.8|395)
 
 ### Pending Todos
 
@@ -351,6 +355,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:54:07.168Z
-Stopped at: Completed 08-09-PLAN.md
+Last session: 2026-08-31T22:38:41.276Z
+Stopped at: Completed 08-10-PLAN.md
 Resume file: None
