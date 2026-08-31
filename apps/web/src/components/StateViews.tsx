@@ -41,6 +41,15 @@ export function EmptyState({
  * a failed Teams or Events artifact fetch (Copywriting Contract's "Error
  * state" row). Unlike `EmptyState`, both copy lines are fixed templates
  * owned by this component — only `resource` and `year` vary per call site.
+ *
+ * `year` is OPTIONAL (08-01-PLAN.md Decision 2): the Compare page is this
+ * site's first page whose data is not scoped to a single year — five
+ * simultaneous per-season fetches, with no one honest year to substitute
+ * into "for {year}". When `year` is omitted, the rendered line drops the
+ * trailing "for {year}" clause entirely, producing the Copywriting
+ * Contract's exact Compare-page string ("Couldn't load comparison data.").
+ * All four pre-existing call sites pass a year and render byte-identically
+ * to before this change — this is additive, not a behavior change for them.
  */
 export function ErrorState({
   resource,
@@ -48,12 +57,13 @@ export function ErrorState({
   onRetry,
 }: {
   resource: string;
-  year: string | number;
+  year?: string | number;
   onRetry: () => void;
 }) {
+  const message = year === undefined ? `Couldn't load ${resource}.` : `Couldn't load ${resource} for ${year}.`;
   return (
     <div className="flex flex-col items-center gap-[var(--spacing-sm)] px-[var(--spacing-lg)] py-[var(--spacing-2xl)] text-center">
-      <p className="text-role-body text-destructive">{`Couldn't load ${resource} for ${year}.`}</p>
+      <p className="text-role-body text-destructive">{message}</p>
       <p className="text-role-body text-muted-foreground">Check your connection and try again.</p>
       <Button type="button" variant="outline" onClick={onRetry} className="border-destructive text-destructive">
         Retry

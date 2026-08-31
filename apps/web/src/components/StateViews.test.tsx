@@ -71,4 +71,17 @@ describe("ErrorState", () => {
     fireEvent.click(retryButton);
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("renders the year-less Compare-page form when no year is supplied (08-01-PLAN.md Decision 2)", () => {
+    render(<ErrorState resource="comparison data" onRetry={vi.fn()} />);
+
+    expect(screen.getByText("Couldn't load comparison data.")).toBeDefined();
+    expect(screen.queryByText(/for undefined/)).toBeNull();
+  });
+
+  it("still renders the existing year-bearing form unchanged when a year IS supplied (non-breaking, re-asserted)", () => {
+    render(<ErrorState resource="teams" year={2026} onRetry={vi.fn()} />);
+
+    expect(screen.getByText("Couldn't load teams for 2026.")).toBeDefined();
+  });
 });
