@@ -6,6 +6,7 @@ import { ArtifactFetchError } from "../lib/api/errors.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/AccuracyTable.js";
 import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
+import { MethodologyNote } from "../components/compare/MethodologyNote.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -92,7 +93,19 @@ function ComparePage() {
       {!is404 && !otherError && isPending && <AccuracyTableSkeleton />}
 
       {!is404 && !otherError && !isPending && (
-        <AccuracyTable artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
+        <>
+          <AccuracyTable artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
+          {/* A DOM SIBLING of AccuracyTable's scroll region, never a
+              descendant — mounting the note inside the table would put the
+              words it discloses (tune/holdout) inside the component whose
+              own test asserts they never appear (D-08). Pinned to the
+              combined view (Decision 5), never the switcher's own state —
+              re-slicing would make the note's own best-season clause false
+              against the committed data. */}
+          <div className="mt-[var(--spacing-md)]">
+            <MethodologyNote artifactsByYear={artifactsByYear} />
+          </div>
+        </>
       )}
     </div>
   );
