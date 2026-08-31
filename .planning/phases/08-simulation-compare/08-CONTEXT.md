@@ -37,8 +37,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
 
 ### Simulation inputs and the rewind-honesty question
 
-- **D-01: The simulation uses each match's own stored, as-of-that-match prediction, and
-  the phase measures how wrong that is rather than hand-waving it.**
+- **D-01: The simulation uses each match's own stored, as-of-that-match prediction, and the phase measures how wrong that is rather than hand-waving it.**
 
   **The mechanism, so downstream agents do not re-derive it.** The harness walks an event
   match by match: predict from everything seen so far, then fold in that match's result.
@@ -92,8 +91,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   thing standing between D-01 and an unquantified honesty claim on a site whose entire
   premise is honest uncertainty.
 
-- **D-03: `redRpPmf`/`blueRpPmf` are added to `EventMatchSchema` (played matches) and
-  populated in the same republish.** Measured shape: always length 7, mean 2.31 non-zero
+- **D-03: `redRpPmf`/`blueRpPmf` are added to `EventMatchSchema` (played matches) and populated in the same republish.** Measured shape: always length 7, mean 2.31 non-zero
   entries, ~84 bytes per match for both alliances including key names. A sparse
   index/value encoding was tested and **rejected** — it saved 6 bytes out of 1,017 (index
   overhead cancels the zeros), so dense stays.
@@ -114,8 +112,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
 
 ### Simulation display
 
-- **D-05: Each team's row shows median rank, a drawn 10th–90th percentile band on a
-  shared rank axis, and a per-row histogram of the full rank distribution.**
+- **D-05: Each team's row shows median rank, a drawn 10th–90th percentile band on a shared rank axis, and a per-row histogram of the full rank distribution.**
 
   Percentile bands rather than mean ± SD, for two reasons that are not stylistic:
   1. Rank is bounded (1..N), integer, and skewed. A team at mean rank 3.0 with SD 4.0
@@ -141,8 +138,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   corpus, 1,193 of 1,355 events run 8 alliances, but 104 run 4 and 22 run 6, so any
   cutoff column would have had to derive its threshold per event. Not needed now.
 
-- **D-07: The 1000 draws run in a browser Web Worker, with live progress shown during the
-  run and total elapsed time shown on completion.** `apps/web` has no Web Worker today —
+- **D-07: The 1000 draws run in a browser Web Worker, with live progress shown during the run and total elapsed time shown on completion.** `apps/web` has no Web Worker today —
   this is the first, so the planner should expect Vite worker-bundling setup as real work
   rather than an import. The user's framing: *"I love the timer idea. lets have some kind
   of way to indicate live progress too, and then they see the total time running the sim
@@ -157,8 +153,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
 
 ### Compare page
 
-- **D-08: One uniform table across all five seasons — no tune/holdout tiering, grouping,
-  or differential emphasis — plus a single methodology note.** The note states which
+- **D-08: One uniform table across all five seasons — no tune/holdout tiering, grouping, or differential emphasis — plus a single methodology note.** The note states which
   seasons the hyperparameter search saw, and shows the evidence that it did not flatter
   VPR: tune-season Brier 0.1592 / 0.1687 / 0.1761 versus holdout 0.1617 / 0.1501 — holdout
   sits *inside* the tune range and the single best season (2026, 0.1501) is a holdout one.
@@ -214,8 +209,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   metrics in both holdout seasons. This is a sub-slice the Compare page exposes for the
   first time.
 
-- **D-10: Parity check (SC-4) is a Vitest component test rendering the Compare page
-  against a committed copy of a real published `v1/compare/{year}.json`.** Chosen on the
+- **D-10: Parity check (SC-4) is a Vitest component test rendering the Compare page against a committed copy of a real published `v1/compare/{year}.json`.** Chosen on the
   user's instruction to take the least time. Hermetic, no network, fast.
 
   **Stated limitation, recorded so nobody mistakes its reach:** this proves the *page* is
@@ -226,9 +220,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
 
 ### Already-earned RP for a rewind start match
 
-- **D-12: A team's already-earned RP comes from TBA's Ranking Score when present, and
-  from summed per-match actual RP when it is absent. `actualRedRp`/`actualBlueRp` are
-  added to `EventMatchSchema` in the SAME republish as D-03.**
+- **D-12: A team's already-earned RP comes from TBA's Ranking Score when present, and from summed per-match actual RP when it is absent. `actualRedRp`/`actualBlueRp` are added to `EventMatchSchema` in the SAME republish as D-03.**
 
   Added 2026-08-30 during planning, after research surfaced a case neither this CONTEXT
   nor the UI-SPEC had considered. A rewind start match needs each team's accumulated
@@ -278,8 +270,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   — **Reversibility:** costly — a published-contract change on `EventMatchSchema`, same class
   as D-03 and carried by the same republish.
 
-- **D-13: Every `compLevel === "qm"` row in `matches[]`/`upcoming[]` at or after the start
-  match is simulated as-is — no offseason, surrogate, or quarantine filtering.** Research
+- **D-13: Every `compLevel === "qm"` row in `matches[]`/`upcoming[]` at or after the start match is simulated as-is — no offseason, surrogate, or quarantine filtering.** Research
   open question 2. The event artifact carries no such flags (they live on the corpus
   `matches` table and the Compare artifact's `exclusionCounts`), and the RP pmfs already
   reflect the model's full knowledge including whatever upstream handling those cases got.
@@ -288,8 +279,7 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   not because of any exclusion rule.
   — **Reversibility:** reversible — client-side filtering choice, no published contract.
 
-- **D-14: Simulated ties are recorded as ties, and the simulation does not claim to
-  replicate FRC's official tie-breaking.** Research pitfall 4. TBA's tiebreaker sort orders
+- **D-14: Simulated ties are recorded as ties, and the simulation does not claim to replicate FRC's official tie-breaking.** Research pitfall 4. TBA's tiebreaker sort orders
   (`sort_orders[1..]`, season-specific) are read at ingest but never persisted — only
   position 0, "Ranking Score", reaches the corpus and the published artifact, verified
   against `packages/ingest/rankings.ts` and `packages/corpus/schema.sql`. There is
