@@ -224,6 +224,83 @@ Phase 8 ships the two headline differentiators: the event page's **Simulation ta
   pattern to copy is `apps/web/e2e/event-live-artifact.spec.ts`, which fetches artifacts
   from the real R2 origin inside Playwright.
 
+### Already-earned RP for a rewind start match
+
+- **D-12: A team's already-earned RP comes from TBA's Ranking Score when present, and
+  from summed per-match actual RP when it is absent. `actualRedRp`/`actualBlueRp` are
+  added to `EventMatchSchema` in the SAME republish as D-03.**
+
+  Added 2026-08-30 during planning, after research surfaced a case neither this CONTEXT
+  nor the UI-SPEC had considered. A rewind start match needs each team's accumulated
+  actual RP as of that match. The event artifact's only source is `EventTeamSchema.rp`
+  (TBA's own reported Ranking Score), which is **missing entirely for 259 of 1,581 corpus
+  events**, and is independently optional even within a ranked event — `rank`, `record`
+  and `rp` are each separately optional by design, so a team with played matches and no
+  `rp` is a REAL representable state, not a pipeline bug.
+
+  **Resolution, in precedence order:**
+  1. `EventTeamSchema.rp` when present — this is the number TBA publishes and the number a
+     reader sees on TBA's own rankings page, and it already accounts for surrogate
+     appearances and disqualifications.
+  2. Otherwise, sum that team's `actualRedRp`/`actualBlueRp` across its played `qm` rows in
+     `matches[]`.
+  3. A team with zero played `qm` matches has an earned RP of 0 — derived by counting
+     appearances in `matches[]`, never gated on `rp` being present.
+
+  **Why the fallback is cheap:** the per-match values already exist. `TeamSeasonMatchSchema`
+  has published `actualRedRp`/`actualBlueRp` since Phase 6, sourced at ingest from TBA's raw
+  `score_breakdown.{color}.rp` via `packages/ingest/normalize.ts`'s `extractRp`. Mirroring
+  the two fields onto `EventMatchSchema` is publisher plumbing, not new computation, and it
+  rides **D-03's republish** — no second republish, no additional Class-A op cost.
+
+  **Byte cost, and the constraint on it:** roughly 34 bytes per played match for both
+  alliances including key names, so ~5,000 bytes at a 135-qual event, against the ~9,700
+  bytes of headroom remaining after D-03 consumes ~13,000 of the 22,739 available. This is
+  tight enough that it is **not** an estimate the executor may assume: `payloadBudget.test.ts`
+  must be run against the post-republish artifacts and `docs/publish-budget.md` updated. If
+  the combined D-03 + D-12 change breaches 350,000 bytes at any event, that is a stop-and-
+  report condition, not something to absorb by trimming another field.
+
+  **Known cost, chosen anyway:** where TBA's Ranking Score is absent, the summed fallback
+  does **not** reproduce TBA's surrogate- and DQ-adjusted arithmetic, so on an affected event
+  the baseline can disagree with what TBA would have published. The fallback is used only
+  where TBA published nothing to disagree with, which bounds the exposure, but the two paths
+  are not the same computation and must not be described as if they were. `actualRedRp` is
+  additionally `.nullable()` — `null` means "not derivable from available data" and must
+  never be coerced to `0`; a match row with a null actual RP contributes nothing to the sum
+  and the team's baseline is then known to be incomplete.
+
+  **Rejected:** (a) plain-disabling the Simulation tab wherever Ranking Score is missing —
+  the D-04 treatment, but it kills the tab on ~16% of browsable events; (b) treating a
+  missing baseline as 0 with a caveat — it understates a team that has genuinely played
+  matches, on exactly the events where data is weakest, which is the opposite of this site's
+  premise.
+  — **Reversibility:** costly — a published-contract change on `EventMatchSchema`, same class
+  as D-03 and carried by the same republish.
+
+- **D-13: Every `compLevel === "qm"` row in `matches[]`/`upcoming[]` at or after the start
+  match is simulated as-is — no offseason, surrogate, or quarantine filtering.** Research
+  open question 2. The event artifact carries no such flags (they live on the corpus
+  `matches` table and the Compare artifact's `exclusionCounts`), and the RP pmfs already
+  reflect the model's full knowledge including whatever upstream handling those cases got.
+  Adding a filter the artifact cannot express would invent a distinction the data does not
+  carry. Elimination rows are excluded because SC-1 scopes this to qualification matches,
+  not because of any exclusion rule.
+  — **Reversibility:** reversible — client-side filtering choice, no published contract.
+
+- **D-14: Simulated ties are recorded as ties, and the simulation does not claim to
+  replicate FRC's official tie-breaking.** Research pitfall 4. TBA's tiebreaker sort orders
+  (`sort_orders[1..]`, season-specific) are read at ingest but never persisted — only
+  position 0, "Ranking Score", reaches the corpus and the published artifact, verified
+  against `packages/ingest/rankings.ts` and `packages/corpus/schema.sql`. There is
+  therefore no data-backed secondary sort available anywhere in the pipeline. Per-draw
+  sorting breaks ties by team key so a fixed seed is deterministic run-to-run, but any
+  on-page copy describing the ranking method must not assert official tie-break parity.
+  This is consistent with D-11's stance that a difference the data cannot resolve is
+  presented as a tie rather than a decided outcome.
+  — **Reversibility:** reversible — would need new ingest + corpus columns to improve, which
+  is a separate phase, not a change to this one.
+
 ### Claude's Discretion
 
 - Where `simulation` sits in the tab strip (expected: sixth, after Elims) and how the
