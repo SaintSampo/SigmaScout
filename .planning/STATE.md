@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 8
-current_phase_name: Simulation & Compare
+current_phase: 08
+current_phase_name: simulation-compare
 status: executing
-stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-08-31T17:13:40.975Z"
-last_activity: 2026-08-30
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-08-31T17:52:00.710Z"
+last_activity: 2026-08-31
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 84
+  completed_plans: 85
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
-**Current focus:** Phase 07 — event-pages
+**Current focus:** Phase 08 — simulation-compare
 
 ## Current Position
 
-Phase: 8 — Simulation & Compare
-Plan: Not started
+Phase: 08 (simulation-compare) — EXECUTING
+Plan: 2 of 15
 Status: Ready to execute
-Last activity: 2026-08-30 — Phase 07 complete, transitioned to Phase 8
+Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -119,6 +119,7 @@ Progress: [██████████] 100%
 | Phase 07 P18 | ~1h20m | 3 tasks | 57 files |
 | Phase 07 P19 | ~50min (continuation) + predecessor sessions | 4 tasks | 12 files |
 | Phase 07 P20 | ~4h | 3 tasks | 9 files |
+| Phase 08 P01 | 15min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -278,6 +279,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07 P20]: the alliance-uncertainty identity (ledger row 9) was rewritten from a near-equality assertion to a monotone-narrowing assertion after developer-confirmed evidence (280 alliance-pairs, 2024new: mean gap 1.130 first half vs 0.373 second half) showed the original design compared an as-of-event quantity against an as-of-that-match one, which can never hold as an identity regardless of tolerance; the TRUE identity is routed to .planning/todos/pending/publish-as-of-match-team-metrics.md
 - [Phase ?]: [Phase 07 P20]: Phase 07 (event-pages) is now fully complete -- 20/20 plans, all seven UI-SPEC backstop rows and five non-UI-SPEC backstop markers have evidence (10 automated, 2 carried to 07-UAT.md for /gsd-verify-work 7 pending physical hardware)
 - [Phase ?]: [Quick 260830-p6s]: Local Playwright render loop closes G-06-2 -- Vite server/preview proxies /v1 to https://data.sigmascout.org (same-origin, no CORS change needed), new local-desktop/local-phone-390 projects cover all 12 layout/visual specs at the width(s) where each spec's own premise holds; deployed-origin projects/use.baseURL untouched. First real desktop-width run of no-page-pan.spec.ts found one HARNESS-class premise mismatch (fixed via grepInvert, not a spec edit) -- no layout defects found or fixed by this task
+- [Phase ?]: 08-01: Compare page tracer + AccuracyTable — five real published v1/compare/{year}.json artifacts committed as fixtures, D-08-complete accuracy table shipped, D-10 parity proof (15 parameterized cases) landed; ErrorState.year made optional
 
 ### Pending Todos
 
@@ -325,6 +327,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T00:25:34.901Z
-Stopped at: Phase 8 UI-SPEC approved
-Resume file: .planning/phases/08-simulation-compare/08-UI-SPEC.md
+Last session: 2026-08-31T17:52:00.650Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None

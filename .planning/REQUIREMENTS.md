@@ -13,7 +13,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **EVAL-02**: Harness reports Brier score and winner accuracy per algorithm per season
 - [x] **EVAL-03**: Harness produces calibration curves per algorithm (predicted probability vs observed frequency)
 - [x] **EVAL-04**: Hyperparameter tuning uses an explicit tune/holdout season split; headline accuracy claims come from holdout seasons only
-- [ ] **EVAL-05**: Harness results are published as a versioned artifact — the Compare page displays the same numbers the offline harness produced
+- [x] **EVAL-05**: Harness results are published as a versioned artifact — the Compare page displays the same numbers the offline harness produced
 
 ### Data Pipeline
 
@@ -63,7 +63,7 @@ for the full baseline-change narrative.
 
 ### Compare
 
-- [ ] **COMP-01**: User can view a table of prediction accuracy (winner accuracy and Brier score) for each algorithm, per year
+- [x] **COMP-01**: User can view a table of prediction accuracy (winner accuracy and Brier score) for each algorithm, per year
 
 ### Navigation & UI
 
@@ -110,7 +110,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-02 | Phase 1 | Complete |
 | EVAL-03 | Phase 1 | Complete |
 | EVAL-04 | Phase 1 | Complete |
-| EVAL-05 | Phase 8 | Pending |
+| EVAL-05 | Phase 8 | Complete |
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 4 | Complete |
@@ -137,7 +137,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVNT-05 | Phase 7 | Complete |
 | EVNT-06 | Phase 7 | Complete |
 | EVNT-07 | Phase 8 | Pending |
-| COMP-01 | Phase 8 | Pending |
+| COMP-01 | Phase 8 | Complete |
 | NAV-01 | Phase 5 | Complete |
 | NAV-02 | Phase 5 | Complete |
 | NAV-03 | Phase 5 | Complete |

@@ -491,9 +491,9 @@ Plans:
   3. The Compare page shows winner accuracy and Brier score for every algorithm for every year 2022–2026.
   4. The numbers rendered on the Compare page are identical to the versioned artifact the offline harness produced for that algorithm version — verified by an automated check, not by eye.
 
-**Plans**: 15 plans in 7 waves
+**Plans**: 1/15 plans executed
 
-- [ ] 08-01-PLAN.md
+- [x] 08-01-PLAN.md
 - [ ] 08-02-PLAN.md
 - [ ] 08-03-PLAN.md
 - [ ] 08-04-PLAN.md
@@ -544,6 +544,7 @@ Plans:
 **Wave 7** *(blocked on Wave 6)*
 
   - `08-15` — backstop evidence at 390px / 78 teams + human-verify touch checkpoint (EVNT-07, COMP-01, EVAL-05)
+
 **UI hint**: yes
 
 ## Progress
@@ -561,7 +562,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
-| 8. Simulation & Compare | 0/15 | Planned | - |
+| 8. Simulation & Compare | 1/15 | In Progress|  |
 
 ## Coverage
 
