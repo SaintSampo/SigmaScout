@@ -103,6 +103,34 @@
   --tier-legendary-fg: #B45309;
 
   /*
+   * Rank-distribution plot cell marks (08-04, UI-SPEC's Color section,
+   * D-05) — the Simulation tab's per-team histogram bar, 10th-90th
+   * percentile band overlay, and median tick. All three derive from
+   * existing neutrals and introduce no new hue, which is why this addition
+   * sits inside the base-palette deferral (08-CONTEXT.md's Claude's
+   * Discretion) rather than against it.
+   *
+   * Deliberately NOT accent-coloured: this site's accent marks
+   * interactivity, and nothing on a rendered rank distribution is
+   * clickable. A rank distribution also carries no identity to
+   * colour-code the way the red/blue match plot does.
+   *
+   * The `18%` inside `--sim-band-overlay` is the SAME NUMBER as
+   * `SIM_GEOMETRY.BAND_OPACITY` in `apps/web/src/lib/simAxis.ts`, coupled
+   * by an assertion in that module's `simAxis.test.ts` — the two can never
+   * drift apart, and no consumer may apply `BAND_OPACITY` a second time as
+   * a CSS opacity on top of this token (that would render the band at
+   * about 3.2% and make it invisible).
+   *
+   * `--sim-median-tick` is a direct alias of `--color-text-primary`, not a
+   * `color-mix` like its two siblings — UI-SPEC's Color section defines it
+   * this way, more specifically than the outline's summary wording.
+   */
+  --sim-hist-bar: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+  --sim-band-overlay: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+  --sim-median-tick: var(--color-text-primary);
+
+  /*
    * shadcn semantic aliases — every one of these is a `var(--color-*)`
    * reference back to a contract token above, never an independent value.
    * Names match what the eight generated `src/components/ui/*` primitives
@@ -517,4 +545,29 @@ body {
   border-color: var(--color-border);
   color: var(--color-border);
   background-color: transparent;
+}
+
+/*
+ * Rank-distribution plot cell utility classes (08-04) — follow this file's
+ * established `.alliance-chip--*` precedent of consuming every custom token
+ * from a CSS rule inside this same stylesheet, so a `--sim-*` token used
+ * only from TSX is not left at the mercy of the build's theme handling
+ * (Tailwind v4 only reliably keeps a custom property in the built
+ * stylesheet when something in this file itself consumes it). 08-14 applies
+ * these classes to its bar/band/tick marks rather than writing an inline
+ * `var()` reference at the call site.
+ *
+ * No width, height, position, radius or opacity here — layout, size and
+ * stacking are the plot cell's job in 08-14, and an opacity declaration
+ * here would be the exact double-application `--sim-band-overlay`'s own
+ * comment above forbids.
+ */
+.sim-hist-bar {
+  background-color: var(--sim-hist-bar);
+}
+.sim-band-overlay {
+  background-color: var(--sim-band-overlay);
+}
+.sim-median-tick {
+  background-color: var(--sim-median-tick);
 }
