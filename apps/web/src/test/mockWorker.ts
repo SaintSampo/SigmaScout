@@ -99,6 +99,18 @@ export class MockWorkerInstance {
   }
 
   /**
+   * Whether `terminate()` has been called on this instance (08-13-PLAN.md
+   * Task 1, H9/H10 — a caller needs an externally-observable way to assert
+   * that a Worker was terminated on the terminal-message/new-run/unmount
+   * paths, and `#terminated` was previously private with no public read
+   * surface at all). Read-only by design: nothing outside `terminate()`
+   * itself may flip this flag.
+   */
+  get terminated(): boolean {
+    return this.#terminated;
+  }
+
+  /**
    * Delivery is asynchronous in both directions: a real Worker never
    * delivers synchronously, and a double that did would let a consumer's
    * test pass on an ordering a real browser would not reproduce. The
