@@ -37,6 +37,15 @@ export interface CalibrationChartProps {
   readonly activeAlgorithmId: PublishedAlgorithmId;
   /** Fired from a point's hover, focus AND click alike — `CalibrationSection.tsx` uses this to swap its headline sentence. */
   readonly onPointSelect: (algorithmId: PublishedAlgorithmId, point: CalibrationPoint) => void;
+  /**
+   * Fired when a point's hover/focus ENDS (mouse leave or blur) — Rule 2
+   * addition, folded into this task rather than left implicit: Task 4's own
+   * "moving away restores the headline point" contract has no other place to
+   * attach, since this component owns every dot's event wiring. Optional so
+   * a caller uninterested in restoring a prior sentence (or an earlier test)
+   * needs no change.
+   */
+  readonly onPointDeselect?: () => void;
 }
 
 export const DEFAULT_CALIBRATION_CHART_WIDTH = 560;
@@ -80,6 +89,7 @@ function makeCalibrationDot(
   algorithmLabel: string,
   pointLookup: ReadonlyMap<number, CalibrationPoint>,
   onPointSelect: CalibrationChartProps["onPointSelect"],
+  onPointDeselect: CalibrationChartProps["onPointDeselect"],
 ) {
   return function CalibrationDot(props: DotItemDotProps): ReactNode {
     const { cx, cy, payload } = props;
@@ -90,10 +100,19 @@ function makeCalibrationDot(
     if (point === undefined) return null;
 
     const handleSelect = (): void => onPointSelect(algorithmId, point);
+    const handleDeselect = (): void => onPointDeselect?.();
     const title = `${algorithmLabel}: predicted ${(point.meanPredicted * 100).toFixed(1)}%, observed ${(point.observedFrequency * 100).toFixed(1)}%, ${point.count.toLocaleString("en-US")} matches`;
 
     return (
-      <g tabIndex={0} onMouseEnter={handleSelect} onFocus={handleSelect} onClick={handleSelect} style={{ cursor: "pointer", outline: "none" }}>
+      <g
+        tabIndex={0}
+        onMouseEnter={handleSelect}
+        onFocus={handleSelect}
+        onClick={handleSelect}
+        onMouseLeave={handleDeselect}
+        onBlur={handleDeselect}
+        style={{ cursor: "pointer", outline: "none" }}
+      >
         <title>{title}</title>
         <circle cx={cx} cy={cy} r={cell.radius} fill={ALGORITHM_STROKE[algorithmId]} fillOpacity={0.82} stroke="var(--color-bg-page)" strokeWidth={1} />
       </g>
@@ -135,7 +154,7 @@ function CalibrationSizeKey({ stats }: { readonly stats: CountStats | undefined 
   );
 }
 
-export default function CalibrationChart({ pointsByAlgorithm, activeAlgorithmId, onPointSelect }: CalibrationChartProps) {
+export default function CalibrationChart({ pointsByAlgorithm, activeAlgorithmId, onPointSelect, onPointDeselect }: CalibrationChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState<number>(DEFAULT_CALIBRATION_CHART_WIDTH);
 
@@ -194,7 +213,7 @@ export default function CalibrationChart({ pointsByAlgorithm, activeAlgorithmId,
             connectNulls
             isAnimationActive={false}
             activeDot={false}
-            dot={makeCalibrationDot(algorithmId, algorithmDisplayLabel(algorithmId), pointLookupByAlgorithm.get(algorithmId)!, onPointSelect)}
+            dot={makeCalibrationDot(algorithmId, algorithmDisplayLabel(algorithmId), pointLookupByAlgorithm.get(algorithmId)!, onPointSelect, onPointDeselect)}
           />
         ))}
       </LineChart>

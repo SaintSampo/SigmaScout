@@ -137,4 +137,25 @@ describe("CalibrationChart — jsdom-safe sizing and real-fixture rendering", ()
     expect(calledAlgorithmId).toBe("opr");
     expect(calledPoint.count).toBe(targetPoint.count);
   });
+
+  it("fires onPointDeselect on blur and on mouseleave — the seam CalibrationSection uses to restore its headline sentence", () => {
+    const pointsByAlgorithm = pointsByAlgorithmFor(fixture2026, "qualification");
+    const onPointDeselect = vi.fn();
+    const { container } = render(
+      <CalibrationChart
+        pointsByAlgorithm={pointsByAlgorithm}
+        activeAlgorithmId="vpr"
+        onPointSelect={() => {}}
+        onPointDeselect={onPointDeselect}
+      />,
+    );
+
+    const dotGroup = chartSvg(container).querySelector("circle")?.closest("g");
+    expect(dotGroup).toBeDefined();
+
+    fireEvent.blur(dotGroup!);
+    fireEvent.mouseLeave(dotGroup!);
+
+    expect(onPointDeselect).toHaveBeenCalledTimes(2);
+  });
 });
