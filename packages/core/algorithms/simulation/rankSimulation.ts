@@ -70,6 +70,40 @@ export function drawCategorical(pmf: readonly number[], rng: () => number): numb
   return pmf.length - 1;
 }
 
+/**
+ * Raised by `simulateRanks`'s up-front validation pass (PD-04) when a
+ * match's pmf is empty or contains a non-finite entry. This is
+ * defense-in-depth against an input that never went through the
+ * publish-boundary schema (`isValidPmf`, `packages/harness/pageArtifacts.ts`)
+ * — that schema is the primary gate and owns the sum-to-1 tolerance; this
+ * error type deliberately does NOT re-check that tolerance, since
+ * duplicating a numeric tolerance in two places is how two tolerances drift
+ * apart.
+ */
+export class InvalidPmfError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidPmfError";
+  }
+}
+
+/**
+ * Raised by `simulateRanks`'s up-front validation pass (PD-03) when a match
+ * names a team key absent from `baselines`. Thrown rather than silently
+ * dropped: a dropped team's matches would simply vanish from the
+ * accumulation, producing a complete, plausible-looking, WRONG rank
+ * distribution — the failure mode a site whose premise is honest numbers
+ * cannot absorb. Constructing an on-the-fly baseline entry for a team that
+ * appears in a match but not on the roster (RESEARCH assumption A2) is
+ * 08-11's job, not this module's.
+ */
+export class UnknownTeamKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnknownTeamKeyError";
+  }
+}
+
 /** One remaining qualification match's simulation input: the two alliances' team keys and their RP-total pmfs (already fold in win/tie/bonus RP — see this file's header). */
 export interface SimMatchInput {
   readonly redTeamKeys: readonly string[];
@@ -123,6 +157,20 @@ export interface SimResult {
  * quarantined) are not representable on the event artifact this module's
  * caller reads from, so a filter here would assert a distinction the data
  * does not carry.
+ *
+ * Zero remaining matches is a VALID input, not an error case: this is the
+ * fully-played event, the common case across the corpus (only 41 of 1,353
+ * events have any unplayed qualification match at all), and every team
+ * simply keeps its baseline average, ranked identically in all `draws`
+ * draws.
+ *
+ * Before the draw loop runs, this function walks `remainingMatches` ONCE
+ * (PD-04) to validate each pmf (non-empty, every entry finite — NOT the
+ * sum-to-1 tolerance, which is the publish-boundary schema's own contract,
+ * `isValidPmf`) and to resolve every team key against `baselines` (PD-03),
+ * raising `InvalidPmfError`/`UnknownTeamKeyError` immediately rather than
+ * producing a wrong-but-plausible result. This costs O(matches) once,
+ * rather than O(draws x matches) if repeated inside the hot loop.
  */
 export function simulateRanks(
   remainingMatches: readonly SimMatchInput[],
@@ -133,6 +181,42 @@ export function simulateRanks(
   const teamCount = baselines.length;
   const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
   const rankHistograms = new Map<string, Int32Array>(baselines.map((baseline) => [baseline.teamKey, new Int32Array(teamCount)]));
+
+  function resolveTeamIndices(teamKeys: readonly string[], matchPosition: number): number[] {
+    return teamKeys.map((teamKey) => {
+      const index = teamIndex.get(teamKey);
+      if (index === undefined) {
+        throw new UnknownTeamKeyError(
+          `simulateRanks: match at position ${matchPosition} names team "${teamKey}", which is absent from baselines`
+        );
+      }
+      return index;
+    });
+  }
+
+  function assertValidPmf(pmf: readonly number[], matchPosition: number, side: "red" | "blue"): void {
+    if (pmf.length === 0) {
+      throw new InvalidPmfError(`simulateRanks: match at position ${matchPosition} carries an empty ${side}RpPmf`);
+    }
+    for (const value of pmf) {
+      if (!Number.isFinite(value)) {
+        throw new InvalidPmfError(
+          `simulateRanks: match at position ${matchPosition} carries a non-finite ${side}RpPmf entry (${value})`
+        );
+      }
+    }
+  }
+
+  const resolvedMatches = remainingMatches.map((match, matchPosition) => {
+    assertValidPmf(match.redRpPmf, matchPosition, "red");
+    assertValidPmf(match.blueRpPmf, matchPosition, "blue");
+    return {
+      redIndices: resolveTeamIndices(match.redTeamKeys, matchPosition),
+      blueIndices: resolveTeamIndices(match.blueTeamKeys, matchPosition),
+      redRpPmf: match.redRpPmf,
+      blueRpPmf: match.blueRpPmf,
+    };
+  });
 
   // Accumulators allocated ONCE, outside the draw loop, and reset in place
   // at the top of each draw -- following `rp/distribution.ts`'s own Monte
@@ -177,16 +261,14 @@ export function simulateRanks(
       matchesPlayed[i] = baselines[i]!.matchesPlayed;
     }
 
-    for (const match of remainingMatches) {
+    for (const match of resolvedMatches) {
       const redRp = drawCategorical(match.redRpPmf, rng);
       const blueRp = drawCategorical(match.blueRpPmf, rng);
-      for (const teamKey of match.redTeamKeys) {
-        const i = teamIndex.get(teamKey)!;
+      for (const i of match.redIndices) {
         rpSum[i]! += redRp;
         matchesPlayed[i]! += 1;
       }
-      for (const teamKey of match.blueTeamKeys) {
-        const i = teamIndex.get(teamKey)!;
+      for (const i of match.blueIndices) {
         rpSum[i]! += blueRp;
         matchesPlayed[i]! += 1;
       }

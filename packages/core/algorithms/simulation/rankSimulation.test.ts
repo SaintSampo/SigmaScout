@@ -268,3 +268,123 @@ describe("simulateRanks — Test 8: the module adds no RP of its own", () => {
     expect(result.rankHistograms.get("frcBlue1")![1]).toBe(1);
   });
 });
+
+describe("drawCategorical — Test 9: a malformed pmf terminates with a bounded result", () => {
+  it("returns an in-range index for each of three malformed pmf shapes (residue, NaN entry, negative entry) — the loop's own bound is what makes this run at all", () => {
+    // Sub-case A: entries sum to slightly less than 1 -- the residue
+    // fallback the doc comment names.
+    const residuePmf = [0.2, 0.2, 0.2, 0.2, 0.19]; // sums to 0.99
+    const residueIndex = drawCategorical(residuePmf, () => 0.999999);
+    expect(Number.isInteger(residueIndex)).toBe(true);
+    expect(residueIndex).toBeGreaterThanOrEqual(0);
+    expect(residueIndex).toBeLessThanOrEqual(residuePmf.length - 1);
+
+    // Sub-case B: a NaN entry.
+    const nanPmf = [0.5, Number.NaN, 0.5];
+    const nanIndex = drawCategorical(nanPmf, () => 0.9);
+    expect(Number.isInteger(nanIndex)).toBe(true);
+    expect(nanIndex).toBeGreaterThanOrEqual(0);
+    expect(nanIndex).toBeLessThanOrEqual(nanPmf.length - 1);
+
+    // Sub-case C: a negative entry.
+    const negativePmf = [0.5, -0.2, 0.7];
+    const negativeIndex = drawCategorical(negativePmf, () => 0.9);
+    expect(Number.isInteger(negativeIndex)).toBe(true);
+    expect(negativeIndex).toBeGreaterThanOrEqual(0);
+    expect(negativeIndex).toBeLessThanOrEqual(negativePmf.length - 1);
+  });
+});
+
+describe("simulateRanks — Test 10: an empty pmf is rejected up front, not drawn from", () => {
+  it("throws a named error identifying the offending match, before any draw runs", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc1", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frc2", earnedRpSum: 0, matchesPlayed: 0 },
+    ];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2"], redRpPmf: [], blueRpPmf: [1] },
+    ];
+    // A large `draws` value: if the error were raised mid-draw-loop instead
+    // of up front, this call would take a long time or produce a
+    // draw-indexed error message instead of a match-indexed one.
+    expect(() => simulateRanks(remainingMatches, baselines, 1_000_000, mulberry32(1))).toThrow(/position 0/);
+  });
+});
+
+describe("simulateRanks — Test 11: an unknown team key throws and names the team", () => {
+  it("throws with the missing team key in the message and does not return a result", () => {
+    const baselines: SimTeamBaseline[] = [{ teamKey: "frc1", earnedRpSum: 0, matchesPlayed: 0 }];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frcGhost9999"], redRpPmf: [1], blueRpPmf: [1] },
+    ];
+    expect(() => simulateRanks(remainingMatches, baselines, 10, mulberry32(1))).toThrow(/frcGhost9999/);
+  });
+});
+
+describe("simulateRanks — Test 12: the corpus's measured worst case runs", () => {
+  it("completes for 78 teams, 135 remaining matches, 1000 draws, with every histogram summing to exactly 1000", () => {
+    const teamCount = 78;
+    const matchCount = 135;
+    const baselines: SimTeamBaseline[] = Array.from({ length: teamCount }, (_, i) => ({
+      teamKey: `frc${i + 1}`,
+      earnedRpSum: i,
+      matchesPlayed: 5,
+    }));
+    const pmf = realPmfPairWithSpread("2024test_worstcase", 50, 50);
+    const remainingMatches: SimMatchInput[] = Array.from({ length: matchCount }, (_, m) => {
+      const base = (m * 6) % teamCount;
+      const teamAt = (offset: number) => `frc${((base + offset) % teamCount) + 1}`;
+      return {
+        redTeamKeys: [teamAt(0), teamAt(1), teamAt(2)],
+        blueTeamKeys: [teamAt(3), teamAt(4), teamAt(5)],
+        redRpPmf: pmf.redRpPmf,
+        blueRpPmf: pmf.bluePmf,
+      };
+    });
+
+    const start = performance.now();
+    const result = simulateRanks(remainingMatches, baselines, 1000, mulberry32(2024));
+    const durationMs = performance.now() - start;
+    // eslint-disable-next-line no-console -- SUMMARY.md records this measured duration per the plan's <output> spec
+    console.log(`Test 12 measured duration: ${durationMs.toFixed(2)}ms (78 teams, 135 matches, 1000 draws)`);
+
+    expect(result.rankHistograms.size).toBe(teamCount);
+    for (const baseline of baselines) {
+      const histogram = result.rankHistograms.get(baseline.teamKey)!;
+      expect(histogram).toHaveLength(teamCount);
+      const sum = Array.from(histogram).reduce((a, b) => a + b, 0);
+      expect(sum).toBe(1000);
+    }
+  });
+});
+
+describe("simulateRanks — Test 13: a team with no matches at all is ranked, not NaN", () => {
+  it("gives a roster team with matchesPlayed 0 and no remaining matches a complete histogram, ranked last", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcActive1", earnedRpSum: 10, matchesPlayed: 5 },
+      { teamKey: "frcActive2", earnedRpSum: 8, matchesPlayed: 5 },
+      { teamKey: "frcNeverPlayed", earnedRpSum: 0, matchesPlayed: 0 },
+    ];
+    const result = simulateRanks([], baselines, 1000, mulberry32(1));
+
+    const neverPlayedHistogram = result.rankHistograms.get("frcNeverPlayed")!;
+    const sum = Array.from(neverPlayedHistogram).reduce((a, b) => a + b, 0);
+    expect(sum).toBe(1000);
+    expect(neverPlayedHistogram[2]).toBe(1000); // last of 3 teams, every draw
+  });
+});
+
+describe("simulateRanks — Test 14: zero remaining matches is a valid input", () => {
+  it("concentrates every team's 1000 draws on the single rank its baseline already implies", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcTop", earnedRpSum: 30, matchesPlayed: 5 },
+      { teamKey: "frcMid", earnedRpSum: 20, matchesPlayed: 5 },
+      { teamKey: "frcBottom", earnedRpSum: 10, matchesPlayed: 5 },
+    ];
+    const result = simulateRanks([], baselines, 1000, mulberry32(1));
+
+    expect(result.rankHistograms.get("frcTop")![0]).toBe(1000);
+    expect(result.rankHistograms.get("frcMid")![1]).toBe(1000);
+    expect(result.rankHistograms.get("frcBottom")![2]).toBe(1000);
+  });
+});
