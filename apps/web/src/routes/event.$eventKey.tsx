@@ -14,6 +14,7 @@ import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTa
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
+import { SimulationTab, SimulationTabSkeleton, SIMULATION_ALGORITHM_ID } from "../components/event/SimulationTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -29,32 +30,54 @@ export const Route = createFileRoute("/event/$eventKey")({
 
 /**
  * Every id `EVENT_TABS` declares now has a trigger AND a content panel
- * (07-14-PLAN.md registers the last one, `alliances`) — this narrowing array
- * is kept rather than removed because `EventSearchSchema`'s `.catch()`
- * cannot help here on its own: an id is a valid member of `EVENT_TABS`'s
- * enum whether or not this route has a matching trigger/panel for it, so the
- * narrowing is what stopped an empty panel between waves and stays as the
- * one list a reader checks against the tab strip below.
+ * (07-14-PLAN.md registered `alliances`; 08-09-PLAN.md registers the last
+ * one, `simulation`) — this narrowing array is kept rather than removed
+ * because `EventSearchSchema`'s `.catch()` cannot help here on its own: an
+ * id is a valid member of `EVENT_TABS`'s enum whether or not this route has
+ * a matching trigger/panel for it, so the narrowing is what stopped an empty
+ * panel between waves and stays as the one list a reader checks against the
+ * tab strip below.
  *
  * `alliances` sits BETWEEN `quals` and `elims`, matching `EVENT_TABS`'s own
- * fixed declared order and 07-13's comment asking this plan to insert it
- * exactly there rather than append it.
+ * fixed declared order and 07-13's comment asking that plan to insert it
+ * exactly there rather than append it. `simulation` is appended LAST,
+ * matching `EVENT_TABS`'s own declared order.
+ *
+ * 08-09: registering an id here is no longer the ONLY reachability rule on
+ * this page. `simulation` is registered (has a trigger and a panel) but
+ * still conditionally UNREACHABLE — D-04's VPR-only rule plain-disables its
+ * trigger on OPR/EPA (see `isSimulationDisabled` below), a second narrowing
+ * this array cannot express on its own.
  */
-const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims"];
+const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"];
 
 /**
- * `isAlliancesDisabled` extends this narrowing rather than adding a second
- * mechanism (07-14-PLAN.md Task 3, D-17): a tab whose trigger is CURRENTLY
- * disabled resolves to `DEFAULT_EVENT_TAB` the same way an unregistered id
- * does, so a shared `?tab=alliances` link on an alliance-less event lands on
- * the default tab instead of opening a disabled tab onto an empty table.
+ * `isAlliancesDisabled` and `isSimulationDisabled` extend this narrowing
+ * rather than adding a third/fourth mechanism (07-14-PLAN.md Task 3, D-17;
+ * 08-09-PLAN.md Task 3, D-04): a tab whose trigger is CURRENTLY disabled
+ * resolves to `DEFAULT_EVENT_TAB` the same way an unregistered id does, so a
+ * shared `?tab=alliances`/`?tab=simulation` link on a disabled tab lands on
+ * the default tab instead of opening a disabled tab onto an empty panel.
  * Resolve only — this never navigates and never rewrites the search param,
- * so the URL stays shareable and back/forward-navigable. This is what makes
- * 07-UI-SPEC.md's E7 `empty` dismissal true rather than merely asserted.
+ * so the URL stays shareable and back/forward-navigable for a reader who
+ * DOES have the right data/algorithm selected. This is what makes
+ * 07-UI-SPEC.md's E7 `empty` dismissal true rather than merely asserted, and
+ * what 08-09-PLAN.md's own resolve-only truth extends by one branch.
+ *
+ * PD-01 (08-09-PLAN.md): takes `tab` plus one named-field options object
+ * rather than a second positional boolean — this function is module-private
+ * with exactly one call site and no test importer, so a transposition
+ * between two adjacent same-typed booleans would compile cleanly and
+ * type-check cleanly while silently disabling the wrong tab. Named fields
+ * make that transposition a compile error instead of a rendering bug.
  */
-function resolveActiveTab(tab: EventTab, isAlliancesDisabled: boolean): EventTab {
+function resolveActiveTab(
+  tab: EventTab,
+  { isAlliancesDisabled, isSimulationDisabled }: { isAlliancesDisabled: boolean; isSimulationDisabled: boolean },
+): EventTab {
   if (!REGISTERED_EVENT_TABS.includes(tab)) return DEFAULT_EVENT_TAB;
   if (tab === "alliances" && isAlliancesDisabled) return DEFAULT_EVENT_TAB;
+  if (tab === "simulation" && isSimulationDisabled) return DEFAULT_EVENT_TAB;
   return tab;
 }
 
@@ -155,7 +178,19 @@ function EventPage() {
   // this event's data, so an unresolved/errored/placeholder query leaves the
   // trigger enabled rather than asserting a claim the page cannot support.
   const isAlliancesDisabled = !isPending && !error && !isPlaceholderData && data !== undefined && !hasAllianceData(data);
-  const activeTab = resolveActiveTab(tab, isAlliancesDisabled);
+  // D-04 (08-09-PLAN.md Task 3): deliberately NOT gated on query state the
+  // way `isAlliancesDisabled` above is. `isAlliancesDisabled` waits for
+  // `data` to be present, non-pending, non-error and non-placeholder
+  // specifically because disabling Alliances is a CLAIM about THIS event's
+  // alliance data, and a claim must not be made from another event's
+  // keep-previous-data artifact. D-04's rule makes no claim about data at
+  // all — it depends only on the already-resolved `algorithm` search param,
+  // which `RootSearchSchema` has already coerced to a member of the
+  // published id set before this component ever reads it. Gating it on
+  // query state would make a nav element's state wait on a fetch for no
+  // reason, and would blur two genuinely different rules into one shape.
+  const isSimulationDisabled = algorithm !== SIMULATION_ALGORITHM_ID;
+  const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
 
   function handleTabChange(value: string) {
     const nextTab = value as EventTab;
@@ -257,6 +292,20 @@ function EventPage() {
     });
   }
 
+  function renderSimulationContent() {
+    return renderTabState({
+      is404,
+      error,
+      isPending,
+      data,
+      eventKey,
+      season,
+      onRetry: () => void refetch(),
+      renderPending: () => <SimulationTabSkeleton />,
+      renderPopulated: (artifact) => <SimulationTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+    });
+  }
+
   // 07-UAT.md G-7: the Breakdown tab's own column set (14 metric columns at
   // `size: 120`, plus the pinned `teamNumber`/`nickname` identity block) is
   // 1988px wide — most of that width is the value-display box's own
@@ -329,6 +378,25 @@ function EventPage() {
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Elims
             </TabsTrigger>
+            {/*
+              D-04 (08-09-PLAN.md Task 3), reusing Phase 7 D-17's treatment
+              verbatim: `disabled` alone is the whole treatment — no title, no
+              accessible-description reference, no icon, no badge, no custom
+              class. `apps/web/src/components/ui/tabs.tsx` already removes
+              pointer events and halves opacity for a disabled trigger; Radix
+              supplies the disabled semantics. The Copywriting Contract's own
+              row for this element reads that there is no copy at all. The
+              one sentence specific to D-04: the accepted cost is that a user
+              on OPR or EPA sees a dead tab with no hint, taken deliberately
+              so the site keeps exactly one rule for a tab you cannot use.
+            */}
+            <TabsTrigger
+              value="simulation"
+              disabled={isSimulationDisabled}
+              className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+            >
+              Simulation
+            </TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
@@ -345,6 +413,9 @@ function EventPage() {
         </TabsContent>
         <TabsContent value="elims" data-testid="elims-panel" className="min-w-0 mt-[var(--spacing-lg)]">
           {renderElimsContent()}
+        </TabsContent>
+        <TabsContent value="simulation" data-testid="simulation-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+          {renderSimulationContent()}
         </TabsContent>
       </Tabs>
     </div>
