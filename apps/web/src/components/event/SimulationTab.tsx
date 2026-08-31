@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/StateViews";
 import { REWIND_CAPTION_TESTID, StartMatchPicker, rewindCaptionText } from "./StartMatchPicker.js";
+import { RunControl } from "./RunControl.js";
+import { useSimulationRun } from "./useSimulationRun.js";
 import { matchLabel } from "../team/MatchTable.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
@@ -23,12 +25,16 @@ import type { EventArtifact } from "../../../../../packages/harness/pageArtifact
  * their own child at the clearly-marked comment naming which plan owns that
  * position.
  *
- * This component constructs no Web Worker and starts no computation. Radix
- * keeps every `TabsContent` mounted with `hidden`, so this component renders
- * on EVERY event page view regardless of which tab is active — a Worker
- * constructed here would spawn on every event page load in the app.
- * Construction stays lazy, inside 08-13's Run handler, which is also what
- * lets a component test that never clicks Run need no Worker mock at all.
+ * This component itself constructs no Web Worker. `useSimulationRun()`
+ * (08-13-PLAN.md Task 1) owns that lazily, inside its own `start()` handler
+ * — never at module scope, never on mount. Radix keeps every `TabsContent`
+ * mounted with `hidden`, so this component renders on EVERY event page view
+ * regardless of which tab is active; a Worker constructed here (or by the
+ * hook eagerly) would spawn on every event page load in the app. Calling
+ * `useSimulationRun()` unconditionally is safe precisely because the hook
+ * itself constructs nothing until its `start` is invoked — this is also
+ * what lets a component test that never presses Run need no Worker mock at
+ * all (`SimulationTab.test.tsx`'s I6).
  */
 export interface SimulationTabProps {
   artifact: EventArtifact;
@@ -164,13 +170,14 @@ export function SimulationTabSkeleton() {
  *    a genuine absent-data state (nothing failed, but the data this feature
  *    needs genuinely does not exist for this event), unlike branch 3 below.
  * 3. Otherwise — the layout stack, in UI-SPEC's declared top-to-bottom order
- *    (start-match picker, run control, rank-distribution table), containing
- *    at this stage only the pre-run placeholder paragraph. Rendered as a
- *    plain muted body paragraph, deliberately NOT `EmptyState` (UI-SPEC S3
- *    `empty`): nothing failed and nothing returned zero rows, there is
- *    simply no simulation output yet, and a centred empty-state block would
- *    replace the picker/run-control 08-11/08-13 mount above it rather than
- *    sitting beneath them.
+ *    (start-match picker, run control, rank-distribution table): the picker
+ *    (08-11), `RunControl` (08-13), and — still only the pre-run placeholder
+ *    paragraph, since 08-14 has not landed — the rank-table position. The
+ *    placeholder is rendered as a plain muted body paragraph, deliberately
+ *    NOT `EmptyState` (UI-SPEC S3 `empty`): nothing failed and nothing
+ *    returned zero rows, there is simply no simulation output yet, and a
+ *    centred empty-state block would replace the picker/run-control mount
+ *    above it rather than sitting beneath them.
  */
 export function SimulationTab({ artifact }: SimulationTabProps) {
   const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
@@ -199,6 +206,31 @@ export function SimulationTab({ artifact }: SimulationTabProps) {
     return selectedRow ? matchLabel(selectedRow) : null;
   }, [qualRows, resolvedMatchKey]);
 
+  // 08-13, PD-02: the signature a completed result is checked against at
+  // RENDER time, never in an effect. Detects a change of start match, a
+  // match moving from upcoming to played (which changes remainingMatches's
+  // length), a roster change (baselines.length) and a republished algorithm
+  // version — the four ways this event's inputs can genuinely change under
+  // the reader. Does NOT detect a pmf revised under an identical match count
+  // and an identical algorithmVersion — a freshness check that overstated
+  // its own reach would be worse than one that states its limit.
+  const simulationSignature = useMemo(() => {
+    const remainingCount = simulationInputs?.remainingMatches.length ?? 0;
+    const baselineCount = simulationInputs?.baselines.length ?? 0;
+    return `${artifact.algorithmVersion}|${resolvedMatchKey ?? "none"}|${remainingCount}|${baselineCount}`;
+  }, [artifact.algorithmVersion, resolvedMatchKey, simulationInputs]);
+
+  const { state: runState, start: startRun } = useSimulationRun();
+
+  const isResultCurrent = runState.status === "complete" && runState.signature === simulationSignature;
+  const isRunning = runState.status === "running";
+  const canRun = simulationInputs !== null;
+
+  const handleRun = useCallback((): void => {
+    if (simulationInputs === null) return;
+    startRun({ matches: simulationInputs.remainingMatches, baselines: simulationInputs.baselines, signature: simulationSignature });
+  }, [simulationInputs, simulationSignature, startRun]);
+
   if (qualRows.length === 0) {
     return <EmptyState heading={SIMULATION_EMPTY_STATE_HEADING} body={SIMULATION_EMPTY_STATE_BODY} />;
   }
@@ -216,20 +248,29 @@ export function SimulationTab({ artifact }: SimulationTabProps) {
         onSelect={setSelectedMatchKey}
         inputs={simulationInputs}
         startLabel={startLabel}
-        // 08-13 wires the real run-in-progress value here (a reserved seat,
-        // per that plan's flagged assumption 8) — this plan passes `false`.
-        disabled={false}
+        // 08-13: inert for the duration of a run, so a mid-run click cannot
+        // change the start match under a running simulation (PD-09 on the
+        // picker's own side).
+        disabled={isRunning}
       />
       {simulationInputs !== null && simulationInputs.isRewindStart && (
         <p data-testid={REWIND_CAPTION_TESTID} className="text-role-body text-muted-foreground">
           {rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT)}
         </p>
       )}
-      {/* 08-13 mounts the run control here (button + progress/timer). */}
+      <RunControl state={runState} isResultCurrent={isResultCurrent} canRun={canRun} onRun={handleRun} />
+      {/*
+        The pre-run placeholder holds for the ENTIRE run (UI-SPEC's explicit
+        no-streaming decision) and is unconditional here — 08-14 has not
+        landed yet, so this plan renders no alternative for a completed
+        result. 08-14 mounts the rank-distribution table at this position,
+        consuming the completed result ONLY when `isResultCurrent` is true —
+        the freshness gate (PD-02) has already been applied above, so 08-14
+        performs no freshness check of its own.
+      */}
       <p data-testid={SIMULATION_PRE_RUN_TESTID} className="text-role-body text-muted-foreground">
         {SIMULATION_PRE_RUN_BODY}
       </p>
-      {/* 08-14 mounts the rank-distribution table here, replacing this pre-run paragraph once a run completes. */}
     </div>
   );
 }
