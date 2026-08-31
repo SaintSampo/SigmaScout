@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-12-PLAN.md
-last_updated: "2026-08-31T23:25:35.600Z"
+stopped_at: Completed 08-13-PLAN.md
+last_updated: "2026-08-31T23:56:55.664Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 96
+  completed_plans: 97
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 13 of 15
+Plan: 14 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -131,6 +131,7 @@ Progress: [██████████] 97%
 | Phase 08 P10 | 55min | 4 tasks | 10 files |
 | Phase 08 P11 | 90min | 3 tasks | 7 files |
 | Phase 08 P12 | 20min | 3 tasks | 6 files |
+| Phase 08 P13 | ~2h | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -316,6 +317,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P12]: DataCoverageSectionSkeleton reuses DATA_COVERAGE_SECTION_TESTID/DATA_COVERAGE_SCROLL_TESTID with the populated section, mirroring AccuracyTableSkeleton's shipped precedent
 - [Phase ?]: [Phase 08 P12]: compare.test.tsx's pre-existing screen.getByRole('table')/'columnheader' Year queries rescoped to COMPARE_ACCURACY_SCROLL_TESTID -- DataCoverageTable mounts a second <table> on /compare, making the unscoped queries ambiguous
 - [Phase ?]: [Phase 08 P12]: coverageRows.ts's SharedCount three-way union (agreed/disagreed/absent) is the mechanism keeping a published zero and an absent slice structurally distinct from the pure model through to the rendered cell -- 45/45 fixtures show the identity holds and 15/15 groups show the 7 shared fields agree today, both guarded rather than assumed
+- [Phase ?]: Measurement event: 2023cur (78 teams, 130 played qm rows, all pmf-bearing) — the corpus's max-roster pmf-publishing event, confirmed live before the spec was written.
+- [Phase ?]: mockWorker.ts's MockWorkerInstance gained a public terminated getter (Task 1 acceptance criteria anticipated this) so H9/H10 can assert terminate() was called without weakening the assertion.
 
 ### Pending Todos
 
@@ -363,6 +366,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T23:25:35.567Z
-Stopped at: Completed 08-12-PLAN.md
+Last session: 2026-08-31T23:56:55.630Z
+Stopped at: Completed 08-13-PLAN.md
 Resume file: None
