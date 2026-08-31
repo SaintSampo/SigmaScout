@@ -1,0 +1,168 @@
+/**
+ * Pure module, no React import (08-04-PLAN.md Task 3) — the rank plot's
+ * single geometry source, mirroring `apps/web/src/components/team/matchAxis.ts`'s
+ * own "every derived position comes from one computed source" discipline
+ * (`.claude/skills/sketch-findings-sigmascout/references/chart-craft.md`'s
+ * "derive coupled geometry" lesson — a real shipped drift: `matchAxis.ts`'s
+ * own `allianceMarkPositions()` doc comment records the sketch's red dot
+ * sitting 4.5px above its band's centre, the blue 1.5px below, unnoticed
+ * until inspected directly).
+ *
+ * COORDINATE CONVENTION, declared once here rather than per function: rank
+ * `r`'s visual CENTRE is `x(r)`. Bars and the median tick are centred on
+ * that point; the band's continuous edges are positioned by the same `x()`.
+ * Sketch 005's own `plotHTML` left-aligned each histogram bar at `x(rank)`
+ * and offset its median tick by half a slot, while positioning the band's
+ * continuous edges through raw `x()` — so the band sat about half a rank
+ * left of the bars it overlaid (measured 12.05px at a 39-team event, 6.03px
+ * at the 78-team maximum, 235px at a two-team event). This file corrects
+ * that by giving all three layers one convention. The correction does not
+ * touch `continuousQuantile()` (simQuantile.ts) — only where the resulting
+ * quantiles are POSITIONED. Visual confirmation of the corrected alignment
+ * is 08-14's mock-before-build obligation (`chart-craft.md`'s "render it
+ * and look at it" rule); this is carried in 08-04-PLAN.md's `must_haves` as
+ * a `backstop`-marked truth so it has a named owner.
+ */
+
+import { PLOT_W as MATCH_PLOT_W } from "../components/team/matchAxis.js";
+
+/**
+ * Re-exported, never restated. UI-SPEC requires this value be reused
+ * verbatim from `matchAxis.ts` — same visual language, same plot-cell width
+ * across the app — and `matchAxis.ts`'s own doc comment already records
+ * this exact treatment for `EventMatchTable.tsx` importing rather than
+ * restating it. The `lib`-importing-from-`components` direction is
+ * deliberate and safe: `matchAxis.ts` is a pure module whose only
+ * cross-package import (`TeamSeasonArtifact`) is type-only and erased by
+ * `verbatimModuleSyntax`.
+ */
+export const PLOT_W = MATCH_PLOT_W;
+
+/**
+ * Locked pixel values, deliberately off the 4px spacing scale — carried
+ * from UI-SPEC's Spacing Scale exceptions, mirroring `matchAxis.ts`'s own
+ * `MATCH_GEOMETRY` in tone and content.
+ *
+ * `HIST_BAR_MAX_H` leaves 4px of padding top and bottom within
+ * `ROW_PLOT_H` (40 - 32 = 8, split evenly).
+ *
+ * `BAND_MIN_W` and `BAR_GAP` are the two values ported from the sketch's
+ * own renderer rather than from UI-SPEC's locked-geometry list.
+ * `BAND_MIN_W` is provably non-binding below roughly 94 teams — the
+ * estimator's minimum band is 0.8 rank units (verified over 200,000
+ * randomly generated histograms this session), which is 4.88px at the
+ * 78-team maximum, and the tightest reachable case after clamping is
+ * 2.44px, both above this 2px floor. It is carried anyway because it costs
+ * one comparison and the alternative is a silent deviation from the
+ * validated reference — this is a guard for rosters beyond the measured
+ * range, not a live constraint at any event size this project has seen.
+ *
+ * `BAND_OPACITY` is the SAME NUMBER as the percentage inside
+ * `--sim-band-overlay` in `apps/web/src/styles/theme.css`, coupled by an
+ * assertion in this module's own `simAxis.test.ts`. It must never be
+ * applied a second time as a CSS opacity on top of that token — doing so
+ * would render the band at roughly 3.2% and make it invisible, the same
+ * zero-width-band defect this plan exists to prevent, arriving by a second
+ * route.
+ */
+export const SIM_GEOMETRY = {
+  ROW_PLOT_H: 40,
+  HIST_BAR_MAX_H: 32,
+  MEDIAN_TICK_W: 2,
+  BAND_OPACITY: 0.18,
+  BAND_MIN_W: 2,
+  BAR_GAP: 1,
+} as const;
+
+/**
+ * The single rank-to-pixel mapping every position on the rank plot must
+ * derive from. Accepts a CONTINUOUS rank and never snaps its input — the
+ * values it positions (10th/90th percentile edges from `continuousQuantile()`)
+ * are interpolated quantiles, not integers.
+ *
+ * The `teamCount <= 1` guard is written as a POSITIVE test (`teamCount > 1`)
+ * rather than a negated one, so a `NaN` or absent team count takes the same
+ * early-return branch as a genuinely degenerate roster instead of falling
+ * through to a `NaN` result — this is the sketch's own `span <= 0` guard,
+ * written NaN-safe. A `NaN` reaching a CSS length is silently DROPPED by
+ * the browser, so the mark simply never paints — on an honesty-first
+ * uncertainty display, an absent band reads as certainty, the worst
+ * possible failure mode.
+ */
+export function x(rank: number, teamCount: number): number {
+  if (!(teamCount > 1)) return 0;
+  return ((rank - 1) / (teamCount - 1)) * PLOT_W;
+}
+
+/**
+ * The histogram slot width. The denominator here is deliberately the team
+ * count itself, while `x()`'s denominator is one less — the sketch's own
+ * pitch-versus-slot distinction (rank PITCH is `PLOT_W / (N - 1)`, the
+ * histogram SLOT is `PLOT_W / N`) — so the two are not mistaken for a typo
+ * and silently unified by a later reader.
+ */
+export function rankSlotWidth(teamCount: number): number {
+  if (!(teamCount >= 1)) return PLOT_W;
+  return PLOT_W / teamCount;
+}
+
+/** A mark's pixel extent within the plot cell, both fields in pixels from the cell's left edge. */
+export interface RankMarkExtent {
+  left: number;
+  width: number;
+}
+
+/**
+ * The clamped 10th-90th percentile band. The clamp is a MEASURED
+ * necessity, not defensive habit: because a band edge legitimately ranges
+ * over `[0.5, N+0.5]` while `x()` maps rank 1 to `0` and rank N to
+ * `PLOT_W`, raw extents overflow the cell at real events — measured this
+ * session, the leftmost raw band edge is -4.94px at 2023nhgrs, -4.55px at
+ * 2025flta and -10.58px at 2022ispr, and the rightmost is 474.88px,
+ * 474.59px and 480.70px against a 470px plot. At a two-team event the
+ * overflow is 235px per side, which would paint over the Median column
+ * beside this plot cell.
+ *
+ * Both edges are clamped into `[0, PLOT_W]` independently, the width is
+ * taken as the larger of the clamped span and `SIM_GEOMETRY.BAND_MIN_W`
+ * (never letting a fully-locked team's band vanish), and `left` is then
+ * pulled back so `left + width` never exceeds `PLOT_W` — the same
+ * two-argument min/max clamping style throughout, never a rounding call.
+ */
+export function rankBandExtent(p10: number, p90: number, teamCount: number): RankMarkExtent {
+  const clampedLeft = Math.min(Math.max(x(p10, teamCount), 0), PLOT_W);
+  const clampedRight = Math.min(Math.max(x(p90, teamCount), 0), PLOT_W);
+  const span = clampedRight - clampedLeft;
+  const width = Math.min(Math.max(span, SIM_GEOMETRY.BAND_MIN_W), PLOT_W);
+  const left = Math.min(clampedLeft, PLOT_W - width);
+  return { left, width };
+}
+
+/**
+ * The median tick's left offset, centred on `x(median, teamCount)` per this
+ * file's coordinate convention. The half-width is derived from
+ * `SIM_GEOMETRY.MEDIAN_TICK_W` rather than written as a separate literal —
+ * this is the precise coupling `chart-craft.md` names, and the sketch's own
+ * hard-coded tick offset (`+ slotW/2`) is what it warns against. Clamped so
+ * the tick never leaves the plot box.
+ */
+export function medianTickLeft(median: number, teamCount: number): number {
+  const half = SIM_GEOMETRY.MEDIAN_TICK_W / 2;
+  const raw = x(median, teamCount) - half;
+  return Math.min(Math.max(raw, 0), PLOT_W - SIM_GEOMETRY.MEDIAN_TICK_W);
+}
+
+/**
+ * A histogram bar's pixel extent, centred on `x(rank, teamCount)` per this
+ * file's coordinate convention. Width is `rankSlotWidth(teamCount)` minus
+ * `SIM_GEOMETRY.BAR_GAP`, floored at `1`, so adjacent bars never touch.
+ * Bar HEIGHT is deliberately absent from this function: it derives from
+ * draw counts, not from the axis, is capped at `HIST_BAR_MAX_H`, and is
+ * 08-14's job to compute.
+ */
+export function histBarExtent(rank: number, teamCount: number): RankMarkExtent {
+  const width = Math.max(1, rankSlotWidth(teamCount) - SIM_GEOMETRY.BAR_GAP);
+  const raw = x(rank, teamCount) - width / 2;
+  const left = Math.min(Math.max(raw, 0), PLOT_W - width);
+  return { left, width };
+}
