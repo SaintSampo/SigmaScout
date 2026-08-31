@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-08-PLAN.md
-last_updated: "2026-08-31T21:39:35.321Z"
+stopped_at: Completed 08-09-PLAN.md
+last_updated: "2026-08-31T21:54:07.199Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 92
+  completed_plans: 93
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 9 of 15
+Plan: 10 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 93%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -127,6 +127,7 @@ Progress: [█████████░] 93%
 | Phase 08 P06 | 17min | 3 tasks | 10 files |
 | Phase 08 P07 | ~50min | 3 tasks | 6 files |
 | Phase 08 P08 | ~21min | 3 tasks | 5 files |
+| Phase 08 P09 | ~50min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -300,6 +301,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P07]: P7/P8/P9 passed on first run instead of RED'ing -- Task 1's isSimulationRequest/runSimulationJob try/catch were written to Task 3's own exact spec up front; plan's own action text permits this, investigated per TDD fail-fast rule and confirmed non-vacuous
 - [Phase ?]: [Phase 08 P07]: Test 5's Int32Array clone assertion changed from toBeInstanceOf to Object.prototype.toString.call() -- structuredClone reconstructs typed arrays in its own defining realm, distinct from jsdom's test-module realm, so instanceof fails across that boundary despite correct values
 - [Phase ?]: [Phase 08 P08]: D-02's rewind-overconfidence gap measured: 10.85% mean narrowing over 15 measurements/5 events, verdict narrower (clears 0.62% noise floor by ~17x); effect concentrated at earliest rewind points (10.89-44.18%) and shrinks/reverses toward zero by 2/3 through an event -- recorded in docs/models/rewind-overconfidence-gap.md and mirrored in apps/web/src/lib/rewindGap.ts, unblocking 08-11's caption
+- [Phase ?]: 08-09: resolveActiveTab takes a named-field options object (PD-01) rather than a second positional boolean, and D-04's isSimulationDisabled is derived only from the resolved algorithm search param (never query state), in contrast to isAlliancesDisabled's data-claim gating
+- [Phase ?]: 08-09: hasSimulatableRankInputs (SimulationTab.tsx) answers only whether an event is in the pmf-bearing class at all (PD-06) -- per-row pmf completeness after a chosen start match is routed to 08-11's simulationInputs.ts
+- [Phase ?]: 08-09: minted two new Copywriting Contract strings (SIMULATION_UNAVAILABLE_HEADING/BODY) for the no-pmf offseason-gap state 08-05 discovered after UI-SPEC was signed off -- flagged for a future ui-phase pass to adopt
 
 ### Pending Todos
 
@@ -347,6 +351,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:39:35.288Z
-Stopped at: Completed 08-08-PLAN.md
+Last session: 2026-08-31T21:54:07.168Z
+Stopped at: Completed 08-09-PLAN.md
 Resume file: None
