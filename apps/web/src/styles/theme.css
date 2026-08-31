@@ -156,6 +156,17 @@
   --sim-median-tick: var(--color-text-primary);
 
   /*
+   * Start-match picker's selected-row background (08-11, UI-SPEC's Color
+   * section: an accent-tinted background for the selected row). A
+   * purpose-specific `color-mix` derivation of `--color-accent`, not a new
+   * hue — CONTEXT forbids any `--color-*`, `--accent`, `--alliance-*` or
+   * `--tier-*` VALUE change this phase (08-04's precedent for this exact
+   * situation). The selected row's left border uses `--color-accent`
+   * directly and needs no token of its own.
+   */
+  --sim-picker-selected-bg: color-mix(in srgb, var(--color-accent) 8%, transparent);
+
+  /*
    * shadcn semantic aliases — every one of these is a `var(--color-*)`
    * reference back to a contract token above, never an independent value.
    * Names match what the eight generated `src/components/ui/*` primitives
