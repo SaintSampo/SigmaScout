@@ -20,6 +20,7 @@
     "rp:conservative-branch": "tsx packages/harness/rpConservativeBranch.ts",
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
+    "measure:rewind-gap": "tsx scripts/measureRewindGap.ts",
     "lint:reviews": "tsx scripts/reviewFrontmatterLint.ts",
     "publish:artifacts": "tsx --env-file=.env packages/harness/publish.ts",
     "publish:seasons": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason",
