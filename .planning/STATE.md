@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-11-PLAN.md
-last_updated: "2026-08-31T23:04:58.498Z"
+stopped_at: Completed 08-12-PLAN.md
+last_updated: "2026-08-31T23:25:35.600Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 95
+  completed_plans: 96
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 12 of 15
+Plan: 13 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ Progress: [██████████] 96%
 | Phase 08 P09 | ~50min | 3 tasks | 6 files |
 | Phase 08 P10 | 55min | 4 tasks | 10 files |
 | Phase 08 P11 | 90min | 3 tasks | 7 files |
+| Phase 08 P12 | 20min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -312,6 +313,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P11]: simulationInputs.ts resolves D-12's precedence scoped to 'as of the start match' (PD-01) -- rule 1's TBA Ranking Score is used only when no played qual row lies at or after the start, else the summed per-match fallback, avoiding a double-count with the simulation's own re-drawn matches
 - [Phase ?]: [Phase 08 P11]: rewindCaptionText branches on 08-08's measured REWIND_GAP_VERDICT rather than the sign of the percent, so the caption can never assert a narrowing/widening its own measurement did not find; shipped verdict is 'narrower' (10.85%)
 - [Phase ?]: [Phase 08 P11]: 2022oncmp (134 played quals) corrected as the real S1 overflow picker target, not the outline's 2024wvrox -- that event is offseason (TBA type 99) and publishes no RP distributions, so 08-09's unavailable state renders there instead of a picker
+- [Phase ?]: [Phase 08 P12]: DataCoverageSectionSkeleton reuses DATA_COVERAGE_SECTION_TESTID/DATA_COVERAGE_SCROLL_TESTID with the populated section, mirroring AccuracyTableSkeleton's shipped precedent
+- [Phase ?]: [Phase 08 P12]: compare.test.tsx's pre-existing screen.getByRole('table')/'columnheader' Year queries rescoped to COMPARE_ACCURACY_SCROLL_TESTID -- DataCoverageTable mounts a second <table> on /compare, making the unscoped queries ambiguous
+- [Phase ?]: [Phase 08 P12]: coverageRows.ts's SharedCount three-way union (agreed/disagreed/absent) is the mechanism keeping a published zero and an absent slice structurally distinct from the pure model through to the rendered cell -- 45/45 fixtures show the identity holds and 15/15 groups show the 7 shared fields agree today, both guarded rather than assumed
 
 ### Pending Todos
 
@@ -359,6 +363,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T23:04:46.630Z
-Stopped at: Completed 08-11-PLAN.md
+Last session: 2026-08-31T23:25:35.567Z
+Stopped at: Completed 08-12-PLAN.md
 Resume file: None
