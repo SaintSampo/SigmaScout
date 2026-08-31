@@ -71,18 +71,25 @@ rows, `actualRedRp`/`actualBlueRp` present (key-count 47) on all of them, zero n
 zero teams carrying `rp` — the real published object D-12's summed-fallback precedence path is
 falsifiable against.
 
-**A measured pmf-array-length finding, corrected from this plan's own pre-run text.** The plan's
-`<behavior>` section stated "D-03 records the measured shape as always length 7"; the real
-published bytes show length **5** for a played or upcoming qualification-match pmf (covering RP
-totals 0-4: 2 for a win plus up to 2 ranking-point bonuses), and a **degenerate length-1** pmf on
-every non-qualification (playoff) row at an RP-eligible event — sigma1 predicts a certain,
-single-outcome distribution for playoff matches rather than omitting the field, since pmf
-production is gated on event type, not competition level (`publish.ts`'s `matches` row builder
-comment: "Not gated on the competition level, deliberately"). Confirmed directly from
-`pmfLengthHistogram`, e.g. `2024casf/vpr`: `{"1":30,"5":144}` — 30 = 15 non-qm played rows × 2
-alliances, 144 = 72 played qm rows × 2 alliances. This degenerate playoff-row pmf is also why the
-republish's measured `event` max (342,405) exceeded the pre-flight dry-run probe's measurement for
-the same key (341,949, Task 1) by 456 bytes — the probe's projection used qm-row counts only.
+**A measured pmf-array-length finding, corrected from this plan's own pre-run text — and corrected
+a second time from this document's own first correction.** The plan's `<behavior>` section stated
+"D-03 records the measured shape as always length 7"; that is not universal. The real published
+bytes show the length is **season-dependent**, tracking each season's own RP-bonus count (2 for a
+win plus up to N ranking-point bonuses, giving a range of `2N+3` integer totals): length **5** for
+2022-2024 (`2022ilpe`, `2023cur`, `2023nhgrs`, `2024casf`, `2024new` — all N=2, two RP bonuses) and
+length **7** for 2025-2026 (`2025flta`, `2026vache` — N=3, three RP bonuses, matching this
+document's own earlier note that "2025/2026 both carry three ranking-point bonuses (2024 carries
+two)"). Every RP-eligible entry ALSO carries a **degenerate length-1** pmf on every
+non-qualification (playoff) row, regardless of season — sigma1 predicts a certain, single-outcome
+distribution for playoff matches rather than omitting the field, since pmf production is gated on
+event type, not competition level (`publish.ts`'s `matches` row builder comment: "Not gated on the
+competition level, deliberately"). Confirmed directly from `pmfLengthHistogram`: `2024casf/vpr`
+`{"1":30,"5":144}` (30 = 15 non-qm played rows × 2 alliances, 144 = 72 played qm rows × 2 alliances,
+length 5) versus `2025flta/vpr` `{"1":30,"7":168}` (30 = 15 non-qm played rows × 2 alliances, 168 =
+84 played+upcoming qm rows × 2 alliances, length 7). This degenerate playoff-row pmf is also why the
+republish's measured `event` max (342,405, at `2024gal`, a 2024/N=2/length-5 event) exceeded the
+pre-flight dry-run probe's measurement for the same key (341,949, Task 1) by 456 bytes — the
+probe's projection used qm-row counts only and did not account for `2024gal`'s own playoff rows.
 
 **A materially non-zero `actualRedRp`/`actualBlueRp` null rate, found on three offseason entries —
 routed to 08-11.** `2023cnsh` (58/58 played qm rows null), `2024vabrb` (16/16 null), and
