@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueries } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { COMPARE_SEASONS, compareQueryOptions, type CompareCompLevelView } from "../lib/api/compare.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
@@ -8,6 +9,7 @@ import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/Accu
 import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
 import { MethodologyNote } from "../components/compare/MethodologyNote.js";
 import { CalibrationSection } from "../components/compare/CalibrationSection.js";
+import { DataCoverageSection, DataCoverageSectionSkeleton } from "../components/compare/DataCoverageTable.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -28,6 +30,60 @@ import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts
 export const Route = createFileRoute("/compare")({
   component: ComparePage,
 });
+
+/**
+ * 08-12-PLAN.md Decision 7: the methodology note's and the calibration
+ * section's pending-state placeholders are declared HERE, in `compare.tsx`,
+ * rather than added as skeleton siblings inside `MethodologyNote.tsx` or
+ * `CalibrationSection.tsx` — neither ships one by its own plan's design
+ * (08-06, 08-10), and adding one to each would mean editing two files this
+ * plan otherwise has no reason to touch. Both compositions size their
+ * repeated `Skeleton` lines from a named module constant, never a bare
+ * number at the call site, matching `AccuracyTable.tsx`'s own
+ * `ACCURACY_TABLE_ROW_COUNT`/`ACCURACY_TABLE_COLUMN_COUNT` precedent.
+ */
+const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 2;
+const CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 3;
+
+function MethodologyNoteSkeleton() {
+  return (
+    <div className="mt-[var(--spacing-md)] flex flex-col gap-[var(--spacing-xs)]">
+      {Array.from({ length: METHODOLOGY_NOTE_SKELETON_LINE_COUNT }, (_, index) => (
+        <Skeleton key={index} className="h-4 w-full" />
+      ))}
+    </div>
+  );
+}
+
+function CalibrationSectionSkeleton() {
+  return (
+    <div className="mt-[var(--spacing-xl)] flex flex-col gap-[var(--spacing-sm)]">
+      <Skeleton className="h-7 w-40" />
+      {Array.from({ length: CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT }, (_, index) => (
+        <Skeleton key={index} className="h-4 w-full" />
+      ))}
+      <Skeleton className="h-[220px] w-full" />
+    </div>
+  );
+}
+
+/**
+ * The pending branch's shape-preserving composition, in the populated
+ * page's own order: the real `AccuracyTableSkeleton` (08-01), a text-free
+ * methodology-note placeholder, a text-free calibration-section placeholder,
+ * then Task 2's real `DataCoverageSectionSkeleton` — so the page's footprint
+ * does not jump when the five artifacts land (UI-SPEC C4 loading).
+ */
+function ComparePendingSections() {
+  return (
+    <>
+      <AccuracyTableSkeleton />
+      <MethodologyNoteSkeleton />
+      <CalibrationSectionSkeleton />
+      <DataCoverageSectionSkeleton />
+    </>
+  );
+}
 
 function ComparePage() {
   // The ONE compLevelView state (08-06-PLAN.md Task 2, D-09's "one state,
@@ -91,7 +147,7 @@ function ComparePage() {
 
       {!is404 && otherError && <ErrorState resource="comparison data" onRetry={retryFailed} />}
 
-      {!is404 && !otherError && isPending && <AccuracyTableSkeleton />}
+      {!is404 && !otherError && isPending && <ComparePendingSections />}
 
       {!is404 && !otherError && !isPending && (
         <>
@@ -106,10 +162,14 @@ function ComparePage() {
           <div className="mt-[var(--spacing-md)]">
             <MethodologyNote artifactsByYear={artifactsByYear} />
           </div>
-          {/* Beneath the methodology note, above where 08-12 will add its
-              data-coverage section — fed the SAME compLevelView state the
-              accuracy table receives above (one state, two consumers, D-09). */}
+          {/* Fed the SAME compLevelView state the accuracy table receives
+              above (one state, three consumers now, D-09). */}
           <CalibrationSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
+          {/* The LAST section on the page (UI-SPEC's layout order, item
+              six), a DOM sibling of CalibrationSection — the same one
+              compLevelView state, its third consumer (08-12-PLAN.md). No
+              new state declared anywhere in this file. */}
+          <DataCoverageSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
         </>
       )}
     </div>

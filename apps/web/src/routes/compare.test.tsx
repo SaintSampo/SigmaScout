@@ -25,11 +25,14 @@ import { METHODOLOGY_NOTE_TESTID, buildMethodologyFigures } from "../components/
 import {
   CALIBRATION_EXPLAINER,
   CALIBRATION_LEGEND_TESTID,
+  CALIBRATION_SECTION_TESTID,
   CALIBRATION_SENTENCE_TESTID,
   CALIBRATION_YEAR_SELECT_TESTID,
 } from "../components/compare/CalibrationSection.js";
 import { formatCalibrationSentence, selectHeadlinePoint, validCalibrationPoints, type CompareSlice } from "../components/compare/calibrationSeries.js";
 import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
+import { coverageCellTestId, DATA_COVERAGE_SCROLL_TESTID, DATA_COVERAGE_SECTION_TESTID } from "../components/compare/DataCoverageTable.js";
+import { COVERAGE_EXCLUSION_COLUMNS } from "../components/compare/coverageRows.js";
 import { Route as CompareRouteImport } from "./compare.js";
 import compare2022 from "./__fixtures__/compare-2022.json";
 import compare2023 from "./__fixtures__/compare-2023.json";
@@ -66,9 +69,16 @@ function renderCompareRoute() {
   return router;
 }
 
-/** Reads the rendered cell text for one (season, algorithm, metric) triple, by locating the row whose first cell is that season and the fixed column index PUBLISHED_ALGORITHM_IDS/D-08's column order implies. */
+/**
+ * Reads the rendered cell text for one (season, algorithm, metric) triple, by
+ * locating the row whose first cell is that season and the fixed column
+ * index PUBLISHED_ALGORITHM_IDS/D-08's column order implies. Scoped to the
+ * accuracy table's OWN scroll region (`COMPARE_ACCURACY_SCROLL_TESTID`) —
+ * 08-12's `DataCoverageTable` mounts a SECOND `<table>` on this same page, so
+ * `screen.getByRole("table")` alone is no longer unambiguous.
+ */
 function readCellText(season: number, algorithmId: string, metric: "accuracy" | "brier"): string {
-  const table = screen.getByRole("table");
+  const table = within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table");
   const rows = within(table).getAllByRole("row").slice(2); // skip the two header rows
   const row = rows.find((r) => within(r).getAllByRole("cell")[0]?.textContent === String(season));
   if (row === undefined) throw new Error(`no row found for season ${season}`);
@@ -78,9 +88,9 @@ function readCellText(season: number, algorithmId: string, metric: "accuracy" | 
   return cells[cellIndex]!.textContent ?? "";
 }
 
-/** Reads whether the rendered cell for one (season, algorithm, metric) triple carries the semibold emphasis class. */
+/** Reads whether the rendered cell for one (season, algorithm, metric) triple carries the semibold emphasis class. Scoped to the accuracy table's own scroll region — see `readCellText`'s doc comment. */
 function readCellIsBold(season: number, algorithmId: string, metric: "accuracy" | "brier"): boolean {
-  const table = screen.getByRole("table");
+  const table = within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table");
   const rows = within(table).getAllByRole("row").slice(2);
   const row = rows.find((r) => within(r).getAllByRole("cell")[0]?.textContent === String(season));
   if (row === undefined) throw new Error(`no row found for season ${season}`);
@@ -121,7 +131,7 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
   it("issues exactly five artifact requests, one per season, and NO manifest request", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
 
     expect(fetchCalls).toHaveLength(5);
     expect(fetchCalls.some((url) => url.includes("manifest"))).toBe(false);
@@ -133,7 +143,7 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
         it(`${view} ${season} ${algorithmId}: rendered Brier and Winner Accuracy cells equal the committed fixture's own ${view}-view slice`, async () => {
           mockFetch();
           renderCompareRoute();
-          await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+          await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
 
           if (view !== "combined") {
             fireEvent.click(screen.getByTestId(compLevelSegmentTestId(view)));
@@ -255,7 +265,7 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
   it("2023 elimination Winner Accuracy renders VPR bold — the tightest above-threshold case in the corpus", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
     await waitFor(() => expect(readCellIsBold(2023, "vpr", "accuracy")).toBe(true));
     expect(readCellIsBold(2023, "opr", "accuracy")).toBe(false);
@@ -265,7 +275,7 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
   it("2022 elimination Winner Accuracy renders no bold at all, even though OPR leads — the withheld leader is not the site's own model", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
     await waitFor(() => expect(readCellText(2022, "opr", "accuracy")).not.toBe(""));
     expect(readCellIsBold(2022, "opr", "accuracy")).toBe(false);
@@ -291,15 +301,15 @@ describe("/compare route — switching view re-renders structurally (C1 overflow
   it("switching the compLevel view changes cell contents/emphasis only — never the column count, never a second scroll region", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
 
-    const columnCountBefore = within(screen.getByRole("table")).getAllByRole("row")[2]!.querySelectorAll('[role="cell"], td').length;
+    const columnCountBefore = within(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).getAllByRole("row")[2]!.querySelectorAll('[role="cell"], td').length;
     expect(screen.getAllByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
 
-    const columnCountAfter = within(screen.getByRole("table")).getAllByRole("row")[2]!.querySelectorAll('[role="cell"], td').length;
+    const columnCountAfter = within(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).getAllByRole("row")[2]!.querySelectorAll('[role="cell"], td').length;
     expect(columnCountAfter).toBe(columnCountBefore);
     expect(screen.getAllByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).toHaveLength(1);
   });
@@ -413,7 +423,11 @@ describe("/compare route — page states", () => {
 
     await waitFor(() => expect(screen.getByText("Compare")).toBeDefined());
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
-    expect(screen.getByRole("columnheader", { name: "Year" })).toBeDefined();
+    // 08-12 mounts a SECOND skeleton table (DataCoverageSectionSkeleton)
+    // alongside AccuracyTableSkeleton, so "Year" now legitimately appears
+    // twice — scoped to the accuracy table's own region to keep this
+    // pre-existing assertion unambiguous.
+    expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("columnheader", { name: "Year" })).toBeDefined();
   });
 });
 
@@ -534,5 +548,228 @@ describe("/compare route — Calibration section (08-10, D-10 parity)", () => {
     expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
     expect(CALIBRATION_EXPLAINER).toContain("below the diagonal means the algorithm was more confident");
     expect(CALIBRATION_EXPLAINER).not.toContain("above the diagonal means the algorithm was more confident");
+  });
+});
+
+/**
+ * 08-12-PLAN.md Task 3: the Data coverage per year section, mounted last on
+ * the page. Every expected value below is an expression over the imported
+ * fixture, computed the SAME way `DataCoverageTable.tsx`'s own
+ * `collapseSharedCount`/`renderSharedCount` collapse a shared field — never a
+ * hand-typed second copy of a coverage figure.
+ */
+describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 parity)", () => {
+  afterEach(() => cleanup());
+
+  function mockFetch() {
+    global.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
+      const year = match ? Number(match[1]) : undefined;
+      const body = year !== undefined ? FIXTURES_BY_YEAR[year] : undefined;
+      if (body === undefined) throw new Error(`unexpected fetch URL: ${url}`);
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }) as typeof fetch;
+  }
+
+  type FixtureSlice = (typeof compare2022)["slices"][number];
+
+  /** The three algorithms' own slices for one (season, view) pair, in `PUBLISHED_ALGORITHM_IDS` order — the same selection `buildCoverageRows` performs. */
+  function slicesFor(season: number, view: CompareCompLevelView): { algorithmId: (typeof PUBLISHED_ALGORITHM_IDS)[number]; slice: FixtureSlice }[] {
+    const fixture = FIXTURES_BY_YEAR[season]!;
+    return PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
+      const slice = fixture.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === view);
+      if (slice === undefined) throw new Error(`fixture for ${season} carries no ${view} slice for ${algorithmId}`);
+      return { algorithmId, slice };
+    });
+  }
+
+  /** Mirrors `collapseSharedCount` + the component's `renderSharedCount`: a single number when all three agree, a labelled triple otherwise. */
+  function expectedSharedText(entries: readonly { algorithmId: (typeof PUBLISHED_ALGORITHM_IDS)[number]; slice: FixtureSlice }[], reader: (slice: FixtureSlice) => number): string {
+    const values = entries.map((e) => ({ algorithmId: e.algorithmId, value: reader(e.slice) }));
+    const allEqual = values.every((v) => v.value === values[0]!.value);
+    if (allEqual) return String(values[0]!.value);
+    return PUBLISHED_ALGORITHM_IDS.filter((id) => values.some((v) => v.algorithmId === id))
+      .map((id) => `${algorithmDisplayLabel(id)} ${values.find((v) => v.algorithmId === id)!.value}`)
+      .join(", ");
+  }
+
+  async function selectView(view: CompareCompLevelView) {
+    if (view === "combined") return;
+    fireEvent.click(screen.getByTestId(compLevelSegmentTestId(view)));
+    const expectedText = FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "vpr" && s.compLevelView === view)!.brierScore!.toFixed(4);
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).toBe(expectedText));
+  }
+
+  for (const view of COMP_LEVEL_VIEWS) {
+    for (const season of COMPARE_SEASONS) {
+      it(`${view} ${season}: all eleven coverage leaf cells equal the committed fixture's own ${view}-view slice`, async () => {
+        mockFetch();
+        renderCompareRoute();
+        await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+        await selectView(view);
+
+        const entries = slicesFor(season, view);
+
+        await waitFor(() =>
+          expect(screen.getByTestId(coverageCellTestId(season, "candidateCount")).textContent).toBe(
+            expectedSharedText(entries, (s) => s.candidateCount),
+          ),
+        );
+        expect(screen.getByTestId(coverageCellTestId(season, "scoredCount")).textContent).toBe(expectedSharedText(entries, (s) => s.scoredCount));
+        expect(screen.getByTestId(coverageCellTestId(season, "tieCount")).textContent).toBe(expectedSharedText(entries, (s) => s.tieCount));
+        for (const column of COVERAGE_EXCLUSION_COLUMNS) {
+          expect(screen.getByTestId(coverageCellTestId(season, column.key)).textContent).toBe(
+            expectedSharedText(entries, (s) => s.exclusionCounts[column.key]),
+          );
+        }
+        for (const { algorithmId, slice } of entries) {
+          expect(screen.getByTestId(coverageCellTestId(season, `noCall:${algorithmId}`)).textContent).toBe(String(slice.noCallCount));
+        }
+      });
+    }
+  }
+
+  it("the three algorithms agree on all seven collapsible coverage fields in all fifteen (view, season) groups — measured 15 of 15, so every rendered shared cell IS a single number, never a labelled triple", () => {
+    let checkedGroups = 0;
+    for (const view of COMP_LEVEL_VIEWS) {
+      for (const season of COMPARE_SEASONS) {
+        const entries = slicesFor(season, view);
+        const readers: ((s: FixtureSlice) => number)[] = [
+          (s) => s.candidateCount,
+          (s) => s.scoredCount,
+          (s) => s.tieCount,
+          ...COVERAGE_EXCLUSION_COLUMNS.map((column) => (s: FixtureSlice) => s.exclusionCounts[column.key]),
+        ];
+        for (const reader of readers) {
+          const values = entries.map((e) => reader(e.slice));
+          expect(new Set(values).size, `${view} ${season}`).toBe(1);
+        }
+        checkedGroups += 1;
+      }
+    }
+    expect(checkedGroups).toBe(15);
+  });
+
+  it("published zeros render the digit zero, never the em-dash — derived from the fixture rather than hardcoded coordinates (COMP-01 empty)", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+
+    let assertedAtLeastOneZero = false;
+
+    for (const view of COMP_LEVEL_VIEWS) {
+      await selectView(view);
+      for (const season of COMPARE_SEASONS) {
+        const entries = slicesFor(season, view);
+
+        for (const column of COVERAGE_EXCLUSION_COLUMNS) {
+          const values = entries.map((e) => e.slice.exclusionCounts[column.key]);
+          if (values.every((v) => v === 0)) {
+            const text = screen.getByTestId(coverageCellTestId(season, column.key)).textContent;
+            expect(text, `${view} ${season} ${column.key}`).toBe(String(values[0]));
+            assertedAtLeastOneZero = true;
+          }
+        }
+        for (const { algorithmId, slice } of entries) {
+          if (slice.noCallCount === 0) {
+            const text = screen.getByTestId(coverageCellTestId(season, `noCall:${algorithmId}`)).textContent;
+            expect(text, `${view} ${season} noCall:${algorithmId}`).toBe(String(slice.noCallCount));
+            assertedAtLeastOneZero = true;
+          }
+        }
+      }
+    }
+
+    // A structural guard on the guard itself: if the published data ever
+    // stopped carrying any zero at all, this whole case would vacuously
+    // pass without exercising the branch it exists to check.
+    expect(assertedAtLeastOneZero).toBe(true);
+  });
+});
+
+/**
+ * 08-12-PLAN.md Task 3: the page's completed four-section pending and error
+ * branches, and the coverage section's layout position.
+ */
+describe("/compare route — four-section pending and error branches (08-12, UI-SPEC C4)", () => {
+  afterEach(() => cleanup());
+
+  function mockFetch() {
+    global.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
+      const year = match ? Number(match[1]) : undefined;
+      const body = year !== undefined ? FIXTURES_BY_YEAR[year] : undefined;
+      if (body === undefined) throw new Error(`unexpected fetch URL: ${url}`);
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }) as typeof fetch;
+  }
+
+  it("pending: title and switcher render, all four section skeletons render, and none of the populated-only sections' content appears", async () => {
+    global.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/compare/2026.json")) return new Promise<Response>(() => {});
+      const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
+      const year = match ? Number(match[1]) : undefined;
+      const body = year !== undefined ? FIXTURES_BY_YEAR[year] : undefined;
+      return Promise.resolve(new Response(JSON.stringify(body ?? {}), { status: 200 }));
+    }) as typeof fetch;
+
+    renderCompareRoute();
+
+    await waitFor(() => expect(screen.getByText("Compare")).toBeDefined());
+    expect(screen.getByRole("group", { name: "Match type" })).toBeDefined();
+    await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
+
+    // All four section skeletons render — the accuracy table's own and
+    // Task 2's DataCoverageSectionSkeleton both mount a real `<table>`.
+    expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined();
+    expect(within(screen.getByTestId(DATA_COVERAGE_SCROLL_TESTID)).getByRole("table")).toBeDefined();
+
+    // None of the populated-only sections' own content renders: the
+    // methodology note and calibration section mount ONLY in the populated
+    // branch (no skeleton sibling of their own, Decision 7), and the
+    // coverage table's skeleton carries no real coverage CELL (only
+    // placeholder pulses, no `coverage-cell-*` test id).
+    expect(screen.queryByTestId(METHODOLOGY_NOTE_TESTID)).toBeNull();
+    expect(screen.queryByTestId(CALIBRATION_SECTION_TESTID)).toBeNull();
+    expect(document.querySelector('[data-testid^="data-coverage-cell-"]')).toBeNull();
+  });
+
+  it("error: exactly one error line and one Retry control render, and none of the four sections' own test ids appear anywhere in the tree", async () => {
+    global.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/compare/2023.json")) return Promise.resolve(new Response("boom", { status: 500 }));
+      const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
+      const year = match ? Number(match[1]) : undefined;
+      const body = year !== undefined ? FIXTURES_BY_YEAR[year] : undefined;
+      return Promise.resolve(new Response(JSON.stringify(body ?? {}), { status: 200 }));
+    }) as typeof fetch;
+
+    renderCompareRoute();
+
+    await waitFor(() => expect(screen.getByText("Couldn't load comparison data.")).toBeDefined());
+    expect(screen.getAllByRole("button", { name: /retry/i })).toHaveLength(1);
+
+    expect(screen.queryByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).toBeNull();
+    expect(screen.queryByTestId(METHODOLOGY_NOTE_TESTID)).toBeNull();
+    expect(screen.queryByTestId(CALIBRATION_SECTION_TESTID)).toBeNull();
+    expect(screen.queryByTestId(DATA_COVERAGE_SECTION_TESTID)).toBeNull();
+  });
+
+  it("the coverage section is a DOM sibling of the calibration section and the last of the four sections, matching UI-SPEC's layout order", async () => {
+    mockFetch();
+    renderCompareRoute();
+    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SECTION_TESTID)).toBeDefined());
+
+    const calibration = screen.getByTestId(CALIBRATION_SECTION_TESTID);
+    const coverage = screen.getByTestId(DATA_COVERAGE_SECTION_TESTID);
+
+    expect(calibration.parentElement).toBe(coverage.parentElement);
+    const siblings = Array.from(calibration.parentElement!.children);
+    expect(siblings.indexOf(coverage)).toBe(siblings.length - 1);
+    expect(siblings.indexOf(coverage)).toBeGreaterThan(siblings.indexOf(calibration));
   });
 });
