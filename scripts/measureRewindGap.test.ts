@@ -25,6 +25,14 @@ import {
   REWIND_GAP_DOC_PATH,
   type RewindGapMeasurement,
 } from "./measureRewindGap.js";
+import { existsSync, readFileSync } from "node:fs";
+import {
+  REWIND_GAP_PERCENT,
+  REWIND_GAP_VERDICT,
+  REWIND_GAP_MEASURED_AT,
+  REWIND_GAP_EVENT_COUNT,
+  REWIND_GAP_MEASUREMENT_COUNT,
+} from "../apps/web/src/lib/rewindGap.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -385,5 +393,31 @@ describe("writeRewindGapBlock(markdown, measurement)", () => {
     const after = writeRewindGapBlock(before, FIXTURE_MEASUREMENT);
     const roundTripped = parseRewindGap(after);
     expect(roundTripped).toEqual(FIXTURE_MEASUREMENT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doc-to-constant sync guard (Task 3): docs/models/rewind-overconfidence-gap.md's
+// committed json rewind-gap block is the number's single source of truth;
+// apps/web/src/lib/rewindGap.ts is a hand-written mirror. This test parses the
+// REAL committed doc and asserts every shipped constant equals its
+// corresponding field — mirrors payloadBudget.test.ts's own treatment of
+// docs/publish-budget.md. A missing doc fails loudly (not a silent skip),
+// matching that file's own non-vacuity discipline.
+// ---------------------------------------------------------------------------
+
+describe("docs/models/rewind-overconfidence-gap.md <-> apps/web/src/lib/rewindGap.ts sync guard", () => {
+  it(`${REWIND_GAP_DOC_PATH} exists and its json rewind-gap block parses`, () => {
+    expect(existsSync(REWIND_GAP_DOC_PATH)).toBe(true);
+  });
+
+  it("every shipped constant in apps/web/src/lib/rewindGap.ts equals the doc's committed block field", () => {
+    const doc = readFileSync(REWIND_GAP_DOC_PATH, "utf8");
+    const measurement = parseRewindGap(doc);
+    expect(REWIND_GAP_PERCENT).toBe(measurement.headline.meanNarrowingPercent);
+    expect(REWIND_GAP_VERDICT).toBe(measurement.headline.verdict);
+    expect(REWIND_GAP_MEASURED_AT).toBe(measurement.measuredAt);
+    expect(REWIND_GAP_EVENT_COUNT).toBe(measurement.headline.eventCount);
+    expect(REWIND_GAP_MEASUREMENT_COUNT).toBe(measurement.headline.measurementCount);
   });
 });
