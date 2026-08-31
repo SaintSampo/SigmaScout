@@ -5,12 +5,15 @@ import {
   AccuracyTable,
   AccuracyTableSkeleton,
   buildAccuracyRows,
+  buildRowEmphasis,
   BRIER_HEADER_LABEL,
   WINNER_ACCURACY_HEADER_LABEL,
   COMPARE_ACCURACY_SCROLL_TESTID,
+  type AccuracyCell,
+  type AccuracyRow,
 } from "./AccuracyTable.js";
 import { COMPARE_SEASONS } from "../../lib/api/compare.js";
-import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 afterEach(() => {
@@ -159,6 +162,71 @@ describe("buildAccuracyRows", () => {
   });
 });
 
+const ABSENT_TEST_CELL: AccuracyCell = { hasSlice: false, brierScore: null, winnerAccuracy: null, scoredCount: 0 };
+
+function makeCell(overrides: Partial<AccuracyCell> = {}): AccuracyCell {
+  return { hasSlice: true, brierScore: 0.15, winnerAccuracy: 0.75, scoredCount: 1000, ...overrides };
+}
+
+function makeRow(season: number, cells: Partial<Record<PublishedAlgorithmId, AccuracyCell>>): AccuracyRow {
+  const full = {} as Record<PublishedAlgorithmId, AccuracyCell>;
+  for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+    full[algorithmId] = cells[algorithmId] ?? ABSENT_TEST_CELL;
+  }
+  return { season, cells: full };
+}
+
+describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", () => {
+  it("a row with a clear leader in both metrics names that leader in both", () => {
+    const row = makeRow(2022, {
+      opr: makeCell({ brierScore: 0.2, winnerAccuracy: 0.5, scoredCount: 1000 }),
+      epa: makeCell({ brierScore: 0.1, winnerAccuracy: 0.9, scoredCount: 1000 }),
+      vpr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.6, scoredCount: 1000 }),
+    });
+    const emphasis = buildRowEmphasis(row);
+    expect(emphasis.brierLeaders).toEqual(["epa"]);
+    expect(emphasis.winnerAccuracyLeaders).toEqual(["epa"]);
+  });
+
+  it("a row whose Brier pair is a display tie (real 2022 elimination values) names no Brier leader", () => {
+    const row = makeRow(2022, {
+      opr: makeCell({ brierScore: 0.14721222242674725, winnerAccuracy: 0.3, scoredCount: 1000 }),
+      vpr: makeCell({ brierScore: 0.14717091997830647, winnerAccuracy: 0.6, scoredCount: 1000 }),
+    });
+    expect(buildRowEmphasis(row).brierLeaders).toEqual([]);
+  });
+
+  it("a row whose accuracy pair sits inside the combined standard error (real 2022 elimination triple) names no accuracy leader, even though Brier still resolves", () => {
+    const row = makeRow(2022, {
+      opr: makeCell({ brierScore: 0.2, winnerAccuracy: 0.7930232558139535, scoredCount: 2613 }),
+      epa: makeCell({ brierScore: 0.25, winnerAccuracy: 0.778544061302682, scoredCount: 2613 }),
+      vpr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.782375478927203, scoredCount: 2613 }),
+    });
+    const emphasis = buildRowEmphasis(row);
+    expect(emphasis.winnerAccuracyLeaders).toEqual([]);
+    expect(emphasis.brierLeaders).toEqual(["opr"]);
+  });
+
+  it("a row with an exact tie in each metric names BOTH tied algorithms in each", () => {
+    const row = makeRow(2022, {
+      opr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 1000 }),
+      vpr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 500 }),
+    });
+    const emphasis = buildRowEmphasis(row);
+    expect(emphasis.brierLeaders).toEqual(["opr", "vpr"]);
+    expect(emphasis.winnerAccuracyLeaders).toEqual(["opr", "vpr"]);
+  });
+
+  it("a row with only one comparable cell per metric names no leader for either metric", () => {
+    const row = makeRow(2022, {
+      opr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 1000 }),
+    });
+    const emphasis = buildRowEmphasis(row);
+    expect(emphasis.brierLeaders).toEqual([]);
+    expect(emphasis.winnerAccuracyLeaders).toEqual([]);
+  });
+});
+
 describe("AccuracyTable — header structure and Copywriting Contract strings", () => {
   it("renders a row-label header 'Year' spanning two rows, three algorithm-group headers spanning two columns each in PUBLISHED_ALGORITHM_IDS order, and a second header row of three metric-header pairs", () => {
     const artifactsByYear = fullArtifactsByYear();
@@ -295,18 +363,84 @@ describe("AccuracyTable — slice selection by view (COMP-01)", () => {
   });
 });
 
-describe("AccuracyTable — plain weight and no tiering (D-08, D-11 deferred to 08-06)", () => {
-  it("every numeric cell carries the numeric-cell class, and no element carries a semibold, muted, or per-algorithm colour class anywhere in the rendered HTML", () => {
+describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (08-06)", () => {
+  it("every numeric cell carries the numeric-cell class, no muted/greyed/reduced-opacity/loser-ink/per-algorithm-colour class ever reaches any cell, and a semibold class reaches EXACTLY the cells buildRowEmphasis names for each row — computed, never hand-typed", () => {
     const artifactsByYear = fullArtifactsByYear();
     const { container } = render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const html = container.innerHTML;
-    expect(html).not.toMatch(/font-semibold/);
-    expect(html).not.toMatch(/font-\[600\]/);
+    // The muted/greyed/colour half is UNCHANGED and strengthened — D-11
+    // never adds a treatment to a "losing" cell, only withholds weight from
+    // a leader.
     expect(html).not.toMatch(/text-muted-foreground/);
     expect(html).not.toMatch(/compare-algo-/);
+    expect(html).not.toMatch(/loser-ink/);
+    expect(html).not.toMatch(/opacity-/);
 
     const numericCells = container.querySelectorAll(".numeric-cell");
     expect(numericCells.length).toBeGreaterThan(0);
+
+    // The semibold half: for every row, buildRowEmphasis is the SAME
+    // function this test asks whether a cell is bold — so this is a proof
+    // that rendering agrees with the computed rule, not a second
+    // independently-typed expectation that could silently drift from it.
+    const rows = buildAccuracyRows(artifactsByYear, "combined");
+    const table = screen.getByRole("table");
+    const bodyRows = within(table).getAllByRole("row").slice(2);
+    rows.forEach((row, rowIndex) => {
+      const emphasis = buildRowEmphasis(row);
+      const cells = within(bodyRows[rowIndex]!).getAllByRole("cell");
+      PUBLISHED_ALGORITHM_IDS.forEach((algorithmId, algoIndex) => {
+        const accuracyCellIndex = 1 + algoIndex * 2;
+        const brierCellIndex = accuracyCellIndex + 1;
+        const expectAccuracyBold = emphasis.winnerAccuracyLeaders.includes(algorithmId);
+        const expectBrierBold = emphasis.brierLeaders.includes(algorithmId);
+        expect(/font-semibold/.test(cells[accuracyCellIndex]!.className)).toBe(expectAccuracyBold);
+        expect(/font-semibold/.test(cells[brierCellIndex]!.className)).toBe(expectBrierBold);
+      });
+    });
+  });
+
+  it("a row whose leaders differ between the two metrics bolds one cell in each metric, in different algorithm column-groups — emphasis is per metric, never per row", () => {
+    const season = COMPARE_SEASONS[0]!;
+    const artifact = makeArtifact(season, [
+      makeSlice({ algorithmId: "opr", season, brierScore: 0.1, winnerAccuracy: 0.5, scoredCount: 1000 }),
+      makeSlice({ algorithmId: "epa", season, brierScore: 0.3, winnerAccuracy: 0.9, scoredCount: 1000 }),
+      makeSlice({ algorithmId: "vpr", season, brierScore: 0.2, winnerAccuracy: 0.6, scoredCount: 1000 }),
+    ]);
+    const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
+    render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
+
+    const table = screen.getByRole("table");
+    const bodyRows = within(table).getAllByRole("row").slice(2);
+    const row = bodyRows.find((r) => within(r).getAllByRole("cell")[0]?.textContent === String(season))!;
+    const cells = within(row).getAllByRole("cell");
+    // Layout: [Year, opr-accuracy, opr-brier, epa-accuracy, epa-brier, vpr-accuracy, vpr-brier]
+    expect(/font-semibold/.test(cells[1]!.className)).toBe(false); // opr accuracy: not the leader (epa is)
+    expect(/font-semibold/.test(cells[2]!.className)).toBe(true); // opr brier: the leader (lowest, 0.1)
+    expect(/font-semibold/.test(cells[3]!.className)).toBe(true); // epa accuracy: the leader (highest, 0.9)
+    expect(/font-semibold/.test(cells[4]!.className)).toBe(false); // epa brier: not the leader
+    expect(/font-semibold/.test(cells[5]!.className)).toBe(false); // vpr accuracy: not the leader
+    expect(/font-semibold/.test(cells[6]!.className)).toBe(false); // vpr brier: not the leader
+  });
+
+  it("a cell built from a slice with scoredCount zero still builds and renders its figures, and only its emphasis is withheld", () => {
+    const season = COMPARE_SEASONS[0]!;
+    const artifact = makeArtifact(season, [
+      makeSlice({ algorithmId: "opr", season, brierScore: 0.1, winnerAccuracy: 0.9, scoredCount: 0 }),
+      makeSlice({ algorithmId: "vpr", season, brierScore: 0.5, winnerAccuracy: 0.1, scoredCount: 1000 }),
+    ]);
+    const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
+    const rows = buildAccuracyRows(artifactsByYear, "combined");
+    const row = rows.find((r) => r.season === season)!;
+    const oprCell = row.cells["opr" as PublishedAlgorithmId];
+    expect(oprCell.winnerAccuracy).toBe(0.9);
+    expect(oprCell.scoredCount).toBe(0);
+    // Rendered, opr's 0.9 figure still appears despite the zero count.
+    render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
+    expect(screen.getByText("90.0%")).toBeDefined();
+    // But emphasis is withheld — a huge lead cannot overcome a zero count.
+    const emphasis = buildRowEmphasis(row);
+    expect(emphasis.winnerAccuracyLeaders).toEqual([]);
   });
 
   it("neither the string tune nor holdout appears anywhere in the rendered output, and no element carries a class/data attribute derived from seasonLabel or headlineEligible, even when both fields are present on every slice", () => {
