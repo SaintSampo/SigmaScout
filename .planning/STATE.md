@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-08-31T18:10:32.092Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-08-31T18:29:12.732Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 86
+  completed_plans: 87
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 3 of 15
+Plan: 4 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -121,6 +121,7 @@ Progress: [█████████░] 87%
 | Phase 07 P20 | ~4h | 3 tasks | 9 files |
 | Phase 08 P01 | 15min | 3 tasks | 13 files |
 | Phase 08 P02 | 15min | 3 tasks | 5 files |
+| Phase 08 P03 | 35min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Quick 260830-p6s]: Local Playwright render loop closes G-06-2 -- Vite server/preview proxies /v1 to https://data.sigmascout.org (same-origin, no CORS change needed), new local-desktop/local-phone-390 projects cover all 12 layout/visual specs at the width(s) where each spec's own premise holds; deployed-origin projects/use.baseURL untouched. First real desktop-width run of no-page-pan.spec.ts found one HARNESS-class premise mismatch (fixed via grepInvert, not a spec edit) -- no layout defects found or fixed by this task
 - [Phase ?]: 08-01: Compare page tracer + AccuracyTable — five real published v1/compare/{year}.json artifacts committed as fixtures, D-08-complete accuracy table shipped, D-10 parity proof (15 parameterized cases) landed; ErrorState.year made optional
 - [Phase ?]: [Phase 08 P02]: EventMatchSchema converted to a refine-chained schema (PD-01), gaining redRpPmf/blueRpPmf (D-03) and actualRedRp/actualBlueRp (D-12) on played event-match rows -- both filled by buildEventArtifact from the prediction/match already in scope, ungated on competition level (PD-02, proven by a new cross-builder equivalence test against buildTeamSeasonArtifact); zero published bytes moved, the single republish is 08-05's alone
+- [Phase ?]: [Phase 08 P03]: rankSimulation.ts ships as the sole shared rank-simulation core (one implementation, two future callers: 08-07's Worker and 08-08's control-run script) -- SimTeamBaseline.earnedRpSum is a TOTAL not a per-match average (PD-02), simulateRanks throws InvalidPmfError/UnknownTeamKeyError rather than silently dropping bad input (PD-03/PD-04), and simulated ties resolve only by team-key for reproducibility with no claim of official tie-break parity (D-14)
+- [Phase ?]: [Phase 08 P03]: EVNT-07 intentionally left Pending in REQUIREMENTS.md despite appearing in plan 08-03's frontmatter requirements list -- this plan ships only the shared simulation-math core; the user-facing Simulation tab that fulfills the requirement text is owned by 08-07/08-09/08-11/08-13/08-14, matching the EVNT-02/EVNT-04/EVNT-05/EVNT-06 precedent Phase 7 already established
 
 ### Pending Todos
 
@@ -329,6 +332,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T18:10:32.030Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-08-31T18:28:49.019Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
