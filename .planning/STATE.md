@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-08-31T18:29:12.732Z"
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-08-31T18:42:49.769Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 87
+  completed_plans: 88
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 4 of 15
+Plan: 5 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -122,6 +122,7 @@ Progress: [█████████░] 88%
 | Phase 08 P01 | 15min | 3 tasks | 13 files |
 | Phase 08 P02 | 15min | 3 tasks | 5 files |
 | Phase 08 P03 | 35min | 3 tasks | 3 files |
+| Phase 08 P04 | ~15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -285,6 +286,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P02]: EventMatchSchema converted to a refine-chained schema (PD-01), gaining redRpPmf/blueRpPmf (D-03) and actualRedRp/actualBlueRp (D-12) on played event-match rows -- both filled by buildEventArtifact from the prediction/match already in scope, ungated on competition level (PD-02, proven by a new cross-builder equivalence test against buildTeamSeasonArtifact); zero published bytes moved, the single republish is 08-05's alone
 - [Phase ?]: [Phase 08 P03]: rankSimulation.ts ships as the sole shared rank-simulation core (one implementation, two future callers: 08-07's Worker and 08-08's control-run script) -- SimTeamBaseline.earnedRpSum is a TOTAL not a per-match average (PD-02), simulateRanks throws InvalidPmfError/UnknownTeamKeyError rather than silently dropping bad input (PD-03/PD-04), and simulated ties resolve only by team-key for reproducibility with no claim of official tie-break parity (D-14)
 - [Phase ?]: [Phase 08 P03]: EVNT-07 intentionally left Pending in REQUIREMENTS.md despite appearing in plan 08-03's frontmatter requirements list -- this plan ships only the shared simulation-math core; the user-facing Simulation tab that fulfills the requirement text is owned by 08-07/08-09/08-11/08-13/08-14, matching the EVNT-02/EVNT-04/EVNT-05/EVNT-06 precedent Phase 7 already established
+- [Phase ?]: [Phase 08 P04]: medianTickLeft's centering property tested at mid-table rank 20 rather than the plan's literal rank-1 example -- x(1,N) is always exactly 0, so the tick's raw left edge is always negative and the clamp always binds at rank 1 for any nonzero MEDIAN_TICK_W, making exact centering there mathematically impossible regardless of clamp implementation; rank 1 remains covered by the separate box-containment test
+- [Phase ?]: [Phase 08 P04]: rankBandExtent clamps each raw band edge into [0, PLOT_W] independently before computing width (rather than clamping a pre-computed span), which is what makes left>=0 and left+width<=PLOT_W hold unconditionally, proven against the two-team 235px-per-side overflow case and the degenerate one-team roster, not just the three measured real events
 
 ### Pending Todos
 
@@ -332,6 +335,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T18:28:49.019Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-08-31T18:42:49.706Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
