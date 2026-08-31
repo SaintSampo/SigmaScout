@@ -32,6 +32,16 @@
  * (only a type-only `CompLevel` import), so this guard is what catches a
  * future Node-only import added there before it reaches the web build.
  *
+ * Plan 08-03 Task 1 extends this with a SIXTH entry point:
+ * `packages/core/algorithms/simulation/rankSimulation.ts` — `apps/web`'s
+ * first Web Worker (08-07's simulation Worker) imports `simulateRanks` from
+ * it directly, so the client bundles this module too. Like the breakdown
+ * and rp/constants entry points, this one legitimately LIVES under
+ * `packages/core/algorithms/` and is checked ONLY for Node built-in
+ * imports; at the time of writing it has zero import statements of any
+ * kind, so this guard is what catches a future Node-only import added
+ * there before it reaches the web build.
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -44,6 +54,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts")];
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
 const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "sigma1", "rp", "constants.ts");
+const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -153,6 +164,15 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/sigma1/rp/constants.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/algorithms/simulation/rankSimulation.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/, plan 08-03 Task 1)", () => {
+    const { nodeBuiltinViolations, visited } = scan([RANK_SIMULATION_ENTRY_POINT]);
+    expect(visited.has(RANK_SIMULATION_ENTRY_POINT)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/simulation/rankSimulation.ts: ${detail}`);
     }
   });
 });
