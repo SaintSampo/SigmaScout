@@ -62,6 +62,18 @@ function realPmfPair(matchKey: string, redScoreMean: number, blueScoreMean: numb
   return { redRpPmf: [...result.redPmf], bluePmf: [...result.bluePmf] };
 }
 
+/** Same as `realPmfPair` but with genuine score variance (not the near-zero default), so the winner/RP outcome actually varies draw to draw — needed for tests that assert two different seeds produce different results. */
+function realPmfPairWithSpread(matchKey: string, redScoreMean: number, blueScoreMean: number): { redRpPmf: number[]; bluePmf: number[] } {
+  const result = rpPmfForMatch(
+    pmfInput({
+      matchKey,
+      red: moments({ scoreMean: redScoreMean, scoreVariance: 200 }),
+      blue: moments({ scoreMean: blueScoreMean, scoreVariance: 200 }),
+    })
+  );
+  return { redRpPmf: [...result.redPmf], bluePmf: [...result.bluePmf] };
+}
+
 describe("simulateRanks — Test 1: a real event shape produces a complete distribution", () => {
   it("returns one complete-sum histogram per team for a 6-team, 2-remaining-match fixture", () => {
     const teamKeys = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
@@ -158,5 +170,101 @@ describe("simulateRanks — Test 4: ranking uses average RP per match played, no
     // must rank first in every draw (no remaining matches, no randomness).
     expect(fewHistogram[0]).toBe(1000);
     expect(manyHistogram[1]).toBe(1000);
+  });
+});
+
+describe("simulateRanks — Test 5: a fixed seed reproduces identical output", () => {
+  it("produces entry-for-entry identical histograms across two fresh mulberry32(12345) runs", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc1", earnedRpSum: 4, matchesPlayed: 2 },
+      { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 2 },
+      { teamKey: "frc3", earnedRpSum: 2, matchesPlayed: 2 },
+    ];
+    const match1 = realPmfPairWithSpread("2024test_qm1", 50, 50);
+    const match2 = realPmfPairWithSpread("2024test_qm2", 50, 50);
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frc1", "frc2"], blueTeamKeys: ["frc3"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2", "frc3"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
+    ];
+
+    const resultA = simulateRanks(remainingMatches, baselines, 500, mulberry32(12345));
+    const resultB = simulateRanks(remainingMatches, baselines, 500, mulberry32(12345));
+
+    for (const baseline of baselines) {
+      expect(Array.from(resultA.rankHistograms.get(baseline.teamKey)!)).toEqual(
+        Array.from(resultB.rankHistograms.get(baseline.teamKey)!)
+      );
+    }
+  });
+});
+
+describe("simulateRanks — Test 6: a different seed produces a different distribution", () => {
+  it("produces at least one differing team histogram between two different seeds on a fixture with genuine spread", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc1", earnedRpSum: 4, matchesPlayed: 2 },
+      { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 2 },
+      { teamKey: "frc3", earnedRpSum: 2, matchesPlayed: 2 },
+    ];
+    const match1 = realPmfPairWithSpread("2024test_qm1", 50, 50);
+    const match2 = realPmfPairWithSpread("2024test_qm2", 50, 50);
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frc1", "frc2"], blueTeamKeys: ["frc3"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2", "frc3"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
+    ];
+
+    const resultA = simulateRanks(remainingMatches, baselines, 500, mulberry32(12345));
+    const resultB = simulateRanks(remainingMatches, baselines, 500, mulberry32(999999));
+
+    const anyDiffer = baselines.some((baseline) => {
+      const histA = Array.from(resultA.rankHistograms.get(baseline.teamKey)!);
+      const histB = Array.from(resultB.rankHistograms.get(baseline.teamKey)!);
+      return histA.some((value, i) => value !== histB[i]);
+    });
+    expect(anyDiffer).toBe(true);
+  });
+});
+
+describe("simulateRanks — Test 7: ties stay ties and resolve by team key", () => {
+  it("keeps exactly-equal teams at the same rank in every draw, ordered ascending by team key", () => {
+    // "frc1114" sorts before "frc254" lexicographically ('1' < '2'), which
+    // is NOT their numeric order (254 < 1114) -- this pins the actual
+    // string comparator rather than an accidental numeric agreement.
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc254", earnedRpSum: 10, matchesPlayed: 5 },
+      { teamKey: "frc1114", earnedRpSum: 10, matchesPlayed: 5 },
+      { teamKey: "frc48", earnedRpSum: 10, matchesPlayed: 5 },
+    ];
+    const rng = mulberry32(7);
+    const result = simulateRanks([], baselines, 1000, rng);
+
+    // Ascending lexicographic order: "frc1114" < "frc254" < "frc48".
+    expect(result.rankHistograms.get("frc1114")![0]).toBe(1000);
+    expect(result.rankHistograms.get("frc254")![1]).toBe(1000);
+    expect(result.rankHistograms.get("frc48")![2]).toBe(1000);
+  });
+});
+
+describe("simulateRanks — Test 8: the module adds no RP of its own", () => {
+  it("matches an independently computed expected average with no win/tie/bonus RP added on top", () => {
+    // A degenerate pmf placing all mass on RP=4 for red, RP=1 for blue.
+    const redRpPmf = [0, 0, 0, 0, 1];
+    const blueRpPmf = [0, 1];
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed1", earnedRpSum: 6, matchesPlayed: 3 }, // baseline avg 2
+      { teamKey: "frcBlue1", earnedRpSum: 6, matchesPlayed: 3 }, // baseline avg 2
+    ];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed1"], blueTeamKeys: ["frcBlue1"], redRpPmf, blueRpPmf },
+    ];
+    const rng = mulberry32(1);
+    const result = simulateRanks(remainingMatches, baselines, 1, rng);
+
+    // Expected, computed independently of the module: (6+4)/4 = 2.5 for red,
+    // (6+1)/4 = 1.75 for blue -- red must rank first. If the module added
+    // any win/tie/bonus RP on top, the ordering (and the exact averages,
+    // asserted via the ordering) would come out wrong even though it looks
+    // plausible.
+    expect(result.rankHistograms.get("frcRed1")![0]).toBe(1);
+    expect(result.rankHistograms.get("frcBlue1")![1]).toBe(1);
   });
 });

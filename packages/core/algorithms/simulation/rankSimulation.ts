@@ -112,6 +112,17 @@ export interface SimResult {
 /**
  * Computes a per-team rank-distribution histogram over `draws` simulated
  * completions of `remainingMatches`, starting each team from `baselines`.
+ *
+ * This function simulates every row it is handed, in the order given, and
+ * owns no row-selection rule of its own (D-13): which `compLevel === "qm"`
+ * rows reach it — and from which point onward, whether that is the live
+ * unplayed case or a rewind into an already-played match — is entirely
+ * 08-11's `simulationInputs.ts` decision, made against artifact fields
+ * (competition level, played/unplayed status) this module never sees. The
+ * corpus-level exclusion categories (offseason, surrogate-affected,
+ * quarantined) are not representable on the event artifact this module's
+ * caller reads from, so a filter here would assert a distinction the data
+ * does not carry.
  */
 export function simulateRanks(
   remainingMatches: readonly SimMatchInput[],
@@ -130,9 +141,30 @@ export function simulateRanks(
   const matchesPlayed = new Int32Array(teamCount);
   const order = new Array<number>(teamCount);
 
+  /**
+   * Orders two team indices by running average RP descending (FRC's
+   * Ranking Score), with a lexicographic comparison on `teamKey` as the
+   * only secondary term. That secondary term exists SOLELY so a fixed seed
+   * reproduces the same output run to run (D-14) — it carries no other
+   * meaning. `sort_orders[0]`, "Ranking Score", is the only sort order this
+   * pipeline ever ingests (`packages/ingest/rankings.ts`,
+   * `packages/corpus/schema.sql`); TBA's own season-specific tiebreakers
+   * (`sort_orders[1..]`) are read at ingest and discarded, so no data
+   * exists anywhere in this pipeline to back a real secondary ordering. The
+   * resulting order among teams tied on average RP therefore says nothing
+   * about how a real event's official tie-break would separate them —
+   * stated here as the positive fact this module rests on, not as a list of
+   * claims it declines to make.
+   *
+   * A team with zero matches played after a draw (`matchesPlayed[i] === 0`)
+   * ranks with an average of `0`, never `NaN` (PD-05): `0/0` would be
+   * `NaN`, and `NaN` in a comparator produces an ordering that is neither
+   * stable nor meaningful. `0` is also the honest value — it is what TBA's
+   * own rankings page shows for a team that has played nothing.
+   */
   function compareByAvgRpDesc(a: number, b: number): number {
-    const avgA = rpSum[a]! / matchesPlayed[a]!;
-    const avgB = rpSum[b]! / matchesPlayed[b]!;
+    const avgA = matchesPlayed[a]! > 0 ? rpSum[a]! / matchesPlayed[a]! : 0;
+    const avgB = matchesPlayed[b]! > 0 ? rpSum[b]! / matchesPlayed[b]! : 0;
     if (avgA !== avgB) return avgB - avgA;
     const keyA = baselines[a]!.teamKey;
     const keyB = baselines[b]!.teamKey;
