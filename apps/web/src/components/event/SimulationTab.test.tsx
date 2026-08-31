@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import {
   hasSimulatableRankInputs,
   SIMULATION_EMPTY_STATE_BODY,
@@ -12,7 +12,29 @@ import {
   SimulationTab,
   SimulationTabSkeleton,
 } from "./SimulationTab.js";
+import {
+  REWIND_CAPTION_TESTID,
+  START_MATCH_PICKER_HINT,
+  START_MATCH_PICKER_TESTID,
+  START_MATCH_ROW_TESTID_PREFIX,
+  rewindCaptionText,
+} from "./StartMatchPicker.js";
+import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+
+/**
+ * 08-11-PLAN.md Task 3 installs a global `Worker` constructor spy BEFORE any
+ * test in this file runs (never inside an individual test), so "no Web
+ * Worker is ever constructed" is checked across the WHOLE file's run, not
+ * just the cases that mention it explicitly.
+ */
+const workerConstructorSpy = vi.fn();
+class SpyWorker {
+  constructor(...args: unknown[]) {
+    workerConstructorSpy(...args);
+  }
+}
+vi.stubGlobal("Worker", SpyWorker);
 
 /**
  * SimulationTab's own coverage (08-09-PLAN.md Task 2) — the three-state panel
@@ -202,5 +224,135 @@ describe("SimulationTabSkeleton", () => {
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
     expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
     expect(screen.queryByTestId(SIMULATION_PRE_RUN_TESTID)).toBeNull();
+  });
+});
+
+/**
+ * 08-11-PLAN.md Task 3's own coverage — the picker/caption mount, the
+ * default-selection rule, PD-06's resolve-against-current-rows behaviour,
+ * PD-07's compute-once default, and PD-08's rewind-predicate-not-played-flag
+ * case.
+ */
+describe("08-11: the start-match picker mounts in the layout stack's first position", () => {
+  it("the picker's testid is a descendant of the layout stack and precedes the pre-run paragraph in document order", () => {
+    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    const stack = screen.getByTestId(SIMULATION_STACK_TESTID);
+    const picker = screen.getByTestId(START_MATCH_PICKER_TESTID);
+    const preRun = screen.getByTestId(SIMULATION_PRE_RUN_TESTID);
+    expect(stack.contains(picker)).toBe(true);
+    // DOCUMENT_POSITION_FOLLOWING on preRun (relative to picker) means picker comes first.
+    expect(picker.compareDocumentPosition(preRun) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("08-11: the other two branches render no picker and no caption", () => {
+  it("the zero-qm empty state renders no picker and no caption", () => {
+    const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
+    const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
+    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
+  });
+
+  it("the no-pmf unavailable state renders no picker and no caption", () => {
+    const artifact = baseArtifact({
+      matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
+    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
+  });
+});
+
+describe("08-11: default selection", () => {
+  it("defaults to the first genuinely-unplayed qualification match; the hint is absent and the scope line renders", () => {
+    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+    expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
+  });
+
+  it("selects nothing on a fully-played event; the hint renders exactly and the scope line is absent", () => {
+    const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBeNull();
+  });
+});
+
+describe("08-11: the rewind-honesty caption", () => {
+  it("selecting a played row shows the caption immediately, with no Run press, carrying rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT)'s output", () => {
+    const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`));
+    const caption = screen.getByTestId(REWIND_CAPTION_TESTID);
+    expect(caption.textContent).toBe(rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT));
+  });
+
+  it("a no-rewind default selection (the unplayed-qual event) shows no caption", () => {
+    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
+  });
+
+  it("the caption follows the rewind PREDICATE, not the selected row's own played flag (PD-08): the default selection is the unplayed row, but a played row ordered after it still triggers the caption", () => {
+    const artifact = baseArtifact({
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1, sortTime: 100 })],
+      matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2, sortTime: 200 })],
+    });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+    expect(screen.getByTestId(REWIND_CAPTION_TESTID)).toBeDefined();
+  });
+});
+
+describe("08-11: selection survives a refetch (PD-06)", () => {
+  it("keeps the same selected matchKey when a refetch moves the match from upcoming[] to matches[]", () => {
+    const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+
+    const artifact2 = baseArtifact({ matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
+    rerender(<SimulationTab artifact={artifact2} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+  });
+
+  it("a selected key that disappears from a refetched artifact resolves to no selection, never a neighbouring row", () => {
+    const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+
+    const artifact2 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm99", matchNumber: 99 })] });
+    rerender(<SimulationTab artifact={artifact2} algorithmId="vpr" season={2024} />);
+    expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
+    expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeNull();
+  });
+
+  it("the default is not re-applied after a refetch (PD-07): a user-chosen row stays selected even after the original default row becomes played", () => {
+    const artifact1 = baseArtifact({
+      upcoming: [
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 }),
+        upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 }),
+      ],
+    });
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
+
+    fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`));
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+
+    const artifact2 = baseArtifact({
+      matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    rerender(<SimulationTab artifact={artifact2} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
+  });
+});
+
+describe("08-11: still no Worker", () => {
+  it("the global Worker constructor spy installed at module scope recorded zero calls across every case in this file", () => {
+    expect(workerConstructorSpy).not.toHaveBeenCalled();
   });
 });
