@@ -396,11 +396,32 @@ A single Body 14/400 muted paragraph directly beneath the table (not a tooltip, 
 
 **Probe scope:** 8 surfaces across the Simulation tab and the Compare page, run through the compiled `ui-consideration-probe.cjs` engine (Step 9.5) with an authored `elements` override per surface: S0 (6-tab strip), S1 (start-match picker), S2 (run control), S3 (rank-distribution table), C1 (Compare accuracy table), C2 (compLevel switcher), C3 (calibration section), C4 (data-coverage table).
 
+**Confirmed element kinds** (propose-then-confirm, re-run post-verification 2026-08-30):
+
+| Surface | Kinds | Categories raised |
+|---|---|---|
+| S0 | `nav`, `interactive-control` | 4 |
+| S1 | `list-collection`, `interactive-control`, `static-content` | 8 |
+| S2 | `interactive-control`, `static-content` | 4 |
+| S3 | `list-collection`, `static-content` | 8 |
+| C1 | `list-collection`, `static-content` | 8 |
+| C2 | `interactive-control` | 3 |
+| C3 | `media`, `interactive-control`, `static-content` | 6 |
+| C4 | `list-collection`, `static-content` | 8 |
+
+The override is load-bearing, not cosmetic: run against the prose alone the heuristic classifier
+mis-read three surfaces. It saw C3 as `static-content` only — dropping the calibration chart's
+`empty`/`loading`/`error`/`populated` rows entirely, with no `unclassified` signal to warn that it
+had — read C2's three fixed segments as a `list-collection` (raising five categories a segmented
+control cannot have), and missed C1's authored near-tie caption as `static-content`. A single
+tripped cue is a signal, not proof of an element's only kind; these kinds are the confirmed
+answer and should be reused verbatim on any future probe run over these same surfaces.
+
 **Engine output: 49 applicable considerations, 0 unclassified.**
 
 **Result: 49 rows — 27 covered, 6 backstop, 16 dismissed, 0 unresolved.**
 
-**Note (2026-08-30 update):** the element ids and row counts below are preserved unchanged from the prior probe run so the probe write-back stays comparable across runs. The sketch findings folded into this update (interpolated rank-band edges, the D-11 near-tie rule, the sentence-first calibration layout) elaborate the *mechanism* behind S3's and C1's already-covered "populated" rows and C3's "populated"/"overflow" rows — they do not introduce a new UI element or a new state category, so no row here needed to change to stay accurate. Re-run the probe on the next ui-phase pass if new elements appear.
+**Note (2026-08-30, post-verification re-run):** the element ids and row counts below are preserved unchanged from the prior probe run so the probe write-back stays comparable across runs — and that preservation is now *verified*, not asserted: this run's engine output was diffed row-by-row against the rows recorded below and the two sets match exactly, 49 for 49, with nothing raised-but-absent and nothing recorded-but-unraised. All 49 carry a substantive resolution (0 unresolved, 0 unclassified). The sketch findings folded into this update (interpolated rank-band edges, the D-11 near-tie rule, the sentence-first calibration layout) elaborate the *mechanism* behind S3's and C1's already-covered "populated" rows and C3's "populated"/"overflow" rows — they do not introduce a new UI element or a new state category, so no row here needed to change to stay accurate. Re-run the probe on the next ui-phase pass if new elements appear.
 
 ### S0 — Tab strip (6 tabs, `simulation` added)
 
@@ -511,14 +532,16 @@ A single Body 14/400 muted paragraph directly beneath the table (not a tooltip, 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS — every CTA specific; empty and error states carry a next step; the rewind-honesty `{measured}%` placeholder is a data-dependency gate (D-02), not a copy defect.
+- [x] Dimension 2 Visuals: PASS — focal point declared for each surface *and* each state (Simulation pre-run / running / post-run; Compare table, calibration, coverage).
+- [x] Dimension 3 Color: PASS — accent carries a specific reserved-for list, not "all interactive elements"; calibration series colors fixed and sketch-validated.
+- [x] Dimension 4 Typography: PASS — exactly 4 sizes, 2 weights, line-heights declared for every role.
+- [x] Dimension 5 Spacing: PASS — token scale all multiples of 4; the `simAxis.ts` chart-geometry constants are documented as deliberate, justified exceptions.
+- [x] Dimension 6 Registry Safety: PASS (`ui_safety_gate: true`) — shadcn official only, no third-party registry, no new npm dependency; the Web Worker is custom code, not a dependency.
 
-**Approval:** pending
+**Approval:** APPROVED — gsd-ui-checker, 2026-08-30, 6/6 dimensions PASS, 0 blocking issues, 0 recommendations.
+
+**UI-consideration probe:** run post-verification on the approved contract (Step 9.5) — 49 applicable considerations across 8 surfaces, 0 unclassified, 0 unresolved. See `## UI Considerations` above.
 
 **Planner obligations carried from this file:**
 - Sequence the D-03 publisher/schema/republish work (see "Data Dependencies" above) before any Web Worker or Simulation-tab component that reads `redRpPmf`/`blueRpPmf` on played matches — this mirrors Phase 6/7's own sequencing obligation exactly.
