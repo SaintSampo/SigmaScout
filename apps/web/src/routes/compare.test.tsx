@@ -141,7 +141,12 @@ describe("/compare route — page states", () => {
     renderCompareRoute();
 
     await waitFor(() => expect(screen.getByText("No published comparison data yet")).toBeDefined());
-    expect(screen.queryByRole("button")).toBeNull();
+    // 08-06 (Task 2): the compLevel switcher renders "ABOVE every state
+    // branch, alongside the title and gated on nothing" — its three
+    // segments are `Button`s and are legitimately present even in the empty
+    // state, so "no Retry control" is now asserted by name rather than by
+    // absence of any button at all.
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
   });
 
   it("one year returning 500 renders the Compare error line with a working Retry", async () => {

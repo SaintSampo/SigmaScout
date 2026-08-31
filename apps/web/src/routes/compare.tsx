@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueries } from "@tanstack/react-query";
-import { COMPARE_SEASONS, compareQueryOptions } from "../lib/api/compare.js";
+import { COMPARE_SEASONS, compareQueryOptions, type CompareCompLevelView } from "../lib/api/compare.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/AccuracyTable.js";
+import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -25,15 +27,16 @@ export const Route = createFileRoute("/compare")({
   component: ComparePage,
 });
 
-/**
- * This plan's Compare surface mounts only the accuracy table, at the
- * combined compLevel view — 08-06 wires the real switcher into
- * `AccuracyTable`'s `compLevelView` prop with no other change to this
- * component (08-01-PLAN.md `key_links`).
- */
-const INITIAL_COMP_LEVEL_VIEW = "combined" as const;
-
 function ComparePage() {
+  // The ONE compLevelView state (08-06-PLAN.md Task 2, D-09's "one state,
+  // two consumers" obligation): drives AccuracyTable below and, per
+  // Decision 5, 08-10's calibration section — but deliberately NOT
+  // MethodologyNote (08-06 Task 3), whose figures are pinned to the
+  // combined view because D-08's claim and SC-3's verdict are both measured
+  // there. `CompLevelSwitcher` is fully controlled and declares no
+  // selection state of its own, so this is the single source of truth.
+  const [compLevelView, setCompLevelView] = useState<CompareCompLevelView>(DEFAULT_COMP_LEVEL_VIEW);
+
   const results = useQueries({
     queries: COMPARE_SEASONS.map((year) => compareQueryOptions({ year })),
   });
@@ -69,6 +72,14 @@ function ComparePage() {
           the event page's tab strip already follows. */}
       <h1 className="text-role-heading mb-[var(--spacing-md)]">Compare</h1>
 
+      {/* The switcher renders from first paint alongside the title, gated
+          on nothing — it filters already-fetched data and issues no
+          request of its own, present during the pending branch exactly as
+          it is when populated (UI-SPEC C2 loading). */}
+      <div className="mb-[var(--spacing-md)]">
+        <CompLevelSwitcher value={compLevelView} onValueChange={setCompLevelView} />
+      </div>
+
       {is404 && (
         <EmptyState
           heading="No published comparison data yet"
@@ -81,7 +92,7 @@ function ComparePage() {
       {!is404 && !otherError && isPending && <AccuracyTableSkeleton />}
 
       {!is404 && !otherError && !isPending && (
-        <AccuracyTable artifactsByYear={artifactsByYear} compLevelView={INITIAL_COMP_LEVEL_VIEW} />
+        <AccuracyTable artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
       )}
     </div>
   );

@@ -1,18 +1,31 @@
 import { Fragment } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
+import { cn } from "@/lib/utils";
+import {
+  formatBrierDisplay,
+  formatWinnerAccuracyDisplay,
+  resolveBrierLeaders,
+  resolveWinnerAccuracyLeaders,
+  type BrierCandidate,
+  type WinnerAccuracyCandidate,
+} from "@/lib/compareTie";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { COMPARE_SEASONS, type CompareCompLevelView } from "../../lib/api/compare.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The COMP-01 accuracy table (08-01-PLAN.md Task 2), complete to its D-08
- * contract: one uniform table, five ascending season rows against three
- * `PUBLISHED_ALGORITHM_IDS`-ordered algorithm column-groups, sketch 007's
- * winning structure, plain-weight figures, no tune/holdout tiering
- * anywhere. D-11's near-tie bolding rule is 08-06's job, not this plan's —
- * every cell here renders at the SAME plain weight, deliberately.
+ * The COMP-01 accuracy table (08-01-PLAN.md Task 2, complete to D-08;
+ * 08-06-PLAN.md Task 2 adds D-11's emphasis): one uniform table, five
+ * ascending season rows against three `PUBLISHED_ALGORITHM_IDS`-ordered
+ * algorithm column-groups, sketch 007's winning structure, no tune/holdout
+ * tiering anywhere. A cell renders at weight 600 ONLY where `buildRowEmphasis`
+ * (backed by `compareTie.ts`'s two computed tie tests) names a real leader
+ * for that cell's metric — never a naive max/min, and never by adding a
+ * treatment to the "losing" cell. This supersedes 08-01's deliberate
+ * uniform-plain-weight truth, which was explicitly scoped to await this
+ * plan (see 08-06-PLAN.md "Supersedes").
  */
 
 export const COMPARE_ACCURACY_SCROLL_TESTID = "compare-accuracy-scroll";
@@ -36,6 +49,14 @@ export interface AccuracyCell {
   readonly hasSlice: boolean;
   readonly brierScore: number | null;
   readonly winnerAccuracy: number | null;
+  /**
+   * The matched slice's own `scoredCount` (08-06-PLAN.md Flagged Planner
+   * Assumption 4 — 08-01 did not anticipate this field). Exists solely so
+   * `buildRowEmphasis`'s accuracy tie test can build each cell's standard
+   * error from that cell's OWN count, per view, rather than a row- or
+   * artifact-level count. Never rendered.
+   */
+  readonly scoredCount: number;
 }
 
 export interface AccuracyRow {
@@ -43,7 +64,7 @@ export interface AccuracyRow {
   readonly cells: Readonly<Record<PublishedAlgorithmId, AccuracyCell>>;
 }
 
-const ABSENT_CELL: AccuracyCell = { hasSlice: false, brierScore: null, winnerAccuracy: null };
+const ABSENT_CELL: AccuracyCell = { hasSlice: false, brierScore: null, winnerAccuracy: null, scoredCount: 0 };
 
 /**
  * Pure row model (08-01-PLAN.md Task 2's `buildAccuracyRows`). Walks
@@ -70,24 +91,66 @@ export function buildAccuracyRows(
       cells[algorithmId] =
         slice === undefined
           ? ABSENT_CELL
-          : { hasSlice: true, brierScore: slice.brierScore, winnerAccuracy: slice.winnerAccuracy };
+          : {
+              hasSlice: true,
+              brierScore: slice.brierScore,
+              winnerAccuracy: slice.winnerAccuracy,
+              scoredCount: slice.scoredCount,
+            };
     }
     return { season, cells };
   });
 }
 
 /**
- * Display-precision restoration of what JSON serialization dropped — the
- * published figures are deliberately unrounded (`docs/models/...`'s
- * established convention), and this is the only place a decimal count is
- * chosen. Never a second rounding pass over an already-published figure.
+ * Display-precision formatting — `compareTie.ts`'s `formatBrierDisplay`/
+ * `formatWinnerAccuracyDisplay` are the single home for how a Compare figure
+ * is printed (Decision 3), so the Brier near-tie test (defined on the
+ * DISPLAYED value) and the digits a reader sees can never disagree. This
+ * wrapper only adds the em-dash for a null/absent figure; the underlying
+ * published figures stay deliberately unrounded (`docs/models/...`'s
+ * established convention) — this is display formatting only, never a second
+ * rounding pass.
  */
 function formatBrier(value: number | null): string {
-  return value === null ? "—" : value.toFixed(4);
+  return value === null ? "—" : formatBrierDisplay(value);
 }
 
 function formatWinnerAccuracy(value: number | null): string {
-  return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
+  return value === null ? "—" : formatWinnerAccuracyDisplay(value);
+}
+
+/**
+ * D-11's emphasis for one row — the two leader arrays (Brier lower-is-better,
+ * Winner Accuracy higher-is-better), each naming the `PublishedAlgorithmId`s
+ * whose cell renders at weight 600 for that metric. Performs NO comparison
+ * arithmetic of its own: it maps the row into `compareTie.ts`'s candidate
+ * shapes and delegates entirely to `resolveBrierLeaders`/
+ * `resolveWinnerAccuracyLeaders`, so D-11's rule has exactly one
+ * implementation and `compareTie.test.ts` is the test of record for it. An
+ * empty array means no emphasis anywhere for that metric in that row — D-11's
+ * near-tie state, rendered as full-ink plain weight on both/all cells, never
+ * greyed.
+ */
+export interface RowEmphasis {
+  readonly brierLeaders: readonly PublishedAlgorithmId[];
+  readonly winnerAccuracyLeaders: readonly PublishedAlgorithmId[];
+}
+
+export function buildRowEmphasis(row: AccuracyRow): RowEmphasis {
+  const brierCandidates: BrierCandidate[] = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => ({
+    algorithmId,
+    value: row.cells[algorithmId].brierScore,
+  }));
+  const accuracyCandidates: WinnerAccuracyCandidate[] = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => ({
+    algorithmId,
+    value: row.cells[algorithmId].winnerAccuracy,
+    scoredCount: row.cells[algorithmId].scoredCount,
+  }));
+  return {
+    brierLeaders: resolveBrierLeaders(brierCandidates),
+    winnerAccuracyLeaders: resolveWinnerAccuracyLeaders(accuracyCandidates),
+  };
 }
 
 /**
@@ -138,20 +201,33 @@ export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableP
       <Table>
         <AccuracyTableHeader />
         <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.season}>
-              <TableCell className="numeric-cell">{row.season}</TableCell>
-              {PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
-                const cell = row.cells[algorithmId];
-                return (
-                  <Fragment key={algorithmId}>
-                    <TableCell className="numeric-cell border-l">{formatWinnerAccuracy(cell.winnerAccuracy)}</TableCell>
-                    <TableCell className="numeric-cell">{formatBrier(cell.brierScore)}</TableCell>
-                  </Fragment>
-                );
-              })}
-            </TableRow>
-          ))}
+          {rows.map((row) => {
+            const emphasis = buildRowEmphasis(row);
+            return (
+              <TableRow key={row.season}>
+                <TableCell className="numeric-cell">{row.season}</TableCell>
+                {PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
+                  const cell = row.cells[algorithmId];
+                  // Weight ONLY, never colour — D-11's near-tie state is
+                  // expressed by WITHHOLDING weight from the leader; a
+                  // non-leader cell renders exactly as it did before this
+                  // rule existed (same class set, same ink, same opacity).
+                  const accuracyIsLeader = emphasis.winnerAccuracyLeaders.includes(algorithmId);
+                  const brierIsLeader = emphasis.brierLeaders.includes(algorithmId);
+                  return (
+                    <Fragment key={algorithmId}>
+                      <TableCell className={cn("numeric-cell border-l", accuracyIsLeader && "font-semibold")}>
+                        {formatWinnerAccuracy(cell.winnerAccuracy)}
+                      </TableCell>
+                      <TableCell className={cn("numeric-cell", brierIsLeader && "font-semibold")}>
+                        {formatBrier(cell.brierScore)}
+                      </TableCell>
+                    </Fragment>
+                  );
+                })}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
