@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-10-PLAN.md
-last_updated: "2026-08-31T22:38:41.307Z"
+stopped_at: Completed 08-11-PLAN.md
+last_updated: "2026-08-31T23:04:58.498Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 94
+  completed_plans: 95
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 11 of 15
+Plan: 12 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -129,6 +129,7 @@ Progress: [██████████] 95%
 | Phase 08 P08 | ~21min | 3 tasks | 5 files |
 | Phase 08 P09 | ~50min | 3 tasks | 6 files |
 | Phase 08 P10 | 55min | 4 tasks | 10 files |
+| Phase 08 P11 | 90min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -308,6 +309,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P10]: theme.css's new --compare-algo-* tokens needed a real consuming CSS block (Tailwind v4 prunes an otherwise-unreferenced custom property from the compiled stylesheet) -- same mechanism already keeping --sim-hist-bar alive ahead of its own consumer
 - [Phase ?]: [Phase 08 P10]: CalibrationChart gained an onPointDeselect prop (onBlur/onMouseLeave) beyond the plan's original sketch -- Task 4's 'moving away restores the headline point' contract has no other place to attach since CalibrationChart owns every dot's event wiring
 - [Phase ?]: [Phase 08 P10]: calibrationSeries.ts's radius property test uses count 400 instead of the plan's literal 395 -- 395 collides with the same task's own hand-typed-figure negative grep (85.3|52.8|395)
+- [Phase ?]: [Phase 08 P11]: simulationInputs.ts resolves D-12's precedence scoped to 'as of the start match' (PD-01) -- rule 1's TBA Ranking Score is used only when no played qual row lies at or after the start, else the summed per-match fallback, avoiding a double-count with the simulation's own re-drawn matches
+- [Phase ?]: [Phase 08 P11]: rewindCaptionText branches on 08-08's measured REWIND_GAP_VERDICT rather than the sign of the percent, so the caption can never assert a narrowing/widening its own measurement did not find; shipped verdict is 'narrower' (10.85%)
+- [Phase ?]: [Phase 08 P11]: 2022oncmp (134 played quals) corrected as the real S1 overflow picker target, not the outline's 2024wvrox -- that event is offseason (TBA type 99) and publishes no RP distributions, so 08-09's unavailable state renders there instead of a picker
 
 ### Pending Todos
 
@@ -355,6 +359,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T22:38:41.276Z
-Stopped at: Completed 08-10-PLAN.md
+Last session: 2026-08-31T23:04:46.630Z
+Stopped at: Completed 08-11-PLAN.md
 Resume file: None
