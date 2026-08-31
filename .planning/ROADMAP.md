@@ -491,7 +491,7 @@ Plans:
   3. The Compare page shows winner accuracy and Brier score for every algorithm for every year 2022–2026.
   4. The numbers rendered on the Compare page are identical to the versioned artifact the offline harness produced for that algorithm version — verified by an automated check, not by eye.
 
-**Plans**: 7/15 plans executed
+**Plans**: 8/15 plans executed
 
 - [x] 08-01-PLAN.md
 - [x] 08-02-PLAN.md
@@ -500,7 +500,7 @@ Plans:
 - [x] 08-05-PLAN.md
 - [x] 08-06-PLAN.md
 - [x] 08-07-PLAN.md
-- [ ] 08-08-PLAN.md
+- [x] 08-08-PLAN.md
 - [ ] 08-09-PLAN.md
 - [ ] 08-10-PLAN.md
 - [ ] 08-11-PLAN.md
@@ -562,7 +562,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
-| 8. Simulation & Compare | 7/15 | In Progress|  |
+| 8. Simulation & Compare | 8/15 | In Progress|  |
 
 ## Coverage
 

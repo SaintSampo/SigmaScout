@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-07-PLAN.md
-last_updated: "2026-08-31T21:13:58.313Z"
+stopped_at: Completed 08-08-PLAN.md
+last_updated: "2026-08-31T21:39:35.321Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 91
+  completed_plans: 92
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 8 of 15
+Plan: 9 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -126,6 +126,7 @@ Progress: [█████████░] 92%
 | Phase 08 P05 | 24min | 3 tasks | 3 files |
 | Phase 08 P06 | 17min | 3 tasks | 10 files |
 | Phase 08 P07 | ~50min | 3 tasks | 6 files |
+| Phase 08 P08 | ~21min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -298,6 +299,7 @@ Recent decisions affecting current work:
 - [Phase ?]: MethodologyNote's figures stay pinned to the combined view even though AccuracyTable follows the switcher (Decision 5) -- re-slicing to elimination would falsify the note's own best-season clause against the committed data
 - [Phase ?]: [Phase 08 P07]: P7/P8/P9 passed on first run instead of RED'ing -- Task 1's isSimulationRequest/runSimulationJob try/catch were written to Task 3's own exact spec up front; plan's own action text permits this, investigated per TDD fail-fast rule and confirmed non-vacuous
 - [Phase ?]: [Phase 08 P07]: Test 5's Int32Array clone assertion changed from toBeInstanceOf to Object.prototype.toString.call() -- structuredClone reconstructs typed arrays in its own defining realm, distinct from jsdom's test-module realm, so instanceof fails across that boundary despite correct values
+- [Phase ?]: [Phase 08 P08]: D-02's rewind-overconfidence gap measured: 10.85% mean narrowing over 15 measurements/5 events, verdict narrower (clears 0.62% noise floor by ~17x); effect concentrated at earliest rewind points (10.89-44.18%) and shrinks/reverses toward zero by 2/3 through an event -- recorded in docs/models/rewind-overconfidence-gap.md and mirrored in apps/web/src/lib/rewindGap.ts, unblocking 08-11's caption
 
 ### Pending Todos
 
@@ -345,6 +347,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T21:13:58.280Z
-Stopped at: Completed 08-07-PLAN.md
+Last session: 2026-08-31T21:39:35.288Z
+Stopped at: Completed 08-08-PLAN.md
 Resume file: None
