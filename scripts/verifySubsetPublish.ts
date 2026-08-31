@@ -97,6 +97,27 @@ export interface SubsetEntry {
   /** Optional assertion that at least one alliance carries no `name` key. */
   readonly expectSomeAllianceWithoutName?: boolean;
   /**
+   * D-03/08-05 check 14: whether this entry's played `qm` rows are expected
+   * to carry `redRpPmf`/`blueRpPmf`. Decided by `isRpEligibleEventType`
+   * against the event's own `event_type` (PD-05, 08-05-PLAN.md) — NOT by
+   * algorithm id. `"present"` requires every played `qm` row to carry BOTH
+   * fields; `"absent"` requires ZERO rows (across `matches` and `upcoming`
+   * combined) to carry either field. Left `undefined` on an entry with zero
+   * played `qm` rows (e.g. `2025cmptx`), which has nothing to assert.
+   */
+  readonly expectPlayedQmRpPmf?: "present" | "absent";
+  /**
+   * D-12/08-05 check 15: whether this entry's played `qm` rows are expected
+   * to carry the `actualRedRp`/`actualBlueRp` KEYS (value may be a number or
+   * `null` — a `null` is a pass, not a failure; see check 15's doc comment
+   * in `verifyEntry`). Algorithm-independent — sourced from
+   * `MatchResult.redRpEarned`/`blueRpEarned`, not anything a model produces
+   * — so every live presence entry with at least one played `qm` row carries
+   * `"present"` regardless of `expectPlayedQmRpPmf`. Left `undefined` on an
+   * entry with zero played `qm` rows.
+   */
+  readonly expectPlayedQmActualRp?: "present";
+  /**
    * PD-05 (plan 07-19): when `true`, this entry is checked for ABSENCE
    * (a 404) rather than for any of the presence-shaped fields above — the
    * live third of the standing D-05 assertion, re-runnable rather than a
@@ -185,13 +206,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       'TRACER. The one key whose pre-enrichment state is measured field by field; the only event where ' +
       '"the enrichment landed" is a before/after claim rather than an absolute one. Also 07-12\'s ordinary ' +
-      "full case and an ordinary regional for 07-15's precondition.",
+      "full case and an ordinary regional for 07-15's precondition. 08-05: event_type 0 (Regional) is " +
+      "isRpEligibleEventType-eligible with 72 played qm rows, so its renamed vpr duplicate expects both pmf and actual-RP present.",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -201,13 +225,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       "07-13's played+upcoming elimination INTERLEAVE case (qf2m3 between played qf2m2 and qf3m1) — the real " +
       "case a played-then-upcoming concatenation fails while passing a contiguous fixture. Second ordinary " +
-      "regional for 07-15.",
+      "regional for 07-15. 08-05: event_type 0 (Regional) is isRpEligibleEventType-eligible with 70 played " +
+      "qm rows, 2022's own RP-eligible entry.",
     expectMatches: 85,
     expectUpcoming: 3,
     expectTeams: 38,
     expectRankedTeams: 38,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -217,39 +244,53 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       "07-13/07-20's pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
       "rows across 20 sets. Offseason, reachable only once an offseason publish reaches it — this plan is that " +
-      "publish.",
+      "publish. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr " +
+      "duplicate expects ZERO pmf on any of its 38 played qm rows while still carrying actual-RP.",
     expectMatches: 38,
     expectUpcoming: 60,
     expectTeams: 15,
     expectRankedTeams: 15,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cur",
     algorithmId: "sigma1",
-    note: "07-20's widest roster (78 ranked teams, tied max) and 130 qualification rows — the E3 roster and E5 density target.",
+    note:
+      "07-20's widest roster (78 ranked teams, tied max) and 130 qualification rows — the E3 roster and E5 " +
+      "density target. 08-05: event_type 3 (Championship Division) is isRpEligibleEventType-eligible with " +
+      "130 played qm rows, 2023's own RP-eligible entry.",
     expectMatches: 145,
     expectUpcoming: 0,
     expectTeams: 78,
     expectRankedTeams: 78,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cnsh",
     algorithmId: "sigma1",
-    note: "D-08 / RESEARCH Pitfall 1's own named event, one of the exact three D-08's fallback was measured and written around. Offseason, zero ranking rows.",
+    note:
+      "D-08 / RESEARCH Pitfall 1's own named event, one of the exact three D-08's fallback was measured and " +
+      "written around. Offseason, zero ranking rows. 08-05: event_type 99 (Offseason) is excluded from " +
+      "isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on any of its 58 played qm rows " +
+      "while still carrying actual-RP.",
     expectMatches: 62,
     expectUpcoming: 0,
     expectTeams: 29,
     expectRankedTeams: 0,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -258,13 +299,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-12's adjacency measurement event: 52 played + 26 upcoming qualification rows (zero duplicate " +
-      "matchNumber across the two arrays), a second-season D-13 quals-merge case.",
+      "matchNumber across the two arrays), a second-season D-13 quals-merge case. 08-05: event_type 1 " +
+      "(District) is isRpEligibleEventType-eligible with 52 played qm rows, 2023's second RP-eligible entry.",
     expectMatches: 67,
     expectUpcoming: 26,
     expectTeams: 39,
     expectRankedTeams: 39,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -273,13 +317,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-20's E4 target and the payload gate: the corpus's current maximum-bytes event object (285,437 " +
-      "pre-plan) and the widest column set in the app. D-08 CONTROL — every team carries a rank.",
+      "pre-plan) and the widest column set in the app. D-08 CONTROL — every team carries a rank. 08-05: " +
+      "event_type 3 (Championship Division) is isRpEligibleEventType-eligible with 125 played qm rows, " +
+      "2024's own RP-eligible entry.",
     expectMatches: 140,
     expectUpcoming: 0,
     expectTeams: 75,
     expectRankedTeams: 75,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -288,7 +336,9 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-14's explicit routed recommendation, three-in-one: offseason, zero ranking rows (D-08's banner), and " +
-      "five alliances of exactly two picks (D-16's incomplete-sum rule on every row).",
+      "five alliances of exactly two picks (D-16's incomplete-sum rule on every row). 08-05: event_type 99 " +
+      "(Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on " +
+      "any of its 16 played qm rows while still carrying actual-RP.",
     expectMatches: 26,
     expectUpcoming: 0,
     expectTeams: 13,
@@ -297,6 +347,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectAllianceCount: 5,
     expectEveryAlliancePicks: 2,
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -305,7 +357,9 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-20/07-14: the true corpus quals maximum (135 qualification rows) and RESEARCH.md Question 2's " +
-      "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key.",
+      "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key. " +
+      "08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate " +
+      "expects ZERO pmf on any of its 135 played qm rows while still carrying actual-RP.",
     expectMatches: 154,
     expectUpcoming: 0,
     expectTeams: 30,
@@ -313,6 +367,8 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectAlliances: "populated",
     expectVariance: "present",
     expectSomeAllianceWithoutName: true,
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -321,13 +377,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-12/07-20: 63 played + 21 upcoming = the 84-row merged quals slate 07-12's width target and 07-20's " +
-      "E5 merge case. Third ordinary regional for 07-15.",
+      "E5 merge case. Third ordinary regional for 07-15. 08-05: event_type 0 (Regional) is " +
+      "isRpEligibleEventType-eligible with 63 played qm rows, 2025's own RP-eligible entry.",
     expectMatches: 78,
     expectUpcoming: 21,
     expectTeams: 42,
     expectRankedTeams: 42,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -341,13 +400,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
       "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, not a data defect — " +
       "this was a stale seed expectation, not an observed-value adjustment to a still-live check (the entry " +
       "itself is now expectAbsent and no longer runs the alliances check at all; the correction exists so its " +
-      "RENAMED_EVENT_SUBSET duplicate, which DOES still check alliances, reads the real value).",
+      "RENAMED_EVENT_SUBSET duplicate, which DOES still check alliances, reads the real value). 08-05: " +
+      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate expects " +
+      "ZERO pmf on any of its 43 played qm rows while still carrying actual-RP.",
     expectMatches: 43,
     expectUpcoming: 25,
     expectTeams: 45,
     expectRankedTeams: 0,
     expectAlliances: "empty",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -356,13 +419,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "D-17: RESEARCH.md Question 2 live-observed an EMPTY alliances array here — a valid 200 with [], on an " +
-      "event that ran 83 qualification matches and published 62 rankings.",
+      "event that ran 83 qualification matches and published 62 rankings. 08-05: event_type 99 (Offseason) is " +
+      "excluded from isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on any of its 83 " +
+      "played qm rows while still carrying actual-RP.",
     expectMatches: 113,
     expectUpcoming: 0,
     expectTeams: 62,
     expectRankedTeams: 62,
     expectAlliances: "empty",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -372,7 +439,9 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       "07-11's own named expected no-ranking candidate — Einstein is playoff-only, so zero ranking rows is a " +
       "format fact, not an offseason fact. Also zero qualification rows in both arrays (UI-SPEC E5 empty) and " +
-      "a 4-pick alliance shape for D-16's excluded-fourth-pick rule.",
+      "a 4-pick alliance shape for D-16's excluded-fourth-pick rule. 08-05: zero played qm rows (Einstein is " +
+      "playoff-only), so this entry deliberately carries NEITHER expectPlayedQmRpPmf NOR " +
+      "expectPlayedQmActualRp — nothing to assert, per PD-05's own instruction.",
     expectMatches: 16,
     expectUpcoming: 0,
     expectTeams: 26,
@@ -387,13 +456,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "sigma1",
     note:
       "07-20's E1 target. Published name is 124 characters — the longest event name in five seasons of corpus " +
-      "data — the header truncation + title backstop needs a real published artifact carrying it.",
+      "data — the header truncation + title backstop needs a real published artifact carrying it. 08-05: " +
+      "event_type 1 (District) is isRpEligibleEventType-eligible with 60 played qm rows, 2026's own " +
+      "RP-eligible entry.",
     expectMatches: 75,
     expectUpcoming: 0,
     expectTeams: 30,
     expectRankedTeams: 30,
     expectAlliances: "populated",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "present",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -403,13 +476,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       "D-17, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
       "seasons. Also 5 upcoming qualification rows against 120 played — the D-13 quals merge in a third " +
-      "season and a different ratio.",
+      "season and a different ratio. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, " +
+      "so its renamed vpr duplicate expects ZERO pmf on any of its 120 played qm rows while still carrying " +
+      "actual-RP.",
     expectMatches: 120,
     expectUpcoming: 5,
     expectTeams: 30,
     expectRankedTeams: 30,
     expectAlliances: "empty",
     expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
     expectAbsent: true,
     version: "2.0.0+tuned-2026-08",
   },
@@ -420,26 +497,35 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
       "UI-SPEC E4 partial and E5 partial on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
       "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
       "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the sigma1 " +
-      "assertion its meaning.",
+      "assertion its meaning. 08-05 (D-04): OPR models no ranking points at all, so this arm expects ZERO pmf " +
+      "on any of its 72 played qm rows regardless of 2024casf's own event_type — the algorithm-level negative " +
+      "half that gives the vpr entries' positive assertion its meaning — while still carrying actual-RP " +
+      "(algorithm-independent, sourced from MatchResult).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
   },
   {
     eventKey: "2024casf",
     algorithmId: "epa",
     note:
       "The same no-variance state at a different column set — the third arm that lets 07-01/07-11/07-12 flip " +
-      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts.",
+      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts. 08-05 (D-04): EPA " +
+      "models no ranking points at all, so this arm expects ZERO pmf on any of its 72 played qm rows while " +
+      "still carrying actual-RP (algorithm-independent).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
   },
 ];
 
@@ -491,13 +577,18 @@ const NEW_2024AUWARP_ENTRY: SubsetEntry = {
   note:
     "D-08's third named event, deliberately excluded by 07-10 — the first artifact it will ever have had. " +
     "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
-    "25-team roster.",
+    "25-team roster. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
+    "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also D-12's " +
+    "own summed-fallback proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
+    "event, so 08-11's fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
   expectMatches: 62,
   expectUpcoming: 0,
   expectTeams: 25,
   expectRankedTeams: 0,
   expectAlliances: "empty",
   expectVariance: "present",
+  expectPlayedQmRpPmf: "absent",
+  expectPlayedQmActualRp: "present",
 };
 
 /**
@@ -695,6 +786,16 @@ export interface SubsetEntryObserved {
   allianceWithoutNameCount?: number;
   allianceWithNameCount?: number;
   metricsKeyCount?: number;
+  /** Check 14/15: count of played `qm` rows in `artifact.matches` (`compLevel === "qm"`). */
+  playedQmRowCount?: number;
+  /** Check 14: count of played `qm` rows carrying BOTH `redRpPmf` and `blueRpPmf`. */
+  playedQmBothPmfCount?: number;
+  /** Check 14: histogram of observed pmf array lengths across every `redRpPmf`/`blueRpPmf` array found in `matches` and `upcoming` combined — D-03 records the measured shape as always length 7. */
+  pmfLengthHistogram?: Record<number, number>;
+  /** Check 15: count of played `qm` rows where the `actualRedRp` key is present (number or `null`). */
+  playedActualRpKeyCount?: number;
+  /** Check 15: count of played `qm` rows where `actualRedRp` is present and `null` — D-12: a `null` is a legitimate "not derivable" value, never a defect. */
+  playedActualRpNullCount?: number;
   name?: string;
   nameLength?: number;
   location?: string | null;
@@ -888,6 +989,67 @@ export function verifyEntry(
   }
 
   observed.metricsKeyCount = artifact.teams[0] !== undefined ? Object.keys(artifact.teams[0].metrics).length : 0;
+
+  // Check 14 — D-03 RP-pmf presence/absence on played qm rows (08-05 Task 1).
+  // The exact structural analog of check 8: an AND-based positive count
+  // (both redRpPmf AND blueRpPmf present) mirrors playedRowsWithBothVariance
+  // above; the negative half counts EITHER field across matches AND upcoming
+  // combined, mirroring anyRowsWithEitherVariance above.
+  const playedQmRows = artifact.matches.filter((m) => m.compLevel === "qm");
+  observed.playedQmRowCount = playedQmRows.length;
+  if (entry.expectPlayedQmRpPmf !== undefined) {
+    if (entry.expectPlayedQmRpPmf === "present") {
+      const bothPmf = playedQmRows.filter((m) => m.redRpPmf !== undefined && m.blueRpPmf !== undefined);
+      observed.playedQmBothPmfCount = bothPmf.length;
+      if (bothPmf.length !== playedQmRows.length) {
+        failures.push(
+          `rpPmf: expected every played qm row to carry BOTH redRpPmf and blueRpPmf, playedQmBothPmfCount=${bothPmf.length} !== playedQmRowCount=${playedQmRows.length}`
+        );
+      }
+      // types.ts's own convention: omitted entirely, never an empty array —
+      // a present-but-empty pmf array is a schema-boundary bug, not a valid
+      // "not modeled" state (isValidPmf already rejects it at parse time,
+      // but this is the published-side evidence that the boundary held).
+      const emptyPmfCount = [...artifact.matches, ...artifact.upcoming].filter(
+        (m) => (m.redRpPmf !== undefined && m.redRpPmf.length === 0) || (m.blueRpPmf !== undefined && m.blueRpPmf.length === 0)
+      ).length;
+      if (emptyPmfCount > 0) {
+        failures.push(`rpPmf: ${emptyPmfCount} row(s) carry a present-but-EMPTY pmf array — should be omitted entirely, never []`);
+      }
+    } else {
+      const anyPmf = [...artifact.matches, ...artifact.upcoming].filter((m) => m.redRpPmf !== undefined || m.blueRpPmf !== undefined);
+      observed.playedQmBothPmfCount = 0;
+      if (anyPmf.length !== 0) {
+        failures.push(`rpPmf: expected ZERO rows carrying either redRpPmf or blueRpPmf, observed ${anyPmf.length}`);
+      }
+    }
+    const histogram: Record<number, number> = {};
+    for (const m of [...artifact.matches, ...artifact.upcoming]) {
+      if (m.redRpPmf !== undefined) histogram[m.redRpPmf.length] = (histogram[m.redRpPmf.length] ?? 0) + 1;
+      if (m.blueRpPmf !== undefined) histogram[m.blueRpPmf.length] = (histogram[m.blueRpPmf.length] ?? 0) + 1;
+    }
+    observed.pmfLengthHistogram = histogram;
+  }
+
+  // Check 15 — D-12 actual-RP key presence and null accounting (08-05 Task 1).
+  // Algorithm-independent (sourced from MatchResult.redRpEarned/blueRpEarned,
+  // never anything a model produces), so this check runs regardless of
+  // expectPlayedQmRpPmf. AND-based key-presence count, mirroring check 14's
+  // own positive-half shape; the null count is informational (D-12: null is
+  // a legitimate "not derivable" value, never a defect) and is reported
+  // whenever at least one alliance's actualRedRp/actualBlueRp is present and
+  // null on a given row.
+  if (entry.expectPlayedQmActualRp === "present") {
+    const bothKeyPresent = playedQmRows.filter((m) => "actualRedRp" in m && "actualBlueRp" in m);
+    observed.playedActualRpKeyCount = bothKeyPresent.length;
+    if (bothKeyPresent.length !== playedQmRows.length) {
+      failures.push(
+        `actualRp: expected every played qm row to carry BOTH actualRedRp and actualBlueRp keys, playedActualRpKeyCount=${bothKeyPresent.length} !== playedQmRowCount=${playedQmRows.length}`
+      );
+    }
+    const eitherNull = playedQmRows.filter((m) => ("actualRedRp" in m && m.actualRedRp === null) || ("actualBlueRp" in m && m.actualBlueRp === null));
+    observed.playedActualRpNullCount = eitherNull.length;
+  }
 
   return { observed, failures };
 }
@@ -1365,7 +1527,9 @@ function formatResultLine(result: SubsetEntryResult): string {
     `percentile=${o.percentileCount ?? "-"}[${o.percentileMin ?? "-"}..${o.percentileMax ?? "-"}] ` +
     `varianceRows=${o.varianceRowCount ?? "-"} sortTime(played/upcoming)=${o.sortTimePlayedCount ?? "-"}/${o.sortTimeUpcomingCount ?? "-"} ` +
     `alliances=${o.allianceCount ?? "-"} metricsKeys=${o.metricsKeyCount ?? "-"} name=${JSON.stringify(o.name ?? null)} ` +
-    `(len ${o.nameLength ?? "-"}) location=${JSON.stringify(o.location ?? null)} week=${JSON.stringify(o.week ?? null)}`
+    `(len ${o.nameLength ?? "-"}) location=${JSON.stringify(o.location ?? null)} week=${JSON.stringify(o.week ?? null)} ` +
+    `playedQm=${o.playedQmRowCount ?? "-"} bothPmf=${o.playedQmBothPmfCount ?? "-"} pmfLenHist=${JSON.stringify(o.pmfLengthHistogram ?? {})} ` +
+    `actualRpKeys=${o.playedActualRpKeyCount ?? "-"} actualRpNulls=${o.playedActualRpNullCount ?? "-"}`
   );
 }
 

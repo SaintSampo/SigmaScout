@@ -103,6 +103,25 @@ const PAGE_KINDS = ["teams", "team", "events", "event", "compare"] as const;
 const TEAMS_PAGE_ABSOLUTE_MAX_BYTES = 5_000_000;
 const TEAM_PAGE_ABSOLUTE_MAX_BYTES = 600_000;
 
+/**
+ * 08-05 (PD-01): the `event` page kind's own absolute ceiling, added because
+ * the "is internally consistent" test above cannot fire for `event` while
+ * WINDOWS.md ledger #11's `teams` breach is open — that single `it(...)`
+ * iterates `PAGE_KINDS` in order (`teams, team, events, event, compare`)
+ * inside ONE test body, so the `teams` iteration's thrown assertion aborts
+ * the loop before `event` is ever reached. Unlike
+ * `TEAMS_PAGE_ABSOLUTE_MAX_BYTES`/`TEAM_PAGE_ABSOLUTE_MAX_BYTES` above, this
+ * bound intentionally EQUALS the committed `pages.event.budgetMaxBytes`
+ * (350,000) rather than sitting above it — for this page kind the committed
+ * ceiling IS the D-01 byte-cost contract D-03/D-12's republish was decided
+ * against, and headroom above it here would defeat the point of a dedicated,
+ * reachable gate. This is deliberately its own `it(...)`, not folded into
+ * the internal-consistency block, so it can be run and observed in isolation
+ * via a name filter (`-t EVENT_PAGE_ABSOLUTE_MAX_BYTES`) both before and
+ * after 08-05's republish — reachability proven, not assumed.
+ */
+const EVENT_PAGE_ABSOLUTE_MAX_BYTES = 350_000;
+
 // ---------------------------------------------------------------------------
 // Parser robustness — never a silent skip on a missing/corrupt budget block
 // ---------------------------------------------------------------------------
@@ -180,6 +199,14 @@ describe("published payload budget (D-05)", () => {
       entry.maxBytes,
       `team page maxBytes (${entry.maxBytes}) exceeded the absolute ceiling (${TEAM_PAGE_ABSOLUTE_MAX_BYTES}) — the team page grew structurally bigger, not just noisier; shrink it or deliberately raise this bound alongside a re-measured budget`
     ).toBeLessThan(TEAM_PAGE_ABSOLUTE_MAX_BYTES);
+  });
+
+  it("event page (the D-03/D-12 republish target, 08-05's byte gate) stays at or under EVENT_PAGE_ABSOLUTE_MAX_BYTES, reachable in isolation regardless of ledger #11's state", () => {
+    const entry = budget.pages.event!;
+    expect(
+      entry.maxBytes,
+      `event page maxBytes (${entry.maxBytes}) exceeded EVENT_PAGE_ABSOLUTE_MAX_BYTES (${EVENT_PAGE_ABSOLUTE_MAX_BYTES}, largestKey=${entry.largestKey}) — D-03/D-12's republish breached the 350,000-byte event ceiling; this is a stop-and-report condition, never something to absorb by raising the ceiling or trimming a field`
+    ).toBeLessThanOrEqual(EVENT_PAGE_ABSOLUTE_MAX_BYTES);
   });
 });
 
