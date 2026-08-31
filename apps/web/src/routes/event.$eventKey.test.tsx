@@ -904,7 +904,7 @@ describe("/event/$eventKey route — the Simulation tab registered, D-04 disable
     vi.restoreAllMocks();
   });
 
-  it("with the artifact fetch left permanently pending, ?algorithm=vpr renders an ENABLED Simulation trigger and ?algorithm=opr renders a DISABLED one — the boolean resolves before any data does", async () => {
+  it("with the artifact fetch left permanently pending, ?algorithm=vpr renders an ENABLED Simulation trigger — the boolean resolves before any data does", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -912,8 +912,9 @@ describe("/event/$eventKey route — the Simulation tab registered, D-04 disable
     });
     renderEventRoute("/event/2024casf?algorithm=vpr");
     await waitFor(() => expect(screen.getByRole("tab", { name: "Simulation" }).hasAttribute("disabled")).toBe(false));
-    cleanup();
+  });
 
+  it("with the artifact fetch left permanently pending, ?algorithm=opr renders a DISABLED Simulation trigger — the boolean resolves before any data does", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
