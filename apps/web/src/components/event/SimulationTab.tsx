@@ -1,18 +1,27 @@
+import { useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/StateViews";
-import { isQualCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
+import { REWIND_CAPTION_TESTID, StartMatchPicker, rewindCaptionText } from "./StartMatchPicker.js";
+import { matchLabel } from "../team/MatchTable.js";
+import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
+import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The Simulation tab shell (EVNT-07, D-01…D-07, 08-09-PLAN.md). This plan
- * ships the panel's THREE states — zero qualification matches, qualification
- * matches with no ranking-point distributions, and ready-but-not-yet-run —
- * plus the pmf-presence predicate the route and 08-11 both read. It does
- * NOT ship the start-match picker (08-11), the run control (08-13) or the
- * rank-distribution table (08-14) — each of those plans mounts its own
- * child into the layout stack this component establishes below, at the
- * clearly-marked comment naming which plan owns that position.
+ * The Simulation tab shell (EVNT-07, D-01…D-07, 08-09-PLAN.md, 08-11-PLAN.md
+ * Task 3). Ships the panel's THREE states — zero qualification matches,
+ * qualification matches with no ranking-point distributions, and the layout
+ * stack once both are cleared — plus the pmf-presence predicate the route
+ * reads. This plan (08-11) adds the ONE state this component holds: the
+ * selected start `matchKey`, initialized lazily to `defaultStartMatchKey`
+ * and never re-applied (PD-07), because 08-13's Run handler and 08-14's rank
+ * table both need the same selected start match, and a selection owned by
+ * the picker would have to be lifted the moment either arrived. The layout
+ * stack's picker position is filled by `StartMatchPicker` (08-11); the run
+ * control (08-13) and the rank-distribution table (08-14) each still mount
+ * their own child at the clearly-marked comment naming which plan owns that
+ * position.
  *
  * This component constructs no Web Worker and starts no computation. Radix
  * keeps every `TabsContent` mounted with `hidden`, so this component renders
@@ -164,7 +173,31 @@ export function SimulationTabSkeleton() {
  *    sitting beneath them.
  */
 export function SimulationTab({ artifact }: SimulationTabProps) {
-  const qualRows = mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel);
+  const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
+
+  // The selected start matchKey — computed ONCE, in a lazy initializer, and
+  // never re-applied (PD-07): recomputing it on every artifact change would
+  // move the reader's chosen start match out from under them the moment the
+  // first unplayed match became played, mid-event, which is exactly when a
+  // reader is most likely to be watching.
+  const [selectedMatchKey, setSelectedMatchKey] = useState<string | null>(() => defaultStartMatchKey(qualRows));
+
+  // PD-06: the held selection is resolved against the CURRENT rows on every
+  // render. A selected key no longer present in the current rows resolves
+  // to "no selection" (never a neighbouring row) — and the held state is
+  // NOT cleared on a miss, so a transient artifact shape (a live refetch
+  // mid-flight) cannot permanently discard the reader's choice.
+  const resolvedMatchKey = selectedMatchKey !== null && qualRows.some((row) => row.matchKey === selectedMatchKey) ? selectedMatchKey : null;
+
+  const simulationInputs = useMemo(
+    () => (resolvedMatchKey !== null ? buildSimulationInputs(artifact, resolvedMatchKey) : null),
+    [artifact, resolvedMatchKey]
+  );
+
+  const startLabel = useMemo(() => {
+    const selectedRow = resolvedMatchKey !== null ? qualRows.find((row) => row.matchKey === resolvedMatchKey) : undefined;
+    return selectedRow ? matchLabel(selectedRow) : null;
+  }, [qualRows, resolvedMatchKey]);
 
   if (qualRows.length === 0) {
     return <EmptyState heading={SIMULATION_EMPTY_STATE_HEADING} body={SIMULATION_EMPTY_STATE_BODY} />;
@@ -177,6 +210,21 @@ export function SimulationTab({ artifact }: SimulationTabProps) {
   return (
     <div data-testid={SIMULATION_STACK_TESTID} className="flex flex-col gap-[var(--spacing-lg)]">
       {/* 08-11 mounts the start-match picker here (max-height: 320px, internal overflow-y-auto). */}
+      <StartMatchPicker
+        rows={qualRows}
+        selectedMatchKey={resolvedMatchKey}
+        onSelect={setSelectedMatchKey}
+        inputs={simulationInputs}
+        startLabel={startLabel}
+        // 08-13 wires the real run-in-progress value here (a reserved seat,
+        // per that plan's flagged assumption 8) — this plan passes `false`.
+        disabled={false}
+      />
+      {simulationInputs !== null && simulationInputs.isRewindStart && (
+        <p data-testid={REWIND_CAPTION_TESTID} className="text-role-body text-muted-foreground">
+          {rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT)}
+        </p>
+      )}
       {/* 08-13 mounts the run control here (button + progress/timer). */}
       <p data-testid={SIMULATION_PRE_RUN_TESTID} className="text-role-body text-muted-foreground">
         {SIMULATION_PRE_RUN_BODY}
