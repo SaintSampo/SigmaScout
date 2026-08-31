@@ -1133,8 +1133,8 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-30T18:45:03Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- exclude-whole-alliance-dq-zero-scores.md's post-fix full republish, generation 1c11cdd8-720d-479e-a737-fad94c4105a9; every page kind moved by less than 0.1% versus the prior 882249ad run (dropped alliance-observations changed computed VALUES, not any published field's shape)",
+  "measuredAt": "2026-08-31T19:39:13Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- plan 08-05's D-03/D-12 republish, generation e2d220d9-e97b-480a-bcf1-82d3e2076b42; redRpPmf/blueRpPmf and actualRedRp/actualBlueRp now populate every played event-artifact row, moving only the event page kind (327,172 -> 342,405 bytes max, +4.66%, same largestKey)",
   "pages": {
     "teams": {
       "count": 15,
@@ -1162,9 +1162,9 @@ rendering of these same numbers, not a second source.
     },
     "event": {
       "count": 4143,
-      "medianBytes": 75689,
-      "p95Bytes": 189570,
-      "maxBytes": 327172,
+      "medianBytes": 78127,
+      "p95Bytes": 197483,
+      "maxBytes": 342405,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2024gal/vpr@2.1.0+tuned-2026-08.json"
     },
