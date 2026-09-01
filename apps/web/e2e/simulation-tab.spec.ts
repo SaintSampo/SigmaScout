@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { touchDrag } from "./support/touchDrag.js";
-import { assertNoIntermediateScroller, assertOverflows } from "./support/scrollRegions.js";
+import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows, assertOverflowsY } from "./support/scrollRegions.js";
 import { openSimulationTab, runSimulation, selectStartMatch, SIMULATION_TEST_IDS } from "./support/simulation.js";
 
 /**
@@ -168,5 +168,109 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     await page.screenshot({ path: shot, fullPage: true });
     // eslint-disable-next-line no-console -- Task 4's checkpoint names this exact path for the human judgement call.
     console.log(`[08-15] S3 phone screenshot: ${shot}`);
+  });
+});
+
+/**
+ * S1 — the picker at its real maximum (PD-01, Task 2). The outline named
+ * `2024wvrox` (135 quals, the corpus maximum) as the picker's overflow
+ * target, but that event is TBA `event_type` 99 (offseason) and
+ * `EVENT_TYPE_TIERS` (`packages/core/algorithms/sigma1/rp/constants.ts`)
+ * deliberately omits type 99, so `sigma1` emits no pmf there — confirmed
+ * live in this task's own precondition fetch: 0 of 135 `qm` rows carry
+ * `redRpPmf`/`blueRpPmf`. `2022oncmp` (134 rows, 67 teams, TBA type 2,
+ * RP-eligible) is the real maximum the picker can ever be handed, one row
+ * short of the corpus absolute maximum. `2024wvrox` ships here as the
+ * control that makes the retarget legible as a measurement rather than a
+ * convenience — asserting 08-09's unavailable state renders and the picker
+ * row locator resolves to exactly zero elements at the largest qualification
+ * slate that exists.
+ */
+const S1_EVENT_KEY = "2022oncmp";
+const S1_ROW_COUNT = 134;
+/** `StartMatchPicker.tsx`'s own `START_MATCH_PICKER_MAX_H_PX`. */
+const PICKER_MAX_H_PX = 320;
+
+test.describe("S1 — the start-match picker at its real maximum (2022oncmp, 134 rows)", () => {
+  test("134 picker rows, a genuinely bounded panel, a real internal vertical scroll that neither traps the page nor is trapped by it", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSimulationTab(page, S1_EVENT_KEY);
+
+    const rows = page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`);
+    await expect(rows.first()).toBeVisible();
+    expect(S1_ROW_COUNT).toBe(134); // exact-equality anchor, grepped by this plan's own acceptance criteria
+    expect(await rows.count(), "the picker must render exactly one row per qualification match").toBe(134);
+
+    const picker = page.getByTestId(SIMULATION_TEST_IDS.picker);
+    const pickerClientHeight = await picker.evaluate((el) => el.clientHeight);
+    expect(pickerClientHeight, `picker clientHeight ${pickerClientHeight}px must sit at or under the declared max-height`).toBeLessThanOrEqual(PICKER_MAX_H_PX + 1);
+
+    await assertOverflowsY(picker);
+    await assertNoIntermediateScroller(picker);
+
+    // Mutual .contains() failure against the tab strip's own scroll region —
+    // the picker's internal scroller and the strip's horizontal scroller are
+    // sibling regions, never ancestor/descendant of one another.
+    const { stripContainsPicker, pickerContainsStrip } = await page.evaluate(() => {
+      const strip = document.querySelector('[data-testid="event-tab-strip-scroll"]');
+      const picker = document.querySelector('[data-testid="start-match-picker"]');
+      if (strip === null || picker === null) throw new Error("strip or picker element not found");
+      return { stripContainsPicker: strip.contains(picker), pickerContainsStrip: picker.contains(strip) };
+    });
+    expect(stripContainsPicker).toBe(false);
+    expect(pickerContainsStrip).toBe(false);
+
+    // Direction 1: a vertical drag INSIDE the picker advances the picker's
+    // own scrollTop while the document's stays exactly where it was — the
+    // inner region consumes its own axis and does not chain out.
+    const pickerBox = await picker.boundingBox();
+    if (pickerBox === null) throw new Error("picker has no bounding box");
+    const insideBefore = await picker.evaluate((el) => el.scrollTop);
+    const documentTopBeforeInside = await page.evaluate(() => document.documentElement.scrollTop);
+    await touchDrag(page, { x: pickerBox.x + pickerBox.width / 2, y: pickerBox.y + pickerBox.height - 40 }, { x: pickerBox.x + pickerBox.width / 2, y: pickerBox.y + 40 });
+    const insideAfter = await picker.evaluate((el) => el.scrollTop);
+    const documentTopAfterInside = await page.evaluate(() => document.documentElement.scrollTop);
+    expect(insideAfter, "a drag inside the picker must advance the picker's own scrollTop").toBeGreaterThan(insideBefore);
+    expect(documentTopAfterInside, "a drag inside the picker must not move the document").toBe(documentTopBeforeInside);
+
+    // Reset scroll position before the second direction, so the two probes
+    // are independent.
+    await picker.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // Direction 2: a vertical drag OUTSIDE the picker, over the page above
+    // it (the event header / tab strip region, well above the picker's own
+    // top edge), advances the document's scrollTop while the picker's stays
+    // exactly where it was — the picker does not trap the page.
+    const outsideY = Math.max(20, pickerBox.y - 60);
+    const pickerScrollBeforeOutside = await picker.evaluate((el) => el.scrollTop);
+    const documentTopBeforeOutside = await page.evaluate(() => document.documentElement.scrollTop);
+    await touchDrag(page, { x: pickerBox.x + pickerBox.width / 2, y: outsideY }, { x: pickerBox.x + pickerBox.width / 2, y: Math.max(0, outsideY - 100) });
+    const pickerScrollAfterOutside = await picker.evaluate((el) => el.scrollTop);
+    const documentTopAfterOutside = await page.evaluate(() => document.documentElement.scrollTop);
+    expect(documentTopAfterOutside, "a drag over the page above the picker must advance the document's own scrollTop").toBeGreaterThan(documentTopBeforeOutside);
+    expect(pickerScrollAfterOutside, "a drag over the page above the picker must not move the picker's own scrollTop").toBe(pickerScrollBeforeOutside);
+
+    await assertNoPagePan(page);
+
+    // Recorded, not asserted (a printed fact, never an invented preference) —
+    // the at-boundary chaining feel is Task 4's checkpoint judgement to make.
+    const overscrollBehaviorY = await picker.evaluate((el) => getComputedStyle(el).overscrollBehaviorY);
+    // eslint-disable-next-line no-console -- printed per this task's own instruction; never asserted.
+    console.log(`[08-15] S1 picker computed overscroll-behavior-y: ${overscrollBehaviorY}`);
+  });
+});
+
+const S1_CONTROL_EVENT_KEY = "2024wvrox";
+/** `SimulationTab.tsx`'s own `SIMULATION_UNAVAILABLE_HEADING`, verbatim. */
+const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
+
+test.describe("S1 control — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders the unavailable state and zero picker rows", () => {
+  test("PD-01's retarget mechanism, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so sigma1 emits no pmf here, so hasSimulatableRankInputs is false and 08-09's unavailable branch renders instead of a picker", async ({ page }) => {
+    await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=vpr&tab=simulation`, { waitUntil: "networkidle" });
+    await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeVisible();
+    expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBe(0);
   });
 });

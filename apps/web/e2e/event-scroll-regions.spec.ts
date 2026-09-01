@@ -31,10 +31,11 @@
 import { test, expect } from "@playwright/test";
 import { touchDrag } from "./support/touchDrag.js";
 import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows, visibleMidpoint } from "./support/scrollRegions.js";
+import { runSimulation, selectStartMatch, SIMULATION_TEST_IDS } from "./support/simulation.js";
 
 const TAB_STRIP = '[data-testid="event-tab-strip-scroll"]';
 
-/** The primary multi-tab structural target (`measured_ground_truth`): 2024 is the widest component season, so this one event exercises all five tabs' structural sibling/no-trap invariants at once. */
+/** The primary multi-tab structural target (`measured_ground_truth`): 2024 is the widest component season, so this one event exercises all five tabs' structural sibling/no-trap invariants at once. `2024new` also carries pmfs on all 125 of its qm rows (confirmed live, 08-15-PLAN.md Task 2), so it doubles as the sixth (`simulation`) tab's own structural fixture — one event exercising all six tabs' invariants at once, exactly as it already did for the first five. */
 const STRUCTURAL_EVENT_KEY = "2024new";
 
 const TAB_SCROLL_TESTID: Record<string, string> = {
@@ -43,9 +44,19 @@ const TAB_SCROLL_TESTID: Record<string, string> = {
   quals: "quals-table-scroll",
   alliances: "alliances-table-scroll",
   elims: "elims-table-scroll",
+  // 08-15-PLAN.md Task 2, PD-02: the Simulation tab's scroll region does not
+  // exist until a run completes — `RankDistributionTable.tsx`'s own
+  // scroll-region testid, the same one `simulation-tab.spec.ts`'s S3 evidence
+  // asserts against.
+  simulation: SIMULATION_TEST_IDS.rankTableScroll,
 };
 
-const TABS = ["insights", "breakdown", "quals", "alliances", "elims"] as const;
+// PD-02, 08-15-PLAN.md Task 2: `simulation` joins as the sixth element,
+// behind a real run (see the shared `beforeEach` below) rather than a
+// parallel, weaker structural block of its own — the tab's scroll region
+// does not exist until a run completes, which is exactly why 08-09
+// deliberately left this file untouched and routed the work here.
+const TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
 
 function eventUrl(eventKey: string, tab: string): string {
   return `/event/${eventKey}?algorithm=vpr&tab=${tab}`;
@@ -152,6 +163,19 @@ for (const tab of TABS) {
   test.describe(`sibling scroll regions — ${tab} tab (${STRUCTURAL_EVENT_KEY})`, () => {
     test.beforeEach(async ({ page }) => {
       await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, tab), { waitUntil: "networkidle" });
+      // 08-15-PLAN.md Task 2, PD-02: every other tab's scroll region exists
+      // the moment its panel mounts, so waiting on the shared testid below is
+      // enough. `simulation` is the one exception — its rank-table scroll
+      // region does not exist until a run completes (08-09 deliberately
+      // built the branch this produces and routed the real run here) — so
+      // this beforeEach drives a REAL run for `simulation` only, through the
+      // same Task 1 driver `simulation-tab.spec.ts` uses, before waiting on
+      // the shared testid.
+      if (tab === "simulation") {
+        await page.getByTestId("start-match-picker").waitFor({ state: "visible", timeout: 15_000 });
+        await selectStartMatch(page, 0);
+        await runSimulation(page);
+      }
       await page.locator(`[data-testid="${TAB_SCROLL_TESTID[tab]}"]`).waitFor({ state: "visible", timeout: 15_000 });
     });
 
@@ -377,16 +401,79 @@ test.describe("E4 — Breakdown tab at the app's widest column set", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E2 — the tab strip itself: five short labels, horizontally scrollable
+// E2 — the tab strip itself: SIX short labels (08-15-PLAN.md Task 2, S0),
+// horizontally scrollable. Grown from five to six because six triggers is
+// now the shipped truth (08-09) — the one expectation this plan strengthens
+// rather than relaxes, per this plan's own third prohibition.
 // ---------------------------------------------------------------------------
 
-test.describe("E2 — the tab strip: 5 tabs, scrollable at phone width", () => {
-  test(`${STRUCTURAL_EVENT_KEY}: exactly 5 role="tab" elements, and the strip overflows at 390px`, async ({ page }) => {
+const EXPECTED_TAB_LABELS = ["Insights", "Breakdown", "Quals", "Alliances", "Elims", "Simulation"] as const;
+
+test.describe("E2 — the tab strip: 6 tabs, scrollable at phone width", () => {
+  test(`${STRUCTURAL_EVENT_KEY}: exactly 6 role="tab" elements in the declared order, and the strip overflows at 390px`, async ({ page }) => {
     await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
 
-    expect(await page.getByRole("tab").count()).toBe(5);
+    const tabs = page.getByRole("tab");
+    expect(await tabs.count()).toBe(6);
+    const labels = await tabs.allTextContents();
+    expect(labels.map((l) => l.trim())).toEqual([...EXPECTED_TAB_LABELS]);
+
+    // The premise guard: the strip must actually overflow BEFORE any of the
+    // three measurements below run against it — a strip that never overflows
+    // would make every one of them vacuous.
     await assertOverflows(strip);
+    await assertNoPagePan(page);
+  });
+
+  test("each trigger's label text node occupies exactly one line box, and no trigger's content is clipped inside its own box", async ({ page }) => {
+    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
+    const strip = page.locator(TAB_STRIP);
+    await strip.waitFor({ state: "visible", timeout: 15_000 });
+
+    const tabs = page.getByRole("tab");
+    const count = await tabs.count();
+    for (let i = 0; i < count; i++) {
+      const tab = tabs.nth(i);
+      const label = (await tab.innerText()).trim();
+
+      // A direct-text-node Range's getClientRects() returns ONE rect per
+      // visual line — exactly two rects is the direct signature of a label
+      // that wrapped onto a second line, the defect this row names.
+      const lineBoxCount = await tab.evaluate((el) => {
+        const textNode = Array.from(el.childNodes).find((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim().length > 0);
+        if (!textNode) throw new Error(`tab "${el.textContent}" has no direct text node to measure`);
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        return range.getClientRects().length;
+      });
+      expect(lineBoxCount, `tab "${label}" label wrapped onto ${lineBoxCount} line boxes`).toBe(1);
+
+      const { scrollWidth, clientWidth } = await tab.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      expect(scrollWidth, `tab "${label}" content scrollWidth ${scrollWidth}px exceeds its own trigger's clientWidth ${clientWidth}px — the label is clipped`).toBeLessThanOrEqual(clientWidth + 2);
+    }
+  });
+
+  test("after scrolling the strip fully to its right end, the Simulation trigger is reachable — its bounding box sits entirely inside the viewport, with non-empty text", async ({ page }) => {
+    await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
+    const strip = page.locator(TAB_STRIP);
+    await strip.waitFor({ state: "visible", timeout: 15_000 });
+    await assertOverflows(strip);
+
+    const simulationTrigger = page.getByRole("tab", { name: "Simulation", exact: true });
+    await expect(simulationTrigger, "the Simulation trigger must exist in the strip before it can be scrolled to").toBeAttached();
+
+    const stripBox = await strip.boundingBox();
+    if (stripBox === null) throw new Error("tab strip has no bounding box");
+    await touchDrag(page, { x: stripBox.x + stripBox.width - 20, y: stripBox.y + stripBox.height / 2 }, { x: stripBox.x + 20, y: stripBox.y + stripBox.height / 2 }, 20);
+
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("no viewport size");
+    const triggerBox = await simulationTrigger.boundingBox();
+    if (triggerBox === null) throw new Error("Simulation trigger has no bounding box");
+    expect(triggerBox.x, "Simulation trigger left edge must be inside the viewport").toBeGreaterThanOrEqual(0);
+    expect(triggerBox.x + triggerBox.width, "Simulation trigger right edge must be inside the viewport").toBeLessThanOrEqual(viewport.width + 1);
+    expect((await simulationTrigger.innerText()).trim().length).toBeGreaterThan(0);
   });
 });
