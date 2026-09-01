@@ -123,6 +123,120 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
   });
 });
 
+describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_attrib)", () => {
+  /**
+   * Three rating-eligible teammates with deliberately UNEQUAL prior means on
+   * `autoLeave` (40 / 10 / 10, summing to a predicted alliance total of 60),
+   * all sharing a match count of 0 so they share one learning rate. Blue's
+   * whole roster is surrogates, so blue attribution is a documented no-op and
+   * cannot perturb red.
+   */
+  function unequalTeammatesState(): EpaState {
+    return {
+      season: 2024,
+      teamComponents: new Map([
+        ["frc1", { autoLeave: 40 }],
+        ["frc2", { autoLeave: 10 }],
+        ["frc3", { autoLeave: 10 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["frc1", 0],
+        ["frc2", 0],
+        ["frc3", 0],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+  }
+
+  function redObservationOf(autoLeavePoints: number): MatchResult {
+    return matchResult({
+      redTeams: ["frc1", "frc2", "frc3"],
+      redSurrogates: [],
+      blueTeams: ["s1", "s2", "s3"],
+      blueSurrogates: ["s1", "s2", "s3"],
+      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints }),
+    });
+  }
+
+  it("a teammate on an alliance that hits its prediction exactly does not move", () => {
+    // Predicted alliance total is 40 + 10 + 10 = 60 and the alliance scores
+    // exactly 60, so the alliance ERROR is 0 and nobody moves —
+    // twoStageEwma(mean, mean + 0/n, percent, 1) === mean for every teammate,
+    // regardless of how unequal their levels are.
+    //
+    // This is the case that fails loudly against the retired EVEN SPLIT, which
+    // fed every teammate allianceValue/n === 20 and therefore dragged the
+    // 40-point robot down to 40 + (1/3)(20 - 40) = 33.33 and pushed both
+    // 10-point robots up to 10 + (1/3)(20 - 10) = 13.33 — pulling every team
+    // toward its alliance's mean on a match that told us nothing new.
+    const next = epa.update(unequalTeammatesState(), redObservationOf(60));
+
+    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40, 10);
+    expect(next.teamComponents.get("frc2")!["autoLeave"]).toBeCloseTo(10, 10);
+    expect(next.teamComponents.get("frc3")!["autoLeave"]).toBeCloseTo(10, 10);
+
+    // D-08: the counters still increment — the match WAS played and observed;
+    // it simply carried no information about how to re-rank these three.
+    expect(next.teamMatchCounts.get("frc1")).toBe(1);
+    expect(next.teamMatchCounts.get("frc2")).toBe(1);
+    expect(next.teamMatchCounts.get("frc3")).toBe(1);
+  });
+
+  it("negative control: a missed prediction moves every teammate by the SAME absolute amount", () => {
+    // Same priors, but the alliance scores 90 against a predicted 60. The
+    // error is +30 shared over n = 3, so each teammate is attributed
+    // currentMean + 10 and moves by percent * 10 = (1/3) * 10 = 10/3.
+    // The error is shared; the LEVEL is not.
+    const next = epa.update(unequalTeammatesState(), redObservationOf(90));
+
+    const expectedDelta = (1 / 3) * 10;
+    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40 + expectedDelta, 10);
+    expect(next.teamComponents.get("frc2")!["autoLeave"]).toBeCloseTo(10 + expectedDelta, 10);
+    expect(next.teamComponents.get("frc3")!["autoLeave"]).toBeCloseTo(10 + expectedDelta, 10);
+
+    // Stated as a relation too, so the "same absolute amount" claim is pinned
+    // independently of the hand-computed level above — and so this control
+    // cannot pass vacuously alongside a no-op implementation.
+    const d1 = next.teamComponents.get("frc1")!["autoLeave"]! - 40;
+    const d2 = next.teamComponents.get("frc2")!["autoLeave"]! - 10;
+    const d3 = next.teamComponents.get("frc3")!["autoLeave"]! - 10;
+    expect(d2).toBeCloseTo(d1, 10);
+    expect(d3).toBeCloseTo(d1, 10);
+    expect(d1).toBeGreaterThan(0);
+  });
+
+  it("with one rating-eligible team the error split is arithmetically identical to the retired even split", () => {
+    // n === 1: currentMean + (allianceValue - currentMean)/1 === allianceValue,
+    // which is exactly the observedShare the retired formula fed. This is why
+    // every pre-existing n === 1 fixture in this file is unchanged by D-Q1.
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
+      teamMatchCounts: new Map([["frc1", 0]]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+    const next = epa.update(
+      state,
+      matchResult({
+        redTeams: ["frc1", "surr1", "surr2"],
+        redSurrogates: ["surr1", "surr2"],
+        blueTeams: ["s1", "s2", "s3"],
+        blueSurrogates: ["s1", "s2", "s3"],
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 40 }),
+      })
+    );
+    // 10 + (1/3)(40 - 10) === 20, the same value the even-split fixture above
+    // asserts — the two formulas coincide exactly at n === 1.
+    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
+  });
+});
+
 describe("epa.update — D-08 elimination divergence", () => {
   it("an elimination match moves a team's component mean by the same amount as a qualification match with the same observation, and increments the match counter identically", () => {
     const baseState: EpaState = {

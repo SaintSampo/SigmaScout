@@ -10,6 +10,39 @@
  * win-probability logistic (`k_func`'s base-10 form, converted to the same
  * shape `opr.ts`'s `logisticWinProbability` uses).
  *
+ * Also faithful as of D-Q1 (quick task 260901-is2) — component attribution.
+ * `applyComponentUpdate` credits each rating-eligible teammate the alliance's
+ * ERROR, shared equally, on top of that team's own current level:
+ * `attrib = currentMean + (observed - predicted) / n`, one predicted-total
+ * pass per alliance-component computed from the pre-update snapshot. That is
+ * Statbotics' `post_process_attrib` (`err = observed - predicted`,
+ * `attrib = epa + err / n`), and this bullet used to sit in the deliberate-
+ * divergence list below claiming both that the alliance total was "divided
+ * evenly across its rating-eligible teammates" and that "Statbotics has no
+ * direct analog here". Both halves were false. The even split pulled every
+ * team toward its alliance's mean on EVERY match: an alliance scoring exactly
+ * its predicted total still dragged its strongest robot down and lifted its
+ * weakest, when the honest update is that nobody moves.
+ *
+ * Measured over a 5-season faithful replay (carrySeason, offseason
+ * built-not-scored), even split -> error split:
+ *   - OLS slope vs Statbotics `epa.total_points` (2025, 3,690 teams):
+ *     0.489 -> 0.841; Pearson 0.729 -> 0.900
+ *   - rating SD 12.5 -> 17.4 (Statbotics: 18.7); mean abs difference
+ *     11.2 -> 5.9 points
+ *   - 2025 quals Brier 0.1950 -> 0.1589; 2026 quals 0.1771 -> 0.1427
+ * The slope lands at 0.84 rather than 1.00 because of the deliberate
+ * divergences listed below (full-weight elims vs `ELIM_WEIGHT = 1/3`, the
+ * counter incrementing on elims, no per-season post-processing, a different
+ * component decomposition) — 0.84 is the expected resting point of those
+ * choices, NOT an unfinished job.
+ *
+ * The one thing that is still ours rather than Statbotics': TBA's
+ * `score_breakdown` per-season maps this phase built (D-02) are alliance-level
+ * only (Assumption A1 excludes unverified per-robot fields), so `n` is the
+ * rating-eligible teammate count and the error is shared equally among them.
+ * The ERROR is shared; the LEVEL is not.
+ *
  * Deliberate divergences from Statbotics (every one documented at its use
  * site below, per D-13's "every deliberate divergence must be documented"
  * requirement):
@@ -22,19 +55,18 @@
  *   - D-08: elimination matches are learned from normally — full weight
  *     (Statbotics: `ELIM_WEIGHT = 1/3`), and the per-team match counter
  *     increments on every match including elims (Statbotics: does not).
- *   - D-13: no per-season post-processing (Statbotics' 2018 switch/scale
- *     sigmoid, per-year clamps) — this module never runs
- *     `post_process_breakdown`/`post_process_attrib` equivalents.
+ *   - D-13: no per-season post-processing — Statbotics' 2018 switch/scale
+ *     sigmoid and its per-year clamps have no equivalent here, and this
+ *     module runs no `post_process_breakdown` equivalent. Narrowed by D-Q1:
+ *     the ATTRIBUTION half of `post_process_attrib` (`err = observed -
+ *     predicted`, `attrib = epa + err / n`) IS now implemented faithfully —
+ *     see the component-attribution paragraph above. What remains divergent
+ *     is the per-season rescaling around it, not the error split itself.
  *   - Pitfall EPA-1: the win-probability scale denominator is this
  *     season's EXPANDING-window alliance-score SD (Welford, folded
  *     match-by-match via `packages/core/scoring/expandingStats.ts`), never
  *     a season-final constant — a season-batch SD would leak future
  *     variance into early-season predictions.
- *   - Component attribution: TBA's `score_breakdown` per-season maps this
- *     phase built (D-02) are alliance-level only (Assumption A1 excludes
- *     unverified per-robot fields), so a component's alliance total is
- *     divided evenly across its rating-eligible teammates — Statbotics has
- *     no direct analog here since its own component extraction differs.
  *   - Cold start: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY` are
  *     Statbotics-parity constants owned by `carryover.ts` (D-16, imported
  *     back here), but this module's INTRA-season cold start (a team's
@@ -391,10 +423,20 @@ function predict(state: EpaState, match: UpcomingMatch): Prediction {
 
 /**
  * Attributes one alliance's observed component vector across its
- * rating-eligible teams (evenly split per component — see file header on
- * component attribution), applying the two-stage EWMA with D-08's full
- * weight and unconditional counter increment. Returns new maps; never
- * mutates its inputs.
+ * rating-eligible teams by ERROR SPLIT — each teammate is credited
+ * `currentMean + (allianceValue - predictedAllianceTotal) / n` (D-Q1; see the
+ * file header's component-attribution bullet) — applying the two-stage EWMA
+ * with D-08's full weight and unconditional counter increment. Returns new
+ * maps; never mutates its inputs.
+ *
+ * The predicted total is computed ONCE per component, BEFORE the per-team
+ * loop, from `teamComponents` — the pre-update snapshot. That ordering is
+ * load-bearing, not stylistic: computing it inside the loop off the
+ * progressively-updated `nextComponents` would attribute each teammate
+ * against a prediction its predecessors had already moved, making the result
+ * depend on the order `teams` happens to arrive in. Statbotics has the same
+ * structure for the same reason — one `pred_bd` per alliance, then a loop
+ * over teams.
  */
 function applyComponentUpdate(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -416,6 +458,23 @@ function applyComponentUpdate(
   const nextCounts = new Map(teamMatchCounts);
   const coldStart = componentColdStartValue(componentCount);
 
+  // D-Q1: one predicted-total pass per alliance-component, taken from the
+  // PRE-update snapshot (`teamComponents`, not `nextComponents`) so every
+  // teammate is attributed against the same prediction. The `?? coldStart`
+  // fallback is character-for-character the one the per-team loop below
+  // applies, so a team's own contribution to this sum is exactly the
+  // `currentMean` it is later differenced against — if the two ever drifted
+  // apart, an unobserved team would appear to have missed a prediction it was
+  // never part of.
+  const predictedAllianceTotals: Record<string, number> = {};
+  for (const component of Object.keys(observed)) {
+    let total = 0;
+    for (const team of teams) {
+      total += teamComponents.get(team)?.[component] ?? coldStart;
+    }
+    predictedAllianceTotals[component] = total;
+  }
+
   for (const team of teams) {
     const matchCount = nextCounts.get(team) ?? 0;
     const percent = epaPercentFunc(matchCount);
@@ -423,12 +482,20 @@ function applyComponentUpdate(
     const updatedComponents: Record<string, number> = { ...currentComponents };
 
     for (const [component, allianceValue] of Object.entries(observed)) {
-      const observedShare = allianceValue / teams.length;
       const currentMean = currentComponents[component] ?? coldStart;
+      // D-Q1: credit the alliance's ERROR, shared equally, on top of this
+      // team's own level — Statbotics' `post_process_attrib`
+      // (`err = observed - predicted`, `attrib = epa + err / n`). The retired
+      // form fed `allianceValue / n`, the alliance TOTAL split evenly, which
+      // pulled every team toward its alliance's mean on every match: an
+      // alliance scoring exactly its prediction still dragged its strongest
+      // robot down and lifted its weakest. Here that match is a genuine no-op,
+      // because `twoStageEwma(mean, mean, percent, 1) === mean`.
+      const attributed = currentMean + (allianceValue - predictedAllianceTotals[component]!) / teams.length;
       // D-08: weight is always 1 (no ELIM_WEIGHT discount), and the
       // counter below increments on every match including eliminations —
       // both deliberate divergences from Statbotics' `update_team`.
-      updatedComponents[component] = twoStageEwma(currentMean, observedShare, percent, 1);
+      updatedComponents[component] = twoStageEwma(currentMean, attributed, percent, 1);
     }
 
     nextComponents.set(team, updatedComponents);
@@ -643,7 +710,23 @@ export const epa: AlgorithmModule<EpaState> = {
   // (`isFullyDqZeroScoreAlliance`, `dq.ts`) — the same D-13 invariant
   // `opr.ts`'s own version-bump comment names ("no artifact may show one
   // code version standing for two structurally different algorithms").
-  version: "1.1.0+baseline",
+  //
+  // Bumped 1.1.0 -> 2.0.0 (D-Q1, quick task 260901-is2): `update()`'s
+  // observable output changed — `applyComponentUpdate` now attributes the
+  // alliance's ERROR shared over its rating-eligible teammates
+  // (`currentMean + (observed - predicted) / n`, Statbotics'
+  // `post_process_attrib`) instead of the alliance TOTAL split evenly. Same
+  // D-13 invariant as the 1.0.0 -> 1.1.0 bump above: no version string may
+  // stand for two different computations.
+  //
+  // MAJOR, not minor, and deliberately so: unlike the 1.1.0 bump — which
+  // changed an edge case (whole-alliance DQ zero scores, a few dozen matches
+  // a season) — this changes the attribution arithmetic for EVERY multi-team
+  // alliance in every match ever replayed. Every rating this module has ever
+  // produced moves. Measured: rating SD 12.5 -> 17.4, OLS slope vs
+  // Statbotics 0.489 -> 0.841, 2025 quals Brier 0.1950 -> 0.1589 (see the
+  // file header for the full table).
+  version: "2.0.0+baseline",
   initState,
   predict,
   update,
