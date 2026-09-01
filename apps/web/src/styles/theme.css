@@ -669,3 +669,22 @@ body {
   background-color: var(--color-bg-surface);
   color: var(--color-text-muted);
 }
+
+/*
+ * Home page podium (2026-09-01 user decision: pooled 2024-2026 accuracy as a
+ * gold/silver/bronze podium). One-off medal vocabulary for the front door —
+ * NOT the tier palette, even where a value coincides; do not cross-reference
+ * these with --tier-* semantics.
+ */
+.podium-step { border-radius: 8px 8px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 14px 12px; }
+.podium-step--gold { background: #fef3c7; color: #b45309; }
+.podium-step--silver { background: #e2e8f0; color: #475569; }
+.podium-step--bronze { background: #ffedd5; color: #9a3412; }
+
+/*
+ * Match-table Call column, option C2 (2026-09-01 user decision): the check
+ * and cross glyphs wear the same emerald/rose ink the Result chips use —
+ * one correctness vocabulary — at bold weight, no box.
+ */
+.call-hit { color: #047857; font-weight: 700; }
+.call-miss { color: #be123c; font-weight: 700; }

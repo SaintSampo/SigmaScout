@@ -1,0 +1,53 @@
+/**
+ * The home page podium's pooled-accuracy model (2026-09-01, user decision:
+ * "add the comparison as just accuracy, as a podium — factor 2024–2026
+ * accuracy together").
+ *
+ * Pooling is the exact reconstruction the Compare artifacts support:
+ * `winnerAccuracy * scoredCount` is the correct-call COUNT for a slice, so
+ * summing those across seasons and dividing by the summed `scoredCount` is
+ * the pooled accuracy of the whole 2024–2026 population — a weighted mean,
+ * never a mean-of-means (which would over-weight small seasons). Only the
+ * `combined` compLevelView slices participate, matching the accuracy the
+ * Compare page headlines.
+ *
+ * Every number the podium renders is derived HERE from fetched artifacts at
+ * run time — no hand-typed percentage anywhere (the same D-10 discipline the
+ * Compare page's parity proof enforces).
+ */
+import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
+
+/** The seasons the podium pools — the user's own choice of window. 2022–2023 exist on the Compare page; the front door leads with the three most recent seasons. */
+export const PODIUM_SEASONS: readonly number[] = [2024, 2025, 2026];
+
+export interface PodiumEntry {
+  readonly algorithmId: PublishedAlgorithmId;
+  /** Pooled 2024–2026 combined-view winner accuracy, 0..1. */
+  readonly accuracy: number;
+  /** Total scored matches backing the pooled figure. */
+  readonly scoredCount: number;
+}
+
+/**
+ * Pools each algorithm's combined-view accuracy across the given artifacts
+ * and returns entries sorted best-first (the podium order). Throws if any
+ * artifact is missing an algorithm's combined slice — a malformed input
+ * must fail loudly, not render a silently wrong podium.
+ */
+export function pooledAccuracyPodium(artifacts: readonly CompareArtifact[]): PodiumEntry[] {
+  const entries = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
+    let correct = 0;
+    let scored = 0;
+    for (const artifact of artifacts) {
+      const slice = artifact.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === "combined");
+      if (slice === undefined) throw new Error(`pooledAccuracyPodium: no combined slice for ${algorithmId}`);
+      if (slice.winnerAccuracy === null) continue;
+      correct += slice.winnerAccuracy * slice.scoredCount;
+      scored += slice.scoredCount;
+    }
+    if (scored === 0) throw new Error(`pooledAccuracyPodium: zero scored matches for ${algorithmId}`);
+    return { algorithmId, accuracy: correct / scored, scoredCount: scored };
+  });
+  return entries.sort((a, b) => b.accuracy - a.accuracy);
+}

@@ -32,9 +32,20 @@ function RootLayout() {
   // phase (this gap, and a `assertNoIntermediateScroller` false positive on
   // this exact div) — the fix costs nothing and removes the trap at its root.
   return (
-    <div className="min-h-screen overflow-x-clip">
+    <div className="flex min-h-screen flex-col overflow-x-clip">
       <Ribbon />
-      <Outlet />
+      <div className="min-w-0 flex-1">
+        <Outlet />
+      </div>
+      {/* S1 (2026-09-01 user decision): one quiet site-wide sponsor line.
+          The flex column keeps it at the viewport bottom on short pages
+          without ever overlapping content. */}
+      <footer className="mt-[var(--spacing-2xl)] flex items-center justify-center gap-[var(--spacing-sm)] border-t border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-md)] py-[var(--spacing-sm)]">
+        <span className="text-role-label text-[var(--color-text-muted)]">Sponsored by</span>
+        <a href="https://www.alfredosys.com/" target="_blank" rel="noopener noreferrer" aria-label="Alfredo Systems" className="inline-flex items-center">
+          <img src="/alfredo-systems.png" alt="Alfredo Systems" className="h-6 w-auto" />
+        </a>
+      </footer>
     </div>
   );
 }

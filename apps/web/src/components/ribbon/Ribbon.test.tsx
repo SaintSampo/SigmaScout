@@ -62,9 +62,11 @@ describe("Ribbon", () => {
 
     // Renders immediately even though the manifest fetch is permanently
     // pending — proving the ribbon itself is never gated on that fetch.
+    // 2026-09-01: the wordmark itself became a fourth link (home). Nav order
+    // assertions read the three NAV links after it.
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(3);
-    expect(links.map((link) => link.textContent)).toEqual(["Teams", "Events", "Compare"]);
+    expect(links).toHaveLength(4);
+    expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
   });
 
   it("all three links render in the fixed order Teams, Events, Compare (desktop)", async () => {
@@ -72,7 +74,7 @@ describe("Ribbon", () => {
     await renderRibbonAt("/events?year=2024&algorithm=vpr");
 
     const links = screen.getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["Teams", "Events", "Compare"]);
+    expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
   });
 
   it("that order is UNCHANGED when the mobile breakpoint hook reports true — the responsive treatment reflows, it never reorders", async () => {
@@ -93,7 +95,7 @@ describe("Ribbon", () => {
     try {
       await renderRibbonAt("/compare?year=2024&algorithm=vpr");
       const links = screen.getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(["Teams", "Events", "Compare"]);
+      expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
     } finally {
       window.matchMedia = original;
     }

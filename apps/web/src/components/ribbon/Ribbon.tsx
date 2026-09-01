@@ -91,7 +91,12 @@ export function Ribbon() {
   // side of the line they are on.
   const isMobile = useIsMobile();
 
-  const wordmark = <span className="text-role-display shrink-0 truncate text-[var(--color-text-primary)]">SigmaScout</span>;
+  // 2026-09-01 (user request): the wordmark is the way home.
+  const wordmark = (
+    <Link to="/" search={preserveSearch} className="text-role-display shrink-0 truncate text-[var(--color-text-primary)]">
+      SigmaScout
+    </Link>
+  );
 
   if (isMobile) {
     return (

@@ -305,9 +305,9 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         {!row.played ? (
           <span aria-hidden="true">{"—"}</span>
         ) : row.actualWinner === "tie" ? (
-          <span aria-label="Prediction incorrect">{"✗"}</span>
+          <span aria-label="Prediction incorrect" className="call-miss">{"✗"}</span>
         ) : winnerCorrect ? (
-          <span aria-label="Prediction correct">{"✓"}</span>
+          <span aria-label="Prediction correct" className="call-hit">{"✓"}</span>
         ) : (
           <span aria-label="Prediction incorrect">{"✗"}</span>
         )}

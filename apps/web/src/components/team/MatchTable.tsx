@@ -347,9 +347,9 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
         {!played ? (
           <span aria-hidden="true">{"—"}</span>
         ) : winnerCorrect ? (
-          <span aria-label="Prediction correct">{"✓"}</span>
+          <span aria-label="Prediction correct" className="call-hit">{"✓"}</span>
         ) : (
-          <span aria-label="Prediction incorrect">{"✗"}</span>
+          <span aria-label="Prediction incorrect" className="call-miss">{"✗"}</span>
         )}
       </td>
     </tr>
