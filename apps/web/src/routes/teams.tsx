@@ -112,30 +112,42 @@ function TeamsPage() {
 
   return (
     <div className="p-[var(--spacing-lg)]">
-      <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
-        <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
-        {canToggleView && (
-          <button
-            type="button"
-            data-testid="teams-view-toggle"
-            onClick={handleViewToggle}
-            className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
-          >
-            {view === "components" ? "◂ Grouped view" : "All components ▸"}
-          </button>
-        )}
+      {/*
+        One centered, CONTENT-WIDTH column holding the heading row and the
+        table together (2026-09-01 user request). `w-fit` takes the widest
+        child — always the table — so `mx-auto` centres the whole block, and
+        the heading row, being a full-width flex child of that column, lands
+        its `justify-between` ends exactly on the TABLE's left and right
+        edges rather than on the page's. That is what puts the view toggle
+        directly above the table's right edge at every viewport width and in
+        both column views.
+      */}
+      <div className="mx-auto flex w-fit max-w-full flex-col">
+        <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
+          <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
+          {canToggleView && (
+            <button
+              type="button"
+              data-testid="teams-view-toggle"
+              onClick={handleViewToggle}
+              className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+            >
+              {view === "components" ? "◂ Grouped view" : "All components ▸"}
+            </button>
+          )}
+        </div>
+        <TeamsTable
+          status={status}
+          rows={rows}
+          algorithmId={algorithm}
+          season={year}
+          view={view}
+          sortKey={effectiveSortKey}
+          sortDirection={sortDir}
+          onSortChange={handleSortChange}
+          onRetry={() => void refetch()}
+        />
       </div>
-      <TeamsTable
-        status={status}
-        rows={rows}
-        algorithmId={algorithm}
-        season={year}
-        view={view}
-        sortKey={effectiveSortKey}
-        sortDirection={sortDir}
-        onSortChange={handleSortChange}
-        onRetry={() => void refetch()}
-      />
     </div>
   );
 }
