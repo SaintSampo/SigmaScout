@@ -186,7 +186,11 @@ const DEFAULT_EVENT_SORT_KEY = "startDate";
  * own empty state rather than an undefined page state.
  */
 export const EventsSearchSchema = RootSearchSchema.extend({
-  week: z.coerce.number().int().optional().catch(undefined),
+  // 2026-09-01: week is an official-season week INDEX (stored 0-based) OR
+  // one of the three special tokens (preseason week-0 events, championship,
+  // offseason) — see filterModel.ts's WEEK_SPECIAL_VALUES. Enum arm first:
+  // z.coerce.number would coerce "champs" to NaN before the enum ever ran.
+  week: z.union([z.enum(["week0", "champs", "offseason"]), z.coerce.number().int()]).optional().catch(undefined),
   country: z.string().optional().catch(undefined),
   state: z.string().optional().catch(undefined),
   district: z.string().optional().catch(undefined),

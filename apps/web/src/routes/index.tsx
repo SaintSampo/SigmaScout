@@ -15,6 +15,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueries } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SearchBox } from "../components/search/SearchBox.js";
 import { compareQueryOptions } from "../lib/api/compare.js";
 import { PODIUM_SEASONS, pooledAccuracyPodium, type PodiumEntry } from "../lib/homePodium.js";
 import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
@@ -104,6 +105,12 @@ function HomePage() {
           Every SigmaScout rating ships with honest uncertainty — a value ± one standard deviation — and every
           algorithm&apos;s accuracy is measured walk-forward and published, next to the baselines it beats.
         </p>
+      </div>
+
+      {/* Round-2 user request: a search bar ON the page, not only in the
+          ribbon — "find your team" is still the most common arrival intent. */}
+      <div className="w-full max-w-[30rem]">
+        <SearchBox />
       </div>
 
       <Podium />

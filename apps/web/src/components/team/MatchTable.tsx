@@ -67,7 +67,15 @@ export function matchLabel(match: Pick<TeamSeasonMatch, "compLevel" | "setNumber
  * abbreviation, hour cycle or separator.
  */
 export function formatScheduledTime(sortTime: number): string {
-  const date = new Date(sortTime * 1000);
+  // 2026-09-01 (user report: picker times "totally wrong"): the published
+  // `sortTime` is epoch SECONDS for most events but epoch MILLISECONDS for
+  // some (measured live: 2022oncmp qm rows carry ~1.649e12 — Apr 2022 in
+  // ms — which ×1000 rendered the year 54255 and garbage weekdays). Until
+  // the publisher normalizes the unit at the next republish, detect the
+  // unit here: any seconds value this side of year ~5138 is < 1e11, and any
+  // real ms timestamp is > 1e12, so 1e11 splits them unambiguously.
+  const epochMs = sortTime > 1e11 ? sortTime : sortTime * 1000;
+  const date = new Date(epochMs);
   const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(date);
   return `${weekday} ${time}`;

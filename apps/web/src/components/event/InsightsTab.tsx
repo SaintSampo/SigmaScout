@@ -268,7 +268,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     },
   });
 
-  const metricGroupColumns = [totalColumn, ...METRIC_GROUPS.map((group) =>
+  const metricGroupColumns = [...METRIC_GROUPS.map((group) =>
     columnHelper.accessor((row) => row.metrics[group.metricKey], {
       id: group.metricKey,
       header: group.label,
@@ -284,7 +284,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
         return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
       },
     }),
-  )];
+  ), totalColumn];
 
   return columnHelper.columns([
     // D-08/T-07-11-02: in fallback mode the header itself names the
@@ -384,7 +384,7 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
 export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void algorithmId; // the skeleton's header set does not vary by algorithm — see the doc comment above for why orderSource is fixed to "official" here
   void season;
-  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", "Total", ...METRIC_GROUPS.map((group) => group.label)];
+  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", ...METRIC_GROUPS.map((group) => group.label), "Total"];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">

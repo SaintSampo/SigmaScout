@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useFilterSheetStore } from "@/stores/filterSheet";
-import { filterOptions, type EventFilterOptionLists, type EventFilters as EventFiltersModel, type EventRow } from "./filterModel";
+import { filterOptions, type EventFilterOptionLists, type EventFilters as EventFiltersModel, type EventRow, type WeekFilterValue } from "./filterModel";
 
 /**
  * The desktop inline control row and the phone filter sheet, both writing to
@@ -32,18 +32,30 @@ export interface EventFiltersProps {
   onClearFilters: () => void;
 }
 
-function WeekSelect({ weeks, value, onChange }: { weeks: readonly number[]; value: number | undefined; onChange: (value: number | undefined) => void }) {
+/** Reader-facing label for one week-filter value: stored week indexes are 0-based, readers count from Week 1; the specials carry their own names. */
+export function weekFilterLabel(week: WeekFilterValue): string {
+  if (week === "week0") return "Week 0";
+  if (week === "champs") return "Champs";
+  if (week === "offseason") return "Offseason";
+  return `Week ${week + 1}`;
+}
+
+function parseWeekValue(raw: string): WeekFilterValue {
+  return raw === "week0" || raw === "champs" || raw === "offseason" ? raw : Number(raw);
+}
+
+function WeekSelect({ weeks, value, onChange }: { weeks: readonly WeekFilterValue[]; value: WeekFilterValue | undefined; onChange: (value: WeekFilterValue | undefined) => void }) {
   const disabled = weeks.length === 0;
   return (
-    <Select value={value === undefined ? ALL_VALUE : String(value)} onValueChange={(next) => onChange(next === ALL_VALUE ? undefined : Number(next))} disabled={disabled}>
+    <Select value={value === undefined ? ALL_VALUE : String(value)} onValueChange={(next) => onChange(next === ALL_VALUE ? undefined : parseWeekValue(next))} disabled={disabled}>
       <SelectTrigger aria-label="Week" disabled={disabled} className="w-full sm:w-[8rem]">
         <SelectValue placeholder="Week" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL_VALUE}>All Weeks</SelectItem>
         {weeks.map((week) => (
-          <SelectItem key={week} value={String(week)}>
-            {`Week ${week + 1}`}
+          <SelectItem key={String(week)} value={String(week)}>
+            {weekFilterLabel(week)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -61,8 +73,8 @@ function StringDimensionSelect({ label, allLabel, values, value, onChange, displ
       <SelectContent>
         <SelectItem value={ALL_VALUE}>{allLabel}</SelectItem>
         {values.map((item) => (
-          <SelectItem key={item} value={item} className="max-w-[12rem] truncate" title={item}>
-            {item}
+          <SelectItem key={item} value={item} className="max-w-[12rem] truncate" title={display ? display(item) : item}>
+            {display ? display(item) : item}
           </SelectItem>
         ))}
       </SelectContent>
@@ -92,7 +104,7 @@ function DimensionControls({
 /** Long country/district names truncate at a fixed max-width, the full text on the native title affordance. */
 function ActiveFilterChips({ filters }: { filters: EventFiltersModel }) {
   const chips: Array<{ key: string; label: string }> = [];
-  if (filters.week !== undefined) chips.push({ key: "week", label: `Week ${filters.week + 1}` });
+  if (filters.week !== undefined) chips.push({ key: "week", label: weekFilterLabel(filters.week) });
   if (filters.country !== undefined) chips.push({ key: "country", label: filters.country });
   if (filters.state !== undefined) chips.push({ key: "state", label: filters.state });
   if (filters.district !== undefined) chips.push({ key: "district", label: districtDisplayName(filters.district) });

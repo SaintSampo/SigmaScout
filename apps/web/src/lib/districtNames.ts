@@ -9,6 +9,9 @@
  * exactly what the UI showed for every key before this map existed.
  */
 const DISTRICT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  ca: "FIRST California",
+  fch: "FIRST Chesapeake",
+  win: "FIRST WI",
   chs: "FIRST Chesapeake",
   fim: "FIRST MI",
   fin: "FIRST IN",

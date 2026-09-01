@@ -50,7 +50,9 @@ const FIXTURE_EVENTS: EventRow[] = makeArtifact([
 describe("filterOptions", () => {
   it("returns distinct non-null values per dimension, sorted for stable display", () => {
     const options = filterOptions(FIXTURE_EVENTS);
-    expect(options.weeks).toEqual([2, 3]);
+    // 2026-09-01: the fixture carries an offseason row, which now surfaces as
+    // its own special week option after the numeric weeks.
+    expect(options.weeks).toEqual([2, 3, "offseason"]);
     expect(options.countries).toEqual(["USA"]);
     expect(options.states).toEqual(["AL", "MI", "OH"]);
     expect(options.districts).toEqual(["fim"]);

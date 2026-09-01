@@ -139,6 +139,8 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
           <Badge variant="secondary">Offseason</Badge>
         ) : event.eventType === 3 || event.eventType === 4 ? (
           <Badge variant="secondary">Champs</Badge>
+        ) : event.eventType === 100 ? (
+          <Badge variant="secondary">Wk 0</Badge>
         ) : event.week === null ? (
           <span>{"—"}</span>
         ) : (

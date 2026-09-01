@@ -303,7 +303,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
   });
 
   it("opr/2024: also exactly nine headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
@@ -347,7 +347,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
   });
 });
 
@@ -787,7 +787,7 @@ describe("InsightsTabSkeleton", () => {
     render(<InsightsTabSkeleton algorithmId="vpr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
