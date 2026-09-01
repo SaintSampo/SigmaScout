@@ -8,6 +8,15 @@ priority: medium
 
 # Publish each team's metrics as-of-each-match, so the alliance-uncertainty identity can be tested
 
+> **RESOLVED 2026-08-31 — identity verified, no new field published.** The as-of-match quantity was
+> already derivable from published bytes: a team's pre-match state is its own PREVIOUS
+> `metricHistory` row (rows are post-update, state changes only when the team plays). 
+> `scripts/verifyAllianceUncertaintyIdentity.ts` joins the event artifact with each playoff team's
+> season artifact and verifies `Σ spread² == scoreVarianceOwn` at the same walk-forward instant:
+> **120/120 pairs within rounding-derived tolerance** across 2024new/2023cur/2024casf/2025flta.
+> Full method + limitations: `docs/models/alliance-uncertainty-identity.md`. Acceptance bullet 3's
+> "is a new field worth it at all" resolves to NO — zero payload cost beats a republish.
+
 ## What
 
 `EventTeamSchema.metrics` (the event artifact's `teams[]` array) publishes each team's metrics
