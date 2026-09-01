@@ -68,7 +68,7 @@ findings:
   warning: 2
   info: 1
   total: 4
-status: issues_found
+status: resolved
 ---
 
 # Phase 7: Code Review Report
@@ -112,6 +112,8 @@ todo's own stated goal of excluding them from "every published surface."
 ## Critical Issues
 
 ### CR-01: `deleteRetiredAlgorithmObjects.ts` deletes production R2 objects by default — no explicit "execute" flag required
+
+**Status:** resolved — fixed in `6914a8d4` (`--execute` opt-in gate, no default; default invocation runs census-only and deletes nothing). Verified in code 2026-08-31: gate at `scripts/deleteRetiredAlgorithmObjects.ts:708`.
 
 **File:** `scripts/deleteRetiredAlgorithmObjects.ts:386-434, 452-504`
 **Issue:** `parseCliOptions` only recognizes `--dry-run`/`--census-only` as
@@ -165,6 +167,8 @@ await deleteKeys(...);
 
 ### WR-01: `publishAlgorithmsManifest.ts` writes the shared, Worker-critical manifest with no post-write read-back verification
 
+**Status:** resolved — fixed in `f25a803a` (post-write read-back via `fetchLiveManifest` against the public origin; `ManifestReadBackMismatchError` on mismatch). Verified in code 2026-08-31.
+
 **File:** `scripts/publishAlgorithmsManifest.ts:216-245`
 **Issue:** `run()` composes the manifest and, unless `--dry-run` is passed
 (here too, `dryRun` defaults to `false`, i.e. `run()` publishes by default),
@@ -185,6 +189,8 @@ helper) and assert the parsed body's `algorithms` array matches `composed.algori
 before declaring success.
 
 ### WR-02: Off-season demo teams remain visible as rows on the Insights/Breakdown tabs, in tension with the accepted exclusion todo's stated scope
+
+**Status:** resolved — developer decision 2026-08-31: the event-page carve-out is KEPT (matches TBA convention: an event's match record shows who actually played). Fix option (a) applied — `.planning/todos/completed/exclude-offseason-demo-teams.md` now carries a shipped-scope clarification stating the carve-out explicitly.
 
 **File:** `packages/harness/publish.ts:1817-1819` (offline), `apps/worker/src/scheduled.ts:728-734, 840-846` (online)
 **Issue:** `.planning/todos/completed/exclude-offseason-demo-teams.md`'s
@@ -219,6 +225,8 @@ team/teams-list/search treatment.
 ## Info
 
 ### IN-01: Sigma1 implementation naming left un-renamed by deliberate, documented choice
+
+**Status:** accepted — deliberate, documented choice per the finding's own text; no change required or planned.
 
 **File:** `packages/core/algorithms/sigma1/index.ts:1252-1268` and throughout `packages/harness/{cli,manifests,promote,stateSnapshot}.ts`
 **Issue:** The published algorithm identity is fully renamed to `vpr`

@@ -8,6 +8,16 @@ priority: high
 
 # Exclude FRC "Off-Season Demo Team" entries (9970-9999) from the model and every published surface
 
+> **Shipped-scope clarification (developer decision, 2026-08-31, closing 07-REVIEW WR-02):**
+> "every published surface" here means the MODEL-DERIVED surfaces — ratings, `teams/{year}` lists,
+> search, and `team/{teamKey}/{year}` pages. **Event pages are a deliberate carve-out:** an event
+> artifact's own `teams[]`/match rosters keep demo teams visible, because an event's historical
+> match record shows who actually played (matching TBA's own convention). The carve-out is
+> implemented and commented at `packages/harness/publish.ts` (`eventTeamKeys`) and
+> `apps/worker/src/scheduled.ts` (`touchedTeams`); demo rows render metric-less (em-dash) on
+> Insights/Breakdown. This is a decision, not a regression — do not "fix" it against this
+> document's original title.
+
 ## Decision (developer-directed, 2026-08-29)
 
 FRC team numbers **9970-9999 are not real teams and must be excluded from both the model and every
