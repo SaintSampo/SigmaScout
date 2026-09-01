@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
 status: executing
-stopped_at: Completed 08-13-PLAN.md
-last_updated: "2026-08-31T23:56:55.664Z"
+stopped_at: Completed 08-14-PLAN.md
+last_updated: "2026-09-01T01:02:00.486Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 99
-  completed_plans: 97
+  completed_plans: 98
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 08 (simulation-compare) — EXECUTING
-Plan: 14 of 15
+Plan: 15 of 15
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -132,6 +132,7 @@ Progress: [██████████] 98%
 | Phase 08 P11 | 90min | 3 tasks | 7 files |
 | Phase 08 P12 | 20min | 3 tasks | 6 files |
 | Phase 08 P13 | ~2h | 3 tasks | 9 files |
+| Phase 08 P14 | ~50min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -319,6 +320,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P12]: coverageRows.ts's SharedCount three-way union (agreed/disagreed/absent) is the mechanism keeping a published zero and an absent slice structurally distinct from the pure model through to the rendered cell -- 45/45 fixtures show the identity holds and 15/15 groups show the 7 shared fields agree today, both guarded rather than assumed
 - [Phase ?]: Measurement event: 2023cur (78 teams, 130 played qm rows, all pmf-bearing) — the corpus's max-roster pmf-publishing event, confirmed live before the spec was written.
 - [Phase ?]: mockWorker.ts's MockWorkerInstance gained a public terminated getter (Task 1 acceptance criteria anticipated this) so H9/H10 can assert terminate() was called without weakening the assertion.
+- [Phase ?]: [Phase 08 P14]: D-12 baseline-provenance mock finding measured at the LAST PLAYED qm row (not the first) -- a first-row start trivially reports every team as no-played-matches regardless of rp presence; 2024auwarp's summed-fallback (D-12 rule 2) proven reachable against real bytes, 25/25 teams, incompleteBaselineTeamKeyCount=0
+- [Phase ?]: [Phase 08 P14]: No locked rank-distribution row occurred at either sampled event (2023nhgrs, 2023cur) under the plan's fixed full-event-rewind mock methodology -- reported explicitly per the plan's own allowance; the bar/band/tick centre-agreement identity remains separately proven at the unit level against 08-04's real recomputed numbers
 
 ### Pending Todos
 
@@ -366,6 +369,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T23:56:55.630Z
-Stopped at: Completed 08-13-PLAN.md
+Last session: 2026-09-01T01:02:00.452Z
+Stopped at: Completed 08-14-PLAN.md
 Resume file: None
