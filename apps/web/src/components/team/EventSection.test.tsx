@@ -250,6 +250,22 @@ describe("EventSection", () => {
       expect(snapshot.querySelector(".metric-tier")).toBeNull();
     });
 
+    it("renders a (Common, unboxed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (06.1-REVIEW IN-02)", () => {
+      render(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="vpr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 0 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+      expect(snapshot.textContent).toContain("61.40");
+    });
+
     it("renders identically to the pre-change output — no tier box class — for a snapshot metric with no percentile", () => {
       render(
         <EventSection

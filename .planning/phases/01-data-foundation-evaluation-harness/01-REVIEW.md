@@ -257,6 +257,8 @@ Writing this check surfaced a real, previously-silent bug: Sigma1's `season-sd` 
 
 ### IN-01: Duplicate team entries within one alliance are handled inconsistently between the batch and incremental solvers
 
+**Status:** resolved — superseded by the demo-team remap work (07): `solveRidgeOpr` now INCREMENTS the design-matrix cell (`M.set(row, idx, M.get(row, idx) + 1)`, opr.ts:228), matching `rank1Update`'s summing, and `demoTeams.ts` documents duplicate pseudo-team slots as deliberate. Both solvers now agree on duplicates. Verified 2026-08-31.
+
 **File:** `packages/core/algorithms/opr.ts:200-207` (`solveRidgeOpr`) vs. `307-330` (`IncrementalInverse.rank1Update`)
 **Issue:** `solveRidgeOpr` builds `M` via `M.set(row, idx, 1)`, so a duplicate team key within one `OprObservation.teams` array is idempotent (still contributes 1, not 2). `rank1Update`, by contrast, sums `pu[r] += this.#at(r, c)` and `uPu += pu[c]` over every entry in `indices`, including duplicates, so a duplicate team would be double-counted. Under normal FRC data (exactly 3 distinct teams per alliance, surrogates already deduplicated by `ratingEligibleTeams`) this never triggers, but it means the "mathematically EXACT... identical... to calling `solveRidgeOpr` fresh" claim in the file's performance-note comment would not hold if a duplicate ever slipped through upstream validation. Consider asserting team-uniqueness in `allianceObservation`/`ratingEligibleTeams`, or normalizing both solvers' duplicate-handling to match.
 

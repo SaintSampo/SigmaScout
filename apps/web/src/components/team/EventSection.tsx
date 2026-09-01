@@ -123,8 +123,9 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   per user request (UAT test 28 — clutter, not disagreement
                   with the tiers themselves). The basis is now DELIBERATELY
                   NOT stated anywhere on this surface — a signed accepted
-                  risk (T-06.1-24, this plan's threat register), not an
-                  oversight. A future reader who wants to relocate the
+                  risk (T-06.1-24, signed Jacob Williams, 2026-08-26; the
+                  full disposition lives in that plan's threat register), not
+                  an oversight. A future reader who wants to relocate the
                   explanation should start there, not assume it was dropped
                   by mistake.
                 */}
