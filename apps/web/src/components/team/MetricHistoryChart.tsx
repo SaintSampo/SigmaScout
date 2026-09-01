@@ -44,7 +44,9 @@ interface ChartDatum {
 
 const DEFAULT_CHART_WIDTH = 640;
 const CHART_HEIGHT = 280;
-const MAX_EVENT_LABEL_CHARS = 18;
+/** ~px per character at the 12px label size — conservative so a computed fit never overflows its band. */
+const EVENT_LABEL_CHAR_WIDTH_PX = 6.4;
+const EVENT_LABEL_PADDING_PX = 8;
 
 /**
  * G-13 (07-UAT.md): the Y axis's tick STRINGS and its WIDTH share one source
@@ -87,8 +89,16 @@ function computeYAxisWidth(domainValues: readonly number[]): number {
   return Math.max(MIN_Y_AXIS_WIDTH_PX, longestLabelLength * Y_AXIS_CHAR_WIDTH_PX + Y_AXIS_WIDTH_PADDING_PX);
 }
 
-function truncateEventLabel(name: string): string {
-  return name.length > MAX_EVENT_LABEL_CHARS ? `${name.slice(0, MAX_EVENT_LABEL_CHARS - 1)}…` : name;
+/**
+ * 2026-09-01 (user report: "event names are often cut off"): truncation is
+ * now WIDTH-AWARE — each band label gets as many characters as its own
+ * band's pixel width can hold, instead of a fixed 18-char cap that chopped
+ * names inside bands with room for three times that. The full name stays on
+ * the SVG <title> either way.
+ */
+function truncateEventLabel(name: string, bandWidthPx: number): string {
+  const maxChars = Math.max(4, Math.floor((bandWidthPx - EVENT_LABEL_PADDING_PX) / EVENT_LABEL_CHAR_WIDTH_PX));
+  return name.length > maxChars ? `${name.slice(0, maxChars - 1)}…` : name;
 }
 
 /**
@@ -108,7 +118,7 @@ function eventBandLabel(fullName: string) {
       <g>
         <title>{fullName}</title>
         <text x={x + width / 2} y={y + 14} textAnchor="middle" fontSize={12} fill="var(--color-text-muted)">
-          {truncateEventLabel(fullName)}
+          {truncateEventLabel(fullName, width)}
         </text>
       </g>
     );

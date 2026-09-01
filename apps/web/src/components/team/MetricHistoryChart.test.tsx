@@ -86,7 +86,10 @@ describe("MetricHistoryChart", () => {
   });
 
   it("truncates a long event-name band label and carries the full name via an accessible <title>", () => {
-    const longName = "Very Long Championship Sub-Division Event Name 2024";
+    // 2026-09-01: truncation is width-aware now — one event's band spans the
+    // whole default 640px chart (~98 chars of room), so the fixture name must
+    // exceed even that to exercise the ellipsis path.
+    const longName = "Very Long Championship Sub-Division Event Name 2024 With An Additional Ceremonial Suffix Attached For Good Measure And Then Some";
     const rows = Array.from({ length: 4 }, (_, i) => row({ matchKey: `m${i}`, eventKey: "2024long", matchIndex: i, value: 100 + i, spread: 4 }));
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={{ "2024long": longName }} />);
 

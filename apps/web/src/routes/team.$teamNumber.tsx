@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { eventsQueryOptions } from "../lib/api/events.js";
+import { officialSnapshotMetrics } from "../lib/officialSnapshot.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { TEAM_TABS, TeamSearchSchema } from "../lib/searchParams.js";
@@ -67,6 +69,22 @@ function TeamPage() {
     placeholderData: keepPreviousData,
   });
 
+  // 2026-09-01 (user request): the header tiles show the team's stats AS OF
+  // THEIR LAST OFFICIAL MATCH, not the season-final values (which keep
+  // learning through offseason/preseason play). The team artifact itself
+  // carries no official/offseason flag per event, but the events/{year}
+  // artifact does — one small, CDN-cached parallel fetch closes the gap
+  // with no republish. Until it resolves (or if it errors) the tiles show
+  // the season-final values, then swap.
+  const eventsQuery = useQuery({
+    ...eventsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
+    enabled: isValidTeamNumber && version !== undefined,
+  });
+  const headerMetrics =
+    data !== undefined && eventsQuery.data !== undefined
+      ? officialSnapshotMetrics(data.metricHistory, eventsQuery.data.events) ?? data.seasonStats.metrics
+      : undefined;
+
   if (!isValidTeamNumber) {
     return (
       <div className="p-[var(--spacing-lg)]">
@@ -122,7 +140,7 @@ function TeamPage() {
           {/* The identity chrome (name, number — image/TBA link join once
               plan 06-07 wires D-03) is not year-scoped and renders normally
               above the empty body, per D-19/E5's own instruction. */}
-          <SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} />
+          <SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} />
           {yearMismatch ? (
             <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
           ) : (

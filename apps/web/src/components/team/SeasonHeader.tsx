@@ -16,6 +16,8 @@ export interface SeasonHeaderProps {
   algorithmId: string;
   season: number;
   teamNumber: number;
+  /** The last-OFFICIAL-match snapshot metrics (lib/officialSnapshot.ts), when the route could derive one — season-final values render otherwise. */
+  metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
 }
 
 /** Copied from `apps/web/src/components/teams-table/columns.tsx`'s own `formatRecord` — do not import across the teams-table module boundary (06-PATTERNS.md). */
@@ -51,9 +53,15 @@ function metricLabel(key: string): string {
  * D-03), a "View on TBA" link, the record/win-rate strings, D-17's tier key
  * row, and the tier-boxed metric grid.
  */
-export function SeasonHeader({ artifact, algorithmId, season, teamNumber }: SeasonHeaderProps) {
+export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
-  const { record, metrics } = artifact.seasonStats;
+  const { record } = artifact.seasonStats;
+  // 2026-09-01 (user request): tiles read the last-OFFICIAL-match snapshot
+  // when the route could derive one; season-final otherwise. Each snapshot
+  // metric carries its own published percentile (the D-06.1-A discipline —
+  // an as-of-then value tiered against the season-final pool), so the tier
+  // boxes stay honest either way.
+  const metrics = metricsOverride ?? artifact.seasonStats.metrics;
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
   // renders an em-dash cell and the cell never disappears (D-17/E2 empty).
