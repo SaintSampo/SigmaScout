@@ -27,6 +27,7 @@ import type { MockWorkerScript } from "../../test/mockWorker.js";
 import { runSimulationJob } from "../../workers/simulationProtocol.js";
 import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import { RootSearchSchema, TeamSearchSchema } from "../../lib/searchParams.js";
+import { baseArtifact, BOTH_PMFS, playedQualRow, upcomingQualRow } from "./simulationTestFixtures.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -79,69 +80,14 @@ vi.stubGlobal("Worker", SpyWorker);
  * directly against every artifact shape the `<behavior>` block names, and the
  * two prohibition guards (no algorithm-naming copy, no Worker construction).
  *
- * Every fixture below is a HAND-WRITTEN `EventArtifact`-shaped object literal
- * — the panel needs adversarial shapes (qm rows with no pmfs, pmfs on one
- * array only, a pmf on a playoff row only) that no single real artifact
- * contains. `packages/harness/pageArtifacts.ts` is read-only here — this
+ * `baseArtifact`/`playedQualRow`/`upcomingQualRow`/`BOTH_PMFS` — every
+ * fixture this file uses is a HAND-WRITTEN `EventArtifact`-shaped object
+ * literal, imported from `./simulationTestFixtures.js` (08-15-PLAN.md Task 3
+ * moved them there verbatim so `SimulationTab.failure.test.tsx` can import
+ * the SAME builders rather than authoring a second, independently-drifting
+ * fixture). `packages/harness/pageArtifacts.ts` is read-only here — this
  * file never imports its schema, only its inferred `EventArtifact` type.
  */
-
-const BASE_PREAMBLE = {
-  schemaVersion: 1,
-  generation: "gen-1",
-  computedAt: "2026-08-31T00:00:00.000Z",
-  algorithmId: "vpr",
-  algorithmVersion: "2.1.0+tuned-2026-08",
-};
-
-function baseArtifact(overrides: Partial<EventArtifact> = {}): EventArtifact {
-  return {
-    ...BASE_PREAMBLE,
-    eventKey: "2024test",
-    season: 2024,
-    matches: [],
-    upcoming: [],
-    teams: [],
-    ...overrides,
-  } as EventArtifact;
-}
-
-function playedQualRow(overrides: Record<string, unknown> = {}) {
-  return {
-    matchKey: "2024test_qm1",
-    compLevel: "qm" as const,
-    setNumber: 1,
-    matchNumber: 1,
-    redTeams: ["frc1"],
-    blueTeams: ["frc2"],
-    predictedWinner: "red" as const,
-    pRedWin: 0.6,
-    predictedRedScore: 100,
-    predictedBlueScore: 90,
-    actualWinner: "red" as const,
-    actualRedScore: 105,
-    actualBlueScore: 88,
-    ...overrides,
-  };
-}
-
-function upcomingQualRow(overrides: Record<string, unknown> = {}) {
-  return {
-    matchKey: "2024test_qm2",
-    compLevel: "qm" as const,
-    setNumber: 1,
-    matchNumber: 2,
-    redTeams: ["frc1"],
-    blueTeams: ["frc2"],
-    predictedWinner: "red" as const,
-    pRedWin: 0.6,
-    predictedRedScore: 100,
-    predictedBlueScore: 90,
-    ...overrides,
-  };
-}
-
-const BOTH_PMFS = { redRpPmf: [0.2, 0.3, 0.5], blueRpPmf: [0.4, 0.3, 0.3] };
 
 describe("hasSimulatableRankInputs", () => {
   it("is false for zero matches at all", () => {

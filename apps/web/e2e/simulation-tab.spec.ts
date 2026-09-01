@@ -176,7 +176,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
  * `2024wvrox` (135 quals, the corpus maximum) as the picker's overflow
  * target, but that event is TBA `event_type` 99 (offseason) and
  * `EVENT_TYPE_TIERS` (`packages/core/algorithms/sigma1/rp/constants.ts`)
- * deliberately omits type 99, so `sigma1` emits no pmf there — confirmed
+ * deliberately omits type 99, so the RP algorithm emits no pmf there — confirmed
  * live in this task's own precondition fetch: 0 of 135 `qm` rows carry
  * `redRpPmf`/`blueRpPmf`. `2022oncmp` (134 rows, 67 teams, TBA type 2,
  * RP-eligible) is the real maximum the picker can ever be handed, one row
@@ -268,7 +268,7 @@ const S1_CONTROL_EVENT_KEY = "2024wvrox";
 const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
 
 test.describe("S1 control — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders the unavailable state and zero picker rows", () => {
-  test("PD-01's retarget mechanism, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so sigma1 emits no pmf here, so hasSimulatableRankInputs is false and 08-09's unavailable branch renders instead of a picker", async ({ page }) => {
+  test("PD-01's retarget mechanism, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so the RP algorithm emits no pmf here, so hasSimulatableRankInputs is false and 08-09's unavailable branch renders instead of a picker", async ({ page }) => {
     await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=vpr&tab=simulation`, { waitUntil: "networkidle" });
     await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeVisible();
     expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBe(0);
