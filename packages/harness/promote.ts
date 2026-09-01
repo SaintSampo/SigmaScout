@@ -10,6 +10,43 @@
  *
  * Same standalone-script shape as `identifiability.ts`/`tune.ts`:
  * `parseArgs`, `async function main()`, an entry-point guard.
+ *
+ * ## `--set-param key=value` (repeatable), and what it is NOT for
+ *
+ * A search artifact records the winner of the search that was actually run.
+ * Sometimes a single parameter has to be re-selected AFTER that search — the
+ * motivating case (quick task 260901-is2, D-Q2) is `linkC`, which had to move
+ * once the R estimator changed underneath it, without re-running the whole
+ * joint search. `--set-param linkC=0.5` is how that divergence is expressed.
+ *
+ * Three properties make this auditable rather than a back door:
+ *
+ *   1. `--set-param` REQUIRES `--provenance-note`. An unexplained divergence
+ *      from the search winner is exactly what this mechanism must not enable,
+ *      so the human sentence is not optional decoration — it is the gate.
+ *   2. The override changes the INPUT to a real replay. The digest is then
+ *      produced by that replay, exactly as for any other promotion. A digest
+ *      is NEVER hand-edited (`DigestSchema.predictionStreamSha256`'s own doc
+ *      comment, and `digest.test.ts`'s prohibition) — this flag does not
+ *      create an exception to that, it feeds the same machinery different
+ *      parameters.
+ *   3. Whenever any override is present the written file records
+ *      `provenance.paramOverrides` (machine-readable), `provenance.note`
+ *      (the human sentence), and `provenance.objectiveAppliesToPromotedParams:
+ *      false`. That last field is what stops an overridden set from READING
+ *      like a fresh tune: `provenance.objective` is the SEARCH winner's
+ *      objective, and with an override it no longer describes the shipped
+ *      parameter set. Recording that as a machine-readable fact is the whole
+ *      point — the alternative (hand-authoring a derived search artifact
+ *      under the gitignored `reports/`) would produce a committed file
+ *      indistinguishable from a genuine search result.
+ *
+ * This is NOT a tuner: it applies exactly the values given, searches nothing,
+ * and measures nothing. It is NOT a way to reshape a search result into a
+ * claim — an override that violates a cross-parameter invariant is rejected
+ * by `Sigma1ParamsSchema` (via `PromotedVersionSchema`) before anything is
+ * written. A promotion with no overrides writes provenance byte-identical to
+ * a pre-`--set-param` promotion: all three fields stay absent.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -19,7 +56,13 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
+  SIGMA1_PARAM_KEYS,
+  Sigma1ParamsSchema,
+  type Sigma1Params,
+} from "../core/algorithms/sigma1/params.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -62,6 +105,25 @@ const ProvenanceSchema = z.object({
   survivors: z.array(z.string()).optional(),
   losoSummary: z.unknown().optional(),
   adaptationMode: z.enum(["on", "off"]).optional(),
+  /**
+   * The `--set-param` audit trail (quick task 260901-is2 Task 4). All three
+   * OPTIONAL, and populated ONLY when at least one override was applied, so
+   * an unoverridden promotion writes provenance byte-identical to a
+   * pre-`--set-param` one and every already-committed version file keeps
+   * validating unchanged.
+   */
+  /** Machine-readable: exactly the `key=value` overrides applied on top of the search winner's parameter set, e.g. `{ "linkC": 0.5 }`. */
+  paramOverrides: z.record(z.string(), z.union([z.number(), z.boolean()])).optional(),
+  /** The `--provenance-note` sentence: WHY the shipped set diverges from the search winner. Required by the CLI whenever `paramOverrides` is present. */
+  note: z.string().min(1).optional(),
+  /**
+   * Written as `false` whenever any override is present. `objective` above
+   * is the SEARCH winner's objective value; once a parameter has been
+   * overridden post-search, that number no longer describes the parameter
+   * set this file actually ships. Recording that as a machine-readable fact
+   * is what keeps an overridden promotion from reading like a fresh tune.
+   */
+  objectiveAppliesToPromotedParams: z.boolean().optional(),
 });
 
 const DigestSchema = z.object({
@@ -119,6 +181,78 @@ export function computePredictionStreamDigest(records: readonly PredictionRecord
   );
   const serialized = lines.join("\n");
   return createHash("sha256").update(serialized).digest("hex");
+}
+
+/** One applied `--set-param`, as it is recorded in `provenance.paramOverrides`. */
+export type ParamOverrides = Readonly<Record<string, number | boolean>>;
+
+/**
+ * Parses `--set-param` specs (`"key=value"`) into the override record that
+ * is BOTH applied to the parameter set and written to
+ * `provenance.paramOverrides` — one parse, so the file can never claim an
+ * override it did not apply (or apply one it did not record).
+ *
+ * Validation is deliberately about the SPEC, not about cross-parameter
+ * invariants: an unknown key, a non-numeric/non-finite number, or a
+ * non-boolean value for the one boolean field throws here, immediately and
+ * by name. Whether the RESULTING set is internally consistent (D-07's
+ * process-noise ordering, T-03-06's clamp, D-04's carry-weight ranges) is
+ * `Sigma1ParamsSchema`'s job and is enforced downstream by
+ * `PromotedVersionSchema.parse` on the validate-then-write boundary — no new
+ * invariant call site is added here, because the strengthened schema already
+ * does that work for every construction path.
+ *
+ * Which field is boolean is read off `DEFAULT_SIGMA1_PARAMS`'s own runtime
+ * types rather than a hand-typed list, so adding a second boolean parameter
+ * to `Sigma1Params` cannot silently leave this function behind.
+ */
+export function parseParamOverrides(specs: readonly string[]): ParamOverrides {
+  const overrides: Record<string, number | boolean> = {};
+  for (const spec of specs) {
+    const separator = spec.indexOf("=");
+    if (separator <= 0) {
+      throw new Error(`--set-param expects "key=value", got "${spec}"`);
+    }
+    const key = spec.slice(0, separator).trim();
+    const rawValue = spec.slice(separator + 1).trim();
+    if (!(SIGMA1_PARAM_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`--set-param: unknown parameter "${key}". Valid keys: ${SIGMA1_PARAM_KEYS.join(", ")}`);
+    }
+    const currentValue = DEFAULT_SIGMA1_PARAMS[key as keyof Sigma1Params];
+    if (typeof currentValue === "boolean") {
+      if (rawValue !== "true" && rawValue !== "false") {
+        throw new Error(`--set-param: "${key}" is a boolean parameter and accepts only "true" or "false", got "${rawValue}"`);
+      }
+      overrides[key] = rawValue === "true";
+      continue;
+    }
+    // `Number("")` is 0, which would silently promote `--set-param linkC=`
+    // into a real value — rejected explicitly rather than by the finiteness
+    // check, which would not catch it.
+    if (rawValue === "") {
+      throw new Error(`--set-param: "${key}" was given an empty value`);
+    }
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`--set-param: "${key}" must be a finite number, got "${rawValue}"`);
+    }
+    overrides[key] = parsed;
+  }
+  return overrides;
+}
+
+/**
+ * Applies `--set-param` specs on top of a validated parameter set. Pure (no
+ * corpus, no filesystem, no replay) and exported so the override semantics
+ * are testable on their own — `main` is not exported, so without this
+ * boundary the only way to exercise a typo'd key would be a full corpus run.
+ *
+ * The returned object is NOT re-validated here on purpose; see
+ * `parseParamOverrides`'s note on where invariant enforcement lives.
+ */
+export function applyParamOverrides(params: Sigma1Params, specs: readonly string[]): Sigma1Params {
+  const overrides = parseParamOverrides(specs);
+  return { ...params, ...overrides } as Sigma1Params;
 }
 
 /**
@@ -197,8 +331,26 @@ async function main(): Promise<void> {
       "slice-events": { type: "string" },
       adaptation: { type: "string" },
       "code-version": { type: "string" },
+      "set-param": { type: "string", multiple: true },
+      "provenance-note": { type: "string" },
     },
   });
+
+  // Task 4 (quick task 260901-is2): the two flags are a PAIR. An override
+  // with no explanation is the thing this mechanism must not enable, and a
+  // note with no override would be silently dropped from the written file
+  // (the three provenance fields are populated only when overrides exist) —
+  // so refuse both halves of the mismatch rather than half-honouring either.
+  const setParamSpecs = values["set-param"] ?? [];
+  const provenanceNote = values["provenance-note"]?.trim();
+  if (setParamSpecs.length > 0 && (provenanceNote === undefined || provenanceNote === "")) {
+    throw new Error(
+      "--set-param requires --provenance-note: a promoted parameter set that diverges from its search winner must say why, in the committed file"
+    );
+  }
+  if (setParamSpecs.length === 0 && provenanceNote !== undefined && provenanceNote !== "") {
+    throw new Error("--provenance-note is only recorded alongside --set-param (there is no divergence for it to explain)");
+  }
 
   // D-14 (plan 03-05 Task 3): `--adaptation on|off` names WHICH of the two
   // equal-budget joint searches to promote FROM by defaulting `--from` to
@@ -244,6 +396,14 @@ async function main(): Promise<void> {
   // carry-weight ranges) folded into `Sigma1ParamsSchema` itself — no new
   // call was added at this site, the strengthened schema is enough.
   const searchedParams: Sigma1Params = Sigma1ParamsSchema.parse(winnerCandidate.params);
+  // Task 4 (quick task 260901-is2): `--set-param` is applied to the VALIDATED
+  // search winner, so an override is always a delta against a set that was
+  // itself well-formed. The overridden result is re-validated by
+  // `PromotedVersionSchema.parse` at the validate-then-write boundary below —
+  // an override that breaks a cross-parameter invariant throws there, before
+  // anything reaches disk.
+  const paramOverrides = setParamSpecs.length > 0 ? parseParamOverrides(setParamSpecs) : undefined;
+  const overriddenParams: Sigma1Params = paramOverrides ? applyParamOverrides(searchedParams, setParamSpecs) : searchedParams;
   // Task 3's own instruction: the search fixes `rpMonteCarloDraws: 0` for
   // speed (plan 03-03 proved this never moves `pRedWin`/predicted scores),
   // but the PROMOTED, SHIPPED parameter set must restore the versioned draw
@@ -251,7 +411,7 @@ async function main(): Promise<void> {
   // a configuration that was never actually run in production. Re-validated
   // below (`Sigma1ParamsSchema.parse` runs again inside `PromotedVersionSchema`)
   // so the file that is actually written is the one that was actually checked.
-  const params: Sigma1Params = { ...searchedParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
+  const params: Sigma1Params = { ...overriddenParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   let sliceEventKeys: string[];
@@ -323,6 +483,15 @@ async function main(): Promise<void> {
       survivors: searchOutput.survivors ? [...searchOutput.survivors] : undefined,
       losoSummary: searchOutput.loso,
       adaptationMode: searchOutput.adaptation,
+      // Task 4 (quick task 260901-is2): populated as a group, and ONLY when
+      // an override was actually applied — a no-override promotion writes
+      // provenance byte-identical to a pre-`--set-param` one. `false` is
+      // hardcoded rather than computed because the condition for writing
+      // this block IS "an override exists", and an override is exactly what
+      // makes the recorded `objective` stop describing the shipped set.
+      ...(paramOverrides
+        ? { paramOverrides, note: provenanceNote, objectiveAppliesToPromotedParams: false as const }
+        : {}),
     },
     digest: {
       sliceSeason,
@@ -353,6 +522,17 @@ async function main(): Promise<void> {
   console.log(`Wrote ${outPath}`);
   console.log(`  digest: ${predictionStreamSha256}`);
   console.log(`  slice: season ${sliceSeason}, ${sliceEventKeys.length} events, ${records.length} matches`);
+  // Task 4: a promotion that silently applied an override must be
+  // impossible to miss in the terminal, not merely discoverable by reading
+  // the written file afterwards.
+  if (paramOverrides) {
+    const rendered = Object.entries(paramOverrides)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join(", ");
+    console.log(`  paramOverrides (--set-param): ${rendered}`);
+    console.log(`  provenance note: ${provenanceNote}`);
+    console.log(`  NOTE: provenance.objective describes the SEARCH winner, NOT this overridden parameter set.`);
+  }
   // T-03-17: a promotion whose slice differs from the last one extracted
   // leaves digest.test.ts's committed fixture stale until this command is
   // re-run — print it explicitly so that can never happen silently.
