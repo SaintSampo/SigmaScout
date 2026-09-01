@@ -1,5 +1,7 @@
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import {
   hasSimulatableRankInputs,
   SIMULATION_EMPTY_STATE_BODY,
@@ -24,7 +26,38 @@ import { installMockWorker } from "../../test/mockWorker.js";
 import type { MockWorkerScript } from "../../test/mockWorker.js";
 import { runSimulationJob } from "../../workers/simulationProtocol.js";
 import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
+import { RootSearchSchema, TeamSearchSchema } from "../../lib/searchParams.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+
+/**
+ * 08-14-PLAN.md Task 3: I1/I7 below are the only two pre-existing cases that
+ * drive a real run to completion, so they are the only two that now mount
+ * `RankDistributionTable` (Team #/Nickname router `Link`s) — every other
+ * case in this file stays exactly as 08-09/08-11/08-13 left it and needs no
+ * router context, since it never reaches a completed result. This harness
+ * mirrors `BreakdownTab.test.tsx`'s own self-contained-tree technique,
+ * scoped to only the two call sites that need it.
+ */
+const ChildrenContext = createContext<ReactNode>(null);
+
+function RouteBody() {
+  return <>{useContext(ChildrenContext)}</>;
+}
+
+function RouterTestHarness({ children }: { children: ReactNode }) {
+  const [router] = useState(() => {
+    const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
+    const eventRoute = createRoute({ path: "/event/$eventKey", getParentRoute: () => rootRoute, component: RouteBody });
+    const teamRoute = createRoute({ path: "/team/$teamNumber", getParentRoute: () => rootRoute, validateSearch: TeamSearchSchema, component: () => null });
+    const routeTree = rootRoute.addChildren([eventRoute, teamRoute]);
+    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/event/2024test"] }) });
+  });
+  return (
+    <ChildrenContext.Provider value={children}>
+      <RouterProvider router={router} />
+    </ChildrenContext.Provider>
+  );
+}
 
 /**
  * 08-11-PLAN.md Task 3 installs a global `Worker` constructor spy BEFORE any
@@ -372,7 +405,12 @@ describe("08-13: the run control", () => {
     const handle = installMockWorker({ script: realRunScript });
     try {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+      render(
+        <RouterTestHarness>
+          <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />
+        </RouterTestHarness>
+      );
+      await waitFor(() => expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined());
 
       fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`));
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
@@ -490,7 +528,12 @@ describe("08-13: the run control", () => {
           upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm3", matchNumber: 3, sortTime: 200 }),
         ],
       });
-      render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+      render(
+        <RouterTestHarness>
+          <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />
+        </RouterTestHarness>
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined());
 
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
       await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
@@ -504,6 +547,60 @@ describe("08-13: the run control", () => {
     } finally {
       handle.restore();
     }
+  });
+});
+
+/**
+ * 08-14-PLAN.md Task 3's own three integration cases — extending 08-09's and
+ * 08-13's coverage, per that task's own instruction, with the rank-table
+ * position now filled.
+ */
+describe("08-14: the rank-distribution table mounts behind a completed result", () => {
+  const RANK_TABLE_SCROLL_TESTID = "rank-distribution-table-scroll";
+
+  it("with no completed run result, the rank-table position still renders 08-09's pre-run paragraph and no rank table is in the document", () => {
+    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
+    expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
+  });
+
+  it("with a completed result, the rank table renders in the rank-table position and the pre-run paragraph is gone", async () => {
+    const realRunScript: MockWorkerScript = (message, ctx) => runSimulationJob(message, ctx.post);
+    const handle = installMockWorker({ script: realRunScript });
+    try {
+      const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
+      render(
+        <RouterTestHarness>
+          <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />
+        </RouterTestHarness>
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined());
+
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      await waitFor(() => expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined());
+
+      expect(screen.getAllByTestId("rank-distribution-row").length).toBeGreaterThan(0);
+      expect(screen.queryByTestId(SIMULATION_PRE_RUN_TESTID)).toBeNull();
+    } finally {
+      handle.restore();
+    }
+  });
+
+  it("the zero-qm empty state and the no-pmf unavailable state still render with no rank table present — this task did not move either branch", () => {
+    const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
+    const emptyArtifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
+    const { unmount } = render(<SimulationTab artifact={emptyArtifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByText(SIMULATION_EMPTY_STATE_HEADING)).toBeDefined();
+    expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
+    unmount();
+
+    const unavailableArtifact = baseArtifact({
+      matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    render(<SimulationTab artifact={unavailableArtifact} algorithmId="vpr" season={2024} />);
+    expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
+    expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
   });
 });
 

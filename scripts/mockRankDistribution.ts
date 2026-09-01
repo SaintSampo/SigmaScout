@@ -50,7 +50,7 @@ import { DEFAULT_ARTIFACT_ORIGIN, fetchArtifactFresh, resolvePublishedVersions }
 import { artifactKey, EventArtifactSchema, type EventArtifact } from "../packages/harness/pageArtifacts.js";
 import { mulberry32, simulateRanks, type SimMatchInput, type SimResult, type SimTeamBaseline } from "../packages/core/algorithms/simulation/rankSimulation.js";
 import { buildQualRows, buildSimulationInputs, SIMULATION_DRAWS } from "../apps/web/src/lib/simulationInputs.js";
-import { histBarExtent, medianTickLeft, PLOT_W, rankBandExtent, rankSlotWidth, SIM_GEOMETRY, x } from "../apps/web/src/lib/simAxis.js";
+import { histBarExtent, medianTickLeft, PLOT_W, RANK_TICK_MIN_GAP_PX, rankAxisTicks, rankBandExtent, rankSlotWidth, SIM_GEOMETRY, x } from "../apps/web/src/lib/simAxis.js";
 import { buildRankDistributionRows, histBarHeight, rankBandLabel, type RankDistributionRow } from "../apps/web/src/components/event/rankRows.js";
 
 // ---------------------------------------------------------------------------
@@ -84,53 +84,6 @@ export const MOCK_EVENT_KEYS: readonly string[] = ["2023nhgrs", "2024auwarp", "2
 
 /** The published algorithm id every sampled event is fetched under — the only algorithm this simulation ever runs on (D-04). */
 const ALGORITHM_ID = "vpr";
-
-/**
- * Mirrors the axis-tick selection Task 3's `rankAxisTicks` (`simAxis.ts`)
- * will implement — computed inline here because Task 3 has not landed yet
- * (this task's own action text: "If Task 3 has not yet added that function,
- * compute the same check inline and note it — Task 3 then makes it a
- * call"). Identical algorithm: the smallest step from the ladder
- * `1, 2, 5, 10, 20, 25, 50` whose pixel pitch is at least
- * `RANK_TICK_MIN_GAP_PX`, keeping rank 1 and `teamCount` unconditionally and
- * dropping any interior candidate too close to its neighbour.
- */
-const RANK_TICK_MIN_GAP_PX = 28;
-const RANK_TICK_STEP_LADDER = [1, 2, 5, 10, 20, 25, 50] as const;
-
-function rankAxisTicksInline(teamCount: number): number[] {
-  if (!(teamCount > 1)) return [1];
-  let step = RANK_TICK_STEP_LADDER[RANK_TICK_STEP_LADDER.length - 1]!;
-  for (const candidate of RANK_TICK_STEP_LADDER) {
-    if (x(1 + candidate, teamCount) - x(1, teamCount) >= RANK_TICK_MIN_GAP_PX) {
-      step = candidate;
-      break;
-    }
-  }
-  const candidates: number[] = [1];
-  for (let rank = step + 1; rank < teamCount; rank += step) candidates.push(rank);
-  candidates.push(teamCount);
-
-  const kept: number[] = [];
-  for (const candidate of candidates) {
-    if (candidate === 1 || candidate === teamCount) {
-      kept.push(candidate);
-      continue;
-    }
-    const last = kept[kept.length - 1]!;
-    if (x(candidate, teamCount) - x(last, teamCount) >= RANK_TICK_MIN_GAP_PX) kept.push(candidate);
-  }
-  // Drop the last interior candidate if it sits too close to the trailing anchor (teamCount).
-  if (kept.length >= 2) {
-    const lastInteriorIdx = kept.length - 2;
-    const lastInterior = kept[lastInteriorIdx]!;
-    const anchor = kept[kept.length - 1]!;
-    if (lastInterior !== 1 && x(anchor, teamCount) - x(lastInterior, teamCount) < RANK_TICK_MIN_GAP_PX) {
-      kept.splice(lastInteriorIdx, 1);
-    }
-  }
-  return kept;
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -496,7 +449,7 @@ export async function measureEvent(origin: string, eventKey: string, algorithmVe
   };
 
   const totalBars = rowMeasurements.reduce((sum, r) => sum + r.totalBarElementCount, 0);
-  const axisTicks = rankAxisTicksInline(teamCount);
+  const axisTicks = rankAxisTicks(teamCount);
   const nodeCountBudget = {
     totalBars,
     bands: rows.length,
@@ -551,7 +504,7 @@ function escapeHtml(value: string): string {
 }
 
 export function renderMockHtml(eventKey: string, rows: readonly RankDistributionRow[], teamCount: number): string {
-  const axisTicks = rankAxisTicksInline(teamCount);
+  const axisTicks = rankAxisTicks(teamCount);
   const axisHtml = axisTicks
     .map((tick) => `<span class="tick" style="left:${x(tick, teamCount).toFixed(2)}px">${tick}</span>`)
     .join("\n");

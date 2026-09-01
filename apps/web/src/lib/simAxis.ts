@@ -166,3 +166,68 @@ export function histBarExtent(rank: number, teamCount: number): RankMarkExtent {
   const left = Math.min(Math.max(raw, 0), PLOT_W - width);
   return { left, width };
 }
+
+/**
+ * 08-14-PLAN.md Task 3: the rank axis's own tick selection, kept in this one
+ * file alongside `x()` because tick positions come from the identical
+ * mapping every other mark on this plot derives from. A tick label is at
+ * most three digits at Label 12/600, roughly 20px wide, so 28px leaves a
+ * real gap between adjacent labels rather than a touching pair —
+ * `chart-craft.md`'s render-it-and-look-at-it rule expressed as a
+ * computable property, since sketch 003's own value labels collided in all
+ * three real matches it was tested on because the collision was never
+ * computed.
+ */
+export const RANK_TICK_MIN_GAP_PX = 28;
+
+const RANK_TICK_STEP_LADDER = [1, 2, 5, 10, 20, 25, 50] as const;
+
+/**
+ * Chooses the smallest step from `RANK_TICK_STEP_LADDER` whose pixel pitch
+ * — `x(1 + step, teamCount) - x(1, teamCount)` — is at least
+ * `RANK_TICK_MIN_GAP_PX`, builds the candidate set (rank 1, every
+ * `1 + k*step` lying strictly inside the field, and rank `teamCount`), then
+ * walks the candidates in order keeping 1 and `teamCount` unconditionally
+ * and dropping any interior candidate closer than the minimum gap to the
+ * last kept one — finally dropping the last kept INTERIOR candidate if it
+ * sits closer than the minimum gap to `teamCount`, so the trailing anchor
+ * never collides with its nearest neighbour either. Returns a single tick
+ * for a team count that is not greater than 1, matching `x()`'s own
+ * degenerate-roster guard.
+ */
+export function rankAxisTicks(teamCount: number): number[] {
+  if (!(teamCount > 1)) return [1];
+
+  let step: number = RANK_TICK_STEP_LADDER[RANK_TICK_STEP_LADDER.length - 1]!;
+  for (const candidate of RANK_TICK_STEP_LADDER) {
+    if (x(1 + candidate, teamCount) - x(1, teamCount) >= RANK_TICK_MIN_GAP_PX) {
+      step = candidate;
+      break;
+    }
+  }
+
+  const candidates: number[] = [1];
+  for (let rank = 1 + step; rank < teamCount; rank += step) candidates.push(rank);
+  candidates.push(teamCount);
+
+  const kept: number[] = [];
+  for (const candidate of candidates) {
+    if (candidate === 1 || candidate === teamCount) {
+      kept.push(candidate);
+      continue;
+    }
+    const last = kept[kept.length - 1]!;
+    if (x(candidate, teamCount) - x(last, teamCount) >= RANK_TICK_MIN_GAP_PX) kept.push(candidate);
+  }
+
+  if (kept.length >= 2) {
+    const lastInteriorIdx = kept.length - 2;
+    const lastInterior = kept[lastInteriorIdx]!;
+    const anchor = kept[kept.length - 1]!;
+    if (lastInterior !== 1 && x(anchor, teamCount) - x(lastInterior, teamCount) < RANK_TICK_MIN_GAP_PX) {
+      kept.splice(lastInteriorIdx, 1);
+    }
+  }
+
+  return kept;
+}

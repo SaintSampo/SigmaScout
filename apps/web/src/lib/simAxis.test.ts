@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { continuousQuantile } from "./simQuantile.js";
-import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankBandExtent, rankSlotWidth, x } from "./simAxis.js";
+import { PLOT_W, RANK_TICK_MIN_GAP_PX, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, rankSlotWidth, x } from "./simAxis.js";
 
 /**
  * 08-04-PLAN.md Task 3's geometry contract: continuous-input mapping, the
@@ -210,5 +210,53 @@ describe("--sim-band-overlay token coupling — the one case that reads a file o
     const css = readFileSync(THEME_CSS_PATH, "utf-8");
     expect(css).toMatch(/--sim-hist-bar:/);
     expect(css).toMatch(/--sim-median-tick:/);
+  });
+});
+
+/**
+ * 08-14-PLAN.md Task 3's axis-tick contract: the computable non-collision
+ * property `chart-craft.md` requires, proven at team counts 2, 17, 39 and
+ * 78 — real corpus rosters, not hand-picked round numbers.
+ */
+describe("rankAxisTicks(teamCount)", () => {
+  it.each([2, 17, 39, 78])("always includes rank 1 and rank teamCount, for N=%s", (n) => {
+    const ticks = rankAxisTicks(n);
+    expect(ticks[0]).toBe(1);
+    expect(ticks[ticks.length - 1]).toBe(n);
+  });
+
+  it.each([2, 17, 39, 78])("returns strictly increasing integer ranks with no duplicates, for N=%s", (n) => {
+    const ticks = rankAxisTicks(n);
+    for (let i = 1; i < ticks.length; i++) {
+      expect(ticks[i]).toBeGreaterThan(ticks[i - 1]!);
+      expect(Number.isInteger(ticks[i])).toBe(true);
+    }
+  });
+
+  it.each([2, 17, 39, 78])("no two consecutive ticks are closer than RANK_TICK_MIN_GAP_PX in pixels, for N=%s", (n) => {
+    const ticks = rankAxisTicks(n);
+    const pixels = ticks.map((tick) => x(tick, n));
+    for (let i = 1; i < pixels.length; i++) {
+      expect(pixels[i]! - pixels[i - 1]!).toBeGreaterThanOrEqual(RANK_TICK_MIN_GAP_PX - 1e-9);
+    }
+  });
+
+  it.each([2, 17, 39, 78])("every returned tick maps inside the closed interval [0, PLOT_W], for N=%s", (n) => {
+    const ticks = rankAxisTicks(n);
+    for (const tick of ticks) {
+      const px = x(tick, n);
+      expect(px).toBeGreaterThanOrEqual(0);
+      expect(px).toBeLessThanOrEqual(PLOT_W);
+    }
+  });
+
+  it("a degenerate team count of 1 returns exactly one tick and no non-finite position", () => {
+    const ticks = rankAxisTicks(1);
+    expect(ticks).toEqual([1]);
+    expect(Number.isFinite(x(ticks[0]!, 1))).toBe(true);
+  });
+
+  it("RANK_TICK_MIN_GAP_PX is 28", () => {
+    expect(RANK_TICK_MIN_GAP_PX).toBe(28);
   });
 });

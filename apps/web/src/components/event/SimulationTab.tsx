@@ -4,6 +4,8 @@ import { EmptyState } from "@/components/StateViews";
 import { REWIND_CAPTION_TESTID, StartMatchPicker, rewindCaptionText } from "./StartMatchPicker.js";
 import { RunControl } from "./RunControl.js";
 import { useSimulationRun } from "./useSimulationRun.js";
+import { RankDistributionTable } from "./RankDistributionTable.js";
+import { buildRankDistributionRows } from "./rankRows.js";
 import { matchLabel } from "../team/MatchTable.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
@@ -46,11 +48,12 @@ export interface SimulationTabProps {
  * D-04's one spelling of "which algorithm this tab needs" — the route
  * imports this for its disabled boolean (`algorithmId !== SIMULATION_ALGORITHM_ID`)
  * rather than hardcoding the string `"vpr"` a second time. This component
- * itself reads none of `algorithmId`/`season` on its props (PD-03) — Radix
- * keeps this panel mounted-but-hidden on every event page regardless of the
- * active algorithm, and re-deriving D-04's rule here a second time would give
- * the rule two homes that could drift; the route is the only place that
- * decides reachability.
+ * itself reads none of `algorithmId` on its props (PD-03) — Radix keeps this
+ * panel mounted-but-hidden on every event page regardless of the active
+ * algorithm, and re-deriving D-04's rule here a second time would give the
+ * rule two homes that could drift; the route is the only place that decides
+ * reachability. `season` (08-14, Task 3) IS now read — the rank-distribution
+ * table's Team #/Nickname links need it for their own search params.
  */
 export const SIMULATION_ALGORITHM_ID: PublishedAlgorithmId = "vpr";
 
@@ -171,15 +174,16 @@ export function SimulationTabSkeleton() {
  *    needs genuinely does not exist for this event), unlike branch 3 below.
  * 3. Otherwise — the layout stack, in UI-SPEC's declared top-to-bottom order
  *    (start-match picker, run control, rank-distribution table): the picker
- *    (08-11), `RunControl` (08-13), and — still only the pre-run placeholder
- *    paragraph, since 08-14 has not landed — the rank-table position. The
- *    placeholder is rendered as a plain muted body paragraph, deliberately
- *    NOT `EmptyState` (UI-SPEC S3 `empty`): nothing failed and nothing
- *    returned zero rows, there is simply no simulation output yet, and a
- *    centred empty-state block would replace the picker/run-control mount
- *    above it rather than sitting beneath them.
+ *    (08-11), `RunControl` (08-13), and the rank-table position — 08-14's
+ *    `RankDistributionTable` when a completed, CURRENT result exists,
+ *    otherwise 08-09's pre-run placeholder paragraph, unchanged in copy,
+ *    testid and styling. The placeholder is rendered as a plain muted body
+ *    paragraph, deliberately NOT `EmptyState` (UI-SPEC S3 `empty`): nothing
+ *    failed and nothing returned zero rows, there is simply no simulation
+ *    output yet, and a centred empty-state block would replace the
+ *    picker/run-control mount above it rather than sitting beneath them.
  */
-export function SimulationTab({ artifact }: SimulationTabProps) {
+export function SimulationTab({ artifact, season }: SimulationTabProps) {
   const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
 
   // The selected start matchKey — computed ONCE, in a lazy initializer, and
@@ -226,6 +230,16 @@ export function SimulationTab({ artifact }: SimulationTabProps) {
   const isRunning = runState.status === "running";
   const canRun = simulationInputs !== null;
 
+  // 08-14: rows built ONLY when a completed result exists AND is current for
+  // the present selection — the freshness gate (PD-02) has already been
+  // applied above via `isResultCurrent`, so this performs no freshness check
+  // of its own. Reads the completed `SimResult` exactly as 08-13 exposed it
+  // (`runState.result`) — constructs no second Worker and repeats no run.
+  const rankResult = useMemo(() => {
+    if (runState.status !== "complete" || !isResultCurrent) return null;
+    return { rows: buildRankDistributionRows(runState.result, artifact.teams), teamCount: runState.teamCount };
+  }, [runState, isResultCurrent, artifact.teams]);
+
   const handleRun = useCallback((): void => {
     if (simulationInputs === null) return;
     startRun({ matches: simulationInputs.remainingMatches, baselines: simulationInputs.baselines, signature: simulationSignature });
@@ -260,17 +274,20 @@ export function SimulationTab({ artifact }: SimulationTabProps) {
       )}
       <RunControl state={runState} isResultCurrent={isResultCurrent} canRun={canRun} onRun={handleRun} />
       {/*
-        The pre-run placeholder holds for the ENTIRE run (UI-SPEC's explicit
-        no-streaming decision) and is unconditional here — 08-14 has not
-        landed yet, so this plan renders no alternative for a completed
-        result. 08-14 mounts the rank-distribution table at this position,
-        consuming the completed result ONLY when `isResultCurrent` is true —
-        the freshness gate (PD-02) has already been applied above, so 08-14
-        performs no freshness check of its own.
+        The pre-run placeholder holds for the WHOLE run (UI-SPEC's explicit
+        no-streaming decision, S3 `loading`/`error`) — a running or errored
+        state never reaches `rankResult !== null` above, so this branch is
+        unconditional on run status, not merely on the table's own presence.
+        08-14 mounts `RankDistributionTable` here only once a completed,
+        CURRENT result exists.
       */}
-      <p data-testid={SIMULATION_PRE_RUN_TESTID} className="text-role-body text-muted-foreground">
-        {SIMULATION_PRE_RUN_BODY}
-      </p>
+      {rankResult !== null ? (
+        <RankDistributionTable rows={rankResult.rows} teamCount={rankResult.teamCount} season={season} />
+      ) : (
+        <p data-testid={SIMULATION_PRE_RUN_TESTID} className="text-role-body text-muted-foreground">
+          {SIMULATION_PRE_RUN_BODY}
+        </p>
+      )}
     </div>
   );
 }
