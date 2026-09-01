@@ -286,7 +286,7 @@ describe("insightsFallbackNotice (D-08 Copywriting Contract)", () => {
 });
 
 describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
-  it("vpr/2024: exactly eight headers, in the declared order", async () => {
+  it("vpr/2024: exactly nine headers, in the declared order", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -301,12 +301,12 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
     });
     renderInsights(artifact, "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
   });
 
-  it("opr/2024: also exactly eight headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
+  it("opr/2024: also exactly nine headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -321,7 +321,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
     });
     renderInsights(artifact, "opr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
   });
 
   it("column order is the fixed declared order even when the fixture's metrics literal declares phaseEndgame before phaseAuto", async () => {
@@ -345,9 +345,9 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
     });
     renderInsights(artifact, "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
   });
 });
 
@@ -376,7 +376,7 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   it("no ranks: fallback header contains the algorithm's display label and the word Rank, and the banner renders", async () => {
     renderInsights(artifactWithRanks([{}, {}]), "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toContain(algorithmDisplayLabel("vpr"));
     expect(rankHeader?.textContent).toContain("Rank");
@@ -390,7 +390,7 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   it("has ranks: the leading header is exactly the word Rank, and the banner does not exist at all", async () => {
     renderInsights(artifactWithRanks([{ rank: 1 }, { rank: 2 }]), "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toBe("Rank");
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
@@ -612,7 +612,7 @@ describe("InsightsTab — partial phase-metric data", () => {
     expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toBe("—");
   });
 
-  it("an opr fixture whose team publishes none of the three phase keys renders three em-dash cells and all eight headers", async () => {
+  it("an opr fixture whose team publishes none of the three phase keys renders three em-dash cells and all nine headers", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -627,7 +627,7 @@ describe("InsightsTab — partial phase-metric data", () => {
     });
     renderInsights(artifact, "opr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     for (const group of METRIC_GROUPS) {
       expect(screen.getByTestId(`insights-cell-${group.metricKey}`).textContent).toBe("—");
     }
@@ -756,7 +756,7 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
     });
     renderInsights(artifact);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     for (const header of screen.getAllByRole("columnheader")) {
       expect(header.querySelector("button")).toBeNull();
       expect(header.getAttribute("aria-sort")).toBeNull();
@@ -783,11 +783,11 @@ describe("InsightsTab — tier key row, accessibility and scroll region", () => 
 });
 
 describe("InsightsTabSkeleton", () => {
-  it("renders the eight real headers with the bare Rank header, skeleton body rows, and zero progressbar elements", () => {
+  it("renders the nine real headers with the bare Rank header, skeleton body rows, and zero progressbar elements", () => {
     render(<InsightsTabSkeleton algorithmId="vpr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Nickname", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });

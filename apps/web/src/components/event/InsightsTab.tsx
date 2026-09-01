@@ -2,7 +2,7 @@
  * The Insights tab (EVNT-02, D-07…D-10, 07-11-PLAN.md): the event's teams in
  * TBA's official event-rank order — or, per D-08, the selected algorithm's
  * own Total order with a stated notice when no official ranking exists.
- * Eight columns: Rank, Team #, Nickname, Record, RP, Auto, Teleop, Endgame.
+ * Nine columns: Rank, Team #, Nickname, Record, RP, Total, Auto, Teleop, Endgame.
  *
  * The first section below (Task 1) is the pure data layer — no React, no
  * TanStack anything. `buildInsightsRows` is the ONE function that returns
@@ -254,7 +254,21 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     },
   });
 
-  const metricGroupColumns = METRIC_GROUPS.map((group) =>
+  // Total (2026-09-01, user request): the selected algorithm's own headline
+  // value, tiered exactly like the group columns, placed FIRST among the
+  // metric columns — which under F3's narrow ordering makes Total the value
+  // that clears the 390px fold.
+  const totalColumn = columnHelper.accessor((row) => row.metrics[TOTAL_KEY], {
+    id: "total",
+    header: "Total",
+    size: 120,
+    cell: (info) => {
+      const entry = info.getValue();
+      return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+    },
+  });
+
+  const metricGroupColumns = [totalColumn, ...METRIC_GROUPS.map((group) =>
     columnHelper.accessor((row) => row.metrics[group.metricKey], {
       id: group.metricKey,
       header: group.label,
@@ -270,7 +284,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
         return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
       },
     }),
-  );
+  )];
 
   return columnHelper.columns([
     // D-08/T-07-11-02: in fallback mode the header itself names the
@@ -370,7 +384,7 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
 export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void algorithmId; // the skeleton's header set does not vary by algorithm — see the doc comment above for why orderSource is fixed to "official" here
   void season;
-  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", ...METRIC_GROUPS.map((group) => group.label)];
+  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", "Total", ...METRIC_GROUPS.map((group) => group.label)];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">

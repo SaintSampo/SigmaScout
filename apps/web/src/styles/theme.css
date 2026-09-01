@@ -640,3 +640,32 @@ body {
 .sim-median-tick {
   background-color: var(--sim-median-tick);
 }
+
+/*
+ * Match-result chips (team page Result column, 2026-09-01 user request).
+ * Win/loss wear the emerald/rose pair the sketch-findings palette work
+ * reserved for exactly this meaning (deliberately distinct from alliance
+ * red/blue AND from the green chrome accent family); a tie is a neutral
+ * fact and wears muted ink. Same soft-bg + strong-fg construction as
+ * `.alliance-chip` above.
+ */
+.result-chip {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.result-chip--win {
+  background-color: rgba(5, 150, 105, 0.14);
+  color: #047857; /* emerald-700 */
+}
+.result-chip--loss {
+  background-color: rgba(225, 29, 72, 0.12);
+  color: #be123c; /* rose-700 */
+}
+.result-chip--tie {
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-muted);
+}

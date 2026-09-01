@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { renderWithRouter } from "@/test/routerHarness";
 import { EventSection, endOfEventMetrics } from "./EventSection.js";
 import type { TeamSeasonEvent, TeamSeasonMatch } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
@@ -67,7 +68,7 @@ describe("endOfEventMetrics", () => {
 
 describe("EventSection", () => {
   it("shows the end-of-event snapshot (61.40), never the season-final value (88.20)", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent()}
         domain={DOMAIN}
@@ -83,7 +84,7 @@ describe("EventSection", () => {
   });
 
   it("renders no snapshot element when no metricHistory row matches this event", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent()}
         domain={DOMAIN}
@@ -97,7 +98,7 @@ describe("EventSection", () => {
   });
 
   it("shows the Upcoming badge when every match lacks a result, and removes it once one has a result", () => {
-    const { rerender } = render(
+    const { rerender } = renderWithRouter(
       <EventSection
         event={makeEvent({ matches: [makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" })] })}
         domain={DOMAIN}
@@ -129,16 +130,18 @@ describe("EventSection", () => {
 
   it("carries the full event name in a title attribute for a 70-character name", () => {
     const longName = "A".repeat(70);
-    render(
+    renderWithRouter(
       <EventSection event={makeEvent({ eventName: longName })} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />,
     );
     const heading = screen.getByRole("heading", { level: 2 });
-    expect(heading.getAttribute("title")).toBe(longName);
+    // 2026-09-01: the name became a Link into the event page; the title
+    // affordance rides the anchor now, the heading still carries the text.
+    expect(heading.querySelector("a")?.getAttribute("title")).toBe(longName);
     expect(heading.textContent).toBe(longName);
   });
 
   it("carries an elevation class and a surface class distinct from the page background (06-09-PLAN.md Task 3 polish pass)", () => {
-    render(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />);
+    renderWithRouter(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />);
     const section = screen.getByTestId("event-section-2024casj");
     expect(section.className).toContain("shadow-sm");
     expect(section.className).toContain("event-card");
@@ -146,7 +149,7 @@ describe("EventSection", () => {
   });
 
   it("renders 'Rank 5 of 32' when the event fixture carries rank and totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent({ rank: 5, totalTeams: 32 })}
         domain={DOMAIN}
@@ -161,14 +164,14 @@ describe("EventSection", () => {
   });
 
   it("renders no standing element when the event fixture carries neither rank nor totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
-    render(
+    renderWithRouter(
       <EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />,
     );
     expect(screen.queryByTestId("event-standing-2024casj")).toBeNull();
   });
 
   it("renders no standing element when only rank is present (a half-present pair never renders a partial standing)", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent({ rank: 5, totalTeams: undefined })}
         domain={DOMAIN}
@@ -182,7 +185,7 @@ describe("EventSection", () => {
   });
 
   it("renders no standing element when only totalTeams is present — the mirror half-present case", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent({ rank: undefined, totalTeams: 32 })}
         domain={DOMAIN}
@@ -196,7 +199,7 @@ describe("EventSection", () => {
   });
 
   it("places the standing element inside the same paragraph as startDate, which still renders unchanged", () => {
-    render(
+    renderWithRouter(
       <EventSection
         event={makeEvent({ rank: 5, totalTeams: 32, startDate: "2024-03-01" })}
         domain={DOMAIN}
@@ -221,7 +224,7 @@ describe("EventSection", () => {
    */
   describe("per-event metric tiers and basis caption (plan 06.1-06, D-06.1-A/F-06-3)", () => {
     it("renders a tier box carrying the epic modifier class for a snapshot metric with a percentile in the Epic band", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -236,7 +239,7 @@ describe("EventSection", () => {
     });
 
     it("renders no tier box class for a snapshot metric with a percentile in the Common band", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -251,7 +254,7 @@ describe("EventSection", () => {
     });
 
     it("renders a (Common, unboxed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (06.1-REVIEW IN-02)", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -267,7 +270,7 @@ describe("EventSection", () => {
     });
 
     it("renders identically to the pre-change output — no tier box class — for a snapshot metric with no percentile", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -283,7 +286,7 @@ describe("EventSection", () => {
     });
 
     it("renders no per-event tier-basis caption even when a rendered tile carries a percentile (G-06.1-28, plan 06.1-08, option-a)", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -297,7 +300,7 @@ describe("EventSection", () => {
     });
 
     it("renders no basis caption when no rendered tile carries a percentile", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -311,7 +314,7 @@ describe("EventSection", () => {
     });
 
     it("tiers a per-event metric from the history row's OWN percentile — this component receives no season-final metric record at all, so it structurally cannot substitute one", () => {
-      render(
+      renderWithRouter(
         <EventSection
           event={makeEvent()}
           domain={DOMAIN}
@@ -327,7 +330,7 @@ describe("EventSection", () => {
   });
 
   it("gives two sections distinct scroller test ids", () => {
-    render(
+    renderWithRouter(
       <>
         <EventSection event={makeEvent({ eventKey: "2024casj" })} domain={DOMAIN} teamKey="frc118" algorithmId="vpr" season={2024} metricHistory={[]} />
         <EventSection

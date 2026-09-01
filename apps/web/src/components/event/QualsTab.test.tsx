@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { renderWithRouter } from "@/test/routerHarness";
 import { afterEach } from "vitest";
 import { QualsTab, QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import type { EventMatch, EventUpcomingMatch } from "./eventMatchAxis.js";
@@ -79,7 +80,7 @@ describe("Filtering and merging", () => {
       makePlayedMatch({ matchKey: "f1m1", compLevel: "f", setNumber: 1, matchNumber: 1 }),
       makePlayedMatch({ matchKey: "f1m2", compLevel: "f", setNumber: 1, matchNumber: 2 }),
     ];
-    render(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(3);
     expect(screen.queryByTestId("match-row-sf1m1")).toBeNull();
   });
@@ -87,7 +88,7 @@ describe("Filtering and merging", () => {
   it("2 played + 2 upcoming qm renders 4 rows in merged matchNumber order, interleaved", () => {
     const matches = [makePlayedMatch({ matchKey: "p1", matchNumber: 1 }), makePlayedMatch({ matchKey: "p3", matchNumber: 3 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "u2", matchNumber: 2 }), makeUpcomingMatch({ matchKey: "u4", matchNumber: 4 })];
-    render(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
     const rows = screen.getAllByTestId(/^match-row-/);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["match-row-p1", "match-row-u2", "match-row-p3", "match-row-u4"]);
   });
@@ -98,7 +99,7 @@ describe("Filtering and merging", () => {
     const matchesBefore = JSON.parse(JSON.stringify(matches));
     const upcomingBefore = JSON.parse(JSON.stringify(upcoming));
 
-    render(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
 
     expect(matches).toEqual(matchesBefore);
     expect(upcoming).toEqual(upcomingBefore);
@@ -109,7 +110,7 @@ describe("Per-tab domain (D-12)", () => {
   it("axis tick labels span the merged rows' full extent, including an upcoming row's high score", () => {
     const matches = [makePlayedMatch({ matchKey: "p1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "u1", predictedRedScore: 900, predictedBlueScore: 880 })];
-    render(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="vpr" season={2024} />);
     const ticks = screen.getAllByTestId("axis-tick").map((t) => Number(t.textContent));
     expect(Math.max(...ticks)).toBeGreaterThan(880);
   });
@@ -117,22 +118,22 @@ describe("Per-tab domain (D-12)", () => {
   it("two renders of the same artifact produce identical tick labels", () => {
     const matches = [makePlayedMatch({ matchKey: "p1" })];
     const artifact = makeArtifact({ matches });
-    const { unmount } = render(<QualsTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    const { unmount } = renderWithRouter(<QualsTab artifact={artifact} algorithmId="vpr" season={2024} />);
     const ticksA = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     unmount();
-    render(<QualsTab artifact={artifact} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={artifact} algorithmId="vpr" season={2024} />);
     const ticksB = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     expect(ticksB).toEqual(ticksA);
   });
 
   it("a second QualsTab from an artifact with much higher scores produces DIFFERENT tick labels", () => {
     const lowArtifact = makeArtifact({ matches: [makePlayedMatch({ matchKey: "p1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })] });
-    const { unmount } = render(<QualsTab artifact={lowArtifact} algorithmId="vpr" season={2024} />);
+    const { unmount } = renderWithRouter(<QualsTab artifact={lowArtifact} algorithmId="vpr" season={2024} />);
     const ticksLow = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
     unmount();
 
     const highArtifact = makeArtifact({ matches: [makePlayedMatch({ matchKey: "p1", predictedRedScore: 900, predictedBlueScore: 900, actualRedScore: 900, actualBlueScore: 900 })] });
-    render(<QualsTab artifact={highArtifact} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={highArtifact} algorithmId="vpr" season={2024} />);
     const ticksHigh = screen.getAllByTestId("axis-tick").map((t) => t.textContent);
 
     expect(ticksHigh).not.toEqual(ticksLow);
@@ -142,7 +143,7 @@ describe("Per-tab domain (D-12)", () => {
 describe("Empty state (EVNT-04 empty, UI-SPEC E5 empty)", () => {
   it("the Einstein shape (matches all sf/f, upcoming empty) renders EmptyState with the event's name, and no table/axis header", () => {
     const matches = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 })];
-    render(<QualsTab artifact={makeArtifact({ matches, name: "Championship Finals" })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches, name: "Championship Finals" })} algorithmId="vpr" season={2024} />);
     expect(screen.getByText("No matches found for Championship Finals")).toBeDefined();
     expect(screen.getByText(QUALS_EMPTY_STATE_BODY)).toBeDefined();
     expect(screen.queryByRole("table")).toBeNull();
@@ -151,19 +152,19 @@ describe("Empty state (EVNT-04 empty, UI-SPEC E5 empty)", () => {
 
   it("the empty state renders no button element at all", () => {
     const matches = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf" })];
-    render(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("an artifact with no name field falls back to the event key in the heading", () => {
     const matches = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf" })];
-    render(<QualsTab artifact={makeArtifact({ matches, name: undefined, eventKey: "2024casj" })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches, name: undefined, eventKey: "2024casj" })} algorithmId="vpr" season={2024} />);
     expect(screen.getByText("No matches found for 2024casj")).toBeDefined();
   });
 
   it("the 2025srsd shape (empty matches, 3 upcoming quals) renders the FULL table with 3 rows, not the empty state", () => {
     const upcoming = [1, 2, 3].map((n) => makeUpcomingMatch({ matchKey: `u${n}`, matchNumber: n }));
-    render(<QualsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches: [], upcoming })} algorithmId="vpr" season={2024} />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(3);
     expect(screen.queryByText(/No matches found/)).toBeNull();
   });
@@ -181,7 +182,7 @@ describe("Scroll-region siblinghood (structural half)", () => {
   // below — keeps horizontal panning trapped inside this scroller.
   it("quals-table-scroll carries overflow-x-auto, touch-pan-xy, overscroll-x-contain and min-w-0", () => {
     const matches = [makePlayedMatch({ matchKey: "p1" })];
-    render(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
+    renderWithRouter(<QualsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2024} />);
     const scroll = screen.getByTestId("quals-table-scroll");
     for (const cls of ["overflow-x-auto", "touch-pan-xy", "overscroll-x-contain", "min-w-0"]) {
       expect(scroll.className).toContain(cls);

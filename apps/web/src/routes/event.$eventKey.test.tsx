@@ -361,20 +361,21 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       "Nickname",
       "Record",
       "RP",
+      "Total",
       "Auto",
       "Teleop",
       "Endgame",
     ]);
   });
 
-  it("?tab=insights with a populated ranked artifact renders the eight Insights headers and no fallback banner; with an unranked artifact it renders the banner", async () => {
+  it("?tab=insights with a populated ranked artifact renders the nine Insights headers and no fallback banner; with an unranked artifact it renders the banner", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
     renderEventRoute("/event/2024casf?algorithm=vpr&tab=insights");
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
     cleanup();
 

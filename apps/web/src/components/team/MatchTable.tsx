@@ -259,7 +259,20 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
 
   return (
     <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
-      <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
+      {/* Result (2026-09-01): THIS team's outcome, computed from actualWinner
+          against the side the roster puts the team on. Unplayed renders
+          empty (not an em-dash — the user's own spec: "empty otherwise"). */}
+      <td data-testid={`result-${match.matchKey}`} className={cn("sticky left-0 z-[1] w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
+        {played &&
+          (match.actualWinner === "tie" ? (
+            <span className="result-chip result-chip--tie">Tie</span>
+          ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
+            <span className="result-chip result-chip--win">Win</span>
+          ) : (
+            <span className="result-chip result-chip--loss">Loss</span>
+          ))}
+      </td>
+      <td className={cn("sticky left-[64px] z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         <div className="flex min-w-0 flex-col gap-[1px]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
@@ -349,14 +362,21 @@ export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps
     <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
-          <th className="sticky left-0 z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
+          {/* Result (2026-09-01, user request): leftmost W/L/T chip for THIS
+              team. Sticky alongside Match so both identity columns hold
+              during horizontal pans; Match keeps its own stickiness at this
+              column's declared 64px offset. */}
+          <th className="sticky left-0 z-[2] w-[64px] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
+            <span className="text-role-label text-[var(--color-text-muted)]">Result</span>
+          </th>
+          <th className="sticky left-[64px] z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="p-[var(--spacing-sm)] text-left">
             <AxisHeader domain={domain} />
           </th>
-          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Conf.</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. Score</th>
+          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Confidence</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
         </tr>

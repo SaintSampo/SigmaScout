@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
@@ -6,6 +7,7 @@ import { tierForPercentile } from "../../lib/tiers.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /**
  * One event: heading, date, Upcoming badge, the team's end-of-event metric
@@ -72,8 +74,19 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       className="event-card shadow-sm flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-lg)]"
     >
       <div className="flex min-w-0 items-center gap-[var(--spacing-sm)]">
-        <h2 title={event.eventName} className="text-role-heading min-w-0 truncate text-[var(--color-text-primary)]">
-          {event.eventName}
+        {/* 2026-09-01 (user request): the event name is the way INTO the
+            event page, and it should look like one — accent ink + hover
+            underline, the same obvious-link treatment as any nav link. */}
+        <h2 className="text-role-heading min-w-0 truncate">
+          <Link
+            to="/event/$eventKey"
+            params={{ eventKey: event.eventKey }}
+            search={{ year: season, algorithm: algorithmId as PublishedAlgorithmId, tab: "insights" }}
+            title={event.eventName}
+            className="text-[var(--color-accent)] hover:underline"
+          >
+            {event.eventName}
+          </Link>
         </h2>
         {isUpcoming && <Badge variant="secondary">Upcoming</Badge>}
       </div>

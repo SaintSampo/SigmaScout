@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { EmptyState } from "@/components/StateViews";
 import { EventMatchTable, EventMatchTableSkeleton } from "./EventMatchTable.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { computeEventAxisDomain, isQualCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -60,7 +61,7 @@ export function QualsTabSkeleton() {
  * deferral is inherited here deliberately rather than resolved by inventing
  * a second copy variant on this tab alone.
  */
-export function QualsTab({ artifact, season }: QualsTabProps) {
+export function QualsTab({ artifact, season, algorithmId }: QualsTabProps) {
   const rows = useMemo(() => mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel), [artifact]);
   const domain = useMemo(() => computeEventAxisDomain(rows), [rows]);
 
@@ -71,7 +72,7 @@ export function QualsTab({ artifact, season }: QualsTabProps) {
 
   return (
     <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-      <EventMatchTable rows={rows} domain={domain} season={season} />
+      <EventMatchTable rows={rows} domain={domain} season={season} algorithm={algorithmId as PublishedAlgorithmId} />
     </div>
   );
 }

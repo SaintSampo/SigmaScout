@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
 import { BonusRpDots } from "../team/BonusRpDots.js";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
+import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain } from "../team/matchAxis.js";
 // G-06.1-26 (plan 06.1-08, PD-19) precedent, followed here verbatim
@@ -9,6 +10,7 @@ import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, 
 // into apps/web — `rp/constants.ts` has zero runtime imports of its own, so
 // importing it does not drag the Sigma1 RP implementation into the browser
 // bundle.
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { isBonusRpCompLevel } from "../../../../../packages/core/algorithms/sigma1/rp/constants.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
@@ -29,12 +31,14 @@ export interface EventMatchTableProps {
   rows: readonly EventMatchRow[];
   domain: AxisDomain;
   season: number;
+  /** Carried onto each roster-number link so the destination keeps the reader's algorithm (2026-09-01). */
+  algorithm: PublishedAlgorithmId;
 }
 
 /** Match, plot, Conf., Pred. Score, Actual, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. */
 export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 
-const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Conf.", "Pred. Score", "Actual", "Call"] as const;
+const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Confidence", "Prediction", "Actual", "Call"] as const;
 
 /** A team key's displayed number, falling back to the raw key string when it does not match the `frc{number}` shape — the same construction `MatchTable.tsx`'s own module-private label helper uses. Named distinctly from this row type's own field names so a structural props-declaration gate cannot mistake it for a per-team prop. */
 function rosterNumberLabel(rosterKey: string): string {
@@ -196,7 +200,7 @@ function EventActualScoreLine({
   );
 }
 
-function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number }) {
+function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number; algorithm: PublishedAlgorithmId }) {
   const confidence = row.predictedWinner === "red" ? row.pRedWin : 1 - row.pRedWin;
   const winnerCorrect = row.played && row.predictedWinner === row.actualWinner;
   const redLoses = row.played && row.actualWinner === "blue";
@@ -211,7 +215,17 @@ function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow
             {row.redTeams.map((rosterKey, index) => (
               <span key={rosterKey}>
                 {index > 0 ? " " : ""}
-                {rosterNumberLabel(rosterKey)}
+                {/* 2026-09-01 (user request): every roster number is the way
+                    to that team's page. Plain ink (the alliance rows already
+                    carry colour); underline on hover marks it interactive. */}
+                <Link
+                  to="/team/$teamNumber"
+                  params={{ teamNumber: rosterNumberLabel(rosterKey) }}
+                  search={{ year: season, algorithm, tab: "overview" }}
+                  className="hover:underline"
+                >
+                  {rosterNumberLabel(rosterKey)}
+                </Link>
               </span>
             ))}
           </span>
@@ -219,7 +233,17 @@ function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow
             {row.blueTeams.map((rosterKey, index) => (
               <span key={rosterKey}>
                 {index > 0 ? " " : ""}
-                {rosterNumberLabel(rosterKey)}
+                {/* 2026-09-01 (user request): every roster number is the way
+                    to that team's page. Plain ink (the alliance rows already
+                    carry colour); underline on hover marks it interactive. */}
+                <Link
+                  to="/team/$teamNumber"
+                  params={{ teamNumber: rosterNumberLabel(rosterKey) }}
+                  search={{ year: season, algorithm, tab: "overview" }}
+                  className="hover:underline"
+                >
+                  {rosterNumberLabel(rosterKey)}
+                </Link>
               </span>
             ))}
           </span>
@@ -293,7 +317,7 @@ function EventMatchRowView({ row, domain, tinted, season }: { row: EventMatchRow
 }
 
 /** One event's match table: the shared axis header drawn exactly once, then one row per merged row, in the order the caller supplies (this component never re-sorts). */
-export function EventMatchTable({ rows, domain, season }: EventMatchTableProps) {
+export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchTableProps) {
   return (
     <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
@@ -304,15 +328,15 @@ export function EventMatchTable({ rows, domain, season }: EventMatchTableProps) 
           <th className="p-[var(--spacing-sm)] text-left">
             <EventAxisHeader domain={domain} />
           </th>
-          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Conf.</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Pred. Score</th>
+          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Confidence</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((row, index) => (
-          <EventMatchRowView key={row.matchKey} row={row} domain={domain} tinted={index % 2 === 1} season={season} />
+          <EventMatchRowView key={row.matchKey} row={row} domain={domain} tinted={index % 2 === 1} season={season} algorithm={algorithm} />
         ))}
       </tbody>
     </table>

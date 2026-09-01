@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { EventMatchTable, EventMatchTableSkeleton } from "./EventMatchTable.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { computeEventAxisDomain, isElimCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
 import { QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import { EmptyState } from "../StateViews.js";
@@ -75,7 +76,7 @@ export function ElimsTabSkeleton() {
  * Quals tab does not arise here, since a Championship Finals event has a
  * full 15-16 row elimination slate.
  */
-export function ElimsTab({ artifact, season }: ElimsTabProps) {
+export function ElimsTab({ artifact, season, algorithmId }: ElimsTabProps) {
   const rows = useMemo(() => mergeEventMatches(artifact.matches, artifact.upcoming, isElimCompLevel), [artifact]);
   const domain = useMemo(() => computeEventAxisDomain(rows), [rows]);
 
@@ -86,7 +87,7 @@ export function ElimsTab({ artifact, season }: ElimsTabProps) {
 
   return (
     <div data-testid="elims-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-      <EventMatchTable rows={rows} domain={domain} season={season} />
+      <EventMatchTable rows={rows} domain={domain} season={season} algorithm={algorithmId as PublishedAlgorithmId} />
     </div>
   );
 }
