@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 08
 current_phase_name: simulation-compare
-status: executing
-stopped_at: Completed 08-14-PLAN.md
-last_updated: "2026-09-01T01:02:00.486Z"
+status: verifying
+stopped_at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
+last_updated: "2026-09-01T02:35:39.705Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 11
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 99
-  completed_plans: 98
+  completed_plans: 99
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 
 Phase: 08 (simulation-compare) — EXECUTING
 Plan: 15 of 15
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-31 — Phase 08 execution started
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -133,6 +133,7 @@ Progress: [██████████] 99%
 | Phase 08 P12 | 20min | 3 tasks | 6 files |
 | Phase 08 P13 | ~2h | 3 tasks | 9 files |
 | Phase 08 P14 | ~50min | 3 tasks | 11 files |
+| Phase 08 P15 | ~55min | 4 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -322,6 +323,8 @@ Recent decisions affecting current work:
 - [Phase ?]: mockWorker.ts's MockWorkerInstance gained a public terminated getter (Task 1 acceptance criteria anticipated this) so H9/H10 can assert terminate() was called without weakening the assertion.
 - [Phase ?]: [Phase 08 P14]: D-12 baseline-provenance mock finding measured at the LAST PLAYED qm row (not the first) -- a first-row start trivially reports every team as no-played-matches regardless of rp presence; 2024auwarp's summed-fallback (D-12 rule 2) proven reachable against real bytes, 25/25 teams, incompleteBaselineTeamKeyCount=0
 - [Phase ?]: [Phase 08 P14]: No locked rank-distribution row occurred at either sampled event (2023nhgrs, 2023cur) under the plan's fixed full-event-rewind mock methodology -- reported explicitly per the plan's own allowance; the bar/band/tick centre-agreement identity remains separately proven at the unit level against 08-04's real recomputed numbers
+- [Phase ?]: Phase 08 sealed: all 6 backstop markers (S0,S1,S2,S3,C1,C3) have named runnable evidence (6==6); real-device sign-off deliberately deferred to /gsd-verify-work by explicit user decision (human_verify_mode: end-of-phase), not performed/not waived
+- [Phase ?]: 08-14's RankDistributionTable.tsx typecheck regression (algorithm search param) routed and fixed (da26713f) -- durable lesson: repo-root pnpm typecheck does NOT cover apps/web, use pnpm --filter web typecheck
 
 ### Pending Todos
 
@@ -369,6 +372,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T01:02:00.452Z
-Stopped at: Completed 08-14-PLAN.md
+Last session: 2026-09-01T02:35:39.675Z
+Stopped at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
 Resume file: None
