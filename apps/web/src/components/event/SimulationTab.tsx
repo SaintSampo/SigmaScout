@@ -48,12 +48,16 @@ export interface SimulationTabProps {
  * D-04's one spelling of "which algorithm this tab needs" — the route
  * imports this for its disabled boolean (`algorithmId !== SIMULATION_ALGORITHM_ID`)
  * rather than hardcoding the string `"vpr"` a second time. This component
- * itself reads none of `algorithmId` on its props (PD-03) — Radix keeps this
- * panel mounted-but-hidden on every event page regardless of the active
- * algorithm, and re-deriving D-04's rule here a second time would give the
- * rule two homes that could drift; the route is the only place that decides
- * reachability. `season` (08-14, Task 3) IS now read — the rank-distribution
- * table's Team #/Nickname links need it for their own search params.
+ * does not use `algorithmId` to decide reachability itself (PD-03) — Radix
+ * keeps this panel mounted-but-hidden on every event page regardless of the
+ * active algorithm, and re-deriving D-04's rule here a second time would
+ * give the rule two homes that could drift; the route is the only place
+ * that decides reachability. `season` (08-14, Task 3) and `algorithmId`
+ * (08-14, typecheck fix) ARE now read and threaded straight through to
+ * `RankDistributionTable`'s own Team #/Nickname links, which need both for
+ * their `TeamSearchSchema` search params — the tab is VPR-only per D-04,
+ * but the actual selected `algorithmId` is carried rather than assumed, the
+ * same discipline `InsightsTab.tsx`/`BreakdownTab.tsx` already apply.
  */
 export const SIMULATION_ALGORITHM_ID: PublishedAlgorithmId = "vpr";
 
@@ -183,7 +187,7 @@ export function SimulationTabSkeleton() {
  *    output yet, and a centred empty-state block would replace the
  *    picker/run-control mount above it rather than sitting beneath them.
  */
-export function SimulationTab({ artifact, season }: SimulationTabProps) {
+export function SimulationTab({ artifact, algorithmId, season }: SimulationTabProps) {
   const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
 
   // The selected start matchKey — computed ONCE, in a lazy initializer, and
@@ -282,7 +286,7 @@ export function SimulationTab({ artifact, season }: SimulationTabProps) {
         CURRENT result exists.
       */}
       {rankResult !== null ? (
-        <RankDistributionTable rows={rankResult.rows} teamCount={rankResult.teamCount} season={season} />
+        <RankDistributionTable rows={rankResult.rows} teamCount={rankResult.teamCount} season={season} algorithmId={algorithmId} />
       ) : (
         <p data-testid={SIMULATION_PRE_RUN_TESTID} className="text-role-body text-muted-foreground">
           {SIMULATION_PRE_RUN_BODY}

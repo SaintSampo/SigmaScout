@@ -67,7 +67,7 @@ function row(overrides: Partial<RankDistributionRow> & { teamKey: string; teamCo
 async function renderTable(rows: readonly RankDistributionRow[], teamCount: number) {
   render(
     <TestHarness>
-      <RankDistributionTable rows={rows} teamCount={teamCount} season={2024} />
+      <RankDistributionTable rows={rows} teamCount={teamCount} season={2024} algorithmId="vpr" />
     </TestHarness>
   );
   await waitFor(() => expect(screen.getByTestId("rank-distribution-table-scroll")).toBeDefined());

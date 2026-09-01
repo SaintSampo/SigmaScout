@@ -30,6 +30,7 @@ import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } f
 import { useIsMobile } from "@/lib/breakpoints";
 import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, x } from "@/lib/simAxis";
 import { histBarHeight, rankBandLabel, type RankDistributionRow } from "./rankRows.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /** The Breakdown tab's own two-column pinned shape (`BreakdownTab.tsx`'s `BREAKDOWN_PINNED_COLUMN_IDS`) — this table has no rank column of its own to pin either. */
 export const RANK_PINNED_COLUMN_IDS = ["teamNumber", "nickname"] as const;
@@ -160,11 +161,18 @@ const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
 
 /**
- * The four columns, in `RANK_TABLE_HEADERS` order. `teamCount` and `season`
- * are closed over so the Distribution column's shared axis and every row's
- * team-page links share the same values the caller passed to the table.
+ * The four columns, in `RANK_TABLE_HEADERS` order. `teamCount`, `season` and
+ * `algorithmId` are closed over so the Distribution column's shared axis and
+ * every row's team-page links share the same values the caller passed to the
+ * table. `algorithmId` is typed as plain `string` here and cast to
+ * `PublishedAlgorithmId` at the one call site that needs it — the same
+ * loose-cast escape hatch `InsightsTab.tsx`/`BreakdownTab.tsx` already use
+ * for a value the type system widened crossing a component-prop boundary
+ * (it was already validated upstream through `RootSearchSchema.algorithm`,
+ * T-05-02, before this table ever rendered).
  */
-function buildRankTableColumns(teamCount: number, season: number, isNarrow: boolean) {
+function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean) {
+  const algorithm = algorithmId as PublishedAlgorithmId;
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
       header: RANK_TABLE_HEADERS[0],
@@ -173,7 +181,7 @@ function buildRankTableColumns(teamCount: number, season: number, isNarrow: bool
       // is the shared exported constant, never a new literal.
       size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
-        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, tab: "overview" }}>
+        <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
           {info.getValue()}
         </Link>
       ),
@@ -187,7 +195,7 @@ function buildRankTableColumns(teamCount: number, season: number, isNarrow: bool
           <Link
             to="/team/$teamNumber"
             params={{ teamNumber: String(info.row.original.teamNumber) }}
-            search={{ year: season, tab: "overview" }}
+            search={{ year: season, algorithm, tab: "overview" }}
             title={nickname}
             // `truncate` on the ANCHOR, not the cell — the anchor is the box
             // that actually overflows (InsightsTab.tsx's own measured
@@ -221,6 +229,7 @@ export interface RankDistributionTableProps {
   rows: readonly RankDistributionRow[];
   teamCount: number;
   season: number;
+  algorithmId: string;
 }
 
 /**
@@ -231,9 +240,12 @@ export interface RankDistributionTableProps {
  * rendered. Both the header and body carry a trailing sizeless filler cell
  * so slack is absorbed there rather than redistributed across real columns.
  */
-export function RankDistributionTable({ rows, teamCount, season }: RankDistributionTableProps) {
+export function RankDistributionTable({ rows, teamCount, season, algorithmId }: RankDistributionTableProps) {
   const isNarrow = useIsMobile();
-  const columns = useMemo(() => buildRankTableColumns(teamCount, season, isNarrow), [teamCount, season, isNarrow]);
+  const columns = useMemo(
+    () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow),
+    [teamCount, season, algorithmId, isNarrow]
+  );
   const columnPinning = useMemo(
     () => ({ start: isNarrow ? [...RANK_MOBILE_PINNED_COLUMN_IDS] : [...RANK_PINNED_COLUMN_IDS], end: [] }),
     [isNarrow]
