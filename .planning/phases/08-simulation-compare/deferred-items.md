@@ -5,6 +5,17 @@ task's own changes. Pre-existing issues in files this plan does not own are reco
 
 ## 08-15 Task 1 — pre-existing `tsc` failure in `RankDistributionTable.tsx` (08-14)
 
+**STATUS: RESOLVED.** Routed back to 08-14 during 08-15's own execution and fixed there in commit
+`da26713f` (`fix(08-14): thread algorithm through RankDistributionTable's team links`) — both
+`Link` calls now thread the real `algorithmId` through props rather than hardcoding it, matching
+`InsightsTab`/`BreakdownTab`'s existing cast pattern. `08-14-SUMMARY.md` (commit `cc6760ec`) carries
+a scope-trap note recording the durable lesson: **the repo-root `pnpm typecheck` runs `tsc --noEmit`
+at the root and does NOT cover `apps/web`, which has its own tsconfig and typecheck script. A green
+root typecheck is NOT evidence that the web app typechecks.** The authoritative command for web code
+is `pnpm --filter web typecheck`. This hid a real regression across three consecutive wave gates
+before 08-15's own `npx tsc --noEmit -p tsconfig.json` (run from `apps/web`) caught it. The
+orchestrator independently re-verified after the fix: web typecheck exit 0, root typecheck exit 0.
+
 **Found:** running this plan's own required `npx tsc --noEmit -p tsconfig.json` pass.
 
 **Confirmed pre-existing, not caused by 08-15:** `git stash`-ed every file this plan created/modified
