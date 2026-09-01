@@ -80,13 +80,12 @@ artifacts, 2026-08-30). Kept as a record so they are not re-investigated:
    and 07-08. `redScoreVarianceOwn`/`blueScoreVarianceOwn` are live on `EventMatchSchema` and on
    `EventUpcomingMatchSchema`.
 
-**One genuinely open item, for Phase 8:**
+**~~One genuinely open item, for Phase 8~~ — RESOLVED (2026-08-31):**
 
 - **Played event matches carry no `redRpPmf`/`blueRpPmf`.** Only `upcoming[]` does — verified live on
   `2025flta`. The harness *does* compute them (the team artifact publishes them on played matches), so
   this is publisher plumbing, not new computation. Phase 8 D-03 adds them at ~84 bytes/match against
-  ~22.7KB of headroom under the 350,000-byte event-artifact budget. **Until that republish lands, the
-  rank simulation can only run on the ~3% of events with genuinely unplayed qualification matches.**
+  ~22.7KB of headroom under the 350,000-byte event-artifact budget. **That republish LANDED (08-05, 2026-08-31: 56,774 objects, one generation, verify:subset 35/35) — played event matches now carry `redRpPmf`/`blueRpPmf` (season-dependent length: 5 for 2022–2024, 7 for 2025–2026) plus `actualRedRp`/`actualBlueRp`, and the rank simulation rewinds into played matches on every event.**
 
 ## Theme
 

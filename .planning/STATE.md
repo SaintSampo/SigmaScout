@@ -376,3 +376,6 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-09-01T02:35:39.675Z
 Stopped at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
 Resume file: None
+
+## Decisions
+- 2026-09-01: UI reviews for phases 05/06/08 permanently WAIVED by user decision ("never going to run") — do not propose /gsd-ui-review for them. 07-UI-REVIEW fixes 1+2 shipped; fix 3 resolved via ui-polish F3.
