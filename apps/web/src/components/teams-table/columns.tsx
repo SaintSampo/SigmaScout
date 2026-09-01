@@ -274,6 +274,16 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     }),
   );
 
+  // The narrow-viewport LEADING metric (F3): in the grouped view the
+  // headline is Total — the axis the whole table ranks by — so it takes the
+  // first-screenful slot; the components view keeps its original
+  // first-declared-component lead (the shipped F3 behavior). Same 120px
+  // declared width either way, so G-2/G-11's measured arithmetic is
+  // untouched.
+  const leadMetricIndex = view === "grouped" && hasGroupedTeamsView(algorithmId) ? metricKeys.indexOf(TOTAL_KEY) : 0;
+  const leadMetricColumns = [metricColumns[leadMetricIndex]!];
+  const restMetricColumns = metricColumns.filter((_, index) => index !== leadMetricIndex);
+
   // 07-UAT.md G-11: below MOBILE_BREAKPOINT_PX, `record` moves to sit
   // immediately after `nickname` (before the metric columns) — see
   // `RECORD_COLUMN_WIDTH_NARROW_PX`'s own doc comment for why the metric
@@ -359,9 +369,9 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     // original concern was that metrics cannot NARROW into record's slot;
     // they never needed to — the first one takes the slot at full width.
     // At/above the breakpoint the order is UNCHANGED.
-    ...(metricFirst ? metricColumns.slice(0, 1) : []),
+    ...(metricFirst ? leadMetricColumns : []),
     ...(isNarrow ? [recordColumn] : []),
-    ...(metricFirst ? metricColumns.slice(1) : metricColumns),
+    ...(metricFirst ? restMetricColumns : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
     winRateColumn,
   ]);

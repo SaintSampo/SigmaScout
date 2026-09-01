@@ -144,8 +144,9 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           (06-UI-SPEC.md E2 overflow).
         */}
         <div data-testid="season-header-metric-grid" className="grid grid-cols-2 gap-[var(--spacing-sm)] md:grid-cols-4">
+          {/* `items-start` on each cell (2026-09-01 redesign): flex-col stretch was widening each tier box to the full grid track — the box should hug its value like every other metric cell on the site. */}
           {tiles.map((tile) => (
-            <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+            <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
               <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
               <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
             </div>
