@@ -230,15 +230,20 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     // D-08/T-07-11-02: in fallback mode the header itself names the
     // algorithm whose ordering it is showing — a model-derived ordinal must
     // never sit under a bare "Rank" header a reader parses as official.
-    // `size` (07-UAT.md G-2): 72 at/above the breakpoint (unchanged —
-    // comfortably fits both "Rank" and the longer "VPR Rank"-style fallback
-    // header with no truncation), `RANK_COLUMN_WIDTH_NARROW_PX` below it —
-    // see that constant's own doc comment in `teams-table/columns.tsx` for
-    // the real-geometry derivation shared with `TeamsTable`.
+    // `size` (07-UAT.md G-2, revised by 07-UI-REVIEW priority fix 1): the
+    // plain "Rank" label keeps 72 at/above the breakpoint and
+    // `RANK_COLUMN_WIDTH_NARROW_PX` below it, but the longer fallback
+    // header ("VPR Rank") was MEASURED clipping live inside 72px on D-08
+    // fallback events (259/1,581 of the corpus) — rendering `VPR Ra…` on
+    // the one state whose whole point is naming the ranking source. In
+    // fallback mode this column budgets 96px at every width, matching what
+    // the Teams page's own Rank column already budgets for the same label
+    // shape. A readable source-naming header outranks the narrow-width
+    // budget on exactly these events.
     columnHelper.accessor((row) => row.displayRank, {
       id: "rank",
       header: rankHeader,
-      size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72,
+      size: orderSource === "official" ? (isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72) : 96,
       cell: (info) => {
         const value = info.getValue();
         return <span className="numeric-cell">{value === undefined ? "—" : value}</span>;

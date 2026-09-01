@@ -29,6 +29,7 @@ import { MetricValue, type DisplayMetric } from "@/components/MetricValue";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { useIsMobile } from "@/lib/breakpoints";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
@@ -316,8 +317,15 @@ const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "
  * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
  * every sibling tab's own header comment): pinning offsets require
  * `columnSizingFeature` registered alongside `columnPinningFeature`, or
- * `getStart`/`getSize` do not exist at all. Pin nothing here — at seven
- * columns there is no leading group worth freezing.
+ * `getStart`/`getSize` do not exist at all. At/above the breakpoint nothing
+ * is pinned — at seven columns there is no leading group worth freezing.
+ * Below `MOBILE_BREAKPOINT_PX` the single `Alliance #` column pins
+ * (07-UI-REVIEW priority fix 2): this tab's own stated purpose — "which
+ * alliance is strongest" — requires reading Combined Total, which sits four
+ * columns past a 390px viewport's edge with nothing anchoring which row the
+ * reader is on. One 84px 2-digit column is cheap, and mirrors the
+ * identity-pinning pattern already proven safe on Insights/Breakdown/Teams
+ * (G-1/G-2/G-11).
  */
 const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, AllianceRow>();
@@ -502,7 +510,12 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
   const rows = useMemo(() => buildAllianceRows(artifact, algorithmId), [artifact, algorithmId]);
   const columns = useMemo(() => buildAllianceColumns(algorithmId, season), [algorithmId, season]);
 
-  const table = useTable({ features, columns, data: rows });
+  // 07-UI-REVIEW priority fix 2: pin the identity column below the sitewide
+  // breakpoint only — see the `features` doc comment above for the rationale.
+  const isNarrow = useIsMobile();
+  const columnPinning = useMemo(() => ({ start: isNarrow ? ["allianceNumber"] : [], end: [] }), [isNarrow]);
+
+  const table = useTable({ features, columns, data: rows, state: { columnPinning } });
 
   const incompleteCount = rows.filter((row) => !row.combinable).length;
 
@@ -520,31 +533,58 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           (`.metric-tier`'s own `min-width: 80px`, never free-growing text).
           Re-evaluated and switched to `table-layout: fixed` here, matching
           every other event table (Insights/Breakdown/TeamsTable, G-1's own
-          fix) — this table has no pinned columns, so there is no
-          sticky-offset defect either layout choice could introduce or fix;
-          the only property in play is declared-vs-actual column width, and
-          `fixed` makes them equal by construction.
+          fix). Since 07-UI-REVIEW fix 2 this table pins `Alliance #` below
+          the breakpoint, so `fixed` is now load-bearing the same way it is
+          on Insights: it keeps the pinned column's sticky `left` offset in
+          sync with where its neighbour actually renders (G-1's own lesson).
         */}
         <table style={{ width: "100%", tableLayout: "fixed", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} data-testid={`alliances-header-${header.column.id}`} className="text-role-label truncate" style={{ width: header.getSize() }}>
-                    <table.FlexRender header={header} />
-                  </TableHead>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const pinned = header.column.getIsPinned() === "start";
+                  return (
+                    <TableHead
+                      key={header.id}
+                      data-testid={`alliances-header-${header.column.id}`}
+                      className="text-role-label truncate"
+                      style={{
+                        width: header.getSize(),
+                        position: pinned ? "sticky" : undefined,
+                        left: pinned ? header.getStart("start") : undefined,
+                        zIndex: pinned ? 4 : 3,
+                        background: "var(--color-bg-surface)",
+                      }}
+                    >
+                      <table.FlexRender header={header} />
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id} data-testid="alliances-row" data-alliance-number={row.original.allianceNumber}>
-                {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} data-testid={`alliances-cell-${cell.column.id}`} className="text-role-body">
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
-                ))}
+                {row.getAllCells().map((cell) => {
+                  const pinned = cell.column.getIsPinned() === "start";
+                  return (
+                    <TableCell
+                      key={cell.id}
+                      data-testid={`alliances-cell-${cell.column.id}`}
+                      className="text-role-body"
+                      style={{
+                        position: pinned ? "sticky" : undefined,
+                        left: pinned ? cell.column.getStart("start") : undefined,
+                        zIndex: pinned ? 1 : undefined,
+                        background: pinned ? "var(--color-bg-page)" : undefined,
+                      }}
+                    >
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  );
+                })}
               </TableRow>
             ))}
           </TableBody>

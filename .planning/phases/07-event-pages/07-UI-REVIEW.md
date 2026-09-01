@@ -42,6 +42,12 @@ This audit does **not** re-report G-1 through G-13 — all thirteen are recorded
 
 ## Top 3 Priority Fixes
 
+> **Disposition (2026-08-31):** Fix 1 RESOLVED — the fallback-mode Rank column now budgets 96px at
+> every width (`InsightsTab.tsx`), matching the Teams page's own Rank budget. Fix 2 RESOLVED —
+> `AlliancesTab.tsx` pins `Alliance #` below the breakpoint via the proven Insights sticky pattern.
+> Fix 3 FOLDED into the `ui-polish-pass` todo by explicit user decision — it is a layout-priority
+> design question, decided there rather than patched in isolation.
+
 1. **`VPR Rank` header text clips inside Insights' 72px Rank column, live on the D-08 fallback state** — a scout reading a no-official-ranking event (259/1,581 corpus events) sees a nonsense truncated header `VPR Ra…` where the whole point of that state is telling them the ranking source changed. Fix: give the `Rank`/`{Algo} Rank` header its own `min-width` (measured: the label needs ~72px of content width alone, i.e. ~88px with padding — matching what the Teams page's own 96px Rank column already budgets) rather than reusing the plain-`"Rank"`-sized 72px column for both label lengths.
 
 2. **Alliances tab has no pinned column at all, so scrolling right to read Pick 3 or Combined Total on a 390px phone loses the alliance number entirely** — the tab's own stated purpose ("which alliance is strongest") requires reading Combined Total, which sits 4 columns past the edge with nothing anchoring which row you're on. Fix: pin `Alliance #` (a single 2-digit column, cheap) below `MOBILE_BREAKPOINT_PX`, mirroring the identity-pinning pattern already proven safe on Insights/Breakdown/Teams (G-1/G-2/G-11).
