@@ -133,9 +133,19 @@ function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> 
   return raw;
 }
 
-/** True for a played row's `actualRedRp`/`actualBlueRp`: `EventUpcomingMatchSchema` carries no such field at all, so an upcoming row is structurally never asked this question. */
+/**
+ * True for a played row. Discriminates on `actualWinner` — REQUIRED on every
+ * `EventMatchSchema` row in every artifact era, and structurally absent from
+ * `EventUpcomingMatchSchema` — never on the OPTIONAL `actualRedRp` pair
+ * (08-REVIEW WR-01): a pre-republish artifact's played rows carry
+ * `actualWinner` but not `actualRedRp`, and keying on the optional field
+ * would silently reclassify them as upcoming, reproducing exactly the
+ * "coerce a missing baseline to 0 with no caveat" outcome D-12 rejects.
+ * On such rows `actualRedRp` reads `undefined`, which `accumulateAlliance`
+ * treats as an appearance with unknowable RP credit (known-incomplete).
+ */
 function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number] {
-  return "actualRedRp" in row;
+  return "actualWinner" in row;
 }
 
 /**
@@ -232,7 +242,11 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
       if (typeof actualRp === "number") {
         prefixSum.set(teamKey, (prefixSum.get(teamKey) ?? 0) + actualRp);
         prefixCounted.set(teamKey, (prefixCounted.get(teamKey) ?? 0) + 1);
-      } else if (actualRp === null) {
+      } else {
+        // `null` (published as not-derivable) OR `undefined` (pre-republish
+        // artifact, field absent — 08-REVIEW WR-01): either way the
+        // appearance is real but its RP credit is unknowable from these
+        // bytes, so the baseline is known-incomplete rather than quietly 0.
         incompleteTeamKeys.add(teamKey);
       }
     }

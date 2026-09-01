@@ -50,6 +50,8 @@ VPR-only by construction, D-04) to both `search={{ ... }}` objects in `RankDistr
 
 ## 08-15 Task 3 — `AccuracyTable.tsx`'s scroll wrapper is redundant; the testid'd region never itself overflows
 
+**STATUS: RESOLVED (2026-08-31).** `AccuracyTable.tsx` (table + skeleton) now renders a raw `<table>` inside its own testid'd scroll region, matching every sibling table in the app — the region IS the literal scrolling element. `compare-narrow-legibility.spec.ts`'s inner-wrapper workaround locator was removed in the same change.
+
 **Found:** running this plan's own required C1 evidence (`compare-narrow-legibility.spec.ts`) — the
 premise guard (`assertOverflows`) failed against `AccuracyTable.tsx`'s own `compare-accuracy-scroll`
 testid'd div, measured live at 390px: `scrollWidth === clientWidth === 342`, never overflowing.

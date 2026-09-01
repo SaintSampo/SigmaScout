@@ -104,7 +104,6 @@ export interface RankMockRowMeasurement {
   readonly occupiedRankCount: number;
   readonly visibleBarCount: number;
   readonly maxBinCount: number;
-  readonly totalBarElementCount: number;
   readonly isLocked: boolean;
 }
 
@@ -214,7 +213,6 @@ function measureRow(row: RankDistributionRow): RankMockRowMeasurement {
     occupiedRankCount: occupiedRankCount(row),
     visibleBarCount: visibleBarCount(row),
     maxBinCount: row.maxBinCount,
-    totalBarElementCount: visibleBarCount(row),
     isLocked: isLockedRow(row),
   };
 }
@@ -448,7 +446,7 @@ export async function measureEvent(origin: string, eventKey: string, algorithmVe
     falsificationPassed: mostSpread.visibleBarCount - mostLocked.visibleBarCount > 1,
   };
 
-  const totalBars = rowMeasurements.reduce((sum, r) => sum + r.totalBarElementCount, 0);
+  const totalBars = rowMeasurements.reduce((sum, r) => sum + r.visibleBarCount, 0);
   const axisTicks = rankAxisTicks(teamCount);
   const nodeCountBudget = {
     totalBars,

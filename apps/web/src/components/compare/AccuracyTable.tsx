@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { cn } from "@/lib/utils";
 import {
@@ -198,7 +198,13 @@ export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableP
       data-testid={COMPARE_ACCURACY_SCROLL_TESTID}
       className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain"
     >
-      <Table>
+      {/* Raw <table>, NOT shadcn's <Table> (08-15 deferred item, fixed):
+          <Table> wraps its own [data-slot="table-container"] overflow-x-auto
+          div, which absorbed all horizontal overflow and left this testid'd
+          region never overflowing by construction — the one table in the app
+          whose *-scroll testid was not the literal scrolling element. The
+          row/cell primitives (TableBody/TableRow/...) stay shadcn. */}
+      <table data-slot="table" className="w-full caption-bottom text-sm">
         <AccuracyTableHeader />
         <TableBody>
           {rows.map((row) => {
@@ -229,7 +235,7 @@ export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableP
             );
           })}
         </TableBody>
-      </Table>
+      </table>
     </div>
   );
 }
@@ -245,12 +251,12 @@ export function AccuracyTableSkeleton() {
       data-testid={COMPARE_ACCURACY_SCROLL_TESTID}
       className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain"
     >
-      <Table>
+      <table data-slot="table" className="w-full caption-bottom text-sm">
         <AccuracyTableHeader />
         <TableBody>
           <SkeletonRows rows={ACCURACY_TABLE_ROW_COUNT} columns={ACCURACY_TABLE_COLUMN_COUNT} />
         </TableBody>
-      </Table>
+      </table>
     </div>
   );
 }

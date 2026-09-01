@@ -65,17 +65,6 @@ function formatPercentTick(value: number): string {
   return `${Math.round(value)}%`;
 }
 
-/** One algorithm's own `meanPredicted*100 -> CalibrationPoint` lookup, so a dot's click/hover handler can recover the ORIGINAL point object `buildCalibrationRows` derived its row's x from — never a second, independently-recomputed point. */
-function buildPointLookup(pointsByAlgorithm: AlgorithmPoints): ReadonlyMap<PublishedAlgorithmId, ReadonlyMap<number, CalibrationPoint>> {
-  const lookup = new Map<PublishedAlgorithmId, Map<number, CalibrationPoint>>();
-  for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
-    const byX = new Map<number, CalibrationPoint>();
-    for (const point of pointsByAlgorithm[algorithmId]) byX.set(point.meanPredicted * 100, point);
-    lookup.set(algorithmId, byX);
-  }
-  return lookup;
-}
-
 /**
  * A custom dot renderer, one per algorithm's `<Line>`. Recharts calls this
  * once per row REGARDLESS of which series that row belongs to (`payload` is
@@ -87,7 +76,6 @@ function buildPointLookup(pointsByAlgorithm: AlgorithmPoints): ReadonlyMap<Publi
 function makeCalibrationDot(
   algorithmId: PublishedAlgorithmId,
   algorithmLabel: string,
-  pointLookup: ReadonlyMap<number, CalibrationPoint>,
   onPointSelect: CalibrationChartProps["onPointSelect"],
   onPointDeselect: CalibrationChartProps["onPointDeselect"],
 ) {
@@ -96,8 +84,10 @@ function makeCalibrationDot(
     const row = payload as CalibrationChartRow;
     const cell = row[algorithmId];
     if (cell === null || cx === undefined || cy === undefined) return null;
-    const point = pointLookup.get(row.x);
-    if (point === undefined) return null;
+    // 08-REVIEW WR-02: the point rides on its own cell — never recovered
+    // through a float-keyed (`meanPredicted * 100`) lookup that two
+    // different bins could theoretically collide on.
+    const point = cell.point;
 
     const handleSelect = (): void => onPointSelect(algorithmId, point);
     const handleDeselect = (): void => onPointDeselect?.();
@@ -172,7 +162,6 @@ export default function CalibrationChart({ pointsByAlgorithm, activeAlgorithmId,
 
   const rows = buildCalibrationRows(pointsByAlgorithm);
   const stats = countStats(pointsByAlgorithm);
-  const pointLookupByAlgorithm = buildPointLookup(pointsByAlgorithm);
 
   return (
     <div ref={containerRef} className="w-full" data-testid={CALIBRATION_CHART_TESTID} data-active-algorithm-id={activeAlgorithmId}>
@@ -213,7 +202,7 @@ export default function CalibrationChart({ pointsByAlgorithm, activeAlgorithmId,
             connectNulls
             isAnimationActive={false}
             activeDot={false}
-            dot={makeCalibrationDot(algorithmId, algorithmDisplayLabel(algorithmId), pointLookupByAlgorithm.get(algorithmId)!, onPointSelect, onPointDeselect)}
+            dot={makeCalibrationDot(algorithmId, algorithmDisplayLabel(algorithmId), onPointSelect, onPointDeselect)}
           />
         ))}
       </LineChart>

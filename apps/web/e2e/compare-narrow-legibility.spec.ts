@@ -56,27 +56,12 @@ test.describe("C1 — the Compare accuracy table at 390px: pans inside its own r
     await openComparePage(page);
     const region = page.locator(`[data-testid="${ACCURACY_SCROLL_TESTID}"]`);
 
-    // [Rule 1 - Bug, found live running this task's own required e2e pass,
-    // routed to deferred-items.md rather than fixed here — out of this
-    // plan's declared file scope] `AccuracyTable.tsx`'s own
-    // `compare-accuracy-scroll` div wraps shadcn's `<Table>` primitive
-    // (`ui/table.tsx`), which ALREADY renders its own
-    // `[data-slot="table-container"]` div carrying `overflow-x-auto`. That
-    // inner div is the REAL scroll boundary — measured live: outer
-    // scrollWidth === clientWidth (342 === 342, never overflows by
-    // construction, since its only child is capped at 100% width) while the
-    // inner div's scrollWidth is 929 against the same 342 clientWidth, and a
-    // real drag over the visible table DOES advance the INNER div's
-    // scrollLeft (confirmed live). Every other table in this app
-    // (Insights/Breakdown/Quals/Alliances/Elims/the rank-distribution table)
-    // builds its own scroll-region div directly around a raw `<table>`
-    // rather than through this shadcn wrapper, so `compare-accuracy-scroll`
-    // is the one table-scroll testid in the app that does not identify the
-    // literal scrolling element. The user-facing behaviour still works (a
-    // real touch naturally lands on whichever element actually scrolls), so
-    // this evidence targets the REAL scroller rather than silently loosening
-    // any assertion — see `deferred-items.md` for the routed finding.
-    const scroller = region.locator('[data-slot="table-container"]');
+    // The routed deferred-items.md finding this comment used to describe is
+    // FIXED (2026-08-31): `AccuracyTable.tsx` now renders a raw `<table>`
+    // inside its own scroll region — matching every sibling table in the
+    // app — so `compare-accuracy-scroll` IS the literal scrolling element
+    // and this evidence targets it directly, no inner-wrapper workaround.
+    const scroller = region;
 
     await assertOverflows(scroller);
     await assertNoIntermediateScroller(scroller);

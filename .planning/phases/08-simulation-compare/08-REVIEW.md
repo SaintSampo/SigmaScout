@@ -95,7 +95,7 @@ findings:
   warning: 2
   info: 2
   total: 4
-status: issues_found
+status: resolved
 ---
 
 # Phase 8: Code Review Report
@@ -146,6 +146,8 @@ robustness/quality notes.
 ## Warnings
 
 ### WR-01: Fragile discriminant for "is this a played row" keys off an optional field, not a guaranteed-present one
+
+**Status:** resolved — `isPlayedRawRow` now discriminates on `actualWinner` (required on every played row in every artifact era); a played row with absent `actualRedRp` (pre-republish) counts as an appearance with unknowable RP credit (known-incomplete), never a silent 0 (2026-08-31).
 
 **File:** `apps/web/src/lib/simulationInputs.ts:136-139`
 **Issue:**
@@ -237,6 +239,8 @@ zeroing it).
 
 ### WR-02: `CalibrationChart`'s point-selection lookup is keyed by a computed float that could theoretically collide
 
+**Status:** resolved — `CalibrationChartCell` now carries its ORIGINAL `point`; the dot renderer reads it off the cell and the float-keyed `buildPointLookup` is deleted (2026-08-31).
+
 **File:** `apps/web/src/components/compare/CalibrationChart.tsx:69-77, 99`
 **Issue:** `buildPointLookup` keys a `Map<number, CalibrationPoint>` by
 `point.meanPredicted * 100` per algorithm. `buildCalibrationRows`
@@ -261,6 +265,8 @@ already carries (`binStart`).
 
 ### IN-01: `resolveWinnerAccuracyLeaders`'s explicit zero-`scoredCount` guard duplicates work `naiveStandardError`/`isNearTie` already do
 
+**Status:** resolved — kept per the finding's own second option: the doc comment now names the deliberate redundancy with `isNearTie`'s non-finite guard so the two paths cannot drift silently (2026-08-31).
+
 **File:** `apps/web/src/lib/compareTie.ts:160-172`
 **Issue:** `resolveWinnerAccuracyLeaders` explicitly checks
 `leader.scoredCount === 0 || runnerUp.scoredCount === 0` and returns `[]`
@@ -284,6 +290,8 @@ reason the doc comment already states — the code currently states that
 reason without acknowledging the guard is otherwise redundant.
 
 ### IN-02: `mockRankDistribution.ts`'s `totalBarElementCount` field is a duplicate of `visibleBarCount`
+
+**Status:** resolved — `totalBarElementCount` removed; the node-budget sum reads `visibleBarCount` directly (2026-08-31).
 
 **File:** `scripts/mockRankDistribution.ts:214-219`
 **Issue:** `measureRow` sets both `visibleBarCount: visibleBarCount(row)` and

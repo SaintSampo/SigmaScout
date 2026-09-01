@@ -153,6 +153,13 @@ export interface CalibrationChartCell {
   readonly y: number;
   readonly count: number;
   readonly radius: number;
+  /**
+   * The ORIGINAL point this cell was derived from (08-REVIEW WR-02): the
+   * dot renderer reads the point off its own cell rather than through a
+   * float-keyed lookup (`meanPredicted * 100`), which could theoretically
+   * collide across two different bins and misattribute a hover/click.
+   */
+  readonly point: CalibrationPoint;
 }
 
 /**
@@ -190,6 +197,7 @@ export function buildCalibrationRows(pointsByAlgorithm: AlgorithmPoints): Calibr
           y: point.observedFrequency * 100,
           count: point.count,
           radius: calibrationPointRadius(point.count, maxCount),
+          point,
         },
       });
     }

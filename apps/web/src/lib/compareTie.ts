@@ -153,7 +153,12 @@ export function resolveBrierLeaders(candidates: readonly BrierCandidate[]): read
  * Higher is better. Before the tie test: if either leading cell's
  * `scoredCount` is zero, return empty — a count of zero is a fact about the
  * slice worth naming in its own branch rather than leaving to the
- * non-finite guard alone. Otherwise combines each leading cell's OWN
+ * non-finite guard alone. 08-REVIEW IN-01: this branch is DELIBERATELY
+ * redundant with `isNearTie`'s non-finite guard (`naiveStandardError(p, 0)`
+ * is non-finite, which `isNearTie` already reads as a tie) — the two paths
+ * converge on the same `[]`, so editing either alone cannot change the
+ * outcome; keep them in agreement rather than "simplifying" one away.
+ * Otherwise combines each leading cell's OWN
  * standard error (built from that cell's own `scoredCount`, never a row- or
  * artifact-level count) and calls `isNearTie`.
  */
