@@ -53,17 +53,22 @@ const START_MATCH_SCOPE_TESTID = "start-match-scope";
 /**
  * The minted line that replaces the hint once a start match is selected
  * (flagged planner assumption 3, 08-11-PLAN.md — no Copywriting Contract row
- * existed for this state). Names the simulated match count, the start
- * match's own label and the shared draw count, then discloses D-12's two
- * honesty gaps — the excluded-match count and the incomplete-baseline-team
- * count — each omitted entirely when its own count is zero, because a
- * disclosure that always renders teaches a reader to stop reading it. This
- * is the ONLY surface on this site that discloses either count.
+ * existed for this state), then discloses D-12's two honesty gaps — the
+ * excluded-match count and the incomplete-baseline-team count — each omitted
+ * entirely when its own count is zero, because a disclosure that always
+ * renders teaches a reader to stop reading it. This is the ONLY surface on
+ * this site that discloses either count.
+ *
+ * 2026-09-01 (user-authored wording): the lead sentence now says plainly
+ * that the chosen match is itself simulated. The old phrasing ("from Qual 1
+ * onward") left a reader guessing whether the selected match was included or
+ * excluded — it IS included: `buildSimulationInputs` collects remaining
+ * matches from the start index INCLUSIVE, and accumulates starting ranking
+ * points only from matches STRICTLY BEFORE it. "and every Qual after it"
+ * states that boundary in words.
  */
-export function simulationScopeText(inputs: SimulationInputs, startLabel: string): string {
-  const matchCount = inputs.remainingMatches.length;
-  const matchNoun = matchCount === 1 ? "match" : "matches";
-  let text = `Simulating ${matchCount} qualification ${matchNoun} from ${startLabel} onward, ${SIMULATION_DRAWS} draws.`;
+export function simulationScopeText(inputs: SimulationInputs, startMatchNumber: number): string {
+  let text = `Simulating qualification match ${startMatchNumber} and every Qual after it ${SIMULATION_DRAWS} times.`;
 
   if (inputs.excludedMatchKeys.length > 0) {
     text += ` ${inputs.excludedMatchKeys.length} further qualification match(es) carry no predicted ranking-point distribution and are not simulated.`;
@@ -92,8 +97,8 @@ export interface StartMatchPickerProps {
   onSelect: (matchKey: string) => void;
   /** The assembled `SimulationInputs` for the CURRENT selection, or `null` when nothing is selected. */
   inputs: SimulationInputs | null;
-  /** The selected row's `matchLabel` output, or `null` when nothing is selected. */
-  startLabel: string | null;
+  /** The selected row's own qualification match NUMBER, or `null` when nothing is selected — the scope line names it directly. */
+  startMatchNumber: number | null;
   /** PD-09: inert for the duration of a run, so a mid-run click cannot change the start match under a running simulation (08-13 wires the real value; `SimulationTab` passes `false` until then). Named for the effect, not for its one known cause — a caller freezing the picker for a different reason needs no new prop. Rows stay READABLE while inert: their labels and team numbers remain in the document so a reader can still see which match a running simulation started from. */
   disabled: boolean;
 }
@@ -160,8 +165,8 @@ function StartMatchSummary({ row }: { row: EventMatchRow }) {
  * keyboard; the draft is dropped on blur so the field always returns to
  * showing the real selection.
  */
-export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, startLabel, disabled }: StartMatchPickerProps) {
-  const disclosureText = inputs !== null && startLabel !== null ? simulationScopeText(inputs, startLabel) : START_MATCH_PICKER_HINT;
+export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, startMatchNumber, disabled }: StartMatchPickerProps) {
+  const disclosureText = inputs !== null && startMatchNumber !== null ? simulationScopeText(inputs, startMatchNumber) : START_MATCH_PICKER_HINT;
   const [draft, setDraft] = useState<string | null>(null);
 
   const selectedIndex = rows.findIndex((row) => row.matchKey === selectedMatchKey);

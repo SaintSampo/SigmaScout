@@ -6,7 +6,6 @@ import { RunControl } from "./RunControl.js";
 import { useSimulationRun } from "./useSimulationRun.js";
 import { RankDistributionTable } from "./RankDistributionTable.js";
 import { buildRankDistributionRows } from "./rankRows.js";
-import { matchLabel } from "../team/MatchTable.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -208,9 +207,10 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
     [artifact, resolvedMatchKey]
   );
 
-  const startLabel = useMemo(() => {
+  // The selected match's own qualification NUMBER — what the scope line names.
+  const startMatchNumber = useMemo(() => {
     const selectedRow = resolvedMatchKey !== null ? qualRows.find((row) => row.matchKey === resolvedMatchKey) : undefined;
-    return selectedRow ? matchLabel(selectedRow) : null;
+    return selectedRow ? selectedRow.matchNumber : null;
   }, [qualRows, resolvedMatchKey]);
 
   // 08-13, PD-02: the signature a completed result is checked against at
@@ -264,7 +264,7 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
         selectedMatchKey={resolvedMatchKey}
         onSelect={setSelectedMatchKey}
         inputs={simulationInputs}
-        startLabel={startLabel}
+        startMatchNumber={startMatchNumber}
         // 08-13: inert for the duration of a run, so a mid-run click cannot
         // change the start match under a running simulation (PD-09 on the
         // picker's own side).
