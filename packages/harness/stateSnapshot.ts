@@ -83,8 +83,21 @@ export class MissingLeagueRowError extends Error {
  * `lastEventByTeam` living inside the league row) unreadable rather than
  * silently parsed with those per-team maps discarded. A retired-shape row
  * has no `snapshotShapeVersion` field at all, so it always fails this check.
+ *
+ * Bumped 2 -> 3 (D-Q4, quick task 260901-is2): OPR's league payload gained
+ * `allianceScoreStats`, the expanding-window accumulator feeding its logistic
+ * scale. This bump is load-bearing, not ceremony. `apps/worker/src/
+ * stateStore.ts`'s `readScopedState` filters rows by `algorithm_id` ONLY and
+ * never by `algorithm_version`, so bumping `opr.version` to 4.0.0 does NOT by
+ * itself make a stale seeded row unreachable — a shape-2 OPR league row
+ * written before this change is still selected and parsed. Without this bump
+ * it would deserialize with `allianceScoreStats` as `undefined`, and
+ * `standardDeviation(undefined, ...)` would throw or silently fall back deep
+ * inside `predict` on live traffic. The shape check is the only thing that
+ * turns that into a loud `LeagueRowShapeVersionError` at load time, naming the
+ * re-seed as the fix.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 2;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 3;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -405,6 +418,8 @@ interface SerializedOprEventState {
 
 interface SerializedOprLeague {
   snapshotShapeVersion: number;
+  /** D-Q4: the season-wide expanding alliance-score accumulator behind OPR's logistic scale. League-scoped, exactly as the sigma1 and epa league rows already carry their own `allianceScoreStats`. */
+  allianceScoreStats: ExpandingStats;
 }
 
 /** D-13: `lastEventByTeam`'s per-team entry, moved out of the league row (it was OPR's only offender — see `SeedRowTooLargeError`'s doc comment). One row per team, never folded into that team's most-recent EVENT row (see this plan's action text on why that alternative is ambiguous under interleaved events). */
@@ -413,7 +428,10 @@ interface SerializedOprTeamRow {
 }
 
 function serializeOprState(algorithmId: string, algorithmVersion: string, state: OprState, stamp: StateStamp): StateRow[] {
-  const leagueJson: SerializedOprLeague = { snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION };
+  const leagueJson: SerializedOprLeague = {
+    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
+    allianceScoreStats: state.allianceScoreStats,
+  };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
 
@@ -458,7 +476,7 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
     }
   }
 
-  return { perEvent, lastEventByTeam };
+  return { perEvent, lastEventByTeam, allianceScoreStats: leagueJson.allianceScoreStats };
 }
 
 // ---------------------------------------------------------------------------

@@ -18,10 +18,14 @@ import type { ParsedComponents } from "./constants.js";
  * The per-component split below is IMPUTED from the alliance's own current
  * predicted shares, not observed directly — so an algorithm that carries
  * measurement noise (Sigma1, a later plan) should treat a fallback
- * observation as proportionally less informative than a real one. Mirrors
- * `opr.ts`'s `OPR_LOGISTIC_SCALE` reasoning style: a small, documented
- * constant chosen for a defensible qualitative property, not derived from
- * data. EPA carries no variance channel and does not consume this constant
+ * observation as proportionally less informative than a real one. This is a
+ * small, documented constant chosen for a defensible qualitative property,
+ * not derived from data. (It used to cite `opr.ts`'s `OPR_LOGISTIC_SCALE` as
+ * the precedent for that style; that constant no longer exists — D-Q4
+ * replaced it with an expanding-window SD precisely BECAUSE a fixed,
+ * qualitatively-chosen scale turned out to be badly wrong. Read this one as
+ * an unverified default awaiting the same treatment, not as a vindicated
+ * pattern.) EPA carries no variance channel and does not consume this constant
  * itself; it exists here so Sigma1's fallback wiring has it ready-made
  * rather than re-deriving the same reasoning.
  * Phase 3 hyperparameter, default unverified.

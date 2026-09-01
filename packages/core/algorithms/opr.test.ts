@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  OPR_LOGISTIC_SCALE,
+  OPR_FALLBACK_SCORE_SD,
+  OPR_SCALE_DIVISOR_K,
   allianceObservation,
   opr,
   ratingEligibleTeams,
@@ -14,6 +15,8 @@ import {
   type OprObservation,
   type OprState,
 } from "./opr.js";
+import { EPA_FALLBACK_SCORE_SD } from "./epa.js";
+import { standardDeviation } from "../scoring/expandingStats.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "./types.js";
 import { WalkForwardSimulator } from "../../harness/replay.js";
 import { ALGORITHMS } from "../../harness/cli.js";
@@ -62,9 +65,176 @@ function observationsAt(state: OprState, eventKey: string): readonly OprObservat
   return state.perEvent.get(eventKey)?.observations ?? [];
 }
 
-describe("OPR_LOGISTIC_SCALE", () => {
-  it("is an exported positive constant", () => {
-    expect(OPR_LOGISTIC_SCALE).toBeGreaterThan(0);
+describe("OPR logistic-scale constants (D-Q4)", () => {
+  it("both exported constants are positive — a zero or negative either would make the scale non-finite or invert the logistic", () => {
+    expect(OPR_SCALE_DIVISOR_K).toBeGreaterThan(0);
+    expect(OPR_FALLBACK_SCORE_SD).toBeGreaterThan(0);
+  });
+
+  it("OPR_FALLBACK_SCORE_SD equals EPA_FALLBACK_SCORE_SD — the 'matching' claim is pinned, not just asserted in prose", () => {
+    // The two cannot be a single shared import: epa.ts imports
+    // ratingEligibleTeams from opr.ts, so importing back would create a module
+    // cycle. This test is what stops the duplicated constants drifting apart.
+    expect(OPR_FALLBACK_SCORE_SD).toBe(EPA_FALLBACK_SCORE_SD);
+  });
+});
+
+/** Inverts `pRedWin = 1/(1 + exp(-margin/scale))` to recover the scale a prediction was made under. */
+function impliedScale(pRedWin: number, margin: number): number {
+  return -margin / Math.log(1 / pRedWin - 1);
+}
+
+describe("opr.predict — expanding-window logistic scale (D-Q4)", () => {
+  /** A state with a known rating spread at one event, so `predict` produces a known margin. */
+  function stateWithRatings(state: OprState, eventKey: string, ratings: [string, number][]): OprState {
+    const perEvent = new Map(state.perEvent);
+    perEvent.set(eventKey, { observations: [], ratings: new Map(ratings) });
+    return { ...state, perEvent };
+  }
+
+  const upcoming: UpcomingMatch = {
+    matchKey: "2024test_qm9",
+    eventKey: "2024test",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 9,
+    redTeams: ["R1", "R2", "R3"],
+    blueTeams: ["B1", "B2", "B3"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 0,
+  };
+
+  it("with fewer than 2 folded scores, falls back to OPR_FALLBACK_SCORE_SD / OPR_SCALE_DIVISOR_K — never 0, never NaN, and never the retired 10", () => {
+    const state = stateWithRatings(opr.initState([]), "2024test", [
+      ["R1", 20],
+      ["R2", 0],
+      ["R3", 0],
+      ["B1", 0],
+      ["B2", 0],
+      ["B3", 0],
+    ]);
+    expect(state.allianceScoreStats.count).toBeLessThan(2);
+
+    const prediction = opr.predict(state, upcoming);
+    const margin = prediction.redScore - prediction.blueScore;
+    expect(margin).toBeCloseTo(20, 10);
+    expect(Number.isFinite(prediction.pRedWin)).toBe(true);
+
+    expect(impliedScale(prediction.pRedWin, margin)).toBeCloseTo(OPR_FALLBACK_SCORE_SD / OPR_SCALE_DIVISOR_K, 9);
+    // Proves the retired fixed constant is gone from the prediction path.
+    expect(impliedScale(prediction.pRedWin, margin)).not.toBeCloseTo(10, 6);
+  });
+
+  it("after folding a spread of alliance scores, the scale is standardDeviation(allianceScoreStats, 25) / 1.1", () => {
+    // Fold a sequence of qm matches with a deliberately wide score spread.
+    let state = opr.initState([]);
+    const scores: [number, number][] = [
+      [30, 20],
+      [80, 45],
+      [120, 60],
+      [55, 95],
+    ];
+    scores.forEach(([redScore, blueScore], i) => {
+      state = opr.update(
+        state,
+        match({
+          matchKey: `2024test_qm${i + 1}`,
+          matchNumber: i + 1,
+          redTeams: ["R1", "R2", "R3"],
+          blueTeams: ["B1", "B2", "B3"],
+          redScore,
+          blueScore,
+        })
+      );
+    });
+    expect(state.allianceScoreStats.count).toBe(8);
+
+    const withRatings = stateWithRatings(state, "2024other", [
+      ["R1", 15],
+      ["R2", 0],
+      ["R3", 0],
+      ["B1", 0],
+      ["B2", 0],
+      ["B3", 0],
+    ]);
+    const prediction = opr.predict(withRatings, { ...upcoming, eventKey: "2024other" });
+    const margin = prediction.redScore - prediction.blueScore;
+    const expectedScale = standardDeviation(state.allianceScoreStats, OPR_FALLBACK_SCORE_SD) / OPR_SCALE_DIVISOR_K;
+
+    expect(impliedScale(prediction.pRedWin, margin)).toBeCloseTo(expectedScale, 9);
+    // Non-vacuity: the measured spread must actually have moved the scale off
+    // the cold-start fallback, or this test would pass against a stuck scale.
+    expect(expectedScale).not.toBeCloseTo(OPR_FALLBACK_SCORE_SD / OPR_SCALE_DIVISOR_K, 3);
+  });
+
+  it("is leak-free: folding match i+1 does not change the prediction already made for match i (Pitfall EPA-1)", () => {
+    let state = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm1", matchNumber: 1, redTeams: ["R1", "R2", "R3"], blueTeams: ["B1", "B2", "B3"], redScore: 40, blueScore: 30 })
+    );
+    state = opr.update(
+      state,
+      match({ matchKey: "2024test_qm2", matchNumber: 2, redTeams: ["R1", "B1", "B2"], blueTeams: ["R2", "R3", "B3"], redScore: 70, blueScore: 50 })
+    );
+
+    const stateAtI = state;
+    const predictionAtI = opr.predict(stateAtI, upcoming);
+
+    // Fold match i+1, a deliberately extreme score that would move the SD a lot.
+    const stateAfter = opr.update(
+      stateAtI,
+      match({ matchKey: "2024test_qm3", matchNumber: 3, redTeams: ["R1", "R2", "R3"], blueTeams: ["B1", "B2", "B3"], redScore: 300, blueScore: 5 })
+    );
+    expect(stateAfter.allianceScoreStats.count).toBeGreaterThan(stateAtI.allianceScoreStats.count);
+
+    // Re-predicting match i from the OLD state must be byte-identical: the
+    // property, not a restatement of the implementation.
+    const rePredicted = opr.predict(stateAtI, upcoming);
+    expect(rePredicted.pRedWin).toBe(predictionAtI.pRedWin);
+    expect(rePredicted.redScore).toBe(predictionAtI.redScore);
+    expect(rePredicted.blueScore).toBe(predictionAtI.blueScore);
+  });
+
+  it("excludes a whole-alliance-DQ zero score from the fold, while the opposing alliance's real score still folds", () => {
+    const before = opr.initState([]);
+    const after = opr.update(
+      before,
+      match({
+        matchKey: "2024test_qm1",
+        matchNumber: 1,
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redScore: 0,
+        redDqs: ["R1", "R2", "R3"],
+        blueScore: 88,
+      })
+    );
+    // Exactly one score folded — blue's. Red's 0 is a ruling, not an observation.
+    expect(after.allianceScoreStats.count).toBe(1);
+    expect(after.allianceScoreStats.mean).toBeCloseTo(88, 10);
+  });
+
+  it("folds an all-surrogate alliance's real score even though it contributes no design-matrix row", () => {
+    // This is the newRows.length === 0 early-return path: no ratings change,
+    // but both scores were genuinely observed and belong in the scale.
+    const after = opr.update(
+      opr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        matchNumber: 1,
+        redTeams: ["R1", "R2", "R3"],
+        redSurrogates: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        blueSurrogates: ["B1", "B2", "B3"],
+        redScore: 60,
+        blueScore: 40,
+      })
+    );
+    expect(after.perEvent.size).toBe(0); // nothing solved
+    expect(after.allianceScoreStats.count).toBe(2); // both scores still folded
+    expect(after.allianceScoreStats.mean).toBeCloseTo(50, 10);
   });
 });
 
@@ -154,7 +324,9 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
 describe("opr — public export surface (SC-1)", () => {
   it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts/identifiability.ts depend on", () => {
     expect(Object.keys(oprModule).sort()).toEqual([
-      "OPR_LOGISTIC_SCALE",
+      // D-Q4: OPR_LOGISTIC_SCALE retired — the fixed scale WAS the defect.
+      "OPR_FALLBACK_SCORE_SD",
+      "OPR_SCALE_DIVISOR_K",
       "allianceObservation",
       "opr",
       "ratingEligibleTeams",
@@ -162,9 +334,9 @@ describe("opr — public export surface (SC-1)", () => {
     ]);
   });
 
-  it("identifies itself as opr, version 3.1.0+baseline", () => {
+  it("identifies itself as opr, version 4.0.0+baseline", () => {
     expect(opr.id).toBe("opr");
-    expect(opr.version).toBe("3.1.0+baseline");
+    expect(opr.version).toBe("4.0.0+baseline");
   });
 });
 

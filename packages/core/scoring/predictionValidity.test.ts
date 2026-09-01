@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { assertValidPRedWin, isValidPRedWin } from "./predictionValidity.js";
 import { opr, type OprState } from "../algorithms/opr.js";
+import { emptyExpandingStats } from "./expandingStats.js";
 import type { UpcomingMatch } from "../algorithms/types.js";
 
 describe("isValidPRedWin", () => {
@@ -73,6 +74,11 @@ describe("opr.predict end-to-end — regression proof for 01-REVIEW WR-05", () =
         ["2024test", { observations: [], ratings: new Map([["frc100", NaN]]) }],
       ]),
       lastEventByTeam: new Map([["frc100", "2024test"]]),
+      // D-Q4: cold-start accumulator, so predict() takes its documented
+      // `count < 2` fallback scale. The NaN under test is the team's RATING,
+      // not the scale — this field must be present and finite or the fixture
+      // would prove the guard fires for the wrong reason.
+      allianceScoreStats: emptyExpandingStats(),
     };
     const match: UpcomingMatch = {
       matchKey: "2024test_qm1",

@@ -10,6 +10,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+// `runTick` builds every artifact key from the LIVE algorithm module's
+// `version` (see scheduled.ts's `info.algorithm.version`), never from the
+// algorithms manifest below — so these expectations must track the module too.
+// They were pinned to a "3.1.0+baseline" literal and went red on D-Q4's
+// 3.1.0 -> 4.0.0 bump; deriving them removes that standing trip-wire.
+import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -399,10 +405,10 @@ describe("runTick — one live event, one new match", () => {
     expect(d1.batchCallCount).toBe(1); // one algorithm (opr) -> one batched state write
     expect(r2.putCallCount).toBe(1 + ALL_TEAMS.length); // one event artifact + one per touched team
 
-    const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: "3.1.0+baseline" });
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
     for (const teamKey of ALL_TEAMS) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: "3.1.0+baseline" });
+      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
       expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
     }
 
@@ -625,14 +631,14 @@ describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-d
     expect(result.eventsAdvanced).toBe(1);
 
     // No team/{demoKey} artifact for the demo teammate.
-    const demoTeamPutKey = artifactKey({ page: "team", teamKey: "frc9985", year: SEASON, algorithmId: "opr", version: "3.1.0+baseline" });
+    const demoTeamPutKey = artifactKey({ page: "team", teamKey: "frc9985", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
 
     // The real teammate AND the real opposing alliance's teams DO get published
     // — this is an exclusion of the demo key, not an accidental drop of the
     // whole match's real teammates.
     for (const teamKey of ["frc1", "frc2", ...BLUE_TEAMS]) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: "3.1.0+baseline" });
+      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
       expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
     }
 
@@ -645,7 +651,7 @@ describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-d
     // exclusion — a demo robot's real historical presence in an event's own
     // match/alliance record stays visible, matching `publish.ts`'s unfiltered
     // `eventTeamKeys`.
-    const eventPutKey = artifactKey({ page: "event", eventKey: "2026demo", algorithmId: "opr", version: "3.1.0+baseline" });
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026demo", algorithmId: "opr", version: opr.version });
     const eventPut = r2.puts.find((p) => p.key === eventPutKey);
     expect(eventPut).toBeDefined();
     const eventArtifact = JSON.parse(eventPut!.body) as { teams: readonly { teamKey: string }[] };
@@ -703,7 +709,7 @@ describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-d
     // No D1 state row or published artifact ever acquired under a raw demo key.
     for (const demoKey of ["frc9970", "frc9971", "frc9972"]) {
       expect(testD1.algorithmState.has(`opr::team::${demoKey}`)).toBe(false);
-      const demoTeamPutKey = artifactKey({ page: "team", teamKey: demoKey, year: SEASON, algorithmId: "opr", version: "3.1.0+baseline" });
+      const demoTeamPutKey = artifactKey({ page: "team", teamKey: demoKey, year: SEASON, algorithmId: "opr", version: opr.version });
       expect(testR2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
     }
   });
@@ -728,7 +734,7 @@ describe("runTick — global rebuild (D-16)", () => {
     const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
 
     expect(result.globalRebuildRan).toBe(true);
-    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: "3.1.0+baseline" });
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(true);
   });
 

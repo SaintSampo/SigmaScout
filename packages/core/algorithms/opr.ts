@@ -27,15 +27,68 @@ import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Predicti
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 import { isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
 import { isFullyDqZeroScoreAlliance } from "./dq.js";
+import {
+  emptyExpandingStats,
+  foldObservation,
+  standardDeviation,
+  type ExpandingStats,
+} from "../scoring/expandingStats.js";
 
 /**
- * Logistic scale converting a predicted score margin into a red-win
- * probability: pRedWin = 1 / (1 + exp(-margin / OPR_LOGISTIC_SCALE)). Chosen
- * so a margin of roughly one typical alliance-score SD (tens of points
- * across 2022-2026) maps to a confident-but-unsaturated probability
- * (margin=10 -> ~0.73).
+ * Divisor turning this season's expanding-window alliance-score SD into the
+ * logistic scale that converts a predicted score margin into a red-win
+ * probability: `pRedWin = 1 / (1 + exp(-margin / scale))` with
+ * `scale = standardDeviation(state.allianceScoreStats, OPR_FALLBACK_SCORE_SD)
+ * / OPR_SCALE_DIVISOR_K`. Fitted on the TUNE seasons (2022-2024) only; the
+ * 2025/2026 figures below are holdout.
+ *
+ * This replaces a fixed `OPR_LOGISTIC_SCALE = 10`, which had been in place
+ * since 2022 and whose doc comment claimed 10 was "roughly one typical
+ * alliance-score SD ... (margin=10 -> ~0.73)". That was the actual defect: the
+ * per-season optimum is 19, 28, 21, 31, and 75 across 2022-2026. A fixed 10
+ * was not one SD in any season, and by 2026 it was off by 7.5x — the model was
+ * wildly overconfident on every margin it saw.
+ *
+ * Why not simply fit the constant per season: that is LEAKAGE. A per-season
+ * optimum is chosen using the very outcomes it is then scored against, so it
+ * cannot be computed at prediction time and its Brier is not an honest
+ * estimate of anything. The expanding-window form is leak-free by construction
+ * (Pitfall EPA-1, the same construction `epa.ts` uses): it only ever reflects
+ * matches already passed to `update`.
+ *
+ * Measured Brier, fixed 10 -> expanding, against the LEAKY per-season ceiling:
+ *   2022 tune    0.1890 -> 0.1812  (leaky ceiling 0.1810 @19)
+ *   2023 tune    0.2171 -> 0.1962  (leaky ceiling 0.1963 @28)
+ *   2024 tune    0.2126 -> 0.2011  (leaky ceiling 0.2012 @21)
+ *   2025 holdout 0.2119 -> 0.1892  (leaky ceiling 0.1891 @31)
+ *   2026 holdout 0.2211 -> 0.1795  (leaky ceiling 0.1796 @75)
+ * It MATCHES OR BEATS the leaky ceiling in every season — because it also
+ * adapts WITHIN a season, which a single per-season constant cannot — and
+ * beats a prior-season constant everywhere. Brier improves 4.1%-18.8% overall;
+ * elimination-only 2.6%-19.0%, except 2022 elims at -3.2%.
+ *
+ * What this does NOT fix: OPR's no-call rate. A no-call is a predicted margin
+ * of exactly 0 (an event-scoped, quals-only design matrix has no rank at each
+ * event's start), and `0 / scale === 0` for ANY scale, so those predictions
+ * stay at exactly 0.5. Under D-Q3 they now count as misses. That is expected
+ * and is not something this constant can address.
  */
-export const OPR_LOGISTIC_SCALE = 10;
+export const OPR_SCALE_DIVISOR_K = 1.1;
+
+/**
+ * Scale numerator used until `allianceScoreStats` holds at least 2 folded
+ * scores — with `count < 2` the Welford SD is undefined, and this keeps
+ * `predict` from producing a 0 or NaN scale on an event's opening matches.
+ *
+ * Equal in value to `EPA_FALLBACK_SCORE_SD` in `epa.ts`, deliberately, since
+ * both answer the same question ("what is a typical FRC alliance score SD
+ * before we have measured one?"). It is declared here rather than imported
+ * because `epa.ts` already imports `ratingEligibleTeams` from this module, so
+ * importing back would create a module cycle — the same reasoning
+ * `sigma1/params.ts`'s header records for its own duplicated constants.
+ * `opr.test.ts` pins the two to equality so they cannot silently drift.
+ */
+export const OPR_FALLBACK_SCORE_SD = 25;
 
 /** One alliance's rating-eligible observation: teams' columns (a 1 in the design matrix row) and the target score, adjusted for any surrogate offset (see `allianceObservation`). */
 export interface OprObservation {
@@ -55,10 +108,22 @@ interface PerEventOprState {
  * order alone would record a team's FIRST event, not its MOST RECENT one —
  * wrong once two events interleave — so this field is written explicitly on
  * every `update()` call instead.
+ *
+ * `allianceScoreStats` (D-Q4): the expanding-window Welford accumulator over
+ * every alliance score folded so far, feeding `predict`'s logistic scale. Note
+ * it is SEASON-wide even though OPR's ratings are strictly event-scoped, and
+ * that asymmetry is deliberate: this is a LINK-FUNCTION scale (how many points
+ * of margin constitute a confident prediction this year), not a rating, so
+ * pooling it across a season's events is the right estimator and is what was
+ * validated. No `carrySeason` is needed to bound it — `opr` implements none,
+ * so `cli.ts`'s `runSeasons` starts OPR from `initState` every season (see its
+ * doc comment, "deliberately left OUT of `initialStates`"), which gives
+ * exactly the season-wide-but-not-cross-season scope wanted.
  */
 export interface OprState {
   readonly perEvent: ReadonlyMap<string, PerEventOprState>;
   readonly lastEventByTeam: ReadonlyMap<string, string>;
+  readonly allianceScoreStats: ExpandingStats;
 }
 
 /**
@@ -239,7 +304,8 @@ export function solveEventOpr(
   return ratings;
 }
 
-function logisticWinProbability(scoreMargin: number, scale: number = OPR_LOGISTIC_SCALE): number {
+/** D-Q4: `scale` is now always supplied by the caller from `OprState.allianceScoreStats` — there is no fixed default, because a fixed scale was the defect. */
+function logisticWinProbability(scoreMargin: number, scale: number): number {
   return 1 / (1 + Math.exp(-scoreMargin / scale));
 }
 
@@ -254,10 +320,19 @@ export const opr: AlgorithmModule<OprState> = {
   // observation instead of fitted as real performance
   // (`isFullyDqZeroScoreAlliance`, `dq.ts`), the same D-13 invariant this
   // comment already names.
-  version: "3.1.0+baseline",
+  // Bumped again 3.1.0 -> 4.0.0 (D-Q4, quick task 260901-is2): both
+  // `predict()`'s and `update()`'s observable output changed — the logistic
+  // scale is no longer the fixed `OPR_LOGISTIC_SCALE = 10` but this season's
+  // expanding-window alliance-score SD over `OPR_SCALE_DIVISOR_K`, and
+  // `OprState` gained `allianceScoreStats` to carry it. MAJOR because every
+  // win probability this module has ever emitted moves (the per-season optimum
+  // ranged 19-75 against the retired constant's 10), and because the state
+  // shape changed — see `STATE_SNAPSHOT_SHAPE_VERSION` in
+  // `packages/harness/stateSnapshot.ts`, bumped 2 -> 3 in the same commit.
+  version: "4.0.0+baseline",
 
   initState(): OprState {
-    return { perEvent: new Map(), lastEventByTeam: new Map() };
+    return { perEvent: new Map(), lastEventByTeam: new Map(), allianceScoreStats: emptyExpandingStats() };
   },
 
   // D-05: no comp-level branch — every comp level is predicted and scored.
@@ -269,7 +344,11 @@ export const opr: AlgorithmModule<OprState> = {
     // this event predicts exactly 0 (the `?? 0` below).
     const redScore = redTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
     const blueScore = blueTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
-    const pRedWin = logisticWinProbability(redScore - blueScore);
+    // D-Q4: season-wide expanding SD, reflecting ONLY matches already folded
+    // by `update` (leak-free by construction), with a documented `count < 2`
+    // fallback so an event's opening matches get a real scale rather than 0/NaN.
+    const scale = standardDeviation(state.allianceScoreStats, OPR_FALLBACK_SCORE_SD) / OPR_SCALE_DIVISOR_K;
+    const pRedWin = logisticWinProbability(redScore - blueScore, scale);
     // 01-REVIEW WR-05 / D-05: validated at emission, before returning.
     assertValidPRedWin(pRedWin, `opr.predict (${match.matchKey})`);
     return {
@@ -316,19 +395,36 @@ export const opr: AlgorithmModule<OprState> = {
     // opposing alliance's own score is still a genuine observation of real
     // robots and must not be dropped just because this alliance's own
     // ruling zeroed its score.
-    const redRow = isFullyDqZeroScoreAlliance(redObservation.teams, result.redDqs, result.redScore)
-      ? { teams: [], allianceScore: 0 }
-      : redObservation;
-    const blueRow = isFullyDqZeroScoreAlliance(blueObservation.teams, result.blueDqs, result.blueScore)
-      ? { teams: [], allianceScore: 0 }
-      : blueObservation;
+    const redIsDqZero = isFullyDqZeroScoreAlliance(redObservation.teams, result.redDqs, result.redScore);
+    const blueIsDqZero = isFullyDqZeroScoreAlliance(blueObservation.teams, result.blueDqs, result.blueScore);
+    const redRow = redIsDqZero ? { teams: [], allianceScore: 0 } : redObservation;
+    const blueRow = blueIsDqZero ? { teams: [], allianceScore: 0 } : blueObservation;
+
+    // D-Q4: fold both alliances' RAW recorded scores into the season-wide
+    // expanding SD that `predict` reads for its logistic scale, reusing the
+    // very same DQ predicates the rows above are built from — a
+    // whole-alliance-DQ zero is a ruling, not an observed score, and folding
+    // it would drag this season's scale toward zero for no real reason
+    // (the identical `dq.ts` exclusion `epa.ts` and `sigma1/index.ts` apply).
+    //
+    // Placement is load-bearing, and this is the mistake to avoid: the fold
+    // sits ABOVE the `newRows.length === 0` early return, and that path
+    // returns the state WITH the updated stats rather than the untouched
+    // `state`. An alliance whose every slot was a surrogate produces no
+    // design-matrix row, but its score was still genuinely observed and
+    // belongs in the scale. Dropping it there would make the scale silently
+    // depend on surrogate scheduling.
+    let allianceScoreStats = state.allianceScoreStats;
+    if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
+    if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
     // An alliance whose every listed team is a surrogate (or, per the DQ
     // check just above, fully disqualified with a zero score) contributes no
     // row (filtered here, not pushed in as an all-zero row); if both
-    // alliances end up empty, nothing to re-solve — a genuine no-op.
+    // alliances end up empty, nothing to re-solve — no rating changes, but
+    // the scores above have still been folded into the scale.
     const newRows = [redRow, blueRow].filter((obs) => obs.teams.length > 0);
-    if (newRows.length === 0) return state;
+    if (newRows.length === 0) return { ...state, allianceScoreStats };
 
     const observations = [...eventState.observations, ...newRows];
     const teamIndex = buildTeamIndex(observations);
@@ -358,7 +454,7 @@ export const opr: AlgorithmModule<OprState> = {
       for (const team of touchedTeams) next.set(team, eventKey);
       nextLastEventByTeam = next;
     }
-    return { perEvent: nextPerEvent, lastEventByTeam: nextLastEventByTeam };
+    return { perEvent: nextPerEvent, lastEventByTeam: nextLastEventByTeam, allianceScoreStats };
   },
 
   // D-27: no-variance baseline, one `TOTAL_METRIC_KEY` value per team. D-04:

@@ -461,7 +461,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
   });
 
   it("a current-shape league row (declaring the real snapshotShapeVersion) is accepted, not rejected", () => {
-    const rows = serializeState("opr", opr.version, { perEvent: new Map(), lastEventByTeam: new Map() } as any, STAMP);
+    const rows = serializeState("opr", opr.version, opr.initState([]) as any, STAMP);
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 });
@@ -654,6 +654,26 @@ describe("serializeState/deserializeState — Map members survive by size", () =
 
     expect(reconstructed.lastEventByTeam.size).toBe(finalState.lastEventByTeam.size);
     expect([...reconstructed.lastEventByTeam.entries()].sort()).toEqual([...finalState.lastEventByTeam.entries()].sort());
+  });
+
+  it("OprState's allianceScoreStats round-trips with identical count/mean/m2 (D-Q4)", () => {
+    // The league-scoped expanding accumulator behind OPR's logistic scale. If
+    // it did not survive the D1 round-trip, a re-seeded Worker would silently
+    // predict from the cold-start fallback scale for the rest of the season.
+    seedFixtureSeason(db);
+    const allMatches = buildSeasonStream(db, 2024);
+    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+    const sim = new WalkForwardSimulator(allMatches);
+    const finalState = sim.runAll([opr], allTeams).finalStates.get(opr.id) as any;
+    // Non-vacuity: a zeroed accumulator would round-trip trivially.
+    expect(finalState.allianceScoreStats.count).toBeGreaterThan(1);
+
+    const rows = serializeState(opr.id, opr.version, finalState, STAMP);
+    const reconstructed = deserializeState(opr.id, rows) as any;
+
+    expect(reconstructed.allianceScoreStats.count).toBe(finalState.allianceScoreStats.count);
+    expect(reconstructed.allianceScoreStats.mean).toBe(finalState.allianceScoreStats.mean);
+    expect(reconstructed.allianceScoreStats.m2).toBe(finalState.allianceScoreStats.m2);
   });
 });
 
