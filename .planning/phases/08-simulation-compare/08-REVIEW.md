@@ -239,7 +239,7 @@ zeroing it).
 
 ### WR-02: `CalibrationChart`'s point-selection lookup is keyed by a computed float that could theoretically collide
 
-**Status:** resolved — `CalibrationChartCell` now carries its ORIGINAL `point`; the dot renderer reads it off the cell and the float-keyed `buildPointLookup` is deleted (2026-08-31).
+**Status:** resolved — superseded 2026-09-01: the user corrected the section to sketch 006-C's true per-algorithm-cards form and `CalibrationChart.tsx` was deleted entirely (plain-SVG deviation bars replaced it). Historical fix for the interim chart: `CalibrationChartCell` carried its ORIGINAL `point`; the dot renderer reads it off the cell and the float-keyed `buildPointLookup` is deleted (2026-08-31).
 
 **File:** `apps/web/src/components/compare/CalibrationChart.tsx:69-77, 99`
 **Issue:** `buildPointLookup` keys a `Map<number, CalibrationPoint>` by

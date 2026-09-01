@@ -1,226 +1,130 @@
-import type { ComponentType } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+/**
+ * CalibrationSection — sketch 006-C card contract (2026-09-01 rebuild).
+ * Component-level cases against the real committed 2026/2022 fixtures; the
+ * route-level D-10 parity cases live in `compare.test.tsx`'s own calibration
+ * describe. Every expected string is recomputed through
+ * `calibrationCards.ts` — the same pure model the component renders through
+ * — never hand-typed.
+ */
+import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import compare2026 from "../../routes/__fixtures__/compare-2026.json";
+import compare2022 from "../../routes/__fixtures__/compare-2022.json";
+import { CompareArtifactSchema, type CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
+import { buildCalibrationCard, cardHeadlineSentence, fmtPct, niceCeil, SPARSE_N } from "./calibrationCards.js";
 import {
-  CALIBRATION_EXPLAINER,
-  CALIBRATION_LEGEND_TESTID,
-  CALIBRATION_SECTION_TESTID,
-  CALIBRATION_SENTENCE_TESTID,
+  CALIBRATION_EMPTY_RANGE_TEXT,
+  CALIBRATION_SPARSE_TAG,
   CALIBRATION_YEAR_SELECT_TESTID,
   CalibrationSection,
-  DEFAULT_CALIBRATION_ALGORITHM,
-  DEFAULT_CALIBRATION_YEAR,
+  calibrationCardSentenceTestId,
+  calibrationCardTestId,
 } from "./CalibrationSection.js";
-import { formatCalibrationSentence, selectHeadlinePoint, validCalibrationPoints, type CompareSlice } from "./calibrationSeries.js";
-import type { CalibrationChartProps } from "./CalibrationChart.js";
-import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
-import compare2022 from "../../routes/__fixtures__/compare-2022.json";
-import compare2024 from "../../routes/__fixtures__/compare-2024.json";
-import compare2026 from "../../routes/__fixtures__/compare-2026.json";
-import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
-function artifactsMapFrom(entries: readonly [number, unknown][]): ReadonlyMap<number, CompareArtifact> {
-  return new Map(entries.map(([year, artifact]) => [year, artifact as CompareArtifact]));
-}
+const ARTIFACT_2026: CompareArtifact = CompareArtifactSchema.parse(compare2026);
+const ARTIFACT_2022: CompareArtifact = CompareArtifactSchema.parse(compare2022);
+const ARTIFACTS = new Map([
+  [2026, ARTIFACT_2026],
+  [2022, ARTIFACT_2022],
+]);
 
-function sliceFor(artifact: CompareArtifact, algorithmId: string, compLevelView: string): CompareSlice {
-  const slice = artifact.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === compLevelView) as
-    | CompareSlice
-    | undefined;
-  if (slice === undefined) throw new Error(`fixture carries no ${compLevelView} slice for ${algorithmId}`);
+function sliceFor(artifact: CompareArtifact, algorithmId: string, view: string) {
+  const slice = artifact.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === view);
+  if (slice === undefined) throw new Error(`fixture carries no ${view} slice for ${algorithmId}`);
   return slice;
 }
 
-const FULL_ARTIFACTS = artifactsMapFrom([
-  [2022, compare2022],
-  [2024, compare2024],
-  [2026, compare2026],
-]);
-
-/** A resolving `loadChart` stub whose fake chart exposes a button per point so tests can drive `onPointSelect`/`onPointDeselect` deterministically, without depending on the real Recharts DOM shape (that shape is CalibrationChart.test.tsx's own job). */
-function fakeChartLoader(): () => Promise<{ default: ComponentType<CalibrationChartProps> }> {
-  function FakeChart({ pointsByAlgorithm, onPointSelect, onPointDeselect }: CalibrationChartProps) {
-    const oprPoint = pointsByAlgorithm.opr[0];
-    return (
-      <div data-testid="fake-calibration-chart">
-        {oprPoint !== undefined && (
-          <button type="button" onClick={() => onPointSelect("opr", oprPoint)} onBlur={() => onPointDeselect?.()}>
-            select-opr-point
-          </button>
-        )}
-      </div>
-    );
-  }
-  return () => Promise.resolve({ default: FakeChart });
-}
-
-describe("CalibrationSection", () => {
-  afterEach(() => cleanup());
-
-  it("default render (before any interaction) shows VPR's headline sentence for 2026, derived from the fixture", async () => {
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-
-    expect(DEFAULT_CALIBRATION_YEAR).toBe(2026);
-    expect(DEFAULT_CALIBRATION_ALGORITHM).toBe("vpr");
-
-    const slice = sliceFor(compare2026 as unknown as CompareArtifact, "vpr", "combined");
-    const headline = selectHeadlinePoint(validCalibrationPoints(slice))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+describe("calibrationCards — the pure model", () => {
+  it("picks the valid bin nearest 70% mean-predicted as the headline", () => {
+    const slice = sliceFor(ARTIFACT_2026, "vpr", "combined");
+    const card = buildCalibrationCard(slice);
+    expect(card.headline).not.toBeNull();
+    const distances = card.rows
+      .filter((r) => r.point !== null)
+      .map((r) => Math.abs(r.point!.meanPredicted - 0.7));
+    expect(Math.abs(card.headline!.meanPredicted - 0.7)).toBe(Math.min(...distances));
   });
 
-  it("OPR + qualification (via compLevelView prop) + 2026: the rendered sentence equals formatCalibrationSentence applied to the headline point recomputed from the imported fixture — no hand-typed expected figure appears in executable code", async () => {
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="qualification" loadChart={loadChart} />);
-
-    fireEvent.click(screen.getByTestId(CALIBRATION_LEGEND_TESTID).querySelector("button")!); // OPR is the first PUBLISHED_ALGORITHM_IDS entry
-
-    const slice = sliceFor(compare2026 as unknown as CompareArtifact, "opr", "qualification");
-    const headline = selectHeadlinePoint(validCalibrationPoints(slice))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("opr"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+  it("an all-empty slice yields a null headline and ten empty rows", () => {
+    const card = buildCalibrationCard({
+      calibrationBins: Array.from({ length: 10 }, (_, i) => ({ binStart: i / 10, binEnd: (i + 1) / 10, meanPredicted: null, observedFrequency: null, count: 0 })),
+    });
+    expect(card.headline).toBeNull();
+    expect(card.rows).toHaveLength(10);
+    expect(card.rows.every((r) => r.point === null)).toBe(true);
+    expect(card.maxAbsDeviation).toBe(0);
   });
 
-  it("clicking the EPA legend entry changes the sentence to EPA's own headline fact and moves aria-pressed, with no fetch issued", async () => {
-    const loadChart = fakeChartLoader();
-    const fetchSpy = vi.fn();
-    const originalFetch = global.fetch;
-    global.fetch = fetchSpy as unknown as typeof fetch;
-
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(""));
-
-    const legendButtons = screen.getByTestId(CALIBRATION_LEGEND_TESTID).querySelectorAll("button");
-    const epaButton = Array.from(legendButtons).find((b) => b.textContent === "EPA")!;
-    fireEvent.click(epaButton);
-
-    const slice = sliceFor(compare2026 as unknown as CompareArtifact, "epa", "combined");
-    const headline = selectHeadlinePoint(validCalibrationPoints(slice))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("epa"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
-    expect(epaButton.getAttribute("aria-pressed")).toBe("true");
-
-    expect(fetchSpy).not.toHaveBeenCalled();
-    global.fetch = originalFetch;
+  it("niceCeil steps up to the next 0.05 and never below one step", () => {
+    expect(niceCeil(0.001, 0.05)).toBeCloseTo(0.05, 10);
+    expect(niceCeil(0.051, 0.05)).toBeCloseTo(0.1, 10);
+    expect(niceCeil(0, 0.05)).toBeCloseTo(0.05, 10);
   });
+});
 
-  it("changing the year Select to 2024 changes the sentence, with no fetch issued", async () => {
-    const loadChart = fakeChartLoader();
-    const fetchSpy = vi.fn();
-    const originalFetch = global.fetch;
-    global.fetch = fetchSpy as unknown as typeof fetch;
-
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(""));
-
-    fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
-    const option2024 = await screen.findByRole("option", { name: "2024" });
-    fireEvent.click(option2024);
-
-    const slice = sliceFor(compare2024 as unknown as CompareArtifact, "vpr", "combined");
-    const headline = selectHeadlinePoint(validCalibrationPoints(slice))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
-    expect(fetchSpy).not.toHaveBeenCalled();
-    global.fetch = originalFetch;
-  });
-
-  it("selecting a chart point replaces the sentence with that point's own fact, then deselecting restores the headline sentence", async () => {
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-
-    const headlineSlice = sliceFor(compare2026 as unknown as CompareArtifact, "vpr", "combined");
-    const headline = selectHeadlinePoint(validCalibrationPoints(headlineSlice))!;
-    const headlineSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
-
-    const oprSlice = sliceFor(compare2026 as unknown as CompareArtifact, "opr", "combined");
-    const oprPoint = validCalibrationPoints(oprSlice)[0]!;
-    const oprSentence = formatCalibrationSentence(algorithmDisplayLabel("opr"), oprPoint);
-
-    const selectButton = await screen.findByText("select-opr-point");
-    fireEvent.click(selectButton);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(oprSentence));
-
-    fireEvent.blur(selectButton);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
-  });
-
-  it("renders the corrected diagonal-orientation explainer, and the UI-SPEC's inverted form does not appear", async () => {
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-
-    expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
-    expect(CALIBRATION_EXPLAINER).toContain("below the diagonal means the algorithm was more confident");
-    expect(CALIBRATION_EXPLAINER).not.toContain("above the diagonal means the algorithm was more confident");
-  });
-
-  it("a rejecting loadChart still leaves the heading, year Select, sentence, explainer and legend all in the document — only the chart is replaced by Retry", async () => {
-    const loadChart = vi.fn(() => Promise.reject(new Error("chunk load failed")));
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-
-    await waitFor(() => expect(screen.getByText("Chart failed to load")).toBeDefined());
-
-    expect(screen.getByText("Calibration")).toBeDefined();
-    expect(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID)).toBeDefined();
-    expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent?.length).toBeGreaterThan(0);
-    expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
-    expect(screen.getByTestId(CALIBRATION_LEGEND_TESTID)).toBeDefined();
-    expect(loadChart).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-    await waitFor(() => expect(loadChart).toHaveBeenCalledTimes(2));
-  });
-
-  it("when the selected algorithm/year/compLevel has no valid bins, NO_USABLE_BINS_SENTENCE renders and no chart mounts (constructed — this exact combination does not occur in the published data)", async () => {
-    // Deliberately keyed at DEFAULT_CALIBRATION_YEAR (2026) with a slice for
-    // DEFAULT_CALIBRATION_ALGORITHM ("vpr") under the "combined" compLevel
-    // this test passes — the default render itself must hit the empty
-    // branch, with no year/algorithm interaction needed. The year Select's
-    // own options are always COMPARE_SEASONS (2022-2026, D-10's real fixed
-    // list), so a synthetic out-of-range year would never be selectable.
-    const zeroBinSlice = {
-      algorithmId: "vpr",
-      season: DEFAULT_CALIBRATION_YEAR,
-      seasonLabel: "holdout",
-      headlineEligible: false,
-      compLevelView: "combined",
-      brierScore: null,
-      winnerAccuracy: null,
-      scoredCount: 0,
-      tieCount: 0,
-      noCallCount: 0,
-      exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
-      candidateCount: 0,
-      calibrationBins: [{ binStart: 0, binEnd: 0.1, meanPredicted: null, observedFrequency: null, count: 0 }],
-    };
-    const emptyArtifact = { schemaVersion: 1, algorithms: [], slices: [zeroBinSlice] } as unknown as CompareArtifact;
-    const artifacts = new Map<number, CompareArtifact>([[DEFAULT_CALIBRATION_YEAR, emptyArtifact]]);
-
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={artifacts} compLevelView="combined" loadChart={loadChart} />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(
-        "Not enough matches to show a calibration result for this selection.",
-      ),
-    );
-    expect(screen.queryByTestId("fake-calibration-chart")).toBeNull();
-  });
-
-  it("every legend entry resolves to at least a 44x44px tap target", async () => {
-    const loadChart = fakeChartLoader();
-    render(<CalibrationSection artifactsByYear={FULL_ARTIFACTS} compLevelView="combined" loadChart={loadChart} />);
-
-    const buttons = screen.getByTestId(CALIBRATION_LEGEND_TESTID).querySelectorAll("button");
-    expect(buttons.length).toBe(3);
-    for (const button of Array.from(buttons)) {
-      expect(button.className).toContain("tap-target");
+describe("CalibrationSection — sketch 006-C cards", () => {
+  it("renders one card per published algorithm, each with its own fixture-recomputed headline sentence", () => {
+    render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="combined" />);
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, algorithmId, "combined"));
+      expect(screen.getByTestId(calibrationCardSentenceTestId(algorithmId)).textContent).toContain(
+        cardHeadlineSentence(algorithmDisplayLabel(algorithmId), card.headline!),
+      );
     }
+    cleanup();
+  });
+
+  it("bin rows: populated rows print predicted → actual with the count; empty bins print the verbatim empty-range sentence; sparse rows carry the tag", () => {
+    render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="combined" />);
+    const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, "vpr", "combined"));
+    const cardEl = screen.getByTestId(calibrationCardTestId("vpr"));
+
+    const emptyCount = card.rows.filter((r) => r.point === null).length;
+    expect(within(cardEl).queryAllByText(CALIBRATION_EMPTY_RANGE_TEXT)).toHaveLength(emptyCount);
+
+    const firstPopulated = card.rows.find((r) => r.point !== null)!;
+    expect(within(cardEl).getByText(`${fmtPct(firstPopulated.point!.meanPredicted, 1)}%`)).toBeDefined();
+    expect(within(cardEl).getByText(`${fmtPct(firstPopulated.point!.observedFrequency, 1)}%`)).toBeDefined();
+
+    // Sparse honesty: tag count in the ROWS area equals the recomputed
+    // number of sparse populated rows (the headline may add one more).
+    const sparseRows = card.rows.filter((r) => r.point !== null && r.point.count < SPARSE_N).length;
+    const headlineSparse = card.headline !== null && card.headline.count < SPARSE_N ? 1 : 0;
+    expect(within(cardEl).queryAllByText(CALIBRATION_SPARSE_TAG)).toHaveLength(sparseRows + headlineSparse);
+    cleanup();
+  });
+
+  it("the compLevelView prop re-derives the cards — qualification differs from combined for at least one algorithm", () => {
+    render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="qualification" />);
+    const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, "opr", "qualification"));
+    expect(screen.getByTestId(calibrationCardSentenceTestId("opr")).textContent).toContain(
+      cardHeadlineSentence(algorithmDisplayLabel("opr"), card.headline!),
+    );
+    cleanup();
+  });
+
+  it("the local year Select re-derives the cards from that year's artifact", async () => {
+    render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="combined" />);
+    fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
+    fireEvent.click(await screen.findByRole("option", { name: "2022" }));
+
+    const card = buildCalibrationCard(sliceFor(ARTIFACT_2022, "vpr", "combined"));
+    expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).toContain(
+      cardHeadlineSentence(algorithmDisplayLabel("vpr"), card.headline!),
+    );
+    cleanup();
+  });
+
+  it("each card's mini deviation chart renders one bar per VALID bin, none for empties", () => {
+    render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="combined" />);
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, algorithmId, "combined"));
+      const validCount = card.rows.filter((r) => r.point !== null).length;
+      const cardEl = screen.getByTestId(calibrationCardTestId(algorithmId));
+      expect(cardEl.querySelectorAll("svg rect")).toHaveLength(validCount);
+    }
+    cleanup();
   });
 });

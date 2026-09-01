@@ -1,44 +1,45 @@
 /**
- * The Compare page's Calibration section (08-10-PLAN.md Task 4), mounted
- * beneath the methodology note — sentence-first (sketch 006 winner C): the
- * plain-language sentence is the section's primary content, the OPR/EPA/VPR
- * legend doubles as the sentence's algorithm switcher, a local year `Select`
- * re-reads the five already-fetched artifacts (no request of its own), and
- * the demoted chart mounts through a lazy boundary that degrades to
- * sentence-plus-retry if its chunk fails to load.
+ * The Compare page's Calibration section — sketch 006 variant C's TRUE form
+ * (2026-09-01 rebuild, user correction of 08-10): per-algorithm
+ * PLAIN-LANGUAGE CARDS. Each published algorithm gets one card carrying a
+ * headline sentence anchored at the ~70% confidence bin, a bin-by-bin list
+ * of readable rows ("predicted 74% → actual 71%", sample counts, sparse
+ * tags, empties named rather than hidden), and a small deviation-bars
+ * chart as supporting evidence — plain inline SVG, no Recharts, no lazy
+ * chunk. What 08-10 shipped (one sentence over a demoted three-series
+ * reliability diagram with a clickable legend) was a different reading of
+ * "C" and is replaced wholesale; `CalibrationChart.tsx` is deleted with it.
  *
- * Consumes 08-06's single `compLevelView` state as a PROP and declares no
- * compLevel state of its own — one state, two consumers (D-09's obligation,
- * mirrored from `AccuracyTable.tsx`).
+ * Still true from the original section contract:
+ *  - a LOCAL year `Select` (the Compare page's documented NAV-02 exception),
+ *    defaulting to the most recent season;
+ *  - 08-06's single `compLevelView` state consumed as a prop, never
+ *    re-declared here;
+ *  - every rendered number derives from the fetched artifacts at run time
+ *    (D-10 discipline) via `calibrationCards.ts`;
+ *  - series colour only ever through `var(--compare-algo-*)` tokens
+ *    (`comparePalette.test.ts` enforces the no-raw-hex rule file-wide).
  */
-import { Component, lazy, Suspense, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { COMPARE_SEASONS, type CompareCompLevelView } from "../../lib/api/compare.js";
-import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import {
-  formatCalibrationSentence,
-  NO_USABLE_BINS_SENTENCE,
-  selectHeadlinePoint,
-  validCalibrationPoints,
-  type AlgorithmPoints,
-  type CalibrationPoint,
-} from "./calibrationSeries.js";
-import type { CalibrationChartProps } from "./CalibrationChart.js";
+import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
+import { buildCalibrationCard, cardHeadlineSentence, fmtPct, niceCeil, SPARSE_N, type CalibrationCardModel } from "./calibrationCards.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 export const CALIBRATION_SECTION_TESTID = "compare-calibration-section";
-export const CALIBRATION_SENTENCE_TESTID = "compare-calibration-sentence";
-export const CALIBRATION_LEGEND_TESTID = "compare-calibration-legend";
 export const CALIBRATION_YEAR_SELECT_TESTID = "compare-calibration-year-select";
-export const CALIBRATION_CHART_SKELETON_TESTID = "compare-calibration-chart-skeleton";
+export const calibrationCardTestId = (algorithmId: string) => `compare-calibration-card-${algorithmId}`;
+export const calibrationCardSentenceTestId = (algorithmId: string) => `compare-calibration-sentence-${algorithmId}`;
 
 /** Defaults to the most recent year, per the Copywriting Contract's year-selector row. */
 export const DEFAULT_CALIBRATION_YEAR = 2026;
-/** Defaults to VPR — "the algorithm most readers arrive already curious about" (08-UI-SPEC.md). */
-export const DEFAULT_CALIBRATION_ALGORITHM: PublishedAlgorithmId = "vpr";
+
+/** The sketch's empty-bin sentence, verbatim. */
+export const CALIBRATION_EMPTY_RANGE_TEXT = "No matches landed in this confidence range.";
+/** The sketch's sparse tag, verbatim. */
+export const CALIBRATION_SPARSE_TAG = "small sample";
 
 /**
  * The Copywriting Contract's concept explainer, with Decision 2's ONE
@@ -47,193 +48,164 @@ export const DEFAULT_CALIBRATION_ALGORITHM: PublishedAlgorithmId = "vpr";
  * the diagonal (observed < predicted) and that same document calls it "a
  * 32.5pp overconfidence gap," so BELOW must be the more-confident clause and
  * ABOVE must be the too-cautious one. Every other word is the approved copy,
- * unchanged.
+ * unchanged. (The variant-C cards state each bin in words, so the "line"
+ * imagery here maps to each card's deviation bars: below zero = more
+ * confident than reality, above zero = too cautious.)
  */
 export const CALIBRATION_EXPLAINER =
-  "This chart shows how well each algorithm's confidence matches reality. Predictions are grouped by how confident the model was (for example, '70% sure Red wins'), then checked against how often Red actually won in that group. A perfectly calibrated line would run along the dashed diagonal — say 70%, be right 70% of the time. A line below the diagonal means the algorithm was more confident than it should have been; a line above means it was too cautious.";
+  "These cards show how well each algorithm's confidence matches reality. Predictions are grouped by how confident the model was (for example, '70% sure Red wins'), then checked against how often Red actually won in that group. A bar below the zero line means the algorithm was more confident than it should have been; a bar above means it was too cautious.";
 
 export interface CalibrationSectionProps {
   readonly artifactsByYear: ReadonlyMap<number, CompareArtifact>;
   /** 08-06's single compLevelView state, read here as a prop — declared nowhere in this file as its own state. */
   readonly compLevelView: CompareCompLevelView;
-  /** Injectable seam for tests (mirrors `MetricHistoryTab.tsx`) — production never passes it. */
-  readonly loadChart?: () => Promise<{ default: ComponentType<CalibrationChartProps> }>;
 }
 
-const defaultLoadChart = () => import("./CalibrationChart.js");
+const MINI_W = 260;
+const MINI_H = 88;
+const MINI_MARGIN = { left: 8, right: 8, top: 8, bottom: 6 };
 
-/** Every algorithm's valid points for one (year, compLevel) selection — the shape `CalibrationChart.tsx` and `selectHeadlinePoint` both consume. Season is matched alongside algorithmId/compLevelView, mirroring `AccuracyTable.tsx`'s own `buildAccuracyRows` selection discipline. */
-function pointsByAlgorithmFor(artifact: CompareArtifact | undefined, year: number, compLevelView: CompareCompLevelView): AlgorithmPoints {
-  const entries = PUBLISHED_ALGORITHM_IDS.map((id): [PublishedAlgorithmId, readonly CalibrationPoint[]] => {
-    const slice = artifact?.slices.find(
-      (candidate) => candidate.algorithmId === id && candidate.season === year && candidate.compLevelView === compLevelView,
-    );
-    return [id, slice === undefined ? [] : validCalibrationPoints(slice)];
-  });
-  return Object.fromEntries(entries) as AlgorithmPoints;
-}
+/** The sketch's mini deviation chart: one bar per valid bin at its nominal midpoint, from the zero line, sharing scale `d` across all three cards. */
+function MiniDeviationChart({ card, algorithmId, d }: { card: CalibrationCardModel; algorithmId: PublishedAlgorithmId; d: number }) {
+  const x0 = MINI_MARGIN.left;
+  const x1 = MINI_W - MINI_MARGIN.right;
+  const yZero = MINI_H / 2;
+  const yScale = (MINI_H / 2 - MINI_MARGIN.top) / d;
+  const slotW = (x1 - x0) / 10;
+  const barW = slotW * 0.62;
 
-interface SelectedChartPoint {
-  readonly algorithmId: PublishedAlgorithmId;
-  readonly point: CalibrationPoint;
-}
-
-/** Chart-shaped, text-free loading placeholder — same convention as `MetricHistoryTab.tsx`'s `ChartSkeleton`. */
-function ChartSkeleton() {
   return (
-    <div data-testid={CALIBRATION_CHART_SKELETON_TESTID} className="h-[220px] w-full p-[var(--spacing-md)]">
-      <Skeleton className="h-full w-full" />
+    <svg
+      viewBox={`0 0 ${MINI_W} ${MINI_H}`}
+      style={{ width: "100%", maxWidth: MINI_W, height: "auto", display: "block" }}
+      role="img"
+      aria-label={`${algorithmDisplayLabel(algorithmId)} calibration deviation by confidence bin`}
+    >
+      <line x1={x0} y1={yZero} x2={x1} y2={yZero} stroke="var(--color-text-muted)" strokeWidth={1} strokeDasharray="3 3" />
+      {card.rows.map((row, i) => {
+        if (row.point === null) return null;
+        const deviation = row.point.observedFrequency - row.point.meanPredicted;
+        const cx = x0 + slotW * i + slotW / 2;
+        const h = Math.abs(deviation) * yScale;
+        const y = deviation >= 0 ? yZero - h : yZero;
+        return (
+          <rect
+            key={row.rangeLabel}
+            x={cx - barW / 2}
+            y={y}
+            width={barW}
+            height={Math.max(h, 0.5)}
+            fill={`var(--compare-algo-${algorithmId})`}
+            fillOpacity={row.point.count < SPARSE_N ? 0.45 : 0.9}
+          >
+            <title>{`${row.rangeLabel}: predicted ${fmtPct(row.point.meanPredicted, 1)}%, actual ${fmtPct(row.point.observedFrequency, 1)}% (${row.point.count.toLocaleString("en-US")} matches)`}</title>
+          </rect>
+        );
+      })}
+    </svg>
+  );
+}
+
+function SparseTag() {
+  // Deliberately NEUTRAL — never a tier token: `comparePalette.test.ts`
+  // enforces that the tier vocabulary and the compare-algo trio are kept off
+  // one rendered surface (the EPA violet / epic purple collision).
+  return (
+    <span className="rounded-[4px] border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[6px] text-role-label text-[var(--color-text-muted)]">
+      {CALIBRATION_SPARSE_TAG}
+    </span>
+  );
+}
+
+function CalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlgorithmId; card: CalibrationCardModel; d: number }) {
+  const label = algorithmDisplayLabel(algorithmId);
+  return (
+    <div data-testid={calibrationCardTestId(algorithmId)} className="event-card flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)] shadow-sm">
+      <div className="flex items-center gap-[var(--spacing-xs)]">
+        <span aria-hidden="true" className="inline-block size-[10px] rounded-full" style={{ background: `var(--compare-algo-${algorithmId})` }} />
+        <span className="text-role-label font-semibold text-[var(--color-text-primary)]">{label}</span>
+      </div>
+      <p data-testid={calibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
+        {card.headline === null ? (
+          "No usable bins in this view."
+        ) : (
+          <>
+            {cardHeadlineSentence(label, card.headline)}
+            {card.headline.count < SPARSE_N && (
+              <>
+                {" "}
+                <SparseTag />
+              </>
+            )}
+          </>
+        )}
+      </p>
+      <MiniDeviationChart card={card} algorithmId={algorithmId} d={d} />
+      <div className="flex flex-col">
+        {card.rows.map((row) => (
+          <div key={row.rangeLabel} className="flex items-baseline gap-[var(--spacing-sm)] border-t border-[var(--color-border)] py-[3px] text-role-label">
+            <span className="numeric-cell w-[52px] shrink-0 text-[var(--color-text-muted)]">{row.rangeLabel}</span>
+            {row.point === null ? (
+              <span className="min-w-0 flex-1 text-[var(--color-text-muted)]">{CALIBRATION_EMPTY_RANGE_TEXT}</span>
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 text-[var(--color-text-primary)]">
+                  {"predicted "}
+                  <b className="numeric-cell">{`${fmtPct(row.point.meanPredicted, 1)}%`}</b>
+                  {" → actual "}
+                  <b className="numeric-cell">{`${fmtPct(row.point.observedFrequency, 1)}%`}</b>
+                </span>
+                <span className="numeric-cell flex shrink-0 items-baseline gap-[var(--spacing-xs)] text-[var(--color-text-muted)]">
+                  {row.point.count.toLocaleString("en-US")}
+                  {row.point.count < SPARSE_N && <SparseTag />}
+                </span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-interface ChartErrorBoundaryProps {
-  children: ReactNode;
-  onRetry: () => void;
-}
-interface ChartErrorBoundaryState {
-  hasError: boolean;
-}
-
-/**
- * A minimal, file-scoped error boundary catching ONLY the lazy chunk's
- * import failure — copied in shape from `MetricHistoryTab.tsx`'s own
- * `ChartErrorBoundary` (D-14 precedent). The heading, the year `Select`, the
- * sentence, the explainer and the legend all live OUTSIDE this boundary, so
- * a chunk failure degrades to sentence-plus-retry, never a blank section.
- */
-class ChartErrorBoundary extends Component<ChartErrorBoundaryProps, ChartErrorBoundaryState> {
-  state: ChartErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): ChartErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  handleRetry = (): void => {
-    this.setState({ hasError: false });
-    this.props.onRetry();
-  };
-
-  render(): ReactNode {
-    if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center gap-[var(--spacing-sm)] px-[var(--spacing-lg)] py-[var(--spacing-lg)] text-center">
-          <p className="text-role-body text-destructive">Chart failed to load</p>
-          <p className="text-role-body text-muted-foreground">Check your connection and try again.</p>
-          <Button type="button" variant="outline" onClick={this.handleRetry} className="border-destructive text-destructive">
-            Retry
-          </Button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-/**
- * `importKey` forces a brand-new `lazy()` wrapper (and therefore a brand-new
- * dynamic `import()` attempt) on every retry — same reasoning as
- * `MetricHistoryTab.tsx`'s identical pattern: a bare `key` change on the same
- * `lazy()` reference would not help, since React permanently caches a
- * rejected lazy-component promise inside that one `lazy()` instance forever.
- */
-export function CalibrationSection({ artifactsByYear, compLevelView, loadChart = defaultLoadChart }: CalibrationSectionProps) {
+export function CalibrationSection({ artifactsByYear, compLevelView }: CalibrationSectionProps) {
   const [year, setYear] = useState<number>(DEFAULT_CALIBRATION_YEAR);
-  const [algorithmId, setAlgorithmId] = useState<PublishedAlgorithmId>(DEFAULT_CALIBRATION_ALGORITHM);
-  const [chartPoint, setChartPoint] = useState<SelectedChartPoint | undefined>(undefined);
-  const [importKey, setImportKey] = useState(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- importKey intentionally forces recreation on retry
-  const ChartComponent = useMemo(() => lazy(loadChart), [importKey, loadChart]);
-
   const artifact = artifactsByYear.get(year);
-  const pointsByAlgorithm = pointsByAlgorithmFor(artifact, year, compLevelView);
-  const headlinePoint = selectHeadlinePoint(pointsByAlgorithm[algorithmId]);
-  const hasUsablePoint = headlinePoint !== undefined;
 
-  // A hovered/focused/clicked point from a PRIOR year/algorithm/compLevel
-  // selection is invalidated the moment that selection changes — a cheap
-  // pure-lookup check, never a re-fetch — so a stale chart point can never
-  // print a sentence that no longer matches what the chart shows.
-  const isChartPointFresh =
-    chartPoint !== undefined &&
-    pointsByAlgorithm[chartPoint.algorithmId].some(
-      (p) => p.binStart === chartPoint.point.binStart && p.meanPredicted === chartPoint.point.meanPredicted,
-    );
-
-  const activePoint: SelectedChartPoint | undefined = !hasUsablePoint
-    ? undefined
-    : isChartPointFresh
-      ? chartPoint
-      : { algorithmId, point: headlinePoint! };
-
-  const sentence =
-    activePoint === undefined ? NO_USABLE_BINS_SENTENCE : formatCalibrationSentence(algorithmDisplayLabel(activePoint.algorithmId), activePoint.point);
+  const cards = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
+    const slice = artifact?.slices.find((s) => s.algorithmId === algorithmId && s.season === year && s.compLevelView === compLevelView);
+    return { algorithmId, card: buildCalibrationCard(slice ?? { calibrationBins: [] }) };
+  });
+  // The sketch's shared scale: one `d` across all three cards so a bar's
+  // height means the same thing card to card.
+  const d = niceCeil(
+    cards.reduce((m, c) => Math.max(m, c.card.maxAbsDeviation), 0),
+    0.05,
+  );
 
   return (
     <div data-testid={CALIBRATION_SECTION_TESTID} className="mt-[var(--spacing-xl)]">
-      <div className="mb-[var(--spacing-md)] flex flex-wrap items-center justify-between gap-[var(--spacing-md)]">
-        <h2 className="text-role-heading">Calibration</h2>
-        <div className="flex items-center gap-[var(--spacing-sm)]">
-          <span className="text-role-label text-[var(--color-text-muted)]">Year</span>
-          <Select value={String(year)} onValueChange={(value) => setYear(Number(value))}>
-            <SelectTrigger data-testid={CALIBRATION_YEAR_SELECT_TESTID} aria-label="Year" className="tap-target w-[5.5rem]">
-              <SelectValue>{year}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {COMPARE_SEASONS.map((season) => (
-                <SelectItem key={season} value={String(season)}>
-                  {season}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="mb-[var(--spacing-sm)] flex flex-wrap items-center justify-between gap-[var(--spacing-sm)]">
+        <h2 className="text-role-heading text-[var(--color-text-primary)]">Calibration</h2>
+        <Select value={String(year)} onValueChange={(value) => setYear(Number(value))}>
+          <SelectTrigger data-testid={CALIBRATION_YEAR_SELECT_TESTID} aria-label="Year" className="tap-target w-[5.5rem]">
+            <SelectValue>{year}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {COMPARE_SEASONS.map((season) => (
+              <SelectItem key={season} value={String(season)}>
+                {season}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-
-      <p data-testid={CALIBRATION_SENTENCE_TESTID} className="text-role-body numeric-cell text-[var(--color-text-primary)]">
-        {sentence}
-      </p>
-
-      <p className="mt-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">{CALIBRATION_EXPLAINER}</p>
-
-      {/*
-        The legend IS the sentence's algorithm switcher — no second control
-        (08-UI-SPEC.md Compare Page Contract). Each entry is a 44x44px tap
-        target (`.tap-target`); the active entry is marked by `aria-pressed`
-        PLUS the Button's own visible variant swap, never colour alone.
-      */}
-      <div data-testid={CALIBRATION_LEGEND_TESTID} role="group" aria-label="Algorithm" className="mt-[var(--spacing-md)] flex flex-wrap gap-[var(--spacing-xs)]">
-        {PUBLISHED_ALGORITHM_IDS.map((id) => {
-          const isActive = id === algorithmId;
-          return (
-            <Button
-              key={id}
-              type="button"
-              variant={isActive ? "default" : "ghost"}
-              aria-pressed={isActive}
-              className="tap-target"
-              onClick={() => setAlgorithmId(id)}
-            >
-              {algorithmDisplayLabel(id)}
-            </Button>
-          );
-        })}
+      <p className="mb-[var(--spacing-md)] max-w-[72ch] text-role-body text-[var(--color-text-muted)]">{CALIBRATION_EXPLAINER}</p>
+      <div className="grid gap-[var(--spacing-md)] md:grid-cols-3">
+        {cards.map(({ algorithmId, card }) => (
+          <CalibrationCard key={algorithmId} algorithmId={algorithmId} card={card} d={d} />
+        ))}
       </div>
-
-      {hasUsablePoint && (
-        <div className="mt-[var(--spacing-sm)]">
-          <ChartErrorBoundary key={importKey} onRetry={() => setImportKey((key) => key + 1)}>
-            <Suspense fallback={<ChartSkeleton />}>
-              <ChartComponent
-                pointsByAlgorithm={pointsByAlgorithm}
-                activeAlgorithmId={algorithmId}
-                onPointSelect={(selectedAlgorithmId, point) => setChartPoint({ algorithmId: selectedAlgorithmId, point })}
-                onPointDeselect={() => setChartPoint(undefined)}
-              />
-            </Suspense>
-          </ChartErrorBoundary>
-        </div>
-      )}
     </div>
   );
 }

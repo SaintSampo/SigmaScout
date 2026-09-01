@@ -29,9 +29,6 @@ const SWITCHER_SEGMENT_TESTIDS = {
   elimination: "compare-comp-level-switcher-segment-elimination",
 } as const;
 const CALIBRATION_SECTION_TESTID = "compare-calibration-section";
-const CALIBRATION_LEGEND_TESTID = "compare-calibration-legend";
-const CALIBRATION_CHART_TESTID = "calibration-chart";
-const CALIBRATION_SENTENCE_TESTID = "compare-calibration-sentence";
 
 async function openComparePage(page: import("@playwright/test").Page): Promise<void> {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -81,7 +78,8 @@ test.describe("C1 — the Compare accuracy table at 390px: pans inside its own r
   test("switching Combined -> Qualification -> Elimination never changes the table's scrollWidth or header-cell count, and never pans the page", async ({ page }) => {
     await openComparePage(page);
     const region = page.locator(`[data-testid="${ACCURACY_SCROLL_TESTID}"]`);
-    const scroller = region.locator('[data-slot="table-container"]');
+    // AccuracyTable owns its scroller since 2026-08-31 — the region IS it.
+    const scroller = region;
 
     const combinedScrollWidth = await scroller.evaluate((el) => el.scrollWidth);
     const combinedHeaderCount = await region.locator("thead th").count();
@@ -109,81 +107,41 @@ test.describe("C1 — the Compare accuracy table at 390px: pans inside its own r
 /** `\.\d*9{4,}\d*$|\.\d*0{4,}\d+$` — the identical float-noise pattern `metric-history-axis-legibility.spec.ts` established as this test class's first instance. */
 const FLOAT_NOISE_PATTERN = /\.\d*9{4,}\d*$|\.\d*0{4,}\d+$/;
 
-test.describe("C3 — the Compare calibration section at 390px: legend, axis labels and sparse-bin radius scaling all stay legible", () => {
-  test("all three legend entries render with non-empty text inside the viewport, no axis tick is clipped or reads as float noise, and the sparse-bin radius scaling is real", async ({
-    page,
-  }, testInfo) => {
+test.describe("C3 — the Compare calibration section at 390px: three cards, sentences, bin rows and mini charts all stay legible", () => {
+  test("each algorithm card renders a non-empty headline sentence inside the viewport, its bin rows carry range labels, and its mini deviation chart draws real bars", async ({ page }) => {
     await openComparePage(page);
 
     const section = page.getByTestId(CALIBRATION_SECTION_TESTID);
     await section.scrollIntoViewIfNeeded();
 
-    const legend = page.getByTestId(CALIBRATION_LEGEND_TESTID);
-    await expect(legend).toBeVisible();
-    const legendButtons = legend.getByRole("button");
-    await expect(legendButtons).toHaveCount(3);
-
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("no viewport size");
-    const legendCount = await legendButtons.count();
-    for (let i = 0; i < legendCount; i++) {
-      const entry = legendButtons.nth(i);
-      const text = (await entry.innerText()).trim();
-      expect(text.length, `legend entry ${i} must render non-empty text`).toBeGreaterThan(0);
-      const box = await entry.boundingBox();
-      if (box === null) throw new Error(`legend entry ${i} has no bounding box`);
-      expect(box.x, `legend entry "${text}" left edge must be inside the viewport`).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width, `legend entry "${text}" right edge must be inside the viewport`).toBeLessThanOrEqual(viewport.width + 1);
+
+    for (const algorithmId of ["opr", "epa", "vpr"]) {
+      const card = page.getByTestId(`compare-calibration-card-${algorithmId}`);
+      await expect(card).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+
+      const cardBox = await card.boundingBox();
+      if (cardBox === null) throw new Error(`card ${algorithmId} has no bounding box`);
+      expect(cardBox.x, `card ${algorithmId} left edge inside viewport`).toBeGreaterThanOrEqual(0);
+      expect(cardBox.x + cardBox.width, `card ${algorithmId} right edge inside viewport`).toBeLessThanOrEqual(viewport.width + 1);
+
+      const sentence = page.getByTestId(`compare-calibration-sentence-${algorithmId}`);
+      const sentenceText = (await sentence.innerText()).trim();
+      expect(sentenceText.length, `card ${algorithmId} sentence non-empty`).toBeGreaterThan(20);
+      expect(sentenceText, `card ${algorithmId} sentence is the plain-language form`).toMatch(/^When .+ put red.s win chance at about /);
+
+      // Ten published bins -> ten range labels, empties included (sparse honesty).
+      const rangeLabels = await card.locator("span").filter({ hasText: /^\d+–\d+%$/ }).count();
+      expect(rangeLabels, `card ${algorithmId} renders every bin range label`).toBe(10);
+
+      // The mini deviation chart draws one bar per VALID bin — at least one
+      // real bar on every card for the current live data.
+      const barCount = await card.locator("svg rect").count();
+      expect(barCount, `card ${algorithmId} mini chart draws bars`).toBeGreaterThan(0);
+      expect(barCount, `card ${algorithmId} bars never exceed the bin count`).toBeLessThanOrEqual(10);
     }
-
-    const chart = page.getByTestId(CALIBRATION_CHART_TESTID);
-    await expect(chart).toBeVisible();
-
-    // Every rendered tick label (X and Y axes both carry the same
-    // `.recharts-cartesian-axis-tick-value` class on their <text> nodes) —
-    // `metric-history-axis-legibility.spec.ts`'s own established technique.
-    const tickInfo = await chart.evaluate((el) => {
-      const svg = el.querySelector("svg.recharts-surface");
-      if (svg === null) throw new Error("expected a rendered recharts <svg>");
-      const svgRect = svg.getBoundingClientRect();
-      const ticks = Array.from(el.querySelectorAll(".recharts-cartesian-axis-tick-value"));
-      return {
-        svgLeft: svgRect.left,
-        svgBottom: svgRect.bottom,
-        ticks: ticks.map((tickEl) => {
-          const rect = tickEl.getBoundingClientRect();
-          return { label: tickEl.textContent ?? "", left: rect.left, bottom: rect.bottom };
-        }),
-      };
-    });
-    expect(tickInfo.ticks.length, "expected at least one rendered axis tick").toBeGreaterThan(0);
-    for (const tick of tickInfo.ticks) {
-      expect(tick.label, `tick "${tick.label}" reads as float noise`).not.toMatch(FLOAT_NOISE_PATTERN);
-      expect(tick.left, `tick "${tick.label}" left edge (${tick.left}) is clipped before the SVG's own left edge (${tickInfo.svgLeft})`).toBeGreaterThanOrEqual(tickInfo.svgLeft - 1);
-      expect(tick.bottom, `tick "${tick.label}" bottom edge (${tick.bottom}) is clipped past the SVG's own bottom edge (${tickInfo.svgBottom})`).toBeLessThanOrEqual(tickInfo.svgBottom + 1);
-    }
-
-    // Sparse-bin encoding: every rendered point's radius, read directly off
-    // the SVG circles the custom dot renderer draws.
-    const radii = await chart.evaluate((el) => Array.from(el.querySelectorAll("circle")).map((c) => Number(c.getAttribute("r") ?? "0")));
-    expect(radii.length, "expected at least one rendered calibration point").toBeGreaterThan(0);
-    const minRadius = Math.min(...radii);
-    const maxRadius = Math.max(...radii);
-    expect(minRadius, "no sparse bin may be hidden — every rendered point's radius must be strictly greater than zero").toBeGreaterThan(0);
-    expect(new Set(radii).size, "the radii must not all be equal — the scaling must actually be applied, not merely declared").toBeGreaterThan(1);
-    expect(maxRadius, "the largest-count bin's radius must exceed the smallest-count bin's — the scale must run the right way").toBeGreaterThan(minRadius);
-
-    // The calibration chart is demoted beneath its own sentence — asserted,
-    // not assumed: the sentence's computed font-size must exceed a tick
-    // label's.
-    const sentenceFontSize = await page.getByTestId(CALIBRATION_SENTENCE_TESTID).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-    const firstTick = chart.locator(".recharts-cartesian-axis-tick-value").first();
-    const tickFontSize = await firstTick.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-    expect(sentenceFontSize, `sentence font-size ${sentenceFontSize}px must exceed the chart's own tick-label font-size ${tickFontSize}px`).toBeGreaterThan(tickFontSize);
-
-    const shot = testInfo.outputPath("compare-calibration-390.png");
-    await page.screenshot({ path: shot, fullPage: true });
-    // eslint-disable-next-line no-console -- Task 4's checkpoint names this exact path for the human judgement call.
-    console.log(`[08-15] C3 calibration screenshot: ${shot}`);
   });
 });
+

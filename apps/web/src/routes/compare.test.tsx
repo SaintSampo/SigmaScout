@@ -24,12 +24,14 @@ import { compLevelSegmentTestId } from "../components/compare/CompLevelSwitcher.
 import { METHODOLOGY_NOTE_TESTID, buildMethodologyFigures } from "../components/compare/MethodologyNote.js";
 import {
   CALIBRATION_EXPLAINER,
-  CALIBRATION_LEGEND_TESTID,
   CALIBRATION_SECTION_TESTID,
-  CALIBRATION_SENTENCE_TESTID,
+  CALIBRATION_EMPTY_RANGE_TEXT,
+  calibrationCardSentenceTestId,
+  calibrationCardTestId,
   CALIBRATION_YEAR_SELECT_TESTID,
 } from "../components/compare/CalibrationSection.js";
-import { formatCalibrationSentence, selectHeadlinePoint, validCalibrationPoints, type CompareSlice } from "../components/compare/calibrationSeries.js";
+import { type CompareSlice } from "../components/compare/calibrationSeries.js";
+import { buildCalibrationCard, cardHeadlineSentence } from "../components/compare/calibrationCards.js";
 import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
 import { coverageCellTestId, DATA_COVERAGE_SCROLL_TESTID, DATA_COVERAGE_SECTION_TESTID } from "../components/compare/DataCoverageTable.js";
 import { COVERAGE_EXCLUSION_COLUMNS } from "../components/compare/coverageRows.js";
@@ -431,7 +433,7 @@ describe("/compare route — page states", () => {
   });
 });
 
-describe("/compare route — Calibration section (08-10, D-10 parity)", () => {
+describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01 rebuild, D-10 parity)", () => {
   afterEach(() => cleanup());
 
   const calibrationFetchCalls: string[] = [];
@@ -458,96 +460,79 @@ describe("/compare route — Calibration section (08-10, D-10 parity)", () => {
     return slice;
   }
 
-  it("default render (before any interaction): the sentence shows VPR's 2026 combined-view headline, derived from the real fixture", async () => {
+  /** The fixture-recomputed headline sentence for one card — the SAME pure model the component renders through, per D-10. */
+  function expectedSentence(year: number, algorithmId: "opr" | "epa" | "vpr", view: string): string {
+    const card = buildCalibrationCard(calibrationSliceFor(year, algorithmId, view));
+    if (card.headline === null) throw new Error("fixture unexpectedly has no valid bins");
+    return cardHeadlineSentence(algorithmDisplayLabel(algorithmId), card.headline);
+  }
+
+  it("default render: ALL THREE cards carry their own fixture-recomputed 2026 combined-view headline sentence", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
 
-    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "vpr", "combined")))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      await waitFor(() =>
+        expect(screen.getByTestId(calibrationCardSentenceTestId(algorithmId)).textContent).toContain(
+          expectedSentence(2026, algorithmId, "combined"),
+        ),
+      );
+    }
   });
 
-  it("OPR (via the calibration legend) + Qualification (via the page's compLevelView switcher) + 2026 (the year Select's own default): the sentence equals the fixture-recomputed headline — the case that justifies the whole section", async () => {
+  it("switching the page compLevelView to Qualification re-derives every card from the qualification slices", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
 
-    const legend = screen.getByTestId(CALIBRATION_LEGEND_TESTID);
-    const oprButton = Array.from(legend.querySelectorAll("button")).find((b) => b.textContent === "OPR")!;
-    fireEvent.click(oprButton);
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("qualification")));
 
-    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "opr", "qualification")))!;
-    const expectedSentence = formatCalibrationSentence(algorithmDisplayLabel("opr"), headline);
-
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(expectedSentence));
+    await waitFor(() =>
+      expect(screen.getByTestId(calibrationCardSentenceTestId("opr")).textContent).toContain(expectedSentence(2026, "opr", "qualification")),
+    );
   });
 
-  it("clicking the EPA legend entry changes the sentence and moves aria-pressed; changing the year Select to 2024 changes it again — global.fetch call count unchanged across both", async () => {
+  it("changing the year Select to 2024 re-derives the cards from the 2024 artifact with zero additional fetches", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(""));
-
+    await waitFor(() => expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).not.toBe(""));
     const fetchCallCountBefore = calibrationFetchCalls.length;
-
-    const legend = screen.getByTestId(CALIBRATION_LEGEND_TESTID);
-    const epaButton = Array.from(legend.querySelectorAll("button")).find((b) => b.textContent === "EPA")!;
-    fireEvent.click(epaButton);
-
-    const epaHeadline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "epa", "combined")))!;
-    const epaSentence = formatCalibrationSentence(algorithmDisplayLabel("epa"), epaHeadline);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(epaSentence));
-    expect(epaButton.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
     fireEvent.click(await screen.findByRole("option", { name: "2024" }));
 
-    const epa2024Headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2024, "epa", "combined")))!;
-    const epa2024Sentence = formatCalibrationSentence(algorithmDisplayLabel("epa"), epa2024Headline);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(epa2024Sentence));
-
+    await waitFor(() =>
+      expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).toContain(expectedSentence(2024, "vpr", "combined")),
+    );
     expect(calibrationFetchCalls.length).toBe(fetchCallCountBefore);
   });
 
-  it("hovering a real chart point swaps the sentence to that point's own fact, and blurring restores the headline sentence", async () => {
+  it("every published bin renders as a row — populated rows as \"predicted → actual\" with counts, empty bins as the verbatim empty-range sentence, never hidden", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
 
-    const headline = selectHeadlinePoint(validCalibrationPoints(calibrationSliceFor(2026, "vpr", "combined")))!;
-    const headlineSentence = formatCalibrationSentence(algorithmDisplayLabel("vpr"), headline);
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
-
-    // Re-queried before each interaction rather than cached — a hover
-    // triggers a state update in CalibrationSection, and Recharts' own
-    // re-render is not guaranteed to keep the SAME dot <g> node identity, so
-    // a stale reference could dispatch an event nothing is listening on.
-    function firstDotGroup(): Element {
-      const circle = document.querySelector('[data-testid="calibration-chart"] .recharts-surface circle');
-      const group = circle?.closest("g");
-      if (group === null || group === undefined) throw new Error("chart dot not yet rendered");
-      return group;
+    const slice = calibrationSliceFor(2026, "vpr", "combined");
+    const card = buildCalibrationCard(slice);
+    const cardEl = await screen.findByTestId(calibrationCardTestId("vpr"));
+    const emptyCount = card.rows.filter((r) => r.point === null).length;
+    expect(within(cardEl).queryAllByText(CALIBRATION_EMPTY_RANGE_TEXT)).toHaveLength(emptyCount);
+    // Ten published bins, ten rows — the sparse-honesty rule made structural.
+    for (const row of card.rows) {
+      expect(within(cardEl).getByText(row.rangeLabel)).toBeDefined();
     }
-
-    await waitFor(() => firstDotGroup());
-    fireEvent.focus(firstDotGroup());
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).not.toBe(headlineSentence));
-
-    fireEvent.blur(firstDotGroup());
-    await waitFor(() => expect(screen.getByTestId(CALIBRATION_SENTENCE_TESTID).textContent).toBe(headlineSentence));
   });
 
-  it("renders the corrected diagonal-orientation explainer; the UI-SPEC's inverted form does not appear", async () => {
+  it("renders the corrected orientation explainer; the inverted form does not appear", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
 
     expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
-    expect(CALIBRATION_EXPLAINER).toContain("below the diagonal means the algorithm was more confident");
-    expect(CALIBRATION_EXPLAINER).not.toContain("above the diagonal means the algorithm was more confident");
+    expect(CALIBRATION_EXPLAINER).toContain("below the zero line means the algorithm was more confident");
+    expect(CALIBRATION_EXPLAINER).not.toContain("above the zero line means the algorithm was more confident");
   });
 });
 
