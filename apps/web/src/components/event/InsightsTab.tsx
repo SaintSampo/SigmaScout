@@ -39,7 +39,7 @@ import {
   RECORD_COLUMN_WIDTH_NARROW_PX,
   TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX,
 } from "@/components/teams-table/columns";
-import { useIsMobile } from "@/lib/breakpoints";
+import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
 import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
@@ -217,7 +217,7 @@ function cellClassName(columnId: string): string {
  * (`rank`, `teamNumber`, `nickname`) rather than the constant being adapted
  * to them.
  */
-function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean) {
+function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean, metricFirst: boolean = isNarrow) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
   // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
@@ -343,10 +343,10 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     // product's differentiator, not just TBA's Record/RP facts. Record and
     // RP sit directly behind it, then the remaining metric groups. At/above
     // the breakpoint the order is unchanged (record, rp, metrics).
-    ...(isNarrow ? metricGroupColumns.slice(0, 1) : []),
+    ...(metricFirst ? metricGroupColumns.slice(0, 1) : []),
     recordColumn,
     rpColumn,
-    ...(isNarrow ? metricGroupColumns.slice(1) : metricGroupColumns),
+    ...(metricFirst ? metricGroupColumns.slice(1) : metricGroupColumns),
   ]);
 }
 
@@ -412,6 +412,7 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
   // for the whole page, live on resize/rotation via `matchMedia`'s `change`
   // event).
   const isNarrow = useIsMobile();
+  const isF3Width = useIsF3MetricFirstWidth();
   const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
   const columns = useMemo(
     () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow),

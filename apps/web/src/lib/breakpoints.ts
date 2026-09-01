@@ -48,3 +48,42 @@ export function useIsMobile(): boolean {
 
   return isMobile;
 }
+
+/**
+ * The F3 metric-first narrow ordering (ui-polish, 2026-08-31) is justified
+ * by measured geometry: rank 56 + team 72 + nickname 90 + metric 120 =
+ * 338px, which fits a 390px phone's ~342px scroller but NOT the ~312px
+ * scroller of the narrowest supported devices (G-2's pixel-10 case, where
+ * it regressed the "one full data column at scroll 0" invariant). Below
+ * this viewport width the tables fall back to the G-11 record-first order,
+ * whose 80px record column does fit. 380 viewport ≈ the narrowest width
+ * whose scroller still fits the 338px F3 first-paint set.
+ */
+export const F3_METRIC_FIRST_MIN_VIEWPORT_PX = 380;
+
+/** `true` when the viewport is mobile-narrow (`useIsMobile`) but still wide enough for the F3 metric-first order; `false` on the narrowest devices, which keep the G-11 record-first order. Same matchMedia/jsdom-fallback discipline as `useIsMobile`. */
+export function useIsF3MetricFirstWidth(): boolean {
+  const [matches, setMatches] = useState<boolean>(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(`(min-width: ${F3_METRIC_FIRST_MIN_VIEWPORT_PX}px)`).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mediaQueryList = window.matchMedia(`(min-width: ${F3_METRIC_FIRST_MIN_VIEWPORT_PX}px)`);
+    const handleChange = () => {
+      setMatches(mediaQueryList.matches);
+    };
+    handleChange();
+    mediaQueryList.addEventListener("change", handleChange);
+    return () => {
+      mediaQueryList.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  return matches;
+}

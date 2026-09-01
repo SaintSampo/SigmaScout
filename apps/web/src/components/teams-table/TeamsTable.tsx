@@ -21,7 +21,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useIsMobile } from "@/lib/breakpoints";
+import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
 import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, sortableColumnIds } from "./columns";
 import type { SortDirection, TeamRow } from "./rowModel";
 
@@ -70,8 +70,10 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
   // subscribes to `matchMedia`'s `change` event, so a resize or device
   // rotation re-evaluates it live, not just on first mount.
   const isNarrow = useIsMobile();
+  const isF3Width = useIsF3MetricFirstWidth();
 
-  const columns = useMemo(() => buildColumns(algorithmId, season, isNarrow), [algorithmId, season, isNarrow]);
+  const metricFirst = isNarrow && isF3Width;
+  const columns = useMemo(() => buildColumns(algorithmId, season, isNarrow, metricFirst), [algorithmId, season, isNarrow, metricFirst]);
   const sortableIds = useMemo(() => new Set(sortableColumnIds(algorithmId, season)), [algorithmId, season]);
   const columnPinning = useMemo(
     () => ({ start: isNarrow ? [...MOBILE_PINNED_COLUMN_IDS] : [...PINNED_COLUMN_IDS], end: [] }),

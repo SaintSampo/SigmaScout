@@ -128,7 +128,13 @@ function StartMatchRow({
       data-selected={selected ? "true" : undefined}
       onClick={disabled ? undefined : () => onSelect(row.matchKey)}
       className={cn(
-        "tap-target flex w-full items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-left",
+        // `shrink-0` is load-bearing (mobile overlap bug, 2026-09-01): rows
+        // are flex items of the bounded overflow-y-auto column, and default
+        // flex-shrink compressed every row to tap-target's 44px min-height
+        // floor while content measures 51px — the 7px excess painted over
+        // the next row (measured live at 390px). Rows must never shrink;
+        // the panel scrolls instead.
+        "tap-target flex w-full shrink-0 items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-left",
         selected ? "border-l-[var(--color-accent)] bg-[var(--sim-picker-selected-bg)]" : "border-l-transparent"
       )}
     >

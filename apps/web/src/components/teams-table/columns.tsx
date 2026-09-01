@@ -232,7 +232,7 @@ function formatRecord(record: TeamRow["record"]): string {
  * sizes are UNCHANGED (96/88), so wide-viewport rendering is byte-for-byte
  * identical to before this fix.
  */
-export function buildColumns(algorithmId: string, season: number, isNarrow: boolean) {
+export function buildColumns(algorithmId: string, season: number, isNarrow: boolean, metricFirst: boolean = isNarrow) {
   const metricKeys = metricKeysFor(algorithmId, season);
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
@@ -341,9 +341,9 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     // original concern was that metrics cannot NARROW into record's slot;
     // they never needed to — the first one takes the slot at full width.
     // At/above the breakpoint the order is UNCHANGED.
-    ...(isNarrow ? metricColumns.slice(0, 1) : []),
+    ...(metricFirst ? metricColumns.slice(0, 1) : []),
     ...(isNarrow ? [recordColumn] : []),
-    ...(isNarrow ? metricColumns.slice(1) : metricColumns),
+    ...(metricFirst ? metricColumns.slice(1) : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
     winRateColumn,
   ]);
