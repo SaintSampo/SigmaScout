@@ -237,6 +237,31 @@ None — no external service configuration required. `.env` was never `Read`, `c
 
 All 6 created files confirmed present on disk (`apps/web/src/components/event/rankRows.ts`, `rankRows.test.ts`, `scripts/mockRankDistribution.ts`, `docs/ui/rank-distribution-mock.md`, `apps/web/src/components/event/RankDistributionTable.tsx`, `RankDistributionTable.test.tsx`); all 3 task commits (`6fd902ba`, `67f7be3e`, `7b70946c`) confirmed in `git log --oneline`.
 
+## Post-close fix: web typecheck regression (found by 08-15, fixed here, 2026-08-31)
+
+**The durable lesson, not the two missing params.** This plan's own Task 3 verification ran
+`npx tsc --noEmit` at the repo root and it was clean, so the plan closed believing typecheck was
+green. It was not: the repo root's `tsc --noEmit` does **not** cover `apps/web` (that project has
+its own `tsconfig.json` and its own `pnpm --filter web typecheck` script), so a real type error
+inside `apps/web/src` is invisible to the root-level check this plan's `<verification>` block
+actually ran. `RankDistributionTable.tsx`'s two Team #/Nickname `Link` calls omitted the required
+`algorithm` search param (`TeamSearchSchema` requires it; the search objects here only carried
+`year`/`tab`) — a real error `pnpm --filter web typecheck` would have caught immediately, and did,
+once 08-15 ran it. **The trap for future plans in this repo: the root `pnpm typecheck` is not a
+substitute for `pnpm --filter web typecheck` when the touched files live under `apps/web` — both
+must be run, and the plan's own `<verification>` block should say so explicitly for any
+apps/web-touching plan, not just this one.**
+
+08-15 correctly declined to fix this itself (out of its own declared file scope) and routed it
+back here. Fixed by threading the real `algorithmId` — never a hardcoded `"vpr"` literal, even
+though this tab is VPR-only per D-04 — from `SimulationTab`'s own prop through
+`RankDistributionTable`'s props and `buildRankTableColumns`, cast to `PublishedAlgorithmId` at the
+one call site that needs it via the same loose-cast escape hatch `InsightsTab.tsx`/`BreakdownTab.tsx`
+already use. `pnpm --filter web typecheck`: exit 0. `npx vitest run apps/web/src`: 1140/1140, no
+regression from 08-15's own close. One test fixture (`RankDistributionTable.test.tsx`'s
+`renderTable` helper) updated to pass `algorithmId="vpr"`, matching the corrected prop shape.
+Commit: `da26713f`.
+
 ---
 *Phase: 08-simulation-compare*
 *Completed: 2026-08-31*
