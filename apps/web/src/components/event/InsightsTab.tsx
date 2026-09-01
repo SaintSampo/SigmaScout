@@ -226,6 +226,52 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
   const algorithm = algorithmId as PublishedAlgorithmId;
   const rankHeader = orderSource === "official" ? "Rank" : `${algorithmDisplayLabel(algorithm)} Rank`;
 
+  const recordColumn = columnHelper.accessor("record", {
+    header: "Record",
+    // 07-UAT.md G-11: 100 at/above the breakpoint (unchanged),
+    // `RECORD_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
+    // doc comment in `teams-table/columns.tsx` for the real-geometry
+    // derivation. Narrow-mode POSITION is decided at the assembly below
+    // (ui-polish F3), width alone is decided here.
+    size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
+    cell: (info) => <span className="numeric-cell">{formatEventRecord(info.getValue())}</span>,
+  });
+
+  // RP: a plain numeric-cell span, NEVER MetricValue and NEVER a tier
+  // class under any input (this plan's Decision 1). `rp` is TBA's own raw
+  // competition statistic — no percentile exists for it, and none could
+  // honestly be derived from an event's own visible roster
+  // (`TeamMetricSchema.percentile`'s own season-pool-only definition).
+  // An explicit `undefined` comparison distinguishes a real `0` from
+  // absence, the same discipline the Rank cell applies.
+  const rpColumn = columnHelper.accessor("rp", {
+    id: "rp",
+    header: "RP",
+    size: 84,
+    cell: (info) => {
+      const value = info.getValue();
+      return <span className="numeric-cell">{value === undefined ? "—" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
+    },
+  });
+
+  const metricGroupColumns = METRIC_GROUPS.map((group) =>
+    columnHelper.accessor((row) => row.metrics[group.metricKey], {
+      id: group.metricKey,
+      header: group.label,
+      size: 120,
+      // The identical `tierForPercentile(metric?.percentile)` derivation
+      // `BreakdownTab.tsx` uses — one derivation path, so an Insights tier
+      // and a Breakdown tier for the same team/metric/season can never
+      // disagree (D-09). Tiered unconditionally, including this sorted
+      // column: D-09 knowingly accepts the redundancy of adjacent rows
+      // sharing a tier in exchange for one rule and more colour.
+      cell: (info) => {
+        const entry = info.getValue();
+        return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+      },
+    }),
+  );
+
   return columnHelper.columns([
     // D-08/T-07-11-02: in fallback mode the header itself names the
     // algorithm whose ordering it is showing — a model-derived ordinal must
@@ -291,50 +337,16 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
         </Link>
       ),
     }),
-    columnHelper.accessor("record", {
-      header: "Record",
-      // 07-UAT.md G-11: 100 at/above the breakpoint (unchanged),
-      // `RECORD_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
-      // doc comment in `teams-table/columns.tsx` for the real-geometry
-      // derivation (shared with `TeamsTable`, which additionally reorders
-      // this column at narrow viewports; here `record` already sits
-      // immediately after `nickname`, so only the width needs to shrink).
-      size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
-      cell: (info) => <span className="numeric-cell">{formatEventRecord(info.getValue())}</span>,
-    }),
-    // RP: a plain numeric-cell span, NEVER MetricValue and NEVER a tier
-    // class under any input (this plan's Decision 1). `rp` is TBA's own raw
-    // competition statistic — no percentile exists for it, and none could
-    // honestly be derived from an event's own visible roster
-    // (`TeamMetricSchema.percentile`'s own season-pool-only definition).
-    // An explicit `undefined` comparison distinguishes a real `0` from
-    // absence, the same discipline the Rank cell above applies.
-    columnHelper.accessor("rp", {
-      id: "rp",
-      header: "RP",
-      size: 84,
-      cell: (info) => {
-        const value = info.getValue();
-        return <span className="numeric-cell">{value === undefined ? "—" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
-      },
-    }),
-    ...METRIC_GROUPS.map((group) =>
-      columnHelper.accessor((row) => row.metrics[group.metricKey], {
-        id: group.metricKey,
-        header: group.label,
-        size: 120,
-        // The identical `tierForPercentile(metric?.percentile)` derivation
-        // `BreakdownTab.tsx` uses — one derivation path, so an Insights tier
-        // and a Breakdown tier for the same team/metric/season can never
-        // disagree (D-09). Tiered unconditionally, including this sorted
-        // column: D-09 knowingly accepts the redundancy of adjacent rows
-        // sharing a tier in exchange for one rule and more colour.
-        cell: (info) => {
-          const entry = info.getValue();
-          return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
-        },
-      }),
-    ),
+    // ui-polish F3 (2026-08-31, 07-UI-REVIEW priority fix 3): below the
+    // breakpoint the FIRST metric group leads this trailing block, so a
+    // tiered, percentile-carrying value is on the first screenful — the
+    // product's differentiator, not just TBA's Record/RP facts. Record and
+    // RP sit directly behind it, then the remaining metric groups. At/above
+    // the breakpoint the order is unchanged (record, rp, metrics).
+    ...(isNarrow ? metricGroupColumns.slice(0, 1) : []),
+    recordColumn,
+    rpColumn,
+    ...(isNarrow ? metricGroupColumns.slice(1) : metricGroupColumns),
   ]);
 }
 

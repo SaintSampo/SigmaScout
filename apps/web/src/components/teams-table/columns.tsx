@@ -330,12 +330,20 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
         </Link>
       ),
     }),
-    // 07-UAT.md G-11: below MOBILE_BREAKPOINT_PX, `record` (narrow, safe
-    // content) sits here, ahead of the metric columns — see
-    // `RECORD_COLUMN_WIDTH_NARROW_PX`'s doc comment. At/above the breakpoint
-    // this array is empty and `record` stays in its original trailing spot.
+    // 07-UAT.md G-11, revised by the ui-polish F3 decision (2026-08-31,
+    // 07-UI-REVIEW priority fix 3): below MOBILE_BREAKPOINT_PX the FIRST
+    // metric column leads (rank 56 + team 72 + nickname 90 + metric 120 =
+    // 338px — the full 120px column, tier box and all, clears the 342px
+    // scroller with 4px spare, the same measured math this file's own
+    // width-derivation comment records), so the product's differentiator —
+    // a tiered, ± -carrying value — is on the first screenful. `record` (a
+    // TBA fact) sits directly behind it, then the remaining metrics. G-11's
+    // original concern was that metrics cannot NARROW into record's slot;
+    // they never needed to — the first one takes the slot at full width.
+    // At/above the breakpoint the order is UNCHANGED.
+    ...(isNarrow ? metricColumns.slice(0, 1) : []),
     ...(isNarrow ? [recordColumn] : []),
-    ...metricColumns,
+    ...(isNarrow ? metricColumns.slice(1) : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
     winRateColumn,
   ]);

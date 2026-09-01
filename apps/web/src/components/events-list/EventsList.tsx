@@ -127,13 +127,19 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
           {event.name}
         </Link>
       </TableCell>
-      <TableCell className="numeric-cell">{event.week === null ? <Badge variant="secondary">Offseason</Badge> : event.week}</TableCell>
+      {/* ui-polish Q1 (2026-08-31): week and district wear the same
+          secondary-badge chip the Offseason label always has — a bounded
+          categorical value reads as a chip, not bare text, matching the
+          alliance-chip precedent (06-09). No new colour: same tokens. */}
+      <TableCell className="numeric-cell">
+        {event.week === null ? <Badge variant="secondary">Offseason</Badge> : <Badge variant="secondary">{`Wk ${event.week}`}</Badge>}
+      </TableCell>
       <TableCell>{event.startDate}</TableCell>
       <TableCell className="max-w-[10rem] truncate" title={location}>
         {location}
       </TableCell>
       <TableCell className="max-w-[8rem] truncate" title={cellText(event.districtKey)}>
-        {cellText(event.districtKey)}
+        {event.districtKey === null ? cellText(event.districtKey) : <Badge variant="secondary">{event.districtKey.toUpperCase()}</Badge>}
       </TableCell>
       <TableCell className="numeric-cell">{event.teamCount}</TableCell>
       <TableCell className="numeric-cell">{`${event.playedMatchCount}/${event.matchCount}`}</TableCell>

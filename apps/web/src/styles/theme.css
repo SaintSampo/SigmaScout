@@ -27,10 +27,21 @@
  * keyboard-highlighted row; see `select.tsx`'s `focus:bg-accent/10`).
  */
 @theme {
-  /* Color — 05-UI-SPEC.md "Color" table (the four contract roles) */
-  --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50 */
-  --color-bg-surface: #f1f5f9; /* Secondary (30%) — slate-100 */
-  --color-accent: #4f46e5; /* Accent (10%) — indigo-600 */
+  /* Color — 05-UI-SPEC.md "Color" table (the four contract roles), revised
+   * by the ui-polish-pass palette decision (2026-08-31, user-picked): the
+   * "indigo-tinted chrome" variant restated in GREEN, anchored on the
+   * user's own #4CAF50 (Material green 500). The seed itself fails WCAG as
+   * ink (2.66:1 on page) so it is NOT a token — the shipped family is its
+   * Material relatives, each measured: accent green-800 #2E7D32 (4.90:1 on
+   * page, 4.56:1 on surface, 5.13:1 white-on-it), surface green-50
+   * #E8F5E9 (text 15.87:1, muted 6.74:1), border green-100 #C8E6C9.
+   * Page ground stays neutral; data-colour vocabularies (tier, alliance,
+   * compare-algo) are untouched. D-05's rationale still holds — distinct
+   * from TBA's/Statbotics' blue navigation — and accent still means
+   * "interactive and/or currently active", nothing else. */
+  --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50, deliberately still neutral */
+  --color-bg-surface: #e8f5e9; /* Secondary (30%) — Material green-50 tinted chrome */
+  --color-accent: #2e7d32; /* Accent (10%) — Material green-800, WCAG-checked ink */
   --color-destructive: #dc2626; /* red-600 */
   /*
    * --color-text-muted: not specified by the UI-SPEC (left open for the
@@ -54,7 +65,7 @@
    * this contract), so no ratio is claimed here the way it is for
    * --color-text-muted above.
    */
-  --color-border: #cbd5e1;
+  --color-border: #c8e6c9; /* Material green-100 — ui-polish-pass, tinted alongside --color-bg-surface */
   --color-input: var(--color-border);
 
   /*

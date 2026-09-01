@@ -8,6 +8,16 @@ priority: high
 
 # UI polish pass — revisit the minimal palette
 
+> **RESOLVED 2026-08-31 (decision page: claude.ai/code/artifact/895767df-8d4c-4d75-b31e-b4a2f54ca0a9).**
+> User picked the tinted-chrome variant restated in GREEN, anchored on their own #4CAF50: shipped as
+> a pure token swap — surface #E8F5E9 (Material green-50), border #C8E6C9 (green-100), accent
+> #2E7D32 (green-800, WCAG-computed: 4.90:1 page / 4.56:1 surface / 5.13:1 white-on-it; the #4CAF50
+> seed itself fails as ink at 2.66:1 and is not a token). Page ground stays neutral slate-50; tier,
+> alliance and compare-algo vocabularies untouched; accent still means interactive/active only.
+> Rank treatment: R1 — none (decided, not deferred). 390px first paint: F3 — first metric column
+> leads below the breakpoint on Insights + TeamsTable (07-UI-REVIEW fix 3 discharged). Week/district
+> chips shipped on the Events list. Q2 is thereby CLOSED — the palette question is decided.
+
 ## What the user said
 
 At Phase 5's real-device sign-off, reviewing the live site on a phone:

@@ -22,7 +22,9 @@ Sketch sessions wrapped: 2026-08-25, 2026-08-30
 <design_direction>
 ## Overall Direction
 
-**Palette.** Metric values carry a percentile **tier**, shown as a tinted box: Common (0–50) plain,
+**Palette (revised 2026-08-31, ui-polish-pass).** The chrome is now GREEN-tinted (user-picked, anchored on #4CAF50): surface `#E8F5E9`, border `#C8E6C9`, accent `#2E7D32` (green-800 — the seed fails WCAG as ink and is not a token); page ground stays neutral `#F8FAFC`. Accent still means interactive/active ONLY. Tier palette below is unchanged and still authoritative.
+
+**Tiers.** Metric values carry a percentile **tier**, shown as a tinted box: Common (0–50) plain,
 Rare (50–75) sky, Epic (75–95) purple, Legendary (95–100) amber. Discrete tiers rather than a
 gradient, because a tier gives the reader a *name* and a gradient only invites comparison. Continuous
 sequential shading was explored across four hues and rejected outright.
