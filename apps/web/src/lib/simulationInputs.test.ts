@@ -382,9 +382,9 @@ describe("defaultStartMatchKey", () => {
     expect(defaultStartMatchKey(rows)).toBe("m2");
   });
 
-  it("returns null on a fully-played event", () => {
+  it("returns the FIRST match on a fully-played event, so a finished event opens on a full-event rewind rather than on nothing (2026-09-01)", () => {
     const rows = [row("m1", true), row("m2", true)];
-    expect(defaultStartMatchKey(rows)).toBeNull();
+    expect(defaultStartMatchKey(rows)).toBe("m1");
   });
 
   it("returns null on an empty list", () => {

@@ -104,8 +104,16 @@ export function isRewindStart(rows: readonly EventMatchRow[], startIndex: number
  * on the other 97%, so no default is offered there.
  */
 export function defaultStartMatchKey(rows: readonly EventMatchRow[]): string | null {
-  const row = rows.find((candidate) => !candidate.played);
-  return row ? row.matchKey : null;
+  // A RUNNING event defaults to where the event actually is — the first
+  // match that has not been played, so the default run simulates exactly
+  // the remaining schedule.
+  const firstUnplayed = rows.find((candidate) => !candidate.played);
+  if (firstUnplayed) return firstUnplayed.matchKey;
+  // A FINISHED event has no unplayed match, and used to default to NOTHING
+  // selected, which left the tab showing an empty picker and a dead Run
+  // button (2026-09-01 user request). It now defaults to the first
+  // qualification match, so a completed event opens on a full-event rewind.
+  return rows[0]?.matchKey ?? null;
 }
 
 type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][number];

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
@@ -31,11 +32,25 @@ export const START_MATCH_STATUS_UPCOMING = "Upcoming";
 export const REWIND_CAPTION_LEAD =
   "Rewind simulation: this start match already happened, so predictions after it already reflect results the simulation is pretending haven't occurred.";
 
-/** UI-SPEC's Simulation Tab Contract layout list — the picker's declared bounded-panel height, named here (not hand-picked) so `SimulationTabSkeleton`'s placeholder footprint (08-09) is grounded in the same geometry this real picker renders at. */
-export const START_MATCH_PICKER_MAX_H_PX = 320;
+/**
+ * `SimulationTabSkeleton`'s placeholder footprint (08-09) is grounded in the
+ * same geometry this real picker renders at. 2026-09-01: the picker is no
+ * longer a bounded 320px scrolling list of every qualification match — it is
+ * a slider plus a typed match number plus one summary of the selected match
+ * (user request), which is far shorter, so this height came down with it.
+ */
+export const START_MATCH_PICKER_MAX_H_PX = 132;
 
 export const START_MATCH_PICKER_TESTID = "start-match-picker";
+/**
+ * Identifies the ONE match the picker is currently showing. Before
+ * 2026-09-01 the picker rendered every match as its own row and this prefix
+ * appeared once per match; it now appears exactly once, on the selected
+ * match's summary — the same identity, on the only row that still exists.
+ */
 export const START_MATCH_ROW_TESTID_PREFIX = "start-match-row-";
+export const START_MATCH_SLIDER_TESTID = "start-match-slider";
+export const START_MATCH_NUMBER_INPUT_TESTID = "start-match-number";
 export const REWIND_CAPTION_TESTID = "rewind-caption";
 /** The hint/scope disclosure line's testid — not independently exported (no other plan mounts a child there), so it is a literal string rather than a fifth constant. */
 const START_MATCH_SCOPE_TESTID = "start-match-scope";
@@ -110,33 +125,18 @@ export interface StartMatchPickerProps {
   disabled: boolean;
 }
 
-function StartMatchRow({
-  row,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  row: EventMatchRow;
-  selected: boolean;
-  disabled: boolean;
-  onSelect: (matchKey: string) => void;
-}) {
+/**
+ * The selected match, spelled out: its label, both alliances' team numbers,
+ * its played/upcoming status and its scheduled time — the same four facts
+ * the old per-match rows carried, now shown once for the one match the
+ * slider is pointing at.
+ */
+function StartMatchSummary({ row }: { row: EventMatchRow }) {
   return (
-    <button
-      type="button"
+    <div
       data-testid={`${START_MATCH_ROW_TESTID_PREFIX}${row.matchKey}`}
-      data-selected={selected ? "true" : undefined}
-      onClick={disabled ? undefined : () => onSelect(row.matchKey)}
-      className={cn(
-        // `shrink-0` is load-bearing (mobile overlap bug, 2026-09-01): rows
-        // are flex items of the bounded overflow-y-auto column, and default
-        // flex-shrink compressed every row to tap-target's 44px min-height
-        // floor while content measures 51px — the 7px excess painted over
-        // the next row (measured live at 390px). Rows must never shrink;
-        // the panel scrolls instead.
-        "tap-target flex w-full shrink-0 items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-left",
-        selected ? "border-l-[var(--color-accent)] bg-[var(--sim-picker-selected-bg)]" : "border-l-transparent"
-      )}
+      data-selected="true"
+      className="flex items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] border-l-[var(--color-accent)] bg-[var(--sim-picker-selected-bg)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
     >
       <span className="flex min-w-0 flex-col gap-[1px]">
         <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(row)}</span>
@@ -163,20 +163,60 @@ function StartMatchRow({
           {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
         </span>
       </span>
-    </button>
+    </div>
   );
 }
 
 /**
- * The bounded-height chronological picker (UI-SPEC's Simulation Tab
- * Contract, "1. Start-match picker"). Renders, top to bottom: the hint line
- * when nothing is selected, or the minted scope line when something is;
- * then the bounded panel (`overflow-y-auto`, `overscroll-behavior:
- * contain`, so the panel's own scroll and the page's stay sibling regions);
- * then one row per entry of `rows`.
+ * The chronological picker (UI-SPEC's Simulation Tab Contract, "1.
+ * Start-match picker"). Renders, top to bottom: the hint line when nothing
+ * is selected, or the minted scope line when something is; then a SLIDER
+ * across the event's qualification schedule paired with a typed match
+ * number; then a summary of the one match the slider currently points at.
+ *
+ * 2026-09-01 (user request): this replaced a bounded, 320px scrolling list
+ * of every qualification match. A real event runs 80-140 quals, so choosing
+ * a start match meant scrolling a long list inside a short window — the
+ * slider reaches any match in one gesture, and the number input reaches an
+ * exact one without any gesture at all. The FACTS shown are unchanged;
+ * they are simply shown for the selected match rather than for all of them.
+ *
+ * The number input is typed against a match's own `matchNumber` (what a
+ * reader would say out loud — "Qual 47"), not the slider's array index,
+ * with a local draft so a half-typed value never snaps out from under the
+ * keyboard; the draft is dropped on blur so the field always returns to
+ * showing the real selection.
  */
 export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, startLabel, disabled }: StartMatchPickerProps) {
   const disclosureText = inputs !== null && startLabel !== null ? simulationScopeText(inputs, startLabel) : START_MATCH_PICKER_HINT;
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const selectedIndex = rows.findIndex((row) => row.matchKey === selectedMatchKey);
+  const activeIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  const activeRow = rows[activeIndex];
+
+  // PD-09's guard lives in the HANDLERS, not only on the controls. `inert`
+  // and `disabled` are presentation-layer defences that a programmatic
+  // change event walks straight past (measured: a `fireEvent.change` on the
+  // disabled number input still moved the selection mid-run), and PD-09's
+  // whole point is that a running simulation's start match cannot move.
+  function selectIndex(oneBased: number): void {
+    if (disabled) return;
+    setDraft(null);
+    const row = rows[oneBased - 1];
+    if (row) onSelect(row.matchKey);
+  }
+
+  function typeMatchNumber(text: string): void {
+    if (disabled) return;
+    setDraft(text);
+    const parsed = Number.parseInt(text, 10);
+    if (Number.isNaN(parsed)) return;
+    // Looked up by the match's OWN number rather than by position: a schedule
+    // with a gap would otherwise send "Qual 40" to whatever sits fortieth.
+    const row = rows.find((candidate) => candidate.matchNumber === parsed);
+    if (row) onSelect(row.matchKey);
+  }
 
   return (
     <div className="flex flex-col gap-[var(--spacing-xs)]">
@@ -186,12 +226,40 @@ export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, sta
       <div
         data-testid={START_MATCH_PICKER_TESTID}
         inert={disabled ? true : undefined}
-        className={cn("flex flex-col divide-y divide-[var(--color-border)] overflow-y-auto overscroll-y-contain", disabled && "pointer-events-none opacity-60")}
-        style={{ maxHeight: `${START_MATCH_PICKER_MAX_H_PX}px` }}
+        className={cn("flex flex-col gap-[var(--spacing-sm)]", disabled && "pointer-events-none opacity-60")}
       >
-        {rows.map((row) => (
-          <StartMatchRow key={row.matchKey} row={row} selected={row.matchKey === selectedMatchKey} disabled={disabled} onSelect={onSelect} />
-        ))}
+        {activeRow !== undefined && (
+          <>
+            <div className="flex items-center gap-[var(--spacing-md)]">
+              <input
+                type="range"
+                data-testid={START_MATCH_SLIDER_TESTID}
+                aria-label="Start match"
+                min={1}
+                max={rows.length}
+                step={1}
+                value={activeIndex + 1}
+                disabled={disabled}
+                onChange={(event) => selectIndex(Number(event.target.value))}
+                className="min-w-0 flex-1 accent-[var(--color-accent)]"
+              />
+              <label className="text-role-label flex shrink-0 items-center gap-[var(--spacing-xs)] text-[var(--color-text-muted)]">
+                Match
+                <input
+                  type="number"
+                  data-testid={START_MATCH_NUMBER_INPUT_TESTID}
+                  min={1}
+                  value={draft ?? String(activeRow.matchNumber)}
+                  disabled={disabled}
+                  onChange={(event) => typeMatchNumber(event.target.value)}
+                  onBlur={() => setDraft(null)}
+                  className="numeric-cell text-role-body w-[5rem] rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-xs)] py-[2px] text-[var(--color-text-primary)]"
+                />
+              </label>
+            </div>
+            <StartMatchSummary row={activeRow} />
+          </>
+        )}
       </div>
     </div>
   );

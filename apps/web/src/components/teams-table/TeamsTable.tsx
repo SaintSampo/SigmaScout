@@ -175,7 +175,18 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
           // themselves, where the desync was real and measured — see
           // `07-UAT.md` G-1's own table for the live numbers.
           tableLayout: "fixed",
-          width: "100%",
+          // `max-content`, not `100%` (2026-09-01, user: "the table is too
+          // wide, too much empty space on the right"). At `100%` the table
+          // always filled its container, and the container could only hug if
+          // the table had an intrinsic width to hug — which the trailing
+          // filler cell (removed below) deliberately prevented. `max-content`
+          // under `table-layout: fixed` resolves to exactly the sum of the
+          // declared column sizes, so the table can never stretch and can
+          // never redistribute slack across columns — which is what the
+          // filler existed to prevent in the first place. Pinned columns'
+          // sticky `left` offsets come from those same declared sizes, so
+          // they stay in sync by construction.
+          width: "max-content",
           minWidth: table.getTotalSize(),
           borderCollapse: "separate",
           borderSpacing: 0,
@@ -232,16 +243,16 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                 );
               })}
               {/*
-                Trailing filler so the table can stretch to the full page width
-                without the browser redistributing slack across the real columns.
-                That distinction matters: pinned offsets come from
-                `header.getStart("start")`, which is derived from column sizes,
-                so widening a pinned column would silently desync the sticky
-                `left` values from the cells they pin. Absorbing the slack in a
-                sizeless trailing cell leaves every real column at exactly
-                `getSize()`. Hidden from assistive tech — it carries no data.
+                The trailing filler cell that used to live here is GONE
+                (2026-09-01). It existed to absorb slack while the table was
+                `width: 100%`, so that stretching could not redistribute width
+                across the real columns and desync the pinned columns' sticky
+                `left` offsets. The table is now `width: max-content` (see the
+                style block above), so there is no slack to absorb and nothing
+                to guard against — and the filler was measured at 767px on a
+                1900px viewport, which is precisely what stopped the card from
+                hugging its content.
               */}
-              <TableHead aria-hidden="true" style={{ padding: 0, background: "var(--color-bg-surface)" }} />
             </TableRow>
           ))}
         </TableHeader>

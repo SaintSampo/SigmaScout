@@ -19,6 +19,7 @@ import {
   START_MATCH_PICKER_HINT,
   START_MATCH_PICKER_TESTID,
   START_MATCH_ROW_TESTID_PREFIX,
+  START_MATCH_NUMBER_INPUT_TESTID,
   rewindCaptionText,
 } from "./StartMatchPicker.js";
 import { RUN_ERROR_BODY, RUN_LABEL_IDLE, RUN_LABEL_RERUN, RUN_RETRY_LABEL } from "./RunControl.js";
@@ -256,11 +257,12 @@ describe("08-11: default selection", () => {
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
   });
 
-  it("selects nothing on a fully-played event; the hint renders exactly and the scope line is absent", () => {
+  it("selects the FIRST match on a fully-played event (2026-09-01), so a finished event opens ready to run rather than on an empty picker", () => {
     const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
-    expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
-    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBeNull();
+    // A real selection means the SCOPE line, not the pre-selection hint.
+    expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
   });
 });
 
@@ -322,7 +324,9 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
     const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="vpr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
 
-    fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`));
+    // The picker is a slider plus a typed match number (2026-09-01), so a
+    // deliberate user choice is made by typing the match number.
+    fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "2" } });
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
 
     const artifact2 = baseArtifact({
@@ -424,10 +428,14 @@ describe("08-13: the run control", () => {
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
       await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
 
-      fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`));
+      // Attempt to change the start match mid-run through the picker's own
+      // control; the inert picker must swallow it.
+      fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "3" } });
 
+      // The selection did not move: qm2 is still the one match the picker
+      // shows, and qm3 never became the shown match.
       expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
-      expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`).getAttribute("data-selected")).toBeNull();
+      expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`)).toBeNull();
     } finally {
       handle.restore();
     }
@@ -485,7 +493,7 @@ describe("08-13: the run control", () => {
       await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
       expect(screen.getByRole("button", { name: RUN_LABEL_RERUN })).toBeDefined();
 
-      fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm3`));
+      fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "3" } });
 
       expect(screen.queryByText(/^Simulated \d+ draws in/)).toBeNull();
       expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined();

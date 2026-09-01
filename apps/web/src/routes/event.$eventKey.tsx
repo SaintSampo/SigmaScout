@@ -353,7 +353,7 @@ function EventPage() {
               Breakdown
             </TabsTrigger>
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-              Qualification
+              Qualifications
             </TabsTrigger>
             {/*
               D-17: `disabled` alone is the whole treatment — no title, no
