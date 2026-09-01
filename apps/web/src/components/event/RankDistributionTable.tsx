@@ -237,8 +237,8 @@ export interface RankDistributionTableProps {
  * measured reasoning, reproduced by `InsightsTab.tsx`): an `auto` layout
  * lets the browser resize columns past their declared `size`, desyncing
  * every pinned column's sticky `left` from where its neighbour actually
- * rendered. Both the header and body carry a trailing sizeless filler cell
- * so slack is absorbed there rather than redistributed across real columns.
+ * rendered. The table is sized to `max-content` (2026-09-01) so there is no
+ * slack to redistribute and no trailing filler cell is needed.
  */
 export function RankDistributionTable({ rows, teamCount, season, algorithmId }: RankDistributionTableProps) {
   const isNarrow = useIsMobile();
@@ -254,11 +254,28 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
   const table = useTable({ features, columns, data: rows as RankDistributionRow[], state: { columnPinning } });
 
   return (
-    <div data-testid="rank-distribution-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    // `max-h-[70vh]` + `overflow-y-auto` (2026-09-01 user request: a sticky
+    // title row). This element was ALREADY a vertical scroll container —
+    // `overflow-x: auto` forces `overflow-y`'s used value to `auto` per the
+    // CSS Overflow spec, the same rule that bit the ribbon in G-12 — but with
+    // an unbounded height it never actually scrolled, so a `position: sticky`
+    // header inside it would have had nothing to stick against. Bounding the
+    // height is what gives the sticky header a scrollport; one row per team
+    // at ~70px means a 75-team division is over 5000px tall, so this table
+    // genuinely wants its own scrollport rather than the page's.
+    <div
+      data-testid="rank-distribution-table-scroll"
+      className="data-card w-fit max-h-[70vh] max-w-full min-w-0 touch-pan-xy overflow-x-auto overflow-y-auto overscroll-contain"
+    >
       <table
         style={{
           tableLayout: "fixed",
-          width: "100%",
+          // `max-content`, not `100%` (2026-09-01, user: "rank numbers should
+          // continue right to the edge of the graph"). At `100%` the table
+          // filled the card and the trailing filler cell (removed below) took
+          // up the slack, leaving a wide dead strip to the right of the rank
+          // axis. Sized to content, the axis now ends where the card ends.
+          width: "max-content",
           minWidth: table.getTotalSize(),
           borderCollapse: "separate",
           borderSpacing: 0,
@@ -277,9 +294,16 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
                     className="text-role-label truncate"
                     style={{
                       width: header.getSize(),
-                      position: pinned ? "sticky" : undefined,
+                      // ALWAYS sticky now, in both axes: `top: 0` keeps the
+                      // title row visible while the reader scrolls this
+                      // table's own scrollport, and a pinned column adds
+                      // `left` so it sticks horizontally too. One element can
+                      // stick on both axes at once, so the horizontal pinning
+                      // this row already had is unchanged.
+                      position: "sticky",
+                      top: 0,
                       left: pinned ? header.getStart("start") : undefined,
-                      zIndex: pinned ? 4 : 3,
+                      zIndex: pinned ? 5 : 4,
                       background: "var(--color-bg-surface)",
                     }}
                   >
@@ -287,8 +311,6 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
                   </TableHead>
                 );
               })}
-              {/* Trailing sizeless filler — see this file's own doc comment above. Hidden from assistive tech; it carries no data. */}
-              <TableHead aria-hidden="true" style={{ padding: 0, background: "var(--color-bg-surface)" }} />
             </TableRow>
           ))}
         </TableHeader>
@@ -315,8 +337,6 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
                   </TableCell>
                 );
               })}
-              {/* Matches the header's trailing filler — see the note there. */}
-              <TableCell aria-hidden="true" style={{ padding: 0 }} />
             </TableRow>
           ))}
         </TableBody>

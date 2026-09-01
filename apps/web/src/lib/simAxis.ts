@@ -91,7 +91,28 @@ export const SIM_GEOMETRY = {
  */
 export function x(rank: number, teamCount: number): number {
   if (!(teamCount > 1)) return 0;
-  return ((rank - 1) / (teamCount - 1)) * PLOT_W;
+  // 2026-09-01 (user report: "leftmost and rightmost boxes are squished").
+  // This is a SLOT-CENTRED (band) scale, not the point scale it used to be.
+  //
+  // The old mapping was `((rank - 1) / (teamCount - 1)) * PLOT_W`, which put
+  // rank 1 at x=0 and rank N at x=PLOT_W. That made the rank PITCH
+  // `PLOT_W/(N-1)` while a histogram SLOT is `PLOT_W/N`, so a bar centred on
+  // rank 1 hung half a slot off the left edge, got clamped back inside, and
+  // then OVERLAPPED its neighbour — measured 6.53px of overlap at a 27-team
+  // event and 4.07px at 40 teams, at BOTH ends. Because `--sim-hist-bar` is
+  // 55% translucent, that overlap painted darker and read as a narrow
+  // half-bar sitting beside a normal one: the reported squish.
+  //
+  // Under this mapping rank r occupies exactly the slot
+  // `[(r-1)/N, r/N] * PLOT_W` and its centre is the slot's centre, so
+  // adjacent bars tile the axis without touching or overlapping and the two
+  // end bars are full width and flush with the plot's edges. It also makes
+  // the band's own continuous domain exact rather than clamped: a band edge
+  // legitimately ranges over `[0.5, N+0.5]`, and `x(0.5)` is now precisely 0
+  // while `x(N+0.5)` is precisely PLOT_W, so the measured -10.58px/+480.70px
+  // overflows the clamps in `rankBandExtent` existed to absorb are gone at
+  // the source.
+  return ((rank - 0.5) / teamCount) * PLOT_W;
 }
 
 /**
@@ -163,6 +184,10 @@ export function medianTickLeft(median: number, teamCount: number): number {
 export function histBarExtent(rank: number, teamCount: number): RankMarkExtent {
   const width = Math.max(1, rankSlotWidth(teamCount) - SIM_GEOMETRY.BAR_GAP);
   const raw = x(rank, teamCount) - width / 2;
+  // The clamp is now a pure safety rail rather than a load-bearing
+  // correction: under `x()`'s slot-centred mapping every in-range rank
+  // already lands wholly inside `[0, PLOT_W]`, so this can only ever fire
+  // for a rank outside `[1, teamCount]`, which no caller passes.
   const left = Math.min(Math.max(raw, 0), PLOT_W - width);
   return { left, width };
 }

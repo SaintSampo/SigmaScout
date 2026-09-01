@@ -345,7 +345,19 @@ function EventPage() {
           and never its descendant, so the two can never trap one another.
         */}
         <div data-testid="event-tab-strip-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
-          <TabsList variant="line" className="border-b border-[var(--color-border)]">
+          {/*
+            `w-full flex-wrap justify-start` (2026-09-01, user: "I should not
+            be able to scroll the events tab bar, it shouldn't move"). The
+            strip's scroll region is kept — six e2e specs assert its
+            touch-action, overscroll and sibling-not-nested properties — but
+            the tabs now WRAP instead of running off the end, so the content
+            can never exceed the container and the scroller therefore never
+            has anything to scroll. Wrapping to a second line is also a
+            better narrow-viewport answer than a horizontally scrolling strip
+            whose scrollbar is hidden (`[scrollbar-width:none]`), which gave
+            a reader no cue that tabs were off-screen at all.
+          */}
+          <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
             <TabsTrigger value="insights" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Insights
             </TabsTrigger>

@@ -19,9 +19,18 @@ describe("PLOT_W", () => {
 });
 
 describe("x(rank, teamCount) — the single rank-to-pixel mapping", () => {
-  it.each([17, 39, 42, 78])("anchors the axis: x(1, N) is 0 and x(N, N) is PLOT_W, for N=%s", (n) => {
-    expect(x(1, n)).toBe(0);
-    expect(x(n, n)).toBe(PLOT_W);
+  // 2026-09-01: `x` is a SLOT-CENTRED scale. Rank r sits at the centre of
+  // its own slot, so the CONTINUOUS domain [0.5, N+0.5] — the domain band
+  // edges actually range over — maps exactly onto [0, PLOT_W].
+  it.each([17, 39, 42, 78])("anchors the axis on the SLOT bounds: x(0.5, N) is 0 and x(N+0.5, N) is PLOT_W, for N=%s", (n) => {
+    expect(x(0.5, n)).toBeCloseTo(0, 10);
+    expect(x(n + 0.5, n)).toBeCloseTo(PLOT_W, 10);
+  });
+
+  it.each([17, 39, 42, 78])("puts rank 1 and rank N at their slot CENTRES, half a slot inside each edge, for N=%s", (n) => {
+    const halfSlot = PLOT_W / n / 2;
+    expect(x(1, n)).toBeCloseTo(halfSlot, 10);
+    expect(x(n, n)).toBeCloseTo(PLOT_W - halfSlot, 10);
   });
 
   it("is continuous and never snapped: x(1.5, 39) sits strictly between x(1, 39) and x(2, 39), and equals their exact midpoint", () => {
@@ -40,18 +49,20 @@ describe("x(rank, teamCount) — the single rank-to-pixel mapping", () => {
     expect(x(2.7, 39)).toBeLessThan(hi);
   });
 
-  it("is linear in rank: the pitch between consecutive integer ranks is constant and equals PLOT_W / (N - 1)", () => {
-    expect(x(2, 78) - x(1, 78)).toBeCloseTo(6.104, 3);
-    expect(x(50, 78) - x(49, 78)).toBeCloseTo(6.104, 3);
-    expect(x(2, 39) - x(1, 39)).toBeCloseTo(12.368, 3);
-    expect(x(20, 39) - x(19, 39)).toBeCloseTo(12.368, 3);
+  it("is linear in rank: the pitch between consecutive integer ranks is constant and equals PLOT_W / N — the SAME width as a histogram slot, which is what stops bars overlapping", () => {
+    expect(x(2, 78) - x(1, 78)).toBeCloseTo(470 / 78, 10);
+    expect(x(50, 78) - x(49, 78)).toBeCloseTo(470 / 78, 10);
+    expect(x(2, 39) - x(1, 39)).toBeCloseTo(470 / 39, 10);
+    expect(x(20, 39) - x(19, 39)).toBeCloseTo(470 / 39, 10);
+    // The pitch and the slot are now the same number, by construction.
+    expect(x(2, 39) - x(1, 39)).toBeCloseTo(rankSlotWidth(39), 10);
   });
 
-  it("maps a band edge at the mathematical bounds outside the plot box — the fact the clamp exists for", () => {
-    expect(x(0.5, 39)).toBeCloseTo(-6.184, 3);
-    expect(x(0.5, 39)).toBeLessThan(0);
-    expect(x(39.5, 39)).toBeCloseTo(476.184, 3);
-    expect(x(39.5, 39)).toBeGreaterThan(PLOT_W);
+  it("keeps a band edge at the mathematical bounds INSIDE the plot box, so no clamp is needed at the source", () => {
+    expect(x(0.5, 39)).toBeCloseTo(0, 10);
+    expect(x(39.5, 39)).toBeCloseTo(PLOT_W, 10);
+    expect(x(0.5, 39)).toBeGreaterThanOrEqual(0);
+    expect(x(39.5, 39)).toBeLessThanOrEqual(PLOT_W);
   });
 
   it("degenerate guard: x(1, 1), x(1, 0) and x(1, NaN) each return exactly 0, never NaN or non-finite", () => {
@@ -105,11 +116,13 @@ describe("rankBandExtent(p10, p90, teamCount) — the clamped band", () => {
     }
   });
 
-  it("team 3467's raw left edge is negative before clamping, and the returned left is exactly 0 — the clamp exercised by real data", () => {
-    expect(x(p10_3467, N)).toBeLessThan(0);
+  it("team 3467's left edge now lands INSIDE the box on its own, so the returned left is its true position rather than a clamped zero", () => {
+    // Before the 2026-09-01 slot-centred change this edge computed to a
+    // negative pixel and the clamp pulled it to 0, shifting the band right.
+    expect(x(p10_3467, N)).toBeGreaterThanOrEqual(0);
     const extent = rankBandExtent(p10_3467, p90_3467, N);
-    expect(extent.left).toBe(0);
-    expect(extent.width).toBeCloseTo(4.99, 2);
+    expect(extent.left).toBeCloseTo(x(p10_3467, N), 10);
+    expect(extent.width).toBeCloseTo(x(p90_3467, N) - x(p10_3467, N), 10);
   });
 
   it("teams 95 and 4564 return DIFFERENT extents on both left and width — the pixel-layer restatement of Task 1's inequality", () => {
@@ -122,15 +135,41 @@ describe("rankBandExtent(p10, p90, teamCount) — the clamped band", () => {
   it("a fully locked team at N=78 (all 1000 draws on rank 1, edges 0.6/1.4) still returns a visible band above BAND_MIN_W", () => {
     const extent = rankBandExtent(0.6, 1.4, 78);
     expect(extent.width).toBeGreaterThanOrEqual(SIM_GEOMETRY.BAND_MIN_W);
-    expect(extent.width).toBeCloseTo(2.44, 2);
+    // 0.8 rank units at a 78-team event is 0.8 * (470/78) px.
+    expect(extent.width).toBeCloseTo(0.8 * (470 / 78), 6);
   });
 
-  it("a two-team event does not paint outside its cell, despite raw extents of -235px and 705px", () => {
-    expect(x(0.5, 2)).toBe(-235);
-    expect(x(2.5, 2)).toBe(705);
+  it("a two-team event spans its cell EXACTLY rather than overflowing by 235px per side", () => {
+    // The old point scale put x(0.5, 2) at -235 and x(2.5, 2) at 705, which
+    // is what the clamp existed to absorb; the slot-centred scale makes the
+    // full-width band exact.
+    expect(x(0.5, 2)).toBeCloseTo(0, 10);
+    expect(x(2.5, 2)).toBeCloseTo(PLOT_W, 10);
     const extent = rankBandExtent(0.5, 2.5, 2);
-    expect(extent.left).toBe(0);
-    expect(extent.left + extent.width).toBeLessThanOrEqual(PLOT_W);
+    expect(extent.left).toBeCloseTo(0, 10);
+    expect(extent.left + extent.width).toBeCloseTo(PLOT_W, 10);
+  });
+
+  it("REGRESSION (2026-09-01): adjacent histogram bars never overlap, at either end of the axis, at every real roster size", () => {
+    // The reported symptom was "leftmost and rightmost boxes are squished".
+    // The cause was overlap: bars are 55% translucent, so an overlapping
+    // neighbour painted a darker seam that read as a narrow half-bar.
+    // Measured overlap under the old scale: 6.53px at N=27, 4.07px at N=40.
+    for (const n of [2, 17, 27, 39, 40, 42, 78]) {
+      for (let rank = 1; rank < n; rank += 1) {
+        const left = histBarExtent(rank, n);
+        const right = histBarExtent(rank + 1, n);
+        expect(left.left + left.width).toBeLessThanOrEqual(right.left + 1e-9);
+      }
+      // Both end bars are FULL slot width and sit flush against the edges.
+      const first = histBarExtent(1, n);
+      const last = histBarExtent(n, n);
+      const fullWidth = Math.max(1, rankSlotWidth(n) - SIM_GEOMETRY.BAR_GAP);
+      expect(first.width).toBeCloseTo(fullWidth, 10);
+      expect(last.width).toBeCloseTo(fullWidth, 10);
+      expect(first.left).toBeCloseTo(SIM_GEOMETRY.BAR_GAP / 2, 10);
+      expect(last.left + last.width).toBeCloseTo(PLOT_W - SIM_GEOMETRY.BAR_GAP / 2, 10);
+    }
   });
 
   it("a degenerate roster of 1 returns a finite extent inside the box rather than NaN", () => {

@@ -87,10 +87,12 @@ describe("RankDistributionTable — exactly four columns", () => {
     expect(headerCells[2]!.textContent).toBe(RANK_TABLE_HEADERS[2]);
     expect(within(headerCells[3]!).getByText(RANK_TABLE_HEADERS[3])).toBeDefined();
     const headerRow = headerCells[0]!.closest("tr")!;
-    // 4 real headers + 1 trailing sizeless filler (aria-hidden, so excluded
-    // from the accessible columnheader count but present in the raw DOM).
+    // Exactly 4 header cells and nothing else: the trailing sizeless filler
+    // was removed 2026-09-01 when the table moved to `width: max-content`,
+    // which leaves no slack for a filler to absorb — and the filler was what
+    // left a dead strip to the right of the rank axis.
     expect(within(headerRow).getAllByRole("columnheader").length).toBe(4);
-    expect(headerRow.querySelectorAll("th").length).toBe(5);
+    expect(headerRow.querySelectorAll("th").length).toBe(4);
   });
 });
 
