@@ -167,6 +167,21 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
   }
   const yAxisWidth = computeYAxisWidth(yAxisDomainValues);
 
+  // 2026-09-01 (user report): with a bare ["dataMin", "dataMax"] domain the
+  // line/band reach the literal top of the plot — exactly the strip the
+  // event-band labels render in (`y + 14`), so late-season data covered the
+  // event names. Reserve headroom: the top ~12% of the value range stays
+  // data-free, which at this chart's ~230px plot height keeps a ≥24px
+  // label-only band. Zero-range data (one flat value) pads by 1 so the
+  // domain never collapses.
+  let yDomain: [number, number] | undefined;
+  if (yAxisDomainValues.length > 0) {
+    const yMin = Math.min(...yAxisDomainValues);
+    const yMax = Math.max(...yAxisDomainValues);
+    const headroom = yMax > yMin ? (yMax - yMin) * 0.12 : 1;
+    yDomain = [yMin, yMax + headroom];
+  }
+
   return (
     <div ref={containerRef} className="h-[280px] w-full" data-testid="metric-history-chart">
       <ComposedChart width={width} height={CHART_HEIGHT} data={data} margin={{ top: 24, right: 16, bottom: 24, left: 8 }}>
@@ -193,7 +208,7 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
           label={{ value: "Match sequence", position: "insideBottom", offset: -8, fill: "var(--color-text-muted)", fontSize: 12 }}
         />
         <YAxis
-          domain={points.length === 0 ? undefined : ["dataMin", "dataMax"]}
+          domain={yDomain}
           width={yAxisWidth}
           tickFormatter={formatYAxisTick}
           tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
