@@ -304,8 +304,18 @@ export default defineConfig({
       // that also run on `local-desktop` above — see that project's comment
       // for why the other three deployed-`desktop`-only specs are absent
       // here too.
+      // Widened by 08-15-PLAN.md Task 1: simulation-tab.spec.ts needs this
+      // project's local-origin `/v1` proxy to reach real published artifact
+      // bytes for S3's 78-team run (unshipped Phase 8 code, so only a
+      // local-origin project can be green at execution time) AND `hasTouch`
+      // for its 390px pinned-column drag — its own desktop case sets its OWN
+      // 1440x900 viewport per test (`breakdown-desktop-overflow.spec.ts`'s own
+      // precedent above), so it needs no second project.
+      // Widened by 08-15-PLAN.md Task 3: compare-narrow-legibility.spec.ts
+      // needs the same local-origin `/v1` proxy for its five per-year Compare
+      // artifact fetches (C1, C3) — unshipped Phase 8 code, local-origin only.
       testMatch:
-        /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|table-layout-quality\.spec\.ts|tab-strip-alignment\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|event-scroll-regions\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|touch-scroll\.spec\.ts/,
+        /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|table-layout-quality\.spec\.ts|tab-strip-alignment\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|event-scroll-regions\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|touch-scroll\.spec\.ts|simulation-tab\.spec\.ts|compare-narrow-legibility\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 }, baseURL: LOCAL_URL },
     },
   ],
