@@ -15,14 +15,42 @@
  *
  * Per-team residuals are not directly observed — the observation an
  * alliance-sum Kalman update (`kalman.ts`) sees is a SUM across teammates.
- * `sigma1/index.ts`'s `update` attributes team j's residual for a component
- * as `K_j * innovation` — the gain-weighted share `updateAllianceSum`
- * already computes internally — before folding it into `ewmaCovariance`
- * below. This is a stated modeling choice: there is no way to recover an
- * individual team's exact residual from a summed observation without
- * assuming something, and the Kalman gain is the least-arbitrary available
- * assumption (it is already how the update itself apportions credit for
- * the innovation).
+ * There is no way to recover an individual team's exact residual from a
+ * summed observation without assuming something, so what gets folded here
+ * is necessarily a modeling choice, and this header records which one.
+ *
+ * SINCE `SIGMA1_CODE_VERSION` 3.0.0 (D-Q2, quick task 260901-is2), the
+ * folded sample is INNOVATION-BASED. For one alliance-component with
+ * innovation `e_c` and `n` rating-eligible teammates, define
+ * `d_c = e_c / sqrt(n)`; the per-team CxC sample matrix is
+ *
+ *     outer(d, d) - diag(sum P_c / n)
+ *
+ * with the diagonal floored at 0 BEFORE the EWMA and the off-diagonals left
+ * signed (and then shrunk toward the diagonal exactly as before). The
+ * diagonal entry is therefore `max(0, e_c^2 - sum P_c) / n` — numerically
+ * the SAME number `consistency.ts` folds for that component. Those are two
+ * views of one quantity by construction, not two estimates that happen to
+ * agree, and `innovationVariance.test.ts` pins that identity: if they
+ * diverged, the published `±` and the filter's own `R` would disagree.
+ *
+ * The off-diagonals are load-bearing and cannot be dropped: a phase group's
+ * spread is the quadratic form over that group's indices (`subsetVariance`),
+ * which needs `Cov(auto_i, auto_j)`, and no client can reconstruct those
+ * from published per-component spreads.
+ *
+ * WHAT THIS REPLACED, and why. `sigma1/index.ts` used to attribute team j's
+ * residual as `K_j * innovation` (the gain-weighted share `updateAllianceSum`
+ * computes internally) and fold `outer(residual, residual)`. The Kalman gain
+ * was defended as the least-arbitrary available assumption — it is how the
+ * update itself apportions credit — but it is also the wrong SIZE: `K`
+ * shrinks as the filter converges, so the folded quantity decayed toward
+ * its floor regardless of how much a team actually varied, understating
+ * every published spread by roughly 5x (see `consistency.ts`'s header for
+ * the measurements). The innovation-based sample is unbiased for the
+ * quantity being claimed. The per-team attribution limitation is unchanged
+ * and honest: every teammate on an alliance folds the same sample matrix,
+ * because one summed observation carries one innovation.
  */
 
 /** `1^T Sigma 1` — the variance of a team's TOTAL score contribution, summing every entry of its component covariance matrix, not just the diagonal (a diagonal-only sum silently drops cross-component correlation and understates every match's ±, Pitfall Sigma1-3). */
@@ -114,16 +142,57 @@ function shrinkTowardDiagonal(matrix: readonly (readonly number[])[], shrinkage:
 }
 
 /**
+ * Folds one pre-computed CxC SAMPLE matrix into `prior` via an EWMA
+ * (`(1 - alpha) * prior + alpha * sample`), then applies `shrinkage`'s
+ * diagonal shrinkage for numerical stability.
+ *
+ * This is the entry point Sigma1's update path uses (D-Q2, quick task
+ * 260901-is2): `sigma1/index.ts` builds the innovation-based sample matrix
+ * this module's header describes — `outer(d, d)` off the diagonal, the
+ * floored `max(0, e_c^2 - sum P_c)/n` on it — and folds it here. The sample
+ * is built by the caller rather than derived here because its diagonal is
+ * NOT the outer product's diagonal; only the caller knows `sum P`.
+ *
+ * `sample` must be ordered consistently with `prior`'s row/column indices
+ * (the season's canonical component order) across every call for a given
+ * team — `sigma1/index.ts` owns that ordering discipline. Entries missing
+ * from either matrix read as 0, matching the pre-existing tolerance for a
+ * `prior` that is still empty before a team's first update.
+ */
+export function ewmaCovarianceSample(
+  prior: readonly (readonly number[])[],
+  sample: readonly (readonly number[])[],
+  alpha: number = SIGMA1_COV_EWMA_ALPHA,
+  shrinkage: number = SIGMA1_COV_SHRINKAGE
+): number[][] {
+  const n = sample.length;
+  const folded: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => {
+      const priorValue = prior[i]?.[j] ?? 0;
+      const sampleValue = sample[i]?.[j] ?? 0;
+      return (1 - alpha) * priorValue + alpha * sampleValue;
+    })
+  );
+  return shrinkTowardDiagonal(folded, shrinkage);
+}
+
+/**
  * Folds one residual vector's outer product into `prior` via an EWMA
  * (`(1 - alpha) * prior + alpha * outer(residual, residual)`), then applies
- * `shrinkage`'s diagonal shrinkage for numerical stability. Both trailing
- * arguments default to this module's own `SIGMA1_COV_EWMA_ALPHA`/
- * `SIGMA1_COV_SHRINKAGE` so every pre-Phase-3 call site keeps compiling and
- * behaving identically; `sigma1/index.ts` (Phase 3) passes
- * `params.covEwmaAlpha`/`params.covShrinkage` explicitly instead.
- * `residual` must be ordered consistently with `prior`'s row/column
- * indices (the season's canonical component order) across every call for a
- * given team — `sigma1/index.ts` owns that ordering discipline.
+ * `shrinkage`'s diagonal shrinkage — `ewmaCovarianceSample` above, given
+ * `outer(residual, residual)` as its sample. Delegating rather than
+ * duplicating keeps exactly ONE EWMA-plus-shrinkage implementation in this
+ * module; `covariance.test.ts` pins the two forms as byte-identical.
+ *
+ * NOT on Sigma1's update path since `SIGMA1_CODE_VERSION` 3.0.0 (D-Q2) —
+ * see this module's header for what replaced the gain-weighted residual
+ * attribution and why. The sibling that IS on the update path is
+ * `ewmaCovarianceSample`. Named explicitly because a live-looking function
+ * that nothing calls is the next reader's trap.
+ *
+ * Both trailing arguments default to this module's own
+ * `SIGMA1_COV_EWMA_ALPHA`/`SIGMA1_COV_SHRINKAGE` so every pre-Phase-3 call
+ * site keeps compiling and behaving identically.
  */
 export function ewmaCovariance(
   prior: readonly (readonly number[])[],
@@ -132,12 +201,8 @@ export function ewmaCovariance(
   shrinkage: number = SIGMA1_COV_SHRINKAGE
 ): number[][] {
   const n = residual.length;
-  const folded: number[][] = Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) => {
-      const priorValue = prior[i]?.[j] ?? 0;
-      const outer = residual[i]! * residual[j]!;
-      return (1 - alpha) * priorValue + alpha * outer;
-    })
+  const outer: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => residual[i]! * residual[j]!)
   );
-  return shrinkTowardDiagonal(folded, shrinkage);
+  return ewmaCovarianceSample(prior, outer, alpha, shrinkage);
 }

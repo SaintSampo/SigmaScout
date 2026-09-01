@@ -12,12 +12,49 @@
  *
  *   - consistency (D-09, THIS module) — the measurement noise `R`: the
  *     per-team, per-component variance of one match's REALIZED contribution
- *     around that team's CURRENT mean. `foldConsistency` estimates it
- *     online via an EWMA of squared residuals; `shrinkConsistency` blends
- *     it toward the league average for thin histories (D-11). D-03: this
- *     module's output is still computed and still folded into the Kalman
- *     update, but it is now only ONE OF THE TWO TERMS behind what the site
- *     displays — never published or displayed on its own.
+ *     around that team's CURRENT mean. Estimated online by an EWMA
+ *     (`foldConsistencyVariance`) of an INNOVATION-BASED variance sample;
+ *     `shrinkConsistency` blends it toward the league average for thin
+ *     histories (D-11). D-03: this module's output is still computed and
+ *     still folded into the Kalman update, but it is now only ONE OF THE
+ *     TWO TERMS behind what the site displays — never published or
+ *     displayed on its own.
+ *
+ *     ESTIMATOR CHANGE (D-Q2, quick task 260901-is2). Until
+ *     `SIGMA1_CODE_VERSION` 3.0.0 this term was an EWMA of SQUARED
+ *     GAIN-WEIGHTED RESIDUALS `(K_j * innovation)^2`, with
+ *     `K_j = P_j / (sum P + R)`. That estimator is biased toward its own
+ *     floor by construction: as the filter converges, `K` shrinks, so the
+ *     quantity being folded shrinks with it no matter how much the team
+ *     actually varies. It measured how much the filter was still adjusting,
+ *     not the team's match-to-match spread — a plausible-looking number that
+ *     meant something other than what the site claimed it meant, which is
+ *     exactly the failure PROJECT.md's core value forbids.
+ *
+ *     The replacement uses the fact that INNOVATIONS are observable and, for
+ *     one alliance-component,
+ *
+ *         E[innovation^2] = sum of teammates' prior variances (sum P) + R
+ *
+ *     so an unbiased per-team variance sample is
+ *
+ *         max(0, innovation^2 - sum P) / n
+ *
+ *     which is what `sigma1/index.ts`'s `applyAllianceUpdate` computes and
+ *     folds here. The `max(0, ...)` is a floor on a noisy unbiased sample
+ *     (a single match can land inside the prior's own spread), not a
+ *     substituted constant.
+ *
+ *     MEASURED CONSEQUENCE (all reproduced before the change shipped;
+ *     `innovationVariance.test.ts` is the durable form of the first):
+ *       - Synthetic league, truth known by construction (60 teams, true
+ *         per-team per-match sigma = 12): published total spread 2.29 under
+ *         the retired estimator, 12.35 under this one. 5.3x understated
+ *         becomes 0.97x.
+ *       - Real corpus, SD of `(actual margin - predicted margin)/sqrt(variance)`,
+ *         which an honest filter puts at ~1.0: 2022-2026 quals fell from
+ *         1.62-4.12 to 0.94-1.25, elims from 2.14-4.99 to 0.89-1.19.
+ *       - Holdout playoff calibration: mean absolute gap 0.072 -> 0.041.
  *   - estimate uncertainty — the posterior covariance `P` from
  *     `kalman.ts`'s `TeamComponentBelief.variance`. The OTHER term: since
  *     plan 07-06 (D-01), `P` is summed with this module's `R` at every
@@ -38,6 +75,25 @@
  *     never a standard deviation — callers take `Math.sqrt` only at the
  *     point of display (`sigma1/index.ts`'s `teamMetrics`, which sums this
  *     term with `P` first — plan 07-06).
+ *   - `foldConsistency` takes a RESIDUAL and squares it internally;
+ *     `foldConsistencyVariance` takes a VARIANCE and folds it as given.
+ *     They are SIBLING entry points, deliberately not one function with a
+ *     flag: passing `Math.sqrt(varianceSample)` through the residual door
+ *     to reach the variance behaviour would be precisely the conflation
+ *     this header block names as the module's top failure mode. Sigma1's
+ *     own update path uses `foldConsistencyVariance`; `foldConsistency`
+ *     remains exported and tested because its residual contract is still
+ *     the correct shape for any caller that genuinely holds a residual.
+ *   - Every teammate on an alliance receives the SAME per-component
+ *     variance sample. An alliance-sum observation carries one innovation
+ *     for the whole alliance, and there is no way to recover a
+ *     team-differentiated innovation from a summed observation (the
+ *     identical limitation `sigma1/index.ts`'s `componentGains` and its
+ *     normalized-innovation block already document). Per-team R
+ *     differentiation therefore comes from WHICH ALLIANCES a team played
+ *     on, not from within-alliance gain differences — an honest property of
+ *     the observation model, named here so two teammates' equal spreads
+ *     after a single shared match are not later read as a bug.
  *   - A team with zero prior matches gets its shrunk R entirely from
  *     the league-average prior (`shrinkConsistency`'s weight is exactly 0
  *     at `matchCount === 0`) — never a bare 0 (a false claim of perfect
@@ -50,10 +106,13 @@
  */
 
 /**
- * EWMA rate for `foldConsistency`'s squared-residual fold. Phase 3
- * hyperparameter, default unverified — chosen small (relative to, e.g.,
- * `covariance.ts`'s own `SIGMA1_COV_EWMA_ALPHA`) so a single off match does
- * not swing a team's reported consistency drastically.
+ * EWMA rate shared by `foldConsistency`'s squared-residual fold and
+ * `foldConsistencyVariance`'s variance fold. Phase 3 hyperparameter, default
+ * unverified — chosen small (relative to, e.g., `covariance.ts`'s own
+ * `SIGMA1_COV_EWMA_ALPHA`) so a single off match does not swing a team's
+ * reported consistency drastically. That reasoning matters MORE under the
+ * innovation-based estimator (D-Q2), whose per-match sample is a genuinely
+ * noisy unbiased draw rather than a heavily gain-damped one.
  */
 export const SIGMA1_CONSISTENCY_EWMA_ALPHA = 0.2;
 
@@ -82,12 +141,39 @@ export const SIGMA1_MIN_CONSISTENCY_VARIANCE = 1;
  * Folds one new squared residual into `prior` (a running consistency
  * VARIANCE estimate) via an EWMA: `(1 - alpha) * prior + alpha *
  * residual^2`. `residual` is `observed - predicted` for one team, one
- * component, one match — `sigma1/index.ts`'s `update` supplies the
- * Kalman-gain-weighted attribution documented in `covariance.ts`'s header.
+ * component, one match.
+ *
+ * NOT on Sigma1's update path since `SIGMA1_CODE_VERSION` 3.0.0 (D-Q2) —
+ * `sigma1/index.ts` folds an innovation-based variance sample through
+ * `foldConsistencyVariance` below instead. Kept exported and tested because
+ * the residual contract itself is still correct and is still the right door
+ * for a caller that genuinely holds a residual; see the header block's
+ * boundary contracts for why the two are siblings rather than one function.
  */
 export function foldConsistency(prior: number, residual: number, alpha: number = SIGMA1_CONSISTENCY_EWMA_ALPHA): number {
   const squared = residual * residual;
   return (1 - alpha) * prior + alpha * squared;
+}
+
+/**
+ * Folds one new variance SAMPLE into `prior` (a running consistency VARIANCE
+ * estimate) via the same EWMA, with no squaring: `(1 - alpha) * prior +
+ * alpha * varianceSample`. Both arguments and the return value are variances
+ * (squared units).
+ *
+ * This is the door Sigma1's update path uses (D-Q2, quick task 260901-is2).
+ * `sigma1/index.ts`'s `applyAllianceUpdate` supplies
+ * `max(0, innovation^2 - sum P) / n` for one alliance-component — already a
+ * variance, because `E[innovation^2] = sum P + R` makes it one directly.
+ * Squaring it again (which is what routing it through `foldConsistency`
+ * would do) would fold a points^4 quantity into a points^2 estimate.
+ */
+export function foldConsistencyVariance(
+  prior: number,
+  varianceSample: number,
+  alpha: number = SIGMA1_CONSISTENCY_EWMA_ALPHA
+): number {
+  return (1 - alpha) * prior + alpha * varianceSample;
 }
 
 /**

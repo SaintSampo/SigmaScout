@@ -9,8 +9,14 @@ import {
   allianceTotalPredictiveVariance,
   emptyCovariance,
   ewmaCovariance,
+  ewmaCovarianceSample,
   teamTotalVariance,
 } from "./covariance.js";
+
+/** `outer(v, v)` — the sample matrix `ewmaCovariance` builds internally before delegating. */
+function outer(v: readonly number[]): number[][] {
+  return v.map((a) => v.map((b) => a * b));
+}
 
 describe("SIGMA1_COV_EWMA_ALPHA / SIGMA1_COV_SHRINKAGE", () => {
   it("are exported constants within (0, 1)", () => {
@@ -127,5 +133,73 @@ describe("ewmaCovariance — convergence toward sample covariance", () => {
     const unshrunkDiag0 = 0.5 * (2 * 2);
     expect(folded[0]![1]!).toBeLessThan(unshrunkOffDiag);
     expect(folded[0]![0]!).toBeCloseTo(unshrunkDiag0, 9);
+  });
+});
+
+describe("ewmaCovarianceSample — the D-Q2 entry point Sigma1's update path uses", () => {
+  /**
+   * The delegation refactor's own gate. `ewmaCovariance` was rewritten to
+   * call `ewmaCovarianceSample(prior, outer(r, r), ...)` so that exactly one
+   * EWMA-plus-shrinkage implementation exists in this module — if that
+   * delegation ever drifts, every existing `ewmaCovariance` test above would
+   * still pass against a second, divergent implementation. This is the
+   * assertion that would not.
+   */
+  it("is byte-identical to ewmaCovariance when handed outer(residual, residual)", () => {
+    const prior = [
+      [3, 0.5, -1],
+      [0.5, 2, 0.25],
+      [-1, 0.25, 5],
+    ];
+    const residual = [2, -3, 1.5];
+    const viaResidualDoor = ewmaCovariance(prior, residual, 0.17, 0.31);
+    const viaSampleDoor = ewmaCovarianceSample(prior, outer(residual), 0.17, 0.31);
+    // toEqual, not toBeCloseTo: these must be the SAME floating-point
+    // numbers, since one function now computes the other.
+    expect(viaSampleDoor).toEqual(viaResidualDoor);
+  });
+
+  it("folds a supplied sample matrix whose diagonal is NOT its outer product's diagonal — the case only this door can express", () => {
+    // D-Q2's actual sample shape: off-diagonals from outer(d, d),
+    // diagonal from `max(0, innovation^2 - sumP)/n`, which is strictly
+    // SMALLER than d_c^2 whenever sumP > 0. No residual vector produces
+    // this matrix, which is exactly why `ewmaCovariance` could not have
+    // been reused for the update path.
+    const d = [4, 2];
+    const sample = [
+      [10, d[0]! * d[1]!],
+      [d[0]! * d[1]!, 1],
+    ];
+    expect(sample[0]![0]!).not.toBeCloseTo(d[0]! * d[0]!, 9);
+
+    const folded = ewmaCovarianceSample(emptyCovariance(2), sample, 0.5, 0.3);
+    // Diagonal is left at the unshrunk EWMA value (shrinkage only scales
+    // off-diagonals), so it reads back the supplied diagonal directly.
+    expect(folded[0]![0]!).toBeCloseTo(0.5 * 10, 9);
+    expect(folded[1]![1]!).toBeCloseTo(0.5 * 1, 9);
+    // Off-diagonal carries the same (1 - shrinkage) scaling as before.
+    expect(folded[0]![1]!).toBeCloseTo((1 - 0.3) * 0.5 * (d[0]! * d[1]!), 9);
+  });
+
+  it("applies the same diagonal shrinkage as the residual door", () => {
+    const sample = [
+      [4, 6],
+      [6, 9],
+    ];
+    const folded = ewmaCovarianceSample(emptyCovariance(2), sample, 0.5);
+    expect(folded[0]![0]!).toBeCloseTo(0.5 * 4, 9);
+    expect(folded[0]![1]!).toBeLessThan(0.5 * 6);
+    expect(folded[0]![1]!).toBeCloseTo((1 - SIGMA1_COV_SHRINKAGE) * 0.5 * 6, 9);
+  });
+
+  it("treats entries missing from an empty prior as 0, matching the pre-existing tolerance", () => {
+    const sample = [
+      [2, 1],
+      [1, 3],
+    ];
+    expect(ewmaCovarianceSample([], sample, 0.5, 0)).toEqual([
+      [1, 0.5],
+      [0.5, 1.5],
+    ]);
   });
 });

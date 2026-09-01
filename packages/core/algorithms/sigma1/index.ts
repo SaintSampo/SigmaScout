@@ -65,8 +65,19 @@ import {
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
-import { allianceTotalPredictiveVariance, emptyCovariance, ewmaCovariance, subsetVariance, teamTotalVariance } from "./covariance.js";
-import { foldConsistency, shrinkConsistency } from "./consistency.js";
+import {
+  allianceTotalPredictiveVariance,
+  emptyCovariance,
+  ewmaCovariance,
+  ewmaCovarianceSample,
+  subsetVariance,
+  teamTotalVariance,
+} from "./covariance.js";
+// `foldConsistency` is deliberately NOT imported here: since 3.0.0 (D-Q2)
+// nothing on this module's update path holds a residual, so importing the
+// residual door would leave a dead binding that reads like a live one. It is
+// still RE-EXPORTED below, unchanged, for callers that genuinely have one.
+import { foldConsistencyVariance, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { sigma1Carryover } from "./carryover.js";
@@ -100,6 +111,7 @@ export {
   allianceTotalPredictiveVariance,
   emptyCovariance,
   ewmaCovariance,
+  ewmaCovarianceSample,
   teamTotalVariance,
 } from "./covariance.js";
 export {
@@ -107,6 +119,7 @@ export {
   SIGMA1_SHRINKAGE_PRIOR_MATCHES,
   SIGMA1_MIN_CONSISTENCY_VARIANCE,
   foldConsistency,
+  foldConsistencyVariance,
   shrinkConsistency,
 } from "./consistency.js";
 export { SIGMA1_LINK_C, erf, normalCdf, winProbability } from "./linkFunctions.js";
@@ -152,7 +165,19 @@ export interface Sigma1TeamState extends RpTeamState {
 export interface Sigma1League extends RpLeague {
   /** Per-component expanding stats over every rating-eligible team's OWN observed per-match share — `.mean` is the live league-average component share, the cold-start baseline once populated. */
   readonly componentMean: Readonly<Record<string, ExpandingStats>>;
-  /** Per-component expanding stats over every team's own squared gain-weighted residual — `.mean` is a running league-average consistency VARIANCE, D-11's shrinkage target. */
+  /**
+   * Per-component expanding stats over the INNOVATION-BASED variance sample
+   * `max(0, innovation^2 - sum P) / n` (D-Q2, quick task 260901-is2), folded
+   * once per rating-eligible teammate per alliance-component — `.mean` is a
+   * running league-average consistency VARIANCE, D-11's shrinkage target.
+   *
+   * This must fold the SAME sample the per-team estimators do. It is
+   * `shrinkConsistency`'s prior, i.e. the value a thin-history team's spread
+   * is blended toward, so folding a different quantity here would blend two
+   * incompatible variances and leave the estimator fix doing nothing for
+   * every new team. Before 3.0.0 this averaged each team's own squared
+   * gain-weighted residual, which ran roughly 25x small.
+   */
   readonly componentConsistency: Readonly<Record<string, ExpandingStats>>;
 }
 
@@ -215,6 +240,41 @@ function leagueConsistencyFor(league: Sigma1League, component: string, fallback:
 }
 
 /**
+ * The league consistency prior used to SEED a team's own state — a
+ * cold-start team's belief variance and consistency
+ * (`coldStartTeamState`), and a carried team's re-inflated posterior across
+ * a season boundary (`carrySeason`) — floored at
+ * `params.minConsistencyVariance`.
+ *
+ * D-Q2 (quick task 260901-is2) made this floor load-bearing rather than
+ * decorative. The innovation-based sample is
+ * `max(0, innovation^2 - sum P) / n` and genuinely EQUALS 0 whenever a
+ * match lands inside the prior's own spread — which is most of them in the
+ * first matches of a season, when P is still at its cold-start width. So
+ * `componentConsistency[name].mean` can legitimately be exactly 0 with a
+ * non-zero count, and seeding from it unfloored gives a team `P = 0` AND
+ * `R = 0` for that component, hence `pooledVariance = 0`, hence
+ * `kalman.ts`'s zero-gain branch: a team that cannot learn from its own
+ * first observation, publishing a `0 ±` claim of perfect certainty. The
+ * retired squared-gain-weighted-residual sample was never exactly 0 in
+ * practice, so this path was unreachable before 3.0.0 — it is a consequence
+ * of the estimator change and is fixed here rather than left to surface as
+ * a frozen team.
+ *
+ * Deliberately reuses `shrinkConsistency`'s OWN floor
+ * (`SIGMA1_MIN_CONSISTENCY_VARIANCE`, via `params.minConsistencyVariance`)
+ * rather than introducing a second constant: it is the same statement — a
+ * variance blended toward a still-cold-start league average must not claim
+ * an implausibly tiny spread — applied one step earlier, at the seed rather
+ * than at the read. With a realistic league prior (hundreds of points^2
+ * under this estimator) the floor never binds; it exists for exactly the
+ * early-season and synthetic-fixture cases where the prior is still 0.
+ */
+function seedConsistencyFor(league: Sigma1League, component: string, params: Sigma1Params): number {
+  return Math.max(params.minConsistencyVariance, leagueConsistencyFor(league, component, params.coldStartConsistencyVariance));
+}
+
+/**
  * A fresh team's belief on every one of this season's components: mean
  * from the live league-average share (falling back to the fixed cold-start
  * constant before any league data exists), variance/consistency from the
@@ -234,7 +294,10 @@ function coldStartTeamState(
   const consistency: Record<string, number> = {};
   for (const name of componentOrder) {
     const mean = leagueMeanFor(league, name, coldStartMean);
-    const variance = leagueConsistencyFor(league, name, params.coldStartConsistencyVariance);
+    // D-Q2: floored — see `seedConsistencyFor`. An unfloored 0 here gives a
+    // brand-new team P = R = 0 and therefore a zero Kalman gain on its very
+    // first observation.
+    const variance = seedConsistencyFor(league, name, params);
     beliefs[name] = { mean, variance };
     consistency[name] = variance;
   }
@@ -426,10 +489,18 @@ interface AllianceUpdateResult {
   /**
    * Plan 03-03: this alliance's per-team, gain-weighted SCORE-component
    * residual vector (length `componentOrder.length`, ordered by
-   * `componentOrder`) — the same value already computed below for
-   * `covariance.ts`'s own fold, now also exposed so `update()` can thread
-   * it into `rp/state.ts`'s `foldRpObservation` for D-11's cross-covariance,
-   * without recomputing it.
+   * `componentOrder`) — `K_j * innovation` per component — threaded into
+   * `rp/state.ts`'s `foldRpObservation` for D-11's cross-covariance.
+   *
+   * D-Q2 (quick task 260901-is2): this is now the ONLY consumer. The score
+   * side's own consistency and covariance estimators moved to the
+   * innovation-based sample (`varianceSample` in `applyAllianceUpdate`
+   * below), and this vector was deliberately left UNCHANGED so the RP
+   * subsystem is byte-identical in shape — it is only downstream of a
+   * differently-sized R, via the beliefs it reads. Do NOT "unify" the two:
+   * the RP cross-covariance wants a per-team SIGNED residual (which is what
+   * the gain-weighted share is), while R wants an unbiased variance
+   * magnitude (which the gain-weighted share is not).
    */
   readonly residualsByTeam: ReadonlyMap<string, readonly number[]>;
 }
@@ -437,10 +508,14 @@ interface AllianceUpdateResult {
 /**
  * Applies one alliance's observed component vector to its rating-eligible
  * teammates: D-07 process noise first, then a per-component
- * `updateAllianceSum` Kalman update, then folding each team's
- * gain-weighted residual into its own consistency (D-09/D-11) and
- * covariance (D-03) estimators, plus the league-wide running aggregates
+ * `updateAllianceSum` Kalman update, then folding the INNOVATION-BASED
+ * variance sample (D-Q2) into each team's own consistency (D-09/D-11) and
+ * covariance (D-03) estimators and into the league-wide running aggregates
  * (`Sigma1League`). Returns new maps; never mutates its inputs.
+ *
+ * The gain-weighted residual is still computed, but only for
+ * `residualsByTeam` — the RP cross-covariance's input; see that field's own
+ * doc comment.
  */
 function applyAllianceUpdate(
   teams: ReadonlyMap<string, Sigma1TeamState>,
@@ -489,6 +564,15 @@ function applyAllianceUpdate(
   let nextComponentMean = { ...league.componentMean };
   let nextComponentConsistency = { ...league.componentConsistency };
 
+  // D-Q2 (quick task 260901-is2): the two ALLIANCE-level, per-component
+  // quantities the R estimator produces, collected across the component loop
+  // below and assembled into one CxC covariance sample matrix after it.
+  // Alliance-level, not per-team: every teammate folds the same sample (see
+  // `varianceSample`'s own comment), so the matrix is built ONCE rather than
+  // per teammate.
+  const varianceSampleByComponent = new Array<number>(componentOrder.length).fill(0);
+  const innovationScaledByComponent = new Array<number>(componentOrder.length).fill(0);
+
   componentOrder.forEach((name, componentIndex) => {
     const teammateBeliefs = allianceTeams.map((team) => workingTeams.get(team)!.beliefs[name] ?? { mean: 0, variance: 0 });
     const observedSum = observed[name] ?? 0;
@@ -512,6 +596,32 @@ function applyAllianceUpdate(
     const innovation = observedSum - predictedSum;
     const observedShare = observedSum / allianceTeams.length;
 
+    // D-Q2 (quick task 260901-is2): the prior-variance sum for this
+    // alliance-component. Computed DIRECTLY from `teammateBeliefs` rather
+    // than as `pooledVariance - measurementNoise`, so a reader can see it is
+    // the sum of P and not a leftover of some other subtraction.
+    const sumP = teammateBeliefs.reduce((sum, t) => sum + t.variance, 0);
+    // D-Q2: the innovation-based per-team variance sample, the R estimator
+    // both `consistency.ts` and `covariance.ts` now fold. Innovations are
+    // observable and `E[innovation^2] = sumP + R_alliance`, so
+    // `max(0, innovation^2 - sumP) / n` is an unbiased per-team sample; the
+    // floor catches the ordinary case where a single match lands inside the
+    // prior's own spread. Every teammate receives the SAME value — one
+    // summed observation carries one innovation, the identical limitation
+    // `componentGains` and the normalized-innovation block below already
+    // document. See `consistency.ts`'s header for what this replaced (an
+    // EWMA of squared gain-weighted residuals, biased toward its floor as
+    // the gain converged) and the measurements that motivated it.
+    const varianceSample = Math.max(0, innovation * innovation - sumP) / allianceTeams.length;
+    varianceSampleByComponent[componentIndex] = varianceSample;
+    // D-Q2: `d_c = innovation_c / sqrt(n)`, the vector whose outer product
+    // supplies the covariance sample's OFF-diagonals. Its own squared
+    // diagonal `d_c^2 - sumP_c/n` is algebraically `varianceSample` above
+    // (before the floor), which is why the sample matrix built after this
+    // loop takes `varianceSample` as the single source of truth for the
+    // diagonal rather than recomputing it from `d`.
+    innovationScaledByComponent[componentIndex] = innovation / Math.sqrt(allianceTeams.length);
+
     // D-05/D-07 (plan 03-04, T-03-12): this alliance-component's normalized
     // innovation — `innovation / sqrt(pooledVariance)`, the classical
     // adaptive-Kalman quantity with unit variance under a correctly
@@ -528,7 +638,7 @@ function applyAllianceUpdate(
     // uncertainty anywhere for an observation to correct) reports exactly
     // `0` here rather than a `0/0` division — never NaN/Infinity reaching
     // `foldInnovation`, which refuses non-finite input by throwing.
-    const pooledVariance = teammateBeliefs.reduce((sum, t) => sum + t.variance, 0) + measurementNoise;
+    const pooledVariance = sumP + measurementNoise;
     const normalizedInnovation = pooledVariance > 0 ? innovation / Math.sqrt(pooledVariance) : 0;
 
     allianceTeams.forEach((team, i) => {
@@ -541,23 +651,44 @@ function applyAllianceUpdate(
     for (let i = 0; i < allianceTeams.length; i++) meanStats = foldObservation(meanStats, observedShare);
     nextComponentMean = { ...nextComponentMean, [name]: meanStats };
 
+    // D-Q2 (quick task 260901-is2): the LEAGUE prior folds the SAME
+    // innovation-based sample the per-team estimators do. This is
+    // `shrinkConsistency`'s target — the quantity a thin-history team is
+    // blended toward — so leaving it on squared gain-weighted residuals
+    // would blend two incompatible quantities and the estimator fix would
+    // silently do nothing for every new team, which is most of them early
+    // in a season. One fold per teammate, preserving the previous fold
+    // COUNT exactly, so the running mean's weighting is unchanged in shape
+    // and only the quantity being averaged is different.
     let consistencyStats = nextComponentConsistency[name] ?? emptyExpandingStats();
-    for (const team of allianceTeams) {
-      const residual = residualsByTeam.get(team)![componentIndex]!;
-      consistencyStats = foldObservation(consistencyStats, residual * residual);
+    for (let i = 0; i < allianceTeams.length; i++) {
+      consistencyStats = foldObservation(consistencyStats, varianceSample);
     }
     nextComponentConsistency = { ...nextComponentConsistency, [name]: consistencyStats };
   });
 
+  // D-Q2 (quick task 260901-is2): the CxC covariance sample matrix, built
+  // ONCE for the whole alliance because every one of its inputs is
+  // alliance-level. Off-diagonal `d_i * d_j`; diagonal `varianceSample`,
+  // which IS `d_c^2 - sumP_c/n` floored at 0 — the same number
+  // `consistency.ts` folds for that component. Taking `varianceSample`
+  // rather than recomputing the diagonal from `d` is what makes those two
+  // views ONE quantity by construction instead of two expressions that have
+  // to be kept in agreement (`innovationVariance.test.ts` pins the identity).
+  const covarianceSample: number[][] = componentOrder.map((_, i) =>
+    componentOrder.map((__, j) =>
+      i === j ? varianceSampleByComponent[i]! : innovationScaledByComponent[i]! * innovationScaledByComponent[j]!
+    )
+  );
+
   const nextTeams = new Map(teams);
   for (const team of allianceTeams) {
     const working = workingTeams.get(team)!;
-    const residualVector = residualsByTeam.get(team)!;
     const nextConsistency: Record<string, number> = { ...working.consistency };
     componentOrder.forEach((name, i) => {
-      nextConsistency[name] = foldConsistency(
+      nextConsistency[name] = foldConsistencyVariance(
         nextConsistency[name] ?? params.coldStartConsistencyVariance,
-        residualVector[i]!,
+        varianceSampleByComponent[i]!,
         params.consistencyEwmaAlpha
       );
     });
@@ -581,7 +712,7 @@ function applyAllianceUpdate(
       // `update()`'s own `foldRpObservation` call.
       ...working,
       beliefs: nextBeliefsByTeam.get(team)!,
-      covariance: ewmaCovariance(working.covariance, residualVector, params.covEwmaAlpha, params.covShrinkage),
+      covariance: ewmaCovarianceSample(working.covariance, covarianceSample, params.covEwmaAlpha, params.covShrinkage),
       consistency: nextConsistency,
       matchCount: working.matchCount + 1,
       lastEventKey: eventKey,
@@ -1021,7 +1152,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  * level the key names: that team's own posterior variance (P,
  * `teamOwnComponentVarianceSum`/`belief.variance`, the filter's uncertainty
  * about the mean) PLUS that team's own consistency term (R, D-09's
- * match-to-match residual variance, D-11-shrunk) over the SAME component
+ * match-to-match performance variance, D-11-shrunk) over the SAME component
  * set — one standard deviation of the full predictive variance for that
  * team, at that aggregation level. A group's version restricts both terms
  * to the group's own component indices (PD-07); TOTAL's version is exactly
@@ -1038,6 +1169,22 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  * R term (P instead starts at the cold-start belief variance), visible as
  * such via a `matchCount` of 0 rather than hidden behind a plausible-
  * looking number.
+ *
+ * D-Q2 (quick task 260901-is2), what the R term IS. Both R sources this
+ * function reads — `teamState.consistency[name]` per component, and
+ * `teamTotalVariance`/`subsetVariance` over `teamState.covariance` for the
+ * TOTAL and phase-group keys — are now estimated from INNOVATIONS:
+ * `max(0, innovation^2 - sum P) / n` per alliance-component, folded by
+ * `applyAllianceUpdate`. Until 3.0.0 they were EWMAs of the squared
+ * gain-weighted residual `(K_j * innovation)^2`, which decayed toward its
+ * floor as the Kalman gain converged and therefore published how much the
+ * filter was still ADJUSTING rather than how much the team actually varied
+ * — understating every spread on the site by roughly 5x (synthetic recovery
+ * 2.29 against a true 12; real-corpus z-SD 1.62-4.99 rather than the ~1.0
+ * an honest filter gives). `consistency.ts`'s header carries the full
+ * derivation and the measured before/after. Nothing about the P/R
+ * COMPOSITION below changed: the additivity identity (`sigma1.test.ts`'s
+ * Test 1) holds exactly as it did, over differently-sized numbers.
  *
  * D-05 (plan 03-04) REVERSED by D-01 (plan 07-06): this comment used to
  * assert that adaptation does NOT touch this function's output, and that
@@ -1178,7 +1325,11 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     const beliefs: Record<string, TeamComponentBelief> = {};
     const consistency: Record<string, number> = {};
     for (const name of toComponentOrder) {
-      const coldStartVariance = leagueConsistencyFor(state.league, name, params.coldStartConsistencyVariance);
+      // D-Q2: floored — see `seedConsistencyFor`. This is the re-inflated
+      // posterior a year of layoff justifies; seeding it at an unfloored 0
+      // would be the opposite claim (perfect certainty after a layoff) and
+      // would freeze the component's gain.
+      const coldStartVariance = seedConsistencyFor(state.league, name, params);
       beliefs[name] = { mean: share, variance: coldStartVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
       consistency[name] = carriedObserved * params.consistencyCarryDecay;

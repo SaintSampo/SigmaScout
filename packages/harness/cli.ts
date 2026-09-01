@@ -123,13 +123,15 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
-// `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
-// (2026-08-30): re-pinned from `vpr@2.0.0+tuned-2026-08.json` to the
-// `2.1.0` re-promotion after Sigma1's `SIGMA1_CODE_VERSION` bump (see that
-// constant's own doc comment, `sigma1/params.ts`) — same params, same
-// search artifact, re-promoted only because the code underneath the
-// version identity changed.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@2.1.0+tuned-2026-08.json");
+// Re-pinned twice, each time alongside a `SIGMA1_CODE_VERSION` bump (see
+// that constant's own doc comment, `sigma1/params.ts`): from
+// `vpr@2.0.0+tuned-2026-08.json` to `2.1.0` (whole-alliance-DQ exclusion,
+// 2026-08-30), then to `3.0.0` (D-Q2's innovation-based R estimator, quick
+// task 260901-is2, 2026-09-01). The 3.0.0 re-promotion also carries ONE
+// parameter override, `linkC = 0.5`, recorded in that file's
+// `provenance.paramOverrides` — the R estimator changing made the tuned
+// link constant stale, and it was re-selected on the tune seasons only.
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@3.0.0+tuned-2026-08.json");
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**

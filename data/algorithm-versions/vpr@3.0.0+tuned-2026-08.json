@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "2.1.0",
+  "codeVersion": "3.0.0",
   "paramSetName": "tuned-2026-08",
-  "version": "2.1.0+tuned-2026-08",
+  "version": "3.0.0+tuned-2026-08",
   "params": {
     "processNoiseWithinEvent": 0.14522393520915602,
     "processNoiseEventBoundary": 1,
@@ -11,7 +11,7 @@
     "minConsistencyVariance": 1,
     "covEwmaAlpha": 0.2600009894482791,
     "covShrinkage": 0.12817359956447036,
-    "linkC": 1.2398308984401685,
+    "linkC": 0.5,
     "coldStartTeamTotal": 20,
     "coldStartConsistencyVariance": 16.75421168559074,
     "fallbackScoreSd": 25,
@@ -31,7 +31,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-joint-off.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-01T17:52:49.564Z",
+    "promotedAt": "2026-09-01T19:06:19.368Z",
     "objective": 0.17076606538105618,
     "tuneSeasons": [
       2022,
@@ -92,7 +92,12 @@
       ],
       "pooledWinnerPerSeasonBrierSpread": 0.01297760797767275
     },
-    "adaptationMode": "off"
+    "adaptationMode": "off",
+    "paramOverrides": {
+      "linkC": 0.5
+    },
+    "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.",
+    "objectiveAppliesToPromotedParams": false
   },
   "digest": {
     "sliceSeason": 2022,
@@ -102,12 +107,12 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "c708a43028554deaaec4a877aab67bb7d6d08ddc65883f3265486f679c84c390",
+    "predictionStreamSha256": "c71c53de30b74796c74578a35e2d3be537b85e57db3d168771169de5a771a050",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.1740753693923784,
-        "winnerAccuracy": 0.6934865900383141
+        "brierScore": 0.16886202587390484,
+        "winnerAccuracy": 0.7203065134099617
       }
     ]
   }

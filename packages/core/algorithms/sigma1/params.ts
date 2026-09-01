@@ -65,8 +65,33 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * as `vpr@2.1.0+*.json` from the SAME search artifacts/params in the same
  * commit — this was a code fix, not a re-tune, so no new hyperparameter
  * search was needed.
+ *
+ * Bumped `"2.1.0"` -> `"3.0.0"` (quick task 260901-is2, D-Q2, 2026-09-01):
+ * the measurement-noise estimator R changed. BOTH `update()`'s and
+ * `teamMetrics`'s observable output moved — `update()` because R feeds the
+ * Kalman gain from the second match onward, and `teamMetrics` because R is
+ * one of the two terms behind every published `±`. R is now estimated from
+ * INNOVATIONS (`max(0, innovation^2 - sum P) / n`, an unbiased sample given
+ * `E[innovation^2] = sum P + R`) rather than from an EWMA of squared
+ * gain-weighted residuals, which decayed toward its floor as the filter
+ * converged and understated every published spread by roughly 5x. See
+ * `consistency.ts`'s header for the derivation and the measured before/after.
+ * MAJOR, not minor: this changes the published number on every team page,
+ * not an edge case.
+ *
+ * The two `vpr@2.1.0+*.json` files were retired and re-promoted as
+ * `vpr@3.0.0+*.json` in this SAME commit, by `pnpm promote` running the new
+ * code — the same precedent the 2.0.0 -> 2.1.0 bump above records, and for
+ * the same reason: a digest is only meaningful if the code that produced it
+ * is the code that ships, and it is never hand-edited to make a failing
+ * reproduction pass. Unlike that bump, `tuned-2026-08`'s re-promotion also
+ * carries ONE parameter override — `linkC` 1.2398... -> 0.5, re-selected on
+ * the tune seasons only, exactly how the promoted set was chosen — recorded
+ * in that file's `provenance.paramOverrides`/`note` with
+ * `objectiveAppliesToPromotedParams: false`, because the recorded objective
+ * describes the search winner and not the shipped set.
  */
-export const SIGMA1_CODE_VERSION = "2.1.0";
+export const SIGMA1_CODE_VERSION = "3.0.0";
 
 /**
  * A cold-start team's typical total contribution to an alliance's score, in
@@ -83,10 +108,19 @@ export const SIGMA1_COLD_START_TEAM_TOTAL = 20;
 
 /**
  * Fallback consistency VARIANCE (points^2) for a component the league has
- * never observed a residual for yet — the same role `EPA_FALLBACK_SCORE_SD`
+ * never observed a sample for yet — the same role `EPA_FALLBACK_SCORE_SD`
  * plays for EPA's win-probability scale, applied here to Sigma1's own
  * measurement-noise/spread estimate instead. Phase 3 hyperparameter, default
  * unverified.
+ *
+ * KNOWN STALE since `SIGMA1_CODE_VERSION` 3.0.0 (D-Q2, quick task
+ * 260901-is2). 25 (an SD of 5) was tuned against the RETIRED estimator,
+ * which ran roughly 5x small in SD terms — so this cold-start seed is now
+ * plausibly about an order of magnitude too small in variance terms against
+ * the innovation-based R it seeds. It is deliberately LEFT UNCHANGED here:
+ * moving it without a search would be a guess, and a full joint re-tune
+ * under the new estimator is a filed follow-up. This sentence is that
+ * follow-up's anchor in the code.
  */
 export const SIGMA1_COLD_START_CONSISTENCY_VARIANCE = 25;
 
@@ -120,21 +154,21 @@ export interface Sigma1Params {
   readonly processNoiseWithinEvent: number;
   /** D-07 process-noise magnitude injected at an EVENT BOUNDARY (points^2). Sourced from `kalman.ts`'s `SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY`. Phase 3 hyperparameter, default unverified. */
   readonly processNoiseEventBoundary: number;
-  /** EWMA rate for `consistency.ts`'s `foldConsistency` squared-residual fold. Sourced from `consistency.ts`'s `SIGMA1_CONSISTENCY_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
+  /** EWMA rate for `consistency.ts`'s `foldConsistencyVariance` innovation-based variance fold (D-Q2; was `foldConsistency`'s squared-residual fold before 3.0.0). Sourced from `consistency.ts`'s `SIGMA1_CONSISTENCY_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
   readonly consistencyEwmaAlpha: number;
   /** D-11's empirical-Bayes prior-match count for `consistency.ts`'s `shrinkConsistency`. Sourced from `consistency.ts`'s `SIGMA1_SHRINKAGE_PRIOR_MATCHES`. Phase 3 hyperparameter, default unverified. */
   readonly shrinkagePriorMatches: number;
   /** Floor applied to every shrunk consistency VARIANCE (points^2), read inside `consistency.ts`'s `shrinkConsistency`. Sourced from `consistency.ts`'s `SIGMA1_MIN_CONSISTENCY_VARIANCE`. Phase 3 hyperparameter, default unverified. */
   readonly minConsistencyVariance: number;
-  /** EWMA rate for `covariance.ts`'s `ewmaCovariance` fold step. Sourced from `covariance.ts`'s `SIGMA1_COV_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
+  /** EWMA rate for `covariance.ts`'s `ewmaCovarianceSample` fold step (D-Q2; `ewmaCovariance` was the update path's entry point before 3.0.0 and now delegates to it). Sourced from `covariance.ts`'s `SIGMA1_COV_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
   readonly covEwmaAlpha: number;
-  /** Constant shrinkage toward the diagonal applied inside `covariance.ts`'s `ewmaCovariance`. Sourced from `covariance.ts`'s `SIGMA1_COV_SHRINKAGE`. Phase 3 hyperparameter, default unverified. */
+  /** Constant shrinkage toward the diagonal applied inside `covariance.ts`'s `ewmaCovarianceSample`. Sourced from `covariance.ts`'s `SIGMA1_COV_SHRINKAGE`. Phase 3 hyperparameter, default unverified. */
   readonly covShrinkage: number;
   /** D-12's default `c` for mode 2's (`predictive-variance`) win-probability denominator scale. Sourced from `linkFunctions.ts`'s `SIGMA1_LINK_C`. Phase 3 hyperparameter, default unverified. */
   readonly linkC: number;
   /** A cold-start team's typical total contribution to an alliance's score, in point units. Sourced from this module's own `SIGMA1_COLD_START_TEAM_TOTAL`. Phase 3 hyperparameter, default unverified. */
   readonly coldStartTeamTotal: number;
-  /** Fallback consistency VARIANCE for a component the league has never observed a residual for yet. Sourced from this module's own `SIGMA1_COLD_START_CONSISTENCY_VARIANCE`. Phase 3 hyperparameter, default unverified. */
+  /** Fallback consistency VARIANCE for a component the league has never observed a sample for yet. Sourced from this module's own `SIGMA1_COLD_START_CONSISTENCY_VARIANCE` — see that constant's own doc comment for why it is KNOWN STALE under the D-Q2 estimator. Phase 3 hyperparameter, default unverified. */
   readonly coldStartConsistencyVariance: number;
   /** Fallback alliance-score SD before at least 2 alliance-score observations exist this season. Sourced from this module's own `SIGMA1_FALLBACK_SCORE_SD`. Phase 3 hyperparameter, default unverified. */
   readonly fallbackScoreSd: number;

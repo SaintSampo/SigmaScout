@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "2.1.0",
+  "codeVersion": "3.0.0",
   "paramSetName": "tracer-check",
-  "version": "2.1.0+tracer-check",
+  "version": "3.0.0+tracer-check",
   "params": {
     "processNoiseWithinEvent": 0.5,
     "processNoiseEventBoundary": 4,
@@ -31,7 +31,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-01T17:52:59.695Z",
+    "promotedAt": "2026-09-01T19:06:08.746Z",
     "objective": 0.17465514532650941,
     "tuneSeasons": [
       2022
@@ -48,12 +48,12 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "ef623c9dcf38f2ce339a1d0974a10fc653210c7b628894841774b3fe229d940a",
+    "predictionStreamSha256": "8bb2aad9335fdd76215c132c4d2537aef0ee671eff0069c7452428653ec7d610",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.17816057795263934,
-        "winnerAccuracy": 0.6819923371647509
+        "brierScore": 0.18205026736034616,
+        "winnerAccuracy": 0.7049808429118773
       }
     ]
   }

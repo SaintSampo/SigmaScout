@@ -8,6 +8,7 @@ import {
   SIGMA1_MIN_CONSISTENCY_VARIANCE,
   SIGMA1_SHRINKAGE_PRIOR_MATCHES,
   foldConsistency,
+  foldConsistencyVariance,
   shrinkConsistency,
 } from "./consistency.js";
 
@@ -33,6 +34,38 @@ describe("foldConsistency", () => {
     for (const r of wideResiduals) wideTeam = foldConsistency(wideTeam, r);
     for (const r of narrowResiduals) narrowTeam = foldConsistency(narrowTeam, r);
     expect(wideTeam).toBeGreaterThan(narrowTeam);
+  });
+});
+
+describe("foldConsistencyVariance — the D-Q2 sibling door", () => {
+  /**
+   * Deliberately adjacent to `foldConsistency`'s own `=== 6.5` case above.
+   * The two land on the same number from DIFFERENT inputs — 3 as a residual
+   * (squared to 9 internally) versus 9 as a variance (folded as given) — and
+   * that is the whole point of the pairing: it makes the units boundary
+   * legible at a glance, so a future caller cannot reach the variance
+   * behaviour by passing `Math.sqrt(sample)` through the residual door
+   * without this assertion pair making the mistake obvious.
+   */
+  it("folds the variance sample AS GIVEN, with no squaring — the mirror of foldConsistency's residual door", () => {
+    expect(foldConsistencyVariance(4, 9, 0.5)).toBeCloseTo(6.5, 9); // 0.5*4 + 0.5*9
+    expect(foldConsistency(4, 3, 0.5)).toBeCloseTo(6.5, 9); // 0.5*4 + 0.5*3^2
+    // Same numeric argument through both doors must NOT agree — if it did,
+    // the two entry points would be interchangeable and the boundary this
+    // module's header defends would be decorative.
+    expect(foldConsistencyVariance(4, 3, 0.5)).not.toBeCloseTo(foldConsistency(4, 3, 0.5), 9);
+  });
+
+  it("defaults alpha to SIGMA1_CONSISTENCY_EWMA_ALPHA, matching foldConsistency's own default", () => {
+    const a = SIGMA1_CONSISTENCY_EWMA_ALPHA;
+    expect(foldConsistencyVariance(10, 50)).toBeCloseTo((1 - a) * 10 + a * 50, 9);
+  });
+
+  it("a run of zero samples decays the estimate toward 0 but never below it (an EWMA of a floored-at-0 sample stays non-negative)", () => {
+    let value = 100;
+    for (let i = 0; i < 200; i++) value = foldConsistencyVariance(value, 0);
+    expect(value).toBeGreaterThanOrEqual(0);
+    expect(value).toBeLessThan(1e-6);
   });
 });
 
