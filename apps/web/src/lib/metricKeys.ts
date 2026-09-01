@@ -18,7 +18,7 @@
  * same task), so importing it here does not drag a Node built-in into the
  * browser bundle.
  */
-import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
+import { componentMapForSeason, COMPONENT_GROUP_IDS, COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../../../../packages/core/algorithms/types.js";
 
 /** Re-exported, never re-declared as a literal — the one key every algorithm guarantees (`packages/core/algorithms/types.ts`'s `TOTAL_METRIC_KEY`). */
@@ -44,4 +44,35 @@ export function metricKeysFor(algorithmId: string, season: number): readonly str
   }
   const { components } = componentMapForSeason(season);
   return [...components, TOTAL_KEY];
+}
+
+/**
+ * Phase-group metric keys (`phaseAuto`/`phaseTeleop`/`phaseEndgame`) in the
+ * canonical Auto → Teleop → Endgame order — the grouped Teams-table view's
+ * column keys (2026-09-01 redesign, decision T1).
+ */
+export const GROUP_METRIC_KEYS: readonly string[] = COMPONENT_GROUP_IDS.map((id) => COMPONENT_GROUP_METRIC_KEYS[id]);
+
+/**
+ * Whether the TEAMS-LIST artifact for this algorithm carries the phase-group
+ * metrics, i.e. whether the grouped Teams-table view can render real values.
+ * Verified against the live 2026 artifacts (2026-09-01): VPR publishes all
+ * three groups per row; EPA publishes components only (it has no spreads, so
+ * honest group spreads are pipeline work, not client work); OPR publishes
+ * only Total. Derived from the algorithm id, never from inspecting fetched
+ * rows — the same column-set discipline `metricKeysFor` states above.
+ */
+export function hasGroupedTeamsView(algorithmId: string): boolean {
+  return algorithmId === "vpr";
+}
+
+/**
+ * Every metric key a Teams-page `sort` URL param may validly name for this
+ * (algorithm, season) pair, across BOTH table views — used by the
+ * year-change sort resolution so a grouped-view sort like `phaseAuto`
+ * survives a year switch instead of silently resetting to Total.
+ */
+export function teamsSortKeyUniverse(algorithmId: string, season: number): readonly string[] {
+  const keys = metricKeysFor(algorithmId, season);
+  return hasGroupedTeamsView(algorithmId) ? [...keys, ...GROUP_METRIC_KEYS] : keys;
 }

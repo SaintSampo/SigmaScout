@@ -16,7 +16,8 @@
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
-import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { GROUP_METRIC_KEYS, hasGroupedTeamsView, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { metricDisplayLabel } from "@/lib/metricLabels";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -186,19 +187,34 @@ export const features = tableFeatures({ columnPinningFeature, columnSizingFeatur
 const columnHelper = createColumnHelper<typeof features, TeamRow>();
 
 /**
- * Column ids the header row treats as clickable/sortable — every declared
+ * The Teams table's two views (2026-09-01 redesign, decision T1): "grouped"
+ * is the DEFAULT — Auto / Teleop / Endgame / Total, the same four numbers
+ * the team page's header tiles lead with — and "components" is the full
+ * per-component set behind the toggle. Only grouped-capable algorithms
+ * (`hasGroupedTeamsView`) ever resolve to the grouped column set; EPA
+ * renders components regardless (its artifact carries no phase metrics)
+ * and OPR renders its single Total column on both.
+ */
+export type TeamsTableView = "grouped" | "components";
+
+/** The metric column KEY SET a given (algorithm, season, view) triple actually displays — the one derivation both `buildColumns` and `sortableColumnIds` share. */
+export function displayedMetricKeys(algorithmId: string, season: number, view: TeamsTableView): readonly string[] {
+  if (view === "grouped" && hasGroupedTeamsView(algorithmId)) {
+    return [...GROUP_METRIC_KEYS, TOTAL_KEY];
+  }
+  return metricKeysFor(algorithmId, season);
+}
+
+/**
+ * Column ids the header row treats as clickable/sortable — every DISPLAYED
  * metric key (which always includes `TOTAL_KEY`, D-27) plus the reserved
  * win-rate sentinel. `rank`/`teamNumber`/`nickname`/`record` are NOT
  * sortable: `sortTeamRows` (Task 1) only orders by a metric value or the
  * win-rate sentinel, so making a text/derived-rank column "sortable" would
  * expose a control with no matching sort implementation behind it.
  */
-export function sortableColumnIds(algorithmId: string, season: number): string[] {
-  return [...metricKeysFor(algorithmId, season), WIN_RATE_SORT_KEY];
-}
-
-function metricLabel(key: string): string {
-  return key === TOTAL_KEY ? "Total" : key;
+export function sortableColumnIds(algorithmId: string, season: number, view: TeamsTableView = "grouped"): string[] {
+  return [...displayedMetricKeys(algorithmId, season, view), WIN_RATE_SORT_KEY];
 }
 
 function formatWinRate(value: number | null): string {
@@ -232,8 +248,8 @@ function formatRecord(record: TeamRow["record"]): string {
  * sizes are UNCHANGED (96/88), so wide-viewport rendering is byte-for-byte
  * identical to before this fix.
  */
-export function buildColumns(algorithmId: string, season: number, isNarrow: boolean, metricFirst: boolean = isNarrow) {
-  const metricKeys = metricKeysFor(algorithmId, season);
+export function buildColumns(algorithmId: string, season: number, isNarrow: boolean, metricFirst: boolean = isNarrow, view: TeamsTableView = "grouped") {
+  const metricKeys = displayedMetricKeys(algorithmId, season, view);
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
   // rendered — the same loose-cast escape hatch `SearchBox.tsx`/`YearSelect.tsx`
@@ -244,7 +260,9 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
   const metricColumns = metricKeys.map((key) =>
     columnHelper.accessor((row) => row.metrics[key], {
       id: key,
-      header: metricLabel(key),
+      // Friendly labels ONLY (2026-09-01 redesign): "Hub Shift 2", "Auto",
+      // "Fouls Committed" — never a raw artifact key like `hubShift2`.
+      header: metricDisplayLabel(key),
       size: 120,
       // D-17's rarity tiers, the same ones the team page's metric grid
       // applies and the same `.metric-tier--*` tokens — so a number does

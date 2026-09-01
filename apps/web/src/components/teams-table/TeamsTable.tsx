@@ -22,7 +22,7 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
-import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, sortableColumnIds } from "./columns";
+import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, sortableColumnIds, type TeamsTableView } from "./columns";
 import type { SortDirection, TeamRow } from "./rowModel";
 
 const ROW_HEIGHT_PX = 44;
@@ -47,6 +47,8 @@ export interface TeamsTableProps {
   rows: readonly TeamRow[];
   algorithmId: string;
   season: number;
+  /** Grouped (Auto/Teleop/Endgame/Total, the default) vs full components — decision T1's URL-backed toggle; the route owns the state. */
+  view: TeamsTableView;
   sortKey: string;
   sortDirection: SortDirection;
   onSortChange: (columnId: string) => void;
@@ -57,7 +59,7 @@ function cellClassName(columnId: string): string {
   return columnId === "nickname" ? "truncate text-role-body" : "numeric-cell text-role-body";
 }
 
-export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDirection, onSortChange, onRetry }: TeamsTableProps) {
+export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, sortDirection, onSortChange, onRetry }: TeamsTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // 07-UAT.md G-2: below `MOBILE_BREAKPOINT_PX`, nickname unpins and
@@ -73,8 +75,8 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
   const isF3Width = useIsF3MetricFirstWidth();
 
   const metricFirst = isNarrow && isF3Width;
-  const columns = useMemo(() => buildColumns(algorithmId, season, isNarrow, metricFirst), [algorithmId, season, isNarrow, metricFirst]);
-  const sortableIds = useMemo(() => new Set(sortableColumnIds(algorithmId, season)), [algorithmId, season]);
+  const columns = useMemo(() => buildColumns(algorithmId, season, isNarrow, metricFirst, view), [algorithmId, season, isNarrow, metricFirst, view]);
+  const sortableIds = useMemo(() => new Set(sortableColumnIds(algorithmId, season, view)), [algorithmId, season, view]);
   const columnPinning = useMemo(
     () => ({ start: isNarrow ? [...MOBILE_PINNED_COLUMN_IDS] : [...PINNED_COLUMN_IDS], end: [] }),
     [isNarrow],
@@ -145,6 +147,11 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
     <div
       ref={parentRef}
       data-testid="teams-table-scroll"
+      // `.data-card` (2026-09-01 redesign): the white card the table sits in.
+      // Its `overflow: hidden` is overridden by this element's own inline
+      // `overflow: auto` — inline always wins — so the scroll behavior is
+      // untouched; the card contributes border, radius and shadow only.
+      className="data-card"
       style={{ overflow: "auto", height: scrollHeight, width: "100%", position: "relative" }}
     >
       <table
@@ -283,7 +290,10 @@ export function TeamsTable({ status, rows, algorithmId, season, sortKey, sortDir
                           position: pinned ? "sticky" : undefined,
                           left: pinned ? cell.column.getStart("start") : undefined,
                           zIndex: pinned ? 1 : undefined,
-                          background: pinned ? "var(--color-bg-page)" : undefined,
+                          // Surface, not page (2026-09-01 redesign): rows now
+                          // sit on a white card, so the opaque pinned-cell
+                          // backing must match the card, not the slate page.
+                          background: pinned ? "var(--color-bg-surface)" : undefined,
                         }}
                       >
                         <table.FlexRender cell={cell} />

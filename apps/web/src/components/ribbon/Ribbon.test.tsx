@@ -66,7 +66,7 @@ describe("Ribbon", () => {
     // assertions read the three NAV links after it.
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(4);
-    expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
+    expect(links.map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare"]);
   });
 
   it("all three links render in the fixed order Teams, Events, Compare (desktop)", async () => {
@@ -74,7 +74,7 @@ describe("Ribbon", () => {
     await renderRibbonAt("/events?year=2024&algorithm=vpr");
 
     const links = screen.getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
+    expect(links.map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare"]);
   });
 
   it("that order is UNCHANGED when the mobile breakpoint hook reports true — the responsive treatment reflows, it never reorders", async () => {
@@ -95,7 +95,7 @@ describe("Ribbon", () => {
     try {
       await renderRibbonAt("/compare?year=2024&algorithm=vpr");
       const links = screen.getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(["SigmaScout", "Teams", "Events", "Compare"]);
+      expect(links.map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare"]);
     } finally {
       window.matchMedia = original;
     }

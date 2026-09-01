@@ -474,7 +474,7 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
   void algorithmId;
   void season;
   return (
-    <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="alliances-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader>
           <TableRow>
@@ -519,7 +519,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
-      <div data-testid="alliances-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="alliances-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
           07-UAT.md G-1 originally left this table on `table-layout: auto`,
           because the pick columns relied on auto layout's free growth to
@@ -576,7 +576,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
                         position: pinned ? "sticky" : undefined,
                         left: pinned ? cell.column.getStart("start") : undefined,
                         zIndex: pinned ? 1 : undefined,
-                        background: pinned ? "var(--color-bg-page)" : undefined,
+                        background: pinned ? "var(--color-bg-surface)" : undefined,
                       }}
                     >
                       <table.FlexRender cell={cell} />
@@ -594,7 +594,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
       {incompleteCount > 0 && (
         <div
           data-testid="alliances-incomplete-notice"
-          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-surface)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
+          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
           <span>{alliancesIncompleteNotice(incompleteCount, rows.length, algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>

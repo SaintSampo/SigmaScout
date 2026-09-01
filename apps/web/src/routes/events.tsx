@@ -88,8 +88,14 @@ function EventsPage() {
   }
 
   return (
-    <div className="p-[var(--spacing-lg)]">
-      <h1 className="mb-[var(--spacing-md)] text-role-heading text-[var(--color-text-primary)]">Events — {year}</h1>
+    // Content capped and centered (2026-09-01 redesign, decision E1): seven
+    // narrow data columns stretched edge-to-edge was most of the old page's
+    // empty space. 1100px holds the flexed name column comfortably.
+    <div className="mx-auto max-w-[1100px] p-[var(--spacing-lg)]">
+      <div className="mb-[var(--spacing-md)] flex flex-wrap items-baseline gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
+        <h1 className="text-role-heading text-[var(--color-text-primary)]">Events — {year}</h1>
+        <span className="text-role-body text-[var(--color-text-muted)]">Filled chip = official season · dashed = unofficial</span>
+      </div>
       {/* Per 05-UI-SPEC.md: "The controls are not rendered at all when the fetch
           failed — the list's error state is the single place that failure
           surfaces." Filter option lists also derive locally from the fetched

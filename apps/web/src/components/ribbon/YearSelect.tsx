@@ -207,7 +207,11 @@ export function YearSelect() {
 
   return (
     <Select value={String(search.year)} onValueChange={handleChange}>
-      <SelectTrigger aria-label="Year" className="w-[5.5rem]">
+      {/* Pine ribbon control treatment (2026-09-01 redesign): translucent white on the dark green bar. */}
+      <SelectTrigger
+        aria-label="Year"
+        className="w-[5.5rem] border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
+      >
         {/*
           D-19: explicit children, not Radix's own item-derived label. Radix
           `Select.Value` only auto-derives its displayed text by portaling a

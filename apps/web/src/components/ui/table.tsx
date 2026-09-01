@@ -68,7 +68,10 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        // `text-role-th` (2026-09-01 redesign): the sitewide uppercase-mini
+        // header treatment — declared after `.text-role-label` in theme.css
+        // so it wins wherever a call site still passes that legacy class.
+        "text-role-th h-10 px-2 text-left align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}

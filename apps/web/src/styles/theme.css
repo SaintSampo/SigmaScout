@@ -40,7 +40,15 @@
    * from TBA's/Statbotics' blue navigation — and accent still means
    * "interactive and/or currently active", nothing else. */
   --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50, deliberately still neutral */
-  --color-bg-surface: #e8f5e9; /* Secondary (30%) — Material green-50 tinted chrome */
+  /*
+   * 2026-09-01 redesign (user-picked "Pine" direction from the redesign
+   * preview artifact): surfaces go NEUTRAL WHITE. Green stops being paint
+   * and becomes ink — the wordmark, links, and active states — so the tier
+   * palette is the loudest colour in any table. The one green SURFACE left
+   * on the whole site is the ribbon (see the --ribbon-* block below).
+   */
+  --color-bg-surface: #ffffff; /* Secondary (30%) — white cards on the slate-50 page */
+  --color-bg-inset: #f1f5f9; /* slate-100 — chips, skeletons, tab rails, hover fills on white cards */
   --color-accent: #2e7d32; /* Accent (10%) — Material green-800, WCAG-checked ink */
   --color-destructive: #dc2626; /* red-600 */
   /*
@@ -65,8 +73,25 @@
    * this contract), so no ratio is claimed here the way it is for
    * --color-text-muted above.
    */
-  --color-border: #c8e6c9; /* Material green-100 — ui-polish-pass, tinted alongside --color-bg-surface */
+  --color-border: #e2e8f0; /* slate-200 — 2026-09-01 redesign, neutral hairlines alongside the white surface */
   --color-input: var(--color-border);
+
+  /*
+   * Pine ribbon (2026-09-01 redesign, decision 1 option B): the site's one
+   * remaining green surface. The deep green is green-900-family ink the
+   * white wordmark sits on; the LIGHT green (#81C784, Material green-300 —
+   * the user's #4CAF50 seed family, which passes contrast on this dark
+   * ground though never on white) marks the Σ and the active nav underline.
+   * These tokens are the RIBBON's vocabulary — with ONE deliberate echo
+   * below the header: `.event-chip--champs` reuses `--ribbon-bg` so the
+   * season's summit wears the brand's own green. Nothing else may.
+   */
+  --ribbon-bg: #14532d;
+  --ribbon-ink: #ffffff;
+  --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+  --ribbon-accent: #81c784;
+  --ribbon-control-bg: rgba(255, 255, 255, 0.1);
+  --ribbon-control-border: rgba(255, 255, 255, 0.25);
 
   /*
    * FRC alliance colours + the match-table "loser ink" (06-UI-SPEC.md
@@ -195,10 +220,16 @@
    * discretion as --color-text-muted and --color-border above.
    */
   --color-primary-foreground: #ffffff;
-  --color-secondary: var(--color-bg-surface);
+  /*
+   * secondary/muted alias to the INSET tint, not the surface (2026-09-01
+   * redesign): with the surface now white, a badge/skeleton/tab-rail/hover
+   * fill aliased to surface would be invisible on the white cards it sits
+   * on. Inset is the one neutral fill for all of those.
+   */
+  --color-secondary: var(--color-bg-inset);
   --color-secondary-foreground: var(--color-text-primary);
   --color-accent-foreground: var(--color-text-primary);
-  --color-muted: var(--color-bg-surface);
+  --color-muted: var(--color-bg-inset);
   --color-muted-foreground: var(--color-text-muted);
   --color-popover: var(--color-bg-surface);
   --color-popover-foreground: var(--color-text-primary);
@@ -355,6 +386,79 @@ body {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.3;
+}
+
+/*
+ * Table column headers (2026-09-01 redesign): the uppercase-mini treatment
+ * every data table on the site shares — 11px/600, letterspaced, muted ink.
+ * Applied by `ui/table.tsx`'s `TableHead` default classes, so each table
+ * gets it without per-call-site churn. Declared AFTER `.text-role-label`
+ * deliberately: many existing header call sites still pass
+ * `text-role-label`, and with equal single-class specificity the later
+ * declaration wins, so this treatment takes precedence wherever both land
+ * on one element.
+ */
+.text-role-th {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/*
+ * The standard content card (2026-09-01 redesign): white surface, hairline
+ * border, small radius, whisper of shadow. Tables and panels sit inside one
+ * of these instead of directly on the page — the surface hierarchy the old
+ * green-on-green wash never had.
+ */
+/* No `overflow` here on purpose: several hosts are themselves scroll
+   containers (`overflow-x-auto` utilities, TeamsTable's inline
+   `overflow: auto`), and an unlayered `overflow: hidden` would beat those
+   layered utilities and kill scrolling. Corner clipping is a non-issue —
+   every header/cell backing inside is the same white as the card. */
+.data-card {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/*
+ * Event-type chips (2026-09-01 redesign, decision 3 option E1): ONE chip
+ * vocabulary for officialness across the site. Filled = official season;
+ * the single dark chip = Championship; dashed outline + muted ink =
+ * unofficial (preseason Week 0 and offseason). `.event-row-unofficial`
+ * mutes the whole row's ink so unofficial events visibly recede from the
+ * season proper.
+ */
+.event-chip {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.event-chip--week {
+  background-color: var(--color-bg-inset);
+  color: var(--color-text-primary);
+}
+.event-chip--champs {
+  background-color: var(--ribbon-bg);
+  color: var(--ribbon-ink);
+}
+.event-chip--unofficial {
+  background-color: transparent;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-muted);
+  padding: 0 7px;
+}
+.event-row-unofficial,
+.event-row-unofficial a {
+  color: #94a3b8; /* slate-400 — recedes without disappearing; links keep their underline affordance on hover */
 }
 
 /*
@@ -666,7 +770,7 @@ body {
   color: #be123c; /* rose-700 */
 }
 .result-chip--tie {
-  background-color: var(--color-bg-surface);
+  background-color: var(--color-bg-inset);
   color: var(--color-text-muted);
 }
 

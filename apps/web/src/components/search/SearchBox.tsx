@@ -152,7 +152,18 @@ function ResultsList({ query, teams, events, eventsStatus, onSelectTeam, onSelec
   );
 }
 
-export function SearchBox() {
+/**
+ * `tone` (2026-09-01 Pine redesign): the SAME component renders inside the
+ * dark green ribbon AND on the light home-page hero. "ribbon" paints the
+ * closed control with the `--ribbon-*` translucent-on-dark vocabulary;
+ * "page" (the default) keeps the light bordered box. The RESULTS dropdown
+ * is a light popover in both tones — only the closed control differs.
+ */
+export interface SearchBoxProps {
+  tone?: "ribbon" | "page";
+}
+
+export function SearchBox({ tone = "page" }: SearchBoxProps = {}) {
   const isMobile = useIsMobile();
   const search = useSearch({ strict: false }) as YearChangeableSearch & { year: number; algorithm: PublishedAlgorithmId };
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -263,7 +274,7 @@ export function SearchBox() {
     return (
       <>
         <button type="button" aria-label="Open search" className="tap-target flex items-center justify-center rounded-md" onClick={() => setDialogOpen(true)}>
-          <SearchIcon aria-hidden="true" className="size-4 text-[var(--color-text-primary)]" />
+          <SearchIcon aria-hidden="true" className={tone === "ribbon" ? "size-4 text-[var(--ribbon-ink)]" : "size-4 text-[var(--color-text-primary)]"} />
         </button>
         <CommandDialog
           open={dialogOpen}
@@ -292,12 +303,20 @@ export function SearchBox() {
     );
   }
 
+  const closedControlClass =
+    tone === "ribbon"
+      ? "overflow-visible rounded-md border border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_input]:text-[var(--ribbon-ink)] [&_input]:placeholder:text-[var(--ribbon-ink-muted)]"
+      : "overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)]";
+
   return (
     <div className="relative w-64">
-      <Command shouldFilter={false} className="overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)]">
+      <Command shouldFilter={false} className={closedControlClass}>
         <CommandInput placeholder={SEARCH_PLACEHOLDER} value={query} onValueChange={markStartAndSetQuery} onFocus={handleFocus} />
         {hasQuery && (
-          <CommandList className="absolute top-full right-0 left-0 z-20 mt-[var(--spacing-xs)] max-h-none overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] shadow-md">
+          // `text-[var(--color-text-primary)]` re-anchors the dropdown's ink:
+          // in ribbon tone the wrapper above sets white text, and this list
+          // is a LIGHT popover in both tones.
+          <CommandList className="absolute top-full right-0 left-0 z-20 mt-[var(--spacing-xs)] max-h-none overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] shadow-md">
             <ResultsList query={query} teams={results.teams} events={results.events} eventsStatus={results.eventsStatus} onSelectTeam={handleSelectTeam} onSelectEvent={handleSelectEvent} />
           </CommandList>
         )}

@@ -1,7 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { Badge } from "@/components/ui/badge";
 import { districtDisplayName } from "@/lib/districtNames";
+import { formatEventDate } from "@/lib/eventDates";
 import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -38,7 +38,9 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "name", label: "Event" },
-  { key: "week", label: "Week", numeric: true },
+  // "Type" (2026-09-01 redesign, decision E1): the officialness chip column.
+  // Still SORTS by week — the chip is a presentation of the same axis.
+  { key: "week", label: "Type", numeric: true },
   { key: "startDate", label: "Date" },
   { key: null, label: "Location" },
   { key: null, label: "District" },
@@ -105,54 +107,73 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
   );
 }
 
+/** True for events outside the official season: offseason (99, via `isOffseason`) and preseason Week 0 (100). Championship divisions/Einstein are OFFICIAL. Same rule `lib/officialSnapshot.ts` applies on the team page. */
+function isUnofficial(event: EventRow): boolean {
+  return event.isOffseason || event.eventType === 100;
+}
+
+/**
+ * The Type chip (2026-09-01 redesign, decision E1): ONE officialness
+ * vocabulary — filled neutral chip = official season week, the single dark
+ * chip = Championship, dashed outline = unofficial (Week 0 preseason /
+ * offseason). Week display stays +1 (TBA publishes week 0-indexed) and a
+ * null week on a non-champs official event renders an em-dash, never a
+ * guessed label.
+ */
+function TypeChip({ event }: { event: EventRow }) {
+  if (event.isOffseason) return <span className="event-chip event-chip--unofficial">Offseason</span>;
+  if (event.eventType === 3 || event.eventType === 4) return <span className="event-chip event-chip--champs">Champs</span>;
+  if (event.eventType === 100) return <span className="event-chip event-chip--unofficial">Week 0</span>;
+  if (event.week === null) return <span>{"—"}</span>;
+  return <span className="event-chip event-chip--week">{`Week ${event.week + 1}`}</span>;
+}
+
+/**
+ * Location string with junk-region suppression (2026-09-01 redesign): TBA
+ * sometimes carries a numeric province code in `state_prov` (İstanbul's
+ * "34"), which read as noise — any region containing a digit is dropped and
+ * the row shows the country alone. Real 2-3 letter regions ("BC", "NSW")
+ * and full names pass through untouched.
+ */
+function displayLocation(event: EventRow): string {
+  const region = event.stateProv !== null && /\d/.test(event.stateProv) ? null : event.stateProv;
+  return composeEventLocation(region, event.country) ?? "—";
+}
+
 function EventRowView({ event, year, algorithm }: { event: EventRow; year: number; algorithm: PublishedAlgorithmId }) {
-  const location = composeEventLocation(event.stateProv, event.country) ?? "—";
+  const location = displayLocation(event);
   return (
-    <TableRow>
-      <TableCell className="max-w-[16rem] p-0">
+    <TableRow className={isUnofficial(event) ? "event-row-unofficial" : undefined}>
+      <TableCell className="max-w-[22rem] p-0">
         {/*
           07-15-PLAN.md Task 2, PD-06: only the name cell links — the header
           row already carries per-cell sort buttons a row-level anchor would
           swallow, and one linked cell keeps the row's other text selectable.
           `tab` comes from the imported `DEFAULT_EVENT_TAB` constant, never a
           hardcoded id, so 07-18's one-constant flip moves this entry point
-          with no edit here.
+          with no edit here. The accent ink marks it as the row's one link;
+          `.event-row-unofficial a` (theme.css) overrides it to muted on
+          unofficial rows.
         */}
         <Link
           to="/event/$eventKey"
           params={{ eventKey: event.eventKey }}
           search={{ year, algorithm, tab: DEFAULT_EVENT_TAB }}
           title={event.name}
-          className="block max-w-[16rem] truncate p-2"
+          className="block max-w-[22rem] truncate p-2 font-medium text-[var(--color-accent)]"
         >
           {event.name}
         </Link>
       </TableCell>
-      {/* ui-polish Q1 chips (2026-08-31) + week semantics fix (2026-09-01):
-          TBA publishes week 0-INDEXED (Cabarrus carries week 0 and is Week 1
-          on the ground), so display is always week + 1. A null week is NOT
-          always offseason: Championship divisions/Einstein (eventType 3/4)
-          carry week null with isOffseason false — labeling them Offseason
-          was the bug this branch fixes. */}
       <TableCell className="numeric-cell">
-        {event.isOffseason ? (
-          <Badge variant="secondary">Offseason</Badge>
-        ) : event.eventType === 3 || event.eventType === 4 ? (
-          <Badge variant="secondary">Champs</Badge>
-        ) : event.eventType === 100 ? (
-          <Badge variant="secondary">Wk 0</Badge>
-        ) : event.week === null ? (
-          <span>{"—"}</span>
-        ) : (
-          <Badge variant="secondary">{`Wk ${event.week + 1}`}</Badge>
-        )}
+        <TypeChip event={event} />
       </TableCell>
-      <TableCell>{event.startDate}</TableCell>
+      <TableCell className="numeric-cell">{formatEventDate(event.startDate)}</TableCell>
       <TableCell className="max-w-[10rem] truncate" title={location}>
         {location}
       </TableCell>
-      <TableCell className="max-w-[8rem] truncate" title={cellText(event.districtKey)}>
-        {event.districtKey === null ? cellText(event.districtKey) : <Badge variant="secondary">{districtDisplayName(event.districtKey)}</Badge>}
+      <TableCell className="max-w-[11rem] truncate" title={event.districtKey === null ? undefined : districtDisplayName(event.districtKey)}>
+        {event.districtKey === null ? cellText(null) : districtDisplayName(event.districtKey)}
       </TableCell>
       <TableCell className="numeric-cell">{event.teamCount}</TableCell>
       <TableCell className="numeric-cell">{`${event.playedMatchCount}/${event.matchCount}`}</TableCell>
@@ -171,12 +192,14 @@ export function EventsList({ status, events, year, algorithm, hasActiveFilter, o
 
   if (status === "pending") {
     return (
-      <Table>
-        <ColumnHeaderRow sortKey={sortKey} sortDir={sortDir} onSortChange={onSortChange} />
-        <TableBody>
-          <SkeletonRows rows={SKELETON_ROWS} columns={COLUMNS.length} />
-        </TableBody>
-      </Table>
+      <div className="data-card">
+        <Table>
+          <ColumnHeaderRow sortKey={sortKey} sortDir={sortDir} onSortChange={onSortChange} />
+          <TableBody>
+            <SkeletonRows rows={SKELETON_ROWS} columns={COLUMNS.length} />
+          </TableBody>
+        </Table>
+      </div>
     );
   }
 
@@ -193,13 +216,15 @@ export function EventsList({ status, events, year, algorithm, hasActiveFilter, o
   }
 
   return (
-    <Table>
-      <ColumnHeaderRow sortKey={sortKey} sortDir={sortDir} onSortChange={onSortChange} />
-      <TableBody>
-        {events.map((event) => (
-          <EventRowView key={event.eventKey} event={event} year={year} algorithm={algorithm} />
-        ))}
-      </TableBody>
-    </Table>
+    <div className="data-card">
+      <Table>
+        <ColumnHeaderRow sortKey={sortKey} sortDir={sortDir} onSortChange={onSortChange} />
+        <TableBody>
+          {events.map((event) => (
+            <EventRowView key={event.eventKey} event={event} year={year} algorithm={algorithm} />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

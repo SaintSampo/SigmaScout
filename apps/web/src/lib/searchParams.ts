@@ -14,7 +14,7 @@
 import { z } from "zod";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
 import { CURRENT_SEASON, SEASONS } from "./seasons.js";
-import { metricKeysFor } from "./metricKeys.js";
+import { teamsSortKeyUniverse } from "./metricKeys.js";
 import { resolveSortKey } from "./resolveSortKey.js";
 
 const KNOWN_SEASONS = new Set<number>(SEASONS);
@@ -83,6 +83,13 @@ export type RootSearch = z.infer<typeof RootSearchSchema>;
 export const TeamsSearchSchema = RootSearchSchema.extend({
   sort: z.string().optional(),
   sortDir: z.enum(["asc", "desc"]).catch("desc"),
+  /**
+   * The Teams table's view toggle (2026-09-01 redesign, decision T1):
+   * absent = the grouped Auto/Teleop/Endgame/Total default; "components" =
+   * the full per-component set. URL-backed like every other shareable view
+   * choice; anything unrecognized falls back to the default.
+   */
+  cols: z.literal("components").optional().catch(undefined),
 });
 
 export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;
@@ -128,7 +135,10 @@ export function applyYearChange<S extends YearChangeableSearch>(current: S, newY
   return {
     ...current,
     year: newYear,
-    sort: current.sort === undefined ? undefined : resolveSortKey(current.sort, metricKeysFor(current.algorithm, newYear)),
+    // `teamsSortKeyUniverse`, not `metricKeysFor` (2026-09-01 redesign): a
+    // grouped-view sort like `phaseAuto` is valid across years for a
+    // grouped-capable algorithm and must survive a year switch.
+    sort: current.sort === undefined ? undefined : resolveSortKey(current.sort, teamsSortKeyUniverse(current.algorithm, newYear)),
   };
 }
 

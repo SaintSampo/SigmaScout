@@ -120,7 +120,11 @@ export function AlgorithmSelect() {
 
   return (
     <Select value={search.algorithm} onValueChange={handleChange}>
-      <SelectTrigger aria-label="Algorithm" className="min-w-0 max-w-[18rem] shrink">
+      {/* Pine ribbon control treatment (2026-09-01 redesign): translucent white on the dark green bar. */}
+      <SelectTrigger
+        aria-label="Algorithm"
+        className="min-w-0 max-w-[18rem] shrink border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

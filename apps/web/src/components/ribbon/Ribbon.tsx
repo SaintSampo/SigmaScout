@@ -28,12 +28,14 @@ const NAV_LINKS = [
 ] as const;
 
 /**
- * The active-link accent indicator (05-UI-SPEC.md's "Accent reserved for"
- * list: "the active ribbon link's underline/indicator"). The accent token
- * appears NOWHERE else in this component.
+ * The active-link indicator, restated for the Pine ribbon (2026-09-01
+ * redesign): on the dark green bar the active link is WHITE with a light
+ * green (`--ribbon-accent`) underline; inactive links are translucent
+ * white. The page-level `--color-accent` never appears in this component —
+ * the ribbon has its own token vocabulary (theme.css `--ribbon-*` block).
  */
-const ACTIVE_LINK_CLASS = "text-role-nav text-[var(--color-accent)] border-b-2 border-[var(--color-accent)] pb-[2px]";
-const INACTIVE_LINK_CLASS = "text-role-nav border-b-2 border-transparent pb-[2px] text-[var(--color-text-primary)]";
+const ACTIVE_LINK_CLASS = "text-role-nav text-[var(--ribbon-ink)] border-b-2 border-[var(--ribbon-accent)] pb-[2px]";
+const INACTIVE_LINK_CLASS = "text-role-nav border-b-2 border-transparent pb-[2px] text-[var(--ribbon-ink-muted)]";
 
 /**
  * `Link`'s typed `search` updater expects the TARGET route's fully-required
@@ -91,10 +93,13 @@ export function Ribbon() {
   // side of the line they are on.
   const isMobile = useIsMobile();
 
-  // 2026-09-01 (user request): the wordmark is the way home.
+  // 2026-09-01 (user request): the wordmark is the way home. The Σ wears
+  // the ribbon's light-green accent — the one place the user's #4CAF50 seed
+  // family gets used near-raw, because it passes contrast on the dark bar
+  // (it never does on white).
   const wordmark = (
-    <Link to="/" search={preserveSearch} className="text-role-display shrink-0 truncate text-[var(--color-text-primary)]">
-      SigmaScout
+    <Link to="/" search={preserveSearch} className="text-role-display shrink-0 truncate text-[var(--ribbon-ink)]">
+      <span className="text-[var(--ribbon-accent)]">Σ</span>igmaScout
     </Link>
   );
 
@@ -109,7 +114,7 @@ export function Ribbon() {
       // container on Y, so the dropdown escapes normally. Still blocks
       // horizontal overflow exactly as `hidden` did — `no-page-pan.spec.ts`
       // (the property this token exists to guard) is unaffected.
-      <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+      <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
         <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
@@ -122,7 +127,7 @@ export function Ribbon() {
             resolves the same way this component's own `isMobile` did). */}
         <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           <NavLinks />
-          <SearchBox />
+          <SearchBox tone="ribbon" />
         </div>
       </header>
     );
@@ -132,12 +137,12 @@ export function Ribbon() {
     // Same G-12 fix as the mobile branch above — `overflow-x-clip` in place
     // of `overflow-x-hidden` (never authored `overflow-y`, so the used value
     // was silently forced to `auto`).
-    <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--color-bg-surface)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+    <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
       <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
         {wordmark}
         <NavLinks />
         <GlobalSelects />
-        <SearchBox />
+        <SearchBox tone="ribbon" />
       </div>
     </header>
   );

@@ -104,7 +104,7 @@ export function EventHeader({ artifact }: EventHeaderProps) {
   return (
     <div
       data-testid="event-header"
-      className="flex min-w-0 flex-col gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-surface)] p-[var(--spacing-md)]"
+      className="flex min-w-0 flex-col gap-[var(--spacing-sm)] data-card p-[var(--spacing-md)]"
     >
       <h1 title={headingText} className="text-role-heading min-w-0 truncate text-[var(--color-text-primary)]">
         {headingText}
@@ -141,7 +141,7 @@ export function EventHeaderSkeleton() {
   return (
     <div
       data-testid="event-header-skeleton"
-      className="flex min-w-0 flex-col gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-surface)] p-[var(--spacing-md)]"
+      className="flex min-w-0 flex-col gap-[var(--spacing-sm)] data-card p-[var(--spacing-md)]"
     >
       <Skeleton className="h-7 w-64" />
       <Skeleton className="h-4 w-48" />

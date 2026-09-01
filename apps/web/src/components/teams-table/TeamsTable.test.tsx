@@ -83,6 +83,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -100,6 +101,7 @@ describe("TeamsTable", () => {
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 }, hubShift1: { value: 4 } } })]}
           algorithmId="vpr"
           season={2026}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -118,6 +120,7 @@ describe("TeamsTable", () => {
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 } } })]}
           algorithmId="vpr"
           season={2026}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -137,6 +140,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -162,6 +166,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -185,6 +190,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={onSortChange}
@@ -204,6 +210,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="asc"
           onSortChange={onSortChange}
@@ -222,6 +229,7 @@ describe("TeamsTable", () => {
           rows={[row()]}
           algorithmId="opr"
           season={2024}
+          view="components"
           sortKey={TOTAL_KEY}
           sortDirection="desc"
           onSortChange={noop}
@@ -237,7 +245,7 @@ describe("TeamsTable", () => {
   it("renders skeleton rows alongside the real column headers in the loading status", async () => {
     render(
       <TestHarness>
-        <TeamsTable status="loading" rows={[]} algorithmId="opr" season={2024} sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+        <TeamsTable status="loading" rows={[]} algorithmId="opr" season={2024} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getByTestId(`teams-header-${TOTAL_KEY}`)).toBeDefined());
@@ -247,7 +255,7 @@ describe("TeamsTable", () => {
   it("renders the contract's empty-state heading with the year substituted", async () => {
     render(
       <TestHarness>
-        <TeamsTable status="empty" rows={[]} algorithmId="opr" season={2022} sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+        <TeamsTable status="empty" rows={[]} algorithmId="opr" season={2022} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getByText("No teams for 2022")).toBeDefined());
@@ -257,7 +265,7 @@ describe("TeamsTable", () => {
     const onRetry = vi.fn();
     render(
       <TestHarness>
-        <TeamsTable status="error" rows={[]} algorithmId="opr" season={2024} sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={onRetry} />
+        <TeamsTable status="error" rows={[]} algorithmId="opr" season={2024} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={onRetry} />
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getByText("Couldn't load teams for 2024.")).toBeDefined());
@@ -268,7 +276,7 @@ describe("TeamsTable", () => {
   it("renders a single-row fixture as an ordinary one-row table with no special-cased layout", async () => {
     render(
       <TestHarness>
-        <TeamsTable status="success" rows={[row()]} algorithmId="opr" season={2024} sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+        <TeamsTable status="success" rows={[row()]} algorithmId="opr" season={2024} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(1));

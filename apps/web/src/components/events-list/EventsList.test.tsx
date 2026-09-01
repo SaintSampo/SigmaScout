@@ -155,7 +155,7 @@ describe("EventsList", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Event")).toBeDefined());
-    expect(screen.getByText("Week")).toBeDefined();
+    expect(screen.getByText("Type")).toBeDefined();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 
@@ -195,7 +195,7 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    const weekHeader = await screen.findByRole("button", { name: /Week/ });
+    const weekHeader = await screen.findByRole("button", { name: /Type/ });
     fireEvent.click(weekHeader);
     expect(onSortChange).toHaveBeenCalledWith("week");
   });

@@ -30,6 +30,7 @@ import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { metricDisplayLabel } from "@/lib/metricLabels";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -126,11 +127,12 @@ const columnHelper = createColumnHelper<typeof features, BreakdownRow>();
  * independently-drifting regex.
  */
 export function metricLabel(key: string): string {
-  if (key === TOTAL_KEY) return "Total";
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([a-zA-Z])([0-9])/g, "$1 $2")
-    .replace(/^[a-z]/, (c) => c.toUpperCase());
+  // Delegates to the sitewide friendly-label derivation (2026-09-01
+  // redesign, lib/metricLabels.ts) — one implementation, so this tab and
+  // the Teams table can never disagree about what a key is called. The
+  // export survives because `BreakdownTab.test.tsx` computes its expected
+  // header strings through this exact function.
+  return metricDisplayLabel(key);
 }
 
 function cellClassName(columnId: string): string {
@@ -292,7 +294,7 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
@@ -357,7 +359,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div data-testid="breakdown-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="breakdown-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
@@ -426,7 +428,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                         position: pinned ? "sticky" : undefined,
                         left: pinned ? cell.column.getStart("start") : undefined,
                         zIndex: pinned ? 1 : undefined,
-                        background: pinned ? "var(--color-bg-page)" : undefined,
+                        background: pinned ? "var(--color-bg-surface)" : undefined,
                       }}
                     >
                       <table.FlexRender cell={cell} />

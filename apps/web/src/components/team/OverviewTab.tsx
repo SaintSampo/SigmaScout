@@ -14,12 +14,22 @@ export interface OverviewTabProps {
   algorithmId: string;
   season: number;
   teamNumber: number;
+  /**
+   * The last-OFFICIAL-match snapshot metrics, threaded from the route
+   * (2026-09-01 fix): the original snapshot change wired the route's
+   * `headerMetrics` into the EMPTY-events branch's direct `SeasonHeader`
+   * render but missed this success-path composition, so every normal team
+   * page silently kept showing season-final values.
+   */
+  metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
 }
 
-export function OverviewTab({ artifact, algorithmId, season, teamNumber }: OverviewTabProps) {
+export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride }: OverviewTabProps) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
-      <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
+      <div className="data-card p-[var(--spacing-md)]">
+        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} />
+      </div>
       <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
       {/*
         The tier key is a legend, not a headline: it explains the colour

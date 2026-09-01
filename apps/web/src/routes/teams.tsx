@@ -5,9 +5,10 @@ import { TeamsSearchSchema } from "../lib/searchParams.js";
 import { teamsQueryOptions } from "../lib/api/teams.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../lib/perfMarks.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
-import { metricKeysFor } from "../lib/metricKeys.js";
+import { hasGroupedTeamsView } from "../lib/metricKeys.js";
 import { resolveSortKey } from "../lib/resolveSortKey.js";
 import { buildTeamRows, sortTeamRows, WIN_RATE_SORT_KEY } from "../components/teams-table/rowModel.js";
+import { displayedMetricKeys, type TeamsTableView } from "../components/teams-table/columns.js";
 import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/TeamsTable.js";
 
 export const Route = createFileRoute("/teams")({
@@ -18,8 +19,16 @@ export const Route = createFileRoute("/teams")({
 function TeamsPage() {
   // 05-06-PLAN.md Task 3: the real table replaces the tracer's plain one,
   // with sort bound to the URL (D-14) instead of a hard-coded slice.
-  const { year, algorithm, sort, sortDir } = Route.useSearch();
+  const { year, algorithm, sort, sortDir, cols } = Route.useSearch();
   const navigate = Route.useNavigate();
+
+  // Decision T1 (2026-09-01 redesign): grouped Auto/Teleop/Endgame/Total by
+  // default, the full component set behind the URL-backed `cols` toggle.
+  // Algorithms whose teams artifact carries no phase metrics (EPA today)
+  // resolve to the components view regardless — `displayedMetricKeys`
+  // handles that — so the toggle is only rendered where it does anything.
+  const view: TeamsTableView = cols === "components" ? "components" : "grouped";
+  const canToggleView = hasGroupedTeamsView(algorithm);
 
   // 05-05-PLAN.md Task 2: until the algorithms manifest resolves a real
   // version, the artifact query below stays DISABLED rather than firing
@@ -40,10 +49,11 @@ function TeamsPage() {
     placeholderData: keepPreviousData,
   });
 
-  // The declared metric key set PLUS the reserved win-rate sentinel — the
-  // full "valid sort key" universe for this (algorithm, year) pair (Task 2's
-  // "sortable for every metric column plus win rate").
-  const validSortKeys = useMemo(() => [...metricKeysFor(algorithm, year), WIN_RATE_SORT_KEY], [algorithm, year]);
+  // The DISPLAYED metric key set PLUS the reserved win-rate sentinel — the
+  // valid sort keys for the current view. A sort naming a column the other
+  // view shows (e.g. `phaseAuto` while components are expanded) resolves to
+  // Total via the same `resolveSortKey` fallback as any stale key.
+  const validSortKeys = useMemo(() => [...displayedMetricKeys(algorithm, year, view), WIN_RATE_SORT_KEY], [algorithm, year, view]);
   const effectiveSortKey = resolveSortKey(sort, validSortKeys);
 
   // "the URL never claims a sort the table is not showing" (this plan's own
@@ -94,14 +104,33 @@ function TeamsPage() {
   else if (rows.length === 0) status = "empty";
   else status = "success";
 
+  function handleViewToggle() {
+    navigate({
+      search: (prev) => ({ ...prev, cols: view === "components" ? undefined : "components" }),
+    });
+  }
+
   return (
     <div className="p-[var(--spacing-lg)]">
-      <h1 className="text-role-heading mb-[var(--spacing-md)] text-[var(--color-text-primary)]">Teams — {year}</h1>
+      <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
+        <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams — {year}</h1>
+        {canToggleView && (
+          <button
+            type="button"
+            data-testid="teams-view-toggle"
+            onClick={handleViewToggle}
+            className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+          >
+            {view === "components" ? "◂ Grouped view" : "All components ▸"}
+          </button>
+        )}
+      </div>
       <TeamsTable
         status={status}
         rows={rows}
         algorithmId={algorithm}
         season={year}
+        view={view}
         sortKey={effectiveSortKey}
         sortDirection={sortDir}
         onSortChange={handleSortChange}
