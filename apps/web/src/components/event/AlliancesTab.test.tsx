@@ -233,7 +233,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
   });
 
-  it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier and a quiet marker when the interpolated percentile lands above Common (07-UAT.md G-8)", async () => {
+  it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier — no visible marker (2026-09-01 user request), the disclosure riding the cell title instead", async () => {
     // Every event team at value 10, percentile 99 (Legendary): combined 30 / 3 = 10 matches
     // exactly, so the interpolated percentile is exactly 99, not merely "some non-common value".
     const highPercentileTeams = FOUR_TEAMS.map((t) => ({
@@ -243,9 +243,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     renderAlliances(makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
-    const marker = within(cell).getByTestId("alliances-combined-approx-marker");
-    expect(marker.getAttribute("title")).toContain("Approximate");
-    expect(marker.getAttribute("aria-label")).toBe(marker.getAttribute("title"));
+    expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
+    expect(cell.textContent).not.toContain("≈");
+    const disclosed = cell.querySelector("[title]");
+    expect(disclosed?.getAttribute("title")).toContain("Approximate");
+    expect(disclosed?.getAttribute("aria-label")).toBe(disclosed?.getAttribute("title"));
   });
 
   it("the Combined Total cell renders NO tier box and no marker when the interpolated percentile lands in Common, even though a percentile WAS interpolated (07-UAT.md G-8)", async () => {

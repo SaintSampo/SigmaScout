@@ -393,19 +393,17 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
  */
 function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined }) {
   const boxed = approx !== undefined && approx.tier !== "common";
+  // 2026-09-01 (user request): the visible "≈" glyph is gone. The tier is
+  // still a 3x-heuristic APPROXIMATION (see `@/lib/allianceTierApproximation`),
+  // so the disclosure survives invisibly — hover/assistive tech reach it via
+  // the cell's own title/aria-label whenever a box is drawn.
   return (
-    <span className="flex items-center gap-[var(--spacing-xs)]">
+    <span
+      className="flex items-center gap-[var(--spacing-xs)]"
+      title={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
+      aria-label={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
+    >
       <MetricValue metric={metric} tier={approx?.tier} />
-      {boxed && (
-        <span
-          data-testid="alliances-combined-approx-marker"
-          className="text-role-label text-[var(--color-text-muted)]"
-          title={ALLIANCE_APPROX_TIER_DISCLOSURE}
-          aria-label={ALLIANCE_APPROX_TIER_DISCLOSURE}
-        >
-          {"≈"}
-        </span>
-      )}
     </span>
   );
 }
