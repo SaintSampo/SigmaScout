@@ -596,11 +596,17 @@ describe("epa.update — T-03-18b: a malformed self-reported breakdown degrades 
     });
     const next = epa.update(state, wellFormedMatch);
     expect(next.breakdownParseFailureCount).toBe(0);
-    // Red's roster (frc1/frc2/frc3) is all rating-eligible, so the alliance's
-    // observed 12-point autoLeavePoints/30-point teleopSpeakerNotePoints
-    // totals are evenly split three ways — every teammate must receive the
-    // IDENTICAL observed share, proving the real parse (not a cross-alliance
-    // or degenerate split) actually ran.
+    // Red's roster (frc1/frc2/frc3) is all rating-eligible and starts from
+    // `initState`, so all three carry the IDENTICAL cold-start mean. D-Q1's
+    // error split therefore attributes each of them
+    // `mean + (observed - 3*mean)/3`, which is the same number for all three.
+    // (In this equal-means case that value also happens to equal the retired
+    // even split `observed/3` — the coincidence this test is NOT about. What
+    // it asserts is teammate EQUALITY, which holds under both formulas and so
+    // survived the D-Q1 change unedited: it proves the real parse ran, not a
+    // cross-alliance or degenerate split. The error split's own contract is
+    // pinned by the unequal-means cases above, which is where the two
+    // formulas actually diverge.)
     for (const team of ["frc2", "frc3"]) {
       expect(next.teamComponents.get(team)!["autoLeave"]).toBe(next.teamComponents.get("frc1")!["autoLeave"]);
       expect(next.teamComponents.get(team)!["teleopSpeakerNote"]).toBe(next.teamComponents.get("frc1")!["teleopSpeakerNote"]);

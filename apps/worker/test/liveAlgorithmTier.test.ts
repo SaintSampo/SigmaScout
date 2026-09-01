@@ -34,6 +34,7 @@ import {
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
+import { SIGMA1_CODE_VERSION } from "../../../packages/core/algorithms/sigma1/params.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -270,11 +271,29 @@ function liveWindowsManifest(windows: readonly WindowFixture[]): string {
   });
 }
 
+/**
+ * The VPR param-set label this fixture's manifest entry carries. The Worker
+ * builds its module via `makeSigma1({ paramSetName })`, whose version identity
+ * is `${SIGMA1_CODE_VERSION}+${paramSetName}` — the RUNNING CODE's version,
+ * never the manifest's own `version` string. That is D-13 working as intended:
+ * a manifest cannot make the Worker mislabel which code produced an artifact.
+ *
+ * So the artifact-key assertions below must DERIVE the expected version from
+ * `SIGMA1_CODE_VERSION` rather than hardcode it. They used to hardcode
+ * `"2.1.0+test"`, which passed only because `SIGMA1_CODE_VERSION` happened to
+ * be `"2.1.0"` at the time; quick task 260901-is2 bumped it to `"3.0.0"`
+ * (D-Q2) and the literal silently became wrong, failing this test for a reason
+ * that had nothing to do with the live-tier behaviour it exists to pin.
+ * Deriving means the next code bump cannot rot it again.
+ */
+const VPR_TEST_PARAM_SET = "test";
+const VPR_TEST_VERSION = `${SIGMA1_CODE_VERSION}+${VPR_TEST_PARAM_SET}`;
+
 function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   const algorithms = ids.map((id) => {
     if (id === "opr") return { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" };
     if (id === "epa") return { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" };
-    return { id: "vpr", version: "2.1.0+test", codeVersion: "2.0.0", paramSetName: "test" };
+    return { id: "vpr", version: VPR_TEST_VERSION, codeVersion: SIGMA1_CODE_VERSION, paramSetName: VPR_TEST_PARAM_SET };
   });
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
@@ -466,10 +485,10 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     expect(r2.puts.some((p) => p.key.includes("/opr@"))).toBe(false);
     expect(r2.puts.some((p) => p.key.includes("/epa@"))).toBe(false);
 
-    const vprEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "vpr", version: "2.1.0+test" });
+    const vprEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "vpr", version: VPR_TEST_VERSION });
     expect(r2.puts.some((p) => p.key === vprEventKey)).toBe(true);
     for (const teamKey of ALL_TEAMS) {
-      const vprTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "vpr", version: "2.1.0+test" });
+      const vprTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "vpr", version: VPR_TEST_VERSION });
       expect(r2.puts.some((p) => p.key === vprTeamKey)).toBe(true);
     }
   });
