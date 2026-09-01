@@ -84,3 +84,51 @@ evidence base.
 4. SC-3's comparisons are re-measured and the verdict restated, pass or fail, in a dated
    document alongside the existing ones.
 5. `docs/models/sigma1-tuning-results.md` describes the shipped scheme, not the retired one.
+
+---
+
+## Decision briefing (added 2026-09-01 — read before starting; nothing below has been executed)
+
+Everything else from the 2026-08-31 sweep is done; this is the one item left open. Four decisions
+gate it, with the facts gathered so far:
+
+### The measured costs
+
+- **One full-corpus joint search ≈ 50 min** on this machine (03-05 ran two in parallel at ~50 min
+  each); the screen stage is similar. Four rolling searches (2023←{22}, 2024←{22-23},
+  2025←{22-24}, 2026←{22-25}) have *shrinking* tune sets, so expect **~2–3.5h total**, backgroundable.
+- **The full cascade after the searches:** re-tuned params change every 2023–2026 prediction, so:
+  full harness re-run for the accuracy record → **another full republish** (~56k PUTs, ~25 min) →
+  re-commit `apps/web/src/routes/__fixtures__/compare-*.json` (byte-pinned in tests) → re-measure
+  SC-3 (dated doc, pass or fail) → re-measure the rewind gap (its 10.85% figure came from the
+  current promoted set; `rewindGap.ts` mirror + caption depend on it) → rewrite
+  `docs/models/sigma1-tuning-results.md`.
+
+### Decision 1 — go/when
+Options: implement + run searches immediately; implement code only and run compute later; defer
+whole. (Deferred 2026-09-01 by user.)
+
+### Decision 2 — versioning representation (the todo's own "biggest single cost")
+Artifact keys embed one `{algorithmId}@{version}` and `v1/manifest/algorithms.json` names exactly
+one version per algorithm — Worker and clients resolve through it.
+- **One version, per-season sets** (`vpr@3.0.0+rolling-YYYY-MM` carrying `paramSetsBySeason` +
+  one prediction-stream digest over the full replay): manifest/Worker/client contracts unchanged;
+  only `promote.ts`'s file shape and the digest definition change. *Recommended.*
+- **Four promoted versions**: matches promote.ts's current one-set-per-file shape, but manifest,
+  Worker, and every client must learn per-season version resolution — much wider blast radius.
+
+### Decision 3 — what the live site runs in 2027 (until 2027 data exists)
+- **The 2026-eval set (tuned on 2022–2025)** — the todo's own presumption; most recent honestly
+  evaluated set. *Recommended.*
+- A fifth search tuned on all 2022–2026 — more data for live, but that set is never honestly
+  evaluable (nothing is out-of-sample for it).
+
+### Decision 4 — is 2023 headline-eligible on a one-season prior?
+- **Not eligible** → headline = 2024/2025/2026 (meets the ≥3 acceptance); 2023 labeled "tuned on
+  one season", 2022 runs untuned defaults, also non-headline. *Recommended (stricter honesty).*
+- Eligible → 4 headline seasons; thinness carried in the methodology note.
+
+### Also implied (implementation detail, no decision needed)
+`CompareSliceSchema.seasonLabel` is `z.enum(["tune","holdout"])` — the enum needs a new vocabulary
+(e.g. `rolling`/`thin-prior`/`untuned`) which is a published-contract change riding the same
+republish. A leakage test (acceptance 1) proves a search cannot read a season ≥ its target.
