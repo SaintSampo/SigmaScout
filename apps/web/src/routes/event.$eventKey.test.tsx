@@ -289,7 +289,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Insights" })).toBeDefined());
   });
 
-  it("exactly six tabs exist, named Insights, Breakdown, Quals, Alliances, Elims and Simulation IN THAT ORDER, before any artifact data resolves (08-09-PLAN.md registers Simulation, the last of EVENT_TABS)", async () => {
+  it("exactly six tabs exist, named Insights, Breakdown, Qualification, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (08-09-PLAN.md registers Simulation, the last of EVENT_TABS)", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -299,7 +299,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
 
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(6));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Alliances", "Elims", "Simulation"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Qualification", "Alliances", "Playoffs", "Simulation"]);
   });
 
   it("?tab=insights renders the Insights panel; ?tab=breakdown still renders the Breakdown panel", async () => {
@@ -447,7 +447,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
     });
     renderEventRoute("/event/2024casf?algorithm=vpr&tab=quals");
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Quals" })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Qualification" })).toBeDefined());
     await waitFor(() => expect(screen.getByTestId("quals-table-scroll")).toBeDefined());
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
@@ -489,7 +489,7 @@ describe("/event/$eventKey route — the Quals tab registered (07-12-PLAN.md Tas
     });
     const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
-    const qualsTrigger = await screen.findByRole("tab", { name: "Quals" });
+    const qualsTrigger = await screen.findByRole("tab", { name: "Qualification" });
     fireEvent.mouseDown(qualsTrigger, { button: 0 });
 
     await waitFor(() => {
@@ -723,9 +723,9 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     });
     renderEventRoute("/event/2024casf?algorithm=vpr");
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Elims" })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Playoffs" })).toBeDefined());
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.at(-2)?.textContent).toBe("Elims");
+    expect(tabs.at(-2)?.textContent).toBe("Playoffs");
     expect(tabs.at(-1)?.textContent).toBe("Simulation");
   });
 
@@ -793,7 +793,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     });
     const router = renderEventRoute("/event/2024casf?algorithm=vpr&year=2024&tab=breakdown");
 
-    const elimsTrigger = await screen.findByRole("tab", { name: "Elims" });
+    const elimsTrigger = await screen.findByRole("tab", { name: "Playoffs" });
     fireEvent.mouseDown(elimsTrigger, { button: 0 });
 
     await waitFor(() => {
@@ -804,7 +804,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
     });
   });
 
-  it("the strip exposes exactly six elements with role tab, named Insights, Breakdown, Quals, Alliances, Elims and Simulation in that order", async () => {
+  it("the strip exposes exactly six elements with role tab, named Insights, Breakdown, Qualification, Alliances, Playoffs and Simulation in that order", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -814,7 +814,7 @@ describe("/event/$eventKey route — the Elims tab registered (07-13-PLAN.md Tas
 
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(6));
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Quals", "Alliances", "Elims", "Simulation"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Qualification", "Alliances", "Playoffs", "Simulation"]);
   });
 
   it("the tab-strip scroll region and the Elims table's own scroll region are DOM siblings, never nested in either direction", async () => {

@@ -28,6 +28,7 @@ import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, Comma
 import { useIsMobile } from "@/lib/breakpoints";
 import { useAlgorithmVersion } from "@/components/ribbon/AlgorithmSelect";
 import { teamsQueryOptions } from "@/lib/api/teams";
+import { isRealTeamKey } from "@/lib/teamKey";
 import { eventsQueryOptions } from "@/lib/api/events";
 import { buildSearchResults, type EventMatch, type TeamMatch } from "@/lib/search-index";
 import { markSearchKeystroke, markSearchResultsRendered, measureSearchKeystrokeToRender } from "@/lib/perfMarks";
@@ -143,7 +144,7 @@ function ResultsList({ query, teams, events, eventsStatus, onSelectTeam, onSelec
         <CommandGroup heading="Events">
           {eventsStatus === "loading" && <div className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">Loading events…</div>}
           {eventsStatus === "failed" && (
-            <div className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">Team results only — couldn't load events</div>
+            <div className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">Team results only (couldn't load events)</div>
           )}
           {eventsStatus === "loaded" && events.map((event) => <EventResultItem key={event.eventKey} event={event} onSelect={() => onSelectEvent(event)} />)}
         </CommandGroup>
@@ -161,9 +162,11 @@ function ResultsList({ query, teams, events, eventsStatus, onSelectTeam, onSelec
  */
 export interface SearchBoxProps {
   tone?: "ribbon" | "page";
+  /** Width class for the desktop wrapper (default `w-64`, the ribbon's slot). The home hero passes `w-full` to fill its centered container. */
+  className?: string;
 }
 
-export function SearchBox({ tone = "page" }: SearchBoxProps = {}) {
+export function SearchBox({ tone = "page", className }: SearchBoxProps = {}) {
   const isMobile = useIsMobile();
   const search = useSearch({ strict: false }) as YearChangeableSearch & { year: number; algorithm: PublishedAlgorithmId };
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -198,7 +201,10 @@ export function SearchBox({ tone = "page" }: SearchBoxProps = {}) {
   const results = useMemo(
     () =>
       buildSearchResults({
-        teams: teamsQuery.data?.teams ?? [],
+        // Same real-team rule the Teams table applies (2026-09-01,
+        // `lib/teamKey.ts`): a nameless offseason B-team must not be
+        // offered as a search result for its parent's number.
+        teams: (teamsQuery.data?.teams ?? []).filter((team) => isRealTeamKey(team.teamKey)),
         events: eventsQuery.data?.events ?? [],
         query,
         eventsStatus,
@@ -309,7 +315,7 @@ export function SearchBox({ tone = "page" }: SearchBoxProps = {}) {
       : "overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)]";
 
   return (
-    <div className="relative w-64">
+    <div className={`relative ${className ?? "w-64"}`}>
       <Command shouldFilter={false} className={closedControlClass}>
         <CommandInput placeholder={SEARCH_PLACEHOLDER} value={query} onValueChange={markStartAndSetQuery} onFocus={handleFocus} />
         {hasQuery && (

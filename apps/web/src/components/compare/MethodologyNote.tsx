@@ -33,7 +33,7 @@ export const METHODOLOGY_NOTE_TESTID = "compare-methodology-note";
 
 /** The Copywriting Contract's D-11 near-tie caption, verbatim — including its em dash. Never reworded (Decision 6). */
 export const NEAR_TIE_CAPTION =
-  "Where two algorithms' scores are this close, the published data can't tell us which is really better — the threshold below is a judgement call, not a statistical test.";
+  "Where two algorithms' scores are this close, the published data can't tell us which is really better. The threshold below is a judgement call, not a statistical test.";
 
 const VPR_ALGORITHM_ID = "vpr";
 
@@ -186,10 +186,10 @@ function buildMethodologySentence(figures: MethodologyFigures): string {
   const seasonCountWord = numberWord(COMPARE_SEASONS.length);
 
   const evidential =
-    "If the fixed split were flattering VPR, holdout years would score visibly worse than tune years — they don't.";
+    "If the fixed split were flattering VPR, holdout years would score visibly worse than tune years, and they don't.";
   const bestClause = `${figures.bestSeason}, a ${bestSeasonNoun} year, is VPR's single best season of the ${seasonCountWord}.`;
 
-  return `${disclosure} ${evidential} Tune-season Brier: ${tuneBrierText}. Holdout-season Brier: ${holdoutBrierText} — ${bestClause}`;
+  return `${disclosure} ${evidential} Tune-season Brier: ${tuneBrierText}. Holdout-season Brier: ${holdoutBrierText}. ${bestClause}`;
 }
 
 export interface MethodologyNoteProps {

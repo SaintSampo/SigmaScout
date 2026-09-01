@@ -306,7 +306,7 @@ describe("AccuracyTable — precision formatting (COMP-01)", () => {
 });
 
 describe("AccuracyTable — empty/absent values (COMP-01)", () => {
-  it("a null brierScore renders the em-dash, with its column header still present", () => {
+  it("a null brierScore renders a blank cell (never an em-dash), with its column header still present", () => {
     const season = COMPARE_SEASONS[0]!;
     const artifact = makeArtifact(season, [
       makeSlice({ algorithmId: PUBLISHED_ALGORITHM_IDS[0]!, season, brierScore: null, winnerAccuracy: 0.5 }),
@@ -314,19 +314,35 @@ describe("AccuracyTable — empty/absent values (COMP-01)", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     expect(screen.getAllByRole("columnheader", { name: BRIER_HEADER_LABEL }).length).toBeGreaterThan(0);
-    const emDashes = screen.getAllByText("—");
-    expect(emDashes.length).toBeGreaterThan(0);
+
+    const table = screen.getByRole("table");
+    const seasonRow = within(table)
+      .getAllByRole("row")
+      .find((row) => within(row).queryAllByRole("cell")[0]?.textContent === String(season))!;
+    expect(seasonRow).toBeDefined();
+    // Cell order per row: Year, then per algorithm [accuracy, brier].
+    const cells = within(seasonRow).getAllByRole("cell");
+    expect(cells[1]!.textContent).toBe("50.0%");
+    expect(cells[2]!.textContent).toBe("");
+    expect(seasonRow.textContent).not.toContain("—");
   });
 
-  it("a null winnerAccuracy behaves identically — em-dash, never a zero, blank, or placeholder string", () => {
+  it("a null winnerAccuracy behaves identically — a blank cell, never a zero, an em-dash, or a placeholder string", () => {
     const season = COMPARE_SEASONS[0]!;
     const artifact = makeArtifact(season, [
       makeSlice({ algorithmId: PUBLISHED_ALGORITHM_IDS[0]!, season, brierScore: 0.5, winnerAccuracy: null }),
     ]);
     const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
-    const emDashes = screen.getAllByText("—");
-    expect(emDashes.length).toBeGreaterThan(0);
+    const table = screen.getByRole("table");
+    const seasonRow = within(table)
+      .getAllByRole("row")
+      .find((row) => within(row).queryAllByRole("cell")[0]?.textContent === String(season))!;
+    expect(seasonRow).toBeDefined();
+    const cells = within(seasonRow).getAllByRole("cell");
+    expect(cells[1]!.textContent).toBe("");
+    expect(cells[2]!.textContent).toBe("0.5000");
+    expect(seasonRow.textContent).not.toContain("—");
     expect(screen.queryByText("0.00")).toBeNull();
     expect(screen.queryByText("0.0%")).toBeNull();
   });

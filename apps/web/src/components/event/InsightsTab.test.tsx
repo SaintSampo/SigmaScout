@@ -267,9 +267,10 @@ describe("formatEventRecord (EVNT-02 empty)", () => {
     expect(formatEventRecord({ wins: 4, losses: 2, ties: 1 })).toBe("4-2-1");
   });
 
-  it("returns a single em-dash for an absent record", () => {
-    expect(formatEventRecord(undefined)).toBe("—");
-    expect(formatEventRecord(undefined)).toHaveLength(1);
+  it("returns an empty string for an absent record (2026-09-01: blank, never an em-dash placeholder)", () => {
+    expect(formatEventRecord(undefined)).toBe("");
+    // The neighbouring all-zero test is what keeps this from being a weak
+    // assertion: absence renders as nothing, a real 0-0-0 still renders.
   });
 
   it("returns the three-zero hyphenated string for a genuine all-zero record — never conflated with absence", () => {
@@ -450,7 +451,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
   it("a team with no record renders an em-dash", async () => {
     renderInsights(oneTeamArtifact());
     const cell = await screen.findByTestId("insights-cell-record");
-    expect(cell.textContent).toBe("—");
+    expect(cell.textContent).toBe("");
   });
 
   it("a team publishing rp:3.6 renders 3.60", async () => {
@@ -468,7 +469,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
   it("a team with no rp renders an em-dash", async () => {
     renderInsights(oneTeamArtifact());
     const cell = await screen.findByTestId("insights-cell-rp");
-    expect(cell.textContent).toBe("—");
+    expect(cell.textContent).toBe("");
   });
 
   it("the RP cell carries numeric-cell and never a metric-tier class, even when every phase metric is at percentile 99", async () => {
@@ -500,7 +501,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
     const rows = screen.getAllByTestId("insights-row");
     expect(rows[1]?.getAttribute("data-team-number")).toBe("2");
     const lastRankCell = within(rows[1] as HTMLElement).getByTestId("insights-cell-rank");
-    expect(lastRankCell.textContent).toBe("—");
+    expect(lastRankCell.textContent).toBe("");
   });
 });
 
@@ -609,7 +610,7 @@ describe("InsightsTab — partial phase-metric data", () => {
     renderInsights(artifact);
 
     await waitFor(() => expect(screen.getByTestId("insights-header-phaseTeleop")).toBeDefined());
-    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toBe("—");
+    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toBe("");
   });
 
   it("an opr fixture whose team publishes none of the three phase keys renders three em-dash cells and all nine headers", async () => {
@@ -629,7 +630,7 @@ describe("InsightsTab — partial phase-metric data", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     for (const group of METRIC_GROUPS) {
-      expect(screen.getByTestId(`insights-cell-${group.metricKey}`).textContent).toBe("—");
+      expect(screen.getByTestId(`insights-cell-${group.metricKey}`).textContent).toBe("");
     }
   });
 });

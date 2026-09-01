@@ -48,7 +48,10 @@ export interface DisplayMetric {
  */
 export function MetricValue({ metric, tier, className }: { metric?: DisplayMetric; tier?: Tier; className?: string }) {
   if (metric === undefined) {
-    return <span className={cn("numeric-cell whitespace-nowrap", className)}>{"—"}</span>;
+    // Blank, not an em-dash (2026-09-01 user request: no visible em-dashes
+    // anywhere on the site). The span itself stays so the cell keeps its
+    // box and the column never disappears (D-17/E2).
+    return <span className={cn("numeric-cell whitespace-nowrap", className)} />;
   }
 
   const valueText = metric.value.toFixed(2);

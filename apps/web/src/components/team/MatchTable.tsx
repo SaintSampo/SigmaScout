@@ -347,13 +347,13 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : "—"}
+            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
           </span>
         )}
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!played ? (
-          <span aria-hidden="true">{"—"}</span>
+          <span aria-hidden="true"></span>
         ) : winnerCorrect ? (
           <span aria-label="Prediction correct" className="call-hit">{"✓"}</span>
         ) : (
@@ -367,7 +367,7 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
 export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps) {
   return (
-    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
           {/* Result (2026-09-01, user request): leftmost W/L/T chip for THIS

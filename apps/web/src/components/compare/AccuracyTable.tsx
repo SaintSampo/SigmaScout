@@ -113,11 +113,11 @@ export function buildAccuracyRows(
  * rounding pass.
  */
 function formatBrier(value: number | null): string {
-  return value === null ? "—" : formatBrierDisplay(value);
+  return value === null ? "" : formatBrierDisplay(value);
 }
 
 function formatWinnerAccuracy(value: number | null): string {
-  return value === null ? "—" : formatWinnerAccuracyDisplay(value);
+  return value === null ? "" : formatWinnerAccuracyDisplay(value);
 }
 
 /**
@@ -204,7 +204,7 @@ export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableP
           region never overflowing by construction — the one table in the app
           whose *-scroll testid was not the literal scrolling element. The
           row/cell primitives (TableBody/TableRow/...) stay shadcn. */}
-      <table data-slot="table" className="w-full caption-bottom text-sm">
+      <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
         <AccuracyTableHeader />
         <TableBody>
           {rows.map((row) => {
@@ -251,7 +251,7 @@ export function AccuracyTableSkeleton() {
       data-testid={COMPARE_ACCURACY_SCROLL_TESTID}
       className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain"
     >
-      <table data-slot="table" className="w-full caption-bottom text-sm">
+      <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
         <AccuracyTableHeader />
         <TableBody>
           <SkeletonRows rows={ACCURACY_TABLE_ROW_COUNT} columns={ACCURACY_TABLE_COLUMN_COUNT} />

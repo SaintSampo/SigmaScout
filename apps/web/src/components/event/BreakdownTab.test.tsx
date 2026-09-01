@@ -168,7 +168,7 @@ describe("BreakdownTab — partial data (EVNT-03)", () => {
     renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getByTestId("breakdown-header-adjust")).toBeDefined());
-    expect(screen.getByTestId("breakdown-cell-adjust").textContent).toBe("—");
+    expect(screen.getByTestId("breakdown-cell-adjust").textContent).toBe("");
   });
 
   it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", async () => {

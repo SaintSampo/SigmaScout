@@ -1,6 +1,6 @@
 /**
  * 05-07-PLAN.md Task 2's fixture-driven coverage: an offseason row renders
- * the badge and no week number; a fully null-location row renders em-dashes
+ * the badge and no week number; a fully null-location row renders blanks
  * and no literal "null" text; the four states render correctly; a long
  * event name is not truncated in the source string, only in the layout.
  *
@@ -16,7 +16,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { DEFAULT_EVENT_TAB, EventSearchSchema, EventsSearchSchema, RootSearchSchema } from "@/lib/searchParams";
@@ -101,7 +101,7 @@ describe("EventsList", () => {
     expect(screen.queryByText("2")).toBeNull();
   });
 
-  it("renders em-dashes for a fully null-location fixture and no literal null text", async () => {
+  it("renders BLANK location and district cells for a fully null-location fixture, with no em-dash and no literal null text", async () => {
     const events = makeRows([makeRow({ country: null, stateProv: null, districtKey: null })]);
     const { container } = render(
       <TestHarness>
@@ -109,7 +109,16 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    await waitFor(() => expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2)); // location cell + district cell
+    // 2026-09-01: an absent fact renders as an EMPTY cell, never an em-dash.
+    // Indexed off the one data row's own cells (COLUMNS order: Event, Type,
+    // Date, Location, District, Teams, Matches) so the assertion proves both
+    // cells still EXIST and are blank, rather than merely proving a glyph is
+    // missing from the page.
+    await waitFor(() => expect(screen.getAllByRole("row").length).toBeGreaterThan(1));
+    const cells = within(screen.getAllByRole("row")[1]!).getAllByRole("cell");
+    expect(cells[3]!.textContent).toBe("");
+    expect(cells[4]!.textContent).toBe("");
+    expect(container.textContent).not.toContain("—");
     expect(container.textContent).not.toMatch(/\bnull\b/i);
   });
 
@@ -259,15 +268,18 @@ describe("EventsList", () => {
     await waitFor(() => expect(screen.getByTitle("CA")).toBeDefined());
     unmountNullCountry();
 
-    // districtKey is also null by default in `makeRow`, so the both-null
-    // case renders TWO em-dash-titled cells (location + district) — assert
-    // at least one rather than a single unique match.
+    // Fourth case: both null, so `composeEventLocation` returns null and the
+    // cell renders BLANK (2026-09-01 — no em-dash placeholders anywhere).
+    // Asserted on the Location cell itself (COLUMNS index 3), which proves
+    // the cell survives while its text is empty.
     const bothNull = makeRows([makeRow({ eventKey: "2025d", stateProv: null, country: null })]);
     render(
       <TestHarness>
         <EventsList status="success" events={bothNull} {...BASE_PROPS} />
       </TestHarness>,
     );
-    await waitFor(() => expect(screen.getAllByTitle("—").length).toBeGreaterThanOrEqual(1));
+    await waitFor(() => expect(screen.getAllByRole("row").length).toBeGreaterThan(1));
+    const locationCell = within(screen.getAllByRole("row")[1]!).getAllByRole("cell")[3]!;
+    expect(locationCell.textContent).toBe("");
   });
 });

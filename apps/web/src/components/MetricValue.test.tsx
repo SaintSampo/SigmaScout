@@ -24,13 +24,18 @@ describe("MetricValue", () => {
     expect(container.textContent?.includes("±")).toBe(false);
   });
 
-  it("renders a single em-dash and nothing else when metric is undefined", () => {
+  it("renders an empty span with the numeric-cell classes and no text when metric is undefined", () => {
     const { container } = render(<MetricValue metric={undefined} />);
 
-    expect(container.textContent).toBe("—");
+    const outer = container.firstElementChild;
+    expect(outer).not.toBeNull();
+    expect(outer?.className).toMatch(/numeric-cell/);
+    expect(outer?.className).toMatch(/whitespace-nowrap/);
+    expect(container.textContent).toBe("");
+    expect(container.textContent?.includes("—")).toBe(false);
   });
 
-  it("renders '0.00' (not an em-dash) for a real zero value", () => {
+  it("renders '0.00' (not a blank cell) for a real zero value", () => {
     const { container } = render(<MetricValue metric={{ value: 0 }} />);
 
     expect(container.textContent).toBe("0.00");

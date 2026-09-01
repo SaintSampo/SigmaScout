@@ -13,6 +13,7 @@
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
+import { isRealTeamKey } from "../../lib/teamKey.js";
 
 export type TeamRecord = TeamsArtifact["teams"][number]["record"];
 export type TeamMetrics = TeamsArtifact["teams"][number]["metrics"];
@@ -86,7 +87,12 @@ function sortValueFor(row: TeamRow, key: string): number | undefined {
  */
 export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): TeamRow[] {
   void algorithmId; // reserved for signature symmetry with buildColumns; ranking itself is algorithm-agnostic (see doc comment above)
-  const unranked = artifact.teams.map((team) => ({
+  // Non-real team keys are dropped BEFORE ranking (2026-09-01) — see
+  // `lib/teamKey.ts`'s `isRealTeamKey` for what they are and why. Filtering
+  // here rather than at render is what keeps `rank` honest: an offseason
+  // B-team held rank 3 of all 2024, pushing every real team below it down
+  // one place.
+  const unranked = artifact.teams.filter((team) => isRealTeamKey(team.teamKey)).map((team) => ({
     teamKey: team.teamKey,
     teamNumber: team.teamNumber,
     nickname: team.nickname,

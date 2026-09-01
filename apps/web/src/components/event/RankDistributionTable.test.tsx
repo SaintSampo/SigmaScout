@@ -285,7 +285,7 @@ describe("RankDistributionTable — the absent-roster-entry row (assumption A2)"
     const fixture = row({ teamKey: "frc1114", teamCount, teamNumber: 1114, nickname: undefined });
     await renderTable([fixture], teamCount);
     const nicknameCell = screen.getByTestId("rank-cell-nickname");
-    expect(nicknameCell.textContent).toBe("—");
+    expect(nicknameCell.textContent).toBe("");
     expect(screen.getByTestId(`rank-plot-${fixture.teamKey}`)).toBeDefined();
   });
 });

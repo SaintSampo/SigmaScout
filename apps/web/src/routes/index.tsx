@@ -102,15 +102,17 @@ function HomePage() {
           Match predictions you can check.
         </h1>
         <p className="text-role-body max-w-[42rem] text-[var(--color-text-muted)]">
-          Every SigmaScout rating ships with honest uncertainty — a value ± one standard deviation — and every
-          algorithm&apos;s accuracy is measured walk-forward and published, next to the baselines it beats.
+          Every SigmaScout rating ships with honest uncertainty: a value ± one standard deviation. Every
+          algorithm&apos;s accuracy is measured walk-forward and published next to the baselines it beats.
         </p>
       </div>
 
       {/* Round-2 user request: a search bar ON the page, not only in the
-          ribbon — "find your team" is still the most common arrival intent. */}
-      <div className="w-full max-w-[30rem]">
-        <SearchBox />
+          ribbon ("find your team" is still the most common arrival intent).
+          `className="w-full"` fills this centered container, fixing the
+          off-center fixed-width box the user reported. */}
+      <div className="w-full max-w-[36rem]">
+        <SearchBox className="w-full" />
       </div>
 
       <Podium />
@@ -126,14 +128,14 @@ function HomePage() {
         <Link
           to="/events"
           search={preserveSearch}
-          className="rounded-[var(--radius)] border border-[var(--color-border)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-[var(--color-accent)]"
+          className="rounded-[var(--radius)] bg-[var(--color-accent)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-white"
         >
           This week&apos;s events
         </Link>
         <Link
           to="/compare"
           search={preserveSearch}
-          className="rounded-[var(--radius)] border border-[var(--color-border)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-[var(--color-accent)]"
+          className="rounded-[var(--radius)] bg-[var(--color-accent)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-white"
         >
           See the methodology
         </Link>

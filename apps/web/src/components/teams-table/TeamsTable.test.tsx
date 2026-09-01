@@ -129,7 +129,7 @@ describe("TeamsTable", () => {
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getByTestId("teams-header-hubShift1")).toBeDefined());
-    expect(screen.getByTestId("teams-cell-hubShift1").textContent).toBe("—");
+    expect(screen.getByTestId("teams-cell-hubShift1").textContent).toBe("");
   });
 
   it("exposes exactly the three declared pinned column ids, and no others", async () => {

@@ -326,8 +326,8 @@ describe("Unplayed and absent-variance rows", () => {
     expect(screen.getByTestId("alliance-mark-qf1m2-blue-tick")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m2-red-dot")).toBeNull();
     expect(screen.queryByTestId("alliance-mark-qf1m2-blue-dot")).toBeNull();
-    expect(screen.getByTestId("actual-qf1m2").textContent).toContain("—");
-    expect(screen.getByTestId("call-qf1m2").textContent).toContain("—");
+    expect(screen.getByTestId("actual-qf1m2").textContent).toBe("");
+    expect(screen.getByTestId("call-qf1m2").textContent).toBe("");
   });
 
   it("a row carrying neither variance field renders both ticks and no band for either alliance and does not throw", () => {

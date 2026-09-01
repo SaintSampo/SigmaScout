@@ -289,9 +289,59 @@
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
+/*
+ * `scrollbar-gutter: stable` (2026-09-01 polish, user report): tabs whose
+ * content is taller than the viewport grow a page scrollbar, and tabs whose
+ * content is short don't — so switching tabs shifted every centered layout
+ * sideways by the scrollbar's width. Reserving the gutter whether or not
+ * the bar is drawn is the standard fix; nothing moves between tabs.
+ */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--color-bg-page);
   color: var(--color-text-primary);
+}
+
+/*
+ * Alternate-row striping for the Compare page's two wide numeric tables
+ * (2026-09-01 polish, user report: "super hard to read") — a row-tracking
+ * aid for tables whose columns are many and whose cells are all bare
+ * numbers. Uses the existing page tint, no new colour.
+ */
+.zebra-rows tbody tr:nth-child(even) {
+  background-color: var(--color-bg-inset);
+}
+
+/*
+ * The same two tables' real legibility problem was never the row tracking
+ * alone — it was eleven six-character numbers stretched across the full
+ * content column, so a reader's eye travelled ~160px between a year and its
+ * value. These tables now size to their CONTENT (`w-auto` at the call site)
+ * and this rule gives the cells honest breathing room instead of letting
+ * `width: 100%` invent it. Numeric columns right-align under their own
+ * right-aligned headers so the digit columns line up as one block.
+ */
+.zebra-rows th,
+.zebra-rows td {
+  padding-inline: var(--spacing-md);
+}
+/*
+ * Headers WRAP here, overriding `TableHead`'s sitewide `whitespace-nowrap`.
+ * "Brier score (lower is better)" is 29 characters and was by far the widest
+ * thing in the accuracy table — on one line it pushed the VPR group's own
+ * Brier column past the content column entirely (measured: clipped mid-header,
+ * values not visible). Wrapping it to two lines is what lets `w-auto` above
+ * produce a table that FITS rather than one that scrolls.
+ */
+.zebra-rows thead th {
+  white-space: normal;
+}
+.zebra-rows tbody td:not(:first-child),
+.zebra-rows thead tr:last-child th:not(:first-child) {
+  text-align: right;
 }
 
 /*

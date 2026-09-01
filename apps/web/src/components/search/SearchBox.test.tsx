@@ -157,7 +157,7 @@ describe("SearchBox", () => {
 
     const teamOption = await screen.findByRole("option", { name: /1114/ });
     expect(teamOption.getAttribute("aria-disabled")).toBe("false");
-    await waitFor(() => expect(screen.getByText("Team results only — couldn't load events")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("Team results only (couldn't load events)")).toBeDefined());
     expect(screen.queryByRole("alert")).toBeNull();
 
     fireEvent.keyDown(input, { key: "Enter" });

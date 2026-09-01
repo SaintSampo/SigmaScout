@@ -74,5 +74,5 @@ export function buildCalibrationCard(slice: Pick<CompareSlice, "calibrationBins"
 
 /** The sketch's headline sentence, verbatim in shape. */
 export function cardHeadlineSentence(algorithmLabel: string, headline: CalibrationPoint): string {
-  return `When ${algorithmLabel} put red’s win chance at about ${fmtPct(headline.meanPredicted)}%, red actually won ${fmtPct(headline.observedFrequency)}% of the time — across ${headline.count.toLocaleString("en-US")} matches.`;
+  return `When ${algorithmLabel} put red’s win chance at about ${fmtPct(headline.meanPredicted)}%, red actually won ${fmtPct(headline.observedFrequency)}% of the time, across ${headline.count.toLocaleString("en-US")} matches.`;
 }

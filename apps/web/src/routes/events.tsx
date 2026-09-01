@@ -5,7 +5,7 @@ import { eventsQueryOptions } from "../lib/api/events.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EventsList } from "../components/events-list/EventsList.js";
 import { EventFilters } from "../components/events-list/EventFilters.js";
-import { applyEventFilters, sortEvents, type EventFilters as EventFiltersModel, type EventSortKey } from "../components/events-list/filterModel.js";
+import { applyEventFilters, isDisplayableEvent, sortEvents, type EventFilters as EventFiltersModel, type EventSortKey } from "../components/events-list/filterModel.js";
 
 /**
  * EVNT-01's real Events page (05-07-PLAN.md Task 3), replacing plan 05-05's
@@ -42,7 +42,10 @@ function EventsPage() {
   // wait identically to the "fetch in flight" case, so no extra state is
   // needed here.
 
-  const allEvents = data?.events ?? [];
+  // `isDisplayableEvent` drops resultless unofficial events before ANY other
+  // derivation, so the filter dropdowns never offer a week that only those
+  // hidden rows would populate.
+  const allEvents = (data?.events ?? []).filter(isDisplayableEvent);
   const filters: EventFiltersModel = { week, country, state, district };
   const hasActiveFilter = week !== undefined || country !== undefined || state !== undefined || district !== undefined;
 
@@ -93,7 +96,7 @@ function EventsPage() {
     // empty space. 1100px holds the flexed name column comfortably.
     <div className="mx-auto max-w-[1100px] p-[var(--spacing-lg)]">
       <div className="mb-[var(--spacing-md)] flex flex-wrap items-baseline gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
-        <h1 className="text-role-heading text-[var(--color-text-primary)]">Events — {year}</h1>
+        <h1 className="text-role-heading text-[var(--color-text-primary)]">Events {year}</h1>
         <span className="text-role-body text-[var(--color-text-muted)]">Filled chip = official season · dashed = unofficial</span>
       </div>
       {/* Per 05-UI-SPEC.md: "The controls are not rendered at all when the fetch

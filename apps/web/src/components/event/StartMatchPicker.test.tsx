@@ -95,11 +95,15 @@ describe("status labels", () => {
   });
 });
 
-describe("the em-dash partial case (S1 partial)", () => {
-  it("a row with no sortTime renders an em dash in the time position", () => {
+describe("the absent-sortTime partial case (S1 partial)", () => {
+  it("a row with no sortTime renders NO time text at all — blank, never an em-dash placeholder (2026-09-01)", () => {
     const rows = [row({ sortTime: undefined })];
     render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startLabel={null} disabled={false} />);
-    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).textContent).toContain("—");
+    const rowEl = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`);
+    expect(rowEl.textContent).not.toContain("—");
+    // The row itself still renders its identity and status, so this proves a
+    // MISSING time rather than a missing row.
+    expect(rowEl.textContent).toContain("Qual 1");
   });
 
   it("a row with sortTime renders exactly formatScheduledTime(row.sortTime)'s output, computed by calling the imported function", () => {
@@ -279,7 +283,7 @@ describe("one-row and empty lists (S1 zero-one-many)", () => {
 
 describe("the two contract strings are shipped verbatim", () => {
   it("START_MATCH_PICKER_HINT, START_MATCH_STATUS_PLAYED and START_MATCH_STATUS_UPCOMING match 08-UI-SPEC.md's Copywriting Contract rows exactly", () => {
-    expect(START_MATCH_PICKER_HINT).toBe(`Pick a match to simulate from — matches after it are simulated ${SIMULATION_DRAWS}×.`);
+    expect(START_MATCH_PICKER_HINT).toBe(`Pick a match to simulate from. Matches after it are simulated ${SIMULATION_DRAWS}×.`);
     expect(START_MATCH_STATUS_PLAYED).toBe("Played");
     expect(START_MATCH_STATUS_UPCOMING).toBe("Upcoming");
   });

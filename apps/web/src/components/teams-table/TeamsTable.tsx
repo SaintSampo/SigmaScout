@@ -152,7 +152,13 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
       // `overflow: auto` — inline always wins — so the scroll behavior is
       // untouched; the card contributes border, radius and shadow only.
       className="data-card"
-      style={{ overflow: "auto", height: scrollHeight, width: "100%", position: "relative" }}
+      // `fit-content` capped at 100% (2026-09-01 user report: "way too much
+      // white space on the right"): the card hugs the table's declared total
+      // width — ~1050px grouped, ~2000px components — instead of stretching
+      // a mostly-empty card across an ultrawide viewport. When the declared
+      // total exceeds the viewport, fit-content resolves to the available
+      // width and the inner overflow scrolls exactly as before.
+      style={{ overflow: "auto", height: scrollHeight, width: "fit-content", maxWidth: "100%", position: "relative" }}
     >
       <table
         style={{

@@ -27,7 +27,7 @@ function formatRecord(record: { wins: number; losses: number; ties: number }): s
 
 /** Copied from `apps/web/src/components/teams-table/columns.tsx`'s own `formatWinRate` — same signature (a nullable fraction, not a record), so the zero-match "—" case matches the Teams table exactly. */
 function formatWinRate(value: number | null): string {
-  if (value === null) return "—";
+  if (value === null) return "";
   return `${(value * 100).toFixed(1)}%`;
 }
 
@@ -64,15 +64,15 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   const metrics = metricsOverride ?? artifact.seasonStats.metrics;
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
-  // renders an em-dash cell and the cell never disappears (D-17/E2 empty).
+  // renders a BLANK cell and the cell never disappears (D-17/E2 empty).
   const metricKeys = metricKeysFor(algorithmId, season);
   // The headline grid shows four tiles — Auto, Teleop, Endgame, Total —
   // rather than one per raw component (13 in 2024, 11 in 2026). OPR
   // publishes only Total and has no components to group, so it keeps its
-  // single tile and the phase groups resolve to `undefined` (em-dash).
+  // single tile and the phase groups resolve to `undefined` (blank).
   // An algorithm publishing only Total (OPR) has no components to group, so
   // it shows the single Total tile rather than three tiles that could never
-  // be anything but an em-dash.
+  // be anything but blank.
   const publishesComponents = metricKeys.length > 1;
   // Each phase group is a published metric in its own right, carrying its
   // own value, spread and percentile — read straight from the artifact, never
@@ -143,7 +143,10 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           is a bounded numeric, so nothing can force horizontal overflow
           (06-UI-SPEC.md E2 overflow).
         */}
-        <div data-testid="season-header-metric-grid" className="grid grid-cols-2 gap-[var(--spacing-sm)] md:grid-cols-4">
+        {/* Left-justified with fixed gaps (2026-09-01 user request: "don't
+            space out the chosen metrics") — the old equal-track grid spread
+            four tiles across the whole card width. */}
+        <div data-testid="season-header-metric-grid" className="flex flex-wrap gap-x-[var(--spacing-2xl)] gap-y-[var(--spacing-sm)]">
           {/* `items-start` on each cell (2026-09-01 redesign): flex-col stretch was widening each tier box to the full grid track — the box should hug its value like every other metric cell on the site. */}
           {tiles.map((tile) => (
             <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">

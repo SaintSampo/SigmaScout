@@ -124,7 +124,7 @@ function ComparePage() {
   }
 
   return (
-    <div className="p-[var(--spacing-lg)]">
+    <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       {/* The page title renders from first paint regardless of query state
           — the same "gate content, never the element's own existence" rule
           the event page's tab strip already follows. */}

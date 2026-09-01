@@ -37,7 +37,7 @@ export function tbaEventUrl(eventKey: string): string | undefined {
  * locale for month naming and ordering.
  */
 export function formatEventStartDate(startDate: string | undefined): string {
-  if (startDate === undefined) return "—";
+  if (startDate === undefined) return "";
   const date = new Date(startDate);
   return new Intl.DateTimeFormat(undefined, {
     timeZone: "UTC",
@@ -48,40 +48,30 @@ export function formatEventStartDate(startDate: string | undefined): string {
 }
 
 /**
- * The three-segment metadata line — date, location, week — always all
- * three, never collapsed: an absent fact renders as a visible em-dash rather
- * than a shorter, less honest line.
+ * The metadata line: date, location, week, joined with middots — built from
+ * PRESENT facts only (2026-09-01 user request: no em-dash placeholders
+ * anywhere on the site). An absent fact simply omits its segment rather
+ * than rendering a dash; a shorter line IS the honest render of a fact the
+ * artifact does not carry.
  *
- * Segment two's `??` is correct HERE for exactly the reason it was wrong at
- * the publish boundary (PD-02): the value has already passed
- * `EventArtifactSchema`'s `.min(1)` parse, so the only thing `??` can catch
- * is genuine absence (`undefined`) alongside a genuine recorded null —
- * both render the same em-dash per the schema's own absence contract.
- *
- * Segment three tests `undefined` and `null` explicitly and never by
+ * The week segment tests `undefined` and `null` explicitly and never by
  * truthiness or nullish coalescing: a week index of zero is a real, measured
  * value (25 to 32 events per season) that a truthiness guard would silently
- * relabel as offseason. Copied from `EventsList.tsx`'s own week-cell rule —
- * do not import across the component-module boundary (PD-03).
+ * drop. A null week renders NOTHING rather than a guessed label — it used
+ * to say "Offseason", which was a lie for Championship divisions/Einstein
+ * (week null, NOT offseason); this artifact carries neither isOffseason nor
+ * eventType, so a real label rides the next event-artifact schema republish.
  */
 export function eventMetaLine(parts: { startDate?: string; location?: string | null; week?: number | null }): string {
+  const segments: string[] = [];
   const dateSegment = formatEventStartDate(parts.startDate);
-  const locationSegment = parts.location ?? "—";
-  let weekSegment: string;
-  if (parts.week === undefined) {
-    weekSegment = "—";
-  } else if (parts.week === null) {
-    // 2026-09-01: this used to say "Offseason", which was a LIE for
-    // Championship divisions/Einstein (week null, NOT offseason). This
-    // artifact carries neither isOffseason nor eventType, so the honest
-    // render is the absent-value em-dash; restoring a real label rides the
-    // next event-artifact schema republish.
-    weekSegment = "—";
-  } else {
+  if (dateSegment !== "") segments.push(dateSegment);
+  if (parts.location !== undefined && parts.location !== null) segments.push(parts.location);
+  if (parts.week !== undefined && parts.week !== null) {
     // TBA weeks are 0-indexed; readers count from Week 1.
-    weekSegment = `Week ${parts.week + 1}`;
+    segments.push(`Week ${parts.week + 1}`);
   }
-  return `${dateSegment} · ${locationSegment} · ${weekSegment}`;
+  return segments.join(" · ");
 }
 
 export interface EventHeaderProps {

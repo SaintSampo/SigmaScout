@@ -123,7 +123,7 @@ describe("DataCoverageTable — header structure", () => {
 });
 
 describe("DataCoverageTable — cell rendering (published zero vs absent slice)", () => {
-  it("a published zero renders the digit zero, never the em-dash — for a zero exclusion count, a zero tie count and a zero no-call count", () => {
+  it("a published zero renders the digit zero, never a blank cell — for a zero exclusion count, a zero tie count and a zero no-call count", () => {
     const artifactsByYear = fullYearArtifact({
       opr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
       epa: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
@@ -144,10 +144,10 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     expect(noCallCell.textContent).not.toContain("—");
   });
 
-  it("an absent cell renders the em-dash, never the digit zero — for a season with no artifact and for one algorithm's missing no-call entry", () => {
+  it("an absent cell renders blank, never the digit zero and never an em-dash — for a season with no artifact and for one algorithm's missing no-call entry", () => {
     render(<DataCoverageTable artifactsByYear={new Map()} compLevelView="combined" />);
     const candidateCell = screen.getByTestId(coverageCellTestId(YEAR, "candidateCount"));
-    expect(candidateCell.textContent).toBe("—");
+    expect(candidateCell.textContent).toBe("");
     expect(candidateCell.textContent).not.toContain("0");
 
     const artifactsByYear = new Map<number, CompareArtifact>();
@@ -155,7 +155,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     cleanup();
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const oprNoCallCell = screen.getByTestId(coverageCellTestId(YEAR, "noCall:opr"));
-    expect(oprNoCallCell.textContent).toBe("—");
+    expect(oprNoCallCell.textContent).toBe("");
     expect(oprNoCallCell.textContent).not.toContain("0");
   });
 
@@ -167,7 +167,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     const tieCell = screen.getByTestId(coverageCellTestId(YEAR, "tieCount"));
     expect(tieCell.textContent).toBe("0");
     const oprNoCallCell = screen.getByTestId(coverageCellTestId(YEAR, "noCall:opr"));
-    expect(oprNoCallCell.textContent).toBe("—");
+    expect(oprNoCallCell.textContent).toBe("");
   });
 
   it("a disagreed shared cell renders all three algorithm labels with their own values, never a single collapsed number", () => {

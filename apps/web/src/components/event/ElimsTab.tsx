@@ -47,7 +47,7 @@ const ELIMS_SKELETON_ROW_COUNT = 6;
  */
 export function ElimsTabSkeleton() {
   return (
-    <div data-testid="elims-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="elims-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTableSkeleton rowCount={ELIMS_SKELETON_ROW_COUNT} />
     </div>
   );
@@ -86,7 +86,7 @@ export function ElimsTab({ artifact, season, algorithmId }: ElimsTabProps) {
   }
 
   return (
-    <div data-testid="elims-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="elims-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTable rows={rows} domain={domain} season={season} algorithm={algorithmId as PublishedAlgorithmId} />
     </div>
   );

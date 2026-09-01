@@ -276,7 +276,7 @@ export interface BreakdownTabProps {
  * matches 07-UI-SPEC.md's Copywriting Contract row exactly.
  */
 export function BREAKDOWN_MODEL_ESTIMATES_CAPTION(algorithmId: PublishedAlgorithmId): string {
-  return `Estimated per-team components — TBA publishes score breakdowns per alliance, not per team. These are ${algorithmDisplayLabel(algorithmId)}'s modeled per-team contributions.`;
+  return `Estimated per-team components. TBA publishes score breakdowns per alliance, not per team; these are ${algorithmDisplayLabel(algorithmId)}'s modeled per-team contributions.`;
 }
 
 /** The pending state's skeleton row count — a fixed placeholder guess, matching `SKELETON_ROW_COUNT`'s role in `TeamsTable.tsx`. */
@@ -294,7 +294,7 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
@@ -359,7 +359,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div data-testid="breakdown-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="breakdown-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object

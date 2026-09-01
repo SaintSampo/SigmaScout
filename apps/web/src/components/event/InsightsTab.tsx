@@ -162,7 +162,7 @@ export function buildInsightsRows(artifact: EventArtifact, algorithmId: string):
  * record and this one must handle absence.
  */
 export function formatEventRecord(record: EventTeamRecord | undefined): string {
-  if (record === undefined) return "—";
+  if (record === undefined) return "";
   return `${record.wins}-${record.losses}-${record.ties}`;
 }
 
@@ -250,7 +250,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     size: 84,
     cell: (info) => {
       const value = info.getValue();
-      return <span className="numeric-cell">{value === undefined ? "—" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
+      return <span className="numeric-cell">{value === undefined ? "" : value.toFixed(INSIGHTS_RP_DECIMALS)}</span>;
     },
   });
 
@@ -306,7 +306,7 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       size: orderSource === "official" ? (isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72) : 96,
       cell: (info) => {
         const value = info.getValue();
-        return <span className="numeric-cell">{value === undefined ? "—" : value}</span>;
+        return <span className="numeric-cell">{value === undefined ? "" : value}</span>;
       },
     }),
     columnHelper.accessor("teamNumber", {
@@ -389,7 +389,7 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      <div className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             <TableRow>
@@ -461,7 +461,7 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           <span>{insightsFallbackNotice(algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>
         </div>
       )}
-      <div data-testid="insights-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="insights-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object

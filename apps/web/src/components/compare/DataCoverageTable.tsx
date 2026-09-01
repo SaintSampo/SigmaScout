@@ -7,7 +7,8 @@
  *
  * Mirrors `AccuracyTable.tsx`'s established idiom in this same directory: a
  * two-row grouped header with left borders marking each group's boundary
- * (including the first), an em-dash for an absent cell, a named `*Skeleton`
+ * (including the first), a BLANK cell for an absent value (2026-09-01: no
+ * em-dash placeholders anywhere), a named `*Skeleton`
  * sibling sharing the real header so pending and populated states share a
  * footprint, and one scroll region carrying the app's established
  * `min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain` set.
@@ -42,13 +43,14 @@ export const DATA_COVERAGE_EXPLAINER_TESTID = "compare-data-coverage-explainer-d
 export const DATA_COVERAGE_HEADING = "Data coverage per year";
 
 /**
- * The Copywriting Contract's data-coverage explainer row, verbatim including
- * its em dash — carries D-09's binding offseason distinction. Not reworded,
+ * The Copywriting Contract's data-coverage explainer row, rewritten
+ * 2026-09-01 to carry no em-dash (user directive), otherwise verbatim and
+ * still carrying D-09's binding offseason distinction. Not otherwise reworded,
  * not split, and the second sentence below is NOT folded into it (Decision
  * 4): it is checker-approved copy this plan does not own.
  */
 export const DATA_COVERAGE_EXPLAINER_D09 =
-  "Offseason matches feed each algorithm's predictions but are excluded from the accuracy scores above — the numbers reflect only official-season matches with a recorded winner.";
+  "Offseason matches feed each algorithm's predictions but are excluded from the accuracy scores above; the numbers reflect only official-season matches with a recorded winner.";
 
 /**
  * The authored second paragraph (Decision 4): the partition claim guarded by
@@ -57,7 +59,7 @@ export const DATA_COVERAGE_EXPLAINER_D09 =
  * never rendering a derived denominator.
  */
 export const DATA_COVERAGE_EXPLAINER_STRUCTURE =
-  "Scored matches plus the four excluded columns account for every candidate match. Ties and no-calls are counted inside the scored matches, not excluded from them — a tie has no winner to have predicted, and a no-call is a prediction of exactly fifty percent either way — and both are still scored for Brier even though neither counts toward winner accuracy. A single match can be both a tie and a no-call, so the Ties and No-calls columns do not add together.";
+  "Scored matches plus the four excluded columns account for every candidate match. Ties and no-calls are counted inside the scored matches, not excluded from them: a tie has no winner to have predicted, and a no-call is a prediction of exactly fifty percent either way, so both are still scored for Brier even though neither counts toward winner accuracy. A single match can be both a tie and a no-call, so the Ties and No-calls columns do not add together.";
 
 const COVERAGE_TABLE_ROW_COUNT = 5;
 /** Year + Candidate matches + Scored matches + 4 exclusion columns + Ties + 3 no-call columns = 11 (Flagged Planner Assumption 2 — three more than UI-SPEC's original 8-column sketch, per Decision 1). */
@@ -70,7 +72,7 @@ export function coverageCellTestId(season: number, columnKey: string): string {
 
 /**
  * Maps one `SharedCount` to its rendered text: `agreed` prints the value as
- * bare digits — INCLUDING zero — `absent` prints the em-dash, and
+ * bare digits, INCLUDING zero; `absent` prints a BLANK cell; and
  * `disagreed` prints every algorithm's own label and value. These two
  * branches (agreed-zero vs absent) are the single behaviour most likely to
  * be collapsed by a later contributor who reads a zero as an empty; two of
@@ -79,13 +81,13 @@ export function coverageCellTestId(season: number, columnKey: string): string {
  * time.
  */
 function renderSharedCount(cell: SharedCount): string {
-  if (cell.kind === "absent") return "—";
+  if (cell.kind === "absent") return "";
   if (cell.kind === "agreed") return String(cell.value);
   return cell.values.map((entry) => `${algorithmDisplayLabel(entry.algorithmId)} ${entry.value}`).join(", ");
 }
 
 function renderNoCall(count: number | undefined): string {
-  return count === undefined ? "—" : String(count);
+  return count === undefined ? "" : String(count);
 }
 
 /**
@@ -150,7 +152,7 @@ export function DataCoverageTable({ artifactsByYear, compLevelView }: DataCovera
 
   return (
     <div data-testid={DATA_COVERAGE_SCROLL_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-      <Table>
+      <Table className="zebra-rows w-auto">
         <DataCoverageTableHeader />
         <TableBody>
           {rows.map((row) => (
@@ -229,7 +231,7 @@ export function DataCoverageSectionSkeleton() {
     <div data-testid={DATA_COVERAGE_SECTION_TESTID} className="mt-[var(--spacing-xl)]">
       <h2 className="text-role-heading">{DATA_COVERAGE_HEADING}</h2>
       <div data-testid={DATA_COVERAGE_SCROLL_TESTID} className="mt-[var(--spacing-md)] min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-        <Table>
+        <Table className="zebra-rows w-auto">
           <DataCoverageTableHeader />
           <TableBody>
             <SkeletonRows rows={COVERAGE_TABLE_ROW_COUNT} columns={COVERAGE_LEAF_COLUMN_COUNT} />

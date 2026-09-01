@@ -202,7 +202,7 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
             // correction, Phase 7's 390px finding).
             className="block max-w-full truncate"
           >
-            {nickname ?? "—"}
+            {nickname ?? ""}
           </Link>
         );
       },
@@ -254,7 +254,7 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
   const table = useTable({ features, columns, data: rows as RankDistributionRow[], state: { columnPinning } });
 
   return (
-    <div data-testid="rank-distribution-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="rank-distribution-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <table
         style={{
           tableLayout: "fixed",

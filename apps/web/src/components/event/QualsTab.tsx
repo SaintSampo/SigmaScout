@@ -40,7 +40,7 @@ const QUALS_SKELETON_ROW_COUNT = 6;
  */
 export function QualsTabSkeleton() {
   return (
-    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="quals-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTableSkeleton rowCount={QUALS_SKELETON_ROW_COUNT} />
     </div>
   );
@@ -71,7 +71,7 @@ export function QualsTab({ artifact, season, algorithmId }: QualsTabProps) {
   }
 
   return (
-    <div data-testid="quals-table-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="quals-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <EventMatchTable rows={rows} domain={domain} season={season} algorithm={algorithmId as PublishedAlgorithmId} />
     </div>
   );

@@ -299,7 +299,7 @@ export function alliancesIncompleteNotice(incomplete: number, total: number, alg
  * recognise, are both honest absences, never a fabricated `0-0-0`.
  */
 export function formatAllianceRecord(record: { wins: number; losses: number; ties: number } | undefined): string {
-  if (record === undefined) return "—";
+  if (record === undefined) return "";
   return `${record.wins}-${record.losses}-${record.ties}`;
 }
 
@@ -333,7 +333,7 @@ const columnHelper = createColumnHelper<typeof features, AllianceRow>();
 /** One pick's team number plus its own tiered total metric — G-8 drops the nickname this cell used to render alongside the number. */
 function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined; season: number; algorithm: PublishedAlgorithmId }) {
   if (pick === undefined) {
-    return <span className="numeric-cell">{"—"}</span>;
+    return <span className="numeric-cell"></span>;
   }
   return (
     <Link
@@ -359,7 +359,7 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
  */
 function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId }) {
   if (picks.length === 0) {
-    return <span className="numeric-cell">{"—"}</span>;
+    return <span className="numeric-cell"></span>;
   }
   return (
     <span className="flex flex-wrap items-center gap-[var(--spacing-sm)]">
@@ -419,7 +419,9 @@ function buildAllianceColumns(algorithmId: string, season: number) {
     columnHelper.accessor("allianceNumber", {
       id: "allianceNumber",
       header: ALLIANCES_COLUMN_HEADERS[0],
-      size: 84,
+      // 112, not 84 (2026-09-01 user report): the uppercase 11px "ALLIANCE #"
+      // header was ellipsis-truncating at 84px.
+      size: 112,
       cell: (info) => <span className="numeric-cell">{info.getValue()}</span>,
     }),
     columnHelper.accessor((row) => row.picks[0], {
@@ -474,7 +476,7 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
   void algorithmId;
   void season;
   return (
-    <div data-testid="alliances-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+    <div data-testid="alliances-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader>
           <TableRow>
@@ -519,7 +521,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
-      <div data-testid="alliances-table-scroll" className="data-card min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+      <div data-testid="alliances-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         {/*
           07-UAT.md G-1 originally left this table on `table-layout: auto`,
           because the pick columns relied on auto layout's free growth to

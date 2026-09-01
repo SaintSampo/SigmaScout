@@ -20,7 +20,7 @@ import type { EventMatchRow } from "./eventMatchAxis.js";
  */
 
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim — never paraphrased. The literal draw count is guarded against `SIMULATION_DRAWS` by a test so the two cannot drift apart. One imprecision is shipped knowingly: the contract says "matches after it," while D-13 simulates the chosen match and everything after it; `simulationScopeText` below states the scope exactly once a match is chosen, and deviating from an approved copy row silently would be worse than this small imprecision in a pre-selection hint. */
-export const START_MATCH_PICKER_HINT = `Pick a match to simulate from — matches after it are simulated ${SIMULATION_DRAWS}×.`;
+export const START_MATCH_PICKER_HINT = `Pick a match to simulate from. Matches after it are simulated ${SIMULATION_DRAWS}×.`;
 
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim. */
 export const START_MATCH_STATUS_PLAYED = "Played";
@@ -160,7 +160,7 @@ function StartMatchRow({
       <span className="flex flex-col items-end gap-[1px]">
         <span className="text-role-label text-[var(--color-text-muted)]">{row.played ? START_MATCH_STATUS_PLAYED : START_MATCH_STATUS_UPCOMING}</span>
         <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-muted)]">
-          {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : "—"}
+          {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
         </span>
       </span>
     </button>

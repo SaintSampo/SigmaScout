@@ -221,9 +221,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(combinedWithText).toBe(combinedWithoutText);
   });
 
-  it("an alliance with exactly three picks renders an em-dash in the Backup column", async () => {
+  it("an alliance with exactly three picks renders an empty Backup cell (the placeholder span present, no text)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
-    expect(await screen.findByTestId("alliances-cell-pickBackup")).toHaveProperty("textContent", "—");
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.querySelector("span.numeric-cell")).not.toBeNull();
+    expect(backupCell.textContent).toBe("");
   });
 
   it("the Combined Total cell has NO tier box when no event team publishes a percentile to interpolate against (07-UAT.md G-8)", async () => {
@@ -327,29 +329,29 @@ const FIVE_TEAMS: ArtifactTeam[] = [
 ];
 
 describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-05 empty)", () => {
-  it("a three-pick alliance whose third pick's team key has NO row in teams renders an em-dash, never the two-term sum", async () => {
+  it("a three-pick alliance whose third pick's team key has NO row in teams renders a blank Combined Total, never the two-term sum", async () => {
     // frc9 is never in the teams array at all — the live 2024cmptx shape.
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
-    expect(cell.textContent).toBe("—");
+    expect(cell.textContent).toBe("");
     // frc1 (value 10) + frc2 (value 10) = 20 — the two-term sum a partial
     // implementation would plausibly render instead.
     expect(cell.textContent).not.toContain("20.00");
   });
 
-  it("the same alliance where the third pick HAS a teams row but that row publishes no total metric renders the same em-dash", async () => {
+  it("the same alliance where the third pick HAS a teams row but that row publishes no total metric renders the same blank cell", async () => {
     const teamsWithNoTotal = [...FOUR_TEAMS, team({ teamKey: "frc9", teamNumber: 9, nickname: "Zeta", metrics: {} })];
     renderAlliances(makeArtifact(teamsWithNoTotal, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
-    expect(cell.textContent).toBe("—");
+    expect(cell.textContent).toBe("");
     expect(cell.textContent).not.toContain("20.00");
   });
 
-  it("a two-pick alliance (modelled on 2024vabrb) renders an em-dash Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 and Pick 3 em-dash", async () => {
+  it("a two-pick alliance (modelled on 2024vabrb) renders a blank Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 and Pick 3 blank", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2"] })]));
-    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
+    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("");
+    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("");
     // Team numbers render as the FIRST text node in each cell, immediately
     // before the metric value — a reliable prefix check given every fixture
     // team key here uses a single-digit team number.
@@ -357,12 +359,12 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(screen.getByTestId("alliances-cell-pick1").textContent?.startsWith("2")).toBe(true);
   });
 
-  it("a one-pick alliance renders em-dash Combined Total and em-dashes in Pick 1, Pick 2 and Pick 3, with the single pick in Captain", async () => {
+  it("a one-pick alliance renders a blank Combined Total and blank Pick 1, Pick 2 and Pick 3 cells, with the single pick in Captain", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1"] })]));
-    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("—");
-    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("—");
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
+    expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("");
+    expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("");
+    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick0").textContent?.startsWith("1")).toBe(true);
   });
 
@@ -462,12 +464,17 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
     expect(within(backupCell).getAllByRole("link")).toHaveLength(2);
   });
 
-  it("a pick whose team key has no teams row still renders its team number as a link; its total metric renders an em-dash", async () => {
+  it("a pick whose team key has no teams row still renders its team number as a link; its total metric renders an empty metric span", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc9", "frc1", "frc2"] })]));
     const captainCell = await screen.findByTestId("alliances-cell-pick0");
     expect(captainCell.textContent).toContain("9");
     const link = within(captainCell).getByRole("link");
-    expect(within(link).getByText("—")).toBeDefined();
+    // The link's whole text is the team number: the MetricValue span is
+    // still mounted (the cell keeps its box) but carries no text at all.
+    expect(link.textContent).toBe("9");
+    const metricSpan = link.querySelector("span.whitespace-nowrap");
+    expect(metricSpan).not.toBeNull();
+    expect(metricSpan!.textContent).toBe("");
   });
 
   it("a one-alliance fixture and an eight-alliance fixture render identical header rows and body-row counts of 1 and 8 — the count is never branched on", async () => {
@@ -486,7 +493,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
 // ---------------------------------------------------------------------------
 // 07-UAT.md G-8 — the Record column: TBA's own playoff win-loss-tie record,
 // published on EventAllianceSchema.record via packages/corpus/db.ts's
-// parseAllianceRecord. Absence discipline: undefined renders an em-dash,
+// parseAllianceRecord. Absence discipline: undefined renders blank,
 // never a fabricated 0-0-0, and a REAL 0-0-0 is distinguishable from it.
 // ---------------------------------------------------------------------------
 
@@ -495,13 +502,13 @@ describe("formatAllianceRecord — the wins-losses-ties formatter (07-UAT.md G-8
     expect(formatAllianceRecord({ wins: 4, losses: 3, ties: 0 })).toBe("4-3-0");
   });
 
-  it("renders a single em-dash for an absent record", () => {
-    expect(formatAllianceRecord(undefined)).toBe("—");
+  it("renders the empty string for an absent record", () => {
+    expect(formatAllianceRecord(undefined)).toBe("");
   });
 
-  it("a real 0-0-0 record formats as literal zeros, never the em-dash absence marker", () => {
+  it("a real 0-0-0 record formats as literal zeros, never the blank absence marker", () => {
     expect(formatAllianceRecord({ wins: 0, losses: 0, ties: 0 })).toBe("0-0-0");
-    expect(formatAllianceRecord({ wins: 0, losses: 0, ties: 0 })).not.toBe("—");
+    expect(formatAllianceRecord({ wins: 0, losses: 0, ties: 0 })).not.toBe("");
   });
 });
 
@@ -511,9 +518,9 @@ describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
     expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("4-3-0");
   });
 
-  it("renders an em-dash when this alliance has no published record", async () => {
+  it("renders a blank Record cell when this alliance has no published record", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
-    expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("—");
+    expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("");
   });
 
   it("buildAllianceRows carries the alliance's record straight through onto the row model, keyed by row not recomputed", () => {

@@ -48,9 +48,9 @@ const COLUMNS: ColumnDef[] = [
   { key: "matchCount", label: "Matches", numeric: true },
 ];
 
-/** `null` renders as an em-dash — never a blank cell, never the literal text of a null value. */
+/** `null` renders as a blank cell (2026-09-01 user request: no em-dash placeholders anywhere), never the literal text of a null value. */
 function cellText(value: string | null): string {
-  return value === null ? "—" : value;
+  return value === null ? "" : value;
 }
 
 export interface EventsListProps {
@@ -124,7 +124,7 @@ function TypeChip({ event }: { event: EventRow }) {
   if (event.isOffseason) return <span className="event-chip event-chip--unofficial">Offseason</span>;
   if (event.eventType === 3 || event.eventType === 4) return <span className="event-chip event-chip--champs">Champs</span>;
   if (event.eventType === 100) return <span className="event-chip event-chip--unofficial">Week 0</span>;
-  if (event.week === null) return <span>{"—"}</span>;
+  if (event.week === null) return null;
   return <span className="event-chip event-chip--week">{`Week ${event.week + 1}`}</span>;
 }
 
@@ -137,7 +137,7 @@ function TypeChip({ event }: { event: EventRow }) {
  */
 function displayLocation(event: EventRow): string {
   const region = event.stateProv !== null && /\d/.test(event.stateProv) ? null : event.stateProv;
-  return composeEventLocation(region, event.country) ?? "—";
+  return composeEventLocation(region, event.country) ?? "";
 }
 
 function EventRowView({ event, year, algorithm }: { event: EventRow; year: number; algorithm: PublishedAlgorithmId }) {

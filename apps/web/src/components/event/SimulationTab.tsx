@@ -86,7 +86,7 @@ export const SIMULATION_EMPTY_STATE_BODY =
  */
 export const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
 export const SIMULATION_UNAVAILABLE_BODY =
-  "This event's matches don't carry the predicted ranking-point distributions the simulation needs. Offseason events are the usual reason — they sit outside the ranking-point model.";
+  "This event's matches don't carry the predicted ranking-point distributions the simulation needs. Offseason events are the usual reason, since they sit outside the ranking-point model.";
 
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim — the pre-run placeholder (UI-SPEC S3 `empty` row: nothing failed, nothing returned zero rows, there is simply no simulation output yet). */
 export const SIMULATION_PRE_RUN_BODY = "Pick a start match and run the simulation to see predicted ranks.";

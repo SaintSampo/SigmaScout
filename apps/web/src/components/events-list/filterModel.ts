@@ -68,12 +68,39 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
     if (event.districtKey !== null) districts.add(event.districtKey);
   }
 
+  // 2026-09-01 (user request): the season's own chronology in the dropdown —
+  // Week 0, the regular-season weeks, then Champs and Offseason, and only
+  // AFTER those any stray late-numbered weeks TBA attaches to post-season
+  // events (raw week 16+ renders as "Week 17"+). Raw week 8 is a generous
+  // upper bound for a real regular-season week across seasons.
+  const sortedWeeks = Array.from(weeks).sort((a, b) => a - b);
+  const seasonWeeks = sortedWeeks.filter((week) => week <= 8);
+  const postSeasonWeeks = sortedWeeks.filter((week) => week > 8);
+
   return {
-    weeks: [...(hasWeek0 ? ["week0" as const] : []), ...Array.from(weeks).sort((a, b) => a - b), ...(hasChamps ? ["champs" as const] : []), ...(hasOffseason ? ["offseason" as const] : [])],
+    weeks: [
+      ...(hasWeek0 ? ["week0" as const] : []),
+      ...seasonWeeks,
+      ...(hasChamps ? ["champs" as const] : []),
+      ...(hasOffseason ? ["offseason" as const] : []),
+      ...postSeasonWeeks,
+    ],
     countries: Array.from(countries).sort((a, b) => a.localeCompare(b)),
     states: Array.from(states).sort((a, b) => a.localeCompare(b)),
     districts: Array.from(districts).sort((a, b) => a.localeCompare(b)),
   };
+}
+
+/**
+ * Events the list shows at all (2026-09-01 user request): an UNOFFICIAL
+ * event (offseason or preseason Week 0) with zero played matches is pure
+ * noise — a scrimmage TBA never recorded results for — and is dropped
+ * before filtering. Official events with zero played matches stay: an
+ * upcoming season's schedule is exactly what a reader wants to see.
+ */
+export function isDisplayableEvent(event: EventRow): boolean {
+  const unofficial = event.isOffseason || event.eventType === 100;
+  return !(unofficial && event.playedMatchCount === 0);
 }
 
 /** The four filter dimensions, each optional — an unset dimension does not filter. */

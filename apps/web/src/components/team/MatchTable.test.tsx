@@ -106,7 +106,7 @@ describe("MatchTable", () => {
     expect(actual.textContent).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2} (AM|PM)$/);
 
     const call = screen.getByTestId("call-m1");
-    expect(call.textContent).toBe("—");
+    expect(call.textContent).toBe("");
   });
 
   it("renders ticks but zero band elements, and a bare whole-number predicted score, for an OPR row (no own-variance, no pmf)", () => {

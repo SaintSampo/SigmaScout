@@ -9,7 +9,7 @@
  *
  * The metric columns come from `metricKeysFor(algorithmId, season)` and
  * NOTHING else — never from inspecting a fetched row (TEAM-01's own
- * prohibition). A row missing a declared component renders an em-dash
+ * prohibition). A row missing a declared component renders a BLANK cell
  * (`MetricValue`'s own absent-metric case) and the column itself never
  * disappears.
  */
@@ -218,7 +218,7 @@ export function sortableColumnIds(algorithmId: string, season: number, view: Tea
 }
 
 function formatWinRate(value: number | null): string {
-  if (value === null) return "—";
+  if (value === null) return "";
   return `${(value * 100).toFixed(1)}%`;
 }
 

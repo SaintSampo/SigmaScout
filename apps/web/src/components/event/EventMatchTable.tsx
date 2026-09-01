@@ -297,13 +297,13 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : "—"}
+            {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
           </span>
         )}
       </td>
       <td data-testid={`call-${row.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!row.played ? (
-          <span aria-hidden="true">{"—"}</span>
+          <span aria-hidden="true"></span>
         ) : row.actualWinner === "tie" ? (
           <span aria-label="Prediction incorrect" className="call-miss">{"✗"}</span>
         ) : winnerCorrect ? (
@@ -319,7 +319,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
 /** One event's match table: the shared axis header drawn exactly once, then one row per merged row, in the order the caller supplies (this component never re-sorts). */
 export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchTableProps) {
   return (
-    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
           <th className="sticky left-0 z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
@@ -352,7 +352,7 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
  */
 export function EventMatchTableSkeleton({ rowCount }: { rowCount: number }) {
   return (
-    <table style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
           {EVENT_MATCH_TABLE_HEADERS.map((label, index) => (

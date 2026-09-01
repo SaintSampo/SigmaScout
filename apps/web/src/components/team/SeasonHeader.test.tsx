@@ -177,16 +177,18 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(teleopCell.querySelector('[class*="metric-tier"]')).toBeNull();
   });
 
-  it("renders four em-dash tiles when metrics is empty", () => {
+  it("renders four label-only tiles, each with a BLANK value, when metrics is empty", () => {
     const artifact = baseArtifact({ seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} } });
 
     render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
-    for (const cell of cells) {
-      expect(cell.textContent).toContain("—");
-    }
+    // 2026-09-01: an absent value renders BLANK, never an em-dash placeholder
+    // — so each tile's entire text is its label and nothing else. Asserting
+    // the exact label list (rather than "is empty") keeps this test proving
+    // the tiles still exist and are still labelled.
+    expect(cells.map((cell) => cell.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
   });
 
   it("renders one bare-value cell with no plus-minus character for an OPR fixture", () => {

@@ -113,7 +113,7 @@ function TeamsPage() {
   return (
     <div className="p-[var(--spacing-lg)]">
       <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
-        <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams — {year}</h1>
+        <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
         {canToggleView && (
           <button
             type="button"

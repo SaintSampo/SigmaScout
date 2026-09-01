@@ -323,18 +323,13 @@ function EventPage() {
   // unmodified 1200px cap below (Quals/Elims's own fixed 470px plot-width
   // math, named in the comment this branch replaces, depends on it staying
   // put).
-  const isBreakdownActive = activeTab === "breakdown";
-
   return (
     // Same `max-w-[1200px]` centred content column `team.$teamNumber.tsx`
-    // uses, for the same stated reason (the fixed 470px plot width math the
-    // Quals and Elims tabs will carry in 07-12/07-13) — EXCEPT on the
-    // Breakdown tab (07-UAT.md G-7), which drops the cap entirely rather
-    // than substituting a second fixed number: the table's own declared
-    // width (above) is what actually bounds it, so there is no "wide
-    // enough" constant to pick that would not eventually need revisiting as
-    // the declared metric-column count/width changes.
-    <div className={`mx-auto w-full p-[var(--spacing-lg)] ${isBreakdownActive ? "" : "max-w-[1200px]"}`}>
+    // uses. 2026-09-01 (user report): the cap is now CONSTANT — the old
+    // Breakdown-only uncap made the header and tab strip jump sideways on
+    // every switch into or out of that tab. Breakdown's wide table scrolls
+    // inside its own card instead of dropping the page cap.
+    <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       {/*
         07-15-PLAN.md Task 1's identity header — a DOM SIBLING of the tab
         strip below, never its ancestor and never its descendant, so a long
@@ -358,7 +353,7 @@ function EventPage() {
               Breakdown
             </TabsTrigger>
             <TabsTrigger value="quals" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-              Quals
+              Qualification
             </TabsTrigger>
             {/*
               D-17: `disabled` alone is the whole treatment — no title, no
@@ -376,7 +371,7 @@ function EventPage() {
               Alliances
             </TabsTrigger>
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-              Elims
+              Playoffs
             </TabsTrigger>
             {/*
               D-04 (08-09-PLAN.md Task 3), reusing Phase 7 D-17's treatment
