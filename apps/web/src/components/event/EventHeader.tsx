@@ -71,9 +71,15 @@ export function eventMetaLine(parts: { startDate?: string; location?: string | n
   if (parts.week === undefined) {
     weekSegment = "—";
   } else if (parts.week === null) {
-    weekSegment = "Offseason";
+    // 2026-09-01: this used to say "Offseason", which was a LIE for
+    // Championship divisions/Einstein (week null, NOT offseason). This
+    // artifact carries neither isOffseason nor eventType, so the honest
+    // render is the absent-value em-dash; restoring a real label rides the
+    // next event-artifact schema republish.
+    weekSegment = "—";
   } else {
-    weekSegment = `Week ${parts.week}`;
+    // TBA weeks are 0-indexed; readers count from Week 1.
+    weekSegment = `Week ${parts.week + 1}`;
   }
   return `${dateSegment} · ${locationSegment} · ${weekSegment}`;
 }

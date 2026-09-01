@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { districtDisplayName } from "@/lib/districtNames";
 import { useIsMobile } from "@/lib/breakpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,10 +40,10 @@ function WeekSelect({ weeks, value, onChange }: { weeks: readonly number[]; valu
         <SelectValue placeholder="Week" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL_VALUE}>All weeks</SelectItem>
+        <SelectItem value={ALL_VALUE}>All Weeks</SelectItem>
         {weeks.map((week) => (
           <SelectItem key={week} value={String(week)}>
-            {`Week ${week}`}
+            {`Week ${week + 1}`}
           </SelectItem>
         ))}
       </SelectContent>
@@ -50,7 +51,7 @@ function WeekSelect({ weeks, value, onChange }: { weeks: readonly number[]; valu
   );
 }
 
-function StringDimensionSelect({ label, values, value, onChange }: { label: string; values: readonly string[]; value: string | undefined; onChange: (value: string | undefined) => void }) {
+function StringDimensionSelect({ label, allLabel, values, value, onChange, display }: { label: string; allLabel: string; values: readonly string[]; value: string | undefined; onChange: (value: string | undefined) => void; display?: (value: string) => string }) {
   const disabled = values.length === 0;
   return (
     <Select value={value ?? ALL_VALUE} onValueChange={(next) => onChange(next === ALL_VALUE ? undefined : next)} disabled={disabled}>
@@ -58,7 +59,7 @@ function StringDimensionSelect({ label, values, value, onChange }: { label: stri
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL_VALUE}>{`All ${label.toLowerCase()}`}</SelectItem>
+        <SelectItem value={ALL_VALUE}>{allLabel}</SelectItem>
         {values.map((item) => (
           <SelectItem key={item} value={item} className="max-w-[12rem] truncate" title={item}>
             {item}
@@ -81,9 +82,9 @@ function DimensionControls({
   return (
     <>
       <WeekSelect weeks={options.weeks} value={filters.week} onChange={(week) => onDimensionChange({ week })} />
-      <StringDimensionSelect label="Country" values={options.countries} value={filters.country} onChange={(country) => onDimensionChange({ country })} />
-      <StringDimensionSelect label="State" values={options.states} value={filters.state} onChange={(state) => onDimensionChange({ state })} />
-      <StringDimensionSelect label="District" values={options.districts} value={filters.district} onChange={(district) => onDimensionChange({ district })} />
+      <StringDimensionSelect label="Country" allLabel="All Countries" values={options.countries} value={filters.country} onChange={(country) => onDimensionChange({ country })} />
+      <StringDimensionSelect label="State" allLabel="All States" values={options.states} value={filters.state} onChange={(state) => onDimensionChange({ state })} />
+      <StringDimensionSelect label="District" allLabel="All Districts" values={options.districts} value={filters.district} onChange={(district) => onDimensionChange({ district })} display={districtDisplayName} />
     </>
   );
 }
@@ -91,10 +92,10 @@ function DimensionControls({
 /** Long country/district names truncate at a fixed max-width, the full text on the native title affordance. */
 function ActiveFilterChips({ filters }: { filters: EventFiltersModel }) {
   const chips: Array<{ key: string; label: string }> = [];
-  if (filters.week !== undefined) chips.push({ key: "week", label: `Week ${filters.week}` });
+  if (filters.week !== undefined) chips.push({ key: "week", label: `Week ${filters.week + 1}` });
   if (filters.country !== undefined) chips.push({ key: "country", label: filters.country });
   if (filters.state !== undefined) chips.push({ key: "state", label: filters.state });
-  if (filters.district !== undefined) chips.push({ key: "district", label: filters.district });
+  if (filters.district !== undefined) chips.push({ key: "district", label: districtDisplayName(filters.district) });
 
   if (chips.length === 0) return null;
 

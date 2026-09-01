@@ -46,7 +46,7 @@ describe("EventHeader — populated (E1 populated)", () => {
     const meta = screen.getByTestId("event-header-meta");
     const dateIndex = meta.textContent?.indexOf(formatEventStartDate("2024-03-07")) ?? -1;
     const locationIndex = meta.textContent?.indexOf("CA, USA") ?? -1;
-    const weekIndex = meta.textContent?.indexOf("Week 1") ?? -1;
+    const weekIndex = meta.textContent?.indexOf("Week 2") ?? -1; // stored 1 -> displayed 2 (TBA weeks are 0-indexed)
     expect(dateIndex).toBeGreaterThanOrEqual(0);
     expect(locationIndex).toBeGreaterThan(dateIndex);
     expect(weekIndex).toBeGreaterThan(locationIndex);
@@ -75,16 +75,17 @@ describe("EventHeader — the empty-string case is unreachable (E1 empty dismiss
 describe("EventHeader — week's three distinct outcomes (E1 partial)", () => {
   afterEach(() => cleanup());
 
-  it("Test 4: week 3 renders 'Week 3'; null renders 'Offseason' and not 'Week'; absent renders an em-dash and neither", () => {
+  it("Test 4: stored week 3 renders 'Week 4' (0-indexed source); null renders an em-dash, never 'Offseason' (champs divisions carry null); absent renders an em-dash", () => {
     render(<EventHeader artifact={makeArtifact({ week: 3 })} />);
     let meta = screen.getByTestId("event-header-meta");
-    expect(meta.textContent).toContain("Week 3");
+    expect(meta.textContent).toContain("Week 4");
     cleanup();
 
     render(<EventHeader artifact={makeArtifact({ week: null })} />);
     meta = screen.getByTestId("event-header-meta");
-    expect(meta.textContent).toContain("Offseason");
+    expect(meta.textContent).not.toContain("Offseason");
     expect(meta.textContent).not.toContain("Week");
+    expect(meta.textContent).toContain("—");
     cleanup();
 
     render(<EventHeader artifact={makeArtifact()} />);
@@ -94,13 +95,13 @@ describe("EventHeader — week's three distinct outcomes (E1 partial)", () => {
     expect(meta.textContent).toContain("—");
   });
 
-  it("Test 5: week 0 survives — renders 'Week 0', not Offseason, not an em-dash in that segment", () => {
-    expect(eventMetaLine({ week: 0 })).toContain("Week 0");
+  it("Test 5: week 0 survives — renders 'Week 1' (the 0-indexed source's first week), not Offseason", () => {
+    expect(eventMetaLine({ week: 0 })).toContain("Week 1");
     expect(eventMetaLine({ week: 0 })).not.toContain("Offseason");
 
     render(<EventHeader artifact={makeArtifact({ week: 0 })} />);
     const meta = screen.getByTestId("event-header-meta");
-    expect(meta.textContent).toContain("Week 0");
+    expect(meta.textContent).toContain("Week 1");
     expect(meta.textContent).not.toContain("Offseason");
   });
 });
@@ -161,7 +162,7 @@ describe("eventMetaLine — the full cross-product (E1 partial, all absence rule
         for (const week of weeks) {
           const dateSegment = startDate === undefined ? "—" : formatEventStartDate(startDate);
           const locationSegment = location ?? "—";
-          const weekSegment = week === undefined ? "—" : week === null ? "Offseason" : `Week ${week}`;
+          const weekSegment = week === undefined || week === null ? "—" : `Week ${week + 1}`;
           const expected = `${dateSegment} · ${locationSegment} · ${weekSegment}`;
 
           expect(eventMetaLine({ startDate, location, week })).toBe(expected);

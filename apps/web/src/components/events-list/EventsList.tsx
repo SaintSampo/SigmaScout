@@ -1,6 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
+import { districtDisplayName } from "@/lib/districtNames";
 import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -127,19 +128,29 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
           {event.name}
         </Link>
       </TableCell>
-      {/* ui-polish Q1 (2026-08-31): week and district wear the same
-          secondary-badge chip the Offseason label always has — a bounded
-          categorical value reads as a chip, not bare text, matching the
-          alliance-chip precedent (06-09). No new colour: same tokens. */}
+      {/* ui-polish Q1 chips (2026-08-31) + week semantics fix (2026-09-01):
+          TBA publishes week 0-INDEXED (Cabarrus carries week 0 and is Week 1
+          on the ground), so display is always week + 1. A null week is NOT
+          always offseason: Championship divisions/Einstein (eventType 3/4)
+          carry week null with isOffseason false — labeling them Offseason
+          was the bug this branch fixes. */}
       <TableCell className="numeric-cell">
-        {event.week === null ? <Badge variant="secondary">Offseason</Badge> : <Badge variant="secondary">{`Wk ${event.week}`}</Badge>}
+        {event.isOffseason ? (
+          <Badge variant="secondary">Offseason</Badge>
+        ) : event.eventType === 3 || event.eventType === 4 ? (
+          <Badge variant="secondary">Champs</Badge>
+        ) : event.week === null ? (
+          <span>{"—"}</span>
+        ) : (
+          <Badge variant="secondary">{`Wk ${event.week + 1}`}</Badge>
+        )}
       </TableCell>
       <TableCell>{event.startDate}</TableCell>
       <TableCell className="max-w-[10rem] truncate" title={location}>
         {location}
       </TableCell>
       <TableCell className="max-w-[8rem] truncate" title={cellText(event.districtKey)}>
-        {event.districtKey === null ? cellText(event.districtKey) : <Badge variant="secondary">{event.districtKey.toUpperCase()}</Badge>}
+        {event.districtKey === null ? cellText(event.districtKey) : <Badge variant="secondary">{districtDisplayName(event.districtKey)}</Badge>}
       </TableCell>
       <TableCell className="numeric-cell">{event.teamCount}</TableCell>
       <TableCell className="numeric-cell">{`${event.playedMatchCount}/${event.matchCount}`}</TableCell>

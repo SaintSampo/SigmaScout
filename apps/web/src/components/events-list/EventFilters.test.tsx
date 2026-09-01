@@ -98,7 +98,7 @@ describe("EventFilters", () => {
     const weekTrigger = screen.getByRole("combobox", { name: "Week" });
     fireEvent.pointerDown(weekTrigger, { button: 0, pointerId: 1 });
     fireEvent.click(weekTrigger);
-    const weekOption = screen.getByRole("option", { name: "Week 3" });
+    const weekOption = screen.getByRole("option", { name: "Week 4" }); // stored week 3 displays 1-indexed; the patch below stays the RAW stored value
     fireEvent.pointerUp(weekOption, { button: 0, pointerId: 1 });
     fireEvent.click(weekOption);
 

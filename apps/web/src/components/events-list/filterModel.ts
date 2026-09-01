@@ -44,7 +44,12 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
   for (const event of events) {
     if (event.week !== null) weeks.add(event.week);
     if (event.country !== null) countries.add(event.country);
-    if (event.stateProv !== null) states.add(event.stateProv);
+    // 2026-09-01: TBA state_prov carries junk alongside real regions —
+    // pure numerics ("06", "34") and single letters ("M") were rendering as
+    // filter options. Values of 2+ letters (any script) stay, including
+    // international regions ("NSW", "HaMerkaz"); an event whose state was
+    // dropped here remains reachable through its country filter.
+    if (event.stateProv !== null && event.stateProv.length >= 2 && !/d/.test(event.stateProv)) states.add(event.stateProv);
     if (event.districtKey !== null) districts.add(event.districtKey);
   }
 
