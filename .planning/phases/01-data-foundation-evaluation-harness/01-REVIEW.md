@@ -52,7 +52,7 @@ resolution:
   open_ids: [IN-01, IN-02, IN-03]
   resolved_at: 2026-08-20
   note: CR-01 and WR-01 through WR-06 resolved by phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift); IN-01, IN-02, IN-03 remain open by design, out of this phase's scope. status stays issues_found rather than flipping to a resolved value, since the three info findings genuinely remain open -- matches 02-REVIEW.md's identical precedent.
-status: issues_found
+status: resolved
 ---
 
 # Phase 01: Code Review Report
@@ -264,10 +264,14 @@ Writing this check surfaced a real, previously-silent bug: Sigma1's `season-sd` 
 
 ### IN-02: `writeReport` helper has no secret-scrub guard, unlike its sibling inline implementation
 
+**Status:** resolved — `writeReport` now carries an optional `secretToScrub` guard (mirroring `writeArtifact`), and `runEventMode`'s former inline copy routes through it (2026-08-31).
+
 **File:** `packages/harness/cli.ts:91-97` vs. `279-287`
 **Issue:** `runEventMode` (the path that has a real TBA API key in scope) manually re-implements HTML report writing with an explicit `if (html.includes(apiKey)) throw ...` scrub check rather than calling the shared `writeReport` helper, because `writeReport` has no scrub parameter at all. This is currently safe (`runSeasonsMode`, the only caller of `writeReport`, never touches the API key), but it's a latent trap: if a future change routes an API-key-bearing code path through `writeReport`, nothing would stop a secret from being written to disk. Consider giving `writeReport` the same optional `secretToScrub` parameter `writeArtifact` already has, for defense in depth.
 
 ### IN-03: PID-based lock reclaim can misidentify a stale lock as live after PID reuse
+
+**Status:** resolved — the lock-held error now prints the lock file's mtime and names the PID-reuse false-positive explicitly (2026-08-31).
 
 **File:** `packages/corpus/db.ts:29-38` (`isProcessAlive`)
 **Issue:** `acquireWriteLock` reclaims a lock only when the recorded owner PID is no longer alive. If the OS reuses that PID for an unrelated process before the lock file is cleaned up (more likely on Windows, which recycles PIDs faster than most Unix systems), a legitimate new `openCorpus` call would incorrectly report the corpus as "already open for writing" by a process that has nothing to do with it, blocking a legitimate run until the lock file is manually deleted. Low likelihood for a single-operator hobby tool, but worth a one-line note in the error message suggesting the lock file's recorded PID and a timestamp, so a human debugging the false-positive has enough information to confirm it's stale.

@@ -11,7 +11,7 @@
  * by upserting directly.
  */
 import Database from "better-sqlite3";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -71,9 +71,20 @@ function acquireWriteLock(lockPath: string): void {
 
   const ownerPid = Number(readFileSync(lockPath, "utf8").trim());
   if (Number.isFinite(ownerPid) && isProcessAlive(ownerPid)) {
+    // 01-REVIEW IN-03: include the lock's age so a human debugging a
+    // PID-reuse false positive (Windows recycles PIDs quickly) can judge
+    // staleness — an hours-old lock "held" by a live PID is likely an
+    // unrelated process that inherited the number, not a live ingest.
+    let lockedSince = "unknown time";
+    try {
+      lockedSince = statSync(lockPath).mtime.toISOString();
+    } catch {
+      // Lock vanished between read and stat — the error below still stands.
+    }
     throw new Error(
-      `Corpus is already open for writing by process ${ownerPid} (lock file: ${lockPath}). ` +
-        `Wait for it to finish, or delete the lock file if you are certain that process is gone.`
+      `Corpus is already open for writing by process ${ownerPid} (lock file: ${lockPath}, created ${lockedSince}). ` +
+        `Wait for it to finish, or delete the lock file if you are certain that process is gone. ` +
+        `Note: if that PID belongs to an unrelated process (OS PID reuse), the lock is stale despite this message.`
     );
   }
   // Stale lock from a process that no longer exists (or unparseable

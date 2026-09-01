@@ -73,7 +73,7 @@ resolution:
   open_ids: [IN-01, IN-02]
   resolved_at: 2026-08-20
   note: WR-01, WR-02, and WR-03 resolved by phase 03.1 (address-phase-1-3-review-warnings-and-doc-drift); IN-01, IN-02 remain open by design, out of this phase's scope. status stays issues_found rather than flipping to a resolved value, since the two info findings genuinely remain open -- matches 02-REVIEW.md's identical precedent.
-status: issues_found
+status: resolved
 ---
 
 # Phase 03: Code Review Report
@@ -299,6 +299,8 @@ constant is loud rather than silent.
 
 ### IN-01: `loadSearchWinnerSigma1` casts a search artifact without schema validation
 
+**Status:** resolved — `TuneSearchOutputMinimalSchema` (promote.ts, exported) now validates the search artifact at the read boundary in both `promote.ts` and `cli.ts`'s `loadSearchWinnerVpr`; the cast interfaces are gone (2026-08-31).
+
 **File:** `packages/harness/cli.ts:154-163`
 
 **Issue:** `promote.ts`'s equivalent reader (`TuneSearchOutput`, `promote.ts:158-169`) is also an
@@ -321,6 +323,8 @@ error.
 `cli.ts` and `promote.ts`, mirroring the pattern `PromotedVersionSchema` already establishes.
 
 ### IN-02: Redundant duplicate computation in `tune.ts`'s coordinate-descent refinement loop
+
+**Status:** resolved — `neighborValues` computed once per refinement step; `rejectedCandidates` sizes against the same array (2026-08-31).
 
 **File:** `packages/harness/tune.ts:789-793`
 

@@ -78,7 +78,7 @@ import {
   writePredictionLine,
   type PredictionsWriterHandle,
 } from "./predictions.js";
-import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
+import { PromotedVersionSchema, TuneSearchOutputMinimalSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -144,14 +144,9 @@ const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
  */
 const ON_SEARCH_ARTIFACT_PATH = join("reports", "tune-joint-on.json");
 
-interface TuneSearchCandidateForOverride {
-  readonly index: number;
-  readonly params: unknown;
-}
-interface TuneSearchOutputForOverride {
-  readonly winnerIndex: number;
-  readonly candidates: readonly TuneSearchCandidateForOverride[];
-}
+// 03-REVIEW IN-01: the former `TuneSearchOutputForOverride` cast interfaces
+// are replaced by `TuneSearchOutputMinimalSchema` (promote.ts) — validation
+// at the read boundary, shared with `promote.ts`'s own reader.
 
 /** Builds a VPR module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
 export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModule<any> | undefined {
@@ -165,7 +160,7 @@ export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModul
 export function loadSearchWinnerVpr(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
   if (!existsSync(searchArtifactPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
-  const output = raw as TuneSearchOutputForOverride;
+  const output = TuneSearchOutputMinimalSchema.parse(raw);
   const winner = output.candidates.find((c) => c.index === output.winnerIndex);
   if (!winner) return undefined;
   const searchedParams = Sigma1ParamsSchema.parse(winner.params);
@@ -429,8 +424,14 @@ function parseSingleSeason(spec: string): number {
   return season;
 }
 
-async function writeReport(outDir: string, artifact: Parameters<typeof renderHtmlReport>[0]): Promise<void> {
+async function writeReport(outDir: string, artifact: Parameters<typeof renderHtmlReport>[0], secretToScrub?: string): Promise<void> {
   const html = renderHtmlReport(artifact);
+  // 01-REVIEW IN-02: same defense-in-depth guard `writeArtifact` carries — a
+  // future caller routing a key-bearing path through this helper cannot write
+  // a secret to disk. `runSeasonsMode` passes nothing (no key in scope).
+  if (secretToScrub !== undefined && html.includes(secretToScrub)) {
+    throw new Error("Refusing to write HTML report: rendered output contains a secret value.");
+  }
   mkdirSync(outDir, { recursive: true });
   const htmlPath = join(outDir, "report.html");
   writeFileSync(htmlPath, html, "utf8");
@@ -631,9 +632,15 @@ export async function runSeasons(
   const all: HarnessPredictionInput[] = [];
   let liveStates = new Map<string, unknown>();
 
-  for (const season of seasons) {
+  for (const [seasonIdx, season] of seasons.entries()) {
+    // 02-REVIEW IN-01: derive `fromSeason` from the ACTUAL previous element of
+    // `seasons`, not `season - 1` — identical for the contiguous ranges every
+    // current caller passes, but correct (rather than silently wrong) if a
+    // non-contiguous `seasons` array ever reaches this loop and a future
+    // `carrySeason` starts consuming `fromSeason`. Cold-start has no
+    // predecessor; `season - 1` is kept there as the boundary's nominal label.
     const boundary: SeasonBoundary = {
-      fromSeason: season - 1,
+      fromSeason: seasonIdx > 0 ? seasons[seasonIdx - 1]! : season - 1,
       toSeason: season,
       isColdStart: season === coldStartSeason,
     };
@@ -813,17 +820,11 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
     });
 
     const artifactPath = writeArtifact(outDir, artifact, apiKey);
-
-    const html = renderHtmlReport(artifact);
-    if (html.includes(apiKey)) {
-      throw new Error("Refusing to write HTML report: rendered output contains a secret value.");
-    }
-    mkdirSync(outDir, { recursive: true });
-    const htmlPath = join(outDir, "report.html");
-    writeFileSync(htmlPath, html, "utf8");
+    // 01-REVIEW IN-02: the former inline copy of report writing now routes
+    // through the shared helper, whose scrub guard it originated.
+    await writeReport(outDir, artifact, apiKey);
 
     console.log(`Wrote ${artifactPath}`);
-    console.log(`Wrote ${htmlPath}`);
   } finally {
     db.close();
   }

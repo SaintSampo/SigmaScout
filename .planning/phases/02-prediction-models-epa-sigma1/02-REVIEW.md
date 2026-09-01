@@ -60,7 +60,7 @@ resolution:
   open_ids: [IN-01]
   resolved_at: 2026-08-14
   note: CR-01, WR-01, WR-02, WR-03 resolved post-review; only info-level IN-01 remains. See Resolution Summary.
-status: issues_found
+status: resolved
 ---
 
 # Phase 02: Code Review Report
@@ -191,6 +191,8 @@ assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}
 ## Info
 
 ### IN-01: `RunSeasonsSidecarConfig`'s `boundary.fromSeason` is unused by every current `carrySeason` implementation
+
+**Status:** resolved — `runSeasons` now derives `fromSeason` from the actual previous element of `seasons` (identical for contiguous ranges; correct for non-contiguous ones), closing the latent trap (2026-08-31).
 
 **File:** `packages/harness/cli.ts:415-419`
 

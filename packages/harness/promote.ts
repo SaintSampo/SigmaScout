@@ -89,6 +89,23 @@ export const PromotedVersionSchema = z.object({
 export type PromotedVersion = z.infer<typeof PromotedVersionSchema>;
 
 /**
+ * 03-REVIEW IN-01: the minimal load-bearing shape of a `tune.ts` search
+ * artifact, validated at the read boundary in BOTH this file and `cli.ts`'s
+ * `loadSearchWinnerVpr` — a truncated or hand-edited artifact fails with a
+ * named ZodError instead of a raw `TypeError` on `.find`. Deliberately
+ * narrow and `.passthrough()`-tolerant (matching `baselineFingerprint.ts`'s
+ * read-schema idiom): provenance-only fields stay unvalidated; the winning
+ * candidate's `params` are separately parsed through `Sigma1ParamsSchema`
+ * at each call site, exactly as before.
+ */
+export const TuneSearchOutputMinimalSchema = z
+  .object({
+    winnerIndex: z.number().int(),
+    candidates: z.array(z.object({ index: z.number().int(), params: z.unknown() }).passthrough()),
+  })
+  .passthrough();
+
+/**
  * D-15/D-16's digest: one line per prediction, `JSON.stringify([matchKey,
  * pRedWin, redScore, blueScore])`, newline-joined, SHA-256 hashed to a
  * lowercase hex string. `JSON.stringify`'s own number formatting is the
@@ -210,7 +227,10 @@ async function main(): Promise<void> {
   // from — a hand-edited search log between the search and the promotion
   // produces a hash mismatch rather than a silent substitution.
   const searchArtifactSha256 = createHash("sha256").update(searchArtifactRaw).digest("hex");
-  const searchOutput = JSON.parse(searchArtifactRaw) as TuneSearchOutput;
+  // 03-REVIEW IN-01: validate the load-bearing shape before the cast — the
+  // cast then only widens to the optional provenance fields `.passthrough()`
+  // already preserved at runtime.
+  const searchOutput = TuneSearchOutputMinimalSchema.parse(JSON.parse(searchArtifactRaw)) as unknown as TuneSearchOutput;
   const winnerCandidate = searchOutput.candidates.find((c) => c.index === searchOutput.winnerIndex);
   if (!winnerCandidate) {
     throw new Error(`promote: ${fromPath} has no candidate at winnerIndex ${searchOutput.winnerIndex}`);

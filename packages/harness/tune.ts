@@ -842,11 +842,13 @@ async function runJointStage(
       for (const key of survivors) {
         const bound = SIGMA1_SEARCH_SPACE[key];
         const currentValue = (anchor.params as unknown as Record<string, number>)[key]!;
-        const neighborCandidates = neighborValues(bound, currentValue)
-          .filter((v) => v !== currentValue)
+        // 03-REVIEW IN-02: computed once — `rejectedCandidates` sizes against
+        // this same array rather than re-deriving it.
+        const distinctNeighbors = neighborValues(bound, currentValue).filter((v) => v !== currentValue);
+        const neighborCandidates = distinctNeighbors
           .map((value) => ({ id: `refine-${nextIndex++}`, params: { ...anchor.params, [key]: value } as Sigma1Params }))
           .filter((c) => isValidParamSet(c.params));
-        rejectedCandidates += neighborValues(bound, currentValue).filter((v) => v !== currentValue).length - neighborCandidates.length;
+        rejectedCandidates += distinctNeighbors.length - neighborCandidates.length;
         if (neighborCandidates.length === 0) continue;
 
         const evaluatedNeighbors = await evaluateCandidateBatch(db, seasons, eventsLimit, neighborCandidates);
