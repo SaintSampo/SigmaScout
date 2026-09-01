@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Team Pages** - Per-team season view with per-event match predictions vs actuals and a metric-history plot (completed 2026-08-26)
 - [x] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data (completed 2026-08-26)
 - [x] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs (completed 2026-08-30)
-- [ ] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table
+- [x] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table (completed 2026-08-31)
 
 ## Phase Details
 
@@ -562,7 +562,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Site Shell — Navigation & Browsing | 8/8 | Complete    | 2026-08-24 |
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
-| 8. Simulation & Compare | 15/15 | In Progress|  |
+| 8. Simulation & Compare | 15/15 | Complete    | 2026-08-31 |
 
 ## Coverage
 
