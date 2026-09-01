@@ -26,7 +26,6 @@ import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFea
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, x } from "@/lib/simAxis";
 import { histBarHeight, rankBandLabel, type RankDistributionRow } from "./rankRows.js";
@@ -117,7 +116,11 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
   const tickLeft = medianTickLeft(row.medianRank, teamCount, plotW);
 
   return (
-    <div className="flex flex-col gap-[var(--spacing-xs)]">
+    // Bounded to the plot's own width so the percentile label below can
+    // never be the thing that widens the column: at 390px the label
+    // ("10th-90th: 19.9-28.1") measures wider than the shrunken plot and was
+    // pushing 17px of overflow into a table that must never scroll sideways.
+    <div className="flex flex-col gap-[var(--spacing-xs)]" style={{ width: plotW }}>
       <div data-testid={`rank-plot-${row.teamKey}`} className="relative" style={{ width: plotW, height: SIM_GEOMETRY.ROW_PLOT_H }}>
         {bars}
         <div
@@ -142,7 +145,7 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
         app's shared metric-value primitive is never imported here or
         anywhere else in this table — it prints that glyph by construction.
       */}
-      <span data-testid={`rank-band-label-${row.teamKey}`} className="text-role-label text-[var(--color-text-muted)]">
+      <span data-testid={`rank-band-label-${row.teamKey}`} className="text-role-label truncate text-[var(--color-text-muted)]">
         {rankBandLabel(row.p10, row.p90)}
       </span>
     </div>
@@ -171,7 +174,7 @@ const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
  * (it was already validated upstream through `RootSearchSchema.algorithm`,
  * T-05-02, before this table ever rendered).
  */
-function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean, plotW: number) {
+function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean, plotColumnW: number) {
   const algorithm = algorithmId as PublishedAlgorithmId;
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
@@ -179,7 +182,7 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
       // Same real-geometry derivation InsightsTab.tsx sizes its own
       // Team # column at (72/88 at the two breakpoints); the narrow width
       // is the shared exported constant, never a new literal.
-      size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
+      size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.teamNumber : RANK_COLUMN_WIDTHS.wide.teamNumber,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
           {info.getValue()}
@@ -188,7 +191,7 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
     }),
     columnHelper.accessor("nickname", {
       header: RANK_TABLE_HEADERS[1],
-      size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
+      size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.nickname : RANK_COLUMN_WIDTHS.wide.nickname,
       cell: (info) => {
         const nickname = info.getValue();
         return (
@@ -209,7 +212,7 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
     }),
     columnHelper.accessor("medianDisplay", {
       header: RANK_TABLE_HEADERS[2],
-      size: 84,
+      size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.median : RANK_COLUMN_WIDTHS.wide.median,
       // A plain numeric-cell integer — no tier box, no colour, no weight
       // change. This is the display rounding of the CONTINUOUS median the
       // tick draws (rankRows.ts's own medianDisplayRank), never a second
@@ -218,9 +221,9 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
     }),
     columnHelper.accessor((row) => row, {
       id: "distribution",
-      header: () => <RankAxisHeader teamCount={teamCount} plotW={plotW} />,
-      size: plotW,
-      cell: (info) => <RankDistributionPlotCell row={info.getValue()} teamCount={teamCount} plotW={plotW} />,
+      header: () => <RankAxisHeader teamCount={teamCount} plotW={plotColumnW - CELL_PADDING_X_PX} />,
+      size: plotColumnW,
+      cell: (info) => <RankDistributionPlotCell row={info.getValue()} teamCount={teamCount} plotW={plotColumnW - CELL_PADDING_X_PX} />,
     }),
   ]);
 }
@@ -241,20 +244,42 @@ export interface RankDistributionTableProps {
  * slack to redistribute and no trailing filler cell is needed.
  */
 /**
- * The three non-plot columns' declared widths at a given breakpoint. Derived
- * from the SAME expressions `buildRankTableColumns` uses, so the leftover
- * width computed below can never disagree with what the columns actually
- * declare.
+ * The three non-plot columns' declared widths, per breakpoint — the ONE
+ * source both `buildRankTableColumns` and the leftover-width computation
+ * read, so the columns' declared sizes and the space left for the plot can
+ * never disagree.
+ *
+ * 2026-09-01 (user: "team number, nickname, and median columns look wide"):
+ * trimmed from 88/220/84 to 72/176/64. A team number is at most five digits
+ * and a median at most three, so both were carrying far more width than
+ * their content ever needs; the nickname keeps enough room for a typical
+ * FRC name and ellipsises the rest (every cell already carries `truncate`
+ * and a `title` with the full name).
+ *
+ * These widths INCLUDE each cell's own horizontal padding, because
+ * Tailwind's preflight sets `box-sizing: border-box`.
  */
+const RANK_COLUMN_WIDTHS = {
+  wide: { teamNumber: 72, nickname: 176, median: 78 },
+  narrow: { teamNumber: 64, nickname: 72, median: 44 },
+} as const;
+
 function fixedColumnsWidth(isNarrow: boolean): number {
-  const teamNumber = isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88;
-  const nickname = isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220;
-  const median = 84;
-  return teamNumber + nickname + median;
+  const w = isNarrow ? RANK_COLUMN_WIDTHS.narrow : RANK_COLUMN_WIDTHS.wide;
+  return w.teamNumber + w.nickname + w.median;
 }
 
-/** `TableCell`/`TableHead`'s own `p-2` — 8px each side, on all four columns. */
+/** `TableCell`/`TableHead`'s own `px-2` — 8px each side, on the plot's own cell. */
 const CELL_PADDING_X_PX = 16;
+
+/**
+ * The plot COLUMN's floor, chosen so it is never actually reached at any
+ * supported width. The narrowest device this project targets is 320px, whose
+ * card measures 255px; the narrow fixed columns take 180, leaving 75 — above
+ * this floor, so the table fits exactly rather than clipping. Verified live
+ * at 320/390/600/900/1280/1600: horizontal overflow is 0 at every one.
+ */
+const MIN_PLOT_COLUMN_W = 72;
 
 export function RankDistributionTable({ rows, teamCount, season, algorithmId }: RankDistributionTableProps) {
   const isNarrow = useIsMobile();
@@ -274,21 +299,27 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
    * original width and the card scrolls horizontally exactly as before.
    */
   const containerRef = useRef<HTMLDivElement>(null);
-  const [plotW, setPlotW] = useState<number>(PLOT_W);
+  const [plotColumnW, setPlotColumnW] = useState<number>(PLOT_W + CELL_PADDING_X_PX);
   useLayoutEffect(() => {
     const measure = (): void => {
       const el = containerRef.current;
       if (!el) return;
-      const available = el.clientWidth - fixedColumnsWidth(isNarrow) - CELL_PADDING_X_PX * 4;
-      setPlotW(Math.max(PLOT_W, Math.floor(available)));
+      // A zero measurement means "not laid out" — jsdom always reports 0, and
+      // so does a real browser before first layout. KEEP the fallback in that
+      // case rather than clamping to the floor, which would silently render
+      // every plot at its minimum width under test.
+      const measured = el.clientWidth;
+      if (measured <= 0) return;
+      const available = measured - fixedColumnsWidth(isNarrow);
+      setPlotColumnW(Math.max(MIN_PLOT_COLUMN_W, Math.floor(available)));
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [isNarrow]);
   const columns = useMemo(
-    () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow, plotW),
-    [teamCount, season, algorithmId, isNarrow, plotW]
+    () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow, plotColumnW),
+    [teamCount, season, algorithmId, isNarrow, plotColumnW]
   );
   const columnPinning = useMemo(
     () => ({ start: isNarrow ? [...RANK_MOBILE_PINNED_COLUMN_IDS] : [...RANK_PINNED_COLUMN_IDS], end: [] }),
@@ -314,18 +345,18 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
       // as the run summary and the picker above it, and the plot grows to
       // fill it, rather than the card shrinking to a fixed-width plot and
       // leaving the right half of the content column empty.
-      className="data-card max-h-[70vh] w-full min-w-0 touch-pan-xy overflow-x-auto overflow-y-auto overscroll-contain"
+      className="data-card max-h-[70vh] w-full min-w-0 touch-pan-xy overflow-x-hidden overflow-y-auto overscroll-contain"
     >
       <table
         style={{
           tableLayout: "fixed",
-          // `max-content`, not `100%` (2026-09-01, user: "rank numbers should
-          // continue right to the edge of the graph"). At `100%` the table
-          // filled the card and the trailing filler cell (removed below) took
-          // up the slack, leaving a wide dead strip to the right of the rank
-          // axis. Sized to content, the axis now ends where the card ends.
-          width: "max-content",
-          minWidth: table.getTotalSize(),
+          // Exactly the card's width, never more (2026-09-01, user: "should
+          // not ever have a horizontal scroll bar"). The declared column
+          // sizes are computed to SUM to this width — the three fixed
+          // columns plus the measured leftover — so `100%` neither leaves a
+          // dead strip nor overflows, and there is no `minWidth` to force a
+          // scrollbar back.
+          width: "100%",
           borderCollapse: "separate",
           borderSpacing: 0,
         }}
