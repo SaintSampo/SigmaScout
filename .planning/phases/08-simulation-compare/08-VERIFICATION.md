@@ -1,7 +1,8 @@
 ---
 phase: 08-simulation-compare
 verified: 2026-08-31T22:45:00Z
-status: human_needed
+status: passed
+human_verification_resolved: 2026-08-31 — all 5 real-device checks passed on iPhone + Android via 08-UAT.md (site deployed to sigmascout.org for the pass)
 score: 4/4 roadmap success criteria verified in code; 0 failed
 behavior_unverified: 0
 overrides_applied: 0
@@ -29,7 +30,7 @@ human_verification:
 public accuracy table that matches the harness exactly.
 
 **Verified:** 2026-08-31
-**Status:** human_needed
+**Status:** passed
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
