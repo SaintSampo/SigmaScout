@@ -31,7 +31,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-08-30T18:09:54.370Z",
+    "promotedAt": "2026-09-01T17:52:59.695Z",
     "objective": 0.17465514532650941,
     "tuneSeasons": [
       2022
@@ -53,7 +53,7 @@
       {
         "season": 2022,
         "brierScore": 0.17816057795263934,
-        "winnerAccuracy": 0.7206477732793523
+        "winnerAccuracy": 0.6819923371647509
       }
     ]
   }

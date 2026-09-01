@@ -24,15 +24,17 @@ describe("scoreSet", () => {
     expect(result.noCallCount).toBe(0);
   });
 
-  it("excludes a 0.5 prediction from the accuracy denominator and counts it as a no-call", () => {
+  it("counts a 0.5 prediction as a MISS, not an exclusion (D-Q3)", () => {
     const predictions: ScoredPrediction[] = [
       { pRedWin: 0.8, actualWinner: "red" },
       { pRedWin: 0.5, actualWinner: "red" },
     ];
     const result = scoreSet(predictions);
+    // Still reported as a no-call — the abstention rate stays visible.
     expect(result.noCallCount).toBe(1);
-    // Only the 0.8/red prediction counts toward accuracy: 1/1 = 1.
-    expect(result.winnerAccuracy).toBe(1);
+    // Both non-tie predictions are in the denominator; the no-call is never in the
+    // numerator, so 1 correct of 2 = 0.5 (it was 1/1 = 1 under the retired contract).
+    expect(result.winnerAccuracy).toBe(0.5);
     // Both predictions still contribute to Brier: count is 2.
     expect(result.count).toBe(2);
     expect(result.brierScore).toBeCloseTo(((0.8 - 1) ** 2 + (0.5 - 1) ** 2) / 2, 10);
@@ -75,16 +77,47 @@ describe("scoreSet", () => {
     expect(result.winnerAccuracy).toBe(0);
   });
 
-  it("returns null winner accuracy when every prediction is excluded (all ties/no-calls) but still scores Brier", () => {
+  it("scores a no-call against a decided match as 0 accuracy even when the rest of the set is a tie", () => {
+    // Retired contract: both rows were excluded and this returned `null`. Under
+    // D-Q3 the tie is still excluded but the 0.5-vs-red row is a real, decided
+    // match the model failed to call — denominator 1, numerator 0, answer 0.
     const predictions: ScoredPrediction[] = [
       { pRedWin: 0.5, actualWinner: "tie" },
       { pRedWin: 0.5, actualWinner: "red" },
     ];
     const result = scoreSet(predictions);
-    expect(result.winnerAccuracy).toBeNull();
+    expect(result.winnerAccuracy).toBe(0);
     expect(result.count).toBe(2);
     expect(result.tieCount).toBe(1);
     expect(result.noCallCount).toBe(2);
+  });
+
+  it("returns null winner accuracy only when every prediction is a tie — the sole remaining empty denominator", () => {
+    const predictions: ScoredPrediction[] = [
+      { pRedWin: 0.5, actualWinner: "tie" },
+      { pRedWin: 0.9, actualWinner: "tie" },
+    ];
+    const result = scoreSet(predictions);
+    expect(result.winnerAccuracy).toBeNull();
+    expect(result.count).toBe(2);
+    expect(result.tieCount).toBe(2);
+    expect(result.noCallCount).toBe(1);
+    // Ties are still scored in Brier against a target of 0.5.
+    expect(result.brierScore).toBeCloseTo(((0.5 - 0.5) ** 2 + (0.9 - 0.5) ** 2) / 2, 10);
+  });
+
+  it("keeps the tie exclusion and the no-call miss as two distinct rules (D-Q3)", () => {
+    // Same predicted probability, different outcomes: the tie leaves the
+    // denominator, the decided match stays in it and scores 0.
+    const predictions: ScoredPrediction[] = [
+      { pRedWin: 0.5, actualWinner: "red" },
+      { pRedWin: 0.5, actualWinner: "tie" },
+    ];
+    const result = scoreSet(predictions);
+    expect(result.noCallCount).toBe(2);
+    expect(result.tieCount).toBe(1);
+    expect(result.winnerAccuracy).toBe(0); // 0 correct over a denominator of 1
+    expect(result.count).toBe(2);
   });
 
   it("round-trips through JSON.stringify/parse with no non-serializable sentinel", () => {
