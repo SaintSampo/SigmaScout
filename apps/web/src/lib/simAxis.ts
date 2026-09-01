@@ -89,7 +89,7 @@ export const SIM_GEOMETRY = {
  * uncertainty display, an absent band reads as certainty, the worst
  * possible failure mode.
  */
-export function x(rank: number, teamCount: number): number {
+export function x(rank: number, teamCount: number, plotW: number = PLOT_W): number {
   if (!(teamCount > 1)) return 0;
   // 2026-09-01 (user report: "leftmost and rightmost boxes are squished").
   // This is a SLOT-CENTRED (band) scale, not the point scale it used to be.
@@ -112,7 +112,7 @@ export function x(rank: number, teamCount: number): number {
   // while `x(N+0.5)` is precisely PLOT_W, so the measured -10.58px/+480.70px
   // overflows the clamps in `rankBandExtent` existed to absorb are gone at
   // the source.
-  return ((rank - 0.5) / teamCount) * PLOT_W;
+  return ((rank - 0.5) / teamCount) * plotW;
 }
 
 /**
@@ -122,9 +122,9 @@ export function x(rank: number, teamCount: number): number {
  * histogram SLOT is `PLOT_W / N`) — so the two are not mistaken for a typo
  * and silently unified by a later reader.
  */
-export function rankSlotWidth(teamCount: number): number {
-  if (!(teamCount >= 1)) return PLOT_W;
-  return PLOT_W / teamCount;
+export function rankSlotWidth(teamCount: number, plotW: number = PLOT_W): number {
+  if (!(teamCount >= 1)) return plotW;
+  return plotW / teamCount;
 }
 
 /** A mark's pixel extent within the plot cell, both fields in pixels from the cell's left edge. */
@@ -150,12 +150,12 @@ export interface RankMarkExtent {
  * pulled back so `left + width` never exceeds `PLOT_W` — the same
  * two-argument min/max clamping style throughout, never a rounding call.
  */
-export function rankBandExtent(p10: number, p90: number, teamCount: number): RankMarkExtent {
-  const clampedLeft = Math.min(Math.max(x(p10, teamCount), 0), PLOT_W);
-  const clampedRight = Math.min(Math.max(x(p90, teamCount), 0), PLOT_W);
+export function rankBandExtent(p10: number, p90: number, teamCount: number, plotW: number = PLOT_W): RankMarkExtent {
+  const clampedLeft = Math.min(Math.max(x(p10, teamCount, plotW), 0), plotW);
+  const clampedRight = Math.min(Math.max(x(p90, teamCount, plotW), 0), plotW);
   const span = clampedRight - clampedLeft;
-  const width = Math.min(Math.max(span, SIM_GEOMETRY.BAND_MIN_W), PLOT_W);
-  const left = Math.min(clampedLeft, PLOT_W - width);
+  const width = Math.min(Math.max(span, SIM_GEOMETRY.BAND_MIN_W), plotW);
+  const left = Math.min(clampedLeft, plotW - width);
   return { left, width };
 }
 
@@ -167,10 +167,10 @@ export function rankBandExtent(p10: number, p90: number, teamCount: number): Ran
  * hard-coded tick offset (`+ slotW/2`) is what it warns against. Clamped so
  * the tick never leaves the plot box.
  */
-export function medianTickLeft(median: number, teamCount: number): number {
+export function medianTickLeft(median: number, teamCount: number, plotW: number = PLOT_W): number {
   const half = SIM_GEOMETRY.MEDIAN_TICK_W / 2;
-  const raw = x(median, teamCount) - half;
-  return Math.min(Math.max(raw, 0), PLOT_W - SIM_GEOMETRY.MEDIAN_TICK_W);
+  const raw = x(median, teamCount, plotW) - half;
+  return Math.min(Math.max(raw, 0), plotW - SIM_GEOMETRY.MEDIAN_TICK_W);
 }
 
 /**
@@ -181,14 +181,14 @@ export function medianTickLeft(median: number, teamCount: number): number {
  * draw counts, not from the axis, is capped at `HIST_BAR_MAX_H`, and is
  * 08-14's job to compute.
  */
-export function histBarExtent(rank: number, teamCount: number): RankMarkExtent {
-  const width = Math.max(1, rankSlotWidth(teamCount) - SIM_GEOMETRY.BAR_GAP);
-  const raw = x(rank, teamCount) - width / 2;
+export function histBarExtent(rank: number, teamCount: number, plotW: number = PLOT_W): RankMarkExtent {
+  const width = Math.max(1, rankSlotWidth(teamCount, plotW) - SIM_GEOMETRY.BAR_GAP);
+  const raw = x(rank, teamCount, plotW) - width / 2;
   // The clamp is now a pure safety rail rather than a load-bearing
   // correction: under `x()`'s slot-centred mapping every in-range rank
   // already lands wholly inside `[0, PLOT_W]`, so this can only ever fire
   // for a rank outside `[1, teamCount]`, which no caller passes.
-  const left = Math.min(Math.max(raw, 0), PLOT_W - width);
+  const left = Math.min(Math.max(raw, 0), plotW - width);
   return { left, width };
 }
 
@@ -220,12 +220,12 @@ const RANK_TICK_STEP_LADDER = [1, 2, 5, 10, 20, 25, 50] as const;
  * for a team count that is not greater than 1, matching `x()`'s own
  * degenerate-roster guard.
  */
-export function rankAxisTicks(teamCount: number): number[] {
+export function rankAxisTicks(teamCount: number, plotW: number = PLOT_W): number[] {
   if (!(teamCount > 1)) return [1];
 
   let step: number = RANK_TICK_STEP_LADDER[RANK_TICK_STEP_LADDER.length - 1]!;
   for (const candidate of RANK_TICK_STEP_LADDER) {
-    if (x(1 + candidate, teamCount) - x(1, teamCount) >= RANK_TICK_MIN_GAP_PX) {
+    if (x(1 + candidate, teamCount, plotW) - x(1, teamCount, plotW) >= RANK_TICK_MIN_GAP_PX) {
       step = candidate;
       break;
     }
@@ -242,14 +242,14 @@ export function rankAxisTicks(teamCount: number): number[] {
       continue;
     }
     const last = kept[kept.length - 1]!;
-    if (x(candidate, teamCount) - x(last, teamCount) >= RANK_TICK_MIN_GAP_PX) kept.push(candidate);
+    if (x(candidate, teamCount, plotW) - x(last, teamCount, plotW) >= RANK_TICK_MIN_GAP_PX) kept.push(candidate);
   }
 
   if (kept.length >= 2) {
     const lastInteriorIdx = kept.length - 2;
     const lastInterior = kept[lastInteriorIdx]!;
     const anchor = kept[kept.length - 1]!;
-    if (lastInterior !== 1 && x(anchor, teamCount) - x(lastInterior, teamCount) < RANK_TICK_MIN_GAP_PX) {
+    if (lastInterior !== 1 && x(anchor, teamCount, plotW) - x(lastInterior, teamCount, plotW) < RANK_TICK_MIN_GAP_PX) {
       kept.splice(lastInteriorIdx, 1);
     }
   }

@@ -23,7 +23,7 @@
  * exists anywhere in this pipeline (D-14).
  */
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
@@ -59,18 +59,18 @@ export const RANK_TABLE_HEADERS = ["Team #", "Nickname", "Median", "Distribution
  * keeps this cell's accessible name and `RANK_TABLE_HEADERS`'s own text in
  * agreement without competing with the axis for the reader's attention.
  */
-function RankAxisHeader({ teamCount }: { teamCount: number }) {
-  const ticks = rankAxisTicks(teamCount);
+function RankAxisHeader({ teamCount, plotW }: { teamCount: number; plotW: number }) {
+  const ticks = rankAxisTicks(teamCount, plotW);
   return (
     <>
       <span className="sr-only">{RANK_TABLE_HEADERS[3]}</span>
-      <div data-testid="rank-axis-ticks" className="relative" style={{ width: PLOT_W }}>
+      <div data-testid="rank-axis-ticks" className="relative" style={{ width: plotW }}>
         {ticks.map((tick) => (
           <span
             key={tick}
             data-testid="rank-axis-tick"
             className="numeric-cell text-role-label absolute -translate-x-1/2 text-[var(--color-text-muted)]"
-            style={{ left: x(tick, teamCount) }}
+            style={{ left: x(tick, teamCount, plotW) }}
           >
             {tick}
           </span>
@@ -95,12 +95,12 @@ function RankAxisHeader({ teamCount }: { teamCount: number }) {
  * extents are already clamped inside `rankBandExtent` against real measured
  * overflows and are never re-clamped or adjusted here.
  */
-function RankDistributionPlotCell({ row, teamCount }: { row: RankDistributionRow; teamCount: number }) {
+function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistributionRow; teamCount: number; plotW: number }) {
   const bars = [];
   for (let rank = 1; rank <= teamCount; rank++) {
     const count = row.histogram[rank - 1] ?? 0;
     if (count <= 0) continue;
-    const extent = histBarExtent(rank, teamCount);
+    const extent = histBarExtent(rank, teamCount, plotW);
     bars.push(
       <div
         key={rank}
@@ -111,14 +111,14 @@ function RankDistributionPlotCell({ row, teamCount }: { row: RankDistributionRow
     );
   }
 
-  const band = rankBandExtent(row.p10, row.p90, teamCount);
+  const band = rankBandExtent(row.p10, row.p90, teamCount, plotW);
   // The CONTINUOUS median, never the display integer — this is the render-layer
   // proof of 08-14 Decision 1's coupled-geometry rule (chart-craft.md).
-  const tickLeft = medianTickLeft(row.medianRank, teamCount);
+  const tickLeft = medianTickLeft(row.medianRank, teamCount, plotW);
 
   return (
     <div className="flex flex-col gap-[var(--spacing-xs)]">
-      <div data-testid={`rank-plot-${row.teamKey}`} className="relative" style={{ width: PLOT_W, height: SIM_GEOMETRY.ROW_PLOT_H }}>
+      <div data-testid={`rank-plot-${row.teamKey}`} className="relative" style={{ width: plotW, height: SIM_GEOMETRY.ROW_PLOT_H }}>
         {bars}
         <div
           data-testid={`rank-band-${row.teamKey}`}
@@ -171,7 +171,7 @@ const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
  * (it was already validated upstream through `RootSearchSchema.algorithm`,
  * T-05-02, before this table ever rendered).
  */
-function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean) {
+function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean, plotW: number) {
   const algorithm = algorithmId as PublishedAlgorithmId;
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
@@ -218,9 +218,9 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
     }),
     columnHelper.accessor((row) => row, {
       id: "distribution",
-      header: () => <RankAxisHeader teamCount={teamCount} />,
-      size: PLOT_W,
-      cell: (info) => <RankDistributionPlotCell row={info.getValue()} teamCount={teamCount} />,
+      header: () => <RankAxisHeader teamCount={teamCount} plotW={plotW} />,
+      size: plotW,
+      cell: (info) => <RankDistributionPlotCell row={info.getValue()} teamCount={teamCount} plotW={plotW} />,
     }),
   ]);
 }
@@ -240,11 +240,55 @@ export interface RankDistributionTableProps {
  * rendered. The table is sized to `max-content` (2026-09-01) so there is no
  * slack to redistribute and no trailing filler cell is needed.
  */
+/**
+ * The three non-plot columns' declared widths at a given breakpoint. Derived
+ * from the SAME expressions `buildRankTableColumns` uses, so the leftover
+ * width computed below can never disagree with what the columns actually
+ * declare.
+ */
+function fixedColumnsWidth(isNarrow: boolean): number {
+  const teamNumber = isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88;
+  const nickname = isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220;
+  const median = 84;
+  return teamNumber + nickname + median;
+}
+
+/** `TableCell`/`TableHead`'s own `p-2` — 8px each side, on all four columns. */
+const CELL_PADDING_X_PX = 16;
+
 export function RankDistributionTable({ rows, teamCount, season, algorithmId }: RankDistributionTableProps) {
   const isNarrow = useIsMobile();
+
+  /*
+   * 2026-09-01 (user: "the simulation table is not wide enough, it should be
+   * symmetrically wide, aligned with the above text"): the plot stretches to
+   * fill whatever width the card actually has, instead of every row being a
+   * fixed 470px island inside a card that hugged it and left the rest of the
+   * content column empty.
+   *
+   * Measured rather than assumed, using the same measure-with-a-sane-fallback
+   * pattern `MetricHistoryChart.tsx` established for exactly this problem:
+   * jsdom always measures 0, so tests and the first paint fall back to
+   * `PLOT_W` and render the geometry this table shipped with. `PLOT_W` is also
+   * the FLOOR — on a viewport too narrow to grant more, the plot keeps its
+   * original width and the card scrolls horizontally exactly as before.
+   */
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [plotW, setPlotW] = useState<number>(PLOT_W);
+  useLayoutEffect(() => {
+    const measure = (): void => {
+      const el = containerRef.current;
+      if (!el) return;
+      const available = el.clientWidth - fixedColumnsWidth(isNarrow) - CELL_PADDING_X_PX * 4;
+      setPlotW(Math.max(PLOT_W, Math.floor(available)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [isNarrow]);
   const columns = useMemo(
-    () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow),
-    [teamCount, season, algorithmId, isNarrow]
+    () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow, plotW),
+    [teamCount, season, algorithmId, isNarrow, plotW]
   );
   const columnPinning = useMemo(
     () => ({ start: isNarrow ? [...RANK_MOBILE_PINNED_COLUMN_IDS] : [...RANK_PINNED_COLUMN_IDS], end: [] }),
@@ -264,8 +308,13 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
     // at ~70px means a 75-team division is over 5000px tall, so this table
     // genuinely wants its own scrollport rather than the page's.
     <div
+      ref={containerRef}
       data-testid="rank-distribution-table-scroll"
-      className="data-card w-fit max-h-[70vh] max-w-full min-w-0 touch-pan-xy overflow-x-auto overflow-y-auto overscroll-contain"
+      // Full width, not hug-the-content (2026-09-01): the card spans the same width
+      // as the run summary and the picker above it, and the plot grows to
+      // fill it, rather than the card shrinking to a fixed-width plot and
+      // leaving the right half of the content column empty.
+      className="data-card max-h-[70vh] w-full min-w-0 touch-pan-xy overflow-x-auto overflow-y-auto overscroll-contain"
     >
       <table
         style={{

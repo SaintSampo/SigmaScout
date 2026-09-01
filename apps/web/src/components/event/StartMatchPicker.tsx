@@ -28,10 +28,6 @@ export const START_MATCH_STATUS_PLAYED = "Played";
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim. */
 export const START_MATCH_STATUS_UPCOMING = "Upcoming";
 
-/** 08-UI-SPEC.md's Copywriting Contract, verbatim — sentence one of the rewind-honesty caption, split out so all three verdict branches in `rewindCaptionText` share it byte-for-byte. */
-export const REWIND_CAPTION_LEAD =
-  "Rewind simulation: this start match already happened, so predictions after it already reflect results the simulation is pretending haven't occurred.";
-
 /**
  * `SimulationTabSkeleton`'s placeholder footprint (08-09) is grounded in the
  * same geometry this real picker renders at. 2026-09-01: the picker is no
@@ -51,7 +47,6 @@ export const START_MATCH_PICKER_TESTID = "start-match-picker";
 export const START_MATCH_ROW_TESTID_PREFIX = "start-match-row-";
 export const START_MATCH_SLIDER_TESTID = "start-match-slider";
 export const START_MATCH_NUMBER_INPUT_TESTID = "start-match-number";
-export const REWIND_CAPTION_TESTID = "rewind-caption";
 /** The hint/scope disclosure line's testid — not independently exported (no other plan mounts a child there), so it is a literal string rather than a fifth constant. */
 const START_MATCH_SCOPE_TESTID = "start-match-scope";
 
@@ -79,28 +74,6 @@ export function simulationScopeText(inputs: SimulationInputs, startLabel: string
   }
 
   return text;
-}
-
-/**
- * The rewind-honesty caption's text builder (D-02). Always begins with
- * `REWIND_CAPTION_LEAD`, then branches on `verdict` — imported from
- * `apps/web/src/lib/rewindGap.ts` alongside `percent`, never presupposed —
- * so this sentence can never claim a narrowing the underlying measurement
- * did not find. The magnitude is rendered as `Math.abs(percent)`, one
- * decimal place: the direction comes from `verdict` alone, so a negative
- * measured percent can never surface as a minus sign inside a sentence that
- * already names a direction in words. Never rounds, adjusts or tidies the
- * imported figure beyond formatting it for display.
- */
-export function rewindCaptionText(percent: number, verdict: "narrower" | "wider" | "indistinguishable"): string {
-  const magnitude = Math.abs(percent).toFixed(1);
-  if (verdict === "narrower") {
-    return `${REWIND_CAPTION_LEAD} Rank spreads here run about ${magnitude}% narrower than a true from-here forecast.`;
-  }
-  if (verdict === "wider") {
-    return `${REWIND_CAPTION_LEAD} Rank spreads here run about ${magnitude}% wider than a true from-here forecast.`;
-  }
-  return `${REWIND_CAPTION_LEAD} The measured difference in rank spread was inside the measurement's own noise, so this measurement can't say how much that changes the rank spread here.`;
 }
 
 /** A team key's displayed number, degrading identically to `EventMatchTable.tsx`'s module-private `rosterNumberLabel` (not imported — that helper is not exported and this plan does not modify that file) — the same `teamNumberFromKey` call, the same try/catch fallback to the raw key string. */

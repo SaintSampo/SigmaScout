@@ -536,6 +536,28 @@ body {
 }
 
 /*
+ * The RIBBON's own nav size (2026-09-01, user: "the ribbon items are too
+ * small"). Deliberately a separate role from `.text-role-nav`, which is also
+ * worn by the event and team tab strips — those sit on white, inside a page
+ * whose body text is 14px, and are correctly sized there. The ribbon is a
+ * different context: a 78px-tall dark bar carrying a 28px wordmark, where
+ * 14px links measured exactly half the wordmark's size and read as
+ * secondary chrome rather than as the site's primary navigation.
+ *
+ * 17px is a deliberate step, not a round number: it is the largest size that
+ * keeps the three links plus both dropdowns plus the search box on one row
+ * at the 1024px laptop width where the desktop branch first renders, and it
+ * puts the nav a little over 60% of the wordmark — enough to read as
+ * primary, not so much that it competes with the brand.
+ */
+.text-role-ribbon-nav {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+
+/*
  * D-17's rarity-tier box (06-07-PLAN.md Task 1) — the `.metric-tier` shape
  * and its three colour modifiers, applied by `MetricValue.tsx`'s `tier`
  * prop and `TierKeyRow.tsx`'s key row via `cn()`. Geometry (padding,

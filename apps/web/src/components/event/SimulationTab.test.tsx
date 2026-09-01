@@ -15,18 +15,15 @@ import {
   SimulationTabSkeleton,
 } from "./SimulationTab.js";
 import {
-  REWIND_CAPTION_TESTID,
   START_MATCH_PICKER_HINT,
   START_MATCH_PICKER_TESTID,
   START_MATCH_ROW_TESTID_PREFIX,
   START_MATCH_NUMBER_INPUT_TESTID,
-  rewindCaptionText,
 } from "./StartMatchPicker.js";
 import { RUN_ERROR_BODY, RUN_LABEL_IDLE, RUN_LABEL_RERUN, RUN_RETRY_LABEL } from "./RunControl.js";
 import { installMockWorker } from "../../test/mockWorker.js";
 import type { MockWorkerScript } from "../../test/mockWorker.js";
 import { runSimulationJob } from "../../workers/simulationProtocol.js";
-import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import { RootSearchSchema, TeamSearchSchema } from "../../lib/searchParams.js";
 import { baseArtifact, BOTH_PMFS, playedQualRow, upcomingQualRow } from "./simulationTestFixtures.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -236,7 +233,6 @@ describe("08-11: the other two branches render no picker and no caption", () => 
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
     render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
     expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
-    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
   });
 
   it("the no-pmf unavailable state renders no picker and no caption", () => {
@@ -245,7 +241,6 @@ describe("08-11: the other two branches render no picker and no caption", () => 
     });
     render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
     expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
-    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
   });
 });
 
@@ -263,32 +258,6 @@ describe("08-11: default selection", () => {
     // A real selection means the SCOPE line, not the pre-selection hint.
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
-  });
-});
-
-describe("08-11: the rewind-honesty caption", () => {
-  it("selecting a played row shows the caption immediately, with no Run press, carrying rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT)'s output", () => {
-    const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
-    fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`));
-    const caption = screen.getByTestId(REWIND_CAPTION_TESTID);
-    expect(caption.textContent).toBe(rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT));
-  });
-
-  it("a no-rewind default selection (the unplayed-qual event) shows no caption", () => {
-    const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
-    expect(screen.queryByTestId(REWIND_CAPTION_TESTID)).toBeNull();
-  });
-
-  it("the caption follows the rewind PREDICATE, not the selected row's own played flag (PD-08): the default selection is the unplayed row, but a played row ordered after it still triggers the caption", () => {
-    const artifact = baseArtifact({
-      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1, sortTime: 100 })],
-      matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2, sortTime: 200 })],
-    });
-    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
-    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
-    expect(screen.getByTestId(REWIND_CAPTION_TESTID)).toBeDefined();
   });
 });
 

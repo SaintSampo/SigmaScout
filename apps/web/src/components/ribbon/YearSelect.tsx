@@ -210,7 +210,7 @@ export function YearSelect() {
       {/* Pine ribbon control treatment (2026-09-01 redesign): translucent white on the dark green bar. */}
       <SelectTrigger
         aria-label="Year"
-        className="w-[5.5rem] border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
+        className="data-[size=default]:h-9 w-[6rem] border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[15px] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
       >
         {/*
           D-19: explicit children, not Radix's own item-derived label. Radix

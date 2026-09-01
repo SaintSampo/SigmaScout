@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import {
-  REWIND_CAPTION_LEAD,
   START_MATCH_PICKER_HINT,
   START_MATCH_SLIDER_TESTID,
   START_MATCH_NUMBER_INPUT_TESTID,
@@ -11,7 +10,6 @@ import {
   START_MATCH_STATUS_PLAYED,
   START_MATCH_STATUS_UPCOMING,
   StartMatchPicker,
-  rewindCaptionText,
   simulationScopeText,
 } from "./StartMatchPicker.js";
 import { SIMULATION_DRAWS } from "../../lib/simulationInputs.js";
@@ -233,55 +231,6 @@ describe("simulationScopeText discloses both counts", () => {
     const inputs = baseInputs({ incompleteBaselineTeamKeys: ["frc111", "frc222"] });
     const text = simulationScopeText(inputs, "Qual 1");
     expect(text).toContain("2 team(s) have an earlier match with no recorded ranking points");
-  });
-});
-
-describe("rewindCaptionText, all three verdicts", () => {
-  it("narrower: contains the lead sentence, the word 'narrower', and the magnitude to one decimal place", () => {
-    const text = rewindCaptionText(10.848394210456348, "narrower");
-    expect(text).toContain(REWIND_CAPTION_LEAD);
-    expect(text).toContain("narrower");
-    expect(text).toContain("10.8%");
-  });
-
-  it("wider: contains 'wider' and not 'narrower'", () => {
-    const text = rewindCaptionText(6.2, "wider");
-    expect(text).toContain("wider");
-    expect(text).not.toContain("narrower");
-  });
-
-  it("indistinguishable: contains neither direction word and no percent sign at all", () => {
-    const text = rewindCaptionText(0.3, "indistinguishable");
-    expect(text).not.toContain("narrower");
-    expect(text).not.toContain("wider");
-    expect(text).not.toContain("%");
-  });
-
-  it("all three verdicts contain REWIND_CAPTION_LEAD verbatim", () => {
-    for (const verdict of ["narrower", "wider", "indistinguishable"] as const) {
-      expect(rewindCaptionText(5, verdict)).toContain(REWIND_CAPTION_LEAD);
-    }
-  });
-});
-
-describe("the magnitude is absolute", () => {
-  it("a negative percent with the wider verdict produces no minus sign", () => {
-    const text = rewindCaptionText(-8.549486466710535, "wider");
-    expect(text).not.toContain("-8.5");
-    expect(text).not.toMatch(/-\d/);
-    expect(text).toContain("8.5%");
-  });
-});
-
-describe("no placeholder ever survives", () => {
-  it("no verdict, at any percent including zero, ever contains a brace character", () => {
-    for (const verdict of ["narrower", "wider", "indistinguishable"] as const) {
-      for (const percent of [0, 10.8, -8.5, 44.18]) {
-        const text = rewindCaptionText(percent, verdict);
-        expect(text).not.toContain("{");
-        expect(text).not.toContain("}");
-      }
-    }
   });
 });
 

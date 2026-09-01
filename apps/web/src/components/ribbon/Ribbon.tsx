@@ -34,8 +34,10 @@ const NAV_LINKS = [
  * white. The page-level `--color-accent` never appears in this component —
  * the ribbon has its own token vocabulary (theme.css `--ribbon-*` block).
  */
-const ACTIVE_LINK_CLASS = "text-role-nav text-[var(--ribbon-ink)] border-b-2 border-[var(--ribbon-accent)] pb-[2px]";
-const INACTIVE_LINK_CLASS = "text-role-nav border-b-2 border-transparent pb-[2px] text-[var(--ribbon-ink-muted)]";
+const ACTIVE_LINK_CLASS =
+  "text-role-ribbon-nav whitespace-nowrap border-b-2 border-[var(--ribbon-accent)] pb-[6px] text-[var(--ribbon-ink)] transition-colors";
+const INACTIVE_LINK_CLASS =
+  "text-role-ribbon-nav whitespace-nowrap border-b-2 border-transparent pb-[6px] text-[var(--ribbon-ink-muted)] transition-colors hover:text-[var(--ribbon-ink)]";
 
 /**
  * `Link`'s typed `search` updater expects the TARGET route's fully-required
@@ -61,7 +63,7 @@ function NavLinks() {
   // still names the ONE canonical Teams/Events/Compare order both branches
   // below render.
   return (
-    <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-md)]">
+    <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-lg)]">
       <Link to="/teams" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[0].label}
       </Link>
@@ -138,7 +140,7 @@ export function Ribbon() {
     // of `overflow-x-hidden` (never authored `overflow-y`, so the used value
     // was silently forced to `auto`).
     <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
-      <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
+      <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-lg)]">
         {wordmark}
         <NavLinks />
         <GlobalSelects />

@@ -1,14 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/StateViews";
-import { REWIND_CAPTION_TESTID, StartMatchPicker, rewindCaptionText } from "./StartMatchPicker.js";
+import { StartMatchPicker } from "./StartMatchPicker.js";
 import { RunControl } from "./RunControl.js";
 import { useSimulationRun } from "./useSimulationRun.js";
 import { RankDistributionTable } from "./RankDistributionTable.js";
 import { buildRankDistributionRows } from "./rankRows.js";
 import { matchLabel } from "../team/MatchTable.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
-import { REWIND_GAP_PERCENT, REWIND_GAP_VERDICT } from "../../lib/rewindGap.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -271,11 +270,6 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
         // picker's own side).
         disabled={isRunning}
       />
-      {simulationInputs !== null && simulationInputs.isRewindStart && (
-        <p data-testid={REWIND_CAPTION_TESTID} className="text-role-body text-muted-foreground">
-          {rewindCaptionText(REWIND_GAP_PERCENT, REWIND_GAP_VERDICT)}
-        </p>
-      )}
       <RunControl state={runState} isResultCurrent={isResultCurrent} canRun={canRun} onRun={handleRun} />
       {/*
         The pre-run placeholder holds for the WHOLE run (UI-SPEC's explicit

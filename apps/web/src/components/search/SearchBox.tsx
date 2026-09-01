@@ -311,7 +311,7 @@ export function SearchBox({ tone = "page", className }: SearchBoxProps = {}) {
 
   const closedControlClass =
     tone === "ribbon"
-      ? "overflow-visible rounded-md border border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_input]:text-[var(--ribbon-ink)] [&_input]:placeholder:text-[var(--ribbon-ink-muted)]"
+      ? "h-9 overflow-visible rounded-md border border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&>div]:h-full [&_input]:h-full [&_input]:text-[15px] [&_input]:text-[var(--ribbon-ink)] [&_input]:placeholder:text-[var(--ribbon-ink-muted)]"
       : "overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)]";
 
   return (
