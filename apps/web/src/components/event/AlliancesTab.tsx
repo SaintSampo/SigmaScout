@@ -412,7 +412,21 @@ function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; a
   );
 }
 
-function buildAllianceColumns(algorithmId: string, season: number) {
+/**
+ * True when at least one row's fourth-or-later pick is present — the sole
+ * signal `buildAllianceColumns` uses to decide whether `pickBackup` renders
+ * at all (Task 2, quick task 260902-ixg). Measured on `2026iscmp`: the
+ * column was 240px wide and empty in all 8 of 8 rows — dead space on every
+ * event without a backup robot, which is most of them. Computed over the
+ * WHOLE table, not per-row: an event where only some alliances carry a
+ * backup still shows the column (with a blank cell on the rows that lack
+ * one) — a column that disappears when it should appear is the worse bug.
+ */
+function hasAnyBackupPick(rows: readonly AllianceRow[]): boolean {
+  return rows.some((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT).length > 0);
+}
+
+function buildAllianceColumns(algorithmId: string, season: number, showBackupColumn: boolean) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) — the same loose-cast
   // escape hatch every sibling tab already uses for a value the type system
@@ -446,12 +460,19 @@ function buildAllianceColumns(algorithmId: string, season: number) {
       size: 190,
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
-    columnHelper.accessor((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT), {
-      id: "pickBackup",
-      header: ALLIANCES_COLUMN_HEADERS[4],
-      size: 240,
-      cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} />,
-    }),
+    // Task 2 (260902-ixg): included only when `hasAnyBackupPick` found one —
+    // `AlliancesTabSkeleton` below cannot know this and always renders all
+    // seven, deliberately (see its own doc comment).
+    ...(showBackupColumn
+      ? [
+          columnHelper.accessor((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT), {
+            id: "pickBackup",
+            header: ALLIANCES_COLUMN_HEADERS[4],
+            size: 240,
+            cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} />,
+          }),
+        ]
+      : []),
     columnHelper.accessor("combined", {
       id: "combined",
       header: ALLIANCES_COLUMN_HEADERS[5],
@@ -475,7 +496,15 @@ export interface AlliancesTabProps {
 
 export const ALLIANCES_SKELETON_ROW_COUNT = 6;
 
-/** The pending state's placeholder — the seven real headers above skeleton rows, inside the same scroll-region wrapper shape the populated tab uses. */
+/**
+ * The pending state's placeholder — inside the same scroll-region wrapper
+ * shape the populated tab uses. Always renders the full seven-header set,
+ * `pickBackup` included, even though the populated tab (Task 2, 260902-ixg)
+ * hides that column when no alliance has a backup pick: the skeleton cannot
+ * know the data yet, and a placeholder that guessed wrong would shift the
+ * layout twice — once when the guess is wrong, once when the real column
+ * count lands. Rendering all seven every time is one layout shift, not two.
+ */
 export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void algorithmId;
   void season;
@@ -500,20 +529,24 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
 }
 
 /**
- * The Alliances tab: the seven-column table in its own native scroll region
- * (a DOM SIBLING of the tab strip's own scroll region, never its ancestor or
- * descendant — D-15's independence caveat that used to sit beneath it was
- * retired 2026-09-02, quick task 260902-ixg, see 07-UI-SPEC.md), and
- * Task 2's incomplete-combination notice when (and only when) at least one
- * row cannot combine. Reads no match array of any kind and performs no
- * arithmetic on any published quantity other than `combineAlliancePicks`'s
- * three-term combination and G-8's client-side 3x tier approximation. Every
- * string originating in the published artifact renders as a plain JSX text
- * node or a `title` attribute value — never through a raw-markup sink.
+ * The Alliances tab: a six- or seven-column table (Task 2, 260902-ixg: the
+ * seventh, `pickBackup`, renders only when at least one alliance in the
+ * table actually has a backup pick — most events do not) in its own native
+ * scroll region (a DOM SIBLING of the tab strip's own scroll region, never
+ * its ancestor or descendant — D-15's independence caveat that used to sit
+ * beneath it was retired 2026-09-02, quick task 260902-ixg, see
+ * 07-UI-SPEC.md), and Task 2's incomplete-combination notice when (and only
+ * when) at least one row cannot combine. Reads no match array of any kind
+ * and performs no arithmetic on any published quantity other than
+ * `combineAlliancePicks`'s three-term combination and G-8's client-side 3x
+ * tier approximation. Every string originating in the published artifact
+ * renders as a plain JSX text node or a `title` attribute value — never
+ * through a raw-markup sink.
  */
 export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProps) {
   const rows = useMemo(() => buildAllianceRows(artifact, algorithmId), [artifact, algorithmId]);
-  const columns = useMemo(() => buildAllianceColumns(algorithmId, season), [algorithmId, season]);
+  const showBackupColumn = useMemo(() => hasAnyBackupPick(rows), [rows]);
+  const columns = useMemo(() => buildAllianceColumns(algorithmId, season, showBackupColumn), [algorithmId, season, showBackupColumn]);
 
   // 07-UI-REVIEW priority fix 2: pin the identity column below the sitewide
   // breakpoint only — see the `features` doc comment above for the rationale.

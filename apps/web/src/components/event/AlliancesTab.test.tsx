@@ -175,22 +175,35 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
 });
 
 describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G-8)", () => {
-  it("renders exactly seven column headers in the corrected order for a vpr/2024 fixture", async () => {
+  it("renders exactly SIX column headers (no Pick 3) for a vpr/2024 fixture where no alliance has a backup pick (Task 2, 260902-ixg: measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "vpr", 2024);
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Alliance #",
       "Captain",
       "Pick 1",
       "Pick 2",
-      "Pick 3",
       "Combined Total",
       "Record",
     ]);
   });
 
-  it("renders exactly seven column headers in the corrected order for an opr/2024 fixture — column count is algorithm-independent", async () => {
+  it("renders exactly SIX column headers for a no-backup opr/2024 fixture — the column's absence is algorithm-independent, the same as its presence", async () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance()], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
+    renderAlliances(artifact, "opr", 2024);
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
+    expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
+      "Alliance #",
+      "Captain",
+      "Pick 1",
+      "Pick 2",
+      "Combined Total",
+      "Record",
+    ]);
+  });
+
+  it("renders exactly SEVEN column headers, Pick 3 included, when at least one alliance in the table has a backup pick (Task 2 — the other direction: a column that disappears when it should appear is the worse bug)", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
     renderAlliances(artifact, "opr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
@@ -221,9 +234,15 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(combinedWithText).toBe(combinedWithoutText);
   });
 
-  it("an alliance with exactly three picks renders an empty Backup cell (the placeholder span present, no text)", async () => {
-    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
-    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+  it("an alliance with exactly three picks renders an empty Backup cell (the placeholder span present, no text) when a SIBLING alliance in the table has a backup pick — Task 2's column only hides when NO row has one", async () => {
+    renderAlliances(
+      makeArtifact(FOUR_TEAMS, [
+        alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3", "frc4"] }), // forces the column to render
+        alliance({ allianceNumber: 2, picks: ["frc1", "frc2", "frc3"] }),
+      ]),
+    );
+    const rows = await screen.findAllByTestId("alliances-row");
+    const backupCell = within(rows[1]!).getByTestId("alliances-cell-pickBackup");
     expect(backupCell.querySelector("span.numeric-cell")).not.toBeNull();
     expect(backupCell.textContent).toBe("");
   });
@@ -369,11 +388,11 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(cell.textContent).not.toContain("20.00");
   });
 
-  it("a two-pick alliance (modelled on 2024vabrb) renders a blank Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 and Pick 3 blank", async () => {
+  it("a two-pick alliance (modelled on 2024vabrb) renders a blank Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 blank, no Pick 3 column at all (Task 2, 260902-ixg: nothing in this fixture has a backup pick)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("");
-    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("");
+    expect(screen.queryByTestId("alliances-cell-pickBackup")).toBeNull();
     // Team numbers render as the FIRST text node in each cell, immediately
     // before the metric value — a reliable prefix check given every fixture
     // team key here uses a single-digit team number.
@@ -381,12 +400,12 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(screen.getByTestId("alliances-cell-pick1").textContent?.startsWith("2")).toBe(true);
   });
 
-  it("a one-pick alliance renders a blank Combined Total and blank Pick 1, Pick 2 and Pick 3 cells, with the single pick in Captain", async () => {
+  it("a one-pick alliance renders a blank Combined Total and blank Pick 1/Pick 2 cells, no Pick 3 column at all, with the single pick in Captain (Task 2, 260902-ixg: nothing in this fixture has a backup pick)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("");
-    expect(screen.getByTestId("alliances-cell-pickBackup").textContent).toBe("");
+    expect(screen.queryByTestId("alliances-cell-pickBackup")).toBeNull();
     expect(screen.getByTestId("alliances-cell-pick0").textContent?.startsWith("1")).toBe(true);
   });
 
@@ -500,15 +519,19 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
   });
 
   it("a one-alliance fixture and an eight-alliance fixture render identical header rows and body-row counts of 1 and 8 — the count is never branched on", async () => {
+    // Neither fixture has a backup pick anywhere (Task 2, 260902-ixg), so
+    // both render SIX headers, not seven — row count and column count are
+    // two independent facts, and this test pins that column count tracks
+    // backup presence, never row count.
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(1));
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
     cleanup();
 
     const eightAlliances = Array.from({ length: 8 }, (_, i) => alliance({ allianceNumber: i + 1, picks: ["frc1", "frc2", "frc3"] }));
     renderAlliances(makeArtifact(FOUR_TEAMS, eightAlliances));
     await waitFor(() => expect(screen.getAllByTestId("alliances-row")).toHaveLength(8));
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
   });
 });
 
