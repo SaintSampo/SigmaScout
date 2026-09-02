@@ -9,9 +9,20 @@
  */
 import { describe, expect, it } from "vitest";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "./params.js";
+import { DEFAULT_SIGMA1_PARAMS } from "./params.js";
+import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
+import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 
-const ENABLED_PARAMS: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true };
+/**
+ * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the
+ * defaults at an EMPTY expanding statistic is the documented cold-start
+ * scale (`fallbackScoreSd ** 2` = 625), and none of the fields exercised in
+ * this file is scale-dependent, so these assertions are unchanged in
+ * substance -- only the parameter TYPE moved.
+ */
+const RESOLVED_DEFAULTS: Sigma1ResolvedParams = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+
+const ENABLED_PARAMS: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, adaptationEnabled: true };
 
 describe("emptyInnovationStats", () => {
   it("cold-starts at exactly 1.0 with count 0", () => {
@@ -49,7 +60,7 @@ describe("foldInnovation", () => {
 describe("adaptationFactor", () => {
   it("returns exactly 1 when adaptationEnabled is false, regardless of stats (D-08)", () => {
     const wildStats: InnovationStats = { meanSquaredNormalizedInnovation: 1000, count: 100 };
-    expect(adaptationFactor(wildStats, { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: false })).toBe(1);
+    expect(adaptationFactor(wildStats, { ...RESOLVED_DEFAULTS, adaptationEnabled: false })).toBe(1);
   });
 
   it("returns exactly 1 below adaptationMinObservations", () => {

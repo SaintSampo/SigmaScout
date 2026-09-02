@@ -34,13 +34,16 @@
  * folds `covariance`/`consistency`/`matchCount` in one pass (D-05/D-07's
  * action text: "no second loop over the alliance"). This module owns only
  * the pure per-team EWMA fold (`foldInnovation`) and the factor formula
- * (`adaptationFactor`) — a leaf, importing nothing but `Sigma1Params`'s
- * type from `./params.js` (never the reverse: `params.ts` is a pure leaf
- * itself and must never import this module, the same acyclic-import
- * discipline `params.ts`'s own file header documents for the constants it
- * owns).
+ * (`adaptationFactor`) — a leaf, importing nothing but
+ * `Sigma1ResolvedParams`'s type from `./scale.js` (never the reverse:
+ * `scale.ts` and `params.ts` are pure leaves themselves and must never import
+ * this module, the same acyclic-import discipline `params.ts`'s own file
+ * header documents for the constants it owns). Since 4.0.0 (D-T1) every
+ * Sigma1 internal takes the RESOLVED parameter type, so this module
+ * structurally cannot read a scale-relative field; none of the five fields it
+ * does read is scale-dependent, so the change here is the annotation alone.
  */
-import type { Sigma1Params } from "./params.js";
+import type { Sigma1ResolvedParams } from "./scale.js";
 
 /**
  * A per-team running EWMA of SQUARED normalized innovation, plus an
@@ -133,7 +136,7 @@ export function foldInnovation(stats: InnovationStats, normalizedInnovation: num
  * the factor again) — asserted with EXACT equality at both bounds by
  * `adaptation.test.ts`, never merely "close to."
  */
-export function adaptationFactor(stats: InnovationStats, params: Sigma1Params): number {
+export function adaptationFactor(stats: InnovationStats, params: Sigma1ResolvedParams): number {
   if (!params.adaptationEnabled || stats.count < params.adaptationMinObservations) {
     return 1;
   }

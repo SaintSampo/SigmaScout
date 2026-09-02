@@ -48,6 +48,7 @@ import {
   vprSeasonSd,
   makeSigma1,
   DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
   Sigma1ParamsSchema,
 } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
@@ -123,15 +124,23 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
-// Re-pinned twice, each time alongside a `SIGMA1_CODE_VERSION` bump (see
-// that constant's own doc comment, `sigma1/params.ts`): from
+// Re-pinned three times, each time alongside a `SIGMA1_CODE_VERSION` bump
+// (see that constant's own doc comment, `sigma1/params.ts`): from
 // `vpr@2.0.0+tuned-2026-08.json` to `2.1.0` (whole-alliance-DQ exclusion,
 // 2026-08-30), then to `3.0.0` (D-Q2's innovation-based R estimator, quick
-// task 260901-is2, 2026-09-01). The 3.0.0 re-promotion also carries ONE
+// task 260901-is2, 2026-09-01). The 3.0.0 re-promotion also carried ONE
 // parameter override, `linkC = 0.5`, recorded in that file's
 // `provenance.paramOverrides` — the R estimator changing made the tuned
 // link constant stale, and it was re-selected on the tune seasons only.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@3.0.0+tuned-2026-08.json");
+//
+// Re-pinned again to `4.0.0` (D-T1/D-T2's scale-relative reparameterization,
+// quick task 260901-trz, 2026-09-01). Unlike the earlier re-promotions this
+// one went through `pnpm promote --from-version`, reading the retired 3.0.0
+// FILE rather than a search artifact — which is what carried the `linkC`
+// correction above forward. The search artifact's own winner still records
+// the stale 1.2398..., so re-promoting from it would have silently dropped
+// a correction that is live on the site (see `promote.ts`'s header).
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**
@@ -158,15 +167,47 @@ export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModul
   return makeSigma1({ id, linkMode: "predictive-variance", params: promoted.params, paramSetName: promoted.paramSetName });
 }
 
-/** Builds a VPR module from a `tune.ts --stage joint` search artifact's own winning candidate — restoring `rpMonteCarloDraws` to the versioned default the same way `promote.ts` does for a promoted winner (the search fixes it to 0 for speed). `undefined` if the artifact does not exist. */
+/**
+ * Builds a VPR module from a `tune.ts --stage joint` search artifact's own
+ * winning candidate — restoring `rpMonteCarloDraws` to the versioned default
+ * the same way `promote.ts` does for a promoted winner (the search fixes it
+ * to 0 for speed). `undefined` if the artifact does not exist.
+ *
+ * ALSO `undefined`, with a loud warning, when the artifact exists but records
+ * a parameter SHAPE this code version cannot read (quick task 260901-trz,
+ * F2). `SIGMA1_CODE_VERSION` 4.0.0 renamed five fields and `Sigma1ParamsSchema`
+ * is `z.strictObject`, so every search artifact written before that bump now
+ * fails to parse. `reports/` is gitignored, so those stale artifacts sit on
+ * developer machines and in no CI run — which is exactly the shape of failure
+ * that must not hard-crash `pnpm harness` for one developer while passing
+ * everywhere else. A stale artifact is not a corrupt one; it is an experiment
+ * from a retired parameterization, and "this experiment predates the current
+ * model, so it is not being used" is the honest outcome. It degrades to the
+ * SAME fallback an absent artifact takes, and says so on stderr rather than
+ * silently.
+ *
+ * Note what is NOT relaxed: a malformed artifact still throws through
+ * `TuneSearchOutputMinimalSchema`, and a committed VERSION file (`loadPromotedVpr`
+ * above) still throws on any parse failure whatsoever — a version file is a
+ * committed claim about what ships, and there is no such thing as an
+ * acceptably-stale one.
+ */
 export function loadSearchWinnerVpr(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
   if (!existsSync(searchArtifactPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
   const output = TuneSearchOutputMinimalSchema.parse(raw);
   const winner = output.candidates.find((c) => c.index === output.winnerIndex);
   if (!winner) return undefined;
-  const searchedParams = Sigma1ParamsSchema.parse(winner.params);
-  const params = { ...searchedParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
+  const parsed = Sigma1ParamsSchema.safeParse(winner.params);
+  if (!parsed.success) {
+    console.warn(
+      `WARNING [loadSearchWinnerVpr]: ${searchArtifactPath} records a parameter set this code version cannot read ` +
+        `(SIGMA1_CODE_VERSION is now ${SIGMA1_CODE_VERSION}; D-T1/D-T2 renamed five fields and removed two). ` +
+        `Ignoring it and falling back, exactly as for an absent artifact. Re-run the search to produce a current-shape artifact.`
+    );
+    return undefined;
+  }
+  const params = { ...parsed.data, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
   return makeSigma1({ id, linkMode: "predictive-variance", params, paramSetName });
 }
 

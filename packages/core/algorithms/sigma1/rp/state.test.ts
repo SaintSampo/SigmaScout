@@ -8,8 +8,19 @@
 import { describe, expect, it } from "vitest";
 import { teamTotalVariance } from "../covariance.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../params.js";
+import { resolveSigma1Params } from "../scale.js";
+import { emptyExpandingStats, foldObservation } from "../../../scoring/expandingStats.js";
 import { rpRuleModuleForSeason } from "./rules.js";
 import { emptyRpTeamState, foldRpObservation, predictAllianceRpMoments, type RpFoldableTeamState, type RpLeague } from "./state.js";
+
+/**
+ * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the
+ * defaults at an EMPTY expanding statistic is the documented cold-start
+ * scale (`fallbackScoreSd ** 2` = 625), and none of the fields exercised in
+ * this file is scale-dependent, so these assertions are unchanged in
+ * substance -- only the parameter TYPE moved.
+ */
+const RESOLVED_DEFAULTS = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
 
 const EMPTY_LEAGUE: RpLeague = { rpVariableMean: {} };
 
@@ -48,7 +59,7 @@ describe("foldRpObservation — cold start from league prior", () => {
       scoreResidualsByTeam: new Map(),
       componentCount: 4,
       eventKey: "2022test",
-      params: DEFAULT_SIGMA1_PARAMS,
+      params: RESOLVED_DEFAULTS,
     });
 
     expect(result.teams.size).toBe(3);
@@ -73,7 +84,7 @@ describe("foldRpObservation — cold start from league prior", () => {
       scoreResidualsByTeam: new Map(),
       componentCount: 2,
       eventKey: "2026test",
-      params: DEFAULT_SIGMA1_PARAMS,
+      params: RESOLVED_DEFAULTS,
     });
     const t1 = result.teams.get("T1")!;
     expect(Number.isNaN(t1.rpBeliefs["hubTotalCount"]!.mean)).toBe(false);
@@ -99,7 +110,7 @@ describe("foldRpObservation — fold moves the right beliefs", () => {
       scoreResidualsByTeam: new Map(),
       componentCount: 2,
       eventKey: "2026test",
-      params: DEFAULT_SIGMA1_PARAMS,
+      params: RESOLVED_DEFAULTS,
     });
 
     // Both teammates started at the identical cold-start prior, so the
@@ -121,7 +132,7 @@ describe("foldRpObservation — fold moves the right beliefs", () => {
       scoreResidualsByTeam: new Map(),
       componentCount: 3,
       eventKey: "2022test",
-      params: DEFAULT_SIGMA1_PARAMS,
+      params: RESOLVED_DEFAULTS,
     });
     expect(result.teams.size).toBe(0);
   });
@@ -138,7 +149,7 @@ describe("foldRpObservation — fold moves the right beliefs", () => {
         scoreResidualsByTeam: new Map(),
         componentCount: 3,
         eventKey: "2022test",
-        params: DEFAULT_SIGMA1_PARAMS,
+        params: RESOLVED_DEFAULTS,
       })
     ).toThrow(/non-finite/);
   });
@@ -157,7 +168,7 @@ describe("foldRpObservation — fold moves the right beliefs", () => {
       scoreResidualsByTeam,
       componentCount: 2,
       eventKey: "2022test",
-      params: DEFAULT_SIGMA1_PARAMS,
+      params: RESOLVED_DEFAULTS,
     });
 
     const t1 = result.teams.get("T1")!;
@@ -249,5 +260,110 @@ describe("predictAllianceRpMoments", () => {
       [0, 0],
     ]);
     expect(moments.scoreCrossCovariance).toEqual([0, 0]);
+  });
+});
+
+/**
+ * F3 (quick task 260901-trz, `SIGMA1_CODE_VERSION` 4.0.0). D-T1 made five
+ * score-side hyperparameters DIMENSIONLESS fractions of the season's own
+ * alliance-score variance. A threshold variable is a COUNT on roughly a 0-20
+ * scale, so RP was given its own three ABSOLUTE fields instead, migrated from
+ * exactly the values it used to read through the score side.
+ *
+ * The claim that follows is "RP's Kalman step is BITWISE unchanged across the
+ * 3.0.0 -> 4.0.0 reparameterization", and it rests on two facts. This block
+ * proves the first: RP's fold reads NOTHING that moves with the resolved
+ * score scale. (`legacyParams.test.ts` proves the second: the migration
+ * copies the three legacy absolutes across untouched.) Together those two
+ * facts ARE the bitwise claim — established rather than asserted.
+ */
+describe("F3 — the RP Kalman step is INVARIANT to the resolved alliance-score scale", () => {
+  const ruleModule = rpRuleModuleForSeason(2022);
+  const ALLIANCE = ["T1", "T2", "T3"];
+  const OBSERVED = { matchCargoTotal: 30, autoCargoTotal: 6, endgamePoints: 30 };
+
+  /** Resolves the SAME `Sigma1Params` at a wildly different alliance-score scale. */
+  function resolvedAtScale(sd: number): ReturnType<typeof resolveSigma1Params> {
+    let stats = emptyExpandingStats();
+    // Two observations symmetric about 0 give a population SD of exactly `sd`.
+    for (const x of [-sd, sd]) stats = foldObservation(stats, x);
+    return resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, stats);
+  }
+
+  function foldAt(sd: number): unknown {
+    const params = resolvedAtScale(sd);
+    // Sanity: the two runs really are at different scales, or this test
+    // would prove nothing at all.
+    const first = foldRpObservation({
+      teams: new Map(),
+      league: EMPTY_LEAGUE,
+      ruleModule,
+      allianceTeams: ALLIANCE,
+      observedThresholdVariables: OBSERVED,
+      scoreResidualsByTeam: new Map(),
+      componentCount: 4,
+      eventKey: "2022test",
+      params,
+    });
+    // A SECOND fold, across an event boundary, so the event-boundary branch
+    // of the `q` selection is exercised too — that is the branch F3 split.
+    const carried = new Map<string, RpFoldableTeamState>(
+      [...first.teams].map(([team, rpState]) => [team, { ...rpState, lastEventKey: "2022test" }])
+    );
+    const second = foldRpObservation({
+      teams: carried,
+      league: first.league,
+      ruleModule,
+      allianceTeams: ALLIANCE,
+      observedThresholdVariables: { matchCargoTotal: 45, autoCargoTotal: 9, endgamePoints: 12 },
+      scoreResidualsByTeam: new Map(),
+      componentCount: 4,
+      eventKey: "2022other",
+      params,
+    });
+    return [...second.teams].map(([team, s]) => [team, s.rpBeliefs, s.rpCovariance]);
+  }
+
+  it("produces a BITWISE identical rpBeliefs/rpCovariance at a score scale of 10 and of 200", () => {
+    // 20x apart, spanning more than the real 2024-to-2026 variance ratio.
+    expect(resolvedAtScale(10).scoreVariance).not.toBe(resolvedAtScale(200).scoreVariance);
+    expect(JSON.stringify(foldAt(200))).toBe(JSON.stringify(foldAt(10)));
+  });
+
+  it("DOES move when RP's own absolute noise moves — the control that makes the invariance above meaningful", () => {
+    const base = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+    const louder = resolveSigma1Params(
+      { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: DEFAULT_SIGMA1_PARAMS.rpProcessNoiseEventBoundary * 8 },
+      emptyExpandingStats()
+    );
+    const run = (params: ReturnType<typeof resolveSigma1Params>): string => {
+      const first = foldRpObservation({
+        teams: new Map(),
+        league: EMPTY_LEAGUE,
+        ruleModule,
+        allianceTeams: ALLIANCE,
+        observedThresholdVariables: OBSERVED,
+        scoreResidualsByTeam: new Map(),
+        componentCount: 4,
+        eventKey: "2022test",
+        params,
+      });
+      const carried = new Map<string, RpFoldableTeamState>(
+        [...first.teams].map(([team, rpState]) => [team, { ...rpState, lastEventKey: "2022test" }])
+      );
+      const second = foldRpObservation({
+        teams: carried,
+        league: first.league,
+        ruleModule,
+        allianceTeams: ALLIANCE,
+        observedThresholdVariables: { matchCargoTotal: 45, autoCargoTotal: 9, endgamePoints: 12 },
+        scoreResidualsByTeam: new Map(),
+        componentCount: 4,
+        eventKey: "2022other",
+        params,
+      });
+      return JSON.stringify([...second.teams].map(([team, s]) => [team, s.rpBeliefs]));
+    };
+    expect(run(louder)).not.toBe(run(base));
   });
 });

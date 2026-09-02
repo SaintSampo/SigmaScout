@@ -26,7 +26,11 @@
  * total carries each team's own component-covariance block — so
  * `Σ spread_i² == scoreVarianceOwn` up to publish-boundary rounding
  * (`ROUNDING_RULE.metric` = 2 decimals on spread, `ROUNDING_RULE.variance`
- * = 4 on the variance) and the per-team `minConsistencyVariance` floor.
+ * = 4 on the variance) and the per-team `minConsistencyVarianceRel` floor
+ * (D-T1, `SIGMA1_CODE_VERSION` 4.0.0: that floor is now a dimensionless
+ * FRACTION of the season's alliance-score variance, resolved per call by
+ * `sigma1/scale.ts` — so the absolute floor this identity is stated up to
+ * differs season by season rather than being one fixed points^2 number).
  *
  * Scope: every played PLAYOFF match (`qf`/`sf`/`f`) at the four events the
  * todo names — playoff rows because those are the matches an event's

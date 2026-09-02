@@ -134,6 +134,16 @@ export const SIGMA1_SHRINKAGE_PRIOR_MATCHES = 8;
  * specific team's own observed data" still permits a documented FLOOR,
  * which this is, as opposed to a substituted constant VALUE). Phase 3
  * hyperparameter, default unverified.
+ *
+ * NOT the floor the filter applies since `SIGMA1_CODE_VERSION` 4.0.0 (D-T1).
+ * `shrinkConsistency` still takes an ABSOLUTE floor as its argument — this
+ * module's own signature is unchanged — but the value passed in is now
+ * `params.minConsistencyVarianceRel * sigma^2`, resolved per call from the
+ * season's own realized alliance-score variance by `sigma1/scale.ts`. This
+ * constant survives as the ABSOLUTE value that relative default is DERIVED
+ * from, at `SIGMA1_REFERENCE_SCORE_VARIANCE`, which is exactly why it must
+ * not be deleted — but a reader looking for "the floor the filter applies"
+ * should look at the resolved parameter, not here.
  */
 export const SIGMA1_MIN_CONSISTENCY_VARIANCE = 1;
 

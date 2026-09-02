@@ -357,16 +357,27 @@ export function determineWinner(results: readonly EvaluatedCandidate[]): { winne
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * The tracer's ONE searched knob (this stage's whole point): the default
- * (8) is inside the swept set, so a search that cannot beat today's default
- * says so honestly rather than being unable to compare.
+ * The tracer's ONE searched knob (this stage's whole point): the default is
+ * inside the swept set, so a search that cannot beat today's default says so
+ * honestly rather than being unable to compare.
+ *
+ * D-T1 (`SIGMA1_CODE_VERSION` 4.0.0): the knob is now DIMENSIONLESS, so the
+ * swept set is expressed as MULTIPLIERS of the default (`0.5x / 1x / 2x`)
+ * rather than as the absolute `[4, 8, 16]` points^2 it used to be. Written
+ * as multipliers rather than as three re-typed relative literals for the
+ * reason `params.ts`'s header gives about derived defaults: the middle entry
+ * IS the default by construction, so it cannot drift out of the set when the
+ * default moves.
  */
-const TRACER_EVENT_BOUNDARY_VALUES = [4, 8, 16] as const;
+const TRACER_EVENT_BOUNDARY_MULTIPLIERS = [0.5, 1, 2] as const;
 
 function buildTracerCandidates(): { id: string; params: Sigma1Params }[] {
-  return TRACER_EVENT_BOUNDARY_VALUES.map((processNoiseEventBoundary, index) => ({
+  return TRACER_EVENT_BOUNDARY_MULTIPLIERS.map((multiplier, index) => ({
     id: `sigma1-cand-${index}`,
-    params: { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary },
+    params: {
+      ...DEFAULT_SIGMA1_PARAMS,
+      processNoiseEventBoundaryRel: DEFAULT_SIGMA1_PARAMS.processNoiseEventBoundaryRel * multiplier,
+    },
   }));
 }
 

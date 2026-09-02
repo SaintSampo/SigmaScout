@@ -57,6 +57,21 @@ export function applyProcessNoise(belief: TeamComponentBelief, q: number): TeamC
  * (points^2 per match). Small, because a robot does not change materially
  * between two matches an hour apart at the same competition.
  * Phase 3 hyperparameter, default unverified.
+ *
+ * Since `SIGMA1_CODE_VERSION` 4.0.0 (D-T1) this is NO LONGER the value the
+ * score-side filter applies. It has exactly two live roles, and keeping it is
+ * what makes both possible:
+ *
+ *   1. It is the ABSOLUTE value `DEFAULT_SIGMA1_PARAMS.processNoiseWithinEventRel`
+ *      is DERIVED from, at `SIGMA1_REFERENCE_SCORE_VARIANCE` — the score side
+ *      now injects `processNoiseWithinEventRel * sigma^2` per match, resolved
+ *      by `sigma1/scale.ts`.
+ *   2. It is the default for `DEFAULT_SIGMA1_PARAMS.rpProcessNoiseWithinEvent`,
+ *      which the RP threshold variables read ABSOLUTELY and unchanged (F3:
+ *      those variables are counts, not points).
+ *
+ * A live-looking constant that nothing reads is the next reader's trap; this
+ * one is read, just not where it used to be.
  */
 export const SIGMA1_PROCESS_NOISE_WITHIN_EVENT = 0.5;
 
@@ -66,6 +81,12 @@ export const SIGMA1_PROCESS_NOISE_WITHIN_EVENT = 0.5;
  * or repaired between events — a bigger regime change than a match-to-match
  * step within the same competition.
  * Phase 3 hyperparameter, default unverified.
+ *
+ * Same two live roles as `SIGMA1_PROCESS_NOISE_WITHIN_EVENT` above since
+ * 4.0.0 (D-T1/F3): the derivation source for
+ * `processNoiseEventBoundaryRel`'s default, and RP's own absolute
+ * `rpProcessNoiseEventBoundary` default. Not the value the score-side filter
+ * applies.
  */
 export const SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY = 8;
 

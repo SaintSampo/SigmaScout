@@ -219,7 +219,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
 // (2026-08-30): kept identical to `cli.ts`'s own re-pin — see that
 // constant's comment.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@3.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 export interface BuildAlgorithmsManifestOptions {

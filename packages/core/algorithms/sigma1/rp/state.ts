@@ -35,6 +35,39 @@
  * cold start is the honest alternative to carrying a meaningless value
  * forward.
  *
+ * Dimensional separation from the score side (F3, quick task 260901-trz,
+ * `SIGMA1_CODE_VERSION` 4.0.0). Until 4.0.0 this module read the SCORE side's
+ * `params.processNoiseWithinEvent`/`processNoiseEventBoundary` and
+ * `params.coldStartConsistencyVariance` for the threshold variables. D-T1
+ * made all three of those SCALE-RELATIVE — fractions of the season's own
+ * alliance-SCORE variance, which reaches ~20,000 in 2026 — and a threshold
+ * variable is a COUNT (notes, links, cages, tower points) on roughly a 0-20
+ * scale, not alliance points. Multiplying the two would have injected several
+ * hundred times a variable's own range as noise per match, and seeded a
+ * brand-new belief with a spread hundreds of times its own range. That is a
+ * category error, not a conservative choice.
+ *
+ * So this module now reads THREE dedicated ABSOLUTE fields —
+ * `rpProcessNoiseWithinEvent`, `rpProcessNoiseEventBoundary`,
+ * `rpColdStartVariance` — each defaulted and migrated from exactly the
+ * absolute value it used to read through the score side. The RP threshold
+ * variables' Kalman step is therefore BITWISE UNCHANGED across the 3.0.0 ->
+ * 4.0.0 reparameterization. (`rpCrossCovariance` is not, and cannot be: it
+ * folds the SCORE-side residual vector, which genuinely moved. That is the
+ * score side changing, correctly, not this module.)
+ *
+ * Consequence for future searches, intended and worth naming: the tuner used
+ * to move RP's `q` as a SIDE EFFECT of moving the score side's, and now does
+ * not. That is a real change in what a search explores. The three RP fields
+ * are excluded from the search space (D-T3) on the same ground the two Monte
+ * Carlo fields already are — D-01's objective, Brier over predicted win
+ * probability, is structurally blind to the RP pmf.
+ *
+ * Rejected alternative, recorded so it is not rediscovered as an oversight:
+ * scale each threshold variable's noise by that variable's OWN league SD
+ * (`rpVariableMean`). Dimensionally correct, and deferred — it would CHANGE
+ * RP dynamics, which the reparameterization has no mandate to do.
+ *
  * Missing-breakdown handling (RESEARCH.md Pitfall 4, D-05's fallback):
  * when a match has no `score_breakdown` at all, `sigma1/index.ts`'s
  * `update` SKIPS calling `foldRpObservation` for that match entirely —
@@ -47,7 +80,7 @@ import { assertFiniteThresholdVariables } from "./constants.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "../kalman.js";
 import { emptyCovariance, ewmaCovariance } from "../covariance.js";
 import { emptyExpandingStats, foldObservation, type ExpandingStats } from "../../../scoring/expandingStats.js";
-import type { Sigma1Params } from "../params.js";
+import type { Sigma1ResolvedParams } from "../scale.js";
 
 /**
  * Per-team RP state (D-09), kept OUT of `Sigma1TeamState.covariance` (see
@@ -108,23 +141,27 @@ function rpLeagueMeanFor(league: RpLeague, name: string, fallback: number): numb
  * A fresh team's RP belief on every one of this season's threshold
  * variables: mean from the live league-average share (falling back to
  * `RP_COLD_START_VARIABLE_MEAN` before any league data exists), variance
- * from `params.coldStartConsistencyVariance` — the SAME cold-start
- * consistency constant the score side seeds fresh beliefs with
- * (`sigma1/index.ts`'s `coldStartTeamState`), reused here as a documented
- * placeholder rather than introducing a second cold-start-variance
- * hyperparameter Phase 3's tuner would have to search independently.
+ * from `params.rpColdStartVariance`.
+ *
+ * F3 (4.0.0): that variance used to be `params.coldStartConsistencyVariance`
+ * — the score side's own cold-start constant, reused here as a documented
+ * placeholder rather than a second hyperparameter. D-T1 made the score side's
+ * version scale-relative, which this count-scale variable cannot be (see the
+ * file header), so RP now carries its own absolute field. It defaults to, and
+ * is migrated to, exactly the value it used to read, so this seed is
+ * unchanged.
  */
 function coldStartRpTeamState(
   variableNames: readonly string[],
   componentCount: number,
   league: RpLeague,
-  params: Sigma1Params
+  params: Sigma1ResolvedParams
 ): RpTeamState {
   const rpBeliefs: Record<string, TeamComponentBelief> = {};
   for (const name of variableNames) {
     rpBeliefs[name] = {
       mean: rpLeagueMeanFor(league, name, RP_COLD_START_VARIABLE_MEAN),
-      variance: params.coldStartConsistencyVariance,
+      variance: params.rpColdStartVariance,
     };
   }
   return {
@@ -208,7 +245,7 @@ export interface RpFoldInput {
   readonly scoreResidualsByTeam: ReadonlyMap<string, readonly number[]>;
   readonly componentCount: number;
   readonly eventKey: string;
-  readonly params: Sigma1Params;
+  readonly params: Sigma1ResolvedParams;
 }
 
 export interface RpFoldResult {
@@ -248,12 +285,21 @@ export function foldRpObservation(input: RpFoldInput): RpFoldResult {
     const existing = teams.get(team);
     if (existing) {
       const sameEvent = existing.lastEventKey === null || existing.lastEventKey === eventKey;
-      const q = sameEvent ? params.processNoiseWithinEvent : params.processNoiseEventBoundary;
+      // F3 (4.0.0): RP's OWN absolute process noise, never the score side's
+      // now-scale-relative pair. A threshold variable is a COUNT on roughly a
+      // 0-20 scale; the score-side value is a fraction of an alliance-score
+      // variance that reaches ~20,000 in 2026, so multiplying the two would
+      // inject several hundred times this variable's own range as noise every
+      // match. See this module's header for the full argument, the rejected
+      // per-variable-SD alternative, and the search consequence.
+      const q = sameEvent ? params.rpProcessNoiseWithinEvent : params.rpProcessNoiseEventBoundary;
       const rpBeliefs: Record<string, TeamComponentBelief> = {};
       for (const name of variableNames) {
         const belief = existing.rpBeliefs[name] ?? {
           mean: rpLeagueMeanFor(league, name, RP_COLD_START_VARIABLE_MEAN),
-          variance: params.coldStartConsistencyVariance,
+          // F3: RP's own absolute cold-start variance, for the same
+          // dimensional reason — see `coldStartRpTeamState` above.
+          variance: params.rpColdStartVariance,
         };
         rpBeliefs[name] = applyProcessNoise(belief, q);
       }

@@ -69,16 +69,22 @@ describe("screenGridFor", () => {
     expect(() => screenGridFor("linkC", 3.5)).toThrow(/valueCount must be an integer/);
   });
 
-  it("produces the exact expected geometric (log-scale) grid for processNoiseWithinEvent", () => {
-    // bounds [0.05, 5], default 0.5 -- 0.5 lands EXACTLY on the geometric
-    // grid's middle slot at valueCount=5 (100^0.5 * 0.05 = 0.5), so this is
-    // an exact-equality check, not just an approximate one.
-    const grid = screenGridFor("processNoiseWithinEvent", 5);
-    expect(grid[0]).toBe(0.05);
-    expect(grid[2]).toBe(0.5);
-    expect(grid[4]).toBe(5);
-    expect(grid[1]).toBeCloseTo(0.05 * Math.pow(100, 0.25), 10);
-    expect(grid[3]).toBeCloseTo(0.05 * Math.pow(100, 0.75), 10);
+  it("produces the exact expected geometric (log-scale) grid for processNoiseWithinEventRel", () => {
+    // D-T1 bounds [2e-5, 2e-3] -- exactly two decades, so the endpoints and
+    // the geometric spacing between them are checkable in closed form. The
+    // DEFAULT (SIGMA1_PROCESS_NOISE_WITHIN_EVENT / SIGMA1_REFERENCE_SCORE_VARIANCE
+    // = 4.8628e-4) no longer lands on a grid slot exactly, so unlike the
+    // retired absolute version this asserts the endpoints exactly and the
+    // interior slots up to the default's own overwrite.
+    const grid = screenGridFor("processNoiseWithinEventRel", 5);
+    expect(grid[0]).toBe(2e-5);
+    expect(grid[4]).toBe(2e-3);
+    // Exactly one INTERIOR slot is replaced by the default; the other two
+    // keep their geometric positions.
+    expect(grid).toContain(DEFAULT_SIGMA1_PARAMS.processNoiseWithinEventRel);
+    expect(grid.filter((v) => v === DEFAULT_SIGMA1_PARAMS.processNoiseWithinEventRel)).toHaveLength(1);
+    // Strictly increasing: the default's overwrite must never de-order the grid.
+    for (let i = 1; i < grid.length; i++) expect(grid[i]!).toBeGreaterThan(grid[i - 1]!);
   });
 
   it("produces the exact expected arithmetic (linear-scale) grid for consistencyEwmaAlpha", () => {
@@ -99,11 +105,19 @@ describe("isValidParamSet", () => {
     expect(isValidParamSet(DEFAULT_SIGMA1_PARAMS)).toBe(true);
   });
 
-  it("rejects processNoiseEventBoundary <= processNoiseWithinEvent", () => {
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.5, processNoiseWithinEvent: 0.5 };
+  it("rejects processNoiseEventBoundaryRel <= processNoiseWithinEventRel", () => {
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 5e-4, processNoiseWithinEventRel: 5e-4 };
     expect(isValidParamSet(params)).toBe(false);
-    const params2: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.4, processNoiseWithinEvent: 0.5 };
+    const params2: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 4e-4, processNoiseWithinEventRel: 5e-4 };
     expect(isValidParamSet(params2)).toBe(false);
+  });
+
+  // F3: the RP threshold variables' own absolute pair carries the SAME D-07
+  // ordering. It is not searchable, but `--set-param` and a hand-edited
+  // committed version file both reach this predicate.
+  it("rejects rpProcessNoiseEventBoundary <= rpProcessNoiseWithinEvent", () => {
+    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.5, rpProcessNoiseWithinEvent: 0.5 })).toBe(false);
+    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.4, rpProcessNoiseWithinEvent: 0.5 })).toBe(false);
   });
 
   it("rejects adaptationMinFactor >= adaptationMaxFactor", () => {
@@ -113,11 +127,12 @@ describe("isValidParamSet", () => {
     expect(isValidParamSet(params2)).toBe(false);
   });
 
-  it("rejects carry weights outside [0, 1]", () => {
+  it("rejects carry reversion or share outside [0, 1]", () => {
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: -0.1 })).toBe(false);
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 })).toBe(false);
-    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryLastYearWeight: -0.1 })).toBe(false);
-    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearWeight: 1.5 })).toBe(false);
+    // D-T2: one share replaces the retired unnormalized weight pair.
+    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: -0.1 })).toBe(false);
+    expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: 1.5 })).toBe(false);
   });
 
   // D-11 / 03-REVIEW WR-01: `isValidParamSet` and `Sigma1ParamsSchema`'s
@@ -130,15 +145,17 @@ describe("isValidParamSet", () => {
   describe("agreement with Sigma1ParamsSchema (D-11)", () => {
     const CANDIDATES: readonly Sigma1Params[] = [
       DEFAULT_SIGMA1_PARAMS,
-      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.5, processNoiseWithinEvent: 0.5 },
-      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 0.4, processNoiseWithinEvent: 0.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 5e-4, processNoiseWithinEventRel: 5e-4 },
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 4e-4, processNoiseWithinEventRel: 5e-4 },
+      { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.5, rpProcessNoiseWithinEvent: 0.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.4, rpProcessNoiseWithinEvent: 0.5 },
       { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 4, adaptationMaxFactor: 4 },
       { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 5, adaptationMaxFactor: 4 },
       { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: -0.1 },
       { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 },
-      { ...DEFAULT_SIGMA1_PARAMS, carryLastYearWeight: -0.1 },
-      { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearWeight: 1.5 },
-      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 20 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: -0.1 },
+      { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: 1.5 },
+      { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 2e-2 },
       { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 0.1, adaptationMaxFactor: 8 },
     ];
 

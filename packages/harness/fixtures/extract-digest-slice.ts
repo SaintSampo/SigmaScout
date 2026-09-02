@@ -50,12 +50,18 @@ import { openCorpusReadOnly, selectMatchesChronological } from "../../corpus/db.
 import { PromotedVersionSchema } from "../promote.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
-// Re-pinned to the `3.0.0` re-promotion (D-Q2, quick task 260901-is2)
+// Re-pinned to the `4.0.0` re-promotion (D-T1/D-T2, quick task 260901-trz)
 // alongside `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` — see that constant's
-// comment. Only this PATH moves: the committed `digest-slice.json` fixture
-// is matched to a version by `sliceSeason` + `sliceEventKeys`, never by
-// version string, and D-Q2 did not change the slice.
-const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "vpr@3.0.0+tuned-2026-08.json");
+// comment; previously pinned to `3.0.0` (D-Q2, quick task 260901-is2).
+// Only this PATH moves, and that is a fact rather than a hope: the committed
+// `digest-slice.json` fixture records raw MATCHES, and `digest.test.ts`
+// matches fixture to version by `sliceSeason` + `sliceEventKeys`, never by
+// version string. Neither D-Q2 nor D-T1/D-T2 changed the slice (2022,
+// 2022alhu/2022azfl/2022azva, 265 matches), so the fixture does not need
+// regenerating — and with the corpus present that test ALSO asserts corpus
+// and fixture agree, so a stale fixture would fail loudly rather than
+// silently.
+const DEFAULT_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
 const OUTPUT_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 
 /** The committed fixture's on-disk shape — `digest.test.ts` reads this back and re-validates `sliceEventKeys`/`sliceSeason` still match whichever promoted version it is checking. */

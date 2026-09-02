@@ -11,7 +11,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { makeSigma1, type Sigma1State } from "./index.js";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_PARAM_KEYS, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
+import {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_PARAM_KEYS,
+  SIGMA1_REFERENCE_SCORE_VARIANCE,
+  Sigma1ParamsSchema,
+  type Sigma1Params,
+} from "./params.js";
 import { emptyInnovationStats } from "./adaptation.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE, SIGMA1_SHRINKAGE_PRIOR_MATCHES } from "./consistency.js";
@@ -248,23 +254,43 @@ describe("DEFAULT_SIGMA1_PARAMS reproduces Phase-2 behaviour exactly", () => {
     // The rpMonteCarlo* fields have no Phase-2 predecessor constant (D-16:
     // versioned parameters introduced fresh by this plan, consumed by plan
     // 03-03) — excluded here, asserted as literals instead.
-    expect(DEFAULT_SIGMA1_PARAMS.processNoiseWithinEvent).toBe(SIGMA1_PROCESS_NOISE_WITHIN_EVENT);
-    expect(DEFAULT_SIGMA1_PARAMS.processNoiseEventBoundary).toBe(SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY);
+    // D-T1 (4.0.0): the five SCALE-RELATIVE defaults are DERIVED from the
+    // same imported constants, divided by the measured reference (or its
+    // square root for the ONE linear field). Asserting the division here is
+    // what pins params.ts's "derived, never re-typed" rule as a TEST rather
+    // than as a convention a future edit could quietly break.
+    expect(DEFAULT_SIGMA1_PARAMS.processNoiseWithinEventRel).toBe(
+      SIGMA1_PROCESS_NOISE_WITHIN_EVENT / SIGMA1_REFERENCE_SCORE_VARIANCE
+    );
+    expect(DEFAULT_SIGMA1_PARAMS.processNoiseEventBoundaryRel).toBe(
+      SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY / SIGMA1_REFERENCE_SCORE_VARIANCE
+    );
+    expect(DEFAULT_SIGMA1_PARAMS.minConsistencyVarianceRel).toBe(
+      SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE
+    );
+    expect(DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVarianceRel).toBe(25 / SIGMA1_REFERENCE_SCORE_VARIANCE);
+    // The ONE linear field: a point total, so sqrt(V_ref), not V_ref.
+    expect(DEFAULT_SIGMA1_PARAMS.coldStartTeamTotalRel).toBe(20 / Math.sqrt(SIGMA1_REFERENCE_SCORE_VARIANCE));
     expect(DEFAULT_SIGMA1_PARAMS.consistencyEwmaAlpha).toBe(SIGMA1_CONSISTENCY_EWMA_ALPHA);
     expect(DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches).toBe(SIGMA1_SHRINKAGE_PRIOR_MATCHES);
-    expect(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance).toBe(SIGMA1_MIN_CONSISTENCY_VARIANCE);
     expect(DEFAULT_SIGMA1_PARAMS.covEwmaAlpha).toBe(SIGMA1_COV_EWMA_ALPHA);
     expect(DEFAULT_SIGMA1_PARAMS.covShrinkage).toBe(SIGMA1_COV_SHRINKAGE);
     expect(DEFAULT_SIGMA1_PARAMS.linkC).toBe(SIGMA1_LINK_C);
     expect(DEFAULT_SIGMA1_PARAMS.carryMeanReversion).toBe(EPA_MEAN_REVERSION);
-    expect(DEFAULT_SIGMA1_PARAMS.carryLastYearWeight).toBe(EPA_CARRY_LAST_YEAR_WEIGHT);
-    expect(DEFAULT_SIGMA1_PARAMS.carryPriorYearWeight).toBe(EPA_CARRY_PRIOR_YEAR_WEIGHT);
+    // D-T2: one share, derived from the retired pair's own RATIO.
+    expect(DEFAULT_SIGMA1_PARAMS.carryPriorYearShare).toBe(
+      EPA_CARRY_PRIOR_YEAR_WEIGHT / (EPA_CARRY_LAST_YEAR_WEIGHT + EPA_CARRY_PRIOR_YEAR_WEIGHT)
+    );
+    expect(DEFAULT_SIGMA1_PARAMS.carryPriorYearShare).toBe(0.3);
+    // F3: RP's own ABSOLUTE trio, sourced from exactly the constants
+    // rp/state.ts read through the score-side fields before 4.0.0.
+    expect(DEFAULT_SIGMA1_PARAMS.rpProcessNoiseWithinEvent).toBe(SIGMA1_PROCESS_NOISE_WITHIN_EVENT);
+    expect(DEFAULT_SIGMA1_PARAMS.rpProcessNoiseEventBoundary).toBe(SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY);
+    expect(DEFAULT_SIGMA1_PARAMS.rpColdStartVariance).toBe(25);
     // Values whose canonical home is params.ts itself (moved there from a
     // draft sigma1/index.ts location — see params.ts's file-header
     // deviation note on the ESM import-cycle this avoids). Asserted as the
     // documented literals rather than a self-referential import.
-    expect(DEFAULT_SIGMA1_PARAMS.coldStartTeamTotal).toBe(20);
-    expect(DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance).toBe(25);
     expect(DEFAULT_SIGMA1_PARAMS.fallbackScoreSd).toBe(25);
     expect(DEFAULT_SIGMA1_PARAMS.consistencyCarryDecay).toBe(0.5);
     expect(DEFAULT_SIGMA1_PARAMS.rpMonteCarloSeed).toBe(42);
@@ -360,14 +386,17 @@ describe("fields observable through the predict/update replay stream", () => {
   // by this plan's own staged design (03-01-PLAN.md Task 1/Task 3's
   // read_first notes).
   const WIRED_VIA_REPLAY: readonly { field: keyof Sigma1Params; perturbed: number }[] = [
-    { field: "processNoiseWithinEvent", perturbed: 5 },
-    { field: "processNoiseEventBoundary", perturbed: 40 },
+    // D-T1: the perturbed values are now DIMENSIONLESS, and each is chosen
+    // roughly an order of magnitude off its own default so the perturbation
+    // is unambiguously observable rather than lost in the last bits.
+    { field: "processNoiseWithinEventRel", perturbed: 5e-3 },
+    { field: "processNoiseEventBoundaryRel", perturbed: 4e-2 },
     { field: "consistencyEwmaAlpha", perturbed: 0.9 },
     { field: "covEwmaAlpha", perturbed: 0.9 },
     { field: "covShrinkage", perturbed: 0.9 },
     { field: "linkC", perturbed: 5 },
-    { field: "coldStartTeamTotal", perturbed: 100 },
-    { field: "coldStartConsistencyVariance", perturbed: 200 },
+    { field: "coldStartTeamTotalRel", perturbed: 3 },
+    { field: "coldStartConsistencyVarianceRel", perturbed: 0.2 },
     { field: "consistencyCarryDecay", perturbed: 0.01 },
   ];
 
@@ -386,7 +415,7 @@ describe("fields observable only through teamMetrics (D-27's display contract)",
   // all; that would be a false "not wired" signal, not evidence of a bug.
   const WIRED_VIA_TEAM_METRICS: readonly { field: keyof Sigma1Params; perturbed: number }[] = [
     { field: "shrinkagePriorMatches", perturbed: 50 },
-    { field: "minConsistencyVariance", perturbed: 200 },
+    { field: "minConsistencyVarianceRel", perturbed: 0.2 },
   ];
 
   it.each(WIRED_VIA_TEAM_METRICS)("$field changes teamMetrics output", ({ field, perturbed }) => {
@@ -564,5 +593,77 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
     const perturbedPrediction = perturbedAlgorithm.predict(stateWithMargin(), upcoming);
 
     expect(defaultPrediction.pRedWin).not.toBe(perturbedPrediction.pRedWin);
+  });
+});
+
+/**
+ * D-T1/D-T2/F3's key-shape contract, asserted BOTH ways. The positive half
+ * alone would pass a partial rename that left an old field behind; the
+ * NEGATIVE half is what makes a half-finished rename fail loudly.
+ */
+describe("SIGMA1_PARAM_KEYS after the 4.0.0 shape change", () => {
+  const keys = new Set<string>(SIGMA1_PARAM_KEYS as readonly string[]);
+
+  it("carries the five renamed keys under their NEW names", () => {
+    for (const key of [
+      "processNoiseWithinEventRel",
+      "processNoiseEventBoundaryRel",
+      "minConsistencyVarianceRel",
+      "coldStartConsistencyVarianceRel",
+      "coldStartTeamTotalRel",
+    ]) {
+      expect(keys.has(key), `${key} must be present`).toBe(true);
+    }
+  });
+
+  it("carries NONE of the retired absolute names — a partial rename fails here", () => {
+    for (const key of [
+      "processNoiseWithinEvent",
+      "processNoiseEventBoundary",
+      "minConsistencyVariance",
+      "coldStartConsistencyVariance",
+      "coldStartTeamTotal",
+    ]) {
+      expect(keys.has(key), `${key} was renamed by D-T1 and must be gone`).toBe(false);
+    }
+  });
+
+  it("D-T2: one carryPriorYearShare replaces the two retired carry weights", () => {
+    expect(keys.has("carryPriorYearShare")).toBe(true);
+    expect(keys.has("carryLastYearWeight")).toBe(false);
+    expect(keys.has("carryPriorYearWeight")).toBe(false);
+  });
+
+  it("F3: RP carries its own three ABSOLUTE fields", () => {
+    expect(keys.has("rpProcessNoiseWithinEvent")).toBe(true);
+    expect(keys.has("rpProcessNoiseEventBoundary")).toBe(true);
+    expect(keys.has("rpColdStartVariance")).toBe(true);
+  });
+
+  it("stays the canonical sorted order derived from DEFAULT_SIGMA1_PARAMS, never hand-typed", () => {
+    expect([...SIGMA1_PARAM_KEYS]).toEqual([...SIGMA1_PARAM_KEYS].sort());
+    expect(SIGMA1_PARAM_KEYS.length).toBe(Object.keys(DEFAULT_SIGMA1_PARAMS).length);
+  });
+});
+
+describe("Sigma1ParamsSchema — the invariants D-T1/F3 renamed or added", () => {
+  it("rejects a set whose RELATIVE process-noise ordering is inverted (D-07, renamed not weakened)", () => {
+    const bad = { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEventRel: 5e-3, processNoiseEventBoundaryRel: 1e-3 };
+    expect(() => Sigma1ParamsSchema.parse(bad)).toThrow(/processNoiseEventBoundaryRel must strictly exceed/);
+  });
+
+  it("rejects a set whose RP absolute process-noise ordering is inverted (F3, the same argument on the count-scale pair)", () => {
+    const bad = { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseWithinEvent: 5, rpProcessNoiseEventBoundary: 1 };
+    expect(() => Sigma1ParamsSchema.parse(bad)).toThrow(/rpProcessNoiseEventBoundary must strictly exceed/);
+  });
+
+  it("rejects a carryPriorYearShare outside [0, 1] (D-04/D-T2)", () => {
+    expect(() => Sigma1ParamsSchema.parse({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: 1.5 })).toThrow(/carryPriorYearShare/);
+    expect(() => Sigma1ParamsSchema.parse({ ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: -0.1 })).toThrow(/carryPriorYearShare/);
+  });
+
+  it("still rejects a retired key by name — z.strictObject means no 3.0.0 file can be read as a 4.0.0 one", () => {
+    const legacyShaped = { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEvent: 0.5 };
+    expect(() => Sigma1ParamsSchema.parse(legacyShaped)).toThrow(/[Uu]nrecognized key/);
   });
 });

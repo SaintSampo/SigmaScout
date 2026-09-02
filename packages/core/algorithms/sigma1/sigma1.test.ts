@@ -18,6 +18,7 @@ import {
   type Sigma1State,
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
+import { resolveSigma1Params } from "./scale.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import { FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../types.js";
@@ -26,6 +27,16 @@ import { emptyInnovationStats } from "./adaptation.js";
 import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
 import { epa } from "../epa.js";
+
+/**
+ * D-T1 (4.0.0): `teamMetrics` resolves the scale-relative params against the
+ * state's OWN `allianceScoreStats` before applying any floor. A test that
+ * reconstructs what `teamMetrics` computed must resolve at the SAME statistic,
+ * or it is asserting against a different scale than the code used. For a state
+ * whose `allianceScoreStats` is empty this is the documented cold-start scale
+ * (`fallbackScoreSd ** 2` = 625).
+ */
+const RESOLVED_AT_COLD_START = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -562,7 +573,7 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
             // `teamTotalVariance` is 0 and the `minConsistencyVariance`
             // floor binds (PD-04).
             covariance: [[0]],
-            consistency: { autoLeave: DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance },
+            consistency: { autoLeave: RESOLVED_AT_COLD_START.coldStartConsistencyVariance },
             matchCount: 0,
             lastEventKey: null,
             innovationStats: emptyInnovationStats(),
@@ -620,6 +631,11 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
     const metrics = vpr.teamMetrics(state, ["frc254"]);
     const frc254 = metrics["frc254"]!;
     const teamState = state.teams.get("frc254")!;
+    // D-T1: resolve against THIS state's own expanding statistic — the exact
+    // quantity `teamMetrics` resolved against internally. Recomputed from the
+    // resolved scale rather than loosened to a wide tolerance: the assertion
+    // stays exact, only the number it derives from moved.
+    const resolved = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, state.allianceScoreStats);
 
     // Cannot pass vacuously by iterating an empty or truncated record.
     expect(Object.keys(frc254).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1 + 3);
@@ -628,15 +644,15 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
     for (const [key, metric] of Object.entries(frc254)) {
       let rAlone: number;
       if (key === TOTAL_METRIC_KEY) {
-        rAlone = Math.sqrt(Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, teamTotalVariance(teamState.covariance)));
+        rAlone = Math.sqrt(Math.max(resolved.minConsistencyVariance, teamTotalVariance(teamState.covariance)));
       } else if (key === "phaseAuto" || key === "phaseTeleop" || key === "phaseEndgame") {
         const groupId: "auto" | "teleop" | "endgame" = key === "phaseAuto" ? "auto" : key === "phaseTeleop" ? "teleop" : "endgame";
         const indices = groups[groupId]
           .map((name) => state.componentOrder.indexOf(name))
           .filter((index) => index !== -1);
-        rAlone = Math.sqrt(Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, subsetVariance(teamState.covariance, indices)));
+        rAlone = Math.sqrt(Math.max(resolved.minConsistencyVariance, subsetVariance(teamState.covariance, indices)));
       } else {
-        const observedConsistency = teamState.consistency[key] ?? DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance;
+        const observedConsistency = teamState.consistency[key] ?? resolved.coldStartConsistencyVariance;
         // Mirrors `leagueConsistencyFor` (index.ts, module-private): the
         // live league-average consistency for this component if the league
         // has folded any observations of it yet, else the cold-start
@@ -644,14 +660,14 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
         // real folded data after the update() call above.
         const leagueStats = state.league.componentConsistency[key];
         const leagueConsistency =
-          leagueStats && leagueStats.count > 0 ? leagueStats.mean : DEFAULT_SIGMA1_PARAMS.coldStartConsistencyVariance;
+          leagueStats && leagueStats.count > 0 ? leagueStats.mean : resolved.coldStartConsistencyVariance;
         rAlone = Math.sqrt(
           shrinkConsistency(
             observedConsistency,
             teamState.matchCount,
             leagueConsistency,
-            DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches,
-            DEFAULT_SIGMA1_PARAMS.minConsistencyVariance
+            resolved.shrinkagePriorMatches,
+            resolved.minConsistencyVariance
           )
         );
       }
@@ -705,7 +721,7 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
     // autoAmpNote has no entry in componentOrder, so it is absent from BOTH
     // the posterior sum and the covariance subset — never just one.
     const presentPosterior = 3 + 6; // belief.variance for autoLeave + autoSpeakerNote
-    const presentR = Math.max(DEFAULT_SIGMA1_PARAMS.minConsistencyVariance, subsetVariance(state.teams.get("PARTIALGROUP")!.covariance, [0, 1]));
+    const presentR = Math.max(RESOLVED_AT_COLD_START.minConsistencyVariance, subsetVariance(state.teams.get("PARTIALGROUP")!.covariance, [0, 1]));
     const expected = Math.sqrt(presentPosterior + presentR);
     expect(Math.abs(groupSpread - expected)).toBeLessThan(1e-9);
   });
@@ -1033,8 +1049,8 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
   });
 
   it("throws when constructed with a params object that violates a cross-parameter invariant (WR-02, 03.1-REVIEW.md: makeSigma1 must parse options.params through Sigma1ParamsSchema, not merely accept it by TypeScript shape)", () => {
-    // D-07's invariant: processNoiseEventBoundary must strictly exceed
-    // processNoiseWithinEvent. TypeScript's structural typing enforces the
+    // D-07's invariant: processNoiseEventBoundaryRel must strictly exceed
+    // processNoiseWithinEventRel. TypeScript's structural typing enforces the
     // shape of Sigma1Params but not this cross-parameter invariant, so an
     // object like this compiles fine and previously reached makeSigma1
     // unvalidated.
@@ -1042,9 +1058,9 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
       makeSigma1({
         id: "vpr-invalid",
         linkMode: "predictive-variance",
-        params: { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundary: 1, processNoiseWithinEvent: 5 },
+        params: { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 1e-3, processNoiseWithinEventRel: 5e-3 },
       })
-    ).toThrow(/processNoiseEventBoundary must strictly exceed processNoiseWithinEvent/);
+    ).toThrow(/processNoiseEventBoundaryRel must strictly exceed processNoiseWithinEventRel/);
   });
 });
 
@@ -1225,7 +1241,13 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
     // alliance, so gain = P / (P + R) with the process-noise-inflated
     // prior variance and FALLBACK_NOISE_MULTIPLIER-inflated measurement
     // noise).
-    const priorVariance = 4 + 0.5; // D-07 within-event process noise bump
+    // D-07 within-event process noise bump. D-T1 (4.0.0): the magnitude is no
+    // longer the absolute 0.5 — it is `processNoiseWithinEventRel * sigma^2`,
+    // and this state's `allianceScoreStats` is empty, so `update()` resolved
+    // at the documented cold-start scale (`fallbackScoreSd ** 2` = 625).
+    // Recomputed from that resolved value so the assertion stays EXACT rather
+    // than being loosened to a tolerance wide enough to hide the difference.
+    const priorVariance = 4 + RESOLVED_AT_COLD_START.processNoiseWithinEvent;
     const measurementNoise = 2 * FALLBACK_NOISE_MULTIPLIER;
     const gain = priorVariance / (priorVariance + measurementNoise);
     const expectedAutoLeaveInnovation = 96 * (40 / 50) - 40;

@@ -412,7 +412,7 @@ export function writeRewindGapBlock(markdown: string, measurement: RewindGapMeas
 
 export const CORPUS_PATH = join("data", "corpus.sqlite");
 /** Mirrors `packages/harness/cli.ts`'s own (module-private) `PROMOTED_VPR_VERSION_PATH` — duplicated here rather than imported, since that constant is `cli.ts`-internal, matching `replayRig.ts`'s own precedent for duplicating a small named value across an isolation boundary. */
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@3.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
 
 /** The stream-position sentinel for a job whose start index is 0 — there is no preceding match in that event, so the job's "frozen state" is the season's own initial state (cold-start `initState`, or this season's carried-in state) rather than any `onMatchComplete` snapshot. */
 const SEASON_START_SENTINEL = "__SEASON_START__";

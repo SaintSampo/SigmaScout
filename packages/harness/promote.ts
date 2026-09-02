@@ -47,6 +47,43 @@
  * by `Sigma1ParamsSchema` (via `PromotedVersionSchema`) before anything is
  * written. A promotion with no overrides writes provenance byte-identical to
  * a pre-`--set-param` promotion: all three fields stay absent.
+ *
+ * ## `--from-version <path>`, and why `--from` could not be used
+ *
+ * `--from` reads a SEARCH ARTIFACT. `--from-version` reads a committed
+ * VERSION FILE instead. Exactly one of the two is required. Introduced by
+ * quick task 260901-trz for the `SIGMA1_CODE_VERSION` 3.0.0 -> 4.0.0 shape
+ * change, where `--from` was not merely inconvenient but WRONG, for two
+ * independent reasons:
+ *
+ *   1. `Sigma1ParamsSchema` is `z.strictObject` and D-T1 renamed five fields.
+ *      Every candidate inside the retired search artifacts records the OLD
+ *      absolute names, so `Sigma1ParamsSchema.parse(winnerCandidate.params)`
+ *      throws before `--set-param` is ever consulted. A search artifact
+ *      written under one parameter shape simply cannot be promoted under
+ *      another.
+ *   2. More seriously: the shipped `linkC = 0.5` exists ONLY as a
+ *      `--set-param` override recorded in the committed version file. The
+ *      search artifact's own winner carries 1.2398..., which the D-Q2 R
+ *      estimator made stale. Re-promoting from the search artifact would have
+ *      silently DROPPED a correction that is currently live on the site.
+ *
+ * The rejected alternative — hand-authoring a new-shape search artifact under
+ * the gitignored `reports/` — is exactly what quick task 260901-is2 Task 4
+ * rejected, and for the same reason: the resulting committed file would read
+ * as a fresh tune.
+ *
+ * A `--from-version` promotion CARRIES FORWARD `searchArtifact`, `objective`,
+ * `tuneSeasons`, `seed`, `survivors` and `losoSummary` from the source file
+ * unchanged — they describe the search that produced the source parameter set,
+ * which is still the honest lineage — and ADDS `derivedFromVersion` (the
+ * source file's own `version` string) and `paramShapeMigration` (a
+ * machine-readable tag naming the map applied). It sets
+ * `objectiveAppliesToPromotedParams: false` UNCONDITIONALLY, even with no
+ * `--set-param`: the recorded objective was computed by a DIFFERENT code
+ * version on a DIFFERENTLY-SHAPED parameter set, so it does not describe the
+ * shipped set. That is a stronger statement than the `--set-param` case, not
+ * a weaker one.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -63,6 +100,11 @@ import {
   Sigma1ParamsSchema,
   type Sigma1Params,
 } from "../core/algorithms/sigma1/params.js";
+import {
+  LegacyAbsoluteSigma1ParamsSchema,
+  migrateAbsoluteToScaleRelative,
+  SIGMA1_3_TO_4_MIGRATION_TAG,
+} from "./legacyParams.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, type HarnessPredictionInput } from "./score.js";
@@ -124,6 +166,15 @@ const ProvenanceSchema = z.object({
    * is what keeps an overridden promotion from reading like a fresh tune.
    */
   objectiveAppliesToPromotedParams: z.boolean().optional(),
+  /**
+   * The `--from-version` audit trail (quick task 260901-trz). Both OPTIONAL,
+   * and populated ONLY by a `--from-version` promotion, so every
+   * already-committed version file keeps validating unchanged.
+   */
+  /** The `version` string of the committed version file this promotion was derived FROM — e.g. `"3.0.0+tuned-2026-08"`. */
+  derivedFromVersion: z.string().min(1).optional(),
+  /** A machine-readable tag naming the parameter-shape map applied on the way (`legacyParams.ts`'s `SIGMA1_3_TO_4_MIGRATION_TAG`), or absent when the source file already used the current shape. */
+  paramShapeMigration: z.string().min(1).optional(),
 });
 
 const DigestSchema = z.object({
@@ -308,6 +359,33 @@ interface TuneSearchCandidate {
  * optional so this interface (and the provenance built from it) degrades
  * gracefully for a non-joint search artifact.
  */
+/**
+ * A codeVersion-tolerant read of a committed version file for
+ * `--from-version`: identical to `PromotedVersionSchema` except that `params`
+ * is left UNVALIDATED here, because which schema validates it depends on the
+ * file's own `codeVersion` (a 3.0.0 file's params are the retired absolute
+ * shape, which the current `Sigma1ParamsSchema` rejects outright). The params
+ * are then parsed by exactly one of `LegacyAbsoluteSigma1ParamsSchema` (then
+ * migrated) or `Sigma1ParamsSchema` — never neither, and never leniently.
+ */
+const SourceVersionSchema = z.object({
+  id: z.string().min(1),
+  codeVersion: z.string().min(1),
+  paramSetName: z.string().min(1),
+  version: z.string().min(1),
+  params: z.unknown(),
+  provenance: ProvenanceSchema,
+  digest: DigestSchema,
+});
+
+/** Everything a promotion needs to know about where its parameter set came from, whichever of the two source flags produced it. */
+export interface PromotionSource {
+  /** The validated, pre-`--set-param` parameter set, in the CURRENT shape. */
+  readonly params: Sigma1Params;
+  /** What goes into `provenance` verbatim (minus the `--set-param` block, which `main` adds). */
+  readonly provenance: Omit<z.infer<typeof ProvenanceSchema>, "corpusIdentity" | "promotedAt">;
+}
+
 interface TuneSearchOutput {
   readonly stage?: string;
   readonly seasons: readonly number[];
@@ -321,10 +399,162 @@ interface TuneSearchOutput {
   readonly adaptation?: "on" | "off";
 }
 
+/**
+ * Which of the two mutually exclusive source flags this invocation names, and
+ * the path it resolves to. Exported and PURE (no filesystem, no corpus) so
+ * the exactly-one rule is testable without a full promotion run — the same
+ * reason `parseParamOverrides`/`applyParamOverrides` are exported.
+ *
+ * Exactly one source is required. BOTH would mean two different parameter
+ * sets with no stated precedence, and silently preferring one would make the
+ * committed file's lineage a coin flip; NEITHER means no parameter set at
+ * all. `--adaptation on|off` is a shorthand that fills in `--from` only.
+ */
+export function resolvePromotionSourcePath(
+  from: string | undefined,
+  fromVersion: string | undefined,
+  adaptationSpec: string | undefined
+): { readonly kind: "search-artifact" | "version-file"; readonly path: string } {
+  const fromPath = from ?? (adaptationSpec !== undefined ? join("reports", `tune-joint-${adaptationSpec}.json`) : undefined);
+  if (fromPath !== undefined && fromVersion !== undefined) {
+    throw new Error(
+      "--from and --from-version are alternatives: pass exactly one. --from reads a search artifact; --from-version reads a committed version file."
+    );
+  }
+  if (fromVersion !== undefined) return { kind: "version-file", path: fromVersion };
+  if (fromPath !== undefined) return { kind: "search-artifact", path: fromPath };
+  throw new Error(
+    "one of --from (e.g. --from reports/tune-tracer.json, or --adaptation on|off) or --from-version (e.g. --from-version data/algorithm-versions/vpr@3.0.0+tuned-2026-08.json) is required"
+  );
+}
+
+/** The pre-existing `--from` path, unchanged in behaviour and lifted out of `main` so the two sources sit side by side. */
+function loadFromSearchArtifact(fromPath: string): PromotionSource {
+  const searchArtifactRaw = readFileSync(fromPath, "utf8");
+  // D-14/T-03-15: the search artifact's own content hash, recorded in
+  // provenance so the promoted file names exactly the bytes it was derived
+  // from — a hand-edited search log between the search and the promotion
+  // produces a hash mismatch rather than a silent substitution.
+  const searchArtifactSha256 = createHash("sha256").update(searchArtifactRaw).digest("hex");
+  // 03-REVIEW IN-01: validate the load-bearing shape before the cast — the
+  // cast then only widens to the optional provenance fields `.passthrough()`
+  // already preserved at runtime.
+  const searchOutput = TuneSearchOutputMinimalSchema.parse(JSON.parse(searchArtifactRaw)) as unknown as TuneSearchOutput;
+  const winnerCandidate = searchOutput.candidates.find((c) => c.index === searchOutput.winnerIndex);
+  if (!winnerCandidate) {
+    throw new Error(`promote: ${fromPath} has no candidate at winnerIndex ${searchOutput.winnerIndex}`);
+  }
+
+  // T-03-08's mitigation: an unknown key, a missing key, or a NaN/Infinity
+  // value in the search output's winning parameter set throws here, before
+  // it can ever reach a committed version file. D-11 / 03-REVIEW WR-01: this
+  // same parse now also enforces the cross-parameter invariants folded into
+  // `Sigma1ParamsSchema` itself — no new call was added at this site, the
+  // strengthened schema is enough.
+  return {
+    params: Sigma1ParamsSchema.parse(winnerCandidate.params),
+    provenance: {
+      searchArtifact: fromPath,
+      objective: winnerCandidate.objective,
+      tuneSeasons: [...searchOutput.seasons],
+      // D-14 (plan 03-05 Task 3): the full joint-stage provenance -- every
+      // field below is populated whenever the search artifact actually
+      // carries it (a `--stage joint` log always does; a bare tracer log
+      // does not, and these simply stay undefined for that case, matching
+      // `ProvenanceSchema`'s own optional fields).
+      searchArtifactSha256,
+      objectiveDefinition: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+      evaluationCount: searchOutput.evals ?? searchOutput.candidates.length,
+      seed: searchOutput.seed,
+      screenArtifact: searchOutput.survivorsPath,
+      survivors: searchOutput.survivors ? [...searchOutput.survivors] : undefined,
+      losoSummary: searchOutput.loso,
+      adaptationMode: searchOutput.adaptation,
+    },
+  };
+}
+
+/**
+ * The `--from-version` path (quick task 260901-trz) — see this file's header
+ * for why it exists and what it may NOT be replaced by.
+ *
+ * The source file's `codeVersion` decides which schema validates its params.
+ * A file at the CURRENT `SIGMA1_CODE_VERSION` is parsed by
+ * `Sigma1ParamsSchema` and promoted as-is; an OLDER file is parsed by the
+ * frozen `LegacyAbsoluteSigma1ParamsSchema` and migrated. A file claiming a
+ * codeVersion NEWER than this code is refused outright rather than guessed at
+ * — there is no map from a shape this code has never seen.
+ *
+ * Every provenance field describing the SEARCH carries forward unchanged: it
+ * still honestly describes the search that produced the source parameter set.
+ * What is ADDED is the fact that this file is one migration removed from that
+ * search — `derivedFromVersion`, `paramShapeMigration`, and an unconditional
+ * `objectiveAppliesToPromotedParams: false`.
+ */
+export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
+  const raw: unknown = JSON.parse(readFileSync(fromVersionPath, "utf8"));
+  const sourceVersion = SourceVersionSchema.parse(raw);
+
+  let params: Sigma1Params;
+  let paramShapeMigration: string | undefined;
+  if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
+    params = Sigma1ParamsSchema.parse(sourceVersion.params);
+  } else if (sourceVersion.codeVersion.startsWith("3.")) {
+    params = migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params));
+    paramShapeMigration = SIGMA1_3_TO_4_MIGRATION_TAG;
+  } else {
+    throw new Error(
+      `promote --from-version: ${fromVersionPath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
+        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; only 3.x is migratable). Refusing to guess at a shape it has never seen.`
+    );
+  }
+
+  return {
+    params,
+    provenance: {
+      // Carried FORWARD, unchanged: these describe the search that produced
+      // the source parameter set, and that lineage is still the honest one.
+      searchArtifact: sourceVersion.provenance.searchArtifact,
+      objective: sourceVersion.provenance.objective,
+      tuneSeasons: [...sourceVersion.provenance.tuneSeasons],
+      searchArtifactSha256: sourceVersion.provenance.searchArtifactSha256,
+      objectiveDefinition: sourceVersion.provenance.objectiveDefinition,
+      evaluationCount: sourceVersion.provenance.evaluationCount,
+      seed: sourceVersion.provenance.seed,
+      screenArtifact: sourceVersion.provenance.screenArtifact,
+      survivors: sourceVersion.provenance.survivors ? [...sourceVersion.provenance.survivors] : undefined,
+      losoSummary: sourceVersion.provenance.losoSummary,
+      adaptationMode: sourceVersion.provenance.adaptationMode,
+      // Also carried forward, and this one is load-bearing: `paramOverrides`
+      // and `note` record how the SOURCE parameter set diverged from its
+      // search winner, and every such divergence SURVIVES the migration — it
+      // is still present in the set this file ships. `tuned-2026-08`'s
+      // `linkC = 0.5` is the motivating case: it exists nowhere else (the
+      // search artifact's winner records the stale 1.2398...), so dropping
+      // the note here would leave the shipped value with no recorded reason
+      // once the source file is retired. `main` MERGES any `--set-param` this
+      // promotion applies on top of these rather than replacing them.
+      paramOverrides: sourceVersion.provenance.paramOverrides,
+      note: sourceVersion.provenance.note,
+      // ADDED: what this promotion did on top of that lineage.
+      derivedFromVersion: sourceVersion.version,
+      paramShapeMigration,
+      // UNCONDITIONAL, even with no `--set-param`, and a STRONGER statement
+      // than the override case: `objective` above was computed by a DIFFERENT
+      // code version, on a DIFFERENTLY-SHAPED parameter set. It does not
+      // describe the set this file ships, and recording that as a
+      // machine-readable fact is what keeps a migrated promotion from reading
+      // like a fresh tune.
+      objectiveAppliesToPromotedParams: false,
+    },
+  };
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       from: { type: "string" },
+      "from-version": { type: "string" },
       name: { type: "string" },
       id: { type: "string" },
       "slice-season": { type: "string" },
@@ -361,8 +591,7 @@ async function main(): Promise<void> {
   if (adaptationSpec !== undefined && adaptationSpec !== "on" && adaptationSpec !== "off") {
     throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
   }
-  const fromPath = values.from ?? (adaptationSpec !== undefined ? join("reports", `tune-joint-${adaptationSpec}.json`) : undefined);
-  if (!fromPath) throw new Error("--from is required (e.g. --from reports/tune-tracer.json), or pass --adaptation on|off");
+  const sourceSpec = resolvePromotionSourcePath(values.from, values["from-version"], adaptationSpec);
   const paramSetName = values.name;
   if (!paramSetName) throw new Error("--name is required (the paramSetName half of D-13's {codeVersion}+{paramSetName} identity)");
   // D-04/D-05 (plan 07-16): a future promotion's default id is the renamed
@@ -373,31 +602,11 @@ async function main(): Promise<void> {
   const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : COLD_START_SEASON;
   const sliceEvents = values["slice-events"] !== undefined ? parseSliceEvents(values["slice-events"]) : 3;
 
-  const searchArtifactRaw = readFileSync(fromPath, "utf8");
-  // D-14/T-03-15: the search artifact's own content hash, recorded in
-  // provenance so the promoted file names exactly the bytes it was derived
-  // from — a hand-edited search log between the search and the promotion
-  // produces a hash mismatch rather than a silent substitution.
-  const searchArtifactSha256 = createHash("sha256").update(searchArtifactRaw).digest("hex");
-  // 03-REVIEW IN-01: validate the load-bearing shape before the cast — the
-  // cast then only widens to the optional provenance fields `.passthrough()`
-  // already preserved at runtime.
-  const searchOutput = TuneSearchOutputMinimalSchema.parse(JSON.parse(searchArtifactRaw)) as unknown as TuneSearchOutput;
-  const winnerCandidate = searchOutput.candidates.find((c) => c.index === searchOutput.winnerIndex);
-  if (!winnerCandidate) {
-    throw new Error(`promote: ${fromPath} has no candidate at winnerIndex ${searchOutput.winnerIndex}`);
-  }
-
-  // T-03-08's mitigation: an unknown key, a missing key, or a NaN/Infinity
-  // value in the search output's winning parameter set throws here, before
-  // it can ever reach a committed version file. D-11 / 03-REVIEW WR-01: this
-  // same parse now also enforces the five cross-parameter invariants
-  // (D-07's process-noise ordering, T-03-06's adaptation clamp, D-04's three
-  // carry-weight ranges) folded into `Sigma1ParamsSchema` itself — no new
-  // call was added at this site, the strengthened schema is enough.
-  const searchedParams: Sigma1Params = Sigma1ParamsSchema.parse(winnerCandidate.params);
+  const source: PromotionSource =
+    sourceSpec.kind === "version-file" ? loadFromVersionFile(sourceSpec.path) : loadFromSearchArtifact(sourceSpec.path);
+  const searchedParams = source.params;
   // Task 4 (quick task 260901-is2): `--set-param` is applied to the VALIDATED
-  // search winner, so an override is always a delta against a set that was
+  // source set, so an override is always a delta against a set that was
   // itself well-formed. The overridden result is re-validated by
   // `PromotedVersionSchema.parse` at the validate-then-write boundary below —
   // an override that breaks a cross-parameter invariant throws there, before
@@ -468,32 +677,32 @@ async function main(): Promise<void> {
     version,
     params,
     provenance: {
-      searchArtifact: fromPath,
+      ...source.provenance,
       corpusIdentity: CORPUS_PATH,
       promotedAt: new Date().toISOString(),
-      objective: winnerCandidate.objective,
-      tuneSeasons: [...searchOutput.seasons],
-      // D-14 (plan 03-05 Task 3): the full joint-stage provenance -- every
-      // field below is populated whenever the search artifact actually
-      // carries it (a `--stage joint` log always does; a bare tracer log
-      // does not, and these simply stay undefined for that case, matching
-      // `ProvenanceSchema`'s own optional fields).
-      searchArtifactSha256,
-      objectiveDefinition: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
-      evaluationCount: searchOutput.evals ?? searchOutput.candidates.length,
-      seed: searchOutput.seed,
-      screenArtifact: searchOutput.survivorsPath,
-      survivors: searchOutput.survivors ? [...searchOutput.survivors] : undefined,
-      losoSummary: searchOutput.loso,
-      adaptationMode: searchOutput.adaptation,
       // Task 4 (quick task 260901-is2): populated as a group, and ONLY when
       // an override was actually applied — a no-override promotion writes
       // provenance byte-identical to a pre-`--set-param` one. `false` is
       // hardcoded rather than computed because the condition for writing
       // this block IS "an override exists", and an override is exactly what
       // makes the recorded `objective` stop describing the shipped set.
+      //
+      // Quick task 260901-trz: MERGED with, never replacing, any block
+      // carried forward by `--from-version` (see `loadFromVersionFile`). A
+      // replace would silently drop an EARLIER divergence that is still
+      // present in the shipped set — exactly the `linkC = 0.5` failure this
+      // whole `--from-version` path exists to avoid. This promotion's own
+      // overrides win on a key collision, which is correct: it applied them
+      // last. Two notes are joined rather than one discarded.
       ...(paramOverrides
-        ? { paramOverrides, note: provenanceNote, objectiveAppliesToPromotedParams: false as const }
+        ? {
+            paramOverrides: { ...source.provenance.paramOverrides, ...paramOverrides },
+            note:
+              source.provenance.note !== undefined
+                ? `${source.provenance.note}\n\n${provenanceNote}`
+                : provenanceNote,
+            objectiveAppliesToPromotedParams: false as const,
+          }
         : {}),
     },
     digest: {
@@ -524,6 +733,12 @@ async function main(): Promise<void> {
   writeFileSync(outPath, serialized, "utf8");
   console.log(`Wrote ${outPath}`);
   console.log(`  digest: ${predictionStreamSha256}`);
+  // A migrated promotion must be as loud in the terminal as an overridden one.
+  if (source.provenance.derivedFromVersion !== undefined) {
+    console.log(`  derivedFromVersion: ${source.provenance.derivedFromVersion}`);
+    console.log(`  paramShapeMigration: ${source.provenance.paramShapeMigration ?? "(none — source already used the current shape)"}`);
+    console.log(`  NOTE: provenance.objective was computed by a DIFFERENT code version on a DIFFERENTLY-SHAPED parameter set.`);
+  }
   console.log(`  slice: season ${sliceSeason}, ${sliceEventKeys.length} events, ${records.length} matches`);
   // Task 4: a promotion that silently applied an override must be
   // impossible to miss in the terminal, not merely discoverable by reading

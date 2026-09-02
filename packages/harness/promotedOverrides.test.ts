@@ -30,9 +30,9 @@ import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algori
  * `vpr` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
  * unlike `reports/tune-joint-on.json` it is always present, in CI included.
  */
-const PROMOTED_VERSION_IDENTITY = "3.0.0+tuned-2026-08";
-const DEFAULTS_VERSION_IDENTITY = "3.0.0+defaults";
-const ADAPT_VERSION_IDENTITY = "3.0.0+defaults-adapt";
+const PROMOTED_VERSION_IDENTITY = "4.0.0+tuned-2026-08";
+const DEFAULTS_VERSION_IDENTITY = "4.0.0+defaults";
+const ADAPT_VERSION_IDENTITY = "4.0.0+defaults-adapt";
 
 let tempDir: string | undefined;
 
@@ -213,7 +213,7 @@ describe("loadPromotedVpr (ALGO-06)", () => {
 
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr");
-    expect(loaded?.version).toBe("3.0.0+test-tuned");
+    expect(loaded?.version).toBe("4.0.0+test-tuned");
   });
 
   it("threads the file's params into the module's actual predict/update path — a tuned file produces a DIFFERENT prediction stream than defaults", () => {
@@ -221,7 +221,7 @@ describe("loadPromotedVpr (ALGO-06)", () => {
     const versionPath = join(dir, "version.json");
     // Perturb a field `params.test.ts` already proves is read by the replay
     // path, so a lack of difference can only mean the params were dropped.
-    const tuned: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEvent: 5 };
+    const tuned: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEventRel: 5e-3 };
     writeFileSync(versionPath, promotedVersionFile("test-tuned", tuned));
 
     const loaded = loadPromotedVpr("vpr", versionPath);
@@ -245,7 +245,7 @@ describe("loadPromotedVpr (ALGO-06)", () => {
     const dir = makeTempDir("promoted-nonfinite-");
     const versionPath = join(dir, "nonfinite.json");
     // NaN serializes to JSON `null`, which the schema must also reject.
-    writeFileSync(versionPath, promotedVersionFile("bad", { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEvent: NaN }));
+    writeFileSync(versionPath, promotedVersionFile("bad", { ...DEFAULT_SIGMA1_PARAMS, processNoiseWithinEventRel: NaN }));
 
     expect(() => loadPromotedVpr("vpr", versionPath)).toThrow();
   });
@@ -258,7 +258,7 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
       winnerIndex,
       candidates: [
         { index: 0, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 } },
-        { index: 1, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0, processNoiseWithinEvent: 0.5 } },
+        { index: 1, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0, processNoiseWithinEventRel: 5e-4 } },
       ],
     });
   }
@@ -283,7 +283,7 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
     const loaded = loadSearchWinnerVpr("vpr-adapt", artifactPath, "tune-joint-on-winner");
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr-adapt");
-    expect(loaded?.version).toBe("3.0.0+tune-joint-on-winner");
+    expect(loaded?.version).toBe("4.0.0+tune-joint-on-winner");
 
     // The restore is only observable through predict(): rpPmfForMatch
     // short-circuits to no pmf at 0 draws. A control module built with the

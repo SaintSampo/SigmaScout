@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../sigma1/params.js";
+import { resolveSigma1Params } from "../sigma1/scale.js";
+import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { rpPmfForMatch, type RpPmfInput } from "../sigma1/rp/distribution.js";
 import { rpRuleModuleForSeason } from "../sigma1/rp/rules.js";
 import type { AllianceRpMoments } from "../sigma1/rp/state.js";
@@ -17,6 +19,15 @@ import {
   type SimMatchInput,
   type SimTeamBaseline,
 } from "./rankSimulation.js";
+
+/**
+ * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the
+ * defaults at an EMPTY expanding statistic is the documented cold-start
+ * scale (`fallbackScoreSd ** 2` = 625), and none of the fields exercised in
+ * this file is scale-dependent, so these assertions are unchanged in
+ * substance -- only the parameter TYPE moved.
+ */
+const RESOLVED_DEFAULTS = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
 
 /** Mirrors `rp/distribution.test.ts`'s `moments()` fixture builder exactly — same shape, same defaults. */
 function moments(overrides: Partial<AllianceRpMoments> = {}): AllianceRpMoments {
@@ -45,7 +56,7 @@ function pmfInput(overrides: Partial<RpPmfInput> = {}): RpPmfInput {
     eventType: 0,
     matchKey: "2024test_qm1",
     compLevel: "qm",
-    params: DEFAULT_SIGMA1_PARAMS,
+    params: RESOLVED_DEFAULTS,
     ...overrides,
   };
 }

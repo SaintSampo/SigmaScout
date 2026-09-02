@@ -1,24 +1,26 @@
 {
   "id": "vpr",
-  "codeVersion": "3.0.0",
+  "codeVersion": "4.0.0",
   "paramSetName": "tracer-check",
-  "version": "3.0.0+tracer-check",
+  "version": "4.0.0+tracer-check",
   "params": {
-    "processNoiseWithinEvent": 0.5,
-    "processNoiseEventBoundary": 4,
+    "processNoiseWithinEventRel": 0.0004862793787704171,
+    "processNoiseEventBoundaryRel": 0.003890235030163337,
     "consistencyEwmaAlpha": 0.2,
     "shrinkagePriorMatches": 8,
-    "minConsistencyVariance": 1,
+    "minConsistencyVarianceRel": 0.0009725587575408342,
     "covEwmaAlpha": 0.1,
     "covShrinkage": 0.3,
     "linkC": 1,
-    "coldStartTeamTotal": 20,
-    "coldStartConsistencyVariance": 25,
+    "coldStartTeamTotalRel": 0.6237174865404478,
+    "coldStartConsistencyVarianceRel": 0.024313968938520853,
     "fallbackScoreSd": 25,
     "consistencyCarryDecay": 0.5,
     "carryMeanReversion": 0.4,
-    "carryLastYearWeight": 0.7,
-    "carryPriorYearWeight": 0.3,
+    "carryPriorYearShare": 0.3,
+    "rpProcessNoiseWithinEvent": 0.5,
+    "rpProcessNoiseEventBoundary": 4,
+    "rpColdStartVariance": 25,
     "rpMonteCarloSeed": 42,
     "rpMonteCarloDraws": 2000,
     "adaptationEnabled": false,
@@ -31,14 +33,17 @@
   "provenance": {
     "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-01T19:06:08.746Z",
+    "promotedAt": "2026-09-02T02:49:42.760Z",
     "objective": 0.17465514532650941,
     "tuneSeasons": [
       2022
     ],
     "searchArtifactSha256": "00147cbf5bab99f1e275b742b42ad6b92e75d601bf6315e3fb79886138aa67f9",
     "objectiveDefinition": "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
-    "evaluationCount": 1
+    "evaluationCount": 1,
+    "objectiveAppliesToPromotedParams": false,
+    "derivedFromVersion": "3.0.0+tracer-check",
+    "paramShapeMigration": "sigma1-3.0.0-absolute-to-4.0.0-scale-relative"
   },
   "digest": {
     "sliceSeason": 2022,
@@ -48,12 +53,12 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "8bb2aad9335fdd76215c132c4d2537aef0ee671eff0069c7452428653ec7d610",
+    "predictionStreamSha256": "38d091e0377272244a3ddaf4eb8ff1b3c9e318f8db466d20fff479be99029a1c",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.18205026736034616,
-        "winnerAccuracy": 0.7049808429118773
+        "brierScore": 0.18025182412084698,
+        "winnerAccuracy": 0.7088122605363985
       }
     ]
   }

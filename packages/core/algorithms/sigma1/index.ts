@@ -80,6 +80,7 @@ import {
 import { foldConsistencyVariance, shrinkConsistency } from "./consistency.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
+import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 import { sigma1Carryover } from "./carryover.js";
 import { rpRuleModuleForSeason } from "./rp/rules.js";
 import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "./rp/constants.js";
@@ -102,9 +103,11 @@ export {
   SIGMA1_CONSISTENCY_CARRY_DECAY,
   SIGMA1_FALLBACK_SCORE_SD,
   SIGMA1_PARAM_KEYS,
+  SIGMA1_REFERENCE_SCORE_VARIANCE,
   Sigma1ParamsSchema,
   type Sigma1Params,
 } from "./params.js";
+export { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 export {
   SIGMA1_COV_EWMA_ALPHA,
   SIGMA1_COV_SHRINKAGE,
@@ -130,7 +133,7 @@ export {
   updateAllianceSum,
 } from "./kalman.js";
 
-function componentColdStartTotal(componentCount: number, params: Sigma1Params): number {
+function componentColdStartTotal(componentCount: number, params: Sigma1ResolvedParams): number {
   return componentCount > 0 ? params.coldStartTeamTotal / componentCount : 0;
 }
 
@@ -270,7 +273,7 @@ function leagueConsistencyFor(league: Sigma1League, component: string, fallback:
  * under this estimator) the floor never binds; it exists for exactly the
  * early-season and synthetic-fixture cases where the prior is still 0.
  */
-function seedConsistencyFor(league: Sigma1League, component: string, params: Sigma1Params): number {
+function seedConsistencyFor(league: Sigma1League, component: string, params: Sigma1ResolvedParams): number {
   return Math.max(params.minConsistencyVariance, leagueConsistencyFor(league, component, params.coldStartConsistencyVariance));
 }
 
@@ -286,7 +289,7 @@ function seedConsistencyFor(league: Sigma1League, component: string, params: Sig
 function coldStartTeamState(
   componentOrder: readonly string[],
   league: Sigma1League,
-  params: Sigma1Params,
+  params: Sigma1ResolvedParams,
   rpVariableCount: number
 ): Sigma1TeamState {
   const coldStartMean = componentColdStartTotal(componentOrder.length, params);
@@ -320,7 +323,7 @@ function coldStartTeamState(
   };
 }
 
-function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, params: Sigma1Params): Sigma1TeamState {
+function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, params: Sigma1ResolvedParams): Sigma1TeamState {
   // A team with no prior observation (lastEventKey === null) is treated as
   // "within event" — it was just cold-start-seeded this instant, so there
   // is nothing to have drifted since a nonexistent last observation, and
@@ -434,7 +437,7 @@ function foulsCommittedCarryForward(
   state: Sigma1State,
   teams: readonly string[],
   componentOrder: readonly string[],
-  params: Sigma1Params
+  params: Sigma1ResolvedParams
 ): number {
   const coldStartMean = componentColdStartTotal(componentOrder.length, params);
   let total = 0;
@@ -470,7 +473,7 @@ function fallbackObserved(
   opponentFoulsMean: number,
   offensiveComponents: readonly string[],
   componentOrder: readonly string[],
-  params: Sigma1Params
+  params: Sigma1ResolvedParams
 ): ParsedComponents {
   const offensive = distributeResidual(
     observedAllianceScore - opponentFoulsMean,
@@ -525,7 +528,7 @@ function applyAllianceUpdate(
   observed: ParsedComponents,
   measurementNoiseMultiplier: number,
   eventKey: string,
-  params: Sigma1Params,
+  params: Sigma1ResolvedParams,
   rpVariableCount: number
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
@@ -804,6 +807,12 @@ function allianceCovariances(state: Sigma1State, teams: readonly string[]): numb
 }
 
 function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode, params: Sigma1Params): Prediction {
+  // D-T1: ONE resolve, at the top of the entry point, from `state`'s own
+  // expanding statistic (Pitfall EPA-1: it reflects only matches already
+  // replayed). `resolved.scoreSd` below is the SAME sigma the scaled
+  // parameters were resolved at — one definition of sigma in this function,
+  // never two.
+  const resolved = resolveSigma1Params(params, state.allianceScoreStats);
   const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
   const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
 
@@ -834,8 +843,7 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const variance = redPosteriorSum + bluePosteriorSum + redCovarianceTotal + blueCovarianceTotal;
 
   const margin = redScore - blueScore;
-  const seasonScoreSd = standardDeviation(state.allianceScoreStats, params.fallbackScoreSd);
-  const pRedWin = winProbability(linkMode, margin, seasonScoreSd, variance, params.linkC);
+  const pRedWin = winProbability(linkMode, margin, resolved.scoreSd, variance, resolved.linkC);
   // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
   // is returned — see predictionValidity.ts's doc comment for why this
   // check lives here rather than at scoreSet/calibrationBins entry. One
@@ -884,7 +892,7 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
         eventType: match.eventType,
         matchKey: match.matchKey,
         compLevel: match.compLevel,
-        params,
+        params: resolved,
       })
     : { redPmf: [], bluePmf: [] };
   // Plan 06.1-02 (F-06-1): the RP-ineligible fallback above carries no
@@ -939,6 +947,15 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   // Checked against the RAW (pre-remap) team lists. Sigma1 folds every comp
   // level, so this is load-bearing here, not a defensive no-op.
   if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
+
+  // D-T1, and THE line that makes this leak-free: resolve from
+  // `state.allianceScoreStats` — the PRE-fold statistic, reflecting only
+  // matches already replayed — NOT from the post-fold `allianceScoreStats`
+  // local computed near the end of this function. Resolving after the fold
+  // would let this match's own two alliance scores set the scale its own
+  // update is performed at, which is Pitfall EPA-1 exactly. That placement is
+  // the entire guarantee; nothing else enforces it.
+  const resolved = resolveSigma1Params(params, state.allianceScoreStats);
 
   const season = state.season ?? deriveSeasonFromEventKey(result.eventKey);
   const seasonMap = componentMapForSeason(season);
@@ -996,10 +1013,10 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
 
   const redObserved =
     redParsed ??
-    fallbackObserved(state, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentOrder, params);
+    fallbackObserved(state, redTeams, result.redScore, blueFoulsMean, nonFoulsComponents, componentOrder, resolved);
   const blueObserved =
     blueParsed ??
-    fallbackObserved(state, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentOrder, params);
+    fallbackObserved(state, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentOrder, resolved);
 
   // T-02-01 (threat register, second gate): the per-season Zod parse
   // boundary (breakdown/*.ts) is the FIRST finite-value gate, but a value
@@ -1027,7 +1044,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     redObserved,
     measurementNoiseMultiplier,
     result.eventKey,
-    params,
+    resolved,
     rpVariableCount
   );
   const afterBlue = applyAllianceUpdate(
@@ -1038,7 +1055,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     blueObserved,
     measurementNoiseMultiplier,
     result.eventKey,
-    params,
+    resolved,
     rpVariableCount
   );
 
@@ -1101,7 +1118,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
       scoreResidualsByTeam: afterRed.residualsByTeam,
       componentCount: componentOrder.length,
       eventKey: result.eventKey,
-      params,
+      params: resolved,
     });
     const blueRpFold = foldRpObservation({
       teams: state.teams,
@@ -1112,7 +1129,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
       scoreResidualsByTeam: afterBlue.residualsByTeam,
       componentCount: componentOrder.length,
       eventKey: result.eventKey,
-      params,
+      params: resolved,
     });
 
     const merged = new Map(redRpFold.teams);
@@ -1203,6 +1220,10 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  * cost of D-01, not a bug to fix here.
  */
 function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, params: Sigma1Params): TeamMetrics {
+  // D-T1: one resolve, at the top, from the same expanding statistic the
+  // match path reads — so a published spread and the match-path variance floor
+  // that produced it are on the identical scale by construction.
+  const resolved = resolveSigma1Params(params, state.allianceScoreStats);
   const requestedTeams = teams ?? [...state.teams.keys()];
   const result: TeamMetrics = {};
   for (const team of requestedTeams) {
@@ -1216,14 +1237,14 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
       const value = belief?.mean ?? 0;
       total += value;
 
-      const observedConsistency = teamState.consistency[name] ?? params.coldStartConsistencyVariance;
-      const leagueConsistency = leagueConsistencyFor(state.league, name, params.coldStartConsistencyVariance);
+      const observedConsistency = teamState.consistency[name] ?? resolved.coldStartConsistencyVariance;
+      const leagueConsistency = leagueConsistencyFor(state.league, name, resolved.coldStartConsistencyVariance);
       const shrunkVariance = shrinkConsistency(
         observedConsistency,
         teamState.matchCount,
         leagueConsistency,
-        params.shrinkagePriorMatches,
-        params.minConsistencyVariance
+        resolved.shrinkagePriorMatches,
+        resolved.minConsistencyVariance
       );
       // D-01/D-02 (plan 07-06): this component's posterior term
       // (`belief?.variance ?? 0`, PD-06 — matching what the match path
@@ -1232,7 +1253,7 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
       perTeam[name] = { value, spread: Math.sqrt((belief?.variance ?? 0) + shrunkVariance) };
     }
 
-    const totalVariance = Math.max(params.minConsistencyVariance, teamTotalVariance(teamState.covariance));
+    const totalVariance = Math.max(resolved.minConsistencyVariance, teamTotalVariance(teamState.covariance));
     // D-01/D-02 (plan 07-06): published spread is now √(P + R) — this
     // team's own posterior sum (`teamOwnComponentVarianceSum`, the exact
     // per-team P `predict()`'s own `redScoreVarianceOwn`/
@@ -1277,7 +1298,7 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
         // A group whose components are all absent from this season's resolved
         // component order publishes nothing, rather than a spurious 0 ± floor.
         if (!present) continue;
-        const groupVariance = Math.max(params.minConsistencyVariance, subsetVariance(teamState.covariance, indices));
+        const groupVariance = Math.max(resolved.minConsistencyVariance, subsetVariance(teamState.covariance, indices));
         perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue, spread: Math.sqrt(groupPosterior + groupVariance) };
       }
     }
@@ -1303,6 +1324,14 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
 function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma1Params): Sigma1State {
   if (boundary.isColdStart) return state;
 
+  // D-T1: one resolve, at the top, from the OUTGOING season's own expanding
+  // statistic — which `carrySeason` then threads forward unchanged, so the
+  // incoming season starts scaled by the previous season's sigma and
+  // converges to its own. That lag is accepted and documented (`scale.ts`'s
+  // header); resetting the statistic here would leave the first matches of
+  // every season with no scale at all.
+  const resolved = resolveSigma1Params(params, state.allianceScoreStats);
+
   const teamTotals = new Map<string, number>();
   for (const [team, teamState] of state.teams) {
     let total = 0;
@@ -1310,7 +1339,7 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     teamTotals.set(team, total);
   }
 
-  const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, params);
+  const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, resolved);
   const toComponentOrder = componentMapForSeason(boundary.toSeason).components;
   // D-09: threshold variables are season-specific (2022's cargo count has
   // no 2023 analog) — RP state does NOT carry across a season boundary,
@@ -1329,10 +1358,10 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       // posterior a year of layoff justifies; seeding it at an unfloored 0
       // would be the opposite claim (perfect certainty after a layoff) and
       // would freeze the component's gain.
-      const coldStartVariance = seedConsistencyFor(state.league, name, params);
+      const coldStartVariance = seedConsistencyFor(state.league, name, resolved);
       beliefs[name] = { mean: share, variance: coldStartVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
-      consistency[name] = carriedObserved * params.consistencyCarryDecay;
+      consistency[name] = carriedObserved * resolved.consistencyCarryDecay;
     }
     nextTeams.set(team, {
       beliefs,

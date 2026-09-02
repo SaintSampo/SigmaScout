@@ -5,7 +5,9 @@
  * corpus access, matching `rp/state.test.ts`'s pure-unit shape.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../params.js";
+import { DEFAULT_SIGMA1_PARAMS } from "../params.js";
+import { resolveSigma1Params, type Sigma1ResolvedParams } from "../scale.js";
+import { emptyExpandingStats } from "../../../scoring/expandingStats.js";
 import { makeSigma1, type Sigma1State } from "../index.js";
 import { opr } from "../../opr.js";
 import { epa } from "../../epa.js";
@@ -13,6 +15,15 @@ import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "./rules.js";
 import type { RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
 import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "./distribution.js";
+
+/**
+ * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the
+ * defaults at an EMPTY expanding statistic is the documented cold-start
+ * scale (`fallbackScoreSd ** 2` = 625), and none of the fields exercised in
+ * this file is scale-dependent, so these assertions are unchanged in
+ * substance -- only the parameter TYPE moved.
+ */
+const RESOLVED_DEFAULTS = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
 
 function moments(overrides: Partial<AllianceRpMoments> = {}): AllianceRpMoments {
   return {
@@ -40,7 +51,7 @@ function baseInput(overrides: Partial<RpPmfInput> = {}): RpPmfInput {
     eventType: 0,
     matchKey: "2022test_qm1",
     compLevel: "qm",
-    params: DEFAULT_SIGMA1_PARAMS,
+    params: RESOLVED_DEFAULTS,
     ...overrides,
   };
 }
@@ -73,7 +84,7 @@ describe("rpPmfForMatch — a qm match's pmf shape", () => {
 
 describe("rpPmfForMatch — zero-draws short-circuit (D-01's search fast path)", () => {
   it("returns [] for both alliances when params.rpMonteCarloDraws === 0", () => {
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 };
+    const params: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, rpMonteCarloDraws: 0 };
     const result = rpPmfForMatch(baseInput({ params }));
     expect(result.redPmf).toEqual([]);
     expect(result.bluePmf).toEqual([]);
@@ -161,7 +172,7 @@ describe("rpPmfForMatch — per-bonus probabilities (plan 06.1-02 Task 1, F-06-1
   });
 
   it("a zero rpMonteCarloDraws parameter omits redBonusProbabilities/blueBonusProbabilities entirely (never an empty array)", () => {
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 };
+    const params: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, rpMonteCarloDraws: 0 };
     const result = rpPmfForMatch(baseInput({ params }));
     expect(Object.hasOwn(result, "redBonusProbabilities")).toBe(false);
     expect(Object.hasOwn(result, "blueBonusProbabilities")).toBe(false);
@@ -265,7 +276,7 @@ describe("rpPmfForMatch — D-11's correlation claim, measured", () => {
     }
     const blueMoments = moments({ scoreMean: 50, scoreVariance: 25, meanVector: [5, 0, 0] });
 
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 20000 };
+    const params: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, rpMonteCarloDraws: 20000 };
     const correlated = rpPmfForMatch(
       baseInput({ red: redMoments(20), blue: blueMoments, params, matchKey: "2022corr_qm1" })
     );
@@ -542,7 +553,7 @@ describe("rpPmfForMatch — cross-covariance Cauchy-Schwarz clamp (Rule 1 fix, p
     // fixture's own "ridge 0 still succeeds" test above.
     const withValidCross = moments({ scoreMean: 55, scoreVariance: 25, meanVector: [15, 0, 20], varianceBlock: [[25, 0, 0], [0, 1e-6, 0], [0, 0, 1e-6]], scoreCrossCovariance: [10, 0, 0] });
     const blue = moments({ scoreMean: 50, scoreVariance: 25, meanVector: [5, 0, 0] });
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 500 };
+    const params: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, rpMonteCarloDraws: 500 };
     const result = rpPmfForMatch(baseInput({ red: withValidCross, blue, params, matchKey: "2022valid_qm1" }));
     expect(Math.abs(result.redPmf.reduce((s, v) => s + v, 0) - 1)).toBeLessThan(1e-9);
   });

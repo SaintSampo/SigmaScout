@@ -41,7 +41,7 @@ import { CholeskyDecomposition, Matrix } from "ml-matrix";
 import type { CompLevel } from "../../types.js";
 import { isBonusRpCompLevel, type RpRuleModule } from "./constants.js";
 import type { AllianceRpMoments } from "./state.js";
-import type { Sigma1Params } from "../params.js";
+import type { Sigma1ResolvedParams } from "../scale.js";
 
 /**
  * Deterministic PRNG (Mulberry32), copied verbatim from
@@ -190,7 +190,7 @@ export interface RpPmfInput {
   readonly eventType: number;
   readonly matchKey: string;
   readonly compLevel: CompLevel;
-  readonly params: Sigma1Params;
+  readonly params: Sigma1ResolvedParams;
 }
 
 export interface RpPmfResult {

@@ -16,9 +16,26 @@
  * IS applied is recorded in the committed file's provenance in
  * machine-readable form.
  */
-import { describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_PARAM_KEYS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
-import { applyParamOverrides, parseParamOverrides, PromotedVersionSchema, type PromotedVersion } from "./promote.js";
+import { afterAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
+  SIGMA1_PARAM_KEYS,
+  SIGMA1_REFERENCE_SCORE_VARIANCE,
+  Sigma1ParamsSchema,
+  type Sigma1Params,
+} from "../core/algorithms/sigma1/params.js";
+import {
+  applyParamOverrides,
+  loadFromVersionFile,
+  parseParamOverrides,
+  PromotedVersionSchema,
+  resolvePromotionSourcePath,
+  type PromotedVersion,
+} from "./promote.js";
 
 /** A structurally valid promoted-version file, used to prove the three new provenance fields are additive. */
 function promotedVersionFixture(provenanceExtras: Record<string, unknown> = {}): unknown {
@@ -117,13 +134,13 @@ describe("applyParamOverrides", () => {
 
 describe("applyParamOverrides + Sigma1ParamsSchema (the invariant boundary)", () => {
   it("cannot construct an invalid parameter set: a cross-parameter invariant violation is rejected by the schema, not written", () => {
-    // D-07: processNoiseEventBoundary must strictly EXCEED
-    // processNoiseWithinEvent. The override itself is syntactically fine —
-    // 0.1 is a finite number for a known key — so this is precisely the
+    // D-07: processNoiseEventBoundaryRel must strictly EXCEED
+    // processNoiseWithinEventRel. The override itself is syntactically fine —
+    // 1e-5 is a finite number for a known key — so this is precisely the
     // case that would slip through if the schema were not the gate.
-    const overridden = applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["processNoiseEventBoundary=0.1"]);
-    expect(overridden.processNoiseEventBoundary).toBe(0.1);
-    expect(overridden.processNoiseEventBoundary).toBeLessThan(overridden.processNoiseWithinEvent);
+    const overridden = applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["processNoiseEventBoundaryRel=1e-5"]);
+    expect(overridden.processNoiseEventBoundaryRel).toBe(1e-5);
+    expect(overridden.processNoiseEventBoundaryRel).toBeLessThan(overridden.processNoiseWithinEventRel);
 
     expect(() => Sigma1ParamsSchema.parse(overridden)).toThrow(/D-07/);
   });
@@ -180,5 +197,176 @@ describe("PromotedVersionSchema provenance shape", () => {
         promotedVersionFixture({ paramOverrides: { linkC: "0.5" }, note: "x", objectiveAppliesToPromotedParams: false })
       )
     ).toThrow();
+  });
+});
+
+/**
+ * `--from-version` (quick task 260901-trz). Both halves tested PURELY — the
+ * source-flag rule and the version-file reader take no corpus and run no
+ * replay, so the only thing needing a full promotion is the digest, which
+ * `digest.test.ts` already owns.
+ */
+describe("resolvePromotionSourcePath — exactly one source", () => {
+  it("resolves --from to a search artifact", () => {
+    expect(resolvePromotionSourcePath("reports/tune-tracer.json", undefined, undefined)).toEqual({
+      kind: "search-artifact",
+      path: "reports/tune-tracer.json",
+    });
+  });
+
+  it("resolves --from-version to a committed version file", () => {
+    expect(resolvePromotionSourcePath(undefined, "data/algorithm-versions/vpr@3.0.0+tuned-2026-08.json", undefined)).toEqual({
+      kind: "version-file",
+      path: "data/algorithm-versions/vpr@3.0.0+tuned-2026-08.json",
+    });
+  });
+
+  it("resolves --adaptation to its matching joint-search log, still a search artifact", () => {
+    expect(resolvePromotionSourcePath(undefined, undefined, "off").kind).toBe("search-artifact");
+  });
+
+  it("THROWS when BOTH are given — silently preferring one would make the committed lineage a coin flip", () => {
+    expect(() => resolvePromotionSourcePath("reports/a.json", "data/algorithm-versions/b.json", undefined)).toThrow(
+      /--from and --from-version are alternatives/
+    );
+    // Including the `--adaptation` shorthand, which fills in `--from`.
+    expect(() => resolvePromotionSourcePath(undefined, "data/algorithm-versions/b.json", "on")).toThrow(
+      /--from and --from-version are alternatives/
+    );
+  });
+
+  it("THROWS when NEITHER is given", () => {
+    expect(() => resolvePromotionSourcePath(undefined, undefined, undefined)).toThrow(/one of --from/);
+  });
+});
+
+describe("loadFromVersionFile — provenance for a migrated promotion", () => {
+  const tempDirs: string[] = [];
+  function writeVersion(body: unknown): string {
+    const dir = mkdtempSync(join(tmpdir(), "promote-fromversion-"));
+    tempDirs.push(dir);
+    const path = join(dir, "version.json");
+    writeFileSync(path, JSON.stringify(body), "utf8");
+    return path;
+  }
+  afterAll(() => {
+    for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** The FROZEN 3.0.0 shape — the retired `tracer-check` values, which satisfy every invariant without an override. */
+  const LEGACY_PARAMS = {
+    processNoiseWithinEvent: 0.5,
+    processNoiseEventBoundary: 4,
+    consistencyEwmaAlpha: 0.2,
+    shrinkagePriorMatches: 8,
+    minConsistencyVariance: 1,
+    covEwmaAlpha: 0.1,
+    covShrinkage: 0.3,
+    linkC: 1,
+    coldStartTeamTotal: 20,
+    coldStartConsistencyVariance: 25,
+    fallbackScoreSd: 25,
+    consistencyCarryDecay: 0.5,
+    carryMeanReversion: 0.4,
+    carryLastYearWeight: 0.7,
+    carryPriorYearWeight: 0.3,
+    rpMonteCarloSeed: 42,
+    rpMonteCarloDraws: 2000,
+    adaptationEnabled: false,
+    adaptationEwmaAlpha: 0.2,
+    adaptationExponent: 0.5,
+    adaptationMinFactor: 0.25,
+    adaptationMaxFactor: 4,
+    adaptationMinObservations: 3,
+  };
+
+  function legacyVersionFile(provenanceExtras: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: "vpr",
+      codeVersion: "3.0.0",
+      paramSetName: "tuned-2026-08",
+      version: "3.0.0+tuned-2026-08",
+      params: LEGACY_PARAMS,
+      provenance: {
+        searchArtifact: "reports/tune-joint-off.json",
+        corpusIdentity: "data/corpus.sqlite",
+        promotedAt: "2026-09-01T00:00:00.000Z",
+        objective: 0.17076606538105618,
+        tuneSeasons: [2022, 2023, 2024],
+        seed: 42,
+        survivors: ["linkC", "covEwmaAlpha"],
+        ...provenanceExtras,
+      },
+      digest: {
+        sliceSeason: 2022,
+        sliceEventKeys: ["2022alhu"],
+        sliceMatchCount: 100,
+        predictionStreamSha256: "a".repeat(64),
+        headlineMetrics: [],
+      },
+    };
+  }
+
+  it("migrates a 3.0.0 file's params and records WHICH map it applied", () => {
+    const source = loadFromVersionFile(writeVersion(legacyVersionFile()));
+
+    expect(source.params.processNoiseWithinEventRel).toBeCloseTo(0.5 / SIGMA1_REFERENCE_SCORE_VARIANCE, 12);
+    expect(source.provenance.derivedFromVersion).toBe("3.0.0+tuned-2026-08");
+    expect(source.provenance.paramShapeMigration).toBe("sigma1-3.0.0-absolute-to-4.0.0-scale-relative");
+  });
+
+  it("sets objectiveAppliesToPromotedParams FALSE even with no --set-param — a stronger statement than the override case", () => {
+    // The recorded objective was computed by a DIFFERENT code version on a
+    // DIFFERENTLY-SHAPED parameter set. It does not describe the shipped set,
+    // and that must be a machine-readable fact rather than something a reader
+    // is expected to infer from `derivedFromVersion`.
+    const source = loadFromVersionFile(writeVersion(legacyVersionFile()));
+    expect(source.provenance.objectiveAppliesToPromotedParams).toBe(false);
+  });
+
+  it("carries the SEARCH lineage forward unchanged — it still honestly describes where the parameters came from", () => {
+    const source = loadFromVersionFile(writeVersion(legacyVersionFile()));
+    expect(source.provenance.searchArtifact).toBe("reports/tune-joint-off.json");
+    expect(source.provenance.objective).toBe(0.17076606538105618);
+    expect(source.provenance.tuneSeasons).toEqual([2022, 2023, 2024]);
+    expect(source.provenance.seed).toBe(42);
+    expect(source.provenance.survivors).toEqual(["linkC", "covEwmaAlpha"]);
+  });
+
+  it("carries a PRIOR promotion's paramOverrides/note forward — the linkC=0.5 correction must survive the migration", () => {
+    // This is the failure `--from-version` exists to prevent: `linkC = 0.5`
+    // lives only in the committed version file, and its explanation lives only
+    // in that file's note. Dropping either on migration would leave a shipped
+    // value unexplained the moment the source file is retired.
+    const source = loadFromVersionFile(
+      writeVersion(
+        legacyVersionFile({
+          paramOverrides: { linkC: 0.5 },
+          note: "linkC re-selected post-estimator-change (D-Q2)",
+          objectiveAppliesToPromotedParams: false,
+        })
+      )
+    );
+    expect(source.provenance.paramOverrides).toEqual({ linkC: 0.5 });
+    expect(source.provenance.note).toContain("linkC re-selected");
+  });
+
+  it("promotes a CURRENT-shape file as-is, with no migration tag", () => {
+    const current = {
+      ...legacyVersionFile(),
+      codeVersion: SIGMA1_CODE_VERSION,
+      version: `${SIGMA1_CODE_VERSION}+tuned-2026-08`,
+      params: DEFAULT_SIGMA1_PARAMS,
+    };
+    const source = loadFromVersionFile(writeVersion(current));
+    expect(source.params).toEqual(DEFAULT_SIGMA1_PARAMS);
+    expect(source.provenance.paramShapeMigration).toBeUndefined();
+    // Still false: the objective was computed by a different code version.
+    expect(source.provenance.objectiveAppliesToPromotedParams).toBe(false);
+  });
+
+  it("REFUSES a codeVersion it has no map for, rather than guessing at a shape it has never seen", () => {
+    const future = { ...legacyVersionFile(), codeVersion: "99.0.0", version: "99.0.0+x" };
+    expect(() => loadFromVersionFile(writeVersion(future))).toThrow(/parameter-shape map/);
   });
 });

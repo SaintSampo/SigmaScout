@@ -43,6 +43,10 @@ import { ewmaCovariance } from "./covariance.js";
 import { foldConsistency } from "./consistency.js";
 import { emptyCovariance } from "./covariance.js";
 import { emptyExpandingStats, foldObservation, type ExpandingStats } from "../../scoring/expandingStats.js";
+import { resolveSigma1Params } from "./scale.js";
+import { SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
+import { SIGMA1_COLD_START_CONSISTENCY_VARIANCE, SIGMA1_COLD_START_TEAM_TOTAL } from "./params.js";
+import { SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -292,7 +296,21 @@ function retiredEstimatorMedianSpread(league: ReturnType<typeof buildSyntheticLe
   readonly medianSpread: number;
   readonly medianRTerm: number;
 } {
-  const params = DEFAULT_SIGMA1_PARAMS;
+  // D-T1 (4.0.0): this control models the RETIRED estimator, which ran on
+  // ABSOLUTE parameters. It therefore reads the absolute constants directly
+  // rather than resolving the now-scale-relative defaults — that is what keeps
+  // the negative control below a fixed historical reference point instead of
+  // something that drifts with the reference variance.
+  const params = {
+    coldStartTeamTotal: SIGMA1_COLD_START_TEAM_TOTAL,
+    coldStartConsistencyVariance: SIGMA1_COLD_START_CONSISTENCY_VARIANCE,
+    minConsistencyVariance: SIGMA1_MIN_CONSISTENCY_VARIANCE,
+    processNoiseWithinEvent: SIGMA1_PROCESS_NOISE_WITHIN_EVENT,
+    consistencyEwmaAlpha: DEFAULT_SIGMA1_PARAMS.consistencyEwmaAlpha,
+    covEwmaAlpha: DEFAULT_SIGMA1_PARAMS.covEwmaAlpha,
+    covShrinkage: DEFAULT_SIGMA1_PARAMS.covShrinkage,
+    shrinkagePriorMatches: DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches,
+  };
   const coldStartMean = params.coldStartTeamTotal / (COMPONENT_COUNT + 1); // +1: the shipped component order includes foulsCommitted
   const shadow = new Map<string, ShadowTeam>();
   for (const team of league.teams) {
@@ -485,7 +503,12 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
    * green.
    */
   it("recovers the same variance sample from both folds, and from the hand-computed formula", () => {
-    const params = DEFAULT_SIGMA1_PARAMS;
+    // D-T1: the update below runs on a FRESH state, so `update()` resolved the
+    // scale-relative params against an EMPTY expanding statistic — the
+    // documented cold-start scale (`fallbackScoreSd ** 2` = 625). This hand
+    // computation resolves at exactly the same statistic, so it stays an EXACT
+    // reconstruction rather than being loosened to a wide tolerance.
+    const params = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
     const OBSERVED_AUTO_LEAVE = 40;
     const OTHERS = 10;
 
@@ -595,9 +618,14 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
   }
 
   it("still carries the SIGNED gain-weighted residual K_j * innovation into rpCrossCovariance", () => {
-    const params = DEFAULT_SIGMA1_PARAMS;
     const OBSERVED = 40;
     const { afterFirst, afterSecond } = twoUpdates(OBSERVED);
+    // D-T1: match 2's update resolved against the statistic match 1 LEFT
+    // BEHIND (`afterFirst.allianceScoreStats`), not against an empty one — so
+    // the hand-computed process noise below must resolve at that same
+    // statistic. Resolving at the wrong one is precisely the leak this
+    // reconstruction would otherwise fail to notice.
+    const params = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, afterFirst.allianceScoreStats);
     const before = afterFirst.teams.get("A")!;
     const after = afterSecond.teams.get("A")!;
     const componentIndex = afterSecond.componentOrder.indexOf("autoLeave");

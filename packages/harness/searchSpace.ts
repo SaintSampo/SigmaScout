@@ -21,8 +21,8 @@ import { DEFAULT_SIGMA1_PARAMS, SIGMA1_PARAM_KEYS, type Sigma1Params } from "../
  * `min`/`max` are inclusive. `scale` controls both `screenGridFor`'s
  * spacing and (plan 03-05 Task 2) the joint search's uniform-sampling
  * distribution — uniform in LOG space for `"log"`-scaled parameters, so a
- * wide multiplicative range (e.g. `processNoiseEventBoundary`'s [1, 64])
- * does not spend most of the search's budget in its top decade.
+ * wide multiplicative range (e.g. `processNoiseEventBoundaryRel`'s
+ * [4e-4, 6e-2]) does not spend most of the search's budget in its top decade.
  */
 export interface SearchBound {
   readonly min: number;
@@ -46,29 +46,67 @@ export interface SearchBound {
  *     two independent optimizer runs (`--adaptation on|off`), never as a
  *     dimension inside one run; `params.ts`'s own doc comment on this field
  *     states the same exclusion for the screen to find.
+ *   - `rpProcessNoiseWithinEvent`/`rpProcessNoiseEventBoundary`/
+ *     `rpColdStartVariance` (F3, `SIGMA1_CODE_VERSION` 4.0.0): the RP
+ *     threshold variables' OWN absolute noise and cold-start variance, split
+ *     off the score side when D-T1 made the score side scale-relative. They
+ *     carry exactly the argument the two Monte Carlo fields above already do
+ *     — D-01's objective is structurally blind to the RP pmf, so searching
+ *     them spends budget on a dimension the objective cannot see. Note the
+ *     side effect this removes: before 4.0.0 the tuner moved RP's `q` as a
+ *     consequence of moving the score side's, because they were the same
+ *     parameter. It no longer does. That is a real, intended change in what a
+ *     search explores.
+ *
+ * D-T3 replaces this `Exclude` union with a named `SEARCH_EXCLUSIONS` record
+ * carrying each reason as data rather than as prose in this comment, and adds
+ * three more exclusions. That is the NEXT task's job, deliberately: doing it
+ * here would tangle a deletion from the search space into the same commit as
+ * the rename, and the `covShrinkage` fix's own ~0.0005 Brier cost could then
+ * not be attributed to it alone.
  */
 export type SearchableParamKey = Exclude<
   keyof Sigma1Params,
-  "rpMonteCarloSeed" | "rpMonteCarloDraws" | "adaptationEnabled"
+  | "rpMonteCarloSeed"
+  | "rpMonteCarloDraws"
+  | "adaptationEnabled"
+  | "rpProcessNoiseWithinEvent"
+  | "rpProcessNoiseEventBoundary"
+  | "rpColdStartVariance"
 >;
 
 export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBound>> = {
-  // D-07 process noise (points^2/match). Lower bound: a filter with less
-  // than 0.05 pts^2 of injected noise per match would take dozens of
-  // matches to react to any real shift — implausibly stiff for a team whose
-  // robot changes across a build season. Upper bound: 5 pts^2 already
-  // exceeds a single component's typical cold-start consistency prior
-  // (`SIGMA1_COLD_START_CONSISTENCY_VARIANCE` = 25 pts^2 is the FULL
-  // cold-start belief for a whole team) — beyond 5 the filter would barely
-  // trust its own accumulated history at all.
-  processNoiseWithinEvent: { min: 0.05, max: 5, scale: "log" },
+  // D-07/D-T1 process noise, as a FRACTION of the season's own alliance-score
+  // variance (the filter injects `rel * sigma^2` per match). The bound is
+  // written in dimensionless units from scratch rather than divided down from
+  // the retired points^2 bound, because a mechanically divided bound would
+  // carry a justification written about a quantity that no longer exists.
+  //
+  // The result that motivates the whole reparameterization sets the width:
+  // expressed as a fraction of variance, the per-season optimum SPREAD
+  // COLLAPSES from ~16x to ~2x. Using CONTEXT's own per-season table against
+  // the measured `SIGMA1_REFERENCE_SCORE_VARIANCE` (1028.2), the best relative
+  // value per season is roughly 1.6e-4 (2022), 1.0e-4 (2023), 2.0e-4 (2024),
+  // 2.2e-4 (2025), 1.2e-4 (2026). [2e-5, 2e-3] brackets all five with about a
+  // decade of headroom on each side — wide enough that the search is not
+  // fenced into the region the retired absolute parameterization happened to
+  // land in, narrow enough to exclude a filter that either ignores its own
+  // history entirely or cannot react to a real shift within a season.
+  processNoiseWithinEventRel: { min: 2e-5, max: 2e-3, scale: "log" },
   // D-07's event-boundary bump must exceed the within-event bump for the
   // distinction to mean anything at all — `isValidParamSet` enforces this
   // as a hard cross-parameter constraint, not just a comment (see below).
-  // Upper bound 64 pts^2: a boundary bump that large would make a team's
-  // rating essentially reset every event, indistinguishable from never
-  // carrying belief across events within a season at all.
-  processNoiseEventBoundary: { min: 1, max: 64, scale: "log" },
+  //
+  // The lower bound is set deliberately BELOW the promoted set's own relative
+  // image, and that is the point. The promoted absolute value (1 pt^2) sat
+  // EXACTLY at the retired bound's `min` — an at-bound winner the retired
+  // space could not escape downward, i.e. a search result that was quite
+  // possibly the bound talking rather than the data. 1 / 1028.2 = 9.7e-4, and
+  // 4e-4 leaves the re-tune room to go lower if the data actually wants it.
+  // Upper bound 6e-2: at a 2024-scale variance that is roughly 43 pts^2 of
+  // boundary noise, enough to make a team's rating essentially reset every
+  // event — indistinguishable from never carrying belief across events at all.
+  processNoiseEventBoundaryRel: { min: 4e-4, max: 6e-2, scale: "log" },
   // EWMA rates: an alpha outside (0, 1) is not a valid exponential average.
   // 0.02 (a ~50-match half-life, longer than a full season for most teams)
   // to 0.6 (a <2-match half-life) spans from "barely reactive" to "reacts
@@ -87,36 +125,54 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // still leaves 10% weight on the empirical off-diagonal estimate rather
   // than collapsing to a purely diagonal covariance (which 1.0 would).
   covShrinkage: { min: 0, max: 0.9, scale: "linear" },
-  // A consistency VARIANCE floor of 0.1 pts^2 (SD ~0.3 pts) claims
-  // near-zero residual uncertainty, implausible for any FRC scoring
-  // component; 16 pts^2 (SD 4 pts) already exceeds most single components'
-  // typical spread.
-  minConsistencyVariance: { min: 0.1, max: 16, scale: "log" },
+  // D-T1: the shrunk-consistency VARIANCE floor, as a fraction of the season's
+  // alliance-score variance. At the lower end (1e-4, roughly 0.1 pts^2 on the
+  // tune seasons' scale) the floor claims near-zero residual uncertainty,
+  // implausible for any FRC scoring component; at the upper end (3e-2, roughly
+  // 31 pts^2 there) the floor alone would exceed most single components'
+  // typical spread and would bind on nearly every team, publishing a constant
+  // rather than an estimate. The promoted set's relative image is 9.7e-4,
+  // comfortably interior.
+  minConsistencyVarianceRel: { min: 1e-4, max: 3e-2, scale: "log" },
   // D-12 mode 2's win-probability denominator scale `c`. Below 0.25 the
   // logistic saturates to near-certain outcomes on almost every margin
   // (overconfident by construction); above 4 it barely distinguishes a
   // blowout from a coin flip (underconfident by construction).
   linkC: { min: 0.25, max: 4, scale: "log" },
-  // A cold-start team's assumed total alliance contribution, in points. 5
-  // pts is barely above zero contribution; 60 pts approaches a strong
-  // veteran team's typical full-alliance-share output — the plausible range
-  // for "what should we assume about a team we have never seen play."
-  coldStartTeamTotal: { min: 5, max: 60, scale: "linear" },
-  coldStartConsistencyVariance: { min: 4, max: 100, scale: "log" },
+  // D-T1: a cold-start team's assumed total alliance contribution, as a
+  // fraction of the season's alliance-score STANDARD DEVIATION (linear, not
+  // squared — this is a point total). 0.15 is barely above zero contribution;
+  // 1.9 approaches a strong veteran team's typical full-alliance-share output
+  // — the plausible range for "what should we assume about a team we have
+  // never seen play." The default's relative image is 0.624.
+  coldStartTeamTotalRel: { min: 0.15, max: 1.9, scale: "linear" },
+  // D-T1: the cold-start consistency VARIANCE, as a fraction of the season's
+  // alliance-score variance. The UPPER bound is deliberately generous, and
+  // for a specific documented reason: `params.ts` records
+  // `SIGMA1_COLD_START_CONSISTENCY_VARIANCE` as KNOWN STALE under the D-Q2
+  // innovation-based R estimator — plausibly about an order of magnitude too
+  // small — so the space must be able to reach the region the re-tune needs.
+  // 0.5 is roughly 514 pts^2 on the tune seasons' scale, an order of magnitude
+  // above the default's 25; 4e-3 (about 4 pts^2 there) is the low end of a
+  // defensible seed. The default's relative image is 2.43e-2.
+  coldStartConsistencyVarianceRel: { min: 4e-3, max: 0.5, scale: "log" },
   fallbackScoreSd: { min: 8, max: 80, scale: "log" },
   // D-17: a decay of 0 discards the carried consistency signal entirely at
   // a season boundary (explicitly permitted, D-17's own wording); 1 carries
   // it forward completely undecayed. Both ends are meaningful, not just
   // arbitrary bounds.
   consistencyCarryDecay: { min: 0, max: 1, scale: "linear" },
-  // D-04's carry blend/reversion weights — all three are fractions and are
+  // D-04/D-T2's carry reversion and blend share — both are fractions and are
   // only meaningful in [0, 1] (`isValidParamSet` also re-asserts this as a
   // cross-parameter/range constraint, defense in depth for candidates
   // constructed outside `screenGridFor`'s own bound-respecting grid, e.g.
-  // the joint search's random sampling).
+  // the joint search's random sampling). The retired unnormalized
+  // `carryLastYearWeight`/`carryPriorYearWeight` pair is gone: their SUM
+  // duplicated `carryMeanReversion`, so the search now spends one dimension
+  // here instead of two. 0 puts all blend weight on last season, 1 all of it
+  // on the season before — both ends are meaningful, not arbitrary bounds.
   carryMeanReversion: { min: 0, max: 1, scale: "linear" },
-  carryLastYearWeight: { min: 0, max: 1, scale: "linear" },
-  carryPriorYearWeight: { min: 0, max: 1, scale: "linear" },
+  carryPriorYearShare: { min: 0, max: 1, scale: "linear" },
   // T-03-06's adaptive-Kalman stability bounds (D-05, plan 03-04). Exponent
   // 0 makes the factor constant regardless of innovation (adaptation
   // effectively inert even when enabled); 1.5 already reacts
@@ -214,17 +270,22 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
  * joint) must reject a candidate against before ever evaluating it — a
  * rejected candidate is counted in the search log, never silently dropped:
  *
- *   - D-07: `processNoiseEventBoundary` must exceed `processNoiseWithinEvent`
- *     strictly, or the boundary/within-event distinction is meaningless.
+ *   - D-07: `processNoiseEventBoundaryRel` must exceed
+ *     `processNoiseWithinEventRel` strictly, or the boundary/within-event
+ *     distinction is meaningless. Both sides scale by the same `sigma^2` at
+ *     resolve time, so the dimensionless ordering is the identical statement.
+ *   - F3: the same D-07 ordering on the RP threshold variables' own absolute
+ *     pair. Not searchable, but still validated — `--set-param` and a
+ *     hand-edited committed version file both reach this predicate.
  *   - T-03-06: `adaptationMinFactor` must be strictly less than
  *     `adaptationMaxFactor`, or the stability clamp is degenerate/inverted.
- *   - D-04's three carry weights/fractions are only meaningful in [0, 1] —
- *     already each field's own search bound, re-asserted here as defense in
- *     depth for any candidate constructed outside `screenGridFor`'s own
- *     bound-respecting grid (the joint search's random sampling, in
+ *   - D-04/D-T2's carry reversion and blend share are only meaningful in
+ *     [0, 1] — already each field's own search bound, re-asserted here as
+ *     defense in depth for any candidate constructed outside `screenGridFor`'s
+ *     own bound-respecting grid (the joint search's random sampling, in
  *     particular).
  *
- * D-11 / 03-REVIEW WR-01: these same five predicates are now ADDITIONALLY
+ * D-11 / 03-REVIEW WR-01: these same predicates are now ADDITIONALLY
  * enforced inside `sigma1/params.ts`'s `Sigma1ParamsSchema` (its own
  * object-level `.check(...)`), which every `Sigma1Params` construction path
  * already parses through — that is what makes an invalid parameter set
@@ -236,10 +297,10 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
  * `params.test.ts` both assert this.
  */
 export function isValidParamSet(params: Sigma1Params): boolean {
-  if (!(params.processNoiseEventBoundary > params.processNoiseWithinEvent)) return false;
+  if (!(params.processNoiseEventBoundaryRel > params.processNoiseWithinEventRel)) return false;
+  if (!(params.rpProcessNoiseEventBoundary > params.rpProcessNoiseWithinEvent)) return false;
   if (!(params.adaptationMinFactor < params.adaptationMaxFactor)) return false;
   if (!(params.carryMeanReversion >= 0 && params.carryMeanReversion <= 1)) return false;
-  if (!(params.carryLastYearWeight >= 0 && params.carryLastYearWeight <= 1)) return false;
-  if (!(params.carryPriorYearWeight >= 0 && params.carryPriorYearWeight <= 1)) return false;
+  if (!(params.carryPriorYearShare >= 0 && params.carryPriorYearShare <= 1)) return false;
   return true;
 }
