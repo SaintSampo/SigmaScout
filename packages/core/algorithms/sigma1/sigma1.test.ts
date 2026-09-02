@@ -425,6 +425,7 @@ describe("teamMetrics — honest-variance check", () => {
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
@@ -587,6 +588,7 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
@@ -710,6 +712,7 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
@@ -1207,6 +1210,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
+      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
@@ -1602,5 +1606,226 @@ describe("vpr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)
     const predictedWithReal = vpr.predict(stateWithReal, upcomingWithReal);
     expect(predictedWithDemo.redScore).toBeCloseTo(predictedWithReal.redScore, 9);
     expect(predictedWithDemo.redScoreVarianceOwn).toBeCloseTo(predictedWithReal.redScoreVarianceOwn!, 9);
+  });
+});
+
+/**
+ * D-V1/D-V3 (quick task 260902-varopr): the per-team variance decomposition's
+ * EVENT-SCOPED accumulator. This block covers the STATE side — what gets
+ * folded, from which rows, partitioned how, and reset when.
+ * `varianceOpr.test.ts` covers the accumulator's own algebra and the solve.
+ */
+describe("per-event variance accumulator (D-V1/D-V3)", () => {
+  /**
+   * A 2024 breakdown with INDEPENDENT red/blue own-field values and a
+   * separately controlled `foulPoints`. The separate foul knob matters: each
+   * side's own `foulPoints` becomes the OPPOSING side's `foulsCommitted`
+   * component (breakdown/2024.ts), so tying fouls to the own-field value would
+   * leak one alliance's variation into the other's observed total.
+   */
+  function breakdown(redVal: number, blueVal: number, foulPoints: number): string {
+    function side(perComponentValue: number): Record<string, unknown> {
+      return {
+        autoLeavePoints: perComponentValue,
+        autoAmpNotePoints: perComponentValue,
+        autoSpeakerNotePoints: perComponentValue,
+        teleopAmpNotePoints: perComponentValue,
+        teleopSpeakerNotePoints: perComponentValue,
+        teleopSpeakerNoteAmplifiedPoints: perComponentValue,
+        endGameOnStagePoints: perComponentValue,
+        endGameParkPoints: perComponentValue,
+        endGameHarmonyPoints: perComponentValue,
+        endGameNoteInTrapPoints: perComponentValue,
+        endGameSpotLightBonusPoints: perComponentValue,
+        adjustPoints: perComponentValue,
+        foulPoints,
+        autoAmpNoteCount: 0,
+        autoSpeakerNoteCount: 0,
+        teleopAmpNoteCount: 0,
+        teleopSpeakerNoteCount: 0,
+        teleopSpeakerNoteAmplifiedCount: 0,
+        endGameTotalStagePoints: 0,
+        endGameRobot1: "None",
+        endGameRobot2: "None",
+        endGameRobot3: "None",
+        coopertitionBonusAchieved: false,
+        melodyBonusAchieved: false,
+        ensembleBonusAchieved: false,
+        melodyBonusThresholdCoop: 0,
+        melodyBonusThresholdNonCoop: 0,
+        ensembleBonusStagePointsThreshold: 0,
+        ensembleBonusOnStageRobotsThreshold: 0,
+      };
+    }
+    return JSON.stringify({ red: side(redVal), blue: side(blueVal) });
+  }
+
+  it("PARTITIONED BY EVENT across an INTERLEAVED two-event stream — a team at both events feeds both accumulators, and neither is contaminated", () => {
+    // `replay.ts`'s `buildSeasonStream` interleaves concurrent events into one
+    // chronological stream. A single-event fixture cannot tell "partition by
+    // event" apart from "reset on event change"; this one can, and the shared
+    // team is what makes it non-vacuous.
+    let state = vpr.initState([]);
+    const stream: MatchResult[] = [
+      match({
+        matchKey: "2024eva_qm1",
+        redTeams: ["A1", "A2", "SHARED"],
+        blueTeams: ["A4", "A5", "A6"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(20, 9, 3),
+      }),
+      match({
+        matchKey: "2024evb_qm1",
+        redTeams: ["B1", "B2", "SHARED"],
+        blueTeams: ["B4", "B5", "B6"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(6, 24, 5),
+      }),
+      match({
+        matchKey: "2024eva_qm2",
+        redTeams: ["A1", "A4", "SHARED"],
+        blueTeams: ["A2", "A5", "A6"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(11, 17, 2),
+      }),
+      match({
+        matchKey: "2024evb_qm2",
+        redTeams: ["B1", "B4", "SHARED"],
+        blueTeams: ["B2", "B5", "B6"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(28, 7, 4),
+      }),
+    ];
+    for (const m of stream) state = vpr.update(state, m);
+
+    expect([...state.perEventVariance.keys()].sort()).toEqual(["2024eva", "2024evb"]);
+    const eva = state.perEventVariance.get("2024eva")!;
+    const evb = state.perEventVariance.get("2024evb")!;
+    // Two matches per event, two alliance rows per match.
+    expect(eva.rowCount).toBe(4);
+    expect(evb.rowCount).toBe(4);
+    // Each accumulator knows ONLY its own event's teams, plus the shared one.
+    expect([...eva.teamOrder].sort()).toEqual(["A1", "A2", "A4", "A5", "A6", "SHARED"]);
+    expect([...evb.teamOrder].sort()).toEqual(["B1", "B2", "B4", "B5", "B6", "SHARED"]);
+    // Non-vacuity: the shared team really did accumulate independently at both
+    // events, and its two rows are genuinely different numbers.
+    const evaShared = eva.targets[TOTAL_METRIC_KEY]![eva.teamOrder.indexOf("SHARED")]!;
+    const evbShared = evb.targets[TOTAL_METRIC_KEY]![evb.teamOrder.indexOf("SHARED")]!;
+    expect(evaShared).toBeGreaterThan(0);
+    expect(evbShared).toBeGreaterThan(0);
+    expect(evaShared).not.toBe(evbShared);
+  });
+
+  it("an ALL-SURROGATE alliance folds NO row (rowCount unchanged, not merely no throw)", () => {
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(14, 11, 3),
+      })
+    );
+    const before = state.perEventVariance.get("2024test")!.rowCount;
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm2",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redSurrogates: ["R1", "R2", "R3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(30, 11, 3),
+      })
+    );
+    // Blue still folds; red does not. +1, never +2.
+    expect(state.perEventVariance.get("2024test")!.rowCount).toBe(before + 1);
+  });
+
+  it("a WHOLE-ALLIANCE-DQ-ZERO alliance folds NO row (rowCount unchanged)", () => {
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(14, 11, 3),
+      })
+    );
+    const before = state.perEventVariance.get("2024test")!.rowCount;
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm2",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: ["R1", "R2", "R3"],
+        redScore: 0,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(30, 11, 3),
+      })
+    );
+    expect(state.perEventVariance.get("2024test")!.rowCount).toBe(before + 1);
+    // Both no-fold cases reach `applyAllianceUpdate`'s PRE-EXISTING
+    // `allianceTeams.length === 0` early return — no second eligibility rule
+    // was added for the decomposition, which is what keeps predict, update and
+    // this fold from drifting apart.
+  });
+
+  it("carrySeason EMPTIES the map — points^2 under one season's rules are not points^2 under another's", () => {
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdown(14, 11, 3),
+      })
+    );
+    expect(state.perEventVariance.size).toBeGreaterThan(0);
+    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+    expect(carried.perEventVariance.size).toBe(0);
+  });
+
+  it("the folded TOTAL target is the SQUARE OF THE SUM of the per-component innovations, not the sum of their squares", () => {
+    // On the FIRST match of a cold-start state every component's belief mean is
+    // the same cold-start value and the observation is uniform across
+    // components, so every component's innovation is the SAME number `i`. Then
+    // per component the folded target is `i^2`, and TOTAL's is
+    // `(C * i)^2 = C^2 * i^2` — a factor of C^2 (169 at 2024's 13 components),
+    // against the factor of C a sum-of-squares would produce. The distinction
+    // is the whole reason an aggregate key sums innovations BEFORE squaring:
+    // `e_m` for the TOTAL key is the alliance's total-score residual, and
+    // squaring per component first would discard every cross-component term it
+    // carries.
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    const acc = state.perEventVariance.get("2024test")!;
+    const index = acc.teamOrder.indexOf("R1");
+    const componentCount = state.componentOrder.length;
+    expect(componentCount).toBe(SIGMA1_2024_COMPONENT_COUNT);
+
+    const perComponent = acc.targets[state.componentOrder[0]!]![index]!;
+    const total = acc.targets[TOTAL_METRIC_KEY]![index]!;
+    expect(perComponent).toBeGreaterThan(0);
+    expect(total / perComponent).toBeCloseTo(componentCount * componentCount, 6);
+    // Non-vacuity: the sum-of-squares alternative would give a ratio of C,
+    // which this fixture keeps a factor of 13 away from the asserted value.
+    expect(total / perComponent).not.toBeCloseTo(componentCount, 6);
   });
 });

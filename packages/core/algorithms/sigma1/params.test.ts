@@ -566,6 +566,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
         allianceScoreStats: emptyExpandingStats(), // count === 0, forces the fallback
         priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
         rpSkippedMatchCount: 0,
+        perEventVariance: new Map(),
         breakdownParseFailureCount: 0,
       };
     }

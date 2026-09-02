@@ -14,15 +14,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
-import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
+import { vpr, emptyEventVarianceAccumulator, foldVarianceObservation, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import { emptyExpandingStats } from "../core/scoring/expandingStats.js";
-import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
+import { openCorpus, openCorpusReadOnly, selectMatchesChronological, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { computePredictionStreamDigest } from "./promote.js";
 import {
+  DEFAULT_MAX_STATEMENT_LENGTH,
   LeagueRowShapeVersionError,
   MAX_LEAGUE_ROW_BYTES,
   MissingLeagueRowError,
@@ -280,7 +281,7 @@ describe("serializeState — D-09 scope shape", () => {
     expect(teamRows.map((r) => r.scopeKey).sort()).toEqual([...finalState.lastEventByTeam.keys()].sort());
   });
 
-  it("Sigma1State emits exactly one 'league' row and one 'team' row per entry in state.teams — row count equals state.teams.size + 1", () => {
+  it("Sigma1State emits one 'league' row, one 'team' row per entry in state.teams, and one 'event' row per entry in state.perEventVariance (D-V3)", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
@@ -291,10 +292,17 @@ describe("serializeState — D-09 scope shape", () => {
     const rows = serializeState(vpr.id, vpr.version, finalState, STAMP);
     const teamRows = rows.filter((r) => r.scopeKind === "team");
     const leagueRows = rows.filter((r) => r.scopeKind === "league");
+    const eventRows = rows.filter((r) => r.scopeKind === "event");
 
     expect(leagueRows).toHaveLength(1);
     expect(teamRows).toHaveLength(finalState.teams.size);
-    expect(rows).toHaveLength(finalState.teams.size + 1);
+    // Since quick task 260902-varopr, Sigma1 is event-scoped TOO — the same
+    // `scopeKind: "event"` mechanism OPR has used since plan 04-08. Asserted
+    // by key, not only by count, so an accumulator filed under the wrong event
+    // is a failure rather than an equal-sized coincidence.
+    expect(eventRows.map((r) => r.scopeKey).sort()).toEqual([...finalState.perEventVariance.keys()].sort());
+    expect(finalState.perEventVariance.size).toBeGreaterThan(0);
+    expect(rows).toHaveLength(finalState.teams.size + finalState.perEventVariance.size + 1);
   });
 });
 
@@ -465,18 +473,21 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 5, and league rows declaring the LITERAL 3 or 4 both throw (D-V1, quick task 260902-varopr)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 6, and league rows declaring the LITERAL 3, 4 or 5 all throw (D-V1/D-V3, quick task 260902-varopr)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
-    // that no longer matches `Sigma1TeamState`: shape 3 predates
+    // that no longer matches `Sigma1State`: shape 3 predates
     // `contributionStats` entirely; shape 4 CARRIES `contributionStats` and
-    // `lastContribution`, which this task retired. `apps/worker/src/
+    // `lastContribution`, which this task retired; shape 5 has no
+    // `scopeKind: "event"` rows, so it would deserialize with an EMPTY
+    // `perEventVariance` and `teamMetrics` would publish no spread at all —
+    // silently, since omission is a legal shape. `apps/worker/src/
     // stateStore.ts` filters rows by `algorithm_id` only and never by
     // `algorithm_version`, so bumping the algorithm version does not by itself
     // make a stale seeded row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(5);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(6);
 
-    for (const staleVersion of [3, 4]) {
+    for (const staleVersion of [3, 4, 5]) {
       const staleRow: StateRow = StateRowSchema.parse({
         algorithmId: "vpr",
         algorithmVersion: vpr.version,
@@ -951,5 +962,109 @@ describe("emitSeedSql", () => {
       vi.doUnmock("node:fs");
       vi.resetModules();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-V3 (quick task 260902-varopr): the Sigma1 EVENT row against D1's
+// per-statement budget. A single row cannot be split across statements
+// (`SeedRowTooLargeError`), so this is a hard ceiling rather than a
+// performance target.
+// ---------------------------------------------------------------------------
+
+const REAL_CORPUS_PATH = join("data", "corpus.sqlite");
+
+/**
+ * MEASURED 2026-09-02 against `data/corpus.sqlite`, over every event in the
+ * corpus ranked by distinct team count. The three widest are all 2023
+ * championship divisions at 77-78 teams:
+ *
+ *     2023joh   78 teams, 292 folded rows, 13 metric keys -> 32,628 bytes
+ *     2023dal   78 teams, 290 folded rows, 13 metric keys -> 32,651 bytes
+ *     2023cur   78 teams, 290 folded rows, 13 metric keys -> 32,670 bytes
+ *
+ * against `DEFAULT_MAX_STATEMENT_LENGTH` of 90,000 — roughly 2.75x headroom.
+ * The dense `gram` (78x78 small integers) dominates; the 13 float target
+ * vectors are the rest.
+ *
+ * IF A FUTURE SEASON EVER PUSHES THIS OVER: the named fallback is to store
+ * `gram` as an upper-triangular sparse record of CO-APPEARING PAIRS only (a
+ * team co-appears with ~50 others at a championship division, roughly a 3x
+ * reduction). Do NOT reach for rounding the target sums — that would trade a
+ * size problem for a reproducibility one.
+ */
+const WIDEST_REAL_EVENT_MEASURED_BYTES = 32_670;
+
+describe("Sigma1 event-row size against the D1 seed budget (D-V3)", () => {
+  if (!fs.existsSync(REAL_CORPUS_PATH)) {
+    it.skip(`skipped: ${REAL_CORPUS_PATH} is absent (run pnpm ingest) — the synthetic upper-bound gate below still runs`, () => {});
+  } else {
+    it("the corpus's WIDEST real event serializes to an event row comfortably under the per-statement budget", () => {
+      const realDb = openCorpusReadOnly(REAL_CORPUS_PATH);
+      try {
+        const widest = realDb
+          .prepare(
+            `SELECT event_key, COUNT(DISTINCT tk) AS teams FROM (
+               SELECT event_key, value AS tk FROM matches, json_each(red_teams)
+               UNION ALL
+               SELECT event_key, value AS tk FROM matches, json_each(blue_teams)
+             ) GROUP BY event_key ORDER BY teams DESC LIMIT 1`
+          )
+          .get() as { event_key: string; teams: number };
+        const season = Number(widest.event_key.slice(0, 4));
+        const stream = selectMatchesChronological(realDb, { year: season, excludeOffseason: false }).filter(
+          (m) => m.eventKey === widest.event_key
+        );
+
+        let state = vpr.initState([]) as Sigma1State;
+        for (const m of stream) state = vpr.update(state, m) as Sigma1State;
+
+        const rows = serializeState(vpr.id, vpr.version, state, STAMP);
+        const eventRow = rows.find((r) => r.scopeKind === "event" && r.scopeKey === widest.event_key);
+        expect(eventRow, `${widest.event_key} emitted an event row`).toBeDefined();
+
+        const message =
+          `${widest.event_key}: ${widest.teams} teams, ${stream.length} matches, ` +
+          `${eventRow!.stateJson.length} bytes against a ${DEFAULT_MAX_STATEMENT_LENGTH}-byte budget`;
+        expect(eventRow!.stateJson.length, message).toBeLessThan(DEFAULT_MAX_STATEMENT_LENGTH);
+        // Pinned against the RECORDED measurement with modest slack, so a
+        // future season that materially grows this row fails here — where the
+        // sparse-`gram` fallback is written down — rather than at a live
+        // `wrangler d1 execute` with `SQLITE_TOOBIG`.
+        expect(eventRow!.stateJson.length, message).toBeLessThan(WIDEST_REAL_EVENT_MEASURED_BYTES * 1.5);
+
+        // The whole seed emits without throwing `SeedRowTooLargeError`, which
+        // is the property that actually matters at import time.
+        const outPath = join(dir, "widest-event-seed.sql");
+        expect(() => emitSeedSql(rows, { algorithmId: vpr.id, out: outPath })).not.toThrow();
+      } finally {
+        realDb.close();
+      }
+    });
+  }
+
+  it("a SYNTHETIC 80-team, 17-key, 300-row event stays under the budget too (the CI-runnable upper bound)", () => {
+    // Deliberately WIDER than anything in the corpus (80 teams against 78, 17
+    // metric keys against 13) and with full-precision float targets, so this
+    // is a conservative bound that runs with no corpus present.
+    const teams = Array.from({ length: 80 }, (_, i) => `frc${9000 + i}`);
+    const keys = Array.from({ length: 17 }, (_, i) => `k${i}`);
+    let acc = emptyEventVarianceAccumulator();
+    for (let row = 0; row < 300; row++) {
+      const side = [teams[row % 80]!, teams[(row * 7 + 3) % 80]!, teams[(row * 13 + 29) % 80]!];
+      const squared: Record<string, number> = {};
+      for (const k of keys) squared[k] = 1234.5678901234567 + row * 0.7654321098765432;
+      acc = foldVarianceObservation(acc, side, squared);
+    }
+    const state: Sigma1State = {
+      ...(vpr.initState([]) as Sigma1State),
+      perEventVariance: new Map([["2099syn", acc]]),
+    };
+    const rows = serializeState(vpr.id, vpr.version, state, STAMP);
+    const eventRow = rows.find((r) => r.scopeKind === "event")!;
+    expect(acc.teamOrder.length).toBe(80);
+    expect(eventRow.stateJson.length, `synthetic 80-team row: ${eventRow.stateJson.length} bytes`).toBeLessThan(
+      DEFAULT_MAX_STATEMENT_LENGTH
+    );
   });
 });

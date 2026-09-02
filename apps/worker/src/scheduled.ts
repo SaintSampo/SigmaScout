@@ -267,21 +267,45 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
 }
 
 /**
- * Plan 04-08: an algorithm's FULL selection list for one event's fold — every
- * scope kind it stores, in ONE `readScopedState` request (never a second
- * call, which would spend a second subrequest). OPR now stores BOTH `event`
- * rows (its per-event observations/ratings, D-09) AND `team` rows
- * (`lastEventByTeam`'s per-team bookkeeping, moved out of the league row by
- * plan 04-08); EPA/Sigma1 store only `team` rows.
+ * D-09: which algorithms keep EVENT-SCOPED state, and therefore need this
+ * event's own row loaded before a tick may fold into it.
+ *
+ * OPR has since plan 04-08 (per-event observations/ratings). Every VPR module
+ * has since quick task 260902-varopr (D-V1/D-V3): `Sigma1State.perEventVariance`
+ * holds the per-team variance decomposition's accumulated normal equations,
+ * one accumulator per event. EPA is team-scoped only.
+ *
+ * A SET rather than a chain of `if`s so a fourth event-scoped algorithm is one
+ * entry, not a fourth branch that could be forgotten — the forgetting is the
+ * failure mode this constant exists to make hard (see `selectionsFor`).
  */
-function selectionsFor(algorithmId: string, eventKey: string, touchedTeams: readonly string[]): ScopeSelection[] {
-  if (algorithmId === "opr") {
-    return [
-      { scopeKind: "event", scopeKeys: [eventKey] },
-      { scopeKind: "team", scopeKeys: touchedTeams },
-    ];
+export const EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr", "vpr"]);
+
+/**
+ * Plan 04-08: an algorithm's FULL selection list for one event's fold — every
+ * scope kind it stores, in ONE `readScopedState` request (never a second call,
+ * which would spend a second subrequest; `readScopedState` binds every
+ * selection into a single prepared statement, so naming two scope kinds costs
+ * exactly what naming one does).
+ *
+ * DO NOT "SIMPLIFY" THE EVENT SELECTION BACK OUT FOR AN ALGORITHM THAT HAS
+ * EVENT-SCOPED STATE. The consequence is not a missing optimization, it is
+ * silent data destruction. Without this row loaded, a live tick deserializes
+ * with an EMPTY accumulator; `update()` then rebuilds that accumulator from
+ * the one or two matches this tick happens to see, and `selectChangedRows`
+ * writes the result back — so the event's entire accumulated history is
+ * overwritten by a single tick's worth of data, one tick at a time, while
+ * every published `±` simultaneously disappears or collapses. Nothing else in
+ * the pipeline notices: the rows are well-formed, the tick reports success,
+ * and the numbers just quietly become wrong.
+ */
+export function selectionsFor(algorithmId: string, eventKey: string, touchedTeams: readonly string[]): ScopeSelection[] {
+  const selections: ScopeSelection[] = [];
+  if (EVENT_SCOPED_ALGORITHM_IDS.has(algorithmId)) {
+    selections.push({ scopeKind: "event", scopeKeys: [eventKey] });
   }
-  return [{ scopeKind: "team", scopeKeys: touchedTeams }];
+  selections.push({ scopeKind: "team", scopeKeys: touchedTeams });
+  return selections;
 }
 
 async function loadOrInitState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[], algorithm: AlgorithmModule<any>) {

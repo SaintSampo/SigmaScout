@@ -78,6 +78,11 @@ import {
 // residual door would leave a dead binding that reads like a live one. It is
 // still RE-EXPORTED below, unchanged, for callers that genuinely have one.
 import { foldConsistencyVariance, shrinkConsistency } from "./consistency.js";
+import {
+  emptyEventVarianceAccumulator,
+  foldVarianceObservation,
+  type EventVarianceAccumulator,
+} from "./varianceOpr.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
@@ -125,6 +130,17 @@ export {
   foldConsistencyVariance,
   shrinkConsistency,
 } from "./consistency.js";
+export {
+  SIGMA1_VARIANCE_OPR_RIDGE,
+  VarianceKeySetMismatchError,
+  VarianceSolveNotPositiveDefiniteError,
+  emptyEventVarianceAccumulator,
+  foldVarianceObservation,
+  solveEventVariance,
+  vBarFor,
+  type EventVarianceAccumulator,
+  type SolvedEventVariance,
+} from "./varianceOpr.js";
 export { SIGMA1_LINK_C, erf, normalCdf, winProbability } from "./linkFunctions.js";
 export {
   SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY,
@@ -204,6 +220,23 @@ export interface Sigma1State extends BreakdownParseTelemetry {
    * unchanged" choice) — makes the skip observable rather than silent.
    */
   readonly rpSkippedMatchCount: number;
+  /**
+   * D-V1/D-V3 (quick task 260902-varopr): the per-team variance
+   * decomposition's accumulated normal equations, PARTITIONED BY `eventKey`
+   * exactly as `OprState.perEvent` is.
+   *
+   * Partitioned, NEVER reset on an `eventKey` change, for the reason `opr.ts`'s
+   * own header records: `replay.ts`'s `buildSeasonStream` interleaves
+   * concurrent events into one chronological stream, so resetting would
+   * corrupt every simultaneously-running event. `displayOnly.test.ts`'s stream
+   * interleaves two events precisely so a reset cannot pass as a partition.
+   *
+   * `carrySeason` empties it for the same reason the retired contribution
+   * accumulators were emptied: squared residuals are POINTS^2 under one
+   * season's scoring rules, and 2024 points are not 2025 points — a series
+   * crossing the boundary would mostly measure the rule change.
+   */
+  readonly perEventVariance: ReadonlyMap<string, EventVarianceAccumulator>;
   // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
   // above) — see that interface's own doc comment for why this is a
   // SEPARATE, never-merged counter from `rpSkippedMatchCount` above.
@@ -220,6 +253,7 @@ function initState(): Sigma1State {
     allianceScoreStats: emptyExpandingStats(),
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     rpSkippedMatchCount: 0,
+    perEventVariance: new Map(),
     breakdownParseFailureCount: 0,
   };
 }
@@ -515,6 +549,13 @@ interface AllianceUpdateResult {
    * magnitude (which the gain-weighted share is not).
    */
   readonly residualsByTeam: ReadonlyMap<string, readonly number[]>;
+  /**
+   * D-V1/D-V3: this event's decomposition accumulator with THIS alliance's row
+   * folded in — the same object that was passed in when the alliance had no
+   * rating-eligible teams (an all-surrogate alliance or a whole-alliance
+   * DQ-zero), because those rows fold NOTHING.
+   */
+  readonly eventVariance: EventVarianceAccumulator;
 }
 
 /**
@@ -539,14 +580,18 @@ function applyAllianceUpdate(
   eventKey: string,
   params: Sigma1ResolvedParams,
   rpVariableCount: number,
-  varianceGroups: Readonly<Record<string, readonly string[]>>
+  varianceGroups: Readonly<Record<string, readonly string[]>>,
+  eventVariance: EventVarianceAccumulator
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
     // Every team on this alliance was a surrogate — nothing to attribute,
     // a genuine no-op (mirrors opr.ts's/epa.ts's own empty-observation
     // handling, and kalman.ts's updateAllianceSum for an empty teammates
-    // array).
-    return { teams, league, residualsByTeam: new Map() };
+    // array). D-V1: the decomposition accumulator passes through UNCHANGED
+    // here, so the all-surrogate and whole-alliance-DQ-zero cases are covered
+    // by this ONE pre-existing early return rather than by a second
+    // eligibility rule that could drift from it.
+    return { teams, league, residualsByTeam: new Map(), eventVariance };
   }
 
   const workingTeams = new Map<string, Sigma1TeamState>();
@@ -728,10 +773,46 @@ function applyAllianceUpdate(
     metricKey,
     names.map((name) => componentOrder.indexOf(name)).filter((index) => index !== -1),
   ]);
-  // Task 4 (quick task 260902-varopr) folds the decomposition's per-key targets
-  // against `varianceGroupIndices`. In THIS commit it is resolved and not yet
-  // read — recorded rather than left ambiguous, per the plan's own instruction.
-  void varianceGroupIndices;
+
+  // D-V1 (quick task 260902-varopr): this alliance-observation's per-key
+  // SQUARED RESIDUAL — the decomposition's target `e_m^2`, at every key
+  // `teamMetrics` publishes.
+  //
+  // Taken from `innovationByComponent`, the array captured once in the
+  // component loop above, and NEVER re-derived from beliefs a second time.
+  // The reason is the crispest description of what this whole task does:
+  // `varianceSample` (filter R, the UPDATE path) and this target (the DISPLAY
+  // path) are TWO ESTIMATORS OVER ONE INNOVATION. Filter R subtracts `sumP`
+  // and divides the remainder equally across teammates; the decomposition
+  // least-squares-solves the whole event's system for the same quantity. Same
+  // input, different inversion — and a second derivation of the residual is
+  // exactly how the two would silently come to disagree.
+  //
+  // An aggregate key's target is the SQUARE OF THE SUM of its components'
+  // innovations, not the sum of their squares: `e_m` for the TOTAL key is the
+  // alliance's total-score residual, and squaring per component first would
+  // throw away every cross-component covariance the total actually carries.
+  const squaredResidualByKey: Record<string, number> = {};
+  componentOrder.forEach((name, i) => {
+    const innovation = innovationByComponent[i]!;
+    squaredResidualByKey[name] = innovation * innovation;
+  });
+  for (const [metricKey, indices] of varianceGroupIndices) {
+    // An empty index list means this season's grouping names no component
+    // `componentOrder` carries — the SAME skip `teamMetrics`'s own `present`
+    // guard makes. Folding a 0 here would manufacture an observation of a
+    // group that was never observed, and (worse) would drag that key's `vBar`
+    // toward zero for the whole event.
+    if (indices.length === 0) continue;
+    let summedInnovation = 0;
+    for (const index of indices) summedInnovation += innovationByComponent[index]!;
+    squaredResidualByKey[metricKey] = summedInnovation * summedInnovation;
+  }
+  // Folds exactly the rows the Kalman update already folded: `allianceTeams`
+  // is rating-eligible, demo-remapped and surrogate-filtered, and the
+  // `allianceTeams.length === 0` early return above covers the all-surrogate
+  // and whole-alliance-DQ-zero cases. NO second eligibility rule is added.
+  const nextEventVariance = foldVarianceObservation(eventVariance, allianceTeams, squaredResidualByKey);
 
   const nextTeams = new Map(teams);
   for (const team of allianceTeams) {
@@ -779,6 +860,7 @@ function applyAllianceUpdate(
     // RP data.
     league: { ...league, componentMean: nextComponentMean, componentConsistency: nextComponentConsistency },
     residualsByTeam,
+    eventVariance: nextEventVariance,
   };
 }
 
@@ -1110,6 +1192,12 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     }
   }
 
+  // D-V3: this EVENT's own accumulator, threaded red-then-blue and written
+  // back under its own key. Partitioned by `eventKey`, never reset on an event
+  // change — `buildSeasonStream` interleaves concurrent events, so a reset
+  // would destroy whichever event happened not to own the current match.
+  const eventVarianceBefore = state.perEventVariance.get(result.eventKey) ?? emptyEventVarianceAccumulator();
+
   const afterRed = applyAllianceUpdate(
     state.teams,
     state.league,
@@ -1120,7 +1208,8 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    varianceGroups
+    varianceGroups,
+    eventVarianceBefore
   );
   const afterBlue = applyAllianceUpdate(
     afterRed.teams,
@@ -1132,8 +1221,17 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    varianceGroups
+    varianceGroups,
+    afterRed.eventVariance
   );
+  // Only rewritten when a row actually folded — an all-surrogate/DQ-zero match
+  // on an event with no accumulator yet must not register an empty one, since
+  // `teamMetrics` distinguishes "no accumulator for this event" from "an
+  // accumulator that says nothing".
+  const perEventVariance =
+    afterBlue.eventVariance === eventVarianceBefore
+      ? state.perEventVariance
+      : new Map(state.perEventVariance).set(result.eventKey, afterBlue.eventVariance);
 
   // Pitfall EPA-1's fix, reused here: fold each alliance's observed total
   // into the expanding-window SD — the score itself is always known, even
@@ -1233,6 +1331,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     allianceScoreStats,
     priorSeasonRatings: state.priorSeasonRatings,
     rpSkippedMatchCount,
+    perEventVariance,
     breakdownParseFailureCount,
   };
 }
@@ -1478,6 +1577,13 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     // lifetime — never reset at a season boundary (see `Sigma1State`'s own
     // doc comment).
     rpSkippedMatchCount: state.rpSkippedMatchCount,
+    // D-V1/D-V3 (quick task 260902-varopr): every event's decomposition
+    // accumulator is DROPPED at a season boundary. Its target is a SQUARED
+    // RESIDUAL in points^2 under one season's scoring rules, and 2024 points
+    // are not 2025 points — carrying it would mostly measure the rule change.
+    // The events themselves are season-scoped anyway, so nothing that could
+    // still be published is lost.
+    perEventVariance: new Map(),
     // D-Q2 (quick task 260818-inm): also cumulative over the algorithm's
     // whole lifetime, never reset at a season boundary — identical
     // "carry forward unchanged" treatment to `rpSkippedMatchCount` above.

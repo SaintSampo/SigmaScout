@@ -33,7 +33,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
-import type { Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
+import type { EventVarianceAccumulator, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 
 // ---------------------------------------------------------------------------
@@ -123,8 +123,22 @@ export class MissingLeagueRowError extends Error {
  * fields that no longer exist in `Sigma1TeamState` at all. The shape check is
  * the only thing that turns that into a loud `LeagueRowShapeVersionError` at
  * load time, naming the re-seed as the fix.
+ *
+ * Bumped 5 -> 6 (D-V1/D-V3, quick task 260902-varopr): Sigma1 now emits
+ * `scopeKind: "event"` rows of its own — one per event, carrying that event's
+ * variance-decomposition normal equations (`{ rowCount, teamOrder, gram,
+ * targets, vBarSums }`, `sigma1/varianceOpr.ts`). Until this version only OPR
+ * had event-scoped state.
+ *
+ * The load-bearing reason, which is the same one both bumps above give and is
+ * SHARPER here: a shape-5 row deserializes with `perEventVariance` as an empty
+ * map, and `teamMetrics` would then publish NO SPREAD AT ALL on live traffic —
+ * silently, because omission is a legal shape for a team the decomposition
+ * cannot speak to. The shape check is the only thing that turns that into a
+ * loud `LeagueRowShapeVersionError` naming the re-seed as the fix, rather than
+ * a site that quietly stops showing `±`.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 5;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 6;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -255,6 +269,25 @@ interface SerializedSigma1TeamRow {
   priorSeasonYearBefore?: number;
 }
 
+/**
+ * D-V1/D-V3 (quick task 260902-varopr): one event's variance-decomposition
+ * normal equations, in the SAME `scopeKind: "event"` shape
+ * `serializeOprState` already uses for its own per-event rows — the mechanism
+ * this task deliberately reuses rather than inventing a per-team-pair sparse
+ * one (which would additionally have to survive `SeedRowTooLargeError`'s
+ * 90,000-byte budget at ~3,500 season-scoped teams; `X'X` there is 12M
+ * entries and is not close).
+ *
+ * `gram` is dense `teamOrder x teamOrder` small integers and dominates the row.
+ * Its measured size at the corpus's widest real event is asserted by
+ * `stateSnapshot.test.ts`. If a future season pushes it over the budget, the
+ * named fallback is an upper-triangular sparse record of CO-APPEARING PAIRS
+ * only (a team co-appears with ~50 others, roughly a 3x reduction) — never
+ * rounding the target sums, which would trade a size problem for a
+ * reproducibility one.
+ */
+type SerializedSigma1EventState = EventVarianceAccumulator;
+
 function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState {
   return {
     beliefs: team.beliefs,
@@ -305,6 +338,13 @@ function serializeSigma1State(algorithmId: string, algorithmVersion: string, sta
     };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
+
+  // D-V1/D-V3: one `scopeKind: "event"` row per event, emitted from
+  // `sortedEntries` exactly as OPR's own event rows are.
+  for (const [eventKey, accumulator] of sortedEntries(state.perEventVariance)) {
+    const eventJson: SerializedSigma1EventState = accumulator;
+    rows.push(makeRow(algorithmId, algorithmVersion, "event", eventKey, eventJson, stamp));
+  }
   return rows;
 }
 
@@ -319,7 +359,12 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
   const teams = new Map<string, Sigma1TeamState>();
   const lastSeason = new Map<string, number>();
   const yearBefore = new Map<string, number>();
+  const perEventVariance = new Map<string, EventVarianceAccumulator>();
   for (const row of rows) {
+    if (row.scopeKind === "event") {
+      perEventVariance.set(row.scopeKey, JSON.parse(row.stateJson) as SerializedSigma1EventState);
+      continue;
+    }
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamRow;
     if (teamJson.current !== undefined) teams.set(row.scopeKey, teamJson.current);
@@ -335,6 +380,7 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     allianceScoreStats: leagueJson.allianceScoreStats,
     priorSeasonRatings: { lastSeason, yearBefore },
     rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
+    perEventVariance,
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
 }
@@ -572,7 +618,7 @@ function sqlRowTuple(row: StateRow): string {
  * prefix and the trailing semicolon, so a statement assembled right at the
  * budget still lands comfortably inside D1's limit.
  */
-const DEFAULT_MAX_STATEMENT_LENGTH = 90_000;
+export const DEFAULT_MAX_STATEMENT_LENGTH = 90_000;
 
 /** D1's documented hard limit, for the error message that fires when a single row cannot be split to fit. */
 const D1_STATEMENT_LIMIT = 100_000;
