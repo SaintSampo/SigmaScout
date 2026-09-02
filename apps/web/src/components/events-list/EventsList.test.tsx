@@ -122,6 +122,44 @@ describe("EventsList", () => {
     expect(container.textContent).not.toMatch(/\bnull\b/i);
   });
 
+  /**
+   * WR-01 (review 260902): `2026isde1`, `2026isde2` and `2026iscmp` carry raw
+   * weeks 16/17/18 in the published 2026 events artifact. The Type chip's
+   * blind `week + 1` labelled these real, official, 208-played-match district
+   * events "Week 17", "Week 18" and "Week 19" — the only visible type label
+   * their rows carried. See `filterModel.test.ts` for the pinned fixture and
+   * its verification against the live artifact.
+   */
+  it("renders no invented season week on the Type chip for an out-of-band TBA week", async () => {
+    const events = makeRows([
+      makeRow({ eventKey: "2026isde1", name: "ISR District Event #1", eventType: 1, week: 16, districtKey: "isr" }),
+      makeRow({ eventKey: "2026isde2", name: "ISR District Event #2", eventType: 1, week: 17, districtKey: "isr" }),
+      makeRow({ eventKey: "2026iscmp", name: "FIRST Israel District Championship", eventType: 2, week: 18, districtKey: "isr" }),
+    ]);
+    const { container } = render(
+      <TestHarness>
+        <EventsList status="success" events={events} {...BASE_PROPS} />
+      </TestHarness>,
+    );
+
+    await waitFor(() => expect(screen.getAllByRole("row").length).toBe(4));
+    for (const nonsense of ["Week 17", "Week 18", "Week 19"]) {
+      expect(container.textContent).not.toContain(nonsense);
+    }
+    expect(screen.getAllByText("Other")).toHaveLength(3);
+  });
+
+  it("still renders the 1-indexed season week on the Type chip for an in-band week", async () => {
+    const events = makeRows([makeRow({ week: 3 })]);
+    render(
+      <TestHarness>
+        <EventsList status="success" events={events} {...BASE_PROPS} />
+      </TestHarness>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Week 4")).toBeDefined());
+  });
+
   it("renders the empty-state copy for a zero-length list", async () => {
     render(
       <TestHarness>

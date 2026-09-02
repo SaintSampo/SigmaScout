@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useFilterSheetStore } from "@/stores/filterSheet";
-import { filterOptions, type EventFilterOptionLists, type EventFilters as EventFiltersModel, type EventRow, type WeekFilterValue } from "./filterModel";
+import { filterOptions, MAX_SEASON_WEEK, WEEK_SPECIAL_VALUES, type EventFilterOptionLists, type EventFilters as EventFiltersModel, type EventRow, type WeekFilterValue } from "./filterModel";
 
 /**
  * The desktop inline control row and the phone filter sheet, both writing to
@@ -32,16 +32,32 @@ export interface EventFiltersProps {
   onClearFilters: () => void;
 }
 
-/** Reader-facing label for one week-filter value: stored week indexes are 0-based, readers count from Week 1; the specials carry their own names. */
+/**
+ * Reader-facing label for one week-filter value: stored week indexes are
+ * 0-based, readers count from Week 1; the specials carry their own names.
+ *
+ * WR-01: the `+ 1` is guarded rather than merely unreached. `filterOptions` no
+ * longer OFFERS an out-of-band week as a numeric option, but this function is
+ * also reached by the active-filter chip, which renders whatever
+ * `EventsSearchSchema` let through the URL — and that schema accepts any
+ * integer by design (a value matching no real option is not an error, it just
+ * matches nothing). So a hand-edited `?week=16` would still have produced a
+ * chip reading "Week 17". The bound lives HERE too, which makes it impossible
+ * for this function to name a week of the season that does not exist,
+ * independent of who calls it. See `filterModel.ts`'s `MAX_SEASON_WEEK`.
+ */
 export function weekFilterLabel(week: WeekFilterValue): string {
   if (week === "week0") return "Week 0";
   if (week === "champs") return "Champs";
   if (week === "offseason") return "Offseason";
-  return `Week ${week + 1}`;
+  if (week === "other") return "Other";
+  return week > MAX_SEASON_WEEK ? "Other" : `Week ${week + 1}`;
 }
 
+/** Reads a `SelectItem`'s string value back to a `WeekFilterValue`, testing the special tokens against `WEEK_SPECIAL_VALUES` itself rather than a second hand-written list that a new bucket could drift from (`"other"` did have to be added in two places before this). */
 function parseWeekValue(raw: string): WeekFilterValue {
-  return raw === "week0" || raw === "champs" || raw === "offseason" ? raw : Number(raw);
+  const special = WEEK_SPECIAL_VALUES.find((value) => value === raw);
+  return special ?? Number(raw);
 }
 
 function WeekSelect({ weeks, value, onChange }: { weeks: readonly WeekFilterValue[]; value: WeekFilterValue | undefined; onChange: (value: WeekFilterValue | undefined) => void }) {

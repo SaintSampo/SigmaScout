@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { applyEventFilters, filterOptions, sortEvents, type EventRow } from "./filterModel.js";
+import { applyEventFilters, filterOptions, hasOutOfBandWeek, MAX_SEASON_WEEK, sortEvents, weekMatches, type EventRow } from "./filterModel.js";
 
 function makeArtifact(events: EventsArtifact["events"]): EventsArtifact {
   return EventsArtifactSchema.parse({
@@ -46,6 +46,88 @@ const FIXTURE_EVENTS: EventRow[] = makeArtifact([
   // Fully null-location row.
   makeRow({ eventKey: "2025zoff2", name: "Unlisted Offseason", isOffseason: true, week: null, country: null, stateProv: null, districtKey: null }),
 ]).events;
+
+/**
+ * WR-01 (review 260902). The three REAL 2026 events the defect was found on,
+ * pinned with their raw published `week` values as verified against
+ * `v1/events/2026/vpr@2.1.0+tuned-2026-08.json`:
+ *
+ *   2026isde1  week 16  eventType 1  69 played  ISR District Event #1
+ *   2026isde2  week 17  eventType 1  64 played  ISR District Event #2
+ *   2026iscmp  week 18  eventType 2  75 played  FIRST Israel District Championship
+ *
+ * These are official, non-offseason, non-preseason events with 208 played
+ * matches between them. TBA does not use `week` purely as a 0-indexed season
+ * week — it also carries out-of-band indexes for districts running their own
+ * calendar — so a blind `week + 1` rendered them "Week 17/18/19". There is no
+ * week 17 of an FRC season, and no week filter could reach them.
+ *
+ * These literals are the point of this fixture: a future change that puts an
+ * out-of-band week back on the season-week scale has to delete an assertion
+ * below to do it, rather than silently re-shipping the same three nonsense
+ * dropdown options.
+ */
+const ISRAEL_2026_EVENTS: EventRow[] = makeArtifact([
+  makeRow({ eventKey: "2026isde1", name: "ISR District Event #1", eventType: 1, week: 16, matchCount: 69, playedMatchCount: 69, country: "Israel", stateProv: "HaMerkaz", districtKey: "isr" }),
+  makeRow({ eventKey: "2026isde2", name: "ISR District Event #2", eventType: 1, week: 17, matchCount: 64, playedMatchCount: 64, country: "Israel", stateProv: "HaMerkaz", districtKey: "isr" }),
+  makeRow({ eventKey: "2026iscmp", name: "FIRST Israel District Championship", eventType: 2, week: 18, matchCount: 75, playedMatchCount: 75, country: "Israel", stateProv: "HaMerkaz", districtKey: "isr" }),
+]).events;
+
+const ISRAEL_2026_KEYS = ["2026iscmp", "2026isde1", "2026isde2"];
+
+describe("out-of-band TBA week values (WR-01)", () => {
+  const MIXED = [...FIXTURE_EVENTS, ...ISRAEL_2026_EVENTS];
+
+  it("offers NO numeric week option above the season-week bound, so no dropdown entry can read 'Week 17'", () => {
+    const numericWeeks = filterOptions(MIXED).weeks.filter((week): week is number => typeof week === "number");
+    expect(numericWeeks).toEqual([2, 3]);
+    expect(numericWeeks.some((week) => week > MAX_SEASON_WEEK)).toBe(false);
+    for (const raw of [16, 17, 18]) {
+      expect(numericWeeks).not.toContain(raw);
+    }
+  });
+
+  it("collects the out-of-band events into the 'other' bucket instead, placed last", () => {
+    const weeks = filterOptions(MIXED).weeks;
+    expect(weeks).toContain("other");
+    expect(weeks[weeks.length - 1]).toBe("other");
+  });
+
+  it("offers no 'other' bucket at all when every event's week is a real season week", () => {
+    expect(filterOptions(FIXTURE_EVENTS).weeks).not.toContain("other");
+  });
+
+  it("the 'other' filter returns exactly the three real Israeli events, which 208 played matches depend on being reachable", () => {
+    const result = applyEventFilters(MIXED, { week: "other" });
+    expect(result.map((event) => event.eventKey).sort()).toEqual(ISRAEL_2026_KEYS);
+    expect(result.reduce((sum, event) => sum + event.playedMatchCount, 0)).toBe(208);
+  });
+
+  it("recognises each real out-of-band week individually, and no in-band one", () => {
+    for (const event of ISRAEL_2026_EVENTS) {
+      expect(hasOutOfBandWeek(event)).toBe(true);
+      expect(weekMatches(event, "other")).toBe(true);
+    }
+    for (const event of FIXTURE_EVENTS) {
+      expect(hasOutOfBandWeek(event)).toBe(false);
+      expect(weekMatches(event, "other")).toBe(false);
+    }
+  });
+
+  it("keeps the other three special buckets disjoint from 'other' — an offseason or Champs row is never swept into it", () => {
+    const specials = makeArtifact([
+      makeRow({ eventKey: "2026zoff", isOffseason: true, eventType: 99, week: 20 }),
+      makeRow({ eventKey: "2026week0", eventType: 100, week: 20 }),
+      makeRow({ eventKey: "2026cmptx", eventType: 3, week: 20 }),
+      makeRow({ eventKey: "2026einstein", eventType: 4, week: 20 }),
+    ]).events;
+    for (const event of specials) {
+      expect(hasOutOfBandWeek(event)).toBe(false);
+    }
+    expect(applyEventFilters(specials, { week: "other" })).toEqual([]);
+    expect(filterOptions(specials).weeks).not.toContain("other");
+  });
+});
 
 describe("filterOptions", () => {
   it("returns distinct non-null values per dimension, sorted for stable display", () => {

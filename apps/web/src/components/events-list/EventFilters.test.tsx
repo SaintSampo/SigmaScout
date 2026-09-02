@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { EventFilters } from "./EventFilters";
+import { EventFilters, weekFilterLabel } from "./EventFilters";
 import { useFilterSheetStore } from "@/stores/filterSheet";
 import type { EventFilters as EventFiltersModel, EventRow } from "./filterModel";
 
@@ -135,5 +135,74 @@ describe("EventFilters", () => {
     const districtTrigger = screen.getByRole("combobox", { name: "District" });
     expect(districtTrigger.hasAttribute("disabled")).toBe(true);
     expect(districtTrigger).toBeDefined(); // still rendered, not omitted
+  });
+
+  /**
+   * WR-01 (review 260902). `2026isde1`/`2026isde2`/`2026iscmp` carry raw weeks
+   * 16/17/18 in the published 2026 events artifact — see
+   * `filterModel.test.ts`'s own pinned fixture for the verification. The blind
+   * `week + 1` turned those into the dropdown's last three options, "Week 17",
+   * "Week 18" and "Week 19". There is no week 17 of an FRC season.
+   */
+  describe("out-of-band TBA week values (WR-01)", () => {
+    const ISRAEL_EVENTS = makeRows([
+      makeRow({ eventKey: "2026isde1", eventType: 1, week: 16, country: "Israel", districtKey: "isr" }),
+      makeRow({ eventKey: "2026isde2", eventType: 1, week: 17, country: "Israel", districtKey: "isr" }),
+      makeRow({ eventKey: "2026iscmp", eventType: 2, week: 18, country: "Israel", districtKey: "isr" }),
+    ]);
+
+    it("never labels an out-of-band week as a season week, even reached directly from a hand-edited URL", () => {
+      // `?week=16` is schema-valid (any integer is), so the active-filter chip
+      // can reach this function with a raw out-of-band value that
+      // `filterOptions` would never have offered.
+      for (const raw of [16, 17, 18]) {
+        expect(weekFilterLabel(raw)).toBe("Other");
+      }
+      expect(weekFilterLabel("other")).toBe("Other");
+      // The in-band 1-indexing is untouched.
+      expect(weekFilterLabel(0)).toBe("Week 1");
+      expect(weekFilterLabel(7)).toBe("Week 8");
+    });
+
+    it("the Week dropdown ends with Other, not with three nonsense season weeks", () => {
+      render(<EventFilters events={[...FIXTURE_EVENTS, ...ISRAEL_EVENTS]} filters={EMPTY_FILTERS} onFiltersChange={vi.fn()} onClearFilters={vi.fn()} />);
+
+      const weekTrigger = screen.getByRole("combobox", { name: "Week" });
+      fireEvent.pointerDown(weekTrigger, { button: 0, pointerId: 1 });
+      fireEvent.click(weekTrigger);
+
+      for (const nonsense of ["Week 17", "Week 18", "Week 19"]) {
+        expect(screen.queryByRole("option", { name: nonsense })).toBeNull();
+      }
+      expect(screen.getByRole("option", { name: "Other" })).toBeDefined();
+    });
+
+    it("selecting Other reports the 'other' token, not a coerced NaN week", () => {
+      const onFiltersChange = vi.fn();
+      render(<EventFilters events={[...FIXTURE_EVENTS, ...ISRAEL_EVENTS]} filters={EMPTY_FILTERS} onFiltersChange={onFiltersChange} onClearFilters={vi.fn()} />);
+
+      const weekTrigger = screen.getByRole("combobox", { name: "Week" });
+      fireEvent.pointerDown(weekTrigger, { button: 0, pointerId: 1 });
+      fireEvent.click(weekTrigger);
+      const option = screen.getByRole("option", { name: "Other" });
+      fireEvent.pointerUp(option, { button: 0, pointerId: 1 });
+      fireEvent.click(option);
+
+      expect(onFiltersChange).toHaveBeenCalledWith({ week: "other" });
+    });
+
+    it("the active-filter chip reads Other rather than a season week that does not exist", () => {
+      // Both the "other" token and a raw out-of-band week reaching the chip
+      // straight off the URL must read the same honest label.
+      for (const week of ["other", 16] as const) {
+        const { container, unmount } = render(<EventFilters events={[...FIXTURE_EVENTS, ...ISRAEL_EVENTS]} filters={{ week }} onFiltersChange={vi.fn()} onClearFilters={vi.fn()} />);
+        // Scoped by the chip's own `title` affordance — the Select trigger
+        // shows the same text, so a bare text query is ambiguous here.
+        const chip = container.querySelector('[title="Other"]');
+        expect(chip?.textContent).toBe("Other");
+        expect(container.textContent).not.toMatch(/Week 1[789]/);
+        unmount();
+      }
+    });
   });
 });

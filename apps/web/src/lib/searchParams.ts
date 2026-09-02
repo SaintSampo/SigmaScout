@@ -196,11 +196,19 @@ const DEFAULT_EVENT_SORT_KEY = "startDate";
  * own empty state rather than an undefined page state.
  */
 export const EventsSearchSchema = RootSearchSchema.extend({
-  // 2026-09-01: week is an official-season week INDEX (stored 0-based) OR
-  // one of the three special tokens (preseason week-0 events, championship,
-  // offseason) — see filterModel.ts's WEEK_SPECIAL_VALUES. Enum arm first:
-  // z.coerce.number would coerce "champs" to NaN before the enum ever ran.
-  week: z.union([z.enum(["week0", "champs", "offseason"]), z.coerce.number().int()]).optional().catch(undefined),
+  // 2026-09-01: week is an official-season week INDEX (stored 0-based) OR one
+  // of the special tokens (preseason week-0 events, championship, offseason,
+  // and since WR-01 "other" — events whose TBA week is outside the season-week
+  // scale). Enum arm first: z.coerce.number would coerce "champs" to NaN
+  // before the enum ever ran.
+  //
+  // This list is a deliberate, documented mirror of `filterModel.ts`'s
+  // `WEEK_SPECIAL_VALUES`, kept here for the same reason `EVENT_SORT_KEYS`
+  // above is: `searchParams.ts` is a `lib` module and does not import from
+  // `components` for a literal tuple. IN-03 named the drift risk and WR-01
+  // then realised it — adding "other" required editing both. If a future
+  // bucket is added, both lists must be updated together.
+  week: z.union([z.enum(["week0", "champs", "offseason", "other"]), z.coerce.number().int()]).optional().catch(undefined),
   country: z.string().optional().catch(undefined),
   state: z.string().optional().catch(undefined),
   district: z.string().optional().catch(undefined),

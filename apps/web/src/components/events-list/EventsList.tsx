@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DEFAULT_EVENT_TAB } from "@/lib/searchParams";
 import { composeEventLocation } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { hasOutOfBandWeek } from "./filterModel";
 import type { EventRow, EventSortDirection, EventSortKey } from "./filterModel";
 
 /**
@@ -117,13 +118,21 @@ function isUnofficial(event: EventRow): boolean {
  * vocabulary — filled neutral chip = official season week, the single dark
  * chip = Championship, dashed outline = unofficial (Week 0 preseason /
  * offseason). Week display stays +1 (TBA publishes week 0-indexed) and a
- * null week on a non-champs official event renders an em-dash, never a
+ * null week on a non-champs official event renders nothing at all, never a
  * guessed label.
+ *
+ * WR-01 (2026-09-02): the same "never a guessed label" rule now also covers a
+ * week TBA indexed OUTSIDE the season scale. `2026isde1`'s raw week 16 was
+ * being incremented into "Week 17" — a confident claim about a week of the
+ * season that does not exist, and the only visible type label that row
+ * carried. These are official district events, so they keep the official
+ * `--week` chip treatment; only the text stops asserting a season week.
  */
 function TypeChip({ event }: { event: EventRow }) {
   if (event.isOffseason) return <span className="event-chip event-chip--unofficial">Offseason</span>;
   if (event.eventType === 3 || event.eventType === 4) return <span className="event-chip event-chip--champs">Champs</span>;
   if (event.eventType === 100) return <span className="event-chip event-chip--unofficial">Week 0</span>;
+  if (hasOutOfBandWeek(event)) return <span className="event-chip event-chip--week">Other</span>;
   if (event.week === null) return null;
   return <span className="event-chip event-chip--week">{`Week ${event.week + 1}`}</span>;
 }

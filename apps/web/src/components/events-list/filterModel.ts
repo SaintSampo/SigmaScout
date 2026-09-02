@@ -21,9 +21,41 @@ import type { EventsArtifact } from "../../../../../packages/harness/pageArtifac
 /** One row from the published `events/{year}` artifact — `EventsListRowSchema`'s inferred shape, reached through the exported `EventsArtifact` type since the row schema itself is module-private. */
 export type EventRow = EventsArtifact["events"][number];
 
-/** The week dimension's special (non-numeric) values (2026-09-01 user request): preseason "Week 0" events (eventType 100 — real events after Jan 1, not part of the official season), Championship divisions/Einstein (eventType 3/4), and offseason. */
-export const WEEK_SPECIAL_VALUES = ["week0", "champs", "offseason"] as const;
+/** The week dimension's special (non-numeric) values (2026-09-01 user request): preseason "Week 0" events (eventType 100 — real events after Jan 1, not part of the official season), Championship divisions/Einstein (eventType 3/4), offseason, and (WR-01) events whose TBA week is outside the season-week scale entirely. Mirrored by `EventsSearchSchema.week`'s enum arm in `lib/searchParams.ts` — the two lists must be edited together. */
+export const WEEK_SPECIAL_VALUES = ["week0", "champs", "offseason", "other"] as const;
 export type WeekFilterValue = number | (typeof WEEK_SPECIAL_VALUES)[number];
+
+/**
+ * The highest raw `week` TBA uses for a real regular-season week — a generous
+ * upper bound across seasons, since an 8-week season is already longer than
+ * any run to date.
+ *
+ * Above this, `week` is NOT a season week at all. TBA also carries out-of-band
+ * indexes for districts running their own calendar: verified against
+ * `v1/events/2026/vpr@2.1.0+tuned-2026-08.json` on 2026-09-02, `2026isde1`,
+ * `2026isde2` and `2026iscmp` carry raw weeks 16, 17 and 18 — three official,
+ * non-offseason, non-preseason district events with 208 played matches between
+ * them. Rendering `week + 1` for those produced "Week 17/18/19"; there is no
+ * week 17 of an FRC season, and no week filter could reach them. They belong
+ * in the `"other"` bucket, which says only what the data supports: this event's
+ * week is not on the season scale.
+ */
+export const MAX_SEASON_WEEK = 8;
+
+/**
+ * True when `event`'s week is an out-of-band TBA index rather than a season
+ * week — the `"other"` bucket's membership test, and the one place the rule is
+ * written. The three other special buckets are checked FIRST and win, in the
+ * same precedence `filterOptions` and `TypeChip` apply: an offseason,
+ * preseason or Championship row has its own filter value and is never swept in
+ * here, however TBA happened to index its week.
+ */
+export function hasOutOfBandWeek(event: EventRow): boolean {
+  if (event.isOffseason) return false;
+  if (event.eventType === 3 || event.eventType === 4) return false;
+  if (event.eventType === 100) return false;
+  return event.week !== null && event.week > MAX_SEASON_WEEK;
+}
 
 /** The four filterable dimensions' distinct-value option lists, each excluding null and sorted for stable display. */
 export interface EventFilterOptionLists {
@@ -69,13 +101,17 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
   }
 
   // 2026-09-01 (user request): the season's own chronology in the dropdown —
-  // Week 0, the regular-season weeks, then Champs and Offseason, and only
-  // AFTER those any stray late-numbered weeks TBA attaches to post-season
-  // events (raw week 16+ renders as "Week 17"+). Raw week 8 is a generous
-  // upper bound for a real regular-season week across seasons.
+  // Week 0, the regular-season weeks, then Champs and Offseason.
+  //
+  // WR-01 (2026-09-02): out-of-band weeks are no longer sorted to the bottom
+  // of the NUMERIC list, they leave it entirely. Presenting raw week 16 as
+  // "Week 17" put three options in the dropdown naming a week of the season
+  // that does not exist, and left the real events behind them unreachable
+  // under any honest week. They collapse into one `"other"` bucket last
+  // instead — see `MAX_SEASON_WEEK`.
   const sortedWeeks = Array.from(weeks).sort((a, b) => a - b);
-  const seasonWeeks = sortedWeeks.filter((week) => week <= 8);
-  const postSeasonWeeks = sortedWeeks.filter((week) => week > 8);
+  const seasonWeeks = sortedWeeks.filter((week) => week <= MAX_SEASON_WEEK);
+  const hasOther = sortedWeeks.some((week) => week > MAX_SEASON_WEEK);
 
   return {
     weeks: [
@@ -83,7 +119,7 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
       ...seasonWeeks,
       ...(hasChamps ? ["champs" as const] : []),
       ...(hasOffseason ? ["offseason" as const] : []),
-      ...postSeasonWeeks,
+      ...(hasOther ? ["other" as const] : []),
     ],
     countries: Array.from(countries).sort((a, b) => a.localeCompare(b)),
     states: Array.from(states).sort((a, b) => a.localeCompare(b)),
@@ -120,11 +156,12 @@ export interface EventFilters {
  * anyFilterValue` is always true) — the exclusion rule falls directly out
  * of the comparison rather than needing a separate null check.
  */
-/** One event's membership in one week-filter value. A NUMERIC week means an official in-season week — offseason/preseason rows that happen to carry a week index are excluded from it, since they have their own filter values. */
+/** One event's membership in one week-filter value. A NUMERIC week means an official in-season week — offseason/preseason rows that happen to carry a week index are excluded from it, since they have their own filter values, as are the out-of-band weeks `"other"` collects (WR-01). */
 export function weekMatches(event: EventRow, week: WeekFilterValue): boolean {
   if (week === "offseason") return event.isOffseason;
   if (week === "champs") return event.eventType === 3 || event.eventType === 4;
   if (week === "week0") return event.eventType === 100;
+  if (week === "other") return hasOutOfBandWeek(event);
   return event.week === week && !event.isOffseason && event.eventType !== 100;
 }
 
