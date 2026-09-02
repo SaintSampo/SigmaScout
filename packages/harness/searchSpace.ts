@@ -67,6 +67,8 @@ export const SEARCH_EXCLUSIONS = {
     "F3: the RP threshold variables' own absolute EVENT-BOUNDARY process noise — the same objective-blindness argument as `rpProcessNoiseWithinEvent`, and excluded for the same reason. Its ordering against the within-event value is still enforced by `isValidParamSet` and `Sigma1ParamsSchema`, because `--set-param` and a hand-edited committed version file both reach those predicates without going through the search at all.",
   rpColdStartVariance:
     "F3: the cold-start belief variance for an RP threshold variable the league has never observed. Objective-blind for the same reason as the RP process-noise pair above, and doubly inert besides — it applies only before any observation of that variable exists anywhere in the league.",
+  varianceOprRidge:
+    "A DISPLAY quantity, and the objective is STRUCTURALLY BLIND to it — more completely than to any other entry here. D-01's objective is Brier over the predicted WIN PROBABILITY, which reads `predict()` alone; this parameter is read only by `teamMetrics` (`sigma1/varianceOpr.ts`'s ridge lambda, D-V4), and `teamMetrics` cannot move a prediction by construction. The three RP entries above carry a PARTIAL version of this argument (the objective ignores the RP pmf); this one is total, and D-V4 states the constraint outright: a display quantity is not tunable by the objective. It was instead selected against KNOWN SYNTHETIC SIGMA, which is a strictly better instrument for this question than Brier could ever be — `varianceOpr.recovery.test.ts` measures the recovered SLOPE by lambda (1.03 at 0, 0.87 at 10, 0.35 at 100, 0.14 at 1000 in CONTEXT's original run) and defends 10 as near-best slope AND best RMSE. It stays a VERSIONED parameter (D-16's 'unchanged means bitwise identical' requires it in the committed set, the same argument `rpMonteCarloSeed` carries) and a never-searched one.",
   adaptationEnabled:
     "A MODE, not a numeric knob (D-06 / D-T4). It is searched as TWO INDEPENDENT OPTIMIZER RUNS at identical budgets (`--adaptation on|off`), never as a dimension inside one run: a boolean has no bound, no scale and no meaningful neighbour, so a coordinate-descent step over it is undefined. D-T4's measured -0.0015 Brier for adaptation-on was selected by looking at holdout and is therefore inflated; it ships only if its arm clears the D-T7 bar out-of-sample.",
 } as const satisfies Partial<Record<keyof Sigma1Params, string>>;
@@ -122,12 +124,14 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   consistencyEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
   covEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
   adaptationEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
-  // D-11's empirical-Bayes prior weight, in MATCHES. 1 match of prior
-  // weight is barely a shrinkage prior at all; 32 matches exceeds a full
-  // regional event's qualification round (typically ~10-12 matches per
-  // team) — beyond that the league prior would dominate a team's entire
-  // season regardless of how it actually played.
-  shrinkagePriorMatches: { min: 1, max: 32, scale: "log" },
+  // D-11's `shrinkagePriorMatches` bound was REMOVED at `SIGMA1_CODE_VERSION`
+  // 5.0.0 (D-V4, quick task 260902-varopr) along with the parameter itself:
+  // the published `±` is the per-team variance decomposition, so nothing
+  // shrinks a consistency estimate toward the league average any more and
+  // there is no field left to bound. The re-tune's search space is one
+  // dimension smaller as a result — a real, intended change in what a search
+  // explores, recorded here rather than left to be inferred from an absence.
+  //
   // D-T1: the shrunk-consistency VARIANCE floor, as a fraction of the season's
   // alliance-score variance. At the lower end (1e-4, roughly 0.1 pts^2 on the
   // tune seasons' scale) the floor claims near-zero residual uncertainty,

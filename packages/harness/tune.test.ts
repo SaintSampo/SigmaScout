@@ -28,7 +28,7 @@ import {
   SCREEN_SURVIVAL_THRESHOLD,
   type ScreenRow,
 } from "./tune.js";
-import { DEFAULT_SIGMA1_PARAMS } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { isValidParamSet, SEARCHABLE_PARAM_KEYS, SEARCH_EXCLUSIONS } from "./searchSpace.js";
 import type { ScoreSlice } from "./score.js";
 
@@ -458,7 +458,11 @@ describe("loadIncumbent (D-T7's bar is against WHAT SHIPS)", () => {
 
   it("reads the real committed incumbent and its version string", () => {
     const incumbent = loadIncumbent();
-    expect(incumbent.version).toBe("4.0.0+tuned-2026-08");
+    // Derived rather than pinned: what this test cares about is that the
+    // incumbent read from disk is the one the RUNNING code ships, not that it
+    // carries any particular version string. Pinning the literal made it fail on
+    // a bump the code handled correctly.
+    expect(incumbent.version).toBe(`${SIGMA1_CODE_VERSION}+tuned-2026-08`);
     // D-T3's fix is present in what ships, which is what the bar compares to.
     expect(incumbent.params.covShrinkage).toBe(0.3);
   });

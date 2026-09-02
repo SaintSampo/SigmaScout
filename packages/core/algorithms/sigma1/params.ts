@@ -44,17 +44,18 @@
  * runtime, in either import order, the first time this module graph is
  * loaded — not a style preference, a load-time crash. Keeping this module a
  * pure leaf (it imports only from `kalman.ts`/`consistency.ts`/`covariance.ts`/
- * `linkFunctions.ts`/`carryover.ts`, never from `sigma1/index.ts`) is the
- * only acyclic direction, matching this file's own module-ownership
- * discipline precedent in `carryover.ts`'s header.
+ * `linkFunctions.ts`/`carryover.ts`/`varianceOpr.ts`, never from
+ * `sigma1/index.ts`) is the only acyclic direction, matching this file's own
+ * module-ownership discipline precedent in `carryover.ts`'s header.
  */
 import { z } from "zod";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
-import {
-  SIGMA1_CONSISTENCY_EWMA_ALPHA,
-  SIGMA1_MIN_CONSISTENCY_VARIANCE,
-  SIGMA1_SHRINKAGE_PRIOR_MATCHES,
-} from "./consistency.js";
+import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
+// D-V4 (5.0.0). `varianceOpr.ts` imports NOTHING from this module — only
+// `ml-matrix` — so this edge is one-directional and cannot recreate the
+// module-evaluation-time TDZ cycle this file's header warns about at length.
+// Verified by reading that module's import list, not assumed.
+import { SIGMA1_VARIANCE_OPR_RIDGE } from "./varianceOpr.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
@@ -134,8 +135,39 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * version file, not in the search log. Promoting from the committed FILE is
  * what carries that correction forward; promoting from the search artifact
  * would have silently dropped it.
+ *
+ * Bumped `"4.0.0"` -> `"5.0.0"` (quick task 260902-varopr, D-V1/D-V2/D-V3/D-V4,
+ * 2026-09-02): the published `±` is now the PER-TEAM VARIANCE DECOMPOSITION
+ * (`sigma1/varianceOpr.ts`), solved per event on a `vBar`-centred ridge,
+ * rather than `sqrt(P + R)`.
+ *
+ * The parameter set's SHAPE changed, so no 4.0.0 file parses as a 5.0.0 one at
+ * all (`Sigma1ParamsSchema` is `z.strictObject`; `shrinkagePriorMatches` was
+ * deleted and `varianceOprRidge` added).
+ *
+ * `teamMetrics`'s observable output MOVED, and `predict()`'s and `update()`'s
+ * DID NOT. That second half is the central constraint of the task rather than
+ * a remark, and it is not asserted: both `vpr@4.0.0+*.json` files were retired
+ * and re-promoted as `vpr@5.0.0+*.json` in THIS SAME COMMIT via
+ * `pnpm promote --from-version` running the new code, and each new file's
+ * `digest.predictionStreamSha256` reproduces its retired predecessor's
+ * CHARACTER FOR CHARACTER —
+ * `380c598065c72897e8c7a944b6de77a32a69177eab7ff7541d386cb83e7783fb` for
+ * `tuned-2026-08` and
+ * `38d091e0377272244a3ddaf4eb8ff1b3c9e318f8db466d20fff479be99029a1c` for
+ * `tracer-check`, with both headline Brier/accuracy pairs identical too.
+ * Neither digest was hand-edited; `computePredictionStreamDigest` hashes
+ * exactly `[matchKey, pRedWin, redScore, blueScore]`, so reproducing it IS the
+ * proof that `predict()` is bitwise unchanged.
+ *
+ * MAJOR, not minor: this changes the number on every team page. WHY it changed
+ * is measured rather than argued — against known synthetic sigma the retired
+ * `sqrt(P + R)` recovers a SLOPE of 0.312, compressing a true 3-to-25 point
+ * spread into a ~4-point band so every robot reads as equally consistent; the
+ * decomposition recovers 0.79-0.94 at equal correlation and better RMSE. See
+ * `varianceOpr.ts`'s header and `varianceOpr.recovery.test.ts`.
  */
-export const SIGMA1_CODE_VERSION = "4.0.0";
+export const SIGMA1_CODE_VERSION = "5.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:
@@ -278,8 +310,28 @@ export interface Sigma1Params {
   readonly processNoiseEventBoundaryRel: number;
   /** EWMA rate for `consistency.ts`'s `foldConsistencyVariance` innovation-based variance fold (D-Q2; was `foldConsistency`'s squared-residual fold before 3.0.0). Sourced from `consistency.ts`'s `SIGMA1_CONSISTENCY_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
   readonly consistencyEwmaAlpha: number;
-  /** D-11's empirical-Bayes prior-match count for `consistency.ts`'s `shrinkConsistency`. Sourced from `consistency.ts`'s `SIGMA1_SHRINKAGE_PRIOR_MATCHES`. Phase 3 hyperparameter, default unverified. */
-  readonly shrinkagePriorMatches: number;
+  /**
+   * D-V4 (5.0.0): the ridge `lambda` for the per-team variance decomposition
+   * that produces every published `±` (`sigma1/varianceOpr.ts`). Defaulted by
+   * IMPORTING `SIGMA1_VARIANCE_OPR_RIDGE`, never by re-typing `10` — this
+   * module's own "never a re-typed literal" rule.
+   *
+   * A VERSIONED, NEVER-SEARCHED parameter. Versioned because "unchanged means
+   * bitwise identical" requires it to be part of the committed set — the same
+   * argument `rpMonteCarloSeed` carries. Never-searched because it is a
+   * DISPLAY quantity and D-01's objective is Brier over the predicted win
+   * probability, which is structurally blind to `teamMetrics` entirely; D-V4
+   * states the constraint outright, a display quantity cannot move a
+   * prediction. Its exclusion is DATA, not prose: a named entry in
+   * `packages/harness/searchSpace.ts`'s `SEARCH_EXCLUSIONS`, enforced by
+   * `searchSpace.test.ts`'s partition test.
+   *
+   * The VALUE's justification lives in `varianceOpr.ts` (the measured slope
+   * table by lambda) and is defended by `varianceOpr.recovery.test.ts` against
+   * KNOWN synthetic sigma — a strictly better instrument for this question
+   * than Brier could ever be.
+   */
+  readonly varianceOprRidge: number;
   /** D-T1: floor applied to every shrunk consistency VARIANCE, as a dimensionless fraction of the season's alliance-score variance — `minConsistencyVarianceRel * sigma^2` is what `consistency.ts`'s `shrinkConsistency` actually receives. Default DERIVED from `consistency.ts`'s `SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE`. */
   readonly minConsistencyVarianceRel: number;
   /** EWMA rate for `covariance.ts`'s `ewmaCovarianceSample` fold step (D-Q2; `ewmaCovariance` was the update path's entry point before 3.0.0 and now delegates to it). Sourced from `covariance.ts`'s `SIGMA1_COV_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
@@ -466,7 +518,8 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   processNoiseWithinEventRel: SIGMA1_PROCESS_NOISE_WITHIN_EVENT / SIGMA1_REFERENCE_SCORE_VARIANCE,
   processNoiseEventBoundaryRel: SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY / SIGMA1_REFERENCE_SCORE_VARIANCE,
   consistencyEwmaAlpha: SIGMA1_CONSISTENCY_EWMA_ALPHA,
-  shrinkagePriorMatches: SIGMA1_SHRINKAGE_PRIOR_MATCHES,
+  // D-V4: IMPORTED from varianceOpr.ts, never a re-typed 10.
+  varianceOprRidge: SIGMA1_VARIANCE_OPR_RIDGE,
   minConsistencyVarianceRel: SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE,
   covEwmaAlpha: SIGMA1_COV_EWMA_ALPHA,
   covShrinkage: SIGMA1_COV_SHRINKAGE,
@@ -546,7 +599,7 @@ export const Sigma1ParamsSchema = z
     processNoiseWithinEventRel: z.number().finite(),
     processNoiseEventBoundaryRel: z.number().finite(),
     consistencyEwmaAlpha: z.number().finite(),
-    shrinkagePriorMatches: z.number().finite(),
+    varianceOprRidge: z.number().finite(),
     minConsistencyVarianceRel: z.number().finite(),
     covEwmaAlpha: z.number().finite(),
     covShrinkage: z.number().finite(),

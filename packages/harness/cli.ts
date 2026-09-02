@@ -140,7 +140,14 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
 // correction above forward. The search artifact's own winner still records
 // the stale 1.2398..., so re-promoting from it would have silently dropped
 // a correction that is live on the site (see `promote.ts`'s header).
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
+// DERIVED, not re-pinned (260902-varopr): this constant had been hand-edited at
+// every `SIGMA1_CODE_VERSION` bump, and the 5.0.0 bump found it — plus its three
+// siblings — still pointing at a deleted 4.0.0 file, which is what a re-pin
+// invites. `tune.ts`'s `INCUMBENT_VERSION_PATH` already derived its own path this
+// way; the remaining hardcoded copies now match it, so the next bump moves them
+// all by construction and a stale path is unrepresentable rather than merely
+// caught by a test.
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 /**

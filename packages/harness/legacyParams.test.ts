@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  Legacy4Sigma1ParamsSchema,
   LegacyAbsoluteSigma1ParamsSchema,
+  migrate4to5,
   migrateAbsoluteToScaleRelative,
   SIGMA1_3_TO_4_MIGRATION_TAG,
   type LegacyAbsoluteSigma1Params,
@@ -133,8 +135,17 @@ describe("migrateAbsoluteToScaleRelative — the real promoted set", () => {
     expect(migrated.adaptationEnabled).toBe(RETIRED_TUNED_2026_08.adaptationEnabled);
   });
 
-  it("produces a set that parses cleanly through the CURRENT Sigma1ParamsSchema", () => {
-    expect(() => Sigma1ParamsSchema.parse(migrated)).not.toThrow();
+  // Updated for the 5.0.0 shape change. This used to assert that the 3->4 hop
+  // lands on the CURRENT schema, which was true only while 4.0.0 WAS current.
+  // The chain is now 3.0.0 -> 4.0.0 -> 5.0.0 (see this module's header), so the
+  // one-hop output is a 4.0.0 set by construction and asserting otherwise would
+  // be asserting that a migration skips a version.
+  it("produces a set that parses cleanly through the 4.0.0 schema it targets", () => {
+    expect(() => Legacy4Sigma1ParamsSchema.parse(migrated)).not.toThrow();
+  });
+
+  it("reaches the CURRENT schema when composed with the 4->5 hop", () => {
+    expect(() => Sigma1ParamsSchema.parse(migrate4to5(migrated))).not.toThrow();
   });
 });
 
@@ -152,10 +163,18 @@ describe("migrateAbsoluteToScaleRelative — refusals", () => {
 
   it("cannot turn an invariant-violating legacy set into a valid-looking new one", () => {
     // D-07: the boundary bump must strictly exceed the within-event one. The
-    // violation survives the (order-preserving) division, so the migrated set
-    // is rejected by the CURRENT schema rather than sneaking through.
+    // violation survives the (order-preserving) division, so it cannot be
+    // laundered by migrating.
+    //
+    // Updated for the 5.0.0 shape change: the 3->4 hop no longer runs the
+    // CURRENT schema's cross-parameter checks — it targets 4.0.0, and those
+    // invariants are enforced one hop later by `migrate4to5`'s own
+    // `Sigma1ParamsSchema.parse` (see this module's header). The property under
+    // test is about the CHAIN, not about which hop happens to catch it, so it
+    // is asserted end to end. Asserting only the first hop would have made this
+    // test pass while a violating set sailed through to a promoted file.
     const inverted = { ...RETIRED_TUNED_2026_08, processNoiseWithinEvent: 5, processNoiseEventBoundary: 1 };
-    expect(() => migrateAbsoluteToScaleRelative(inverted)).toThrow(/D-07/);
+    expect(() => migrate4to5(migrateAbsoluteToScaleRelative(inverted))).toThrow(/D-07/);
   });
 });
 

@@ -46,7 +46,7 @@ import { emptyExpandingStats, foldObservation, type ExpandingStats } from "../..
 import { resolveSigma1Params } from "./scale.js";
 import { SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_COLD_START_CONSISTENCY_VARIANCE, SIGMA1_COLD_START_TEAM_TOTAL } from "./params.js";
-import { SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
+import { SIGMA1_MIN_CONSISTENCY_VARIANCE, SIGMA1_SHRINKAGE_PRIOR_MATCHES } from "./consistency.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -309,7 +309,10 @@ function retiredEstimatorMedianSpread(league: ReturnType<typeof buildSyntheticLe
     consistencyEwmaAlpha: DEFAULT_SIGMA1_PARAMS.consistencyEwmaAlpha,
     covEwmaAlpha: DEFAULT_SIGMA1_PARAMS.covEwmaAlpha,
     covShrinkage: DEFAULT_SIGMA1_PARAMS.covShrinkage,
-    shrinkagePriorMatches: DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches,
+    // Read from consistency.ts's own constant, not from DEFAULT_SIGMA1_PARAMS:
+    // the field was DELETED from Sigma1Params at 5.0.0 (D-V4), and this shadow
+    // is deliberately a fixed HISTORICAL reference point regardless.
+    shrinkagePriorMatches: SIGMA1_SHRINKAGE_PRIOR_MATCHES,
   };
   const coldStartMean = params.coldStartTeamTotal / (COMPONENT_COUNT + 1); // +1: the shipped component order includes foulsCommitted
   const shadow = new Map<string, ShadowTeam>();

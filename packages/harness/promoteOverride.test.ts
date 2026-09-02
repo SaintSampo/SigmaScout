@@ -312,7 +312,12 @@ describe("loadFromVersionFile — provenance for a migrated promotion", () => {
 
     expect(source.params.processNoiseWithinEventRel).toBeCloseTo(0.5 / SIGMA1_REFERENCE_SCORE_VARIANCE, 12);
     expect(source.provenance.derivedFromVersion).toBe("3.0.0+tuned-2026-08");
-    expect(source.provenance.paramShapeMigration).toBe("sigma1-3.0.0-absolute-to-4.0.0-scale-relative");
+    // COMPOSED since 5.0.0 (D-V4): loadFromVersionFile chains the two
+    // one-hop maps rather than owning a 3-to-5 map of its own, and records
+    // BOTH tags so a reader can tell exactly which conversions ran.
+    expect(source.provenance.paramShapeMigration).toBe(
+      "sigma1-3.0.0-absolute-to-4.0.0-scale-relative+sigma1-4.0.0-shrinkage-to-5.0.0-variance-decomposition"
+    );
   });
 
   it("sets objectiveAppliesToPromotedParams FALSE even with no --set-param — a stronger statement than the override case", () => {

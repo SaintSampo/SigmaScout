@@ -101,9 +101,12 @@ import {
   type Sigma1Params,
 } from "../core/algorithms/sigma1/params.js";
 import {
+  Legacy4Sigma1ParamsSchema,
   LegacyAbsoluteSigma1ParamsSchema,
+  migrate4to5,
   migrateAbsoluteToScaleRelative,
   SIGMA1_3_TO_4_MIGRATION_TAG,
+  SIGMA1_4_TO_5_MIGRATION_TAG,
 } from "./legacyParams.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
@@ -480,10 +483,15 @@ function loadFromSearchArtifact(fromPath: string): PromotionSource {
  *
  * The source file's `codeVersion` decides which schema validates its params.
  * A file at the CURRENT `SIGMA1_CODE_VERSION` is parsed by
- * `Sigma1ParamsSchema` and promoted as-is; an OLDER file is parsed by the
- * frozen `LegacyAbsoluteSigma1ParamsSchema` and migrated. A file claiming a
- * codeVersion NEWER than this code is refused outright rather than guessed at
- * — there is no map from a shape this code has never seen.
+ * `Sigma1ParamsSchema` and promoted as-is; an OLDER file is parsed by ITS OWN
+ * frozen schema and mapped by that shape's own migration
+ * (`Legacy4Sigma1ParamsSchema` + `migrate4to5` for 4.x,
+ * `LegacyAbsoluteSigma1ParamsSchema` + `migrateAbsoluteToScaleRelative` for
+ * 3.x). Each retired shape gets a schema of its own, never an edit to an
+ * existing one — that rule is what keeps an already-migrated file's meaning
+ * from changing retroactively. A file claiming a codeVersion NEWER than this
+ * code is refused outright rather than guessed at — there is no map from a
+ * shape this code has never seen.
  *
  * Every provenance field describing the SEARCH carries forward unchanged: it
  * still honestly describes the search that produced the source parameter set.
@@ -499,13 +507,23 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
   let paramShapeMigration: string | undefined;
   if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
     params = Sigma1ParamsSchema.parse(sourceVersion.params);
+  } else if (sourceVersion.codeVersion.startsWith("4.")) {
+    // D-V4 (quick task 260902-varopr): 4.0.0 -> 5.0.0. Its own frozen schema,
+    // BESIDE the 3.x one rather than replacing it — see `legacyParams.ts`.
+    params = migrate4to5(Legacy4Sigma1ParamsSchema.parse(sourceVersion.params));
+    paramShapeMigration = SIGMA1_4_TO_5_MIGRATION_TAG;
   } else if (sourceVersion.codeVersion.startsWith("3.")) {
-    params = migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params));
-    paramShapeMigration = SIGMA1_3_TO_4_MIGRATION_TAG;
+    // CHAINED, one hop per map: 3.0.0 -> 4.0.0 -> 5.0.0. Each migration knows
+    // only about the shape immediately after its own, so adding 5.0.0 did not
+    // require editing the 3.x map's field-by-field conversion at all — only
+    // composing onto it here. `legacyParams.ts`'s header records why this
+    // chaining was unavoidable rather than optional.
+    params = migrate4to5(migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params)));
+    paramShapeMigration = `${SIGMA1_3_TO_4_MIGRATION_TAG}+${SIGMA1_4_TO_5_MIGRATION_TAG}`;
   } else {
     throw new Error(
       `promote --from-version: ${fromVersionPath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
-        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; only 3.x is migratable). Refusing to guess at a shape it has never seen.`
+        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 4.x and 3.x are the migratable shapes). Refusing to guess at a shape it has never seen.`
     );
   }
 

@@ -75,11 +75,17 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     }
   });
 
-  it("leaves exactly 16 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
-    // 25 Sigma1Params fields - 9 exclusions = 16. Pinned as a literal so a
+  it("leaves exactly 15 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
+    // 25 Sigma1Params fields - 10 exclusions = 15. Pinned as literals so a
     // silent addition or deletion has to be acknowledged here.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(16);
-    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(9);
+    //
+    // Was 25 - 9 = 16 until SIGMA1_CODE_VERSION 5.0.0 (D-V4): the field COUNT
+    // is unchanged because shrinkagePriorMatches was DELETED and
+    // varianceOprRidge added in the same version, but the searchable set lost
+    // one dimension — the deleted field was searchable and the added one is
+    // excluded. That is a real, intended narrowing of what a re-tune explores.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(15);
+    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(10);
     expect(SIGMA1_PARAM_KEYS).toHaveLength(25);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });

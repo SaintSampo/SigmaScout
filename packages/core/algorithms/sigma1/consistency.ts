@@ -137,6 +137,23 @@ export const SIGMA1_CONSISTENCY_EWMA_ALPHA = 0.2;
  * the league average are weighted equally; well below it the league
  * average dominates, well above it the team's own observed history
  * dominates. Phase 3 hyperparameter, default unverified.
+ *
+ * NOT ON ANY PATH since `SIGMA1_CODE_VERSION` 5.0.0 (D-V4, quick task
+ * 260902-varopr), and no longer a `Sigma1Params` field either — the shipped
+ * parameter set's `shrinkagePriorMatches` was DELETED in that version, because
+ * the published `±` is now the per-team variance decomposition
+ * (`varianceOpr.ts`) and nothing shrinks a consistency estimate toward the
+ * league average any more.
+ *
+ * It survives as this module's own documented default for `shrinkConsistency`
+ * below, which survives for the reason `foldConsistency` already does: its
+ * contract is still correct for a caller that genuinely wants D-11's blend.
+ * It is ALSO the number the retired display blend is quoted against —
+ * `1 - 12/(12 + 8) = 0.40`, the ~40% of a 12-match team's displayed spread
+ * that was the AVERAGE robot rather than that robot — which is the figure
+ * `docs/models/sigma1-variance-decomposition.md` compares the decomposition's
+ * measured effective league weight to. Deleting it would delete the baseline
+ * that comparison is made against.
  */
 export const SIGMA1_SHRINKAGE_PRIOR_MATCHES = 8;
 
@@ -215,6 +232,25 @@ export function foldConsistencyVariance(
  * `TeamComponentBelief.variance` FIRST, and takes the square root of that
  * sum only when populating a displayed `TeamMetric.spread` — never the
  * square root of this function's return value alone.
+ *
+ * NO LIVE CALLER since `SIGMA1_CODE_VERSION` 5.0.0 (D-V4, quick task
+ * 260902-varopr). `teamMetrics` was its only one, and the published `±` is now
+ * the per-team variance decomposition (`varianceOpr.ts`) — so the paragraph
+ * above describes what this function WAS wired into. It is kept as the
+ * accurate history of the `sqrt(P + R)` construction, not as a description of
+ * current behaviour, and `params.shrinkagePriorMatches` no longer exists to be
+ * passed in at all.
+ *
+ * Kept exported and tested for the same reason `foldConsistency` is: the
+ * contract is still correct, and D-11's blend is still the right shape for a
+ * caller that genuinely wants an empirical-Bayes shrinkage toward a league
+ * mean. WHY IT IS NOT THE PUBLISH PATH'S ANSWER, recorded so the retirement
+ * does not read as an accident: measured against known synthetic sigma, the
+ * `sqrt(P + R)` estimator this fed recovers a SLOPE of 0.312 — a true 3-to-25
+ * point spread renders as a ~4-point band — and roughly 40% of a 12-match
+ * team's displayed spread was the AVERAGE robot rather than that robot.
+ * Nothing on the publish path may reintroduce a blend toward a league mean
+ * under a new name.
  */
 export function shrinkConsistency(
   observed: number,

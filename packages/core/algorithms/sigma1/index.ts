@@ -65,23 +65,34 @@ import {
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
+// `subsetVariance` and `teamTotalVariance` are deliberately NOT imported here
+// since 5.0.0 (D-V4): they were the R term of the retired `sqrt(P + R)`
+// display construction, and nothing on this module's publish path reads a
+// covariance quadratic form any more. Both are still RE-EXPORTED below,
+// unchanged and still tested, for the match path and for callers that
+// genuinely want the predictive variance.
 import {
   allianceTotalPredictiveVariance,
   emptyCovariance,
   ewmaCovariance,
   ewmaCovarianceSample,
-  subsetVariance,
-  teamTotalVariance,
 } from "./covariance.js";
 // `foldConsistency` is deliberately NOT imported here: since 3.0.0 (D-Q2)
 // nothing on this module's update path holds a residual, so importing the
 // residual door would leave a dead binding that reads like a live one. It is
 // still RE-EXPORTED below, unchanged, for callers that genuinely have one.
-import { foldConsistencyVariance, shrinkConsistency } from "./consistency.js";
+// `shrinkConsistency` joins `foldConsistency` in the deliberately-not-imported
+// list since 5.0.0 (D-V4): `teamMetrics` was its only caller, and the published
+// `±` is no longer a shrunk consistency at all. Still RE-EXPORTED and tested —
+// `consistency.ts`'s own header explains why a function whose contract is still
+// correct survives losing its last live caller.
+import { foldConsistencyVariance } from "./consistency.js";
 import {
   emptyEventVarianceAccumulator,
   foldVarianceObservation,
+  solveEventVariance,
   type EventVarianceAccumulator,
+  type SolvedEventVariance,
 } from "./varianceOpr.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
@@ -120,6 +131,7 @@ export {
   emptyCovariance,
   ewmaCovariance,
   ewmaCovarianceSample,
+  subsetVariance,
   teamTotalVariance,
 } from "./covariance.js";
 export {
@@ -896,13 +908,21 @@ function allianceOffensiveTotal(components: Record<string, ComponentPrediction>)
  * The per-team half of `allianceComponentVarianceSum` below (which resolves
  * each team's state and delegates here, THREADING its own running total
  * through as `seed` rather than summing each team's subtotal in isolation
- * and adding that) — after plan 07-06 (D-01), `teamMetrics` calls this SAME
- * function (at the default `seed = 0`) to build the posterior term of its
- * own published `spread`, so there is exactly one place in this file that
- * knows how a team's P is summed, and both the match path (`predict`) and
- * the publish path (`teamMetrics`) read it. That single construction is
- * what makes the alliance-additivity identity (`sigma1.test.ts`'s Test 1)
- * hold BY CONSTRUCTION rather than by two implementations agreeing by luck.
+ * and adding that).
+ *
+ * THE SHARING WITH `teamMetrics` ENDED AT 5.0.0 (D-V4). Between plan 07-06
+ * (D-01) and this version, `teamMetrics` called this SAME function at the
+ * default `seed = 0` to build the posterior term of its published `spread`,
+ * and that single shared construction is what made the alliance-additivity
+ * identity — three teammates' TOTAL spreads summing in quadrature to the
+ * alliance variance `predict()` reports — hold BY CONSTRUCTION rather than by
+ * two implementations agreeing by luck. `teamMetrics` no longer calls this at
+ * all: the published `±` is the per-team variance decomposition
+ * (`varianceOpr.ts`), a different quantity, so the identity is false by design
+ * and its retirement is recorded in `sigma1.test.ts` and in `teamMetrics`'s
+ * own doc comment. This function and its `seed` stay exactly as they are —
+ * the MATCH path still needs both, and the `seed` argument's whole reason for
+ * existing (below) is unaffected by losing the publish-path caller.
  *
  * The `seed` parameter exists ONLY to keep `allianceComponentVarianceSum`'s
  * floating-point addition order byte-for-byte IDENTICAL to its pre-07-06
@@ -1337,144 +1357,167 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
 }
 
 /**
- * D-27/D-01/D-02 (plan 07-06): per team, one `TeamMetric` per learned
- * component, plus `TOTAL_METRIC_KEY`, plus each of `phaseAuto`/
- * `phaseTeleop`/`phaseEndgame` this season registers a grouping for. Every
- * key's `spread` is the SAME two-term construction, at whatever aggregation
- * level the key names: that team's own posterior variance (P,
- * `teamOwnComponentVarianceSum`/`belief.variance`, the filter's uncertainty
- * about the mean) PLUS that team's own consistency term (R, D-09's
- * match-to-match performance variance, D-11-shrunk) over the SAME component
- * set — one standard deviation of the full predictive variance for that
- * team, at that aggregation level. A group's version restricts both terms
- * to the group's own component indices (PD-07); TOTAL's version is exactly
- * this team's own contribution to `predict()`'s `redScoreVarianceOwn`/
- * `blueScoreVarianceOwn` — three teammates' TOTAL spreads sum in quadrature
- * to the alliance variance `predict` reports, pinned by
- * `sigma1.test.ts`'s Test 1 (the additivity identity) against `predict()`'s
- * own output. `value` is unchanged at every level — expectation is linear
- * however the components covary, and D-01 changes only the uncertainty,
- * never the estimate. A group's spread has to be computed HERE, not
- * reconstructed from published per-component spreads on a client: it needs
- * the off-diagonal `Cov(auto_i, auto_j)` terms, which are never published.
- * A team with no history gets the shrinkage blend's league-prior-dominated
- * R term (P instead starts at the cold-start belief variance), visible as
- * such via a `matchCount` of 0 rather than hidden behind a plausible-
- * looking number.
+ * D-27/D-V1/D-V4 (quick task 260902-varopr): per team, one `TeamMetric` per
+ * learned component, plus `TOTAL_METRIC_KEY`, plus each of `phaseAuto`/
+ * `phaseTeleop`/`phaseEndgame` this season registers a grouping for.
  *
- * D-Q2 (quick task 260901-is2), what the R term IS. Both R sources this
- * function reads — `teamState.consistency[name]` per component, and
- * `teamTotalVariance`/`subsetVariance` over `teamState.covariance` for the
- * TOTAL and phase-group keys — are now estimated from INNOVATIONS:
- * `max(0, innovation^2 - sum P) / n` per alliance-component, folded by
- * `applyAllianceUpdate`. Until 3.0.0 they were EWMAs of the squared
- * gain-weighted residual `(K_j * innovation)^2`, which decayed toward its
- * floor as the Kalman gain converged and therefore published how much the
- * filter was still ADJUSTING rather than how much the team actually varied
- * — understating every spread on the site by roughly 5x (synthetic recovery
- * 2.29 against a true 12; real-corpus z-SD 1.62-4.99 rather than the ~1.0
- * an honest filter gives). `consistency.ts`'s header carries the full
- * derivation and the measured before/after. Nothing about the P/R
- * COMPOSITION below changed: the additivity identity (`sigma1.test.ts`'s
- * Test 1) holds exactly as it did, over differently-sized numbers.
+ * `value` is UNCHANGED at every level, and always has been — expectation is
+ * linear however the components covary, so aggregating means needs no
+ * covariance at all. Every version of this function has changed only the
+ * uncertainty.
  *
- * D-05 (plan 03-04) REVERSED by D-01 (plan 07-06): this comment used to
- * assert that adaptation does NOT touch this function's output, and that
- * the published `±` "must stay a direct empirical estimate of that team's
- * own residual spread, not partly a function of a tuning parameter." Both
- * claims stop being true the moment P is published. `index.ts`'s
- * `scaledQ = q * adaptationFactor(...)` (see `applyTeamProcessNoise`) scales
- * the process noise that inflates `belief.variance` — and `belief.variance`
- * IS P, now summed into every spread this function returns. D-01 is a
- * locked, one-way user decision that supersedes the earlier constraint
- * outright (plan 07-06, T-07-06-02 in the threat register): the published
- * `±` now includes the filter's own uncertainty about the mean, and that
- * term IS moved by the adaptation knob through the scaled process noise.
- * Consequence: an adaptation on/off comparison can no longer attribute the
- * published `±` independently of the tuning parameter — a REAL, accepted
- * cost of D-01, not a bug to fix here.
+ * `spread` IS A LOOKUP, NOT A RECONCILIATION. For every published key `K`, it
+ * is `sqrt` of the per-team variance decomposition's solved variance for that
+ * SAME key `K` (`varianceOpr.ts`, solved once per event and memoized). One
+ * construction, at every aggregation level — there is no second assembly rule
+ * for groups, and therefore nothing that can drift between levels. A group's
+ * variance needs no separate covariance quadratic form either: the
+ * decomposition's own target for a group key is already the square of that
+ * group's SUMMED innovation, which carries the cross-component terms inside
+ * it rather than needing them added back afterwards.
+ *
+ * WHY THE `±` IS THIS AND NOT `sqrt(P + R)` (D-V4 REVERSES D-01). Until
+ * `SIGMA1_CODE_VERSION` 5.0.0 the published spread was `sqrt(P + R)`: the
+ * filter's posterior variance P plus the D-11-shrunk consistency term R.
+ * Measured against KNOWN synthetic sigma, that estimator recovers a SLOPE of
+ * 0.312 — a true 3-to-25 point spread renders as a ~4-point band, so every
+ * robot looks about equally consistent and the number cannot communicate the
+ * thing it exists to communicate. The decomposition recovers 0.79-0.94 at a
+ * full season, at equal correlation with truth and better RMSE
+ * (`varianceOpr.recovery.test.ts`).
+ *
+ * P IS GONE FROM THE DISPLAY, deliberately, and this is the reversal of a
+ * decision that was RECORDED AS ONE-WAY. Plan 07-06's D-01 put P into the
+ * published `±` and this comment used to call that "a locked, one-way user
+ * decision that supersedes the earlier constraint outright." D-V4 reverses it:
+ * P is the filter's uncertainty about a team's MEAN, not that robot's
+ * match-to-match variability, and including it is part of why the display
+ * compressed. Reversing a one-way decision is exactly the kind of thing this
+ * codebase writes down rather than quietly overwriting.
+ *
+ * D-01's ACCEPTED COST IS THEREBY UNDONE. D-01 recorded, as a real and
+ * accepted consequence, that "an adaptation on/off comparison can no longer
+ * attribute the published `±` independently of the tuning parameter" — because
+ * `applyTeamProcessNoise`'s `scaledQ = q * adaptationFactor(...)` moves P, and
+ * P was published. The published number no longer contains P at all, so that
+ * coupling is gone and an adaptation comparison can attribute the `±`
+ * independently again.
+ *
+ * THE ALLIANCE-ADDITIVITY IDENTITY IS GONE, AND THAT IS A REAL COST. Under
+ * D-01 the three teammates' TOTAL spreads summed in quadrature to exactly the
+ * alliance variance `predict()` reports, because both were the same
+ * construction over the same state (`teamOwnComponentVarianceSum` was shared
+ * by both paths). The published spread and `predict()`'s variance are now
+ * different quantities again, so that identity is FALSE BY DESIGN.
+ * `sigma1.test.ts` records the retirement and pins the property that IS still
+ * true — `predict()`'s own `redScoreVarianceOwn` is still the alliance sum of
+ * per-team P + R, computed from state and independent of anything this
+ * function publishes.
+ *
+ * WHAT A THIN-HISTORY TEAM GETS. Not a floor and not a threshold: a team with
+ * ZERO rows at its event solves to exactly `vBar`, the event's mean per-team
+ * variance, because that is what the ridge-regularized algebra returns when
+ * the data says nothing ("as uncertain as a typical robot here"). A one-match
+ * team is pulled ~91% of the way to `vBar` and displays that beside a
+ * `matchCount` of 1. See `varianceOpr.ts`'s header for the full argument.
+ *
+ * THE THREE CASES THAT PUBLISH NO `spread` AT ALL, and why each is a domain
+ * check rather than a threshold:
+ *   - the team has no `lastEventKey` (never observed anywhere) — there is no
+ *     event whose system it could be solved in;
+ *   - its event has no accumulator (every alliance it appeared on folded
+ *     nothing — all-surrogate or whole-alliance-DQ-zero);
+ *   - its solved variance CLAMPED at 0, meaning least squares wanted a
+ *     negative variance for it and the additive model failed for that team.
+ *     Publishing `0 ±` there would be a positive claim of perfect consistency,
+ *     which is the honest-uncertainty failure PROJECT.md forbids.
+ *
+ * HONEST LIMITS, stated rather than implied away: the estimate is
+ * MODEL-INFERRED (FRC records no individual robot's score, so a team's figure
+ * absorbs its partners' variability), it absorbs some of the filter's own
+ * mean-model error, and its correlation with truth is ~0.86 at a full season
+ * but only ~0.55 at one event. It is a genuinely noisy estimate of consistency,
+ * especially early.
  */
 function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, params: Sigma1Params): TeamMetrics {
-  // D-T1: one resolve, at the top, from the same expanding statistic the
-  // match path reads — so a published spread and the match-path variance floor
-  // that produced it are on the identical scale by construction.
-  const resolved = resolveSigma1Params(params, state.allianceScoreStats);
+  // NO `resolveSigma1Params` call here since 5.0.0. Every scale-relative
+  // parameter this function used to read (`minConsistencyVariance`,
+  // `coldStartConsistencyVariance`, `shrinkagePriorMatches`) belonged to the
+  // retired `sqrt(P + R)` construction. `varianceOprRidge` is dimensionless
+  // and absolute, so the publish path no longer depends on the season scale at
+  // all — one fewer place the display and the filter could disagree.
   const requestedTeams = teams ?? [...state.teams.keys()];
   const result: TeamMetrics = {};
+
+  // Solve ONCE per distinct event named in this call. `solveEventVariance` is
+  // itself memoized on the accumulator OBJECT, so this local map is only about
+  // avoiding repeated map lookups within one call; the expensive factorization
+  // is shared across calls too, which is what keeps `publish.ts`'s per-match
+  // `teamMetrics` loop from paying one per match. Measured: a cold solve at the
+  // corpus's widest real event (78 teams, 13 keys) is ~0.45 ms; a memo hit is
+  // ~0.05 microseconds.
+  const solvedByEvent = new Map<string, SolvedEventVariance | undefined>();
+  const solvedFor = (eventKey: string | null): SolvedEventVariance | undefined => {
+    if (eventKey === null) return undefined;
+    if (solvedByEvent.has(eventKey)) return solvedByEvent.get(eventKey);
+    const accumulator = state.perEventVariance.get(eventKey);
+    const solved =
+      accumulator === undefined ? undefined : solveEventVariance(accumulator, params.varianceOprRidge, { context: eventKey });
+    solvedByEvent.set(eventKey, solved);
+    return solved;
+  };
+
   for (const team of requestedTeams) {
     const teamState = state.teams.get(team);
     if (!teamState) continue;
 
+    // Keyed off the team's OWN `lastEventKey`, so a request naming teams from
+    // several events resolves each against its own event's system rather than
+    // whichever event the caller had in mind.
+    const solvedForTeam = solvedFor(teamState.lastEventKey)?.get(team);
+    /** `{ spread }` when the decomposition has a strictly positive variance for this key, `{}` otherwise — see this function's doc comment for the three omission cases. */
+    const spreadOf = (metricKey: string): { spread?: number } => {
+      const variance = solvedForTeam?.[metricKey];
+      if (variance === undefined || variance <= 0) return {};
+      return { spread: Math.sqrt(variance) };
+    };
+
     const perTeam: Record<string, TeamMetric> = {};
     let total = 0;
     for (const name of state.componentOrder) {
-      const belief = teamState.beliefs[name];
-      const value = belief?.mean ?? 0;
+      const value = teamState.beliefs[name]?.mean ?? 0;
       total += value;
-
-      const observedConsistency = teamState.consistency[name] ?? resolved.coldStartConsistencyVariance;
-      const leagueConsistency = leagueConsistencyFor(state.league, name, resolved.coldStartConsistencyVariance);
-      const shrunkVariance = shrinkConsistency(
-        observedConsistency,
-        teamState.matchCount,
-        leagueConsistency,
-        resolved.shrinkagePriorMatches,
-        resolved.minConsistencyVariance
-      );
-      // D-01/D-02 (plan 07-06): this component's posterior term
-      // (`belief?.variance ?? 0`, PD-06 — matching what the match path
-      // already does for a component a team has no belief for) summed with
-      // `shrunkVariance` (R, unchanged above) inside the root.
-      perTeam[name] = { value, spread: Math.sqrt((belief?.variance ?? 0) + shrunkVariance) };
+      perTeam[name] = { value, ...spreadOf(name) };
     }
 
-    const totalVariance = Math.max(resolved.minConsistencyVariance, teamTotalVariance(teamState.covariance));
-    // D-01/D-02 (plan 07-06): published spread is now √(P + R) — this
-    // team's own posterior sum (`teamOwnComponentVarianceSum`, the exact
-    // per-team P `predict()`'s own `redScoreVarianceOwn`/
-    // `blueScoreVarianceOwn` sums across an alliance) plus `totalVariance`
-    // (R, unchanged above, including its `minConsistencyVariance` floor —
-    // D-03/PD-04). `value: total` is unchanged — expectation is linear and
-    // this plan changes only the uncertainty, never the estimate.
-    perTeam[TOTAL_METRIC_KEY] = { value: total, spread: Math.sqrt(teamOwnComponentVarianceSum(teamState) + totalVariance) };
+    perTeam[TOTAL_METRIC_KEY] = { value: total, ...spreadOf(TOTAL_METRIC_KEY) };
 
-    // Phase groups (Auto/Teleop/Endgame) published as first-class metrics.
-    //
-    // The VALUE is a plain sum of component means — exact, since expectation
-    // is linear however the components covary. The SPREAD is the quadratic
-    // form of this team's own component covariance restricted to the group's
-    // indices, which is why it has to be computed HERE: it needs the
-    // off-diagonal Cov(auto_i, auto_j) terms, and those are never published,
-    // so no client could reconstruct this number from per-component spreads.
-    // `teamTotalVariance` above is the same computation over every index.
+    // Phase groups (Auto/Teleop/Endgame) published as first-class metrics. The
+    // VALUE is a plain sum of component means; the SPREAD is the same lookup
+    // every other key uses.
     const groups = state.season === undefined || state.season === null ? undefined : componentGroupsForSeason(state.season);
     if (groups !== undefined) {
       for (const groupId of COMPONENT_GROUP_IDS) {
-        const indices: number[] = [];
         let groupValue = 0;
-        // D-01/D-02 (plan 07-06, PD-07): this group's posterior (P) sum,
-        // accumulated in the SAME loop iteration — after the same
-        // `index === -1` guard — that builds `indices` and `groupValue`, so
-        // a component this season's grouping names but `componentOrder`
-        // does not carry is skipped from BOTH the posterior sum and the
-        // covariance subset, never just one. Passing a name list to a
-        // shared helper instead would not guarantee this, since a helper
-        // cannot see `componentOrder`.
-        let groupPosterior = 0;
         let present = false;
         for (const name of groups[groupId]) {
-          const index = state.componentOrder.indexOf(name);
-          if (index === -1) continue;
-          indices.push(index);
+          // The SAME `index === -1` skip `update()`'s `varianceGroups` applies
+          // when it builds this key's fold target. That shared predicate is
+          // what keeps the folded key set and the published key set in
+          // agreement by construction rather than by two lists being
+          // maintained in step.
+          if (state.componentOrder.indexOf(name) === -1) continue;
           groupValue += teamState.beliefs[name]?.mean ?? 0;
-          groupPosterior += teamState.beliefs[name]?.variance ?? 0;
           present = true;
         }
         // A group whose components are all absent from this season's resolved
-        // component order publishes nothing, rather than a spurious 0 ± floor.
+        // component order publishes nothing at all, rather than a 0 value with
+        // a spurious spread.
         if (!present) continue;
-        const groupVariance = Math.max(resolved.minConsistencyVariance, subsetVariance(teamState.covariance, indices));
-        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue, spread: Math.sqrt(groupPosterior + groupVariance) };
+        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = {
+          value: groupValue,
+          ...spreadOf(COMPONENT_GROUP_METRIC_KEYS[groupId]),
+        };
       }
     }
 

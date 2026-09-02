@@ -20,7 +20,8 @@ import {
 } from "./params.js";
 import { emptyInnovationStats } from "./adaptation.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
-import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE, SIGMA1_SHRINKAGE_PRIOR_MATCHES } from "./consistency.js";
+import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
+import { SIGMA1_VARIANCE_OPR_RIDGE } from "./varianceOpr.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
@@ -272,7 +273,11 @@ describe("DEFAULT_SIGMA1_PARAMS reproduces Phase-2 behaviour exactly", () => {
     // The ONE linear field: a point total, so sqrt(V_ref), not V_ref.
     expect(DEFAULT_SIGMA1_PARAMS.coldStartTeamTotalRel).toBe(20 / Math.sqrt(SIGMA1_REFERENCE_SCORE_VARIANCE));
     expect(DEFAULT_SIGMA1_PARAMS.consistencyEwmaAlpha).toBe(SIGMA1_CONSISTENCY_EWMA_ALPHA);
-    expect(DEFAULT_SIGMA1_PARAMS.shrinkagePriorMatches).toBe(SIGMA1_SHRINKAGE_PRIOR_MATCHES);
+    // D-V4 (5.0.0): shrinkagePriorMatches is DELETED and varianceOprRidge
+    // takes its place. Asserted as an IDENTITY against the imported constant,
+    // never against a literal 10 — the same never-re-typed rule every other
+    // default here follows.
+    expect(DEFAULT_SIGMA1_PARAMS.varianceOprRidge).toBe(SIGMA1_VARIANCE_OPR_RIDGE);
     expect(DEFAULT_SIGMA1_PARAMS.covEwmaAlpha).toBe(SIGMA1_COV_EWMA_ALPHA);
     expect(DEFAULT_SIGMA1_PARAMS.covShrinkage).toBe(SIGMA1_COV_SHRINKAGE);
     expect(DEFAULT_SIGMA1_PARAMS.linkC).toBe(SIGMA1_LINK_C);
@@ -398,6 +403,11 @@ describe("fields observable through the predict/update replay stream", () => {
     { field: "coldStartTeamTotalRel", perturbed: 3 },
     { field: "coldStartConsistencyVarianceRel", perturbed: 0.2 },
     { field: "consistencyCarryDecay", perturbed: 0.01 },
+    // D-V4 (5.0.0): MOVED here from the teamMetrics group below. It still
+    // floors seedConsistencyFor on the update path (coldStartTeamState and
+    // carrySeason), but teamMetrics no longer reads it at all — the published
+    // +/- is the variance decomposition, which has no floor.
+    { field: "minConsistencyVarianceRel", perturbed: 0.2 },
   ];
 
   it.each(WIRED_VIA_REPLAY)("$field is actually read by the update/predict path", ({ field, perturbed }) => {
@@ -409,13 +419,17 @@ describe("fields observable through the predict/update replay stream", () => {
 });
 
 describe("fields observable only through teamMetrics (D-27's display contract)", () => {
-  // `shrinkagePriorMatches`/`minConsistencyVariance` feed shrinkConsistency
-  // ONLY inside teamMetrics — predict()/update() never read them, so a
-  // predict()-stream comparison would (correctly) show no difference at
-  // all; that would be a false "not wired" signal, not evidence of a bug.
+  // `varianceOprRidge` (D-V4, 5.0.0) is read ONLY inside teamMetrics — it is
+  // the ridge lambda of the per-team variance decomposition that produces
+  // every published +/-. predict()/update() never read it, so a
+  // predict()-stream comparison would (correctly) show no difference at all;
+  // that would be a false "not wired" signal, not evidence of a bug.
+  //
+  // It replaced `shrinkagePriorMatches`, which was DELETED from Sigma1Params
+  // in the same version, and `minConsistencyVarianceRel` moved UP to the
+  // replay group because the display no longer reads it either.
   const WIRED_VIA_TEAM_METRICS: readonly { field: keyof Sigma1Params; perturbed: number }[] = [
-    { field: "shrinkagePriorMatches", perturbed: 50 },
-    { field: "minConsistencyVarianceRel", perturbed: 0.2 },
+    { field: "varianceOprRidge", perturbed: 1000 },
   ];
 
   it.each(WIRED_VIA_TEAM_METRICS)("$field changes teamMetrics output", ({ field, perturbed }) => {

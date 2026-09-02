@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import type { Corpus } from "../corpus/db.js";
@@ -219,7 +220,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
 // (2026-08-30): kept identical to `cli.ts`'s own re-pin — see that
 // constant's comment.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 export interface BuildAlgorithmsManifestOptions {

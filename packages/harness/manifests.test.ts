@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
+import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { PromotedVersionSchema } from "./promote.js";
@@ -25,7 +26,10 @@ import {
   isLiveAt,
 } from "./manifests.js";
 
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", "vpr@4.0.0+tuned-2026-08.json");
+// Derived, not re-pinned — see `manifests.ts`'s own constant. Hardcoding the
+// version here made this test assert the path rather than the behaviour, and it
+// went red on a bump that the code handled correctly.
+const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 
 let dir: string;
 let corpusPath: string;
