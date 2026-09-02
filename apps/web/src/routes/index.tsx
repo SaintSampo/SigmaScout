@@ -43,7 +43,8 @@ function PodiumStep({ entry, place }: { entry: PodiumEntry; place: 0 | 1 | 2 }) 
   );
 }
 
-function Podium() {
+/** Exported for `index.test.tsx` only — the podium is the one part of this route with a data-shape failure mode worth testing in isolation, and rendering it alone needs a `QueryClientProvider` and nothing else. */
+export function Podium() {
   const results = useQueries({
     queries: PODIUM_SEASONS.map((year) => compareQueryOptions({ year })),
   });
@@ -61,7 +62,36 @@ function Podium() {
   }
   if (failed) return null;
 
-  const podium = pooledAccuracyPodium(results.map((r) => r.data!));
+  // CR-01 (review 260902): `pooledAccuracyPodium` throws by design on a
+  // malformed input — a missing `combined` slice, a zero pooled
+  // `scoredCount`. Guarding only `failed` above honoured this block's stated
+  // contract for FETCH errors alone; a well-formed HTTP 200 whose combined
+  // slice is absent for one algorithm (exactly the drift a republish can
+  // introduce) took the throw path instead and replaced the site's front
+  // door with a router-level error surface.
+  //
+  // The guard belongs at THIS call site rather than in the helper or in a new
+  // error boundary, because the contract that differs is the call site's, not
+  // the helper's. Compare wants the loud failure and the tests assert it; only
+  // the front door wants the block hidden, and only the caller knows which of
+  // the two it is — pushing the decision into `homePodium.ts` would make the
+  // helper silently wrong for its other consumer. An error boundary would be a
+  // blunter instrument in the opposite direction: it would swallow every
+  // render bug in its subtree under the same "no podium" outcome, converting
+  // real breakage into invisible absence. A `try` around the one call that can
+  // throw catches exactly the condition the contract names and nothing else.
+  let podium: PodiumEntry[];
+  try {
+    podium = pooledAccuracyPodium(results.map((r) => r.data!));
+  } catch {
+    return null;
+  }
+  // The medal layout below indexes places 0-2 unconditionally while the
+  // source array's length is `PUBLISHED_ALGORITHM_IDS.length`. Adding a fourth
+  // or dropping to two algorithms is a plain constant edit with no compile
+  // error here, so the length is checked rather than assumed.
+  if (podium.length < 3) return null;
+
   // Classic podium layout: silver left, gold center, bronze right.
   const ordered: { entry: PodiumEntry; place: 0 | 1 | 2 }[] = [
     { entry: podium[1]!, place: 1 },
