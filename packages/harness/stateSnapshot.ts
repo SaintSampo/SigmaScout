@@ -96,8 +96,22 @@ export class MissingLeagueRowError extends Error {
  * inside `predict` on live traffic. The shape check is the only thing that
  * turns that into a loud `LeagueRowShapeVersionError` at load time, naming the
  * re-seed as the fix.
+ *
+ * Bumped 3 -> 4 (D-D3/D-D4(b), quick task 260902-disp): every Sigma1 team
+ * payload gained `contributionStats` and `lastContribution`, the per-match
+ * inferred contribution series (`sigma1/contribution.ts`) that IS the published
+ * `±` from this version on. This bump is load-bearing for exactly the reason
+ * the 2 -> 3 bump above gives: `apps/worker/src/stateStore.ts`'s
+ * `readScopedState` filters rows by `algorithm_id` ONLY and never by
+ * `algorithm_version`, so bumping `vpr.version` to 5.0.0 does NOT by itself
+ * make a stale seeded row unreachable — a shape-3 sigma1 team row written
+ * before this change is still selected and parsed. Without this bump it would
+ * deserialize with `contributionStats` as `undefined`, and `teamMetrics` would
+ * read a property of `undefined` on live traffic the moment a team page was
+ * requested. The shape check is the only thing that turns that into a loud
+ * `LeagueRowShapeVersionError` at load time, naming the re-seed as the fix.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 3;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 4;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -193,6 +207,9 @@ interface SerializedSigma1TeamState {
   matchCount: number;
   lastEventKey: string | null;
   innovationStats: Sigma1TeamState["innovationStats"];
+  /** D-D3/D-D4(b) (quick task 260902-disp): the per-match inferred contribution accumulators (`sigma1/contribution.ts`) — three numbers per published metric key, ~800 bytes per team, against the 169-number covariance matrix this row already carries. The raw series is deliberately NOT serialized; see `contribution.ts`'s header for the `SeedRowTooLargeError` measurement that decided it. */
+  contributionStats: Sigma1TeamState["contributionStats"];
+  lastContribution: Sigma1TeamState["lastContribution"];
   rpBeliefs: Sigma1TeamState["rpBeliefs"];
   rpCovariance: number[][];
   rpCrossCovariance: number[][];
@@ -236,6 +253,8 @@ function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState
     matchCount: team.matchCount,
     lastEventKey: team.lastEventKey,
     innovationStats: team.innovationStats,
+    contributionStats: team.contributionStats,
+    lastContribution: team.lastContribution,
     rpBeliefs: team.rpBeliefs,
     rpCovariance: team.rpCovariance,
     rpCrossCovariance: team.rpCrossCovariance,
