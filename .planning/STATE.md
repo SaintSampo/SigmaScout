@@ -5,9 +5,9 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
-last_updated: "2026-09-01T03:08:37.014Z"
-last_activity: 2026-08-31
-last_activity_desc: Phase 08 complete
+last_updated: "2026-09-02T18:30:00.000Z"
+last_activity: 2026-09-02
+last_activity_desc: Quick task 260902-ixg — Alliances tightening, tab-strip jitter, out-of-band week header
 progress:
   total_phases: 11
   completed_phases: 11
@@ -359,6 +359,7 @@ None yet.
 | 260902-i8i | Fix the three user-facing defects from the post-Phase-08 code review: the home page no longer crashes on a malformed compare artifact (CR-01), the alliance approximate-tier disclosure now reaches assistive tech via role="group" (CR-02), and TBA's out-of-band week values stop rendering as "Week 17/18/19", making 208 played official matches filterable again (WR-01) | 2026-09-02 | 38bb434d | [260902-i8i-fix-cr-01-cr-02-wr-01-from-the-post-phas](./quick/260902-i8i-fix-cr-01-cr-02-wr-01-from-the-post-phas/) |
 | 260901-is2 | Four model correctness fixes from the 2026-09-01 adversarial review: EPA attributes the alliance ERROR not the total (Statbotics parity, slope 0.49→0.84); VPR's published ± estimated from innovations not gain-weighted corrections (real-corpus SD(z) 1.62→1.14 quals, 2.14→1.07 elims); a no-call counts as a MISS in winner accuracy; OPR's fixed logistic scale becomes an expanding-window alliance-score SD. epa 2.0.0, opr 4.0.0, SIGMA1_CODE_VERSION 3.0.0, both version files re-promoted | 2026-09-01 | 3b3c0dbf | [260901-is2-model-correctness-fixes-from-adversarial](./quick/260901-is2-model-correctness-fixes-from-adversarial/) |
 | 260901-trz | Scale-relative reparameterization and rolling-origin selection. Five Sigma1 hyperparameters become dimensionless fractions of the season own alliance-score variance and two carry weights merge into one share (SIGMA1_CODE_VERSION 4.0.0, both version files re-promoted); the search space gains an enforced SEARCH_EXCLUSIONS partition (16 searchable keys, covShrinkage fixed at 0.3); the tuner replaces the fixed tune/holdout split with rolling-origin selection behind four gates and applies D-T7 pre-committed acceptance bar over an event-blocked paired bootstrap. All four equivalence gates PASS; 2026 score MAE 58.53 -> 53.14 and bias magnitude 25.89 -> 13.89. No search was run | 2026-09-01 | f22ce9e0 | [260901-trz-scale-relative-reparameterization-and-ro](./quick/260901-trz-scale-relative-reparameterization-and-ro/) |
+| 260902-ixg | Five Alliances/event-page UI fixes raised during UAT of 260902-i8i: the D-15 independence caveat removed from the page (user decision, 07-UI-SPEC row retired not deleted); the Pick 3 column hidden when no alliance has a backup (240px empty on every such event); Alliance # 112->88 and Record 100->72 plus an explicit table width, taking the table 1182px -> 890px; the line-variant tab strip's 3px hover jump fixed at its cause (percentage height against an auto-height list, fighting tap-target's 44px min-height); and EventHeader's blind week+1 stopped guessing "Week 19" for out-of-band weeks, reusing filterModel's existing rule rather than copying it | 2026-09-02 | 410cfad5 | [260902-ixg-alliances-tightening-and-tab-strip-jitter](./quick/260902-ixg-alliances-tightening-and-tab-strip-jitter/) |
 
 ### Roadmap Evolution
 
