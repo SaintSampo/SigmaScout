@@ -72,6 +72,81 @@ const SEARCH_PLACEHOLDER = "Search teams or events";
 /** The highlighted-row token (05-UI-SPEC.md's "Accent reserved for" list: "highlighted row background, at 10% opacity tint, not solid fill") — applied as a Tailwind arbitrary-value opacity modifier over the CSS custom property, never a literal hex value. */
 const HIGHLIGHT_CLASS = "data-selected:bg-[var(--color-accent)]/10 data-selected:text-[var(--color-text-primary)]";
 
+/**
+ * The composition-seam fix for 260902-sbx ("the search box draws two
+ * concentric rounded rectangles"). `CommandInput` (`ui/command.tsx`, a
+ * shared shadcn primitive, NOT edited here) wraps a shadcn `InputGroup`
+ * (`ui/input-group.tsx`, also not edited — its own border is correct in a
+ * plain form context) that carries its OWN border, background and fixed
+ * `h-8` — a second, smaller, differently-radiused box nested inside
+ * whichever `Command` root this file styles per `tone`. This is a
+ * composition problem at THIS seam, so the fix lives here: keep ONE visible
+ * surface (the outer `Command` root — it already owns the tone-specific
+ * border/bg tokens and the results dropdown's anchoring) and neutralise the
+ * inner `InputGroup` into an invisible full-height layout box.
+ *
+ * Targets `InputGroup` by its own stable `data-slot="input-group"` attribute
+ * via a DESCENDANT selector (`[&_[data-slot=input-group]]`) — never `[&>div]`,
+ * which is what the 2026-09-01 "larger ribbon" commit tried: `>` selects the
+ * intermediate `div.p-1.pb-0` (`command-input-wrapper`), two levels above
+ * `InputGroup`, not `InputGroup` itself, which is why that fix silently did
+ * nothing. Verified against the live DOM (not just the source) before
+ * trusting this one.
+ *
+ * - `h-full!` fills the root's own content box exactly, replacing
+ *   `InputGroup`'s fixed `h-8` (32px) — measured live: 4px short of the
+ *   ribbon's `h-9` (36px), 14px short of the hero's prior auto height
+ *   (46px).
+ * - `border-transparent!` / `bg-transparent!` drop its border/background.
+ *   `InputGroup`'s own `h-8!`/`rounded-lg!`/`bg-input/30` are Tailwind
+ *   `!important` utilities baked onto the SAME element by `ui/command.tsx`;
+ *   a same-specificity plain class can never beat `!important` regardless of
+ *   source order (confirmed live: the un-important `rounded-md` tone class
+ *   on `Command` itself never beats `Command`'s own `rounded-xl!` either —
+ *   same mechanism), so these carry `!` too and win on the higher
+ *   specificity of the descendant-attribute selector.
+ * - `command-input-wrapper`'s own `p-1 pb-0` (also two levels up from
+ *   `InputGroup`) is COLLAPSED to `py-0!` rather than compensated for: it
+ *   was a second, redundant layer of vertical inset stacked on `Command`'s
+ *   OWN `p-1`. Collapsing it (instead of adding matching padding elsewhere
+ *   to re-center) leaves `Command`'s `p-1`/`py-0` as the ONLY source of
+ *   vertical inset, so `InputGroup`'s `h-full` fills exactly what remains
+ *   and `InputGroup`'s own `items-center` centres the input with no extra
+ *   compensation math needed.
+ *
+ * Separately (found while verifying the live DOM, not in the plan's
+ * original cause list): the ONLY focus-visible ring this composition could
+ * ever draw — `ui/input-group.tsx`'s
+ * `has-[[data-slot=input-group-control]:focus-visible]` — never actually
+ * fires here. `CommandInput` gives its `<input>` `data-slot="command-input"`,
+ * not `"input-group-control"`, so that selector never matches; confirmed
+ * live by focusing the input and reading `box-shadow` back as all-zero-alpha
+ * before this fix. Tabbing to this control currently shows NO focus
+ * indicator at all — a pre-existing accessibility gap, not a "one ring vs
+ * two" problem. Since `InputGroup` is being neutralised into an invisible
+ * layout box regardless, the replacement ring is added on the `Command`
+ * root instead, keyed off the REAL slot name
+ * (`has-[[data-slot=command-input]:focus-visible]`), reusing the exact
+ * `border-ring`/`ring-3`/`ring-ring/50` tokens `ui/select.tsx`'s
+ * `SelectTrigger` already uses sitewide for the same purpose — one visible
+ * ring, on the one visible box, replacing zero.
+ */
+const INPUT_GROUP_SEAM_FIX =
+  "[&_[data-slot=input-group]]:h-full! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! " +
+  // `command-input-wrapper` also needs its OWN `h-full`, not just `py-0`:
+  // it's a plain block div, and `height: 100%` only resolves against a
+  // parent with a DEFINITE height — `Command`'s own `h-9`/`h-11` is
+  // definite, but that doesn't make `command-input-wrapper` (an
+  // intermediate block ancestor) definite by itself. Without this,
+  // `input-group`'s `h-full` falls back to `auto` and the whole chain
+  // collapses to `command-input-wrapper`'s intrinsic content height
+  // (measured live: 30px, driven by `InputGroupAddon`'s own `py-1.5` around
+  // the search icon) instead of filling `Command`'s box — confirmed by
+  // measuring the live DOM after the first pass of this fix, before adding
+  // this line.
+  "[&_[data-slot=command-input-wrapper]]:h-full! [&_[data-slot=command-input-wrapper]]:py-0! " +
+  "has-[[data-slot=command-input]:focus-visible]:border-ring has-[[data-slot=command-input]:focus-visible]:ring-3 has-[[data-slot=command-input]:focus-visible]:ring-ring/50";
+
 function TeamResultItem({ team, onSelect }: { team: TeamMatch; onSelect: () => void }) {
   return (
     <CommandItem value={`team-${team.teamKey}`} onSelect={onSelect} className={HIGHLIGHT_CLASS}>
@@ -311,8 +386,24 @@ export function SearchBox({ tone = "page", className }: SearchBoxProps = {}) {
 
   const closedControlClass =
     tone === "ribbon"
-      ? "h-9 overflow-visible rounded-md border border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&>div]:h-full [&_input]:h-full [&_input]:text-[15px] [&_input]:text-[var(--ribbon-ink)] [&_input]:placeholder:text-[var(--ribbon-ink-muted)]"
-      : "overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)]";
+      ? // `h-9` (36px, the 2026-09-01 "larger ribbon" decision — kept, not the
+        // bug) and `py-0` collapse `Command`'s own base `p-1`'s vertical
+        // component to 0, leaving `INPUT_GROUP_SEAM_FIX`'s `h-full` on
+        // `InputGroup` the only thing to fill.
+        `h-9 py-0 overflow-visible rounded-md border border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[var(--ribbon-ink)] [&_input]:h-full [&_input]:text-[15px] [&_input]:text-[var(--ribbon-ink)] [&_input]:placeholder:text-[var(--ribbon-ink-muted)] ${INPUT_GROUP_SEAM_FIX}`
+      : // `h-11` (44px): the home hero's outer previously had NO explicit
+        // height and shrink-wrapped to a 46px auto height that was purely an
+        // emergent side effect of `InputGroup`'s forced `h-8` (32px) plus the
+        // doubled `p-1`/`p-1 pb-0` vertical insets this fix removes — not a
+        // value chosen anywhere in the source. Once those insets collapse,
+        // `h-full` on a still-auto-height root has no definite height to
+        // resolve against and falls back to shrinking around the bare input
+        // text, which would visibly shrink the hero control. `h-11` (the
+        // closest Tailwind step to that emergent 46px) makes the box model
+        // deterministic — and satisfies the verification's literal
+        // outer-height-equals-input-group-height check — instead of leaving
+        // the hero's size as an accident of removed padding.
+        `h-11 py-0 overflow-visible rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] ${INPUT_GROUP_SEAM_FIX}`;
 
   return (
     <div className={`relative ${className ?? "w-64"}`}>
