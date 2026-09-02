@@ -555,6 +555,9 @@ async function runSeason(
   const predictions: HarnessPredictionInput[] = records.map((r) => ({
     matchKey: r.match.matchKey,
     season,
+    // D-T6 (quick task 260901-trz): carried for downstream event-blocked
+    // resampling — see `HarnessPredictionInput.eventKey`'s own doc comment.
+    eventKey: r.match.eventKey,
     compLevel: r.match.compLevel,
     algorithmId: r.algorithmId,
     pRedWin: r.prediction.pRedWin,
@@ -801,6 +804,9 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
     const predictions: HarnessPredictionInput[] = records.map((r) => ({
       matchKey: r.match.matchKey,
       season,
+      // D-T6 (quick task 260901-trz): carried for downstream event-blocked
+      // resampling — see `HarnessPredictionInput.eventKey`'s own doc comment.
+      eventKey: r.match.eventKey,
       compLevel: r.match.compLevel,
       algorithmId: r.algorithmId,
       pRedWin: r.prediction.pRedWin,

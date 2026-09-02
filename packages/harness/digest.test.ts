@@ -153,6 +153,7 @@ describe("promoted algorithm version reproducibility (D-15/SC-5)", () => {
         const predictions: HarnessPredictionInput[] = records.map((r) => ({
           matchKey: r.match.matchKey,
           season: promoted.digest.sliceSeason,
+          eventKey: r.match.eventKey,
           compLevel: r.match.compLevel,
           algorithmId: promoted.id,
           pRedWin: r.prediction.pRedWin,

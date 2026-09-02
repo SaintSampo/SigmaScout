@@ -441,6 +441,9 @@ async function main(): Promise<void> {
   const predictions: HarnessPredictionInput[] = records.map((r) => ({
     matchKey: r.match.matchKey,
     season: sliceSeason,
+    // D-T6 (quick task 260901-trz): carried for downstream event-blocked
+    // resampling — see `HarnessPredictionInput.eventKey`'s own doc comment.
+    eventKey: r.match.eventKey,
     compLevel: r.match.compLevel,
     algorithmId: id,
     pRedWin: r.prediction.pRedWin,

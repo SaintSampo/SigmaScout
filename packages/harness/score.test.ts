@@ -42,6 +42,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024test_qm1",
       season: 2024,
+      eventKey: "2024test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.7,
@@ -54,6 +55,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024test_qm2",
       season: 2024,
+      eventKey: "2024test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.3,
@@ -66,6 +68,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024off_qm1",
       season: 2024,
+      eventKey: "2024off",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.6,
@@ -78,6 +81,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024test_qm3",
       season: 2024,
+      eventKey: "2024test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.4,
@@ -90,6 +94,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024test_qm4",
       season: 2024,
+      eventKey: "2024test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.9,
@@ -102,6 +107,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2024test_sf1",
       season: 2024,
+      eventKey: "2024test",
       compLevel: "sf",
       algorithmId: "opr",
       pRedWin: 0.65,
@@ -114,6 +120,7 @@ describe("aggregateScores", () => {
     {
       matchKey: "2025test_qm1",
       season: 2025,
+      eventKey: "2025test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.8,
@@ -219,6 +226,7 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
         predictions.push({
           matchKey: `${season}test_qm1`,
           season,
+          eventKey: `${season}test`,
           compLevel: "qm",
           algorithmId,
           // Deliberately different pRedWin per algorithm so a bug that
@@ -270,6 +278,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
   function prediction(overrides: Partial<HarnessPredictionInput> & Pick<HarnessPredictionInput, "matchKey">): HarnessPredictionInput {
     return {
       season: 2024,
+      eventKey: "2024test",
       compLevel: "qm",
       algorithmId: "opr",
       pRedWin: 0.6,

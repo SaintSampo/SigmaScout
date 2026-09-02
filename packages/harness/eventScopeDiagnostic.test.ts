@@ -147,6 +147,9 @@ function predictionInput(matchKey: string): HarnessPredictionInput {
   return {
     matchKey,
     season: 2022,
+    // `matchKey` here is already an event-qualified key (e.g. "2022abc_qm1");
+    // its event prefix is the block this record belongs to (D-T6).
+    eventKey: matchKey.split("_")[0] ?? matchKey,
     compLevel: "qm",
     algorithmId: "opr",
     pRedWin: 0.6,

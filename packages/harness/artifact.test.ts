@@ -10,6 +10,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
   {
     matchKey: "2024test_qm1",
     season: 2024,
+    eventKey: "2024test",
     compLevel: "qm",
     algorithmId: "opr",
     // An irrational-looking probability so an unrounded-storage assertion is meaningful.
@@ -23,6 +24,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
   {
     matchKey: "2024test_qm2",
     season: 2024,
+    eventKey: "2024test",
     compLevel: "qm",
     algorithmId: "opr",
     pRedWin: 0.6,
@@ -35,6 +37,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
   {
     matchKey: "2025test_qm1",
     season: 2025,
+    eventKey: "2025test",
     compLevel: "qm",
     algorithmId: "opr",
     pRedWin: 0.8,

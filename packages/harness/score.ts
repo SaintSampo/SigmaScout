@@ -104,6 +104,26 @@ export const QUARANTINE_SHARE_MIN_POPULATION = 200;
 export interface HarnessPredictionInput {
   matchKey: string;
   season: number;
+  /**
+   * D-T6 (quick task 260901-trz): the event this match belongs to, carried so
+   * downstream consumers can BLOCK on it — matches inside one event share
+   * teams, a field and a game state, so every interval and comparison this
+   * project makes resamples whole events rather than individual matches
+   * (`eventBootstrap.ts`; the match-level figure understates by 40%).
+   *
+   * `aggregateScores` below does NOT read this field, deliberately: it is
+   * carried FOR downstream blocking, not consumed here, so a reader should
+   * not go looking for a use inside this module. It is a required field
+   * rather than an optional one because every producer already has
+   * `r.match.eventKey` in hand (`replay.ts`'s `PredictionRecord`), and an
+   * optional field would let a new call site silently degrade a blocked
+   * bootstrap into a match-level one.
+   *
+   * Deriving this by splitting `matchKey` on `_` would work today and would
+   * make the harness depend on a TBA key-naming convention it otherwise never
+   * relies on — hence a real field, populated at the source.
+   */
+  eventKey: string;
   compLevel: CompLevel;
   algorithmId: string;
   pRedWin: number;
