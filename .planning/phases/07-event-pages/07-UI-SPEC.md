@@ -262,9 +262,11 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 
 **No percentile, no tier box on any Alliances column** — there is no published percentile for a three-team sum (Color section, above).
 
-**Independence-assumption caveat, stated once, visibly, not buried** (D-15's own binding instruction): a Body 14/400 muted caption line beneath the table:
+**RETIRED 2026-09-02 (user decision during UAT of quick task 260902-i8i, executed in quick task 260902-ixg):** the instruction below — "Independence-assumption caveat, stated once, visibly, not buried" — no longer binds. The page makes NO on-page independence disclosure; the assumption stays documented in `AlliancesTab.tsx`'s own code comments and in `packages/core/algorithms/sigma1/covariance.ts`'s header, where the arithmetic actually lives. Left here, struck through, rather than deleted, so this UI-SPEC does not silently lose a row it once bound.
 
-> "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown."
+~~**Independence-assumption caveat, stated once, visibly, not buried** (D-15's own binding instruction): a Body 14/400 muted caption line beneath the table:~~
+
+~~> "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown."~~
 
 **When the event has no alliance data (D-17):** the tab trigger itself is `disabled` (plain-greyed, unclickable, no tooltip) — the tab is never entered, so this caveat and the empty table it would show never render at all.
 
@@ -286,7 +288,7 @@ A table, one row per alliance (1–8, ascending, TBA's own seed order), columns:
 |---------|------|
 | D-08 Insights fallback notice | "This event has no official TBA ranking. Teams below are ordered by {selected algorithm label}'s rank instead." |
 | D-11 Breakdown model-estimates caption | "Estimated per-team components — TBA publishes score breakdowns per alliance, not per team. These are {selected algorithm label}'s modeled per-team contributions." |
-| D-15 Alliances independence caveat | "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown." |
+| D-15 Alliances independence caveat | **RETIRED 2026-09-02** (user decision during UAT of 260902-i8i, executed in 260902-ixg): ~~"Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown."~~ The page makes no on-page independence disclosure; the assumption stays documented in code (`AlliancesTab.tsx`, `packages/core/algorithms/sigma1/covariance.ts`). |
 | D-17 disabled Alliances tab | No copy at all — plain-disabled trigger, no explanation (the decision's own accepted cost) |
 | Elims round label | Reuses `matchLabel()` verbatim (`Semifinal 3-2`, `Final 1-1`) — no new copy |
 | Tab labels | `Insights`, `Breakdown`, `Quals`, `Alliances`, `Elims` — five single words, chosen short deliberately for the mobile horizontal-scroll strip |

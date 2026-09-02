@@ -21,7 +21,6 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
   ALLIANCE_APPROX_TIER_DISCLOSURE,
-  ALLIANCES_INDEPENDENCE_CAVEAT,
   AlliancesTab,
   alliancesIncompleteNotice,
   buildAllianceRows,
@@ -298,15 +297,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });
 
-  it("the independence caveat renders exactly once beneath the table, matching the Copywriting Contract's D-15 row word for word", async () => {
+  it("no independence-caveat element renders anywhere on the tab (2026-09-02 user decision — the caveat is retired, see 07-UI-SPEC.md)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
-    const caveat = await screen.findByTestId("alliances-independence-caveat");
-    expect(caveat.textContent).toBe(
-      "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown.",
-    );
-    expect(ALLIANCES_INDEPENDENCE_CAVEAT).toBe(caveat.textContent);
-    expect(screen.getAllByTestId("alliances-independence-caveat")).toHaveLength(1);
-    expect(within(caveat).queryByRole("button")).toBeNull();
+    await screen.findByTestId("alliances-table-scroll");
+    expect(screen.queryByTestId("alliances-independence-caveat")).toBeNull();
+    expect(screen.queryByText(/independent of its alliance partners/i)).toBeNull();
   });
 
   it("a pick's team number links to /team/{number} with year/algorithm/tab=overview, matching the sibling tables", async () => {
@@ -454,12 +449,12 @@ describe("AlliancesTab — the incomplete-combination notice (Claude's Discretio
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("the notice renders BENEATH the independence caveat in document order", async () => {
+  it("the notice renders BENEATH the table's scroll region in document order (re-pinned 2026-09-02: the independence caveat this test used to anchor against is retired, see 07-UI-SPEC.md)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
-    const caveat = await screen.findByTestId("alliances-independence-caveat");
+    const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const notice = await screen.findByTestId("alliances-incomplete-notice");
-    // DOM_POSITION_FOLLOWING means `notice` comes after `caveat`.
-    expect(caveat.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // DOM_POSITION_FOLLOWING means `notice` comes after `scrollRegion`.
+    expect(scrollRegion.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

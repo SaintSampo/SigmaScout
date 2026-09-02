@@ -147,8 +147,13 @@ export interface AllianceRow {
  * correlation between alliance partners (shared field conditions, a
  * defender suppressing the opponent, a partner breaking down) is positive,
  * so the published σ here is a FLOOR — the true uncertainty is at least
- * this large. `ALLIANCES_INDEPENDENCE_CAVEAT` below says so in the reader's
- * own words, unconditionally, beneath the table.
+ * this large. This comment is now the ONLY place that says so: the on-page
+ * disclosure that used to restate this in the reader's own words
+ * (`ALLIANCES_INDEPENDENCE_CAVEAT`, beneath the table) was retired
+ * 2026-09-02 — user decision during UAT of quick task 260902-i8i, executed
+ * in 260902-ixg, `07-UI-SPEC.md`'s D-15 row marked retired accordingly. The
+ * arithmetic and the assumption it makes are UNCHANGED; only the on-page
+ * disclosure is gone.
  */
 export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined)[]): DisplayMetric | undefined {
   // PROHIBITION: never sum over a present subset when fewer than three
@@ -248,21 +253,6 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
 export function hasAllianceData(artifact: EventArtifact): boolean {
   return artifact.alliances !== undefined && artifact.alliances.length > 0;
 }
-
-/**
- * 07-UI-SPEC.md's Copywriting Contract D-15 row, verbatim — the ONLY place
- * this sentence appears in source. Unconditional page content: never a
- * tooltip, never a title attribute, never behind a disclosure.
- * `packages/core/algorithms/sigma1/covariance.ts`'s own header states the
- * model's covariance is never between teams, so the zero cross-team
- * covariance this arithmetic assumes is the model's construction rather than
- * an unpublished quantity; every real correlation between teammates is
- * positive, so the published σ is a floor. UNCHANGED by G-8 — the
- * arithmetic behind it did not change, only its documentation did (see
- * `combineAlliancePicks`'s own doc comment).
- */
-export const ALLIANCES_INDEPENDENCE_CAVEAT =
-  "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown.";
 
 /**
  * G-8's approximate-tier disclosure, surfaced as the `title`/`aria-label` of
@@ -512,7 +502,8 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
 /**
  * The Alliances tab: the seven-column table in its own native scroll region
  * (a DOM SIBLING of the tab strip's own scroll region, never its ancestor or
- * descendant), D-15's independence caveat unconditionally beneath it, and
+ * descendant — D-15's independence caveat that used to sit beneath it was
+ * retired 2026-09-02, quick task 260902-ixg, see 07-UI-SPEC.md), and
  * Task 2's incomplete-combination notice when (and only when) at least one
  * row cannot combine. Reads no match array of any kind and performs no
  * arithmetic on any published quantity other than `combineAlliancePicks`'s
@@ -604,9 +595,6 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           </TableBody>
         </table>
       </div>
-      <p data-testid="alliances-independence-caveat" className="text-role-body text-[var(--color-text-muted)]">
-        {ALLIANCES_INDEPENDENCE_CAVEAT}
-      </p>
       {incompleteCount > 0 && (
         <div
           data-testid="alliances-incomplete-notice"
