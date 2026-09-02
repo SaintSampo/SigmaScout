@@ -5,8 +5,99 @@
  * `isValidParamSet`'s cross-parameter rejections.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
-import { SEARCHABLE_PARAM_KEYS, SIGMA1_SEARCH_SPACE, isValidParamSet, screenGridFor } from "./searchSpace.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_PARAM_KEYS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import {
+  SEARCHABLE_PARAM_KEYS,
+  SEARCH_EXCLUSIONS,
+  SIGMA1_SEARCH_SPACE,
+  isValidParamSet,
+  screenGridFor,
+  type ExcludedParamKey,
+} from "./searchSpace.js";
+
+/**
+ * D-T3's enforcement (quick task 260901-trz). D-T3's own wording is the
+ * requirement: the exclusions must be expressed EXPLICITLY, as a named list
+ * with reasons, "not by omission — a future reader must not be able to re-add
+ * them by accident." These tests are what turns that from a comment into a
+ * fact: a `Sigma1Params` field added later and forgotten here fails the
+ * partition test with a message naming the field.
+ */
+describe("SEARCH_EXCLUSIONS (D-T3)", () => {
+  it("partitions SIGMA1_PARAM_KEYS exactly with SIGMA1_SEARCH_SPACE — no key in both, no key in neither", () => {
+    const excluded = Object.keys(SEARCH_EXCLUSIONS);
+    const searchable = Object.keys(SIGMA1_SEARCH_SPACE);
+    const excludedSet = new Set(excluded);
+    const searchableSet = new Set(searchable);
+
+    // Disjoint. A key in BOTH would mean the type system says "not
+    // searchable" while the bounds record says "here is its bound" — the grid
+    // would still be built and the exclusion would be decorative.
+    const inBoth = excluded.filter((key) => searchableSet.has(key));
+    expect(inBoth, `these keys are in BOTH SEARCH_EXCLUSIONS and SIGMA1_SEARCH_SPACE: ${inBoth.join(", ")}`).toEqual([]);
+
+    // Covering. This is the half that catches a NEW parameter: a field added
+    // to `Sigma1Params` and placed in neither structure is neither searched
+    // nor deliberately excluded, which is exactly the accidental omission
+    // D-T3 forbids.
+    const inNeither = SIGMA1_PARAM_KEYS.filter((key) => !excludedSet.has(key) && !searchableSet.has(key));
+    expect(
+      inNeither,
+      `${inNeither.join(", ")} is in neither SIGMA1_SEARCH_SPACE nor SEARCH_EXCLUSIONS — ` +
+        `every Sigma1Params field must be either searchable (with a bound) or excluded (with a reason)`
+    ).toEqual([]);
+
+    // And nothing invented: neither structure may name a key that is not a
+    // real parameter (a typo'd exclusion would silently exclude nothing).
+    const paramKeySet = new Set<string>(SIGMA1_PARAM_KEYS);
+    const unknown = [...excluded, ...searchable].filter((key) => !paramKeySet.has(key));
+    expect(unknown, `these keys are not Sigma1Params fields at all: ${unknown.join(", ")}`).toEqual([]);
+
+    expect([...excluded, ...searchable].sort()).toEqual([...SIGMA1_PARAM_KEYS].sort());
+  });
+
+  it("names the three keys D-T3 deletes from the search space, BY NAME (re-adding one turns this red and says which)", () => {
+    expect(SIGMA1_SEARCH_SPACE).not.toHaveProperty("covShrinkage");
+    expect(SIGMA1_SEARCH_SPACE).not.toHaveProperty("coldStartTeamTotalRel");
+    expect(SIGMA1_SEARCH_SPACE).not.toHaveProperty("fallbackScoreSd");
+    expect(SEARCH_EXCLUSIONS).toHaveProperty("covShrinkage");
+    expect(SEARCH_EXCLUSIONS).toHaveProperty("coldStartTeamTotalRel");
+    expect(SEARCH_EXCLUSIONS).toHaveProperty("fallbackScoreSd");
+  });
+
+  it("gives every exclusion a real reason, not a placeholder", () => {
+    for (const [key, reason] of Object.entries(SEARCH_EXCLUSIONS)) {
+      // 40 characters is roughly one clause. Anything shorter is a shrug
+      // ("inert", "not tuned") rather than an argument a future reader can
+      // weigh before re-adding the key.
+      expect(reason.length, `SEARCH_EXCLUSIONS.${key}'s reason is too short to be a reason: "${reason}"`).toBeGreaterThanOrEqual(40);
+      expect(reason.trim()).toBe(reason);
+    }
+  });
+
+  it("leaves exactly 16 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
+    // 25 Sigma1Params fields - 9 exclusions = 16. Pinned as a literal so a
+    // silent addition or deletion has to be acknowledged here.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(16);
+    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(9);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(25);
+    expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
+  });
+
+  it("screenGridFor refuses an excluded key at RUNTIME, quoting that key's own reason", () => {
+    // The type already forbids this call — but `loadSurvivors` reads STRINGS
+    // out of a JSON artifact, so the type system is not the only entry path,
+    // and a stale survivors file from before this change must explain itself
+    // rather than merely fail.
+    for (const key of Object.keys(SEARCH_EXCLUSIONS) as ExcludedParamKey[]) {
+      const reason = SEARCH_EXCLUSIONS[key];
+      expect(() => screenGridFor(key as never, 5)).toThrow(new RegExp(key));
+      expect(() => screenGridFor(key as never, 5)).toThrow(
+        new RegExp(reason.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      );
+    }
+  });
+});
 
 describe("SEARCHABLE_PARAM_KEYS", () => {
   it("excludes rpMonteCarloSeed, rpMonteCarloDraws, and adaptationEnabled, each for a documented reason", () => {

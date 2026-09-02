@@ -126,14 +126,42 @@ export const SIGMA1_COV_EWMA_ALPHA = 0.1;
  * `Sigma_shrunk = (1 - s) * Sigma + s * diag(Sigma)`: off-diagonal entries
  * are scaled by `(1 - s)`, diagonal entries are left exactly as folded (the
  * diagonal of `diag(Sigma)` equals `Sigma`'s own diagonal, so the `(1-s)` +
- * `s` terms recombine to the unshrunk value there). Keeps every folded
+ * `s` terms recombine to the unshrunk value there).
+ *
+ * WHAT IT IS FOR, and this reasoning is UNCHANGED: it keeps every folded
  * matrix positive semi-definite even over a rank-deficient early-season
- * residual history (a convex combination of PSD matrices — the EWMA'd
- * outer-product term and its own diagonal — is itself PSD), the same
- * numerical-stability instinct behind `opr.ts`'s `OPR_RIDGE_LAMBDA` and the
+ * residual history, because a convex combination of PSD matrices — the EWMA'd
+ * outer-product term and its own diagonal — is itself PSD. That guarantee is
+ * what `subsetVariance`'s group-spread quadratic form depends on: a phase
+ * group's published `±` is `sqrt(sum over i,j in S of Cov_ij)`, and a matrix
+ * that is not PSD can make that sum NEGATIVE, at which point there is no real
+ * square root and the page has no honest number to show. Same
+ * numerical-stability instinct as `opr.ts`'s `OPR_RIDGE_LAMBDA`, and the same
  * reason `opr.ts` reaches for `ml-matrix`'s SVD rather than a hand-rolled
  * elimination when a matrix must actually be inverted (this module never
- * inverts one). Phase 3 hyperparameter, default unverified.
+ * inverts one).
+ *
+ * IT IS A FIXED CONSTANT, NOT A TUNED HYPERPARAMETER, since D-T3 (quick task
+ * 260901-trz). It was in `searchSpace.ts`'s searchable set through
+ * `SIGMA1_CODE_VERSION` 4.0.0 and is not any more, and the omission is
+ * DELIBERATE — `SEARCH_EXCLUSIONS` names it with this reason so a future
+ * reader cannot restore it believing the omission was an oversight.
+ *
+ * What decided that: the one-at-a-time sensitivity screen's optimum for this
+ * parameter sat AT THE 0 BOUND. Read plainly, the search wanted to delete the
+ * PSD guarantee outright, and it wanted to do so to buy roughly 0.0005 Brier.
+ * That is the whole argument. Tuning a numerical SAFEGUARD against the very
+ * objective it protects is a category error rather than a close call: the
+ * objective cannot see the failure mode the safeguard prevents (a Brier score
+ * over win probability is entirely blind to a negative group-spread variance
+ * on a team page), so the search will always trade the guarantee away for any
+ * gain at all, however small. The correct response is to take the parameter
+ * out of the objective's reach, which is what D-T3 did.
+ *
+ * The shipped `data/algorithm-versions/vpr@4.0.0+tuned-2026-08.json` carried a
+ * SEARCHED value of 0.12817359956447036 until D-T3 restored it to this
+ * constant by re-promotion, with the reasoning recorded in that file's own
+ * `provenance.note`.
  */
 export const SIGMA1_COV_SHRINKAGE = 0.3;
 

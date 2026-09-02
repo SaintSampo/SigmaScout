@@ -31,49 +31,56 @@ export interface SearchBound {
 }
 
 /**
- * `Sigma1Params` numeric fields deliberately EXCLUDED from the search, each
- * with its own reason:
- *   - `rpMonteCarloSeed`/`rpMonteCarloDraws`: plan 03-03's own
- *     `distribution.test.ts` proves by test that the RP joint model's draw
- *     count/seed never move `pRedWin`/predicted scores — the ONLY inputs
- *     D-01's objective (tune-season Brier) reads — so searching them would
- *     spend budget moving a dimension the objective is structurally blind
- *     to. Every search candidate in this module instead fixes
- *     `rpMonteCarloDraws: 0`, which (`rp/distribution.ts`'s own zero-draws
- *     short-circuit) skips the RP joint model's Cholesky decomposition
- *     entirely — the fast path this plan's own runtime guidance assumes.
- *   - `adaptationEnabled`: a MODE, not a numeric knob (D-06) — searched as
- *     two independent optimizer runs (`--adaptation on|off`), never as a
- *     dimension inside one run; `params.ts`'s own doc comment on this field
- *     states the same exclusion for the screen to find.
- *   - `rpProcessNoiseWithinEvent`/`rpProcessNoiseEventBoundary`/
- *     `rpColdStartVariance` (F3, `SIGMA1_CODE_VERSION` 4.0.0): the RP
- *     threshold variables' OWN absolute noise and cold-start variance, split
- *     off the score side when D-T1 made the score side scale-relative. They
- *     carry exactly the argument the two Monte Carlo fields above already do
- *     — D-01's objective is structurally blind to the RP pmf, so searching
- *     them spends budget on a dimension the objective cannot see. Note the
- *     side effect this removes: before 4.0.0 the tuner moved RP's `q` as a
- *     consequence of moving the score side's, because they were the same
- *     parameter. It no longer does. That is a real, intended change in what a
- *     search explores.
+ * D-T3 (quick task 260901-trz): every `Sigma1Params` field deliberately
+ * EXCLUDED from the search, WITH ITS REASON, as DATA.
  *
- * D-T3 replaces this `Exclude` union with a named `SEARCH_EXCLUSIONS` record
- * carrying each reason as data rather than as prose in this comment, and adds
- * three more exclusions. That is the NEXT task's job, deliberately: doing it
- * here would tangle a deletion from the search space into the same commit as
- * the rename, and the `covShrinkage` fix's own ~0.0005 Brier cost could then
- * not be attributed to it alone.
+ * D-T3's own wording is the requirement — the exclusions must be expressed
+ * explicitly, "not by omission — a future reader must not be able to re-add
+ * them by accident." A record rather than the `Exclude<...>` union this
+ * replaced, because a union of string literals carries no reason: a later
+ * reader deleting a name from it sees only a name, and the argument for the
+ * exclusion lived in a comment that nothing forced them to read. Here the
+ * reason travels WITH the key, `screenGridFor` quotes it back on a refused
+ * call, and `tune.ts`'s `loadSurvivors` quotes it at a stale artifact.
+ *
+ * `SEARCH_EXCLUSIONS` and `SIGMA1_SEARCH_SPACE` must PARTITION
+ * `SIGMA1_PARAM_KEYS` exactly — no key in both, no key in neither.
+ * `searchSpace.test.ts` asserts that partition with a message naming any
+ * offending key, so a `Sigma1Params` field added later and forgotten in both
+ * places fails a test that says which field it was. That test, not this
+ * comment, is what makes the exclusion enforced rather than conventional.
  */
-export type SearchableParamKey = Exclude<
-  keyof Sigma1Params,
-  | "rpMonteCarloSeed"
-  | "rpMonteCarloDraws"
-  | "adaptationEnabled"
-  | "rpProcessNoiseWithinEvent"
-  | "rpProcessNoiseEventBoundary"
-  | "rpColdStartVariance"
->;
+export const SEARCH_EXCLUSIONS = {
+  covShrinkage:
+    "A NUMERICAL SAFEGUARD, not a modelling knob. It keeps every folded per-team covariance matrix positive semi-definite for `subsetVariance`'s group-spread quadratic form (a convex combination of the EWMA'd outer product and its own diagonal is PSD; see covariance.ts's SIGMA1_COV_SHRINKAGE). The sensitivity screen's optimum sat AT THE 0 BOUND — i.e. the search wanted to delete the guarantee outright to buy roughly 0.0005 Brier. Tuning a safeguard against the very objective it protects is a category error, so it is FIXED at its documented constant rather than searched (D-T3).",
+  coldStartTeamTotalRel:
+    "INERT BY CONSTRUCTION. It seeds a team's assumed total contribution only while the LEAGUE itself has no observation of that component at all (sigma1/index.ts's `Sigma1League.componentMean`); the instant any team anywhere has been observed, new cold-start teams seed from the live league average instead. Over a full-season replay that window is a handful of matches at the very start of 2022, so a search spends real budget moving a number the objective can barely see.",
+  fallbackScoreSd:
+    "INERT BY CONSTRUCTION, and structurally special besides. It is the `count < 2` bootstrap for sigma ITSELF — the one absolute quantity D-T1 deliberately left absolute, because it stands in for the scale everything else is expressed relative to. It applies only before two alliance scores have ever been folded, and searching it would additionally move the meaning of every scale-relative parameter at once rather than moving one axis.",
+  rpMonteCarloSeed:
+    "Tuning a random SEED optimizes the realization, not the model. A seed that scores better does so because that particular draw happened to fall well, which is the definition of a result that will not reproduce. It stays a VERSIONED parameter (D-16: 'unchanged means bitwise identical' requires the seed in the committed set) and a never-searched one.",
+  rpMonteCarloDraws:
+    "A COMPUTE/PRECISION tradeoff, set by a convergence check rather than by Brier. Plan 03-03's `distribution.test.ts` proves the draw count never moves `pRedWin` or the predicted scores — the only inputs D-01's objective reads — so searching it spends budget on a dimension the objective is structurally blind to. Every search candidate here fixes it at 0, which takes `rp/distribution.ts`'s zero-draws short-circuit past the Cholesky decomposition entirely.",
+  rpProcessNoiseWithinEvent:
+    "F3 (SIGMA1_CODE_VERSION 4.0.0): the RP threshold variables' OWN absolute process noise, split off the score side when D-T1 made the score side scale-relative. D-01's objective is Brier over the predicted WIN PROBABILITY, which is structurally blind to the RP pmf — exactly the argument the two Monte Carlo fields above carry. Note the side effect this removes: before 4.0.0 the tuner moved RP's `q` as a consequence of moving the score side's, because they were literally the same parameter. It no longer does. That is a real, intended change in what a search explores.",
+  rpProcessNoiseEventBoundary:
+    "F3: the RP threshold variables' own absolute EVENT-BOUNDARY process noise — the same objective-blindness argument as `rpProcessNoiseWithinEvent`, and excluded for the same reason. Its ordering against the within-event value is still enforced by `isValidParamSet` and `Sigma1ParamsSchema`, because `--set-param` and a hand-edited committed version file both reach those predicates without going through the search at all.",
+  rpColdStartVariance:
+    "F3: the cold-start belief variance for an RP threshold variable the league has never observed. Objective-blind for the same reason as the RP process-noise pair above, and doubly inert besides — it applies only before any observation of that variable exists anywhere in the league.",
+  adaptationEnabled:
+    "A MODE, not a numeric knob (D-06 / D-T4). It is searched as TWO INDEPENDENT OPTIMIZER RUNS at identical budgets (`--adaptation on|off`), never as a dimension inside one run: a boolean has no bound, no scale and no meaningful neighbour, so a coordinate-descent step over it is undefined. D-T4's measured -0.0015 Brier for adaptation-on was selected by looking at holdout and is therefore inflated; it ships only if its arm clears the D-T7 bar out-of-sample.",
+} as const satisfies Partial<Record<keyof Sigma1Params, string>>;
+
+/** A `Sigma1Params` key that `SEARCH_EXCLUSIONS` names, with the reason attached. */
+export type ExcludedParamKey = keyof typeof SEARCH_EXCLUSIONS;
+
+/**
+ * Every `Sigma1Params` field the search may move: the interface minus
+ * `SEARCH_EXCLUSIONS`' own keys. Derived from the exclusion record rather
+ * than hand-typed as a second list, so the type and the reasons can never
+ * disagree about which keys are excluded.
+ */
+export type SearchableParamKey = Exclude<keyof Sigma1Params, ExcludedParamKey>;
 
 export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBound>> = {
   // D-07/D-T1 process noise, as a FRACTION of the season's own alliance-score
@@ -121,10 +128,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // team) — beyond that the league prior would dominate a team's entire
   // season regardless of how it actually played.
   shrinkagePriorMatches: { min: 1, max: 32, scale: "log" },
-  // A shrinkage FRACTION toward the diagonal must be a probability; 0.9
-  // still leaves 10% weight on the empirical off-diagonal estimate rather
-  // than collapsing to a purely diagonal covariance (which 1.0 would).
-  covShrinkage: { min: 0, max: 0.9, scale: "linear" },
   // D-T1: the shrunk-consistency VARIANCE floor, as a fraction of the season's
   // alliance-score variance. At the lower end (1e-4, roughly 0.1 pts^2 on the
   // tune seasons' scale) the floor claims near-zero residual uncertainty,
@@ -139,13 +142,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // (overconfident by construction); above 4 it barely distinguishes a
   // blowout from a coin flip (underconfident by construction).
   linkC: { min: 0.25, max: 4, scale: "log" },
-  // D-T1: a cold-start team's assumed total alliance contribution, as a
-  // fraction of the season's alliance-score STANDARD DEVIATION (linear, not
-  // squared — this is a point total). 0.15 is barely above zero contribution;
-  // 1.9 approaches a strong veteran team's typical full-alliance-share output
-  // — the plausible range for "what should we assume about a team we have
-  // never seen play." The default's relative image is 0.624.
-  coldStartTeamTotalRel: { min: 0.15, max: 1.9, scale: "linear" },
   // D-T1: the cold-start consistency VARIANCE, as a fraction of the season's
   // alliance-score variance. The UPPER bound is deliberately generous, and
   // for a specific documented reason: `params.ts` records
@@ -156,7 +152,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // above the default's 25; 4e-3 (about 4 pts^2 there) is the low end of a
   // defensible seed. The default's relative image is 2.43e-2.
   coldStartConsistencyVarianceRel: { min: 4e-3, max: 0.5, scale: "log" },
-  fallbackScoreSd: { min: 8, max: 80, scale: "log" },
   // D-17: a decay of 0 discards the carried consistency signal entirely at
   // a season boundary (explicitly permitted, D-17's own wording); 1 carries
   // it forward completely undecayed. Both ends are meaningful, not just
@@ -218,8 +213,23 @@ export const SEARCHABLE_PARAM_KEYS: readonly SearchableParamKey[] = SIGMA1_PARAM
  * contain a distinct interior default for any parameter in
  * `SIGMA1_SEARCH_SPACE` (every one of them has an interior default —
  * verified by `searchSpace.test.ts`).
+ *
+ * D-T3: refuses an excluded key at RUNTIME even though `SearchableParamKey`
+ * already forbids it at compile time, and quotes that key's own
+ * `SEARCH_EXCLUSIONS` reason when it does. The type is not the only entry
+ * path — `tune.ts`'s `loadSurvivors` reads parameter names as STRINGS out of
+ * a JSON screen artifact — so a survivors file written before this change
+ * reaches here with a key the type system never saw. Quoting the reason
+ * rather than only reporting "not searchable" is what lets that stale
+ * artifact explain itself instead of merely failing.
  */
 export function screenGridFor(key: SearchableParamKey, valueCount: number): number[] {
+  const exclusionReason = (SEARCH_EXCLUSIONS as Partial<Record<string, string>>)[key];
+  if (exclusionReason !== undefined) {
+    throw new Error(
+      `screenGridFor: "${key}" is deliberately EXCLUDED from the search space (D-T3, SEARCH_EXCLUSIONS in packages/harness/searchSpace.ts) and has no bound to sweep. Its recorded reason: ${exclusionReason}`
+    );
+  }
   const bound = SIGMA1_SEARCH_SPACE[key];
   if (!Number.isInteger(valueCount) || valueCount < 3) {
     throw new Error(

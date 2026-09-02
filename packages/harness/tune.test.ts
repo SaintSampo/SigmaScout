@@ -6,10 +6,14 @@
  * `tune.ts` specifically so this file can exercise them without spinning up
  * a real corpus replay.
  */
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertNoHoldoutLeak,
   determineWinner,
+  loadSurvivors,
   objectiveForCandidate,
   planJointCandidates,
   selectBestScreenRow,
@@ -17,7 +21,7 @@ import {
   type ScreenRow,
 } from "./tune.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../core/algorithms/sigma1/params.js";
-import { isValidParamSet, SEARCHABLE_PARAM_KEYS } from "./searchSpace.js";
+import { isValidParamSet, SEARCHABLE_PARAM_KEYS, SEARCH_EXCLUSIONS } from "./searchSpace.js";
 import type { ScoreSlice } from "./score.js";
 
 interface FakeCandidate {
@@ -281,5 +285,55 @@ describe("selectBestScreenRow (D-10 / 03-REVIEW WR-02)", () => {
     // The message must also point the reader at the search space, per
     // WR-02's own prescribed fix.
     expect(() => selectBestScreenRow("linkC", [])).toThrow(/SIGMA1_SEARCH_SPACE/);
+  });
+});
+
+/**
+ * D-T3 (quick task 260901-trz). `loadSurvivors` reads parameter names as
+ * STRINGS out of a JSON screen artifact, so it — not the type system — is the
+ * real boundary a stale artifact crosses. Two distinct failures with two
+ * distinct messages: a key that WAS searchable and is now excluded (the
+ * artifact is stale, and the exclusion's own recorded reason says why), and a
+ * key that was never a parameter at all (the pre-existing message).
+ */
+describe("loadSurvivors (D-T3's exclusion enforcement at the artifact boundary)", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "tune-survivors-"));
+
+  function survivorsFixture(name: string, survivors: readonly string[]): string {
+    const path = join(scratch, `${name}.json`);
+    writeFileSync(path, JSON.stringify({ survivors }), "utf8");
+    return path;
+  }
+
+  it("accepts a survivors list of genuinely searchable keys", () => {
+    const path = survivorsFixture("valid", [SEARCHABLE_PARAM_KEYS[0]!, SEARCHABLE_PARAM_KEYS[1]!]);
+    expect(loadSurvivors(path)).toEqual([SEARCHABLE_PARAM_KEYS[0], SEARCHABLE_PARAM_KEYS[1]]);
+  });
+
+  it("rejects an EXCLUDED key and quotes that key's own recorded reason", () => {
+    // `covShrinkage` is the concrete case this task creates: it was a real
+    // survivor in the committed `tuned-2026-08` provenance, so a pre-D-T3
+    // screen artifact genuinely names it.
+    const path = survivorsFixture("excluded", ["covShrinkage"]);
+    expect(() => loadSurvivors(path)).toThrow(/covShrinkage/);
+    expect(() => loadSurvivors(path)).toThrow(/EXCLUDED from the search space/);
+    expect(() => loadSurvivors(path)).toThrow(/numerical safeguard/i);
+    expect(() => loadSurvivors(path)).toThrow(/SEARCH_EXCLUSIONS/);
+  });
+
+  it("rejects EVERY excluded key with its own reason, not one shared message", () => {
+    for (const [key, reason] of Object.entries(SEARCH_EXCLUSIONS)) {
+      const path = survivorsFixture(`excluded-${key}`, [key]);
+      const firstClause = reason.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      expect(() => loadSurvivors(path)).toThrow(new RegExp(firstClause));
+    }
+  });
+
+  it("rejects a genuinely UNKNOWN key with the pre-existing message, distinct from the exclusion one", () => {
+    const path = survivorsFixture("unknown", ["processNoiseFoo"]);
+    expect(() => loadSurvivors(path)).toThrow(/not a SEARCHABLE_PARAM_KEYS member/);
+    // Distinctness is the point: an unknown key must NOT be reported as a
+    // deliberate exclusion, or a typo would read as a documented decision.
+    expect(() => loadSurvivors(path)).not.toThrow(/EXCLUDED from the search space/);
   });
 });
