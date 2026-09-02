@@ -73,18 +73,8 @@ export const MOBILE_PINNED_COLUMN_IDS = PINNED_COLUMN_IDS.filter((id) => id !== 
  * regression to reason about above the breakpoint because nothing there
  * changes at all.
  */
-/*
- * 2026-09-02: all four narrow widths came down alongside the fluid type
- * scale (theme.css) and the mobile cell padding, which together shrink the
- * same worst-case strings these were originally measured against at 14px
- * type and 8px padding. The derivations above still describe WHY each column
- * is sized to its own worst case; only the scale changed. Summed with the
- * first metric column (88) and record (66): 40 + 48 + 70 + 88 + 66 = 312,
- * exactly the scroller a 360px phone offers after the page's 24px padding —
- * five columns where three used to fit.
- */
-export const RANK_COLUMN_WIDTH_NARROW_PX = 40;
-export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 48;
+export const RANK_COLUMN_WIDTH_NARROW_PX = 56;
+export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 72;
 
 /**
  * Nickname's declared width BELOW `MOBILE_BREAKPOINT_PX` (07-UAT.md G-2 part
@@ -130,7 +120,7 @@ export const TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX = 48;
  * The WIDE-viewport size (220, unchanged) is untouched — this narrowing
  * applies only below `MOBILE_BREAKPOINT_PX`.
  */
-export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 70;
+export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 90;
 
 /**
  * `record`'s declared width BELOW `MOBILE_BREAKPOINT_PX` (07-UAT.md G-11).
@@ -183,7 +173,7 @@ export const NICKNAME_COLUMN_WIDTH_NARROW_PX = 70;
  * applies only below `MOBILE_BREAKPOINT_PX`, matching every other narrow
  * constant in this file.
  */
-export const RECORD_COLUMN_WIDTH_NARROW_PX = 66;
+export const RECORD_COLUMN_WIDTH_NARROW_PX = 80;
 
 /**
  * Registered once, module-level, and re-exported so `TeamsTable.tsx`
@@ -273,10 +263,7 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       // Friendly labels ONLY (2026-09-01 redesign): "Hub Shift 2", "Auto",
       // "Fouls Committed" — never a raw artifact key like `hubShift2`.
       header: metricDisplayLabel(key),
-      // 88 below the breakpoint (2026-09-02): with the fluid type scale and the
-      // smaller `.metric-tier` box, a value plus its raised spread no longer
-      // needs 120px on a phone, and the 32px saved is most of another column.
-      size: isNarrow ? 88 : 120,
+      size: 120,
       // D-17's rarity tiers, the same ones the team page's metric grid
       // applies and the same `.metric-tier--*` tokens — so a number does
       // not change meaning between the Teams table and the team page it
@@ -336,20 +323,9 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     // ellipsis-truncate there (it already carries `truncate`), which is an
     // accepted narrow-mode trade for two extra metric columns' worth of
     // width; the VALUE itself never clips at either size.
-    // 2026-09-02: below the breakpoint the header is the bare word "Rank".
-    // At the narrow width "VPR Rank" ellipsised to "VP...", which reads as a
-    // broken column rather than a labelled one. D-20's provenance claim (that
-    // the ordering is the SELECTED algorithm's) is still on screen — the
-    // algorithm dropdown sits directly above in the ribbon — so the mobile
-    // label drops the prefix rather than the meaning.
-    columnHelper.accessor("rank", {
-      header: isNarrow ? "Rank" : `${algorithmDisplayLabel(algorithm)} Rank`,
-      size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 96,
-    }),
+    columnHelper.accessor("rank", { header: `${algorithmDisplayLabel(algorithm)} Rank`, size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 96 }),
     columnHelper.accessor("teamNumber", {
-      // "Team" on a phone: the "#" is decorative and its four characters were
-      // the difference between a full label and "TEA...".
-      header: isNarrow ? "Team" : "Team #",
+      header: "Team #",
       size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>

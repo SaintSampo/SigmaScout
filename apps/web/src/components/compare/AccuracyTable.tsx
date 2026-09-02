@@ -2,7 +2,6 @@ import { Fragment } from "react";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/lib/breakpoints";
 import {
   formatBrierDisplay,
   formatWinnerAccuracyDisplay,
@@ -191,65 +190,8 @@ export interface AccuracyTableProps {
   compLevelView: CompareCompLevelView;
 }
 
-/**
- * The NARROW layout (2026-09-02, user: "I don't like how you have to scroll
- * the tables horizontally"). Desktop already fits — measured 0 overflow at
- * 900px and 1400px — but the seven-column grid needs 570px against a 360px
- * phone's 312px, so it overflowed by 258px and scrolled.
- *
- * Same data, same `buildAccuracyRows` and same `buildRowEmphasis`; only the
- * SHAPE differs. Instead of one row per season with three algorithm groups
- * across, this is one row per (season, algorithm) with the two metrics as
- * plain columns — four narrow columns that fit any phone. The season is
- * printed once per group and left blank on its other two rows, so the eye
- * still reads the seasons as blocks.
- */
-function AccuracyTableNarrow({ rows }: { rows: readonly AccuracyRow[] }) {
-  return (
-    <table data-slot="table" className="zebra-rows w-full caption-bottom text-sm">
-      <TableHeader>
-        <TableRow>
-          <TableHead className="text-role-label">Year</TableHead>
-          <TableHead className="text-role-label">Model</TableHead>
-          <TableHead className="text-role-label">{WINNER_ACCURACY_HEADER_LABEL}</TableHead>
-          <TableHead className="text-role-label">{BRIER_HEADER_LABEL}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => {
-          const emphasis = buildRowEmphasis(row);
-          return PUBLISHED_ALGORITHM_IDS.map((algorithmId, index) => {
-            const cell = row.cells[algorithmId];
-            return (
-              <TableRow key={`${row.season}-${algorithmId}`}>
-                <TableCell className="numeric-cell">{index === 0 ? row.season : ""}</TableCell>
-                <TableCell>{algorithmDisplayLabel(algorithmId)}</TableCell>
-                <TableCell className={cn("numeric-cell", emphasis.winnerAccuracyLeaders.includes(algorithmId) && "font-semibold")}>
-                  {formatWinnerAccuracy(cell.winnerAccuracy)}
-                </TableCell>
-                <TableCell className={cn("numeric-cell", emphasis.brierLeaders.includes(algorithmId) && "font-semibold")}>
-                  {formatBrier(cell.brierScore)}
-                </TableCell>
-              </TableRow>
-            );
-          });
-        })}
-      </TableBody>
-    </table>
-  );
-}
-
 export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableProps) {
   const rows = buildAccuracyRows(artifactsByYear, compLevelView);
-  const isNarrow = useIsMobile();
-
-  if (isNarrow) {
-    return (
-      <div data-testid={COMPARE_ACCURACY_SCROLL_TESTID} className="min-w-0 touch-pan-xy overscroll-x-contain">
-        <AccuracyTableNarrow rows={rows} />
-      </div>
-    );
-  }
 
   return (
     <div

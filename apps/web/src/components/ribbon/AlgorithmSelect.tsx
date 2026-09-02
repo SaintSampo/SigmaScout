@@ -123,7 +123,7 @@ export function AlgorithmSelect() {
       {/* Pine ribbon control treatment (2026-09-01 redesign): translucent white on the dark green bar. */}
       <SelectTrigger
         aria-label="Algorithm"
-        className="data-[size=default]:h-9 min-w-[4.5rem] max-w-[18rem] shrink border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[15px] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
+        className="data-[size=default]:h-9 min-w-0 max-w-[18rem] shrink border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[15px] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
       >
         <SelectValue />
       </SelectTrigger>

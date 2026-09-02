@@ -56,18 +56,10 @@ export function useIsMobile(): boolean {
  * scroller of the narrowest supported devices (G-2's pixel-10 case, where
  * it regressed the "one full data column at scroll 0" invariant). Below
  * this viewport width the tables fall back to the G-11 record-first order,
- * whose record column does fit.
- *
- * 2026-09-02: lowered from 380 to 320. That figure sized the F3 first-paint
- * set at the OLD widths (rank 56 + team 72 + nickname 90 + metric 120 =
- * 338px). The fluid type scale and the narrower mobile columns bring the
- * same set to 40 + 48 + 70 + 88 = 246px, which clears even a 320px phone's
- * 272px scroller — so every supported width now leads with the metric.
- * Measured on a real 360px viewport before this change: the first metric
- * column rendered was Auto, because the gate failed and the record-first
- * order pushed Total off-screen entirely.
+ * whose 80px record column does fit. 380 viewport ≈ the narrowest width
+ * whose scroller still fits the 338px F3 first-paint set.
  */
-export const F3_METRIC_FIRST_MIN_VIEWPORT_PX = 320;
+export const F3_METRIC_FIRST_MIN_VIEWPORT_PX = 380;
 
 /** `true` when the viewport is mobile-narrow (`useIsMobile`) but still wide enough for the F3 metric-first order; `false` on the narrowest devices, which keep the G-11 record-first order. Same matchMedia/jsdom-fallback discipline as `useIsMobile`. */
 export function useIsF3MetricFirstWidth(): boolean {
