@@ -107,6 +107,22 @@ describe("EventHeader — week's three distinct outcomes (E1 partial)", () => {
     expect(meta.textContent).toContain("Week 1");
     expect(meta.textContent).not.toContain("Offseason");
   });
+
+  it("Test 5b (Task 5, 260902-ixg): stored week 18 — 2026iscmp's own raw TBA week — omits the week segment entirely, never the guessed 'Week 19'. This is WR-01's identical out-of-band-week defect, in the location that fix did not reach", () => {
+    expect(eventMetaLine({ week: 18 })).toBe("");
+    expect(eventMetaLine({ week: 18 })).not.toContain("Week");
+
+    render(<EventHeader artifact={makeArtifact({ week: 18, location: "M, Israel" })} />);
+    const meta = screen.getByTestId("event-header-meta");
+    expect(meta.textContent).toBe("M, Israel");
+    expect(meta.textContent).not.toContain("Week");
+    expect(meta.textContent).not.toContain("19");
+  });
+
+  it("Test 5c (Task 5, 260902-ixg): the season-week boundary — stored week 8 (MAX_SEASON_WEEK) still renders 'Week 9'; stored week 9 (one past it) omits the segment", () => {
+    expect(eventMetaLine({ week: 8 })).toBe("Week 9");
+    expect(eventMetaLine({ week: 9 })).toBe("");
+  });
 });
 
 describe("EventHeader — location absence and null (E1 partial)", () => {

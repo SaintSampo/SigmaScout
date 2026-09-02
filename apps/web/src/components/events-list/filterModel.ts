@@ -43,14 +43,32 @@ export type WeekFilterValue = number | (typeof WEEK_SPECIAL_VALUES)[number];
 export const MAX_SEASON_WEEK = 8;
 
 /**
+ * The minimal shape `hasOutOfBandWeek` needs — `EventRow` satisfies this
+ * structurally with no cast, but so does any other page's own week-bearing
+ * shape (07-15-PLAN.md's `EventHeader`, plan 260902-ixg, needs the identical
+ * rule with no `isOffseason`/`eventType` fields on `EventArtifact` at all).
+ * `isOffseason`/`eventType` are optional so a caller with no opinion on them
+ * (an honest "I don't know") gets the SAME answer a `false`/non-matching
+ * `EventRow` would: neither excludes the row, so the check falls straight
+ * through to the week-magnitude test below.
+ */
+export interface OutOfBandWeekCandidate {
+  week: number | null;
+  isOffseason?: boolean;
+  eventType?: number;
+}
+
+/**
  * True when `event`'s week is an out-of-band TBA index rather than a season
  * week — the `"other"` bucket's membership test, and the one place the rule is
- * written. The three other special buckets are checked FIRST and win, in the
- * same precedence `filterOptions` and `TypeChip` apply: an offseason,
+ * written (260902-ixg widened the parameter type so `EventHeader.tsx` could
+ * import this instead of duplicating it — see `OutOfBandWeekCandidate`'s own
+ * doc comment). The three other special buckets are checked FIRST and win, in
+ * the same precedence `filterOptions` and `TypeChip` apply: an offseason,
  * preseason or Championship row has its own filter value and is never swept in
  * here, however TBA happened to index its week.
  */
-export function hasOutOfBandWeek(event: EventRow): boolean {
+export function hasOutOfBandWeek(event: OutOfBandWeekCandidate): boolean {
   if (event.isOffseason) return false;
   if (event.eventType === 3 || event.eventType === 4) return false;
   if (event.eventType === 100) return false;

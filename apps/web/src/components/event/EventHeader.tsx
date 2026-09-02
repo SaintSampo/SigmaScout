@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { hasOutOfBandWeek } from "@/components/events-list/filterModel.js";
 import { isValidEventKey } from "../../lib/eventKey.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -61,13 +62,28 @@ export function formatEventStartDate(startDate: string | undefined): string {
  * to say "Offseason", which was a lie for Championship divisions/Einstein
  * (week null, NOT offseason); this artifact carries neither isOffseason nor
  * eventType, so a real label rides the next event-artifact schema republish.
+ *
+ * Task 5 (260902-ixg): a present, non-null week that is nonetheless
+ * OUT OF BAND (`hasOutOfBandWeek`, `MAX_SEASON_WEEK` from
+ * `events-list/filterModel.ts` — imported, not duplicated, so this rule has
+ * exactly one home) ALSO omits the segment entirely, for the identical
+ * reason a null week does: `Week ${week + 1}` is a guessed label once
+ * `week` is not a season week at all. Live-observed at `2026iscmp` (raw
+ * TBA week 18): this rendered "Week 19" before the fix — WR-01's identical
+ * defect from the Events list, reaching a second location because the rule
+ * lived in only one of the two places that needed it. `EventArtifact`
+ * carries no `isOffseason`/`eventType` (unlike `EventsListRowSchema`), so
+ * this call passes `week` alone — `hasOutOfBandWeek`'s own doc comment
+ * covers exactly this: an unknown offseason/Championship status falls
+ * straight through to the week-magnitude test, matching `EventsListRowSchema`
+ * for every week this page can actually distinguish.
  */
 export function eventMetaLine(parts: { startDate?: string; location?: string | null; week?: number | null }): string {
   const segments: string[] = [];
   const dateSegment = formatEventStartDate(parts.startDate);
   if (dateSegment !== "") segments.push(dateSegment);
   if (parts.location !== undefined && parts.location !== null) segments.push(parts.location);
-  if (parts.week !== undefined && parts.week !== null) {
+  if (parts.week !== undefined && parts.week !== null && !hasOutOfBandWeek({ week: parts.week })) {
     // TBA weeks are 0-indexed; readers count from Week 1.
     segments.push(`Week ${parts.week + 1}`);
   }
