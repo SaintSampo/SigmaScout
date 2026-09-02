@@ -97,21 +97,34 @@ export class MissingLeagueRowError extends Error {
  * turns that into a loud `LeagueRowShapeVersionError` at load time, naming the
  * re-seed as the fix.
  *
- * Bumped 3 -> 4 (D-D3/D-D4(b), quick task 260902-disp): every Sigma1 team
- * payload gained `contributionStats` and `lastContribution`, the per-match
- * inferred contribution series (`sigma1/contribution.ts`) that IS the published
- * `±` from this version on. This bump is load-bearing for exactly the reason
- * the 2 -> 3 bump above gives: `apps/worker/src/stateStore.ts`'s
- * `readScopedState` filters rows by `algorithm_id` ONLY and never by
- * `algorithm_version`, so bumping `vpr.version` to 5.0.0 does NOT by itself
- * make a stale seeded row unreachable — a shape-3 sigma1 team row written
- * before this change is still selected and parsed. Without this bump it would
- * deserialize with `contributionStats` as `undefined`, and `teamMetrics` would
- * read a property of `undefined` on live traffic the moment a team page was
- * requested. The shape check is the only thing that turns that into a loud
- * `LeagueRowShapeVersionError` at load time, naming the re-seed as the fix.
+ * Bumped 3 -> 4 (quick task 260902-disp, commit 96e38754): every Sigma1 team
+ * payload gained `contributionStats` and `lastContribution`, a per-match
+ * inferred contribution series (`sigma1/contribution.ts`).
+ *
+ * WHAT SHAPE 4 ACTUALLY SHIPPED — corrected here rather than deleted, because
+ * a reader tracing a shape-4 seed row needs this sentence to exist. This
+ * paragraph originally said that series "IS the published `±` from this
+ * version on." That was never true of any shipped code. Quick task 260902-disp
+ * was HALTED after its Task 1 (the fold) landed and before its Task 2 (publish
+ * it) ever ran: `teamMetrics` continued to return `sqrt(P + R)` and never read
+ * the accumulator. So shape 4 stored, in every D1 seed row and every snapshot,
+ * a quantity nothing anywhere published.
+ *
+ * Bumped 4 -> 5 (D-V1..D-V4, quick task 260902-varopr): `contributionStats` and
+ * `lastContribution` are REMOVED. Their estimator — the even-split contribution
+ * standard deviation — was measured against known synthetic sigma at slope
+ * 0.179, the worst of the three candidates and the one the variance
+ * decomposition exists to replace, so it is retired rather than left sitting
+ * alongside a second published-`±` mechanism. The team payload's field set
+ * genuinely SHRANK, which is why this is a bump and not a no-op:
+ * `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows by
+ * `algorithm_id` ONLY and never by `algorithm_version`, so a shape-4 row seeded
+ * before this change is still selected and would deserialize carrying two
+ * fields that no longer exist in `Sigma1TeamState` at all. The shape check is
+ * the only thing that turns that into a loud `LeagueRowShapeVersionError` at
+ * load time, naming the re-seed as the fix.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 4;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 5;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -207,9 +220,6 @@ interface SerializedSigma1TeamState {
   matchCount: number;
   lastEventKey: string | null;
   innovationStats: Sigma1TeamState["innovationStats"];
-  /** D-D3/D-D4(b) (quick task 260902-disp): the per-match inferred contribution accumulators (`sigma1/contribution.ts`) — three numbers per published metric key, ~800 bytes per team, against the 169-number covariance matrix this row already carries. The raw series is deliberately NOT serialized; see `contribution.ts`'s header for the `SeedRowTooLargeError` measurement that decided it. */
-  contributionStats: Sigma1TeamState["contributionStats"];
-  lastContribution: Sigma1TeamState["lastContribution"];
   rpBeliefs: Sigma1TeamState["rpBeliefs"];
   rpCovariance: number[][];
   rpCrossCovariance: number[][];
@@ -253,8 +263,6 @@ function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState
     matchCount: team.matchCount,
     lastEventKey: team.lastEventKey,
     innovationStats: team.innovationStats,
-    contributionStats: team.contributionStats,
-    lastContribution: team.lastContribution,
     rpBeliefs: team.rpBeliefs,
     rpCovariance: team.rpCovariance,
     rpCrossCovariance: team.rpCrossCovariance,

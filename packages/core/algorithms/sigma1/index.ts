@@ -78,12 +78,6 @@ import {
 // residual door would leave a dead binding that reads like a live one. It is
 // still RE-EXPORTED below, unchanged, for callers that genuinely have one.
 import { foldConsistencyVariance, shrinkConsistency } from "./consistency.js";
-import {
-  contributionSpread,
-  emptyContributionAccumulator,
-  foldContribution,
-  type ContributionAccumulator,
-} from "./contribution.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
@@ -131,12 +125,6 @@ export {
   foldConsistencyVariance,
   shrinkConsistency,
 } from "./consistency.js";
-export {
-  contributionSpread,
-  emptyContributionAccumulator,
-  foldContribution,
-  type ContributionAccumulator,
-} from "./contribution.js";
 export { SIGMA1_LINK_C, erf, normalCdf, winProbability } from "./linkFunctions.js";
 export {
   SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY,
@@ -169,32 +157,6 @@ export interface Sigma1TeamState extends RpTeamState {
   readonly lastEventKey: string | null;
   /** D-05/D-07 (plan 03-04, `./adaptation.js`): this team's own recency-weighted innovation history, scaling `applyTeamProcessNoise`'s `q` via `adaptationFactor`. ONE scalar-producing statistic per team (D-07's granularity), never one per component. */
   readonly innovationStats: InnovationStats;
-  /**
-   * D-D3/D-D4(b) (quick task 260902-disp): this team's per-match inferred
-   * contribution series (`contribution.ts`), Welford-summarized, keyed by
-   * EXACTLY the metric keys `teamMetrics` publishes — each component name,
-   * `TOTAL_METRIC_KEY`, and each `COMPONENT_GROUP_METRIC_KEYS` entry this
-   * season registers a grouping for.
-   *
-   * Keying by the PUBLISHED key — rather than a nested
-   * `{ components, total, groups }` — is what makes `teamMetrics` a lookup
-   * instead of a reconciliation: "the published `±` for key K is the sample SD
-   * of the series under key K" is then a single line with nothing to keep in
-   * agreement. A nested shape would need a mapping from structure to key, and
-   * that mapping is precisely the thing that drifts.
-   */
-  readonly contributionStats: Readonly<Record<string, ContributionAccumulator>>;
-  /**
-   * The most recent match in which this team received a Kalman update, and its
-   * TOTAL contribution for that match. `null` before the team's first update.
-   *
-   * D-D3: match-KEYED deliberately. A team can appear on a match's roster and
-   * still receive no update (a fully-surrogate alliance, a whole-alliance
-   * DQ-zero), so the publish path MUST compare `matchKey` before attributing
-   * this value to a row — otherwise a team that sat out publishes its previous
-   * match's number as though it were this one's.
-   */
-  readonly lastContribution: { readonly matchKey: string; readonly total: number } | null;
 }
 
 /**
@@ -361,12 +323,6 @@ function coldStartTeamState(
     // at the cold-start "assume correctly specified" prior — see
     // `emptyInnovationStats`'s own doc comment for why that is 1.0, not 0.
     innovationStats: emptyInnovationStats(),
-    // D-D3/D-D4(b) (quick task 260902-disp): a fresh team has no contribution
-    // series at all, so `teamMetrics` will omit every one of its spreads —
-    // which is the correct claim, not a gap. `matchCount: 0` beside the value
-    // is what a reader sees instead.
-    contributionStats: {},
-    lastContribution: null,
     // D-09: a brand-new team's RP state starts fully empty (never carries
     // score-side data into it) — `foldRpObservation` (rp/state.ts) cold-starts
     // individual threshold-variable beliefs lazily the first time each is
@@ -583,8 +539,7 @@ function applyAllianceUpdate(
   eventKey: string,
   params: Sigma1ResolvedParams,
   rpVariableCount: number,
-  matchKey: string,
-  contributionGroups: Readonly<Record<string, readonly string[]>>
+  varianceGroups: Readonly<Record<string, readonly string[]>>
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
     // Every team on this alliance was a surrogate — nothing to attribute,
@@ -630,12 +585,22 @@ function applyAllianceUpdate(
   // per teammate.
   const varianceSampleByComponent = new Array<number>(componentOrder.length).fill(0);
   const innovationScaledByComponent = new Array<number>(componentOrder.length).fill(0);
-  // D-D3 (quick task 260902-disp): this alliance's RAW per-component
+  // D-V1 (quick task 260902-varopr): this alliance's RAW per-component
   // innovation, retained by exactly the same one-line pattern
-  // `varianceSampleByComponent` above already uses — the contribution fold in
-  // the `nextTeams` build below needs `innovation_c / n`, and re-deriving it
-  // there would mean a second expression that has to be kept in agreement with
-  // this loop's.
+  // `varianceSampleByComponent` above already uses.
+  //
+  // This array is the DECOMPOSITION'S PER-KEY TARGET — Task 4 folds
+  // `innovation_c^2` (and the group/TOTAL sums of `innovation_c`, squared) into
+  // the per-event variance accumulator from exactly here. It is deliberately
+  // captured ONCE, in this loop, and never re-derived: `varianceSample` above
+  // (filter R, the UPDATE path) and the decomposition's target (the DISPLAY
+  // path) are two estimators over ONE innovation, and a second derivation is
+  // precisely how the two would silently diverge while both looked right.
+  //
+  // Retained deliberately across the commit that retired the contribution fold
+  // it previously served (its only reader), rather than deleted and reinstated
+  // one commit later — the value and its capture point are unchanged either
+  // way, and reinstating it would invite a second, subtly different expression.
   const innovationByComponent = new Array<number>(componentOrder.length).fill(0);
 
   componentOrder.forEach((name, componentIndex) => {
@@ -747,14 +712,26 @@ function applyAllianceUpdate(
     )
   );
 
-  // D-D3: resolve each contribution group's metric key to `componentOrder`
-  // INDICES once for the whole alliance, rather than re-running `indexOf` per
-  // team — the fold below is otherwise identical for every teammate and this
-  // keeps the per-team block to arithmetic.
-  const contributionGroupIndices: [string, number[]][] = Object.entries(contributionGroups).map(([metricKey, names]) => [
+  // Resolve each variance group's metric key to `componentOrder` INDICES once
+  // for the whole alliance, rather than re-running `indexOf` per team.
+  //
+  // The `index !== -1` filter is the load-bearing part and it is why this
+  // machinery survived the retirement of the contribution fold it was written
+  // for (quick task 260902-varopr Task 2): it is the SAME skip `teamMetrics`
+  // applies to its own group walk, so the folded key set and the published key
+  // set agree BY CONSTRUCTION rather than by two lists being kept in step. A
+  // group whose components are all absent from this season's resolved
+  // `componentOrder` resolves to an EMPTY index list, and a fold against an
+  // empty list must contribute nothing — never a manufactured 0, which would
+  // publish a spread for a group that was never observed.
+  const varianceGroupIndices: [string, number[]][] = Object.entries(varianceGroups).map(([metricKey, names]) => [
     metricKey,
     names.map((name) => componentOrder.indexOf(name)).filter((index) => index !== -1),
   ]);
+  // Task 4 (quick task 260902-varopr) folds the decomposition's per-key targets
+  // against `varianceGroupIndices`. In THIS commit it is resolved and not yet
+  // read — recorded rather than left ambiguous, per the plan's own instruction.
+  void varianceGroupIndices;
 
   const nextTeams = new Map(teams);
   for (const team of allianceTeams) {
@@ -780,45 +757,6 @@ function applyAllianceUpdate(
         : 0;
     const aggregateNormalizedInnovation = Math.sqrt(meanSquaredNormalizedInnovation);
 
-    // D-D3/D-D4(b) (quick task 260902-disp): this team's per-match inferred
-    // contribution, per component — `mean_c^pre + innovation_c / n`.
-    //
-    // `working` is `workingTeams.get(team)!`, i.e. the belief BEFORE
-    // `updateAllianceSum` ran. THAT READ IS THE WHOLE DEFINITION. Reading
-    // `nextBeliefsByTeam` (the posterior) instead would make this series
-    // measure how fast the filter is still MOVING, which decays toward zero as
-    // the gain converges — the exact defect `consistency.ts` records D-Q2
-    // fixing (published spreads understated ~5x), reintroduced one level up in
-    // the display layer under a new name. `applyTeamProcessNoise` returns
-    // `{ mean: belief.mean, variance: belief.variance + q }` — the mean is
-    // untouched — so "before the update" is unambiguous here.
-    const perComponentContribution = componentOrder.map(
-      (name, i) => (working.beliefs[name]?.mean ?? 0) + innovationByComponent[i]! / allianceTeams.length
-    );
-    const nextContributionStats: Record<string, ContributionAccumulator> = { ...working.contributionStats };
-    componentOrder.forEach((name, i) => {
-      nextContributionStats[name] = foldContribution(
-        nextContributionStats[name] ?? emptyContributionAccumulator(),
-        perComponentContribution[i]!
-      );
-    });
-    let totalContribution = 0;
-    for (const [metricKey, indices] of contributionGroupIndices) {
-      // A group whose components are ALL absent from this season's resolved
-      // `componentOrder` folds NOTHING and keeps `count: 0` — the same claim
-      // `teamMetrics`'s own `present` guard makes when it publishes no metric
-      // for such a group. Folding a `0` here would manufacture a series of
-      // zeroes and hence a `spread` of 0 for a group that was never observed.
-      if (indices.length === 0) continue;
-      let groupContribution = 0;
-      for (const index of indices) groupContribution += perComponentContribution[index]!;
-      nextContributionStats[metricKey] = foldContribution(
-        nextContributionStats[metricKey] ?? emptyContributionAccumulator(),
-        groupContribution
-      );
-      if (metricKey === TOTAL_METRIC_KEY) totalContribution = groupContribution;
-    }
-
     nextTeams.set(team, {
       // `...working` first so this alliance-update pass never touches RP
       // fields (`rpBeliefs`/`rpCovariance`/`rpCrossCovariance`, D-09) —
@@ -831,8 +769,6 @@ function applyAllianceUpdate(
       matchCount: working.matchCount + 1,
       lastEventKey: eventKey,
       innovationStats: foldInnovation(working.innovationStats, aggregateNormalizedInnovation, params.adaptationEwmaAlpha),
-      contributionStats: nextContributionStats,
-      lastContribution: { matchKey, total: totalContribution },
     });
   }
 
@@ -1149,21 +1085,26 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   const ruleModule = rpRuleModuleForSeason(season);
   const rpVariableCount = ruleModule.thresholdVariables.length;
 
-  // D-D3 (quick task 260902-disp): the metric-key -> component-name map every
-  // contribution accumulator is folded against, assembled ONCE per `update()`
-  // call rather than per alliance. Its keys are exactly the keys `teamMetrics`
-  // publishes at the aggregate levels: `TOTAL_METRIC_KEY` over every name in
-  // `componentOrder`, plus each phase group this season registers. Group names
-  // are filtered by the SAME `indexOf(name) === -1` skip `teamMetrics` applies
-  // to its own group walk, so the folded series and the published key agree by
-  // construction rather than by two lists being kept in step. When
-  // `componentGroupsForSeason` yields nothing for the season, the map carries
-  // `TOTAL_METRIC_KEY` alone.
-  const contributionGroups: Record<string, readonly string[]> = { [TOTAL_METRIC_KEY]: componentOrder };
+  // D-V1 (quick task 260902-varopr): the metric-key -> component-name map every
+  // AGGREGATE-LEVEL variance target is folded against, assembled ONCE per
+  // `update()` call rather than per alliance. Its keys are exactly the keys
+  // `teamMetrics` publishes at the aggregate levels: `TOTAL_METRIC_KEY` over
+  // every name in `componentOrder`, plus each phase group this season
+  // registers. Group names are filtered by the SAME `indexOf(name) === -1` skip
+  // `teamMetrics` applies to its own group walk, so the folded key set and the
+  // published key set agree by construction rather than by two lists being kept
+  // in step. When `componentGroupsForSeason` yields nothing for the season, the
+  // map carries `TOTAL_METRIC_KEY` alone.
+  //
+  // Written for quick task 260902-disp's contribution fold and CONSUMED rather
+  // than deleted when that fold was retired (260902-varopr Task 2): the
+  // decomposition needs exactly this map, and reinventing it three tasks later
+  // would only reinvent it worse.
+  const varianceGroups: Record<string, readonly string[]> = { [TOTAL_METRIC_KEY]: componentOrder };
   const seasonGroups = componentGroupsForSeason(season);
   if (seasonGroups !== undefined) {
     for (const groupId of COMPONENT_GROUP_IDS) {
-      contributionGroups[COMPONENT_GROUP_METRIC_KEYS[groupId]] = seasonGroups[groupId].filter(
+      varianceGroups[COMPONENT_GROUP_METRIC_KEYS[groupId]] = seasonGroups[groupId].filter(
         (name) => componentOrder.indexOf(name) !== -1
       );
     }
@@ -1179,8 +1120,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    result.matchKey,
-    contributionGroups
+    varianceGroups
   );
   const afterBlue = applyAllianceUpdate(
     afterRed.teams,
@@ -1192,8 +1132,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    result.matchKey,
-    contributionGroups
+    varianceGroups
   );
 
   // Pitfall EPA-1's fix, reused here: fold each alliance's observed total
@@ -1516,16 +1455,6 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       // level up. Every team resets to the cold-start "assume correctly
       // specified" prior, never carries a converged factor forward.
       innovationStats: emptyInnovationStats(),
-      // D-D3/D-D4(b) (quick task 260902-disp): every contribution accumulator
-      // resets to empty and `lastContribution` clears at a season boundary.
-      // Contributions are POINTS under one season's scoring rules, and 2024
-      // points are not 2025 points — a series that crossed a boundary would be
-      // a category error dressed up as a longer history, and its standard
-      // deviation would mostly measure the rule change. The team-season
-      // artifact this series is published on is season-scoped, so the series
-      // it carries must be too.
-      contributionStats: {},
-      lastContribution: null,
       ...emptyRpTeamState(toRpVariableCount, toComponentOrder.length),
     });
   }

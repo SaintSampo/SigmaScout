@@ -15,18 +15,12 @@ import {
   vprSeasonSd,
   shrinkConsistency,
   teamTotalVariance,
-  contributionSpread,
   type Sigma1State,
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { resolveSigma1Params } from "./scale.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
-import {
-  COMPONENT_GROUP_METRIC_KEYS,
-  FOULS_COMMITTED_COMPONENT,
-  componentGroupsForSeason,
-  tryParseBreakdownPair,
-} from "../breakdown/index.js";
+import { FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../types.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 import { emptyInnovationStats } from "./adaptation.js";
@@ -407,8 +401,6 @@ describe("teamMetrics — honest-variance check", () => {
             matchCount: 20,
             lastEventKey: "2024test",
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -423,8 +415,6 @@ describe("teamMetrics — honest-variance check", () => {
             matchCount: 20,
             lastEventKey: "2024test",
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -587,8 +577,6 @@ describe("teamMetrics — D-01/D-02 the ± redefinition (plan 07-06)", () => {
             matchCount: 0,
             lastEventKey: null,
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -712,8 +700,6 @@ describe("teamMetrics — D-01/D-02 per-component and phase-group spreads (plan 
             matchCount: 10,
             lastEventKey: "2024test",
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -1189,8 +1175,6 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             matchCount: 5,
             lastEventKey: "2024test",
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -1213,8 +1197,6 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             matchCount: 5,
             lastEventKey: "2024test",
             innovationStats: emptyInnovationStats(),
-            contributionStats: {},
-            lastContribution: null,
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -1620,298 +1602,5 @@ describe("vpr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)
     const predictedWithReal = vpr.predict(stateWithReal, upcomingWithReal);
     expect(predictedWithDemo.redScore).toBeCloseTo(predictedWithReal.redScore, 9);
     expect(predictedWithDemo.redScoreVarianceOwn).toBeCloseTo(predictedWithReal.redScoreVarianceOwn!, 9);
-  });
-});
-
-/**
- * D-D3/D-D4(b) (quick task 260902-disp): the per-match INFERRED CONTRIBUTION
- * series that becomes the published `±`. This block covers the STATE side —
- * the fold's identity, its count agreement, its no-fold cases and its season
- * reset. `contribution.test.ts` covers the statistic itself.
- */
-describe("per-match contribution (D-D3)", () => {
-  /**
-   * A 2024 breakdown with INDEPENDENT red/blue own-field values and a
-   * SEPARATELY controlled `foulPoints` on both sides. The separate foul knob
-   * matters: each side's own `foulPoints` becomes the OPPOSING side's
-   * `foulsCommitted` component (breakdown/2024.ts), so a helper that tied
-   * fouls to the own-field value would leak one alliance's variation into the
-   * other's observed total and quietly contaminate the steady/streaky test.
-   */
-  function breakdown(redVal: number, blueVal: number, foulPoints: number): string {
-    function side(perComponentValue: number) {
-      return {
-        autoLeavePoints: perComponentValue,
-        autoAmpNotePoints: perComponentValue,
-        autoSpeakerNotePoints: perComponentValue,
-        teleopAmpNotePoints: perComponentValue,
-        teleopSpeakerNotePoints: perComponentValue,
-        teleopSpeakerNoteAmplifiedPoints: perComponentValue,
-        endGameOnStagePoints: perComponentValue,
-        endGameParkPoints: perComponentValue,
-        endGameHarmonyPoints: perComponentValue,
-        endGameNoteInTrapPoints: perComponentValue,
-        endGameSpotLightBonusPoints: perComponentValue,
-        adjustPoints: perComponentValue,
-        foulPoints,
-        autoAmpNoteCount: 0,
-        autoSpeakerNoteCount: 0,
-        teleopAmpNoteCount: 0,
-        teleopSpeakerNoteCount: 0,
-        teleopSpeakerNoteAmplifiedCount: 0,
-        endGameTotalStagePoints: 0,
-        endGameRobot1: "None",
-        endGameRobot2: "None",
-        endGameRobot3: "None",
-        coopertitionBonusAchieved: false,
-        melodyBonusAchieved: false,
-        ensembleBonusAchieved: false,
-        melodyBonusThresholdCoop: 0,
-        melodyBonusThresholdNonCoop: 0,
-        ensembleBonusStagePointsThreshold: 0,
-        ensembleBonusOnStageRobotsThreshold: 0,
-      };
-    }
-    return JSON.stringify({ red: side(redVal), blue: side(blueVal) });
-  }
-
-  /** One alliance's observed component total, read from the SAME parser `update()` uses — never a hand-summed literal that could drift from the season map. */
-  function observedTotal(raw: string, alliance: "red" | "blue", componentOrder: readonly string[]): number {
-    const parsed = tryParseBreakdownPair(2024, raw);
-    if (parsed.kind !== "parsed") throw new Error("fixture breakdown failed to parse");
-    const components = alliance === "red" ? parsed.red : parsed.blue;
-    return componentOrder.reduce((sum, name) => sum + (components[name] ?? 0), 0);
-  }
-
-  /**
-   * Three matches whose alliance ROSTERS rotate, so the six measured teams
-   * arrive at the final match with genuinely DIFFERENT belief means. A fixture
-   * where the same three teams always play together leaves all three means
-   * identical forever, which would satisfy the additivity identity by a
-   * degenerate flat split and make the non-vacuity control unprovable.
-   */
-  function buildRotatedState(): { state: Sigma1State; finalRaw: string } {
-    const finalRaw = breakdown(18, 12, 6);
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["T1", "T2", "TX"],
-        blueTeams: ["T4", "T5", "TW"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(25, 9, 4),
-      })
-    );
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm2",
-        redTeams: ["T3", "TY", "TZ"],
-        blueTeams: ["T6", "TU", "TV"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(5, 21, 7),
-      })
-    );
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm3",
-        redTeams: ["T1", "T2", "T3"],
-        blueTeams: ["T4", "T5", "T6"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: finalRaw,
-      })
-    );
-    return { state, finalRaw };
-  }
-
-  it("THE IDENTITY — the rating-eligible teammates' TOTAL contributions sum EXACTLY to that alliance's observed component total, on BOTH alliances", () => {
-    // contribution(t, c) = mean_c^pre(t) + innovation_c / n, and
-    // innovation_c = observedSum_c - the sum of the pre-update means, so
-    // summing over teammates returns observedSum_c. This is an IDENTITY, not
-    // an attribution estimate.
-    //
-    // Asserting BOTH alliances is load-bearing: a bug that swapped an
-    // alliance's innovation would still satisfy a one-sided test.
-    const { state, finalRaw } = buildRotatedState();
-
-    const redSum = ["T1", "T2", "T3"].reduce((sum, t) => sum + state.teams.get(t)!.lastContribution!.total, 0);
-    const blueSum = ["T4", "T5", "T6"].reduce((sum, t) => sum + state.teams.get(t)!.lastContribution!.total, 0);
-
-    expect(redSum).toBeCloseTo(observedTotal(finalRaw, "red", state.componentOrder), 10);
-    expect(blueSum).toBeCloseTo(observedTotal(finalRaw, "blue", state.componentOrder), 10);
-  });
-
-  it("NON-VACUITY of the identity — the three teammates' contributions are NOT all equal, so the sum cannot be satisfied by a degenerate flat split", () => {
-    const { state } = buildRotatedState();
-    const red = ["T1", "T2", "T3"].map((t) => state.teams.get(t)!.lastContribution!.total);
-    const blue = ["T4", "T5", "T6"].map((t) => state.teams.get(t)!.lastContribution!.total);
-    expect(new Set(red).size).toBeGreaterThan(1);
-    expect(new Set(blue).size).toBeGreaterThan(1);
-  });
-
-  it("stamps lastContribution with THIS match's key for every team that received an update", () => {
-    const { state } = buildRotatedState();
-    for (const team of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
-      expect(state.teams.get(team)!.lastContribution!.matchKey).toBe("2024test_qm3");
-    }
-  });
-
-  it("THE USER'S EXAMPLE — a steady robot's contribution spread is strictly smaller than a swinging robot's", () => {
-    // Red sees the identical observation in all four matches; blue's swings
-    // between a low and a high value. Both sides' `foulPoints` are held
-    // constant, so red's observed total genuinely does not move.
-    //
-    // Because the three red teammates are symmetric here, each one's
-    // contribution lands on exactly `observedTotal / 3` every match and red's
-    // spread is exactly 0 — itself the degenerate rule working as designed
-    // (2+ folds, plain sample SD, published as computed, no floor). In general
-    // a steady robot's contributions are NOT bitwise identical, because
-    // `mean^pre` moves after every match; the ORDERING below is the contract,
-    // not the exact figures.
-    let state = vpr.initState([]);
-    const blueSwing = [4, 28, 4, 28];
-    for (let i = 0; i < blueSwing.length; i++) {
-      state = vpr.update(
-        state,
-        match({
-          matchKey: `2024test_qm${i + 1}`,
-          redTeams: ["STEADY1", "STEADY2", "STEADY3"],
-          blueTeams: ["STREAKY1", "STREAKY2", "STREAKY3"],
-          hasScoreBreakdown: true,
-          scoreBreakdownRaw: breakdown(15, blueSwing[i]!, 5),
-        })
-      );
-    }
-
-    const steady = contributionSpread(state.teams.get("STEADY1")!.contributionStats[TOTAL_METRIC_KEY]!);
-    const streaky = contributionSpread(state.teams.get("STREAKY1")!.contributionStats[TOTAL_METRIC_KEY]!);
-    expect(steady).toBeDefined();
-    expect(streaky).toBeDefined();
-    expect(steady!).toBeLessThan(streaky!);
-  });
-
-  it("COUNT AGREEMENT — every team's TOTAL accumulator count equals its matchCount after a multi-match replay", () => {
-    const { state } = buildRotatedState();
-    for (const [team, teamState] of state.teams) {
-      expect(teamState.contributionStats[TOTAL_METRIC_KEY]!.count, `${team} folds once per update`).toBe(
-        teamState.matchCount
-      );
-    }
-  });
-
-  it("SURROGATE — a team on a fully-surrogate alliance gains neither a fold nor a lastContribution stamp for that match", () => {
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(14, 11, 3),
-      })
-    );
-    const before = state.teams.get("R1")!;
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm2",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        redSurrogates: ["R1", "R2", "R3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(30, 11, 3),
-      })
-    );
-    const after = state.teams.get("R1")!;
-    expect(after.matchCount).toBe(before.matchCount);
-    expect(after.contributionStats[TOTAL_METRIC_KEY]!.count).toBe(before.contributionStats[TOTAL_METRIC_KEY]!.count);
-    expect(after.lastContribution!.matchKey).toBe("2024test_qm1");
-  });
-
-  it("DQ-ZERO — a team on a whole-alliance-DQ-zero alliance gains neither a fold nor a lastContribution stamp for that match", () => {
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(14, 11, 3),
-      })
-    );
-    const before = state.teams.get("R1")!;
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm2",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        redDqs: ["R1", "R2", "R3"],
-        redScore: 0,
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(30, 11, 3),
-      })
-    );
-    const after = state.teams.get("R1")!;
-    expect(after.matchCount).toBe(before.matchCount);
-    expect(after.contributionStats[TOTAL_METRIC_KEY]!.count).toBe(before.contributionStats[TOTAL_METRIC_KEY]!.count);
-    expect(after.lastContribution!.matchKey).toBe("2024test_qm1");
-    // Both no-fold cases reach `applyAllianceUpdate`'s PRE-EXISTING
-    // `allianceTeams.length === 0` early return — no new guard was added for
-    // either. The match-key stamp is what makes "this team sat out" automatic
-    // for the publish path rather than something a caller must remember.
-  });
-
-  it("SEASON RESET — carrySeason empties every accumulator and clears lastContribution", () => {
-    const { state } = buildRotatedState();
-    expect(state.teams.get("T1")!.contributionStats[TOTAL_METRIC_KEY]!.count).toBeGreaterThan(0);
-    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
-    for (const [team, teamState] of carried.teams) {
-      expect(teamState.lastContribution, `${team} clears its stamp`).toBeNull();
-      expect(Object.keys(teamState.contributionStats).length, `${team} empties its accumulators`).toBe(0);
-    }
-    // Contributions are POINTS under one season's scoring rules; 2024 points
-    // are not 2025 points, so a series crossing the boundary would be a
-    // category error rather than a longer history.
-  });
-
-  it("GROUP FOLDING — a phase group's folded series is the sum of that group's own component series, match by match", () => {
-    const { state } = buildRotatedState();
-    const groups = componentGroupsForSeason(2024)!;
-    const teamState = state.teams.get("T1")!;
-
-    for (const groupId of ["auto", "teleop", "endgame"] as const) {
-      const key = COMPONENT_GROUP_METRIC_KEYS[groupId];
-      const present = groups[groupId].filter((name) => state.componentOrder.includes(name));
-      const groupAcc = teamState.contributionStats[key];
-      expect(groupAcc, `${key} folds`).toBeDefined();
-      expect(groupAcc!.count).toBe(teamState.matchCount);
-      // Over the same fold count, the group accumulator's running MEAN equals
-      // the sum of its components' running means — which holds only if the
-      // group's folded value was the component sum on EVERY match.
-      const componentMeanSum = present.reduce((sum, name) => sum + teamState.contributionStats[name]!.mean, 0);
-      expect(groupAcc!.mean).toBeCloseTo(componentMeanSum, 9);
-    }
-  });
-
-  it("GROUP FOLDING — a group whose components are all absent from componentOrder folds nothing and keeps count 0", () => {
-    // A group key with an empty present-set must never manufacture a series of
-    // zeroes, which would publish a `spread` of 0 for a group never observed.
-    const { state } = buildRotatedState();
-    const teamState = state.teams.get("T1")!;
-    const groups = componentGroupsForSeason(2024)!;
-    for (const groupId of ["auto", "teleop", "endgame"] as const) {
-      const present = groups[groupId].filter((name) => state.componentOrder.includes(name));
-      const acc = teamState.contributionStats[COMPONENT_GROUP_METRIC_KEYS[groupId]];
-      if (present.length === 0) {
-        expect(acc === undefined || acc.count === 0).toBe(true);
-      } else {
-        expect(acc!.count).toBeGreaterThan(0);
-      }
-    }
   });
 });

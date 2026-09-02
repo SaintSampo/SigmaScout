@@ -465,27 +465,29 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 4, and a league row declaring the LITERAL 3 throws (D-D3, quick task 260902-disp)", () => {
-    // Pinned by literal value, not relative to the constant: the point of the
-    // 3 -> 4 bump is that every row seeded before `contributionStats` existed
-    // must fail LOUDLY at load rather than deserialize with `undefined`
-    // accumulators and have `teamMetrics` read a property of `undefined` on
-    // live traffic. `apps/worker/src/stateStore.ts` filters rows by
-    // `algorithm_id` only, so the version bump to 5.0.0 does not by itself
-    // make a stale row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(4);
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 5, and league rows declaring the LITERAL 3 or 4 both throw (D-V1, quick task 260902-varopr)", () => {
+    // Pinned by literal value, not relative to the constant. Every earlier
+    // shape must fail LOUDLY at load rather than deserialize into a field set
+    // that no longer matches `Sigma1TeamState`: shape 3 predates
+    // `contributionStats` entirely; shape 4 CARRIES `contributionStats` and
+    // `lastContribution`, which this task retired. `apps/worker/src/
+    // stateStore.ts` filters rows by `algorithm_id` only and never by
+    // `algorithm_version`, so bumping the algorithm version does not by itself
+    // make a stale seeded row unreachable — this check is what does.
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(5);
 
-    const shape3Row: StateRow = StateRowSchema.parse({
-      algorithmId: "vpr",
-      algorithmVersion: vpr.version,
-      scopeKind: "league",
-      scopeKey: "league",
-      stateJson: JSON.stringify({ snapshotShapeVersion: 3 }),
-      generation: STAMP.generation,
-      computedAt: STAMP.computedAt,
-    });
-
-    expect(() => deserializeState("vpr", [shape3Row])).toThrow(LeagueRowShapeVersionError);
+    for (const staleVersion of [3, 4]) {
+      const staleRow: StateRow = StateRowSchema.parse({
+        algorithmId: "vpr",
+        algorithmVersion: vpr.version,
+        scopeKind: "league",
+        scopeKey: "league",
+        stateJson: JSON.stringify({ snapshotShapeVersion: staleVersion }),
+        generation: STAMP.generation,
+        computedAt: STAMP.computedAt,
+      });
+      expect(() => deserializeState("vpr", [staleRow]), `shape ${staleVersion}`).toThrow(LeagueRowShapeVersionError);
+    }
   });
 });
 
@@ -699,29 +701,27 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect(reconstructed.allianceScoreStats.m2).toBe(finalState.allianceScoreStats.m2);
   });
 
-  it("Sigma1State's contributionStats and lastContribution round-trip exactly (D-D3, quick task 260902-disp)", () => {
-    // These two fields ARE the published `±` from 5.0.0 on. If they did not
-    // survive the D1 round-trip, a re-seeded Worker would serve every team a
-    // metric with no `spread` at all — silently, since omission is a legal
-    // shape for a thin-history team.
+  it("no retired contribution field survives anywhere in a serialized Sigma1 team row (D-V1, quick task 260902-varopr)", () => {
+    // The 4 -> 5 bump exists because the team payload's field set SHRANK.
+    // Asserting the absence is what stops a partial revert — a re-added field
+    // on `Sigma1TeamState` that `sigma1TeamStateToJson` still copies — from
+    // reintroducing the retired estimator's state one commit at a time while
+    // every other test stays green.
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
     const sim = new WalkForwardSimulator(allMatches);
     const finalState = sim.runAll([vpr], allTeams).finalStates.get(vpr.id) as Sigma1State;
 
-    // Non-vacuity: an empty accumulator set would round-trip trivially.
-    const sampleTeam = [...finalState.teams.keys()][0]!;
-    expect(Object.keys(finalState.teams.get(sampleTeam)!.contributionStats).length).toBeGreaterThan(0);
-    expect(finalState.teams.get(sampleTeam)!.lastContribution).not.toBeNull();
+    // Non-vacuity: an empty team set would satisfy the loop below trivially.
+    expect(finalState.teams.size).toBeGreaterThan(0);
 
     const rows = serializeState(vpr.id, vpr.version, finalState, STAMP);
-    const reconstructed = deserializeState(vpr.id, rows) as Sigma1State;
-
-    for (const [team, original] of finalState.teams) {
-      const restored = reconstructed.teams.get(team)!;
-      expect(restored.contributionStats, `${team} contributionStats`).toEqual(original.contributionStats);
-      expect(restored.lastContribution, `${team} lastContribution`).toEqual(original.lastContribution);
+    const teamRows = rows.filter((r) => r.scopeKind === "team");
+    expect(teamRows.length).toBeGreaterThan(0);
+    for (const row of teamRows) {
+      expect(row.stateJson, `${row.scopeKey} carries no contributionStats`).not.toContain("contributionStats");
+      expect(row.stateJson, `${row.scopeKey} carries no lastContribution`).not.toContain("lastContribution");
     }
   });
 });
