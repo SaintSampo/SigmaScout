@@ -290,14 +290,59 @@
 }
 
 /*
- * `scrollbar-gutter: stable` (2026-09-01 polish, user report): tabs whose
- * content is taller than the viewport grow a page scrollbar, and tabs whose
- * content is short don't — so switching tabs shifted every centered layout
- * sideways by the scrollbar's width. Reserving the gutter whether or not
- * the bar is drawn is the standard fix; nothing moves between tabs.
+ * `html { overflow-y: scroll }` (2026-09-02, user report: filter dropdowns
+ * left a white, double-width strip where the scrollbar had been) replacing
+ * the original `scrollbar-gutter: stable` (2026-09-01 polish, user report:
+ * tabs whose content is taller than the viewport grow a page scrollbar, and
+ * tabs whose content is short don't — so switching tabs shifted every
+ * centered layout sideways by the scrollbar's width). Both requirements are
+ * still live and this one rule now serves both:
+ *
+ * - Reserving the gutter unconditionally (2026-09-01's ask) stops content
+ *   from shifting sideways between a tall tab and a short one — an explicit
+ *   `overflow-y: scroll` reserves that space exactly like
+ *   `scrollbar-gutter: stable` did.
+ * - Radix's Select/Dropdown scroll lock sets `body { overflow: hidden }`
+ *   while a filter menu is open. CSS's viewport-propagation rule promotes
+ *   an element's `overflow` to the *viewport's* only when the root (`html`)
+ *   element's own `overflow` is `visible` — which is what `scrollbar-gutter`
+ *   alone left it as. That let `body`'s lock remove the page scrollbar
+ *   outright, while the gutter kept reserving the now-empty space (the
+ *   white strip). Giving `html` its own explicit `overflow-y` makes the
+ *   page scrollbar `html`'s, not the viewport's, so `body`'s lock no longer
+ *   propagates to it and the bar stays drawn (inert, but visible) while a
+ *   dropdown is open. See this quick task's PLAN.md
+ *   (260902-sbr-filter-dropdown-scrollbar-artifact) and SUMMARY.md for the
+ *   measured mechanism.
  */
 html {
-  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
+/*
+ * react-remove-scroll(-bar) — which Radix's Select/Dropdown scroll lock
+ * uses — measures the page's scrollbar width on every lock and adds a
+ * compensating `margin-right: <gap>px !important` to `body[data-scroll-locked]`,
+ * so that removing the scrollbar doesn't shift layout. With the rule above,
+ * the scrollbar is never removed (see above), so that compensation is now
+ * *always* wrong: on a platform with a classic (non-overlay) scrollbar it
+ * stacks the reserved gutter width and the compensating margin on top of
+ * each other, producing the reported double-width strip.
+ *
+ * Measured directly (devtools + Playwright probe against the running dev
+ * server, 260902-sbr SUMMARY.md): the literal applied rule is
+ * `body[data-scroll-locked] { margin-right: <gap>px !important; }` — NOT
+ * `padding-right`, and NOT driven by the `--removed-body-scroll-bar-size`
+ * custom property react-remove-scroll-bar also sets on the same selector.
+ * That property is write-only from the library's own code: nothing in its
+ * injected stylesheet reads it back with `var(...)`, so pinning it has no
+ * effect on the actual margin. The real seam is the `data-scroll-locked`
+ * attribute the library documents and sets on `body` for exactly this kind
+ * of external override; hooking the same selector with higher specificity
+ * neutralises the value it computed, whatever that value is.
+ */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
 }
 
 body {
