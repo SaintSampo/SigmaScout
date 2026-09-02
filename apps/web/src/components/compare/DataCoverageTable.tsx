@@ -27,11 +27,12 @@
  * calibration section's third consumer.
  */
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/breakpoints";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { buildCoverageRows, COVERAGE_EXCLUSION_COLUMNS, type SharedCount } from "./coverageRows.js";
+import { buildCoverageRows, COVERAGE_EXCLUSION_COLUMNS, type CoverageRow, type SharedCount } from "./coverageRows.js";
 import type { CompareCompLevelView } from "../../lib/api/compare.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -137,6 +138,57 @@ function DataCoverageTableHeader() {
   );
 }
 
+/**
+ * The NARROW layout (2026-09-02, user: "I don't like how you have to scroll
+ * the tables horizontally"). Eleven leaf columns cannot fit a phone, and the
+ * `w-auto` table did not scroll them — it SHRANK to the container and clipped
+ * the last seven columns off the right edge, which is strictly worse than a
+ * scrollbar because nothing signals the data is still there.
+ *
+ * One block per season instead, each a label/value list. Every field the wide
+ * table shows is shown here, in the same order and through the SAME
+ * `renderSharedCount`/`renderNoCall` formatters, so a value can never differ
+ * between the two layouts.
+ */
+function DataCoverageNarrow({ rows }: { rows: readonly CoverageRow[] }) {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-md)]">
+      {rows.map((row) => {
+        const fields: { label: string; value: string; testId: string }[] = [
+          { label: "Candidate matches", value: renderSharedCount(row.candidateCount), testId: coverageCellTestId(row.season, "candidateCount") },
+          { label: "Scored matches", value: renderSharedCount(row.scoredCount), testId: coverageCellTestId(row.season, "scoredCount") },
+          ...COVERAGE_EXCLUSION_COLUMNS.map((column) => ({
+            label: `Excluded: ${column.label.toLowerCase()}`,
+            value: renderSharedCount(row.exclusionCounts[column.key]),
+            testId: coverageCellTestId(row.season, column.key),
+          })),
+          { label: "Ties", value: renderSharedCount(row.tieCount), testId: coverageCellTestId(row.season, "tieCount") },
+          ...row.noCalls.map((entry) => ({
+            label: `No-calls: ${algorithmDisplayLabel(entry.algorithmId)}`,
+            value: renderNoCall(entry.count),
+            testId: coverageCellTestId(row.season, `noCall:${entry.algorithmId}`),
+          })),
+        ];
+        return (
+          <div key={row.season} className="data-card p-[var(--spacing-sm)]">
+            <p className="text-role-label numeric-cell mb-[var(--spacing-xs)] text-[var(--color-text-primary)]">{row.season}</p>
+            <dl className="flex flex-col gap-[2px]">
+              {fields.map((field) => (
+                <div key={field.testId} className="flex items-baseline justify-between gap-[var(--spacing-sm)]">
+                  <dt className="text-role-body min-w-0 truncate text-[var(--color-text-muted)]">{field.label}</dt>
+                  <dd data-testid={field.testId} className="numeric-cell text-role-body shrink-0 text-[var(--color-text-primary)]">
+                    {field.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export interface DataCoverageTableProps {
   readonly artifactsByYear: ReadonlyMap<number, CompareArtifact>;
   readonly compLevelView: CompareCompLevelView;
@@ -149,6 +201,15 @@ export interface DataCoverageTableProps {
  */
 export function DataCoverageTable({ artifactsByYear, compLevelView }: DataCoverageTableProps) {
   const rows = buildCoverageRows(artifactsByYear, compLevelView);
+  const isNarrow = useIsMobile();
+
+  if (isNarrow) {
+    return (
+      <div data-testid={DATA_COVERAGE_SCROLL_TESTID} className="min-w-0 overscroll-x-contain">
+        <DataCoverageNarrow rows={rows} />
+      </div>
+    );
+  }
 
   return (
     <div data-testid={DATA_COVERAGE_SCROLL_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
