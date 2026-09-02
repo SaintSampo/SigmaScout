@@ -107,19 +107,31 @@ describe("solveEventVariance — rank deficiency answered by the math (D-V2)", (
     return acc;
   }
 
-  it("a team with ZERO folded rows solves to EXACTLY vBar — bitwise, at every lambda", () => {
+  it("a team with ZERO folded rows solves to vBar, to floating-point precision, at every lambda", () => {
     // Its row of `X'X` is all zeros and its entry in `X'y` is 0, so its
     // equation reduces to `lambda * beta_i = lambda * vBar`. This is not a
     // substituted constant: it is what the estimator's own algebra returns
     // when the data says nothing, and it is the honest claim ("as uncertain as
     // a typical robot at this event") where a minimum-norm 0 would be a
     // positive claim of PERFECT CONSISTENCY.
+    // Bitwise was the WRONG BAR and this is a correction of an over-claim, not
+    // a tolerance widened to hide a defect. The equality is exact in exact
+    // arithmetic, but the solve runs Gaussian elimination over the whole
+    // system, so the ghost row picks up rounding from the elimination of the
+    // rows it shares a matrix with — by an amount that depends on lambda. It
+    // happened to land bitwise at lambda 1 and 10 and lands 2 ULP away at
+    // lambda 2, which is a fact about IEEE-754, not about the estimator. The
+    // property actually being defended — a team the data says nothing about is
+    // reported as "as uncertain as a typical robot here", never as a
+    // minimum-norm 0 that would claim PERFECT CONSISTENCY — is fully defended
+    // at a relative tolerance far tighter than any displayed value could show.
     const acc = withGhostTeam(threeRowSystem(), "GHOST");
     const vBar = vBarFor(acc, KEY);
     expect(vBar).toBeGreaterThan(0);
     for (const lambda of [1, SIGMA1_VARIANCE_OPR_RIDGE, 100]) {
       const solved = solveEventVariance(acc, lambda);
-      expect(solved.get("GHOST")![KEY], `lambda ${lambda}`).toBe(vBar);
+      const got = solved.get("GHOST")![KEY]!;
+      expect(Math.abs(got - vBar) / vBar, `lambda ${lambda}`).toBeLessThan(1e-12);
     }
   });
 

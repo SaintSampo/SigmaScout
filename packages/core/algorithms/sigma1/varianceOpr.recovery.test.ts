@@ -274,7 +274,13 @@ function measureLeague(
 
   // The decomposition, at every lambda CONTEXT.md tabulates, plus the
   // ZERO-CENTRED negative control at lambda 100.
-  for (const lambda of [0, 1, 10, 100, 1000]) {
+  //
+  // `SIGMA1_VARIANCE_OPR_RIDGE` is in the set BY CONSTRUCTION rather than by
+  // appearing in the literal list: the shipped lambda moved 10 -> 2 once already
+  // and this harness silently stopped covering what ships, surfacing as an
+  // undefined-lookup crash rather than as a failed assertion. Deriving it means
+  // the arm the assertions below read always exists.
+  for (const lambda of [...new Set([0, 1, 10, 100, 1000, SIGMA1_VARIANCE_OPR_RIDGE])].sort((a, b) => a - b)) {
     const solved = solveEventVariance(acc, lambda);
     arms[`varianceOpr@${lambda}`] = statsFor(teams.map((t) => Math.sqrt(solved.get(t)![KEY]!)));
   }
@@ -405,9 +411,25 @@ describe("variance decomposition — recovery against known sigma, full season (
     for (const a of rs) for (const b of rs) expect(Math.abs(a - b), context()).toBeLessThan(0.05);
   });
 
-  it("the decomposition also has the best RMSE at a full season", () => {
+  it("RMSE is a KNOWING TRADE, not a win — the shipped lambda gives some back to buy slope", () => {
+    // This test previously asserted the decomposition ALSO had the best RMSE.
+    // That was true at lambda 10 and is FALSE at the shipped lambda 2, and the
+    // change was deliberate: lambda was corrected downward because 10 implied
+    // an effective league weight of ~0.50, HEAVIER than the 0.40 empirical-Bayes
+    // blend the user rejected. Slope is the property the display exists for;
+    // RMSE was the wrong thing to optimise for a number whose job is telling
+    // two robots apart.
+    //
+    // Asserting the trade explicitly, in the direction it actually runs, is
+    // what stops a later reader "fixing" this by raising lambda back — that
+    // would improve the number this test names while silently re-breaking the
+    // league weight the test below pins.
     expect(shipped.rmse, context()).toBeLessThan(evenSplit.rmse);
-    expect(shipped.rmse, context()).toBeLessThan(filterR.rmse);
+    expect(shipped.rmse, context()).toBeGreaterThan(filterR.rmse);
+    // ...and the trade is small: within 15% of the best incumbent's RMSE while
+    // more than tripling its slope. A larger give-back would not be acceptable.
+    expect(shipped.rmse, context()).toBeLessThan(1.15 * filterR.rmse);
+    expect(shipped.slope, context()).toBeGreaterThan(3.0 * filterR.slope);
   });
 
   it("the ridge is MONOTONE in lambda and collapses the scale by 100 — which is why 10 is the operating point", () => {
@@ -497,7 +519,7 @@ describe("variance decomposition — recovery at ONE EVENT (12 matches/team), th
   });
 });
 
-describe("the effective league weight lambda = 10 actually implies", () => {
+describe("the effective league weight the shipped lambda actually implies", () => {
   it("is finite and in [0, 1] at both horizons; the NUMBER is the deliverable, not the bound", () => {
     // CONTEXT requires this figure to EXIST so the claim "this is about this
     // robot" stays checkable rather than asserted. Only well-formedness is
@@ -515,17 +537,22 @@ describe("the effective league weight lambda = 10 actually implies", () => {
   });
 
   it("MEASURED, printed, and NOT softened: the one-event figure is compared to the retired blend's 0.40", () => {
-    // FINDING (2026-09-02, quick task 260902-varopr Task 3). At one event the
-    // measured effective league share is ~0.44, which EXCEEDS the retired
-    // `matchCount / (matchCount + 8)` blend's 0.40 at a 12-match team. CONTEXT
-    // D-V2's phrasing — "a lambda-10 ridge on a 40-team event solve is FAR
-    // LIGHTER" — is therefore FALSE at the one-event horizon, and that phrase
-    // is deliberately not written anywhere in this codebase. At a full season
-    // the figure is ~0.15, where the claim does hold.
+    // HISTORY, because the resolution matters more than the finding. This test
+    // originally recorded that at lambda 10 the one-event league share measured
+    // ~0.44 — EXCEEDING the retired `matchCount / (matchCount + 8)` blend's 0.40
+    // that the user explicitly rejected — and then kept lambda where it was and
+    // merely wrote the falsity down. That was the wrong resolution: it left the
+    // shipped display carrying MORE league average than the thing it replaced,
+    // with a comment admitting it.
     //
-    // D-V2 is LOCKED, so lambda does not move on account of this; what changes
-    // is what is written down. The assertion below pins the ORDER OF MAGNITUDE
-    // of both figures so the doc's numbers cannot silently go stale.
+    // Lambda was therefore corrected 10 -> 2 (see `SIGMA1_VARIANCE_OPR_RIDGE`),
+    // chosen on the EVENT-scope table, which is the scope that actually ships.
+    // The one-event share falls to ~0.17, comfortably under half the rejected
+    // level, and the claim becomes TRUE at both horizons rather than true at one
+    // and excused at the other. The cost is RMSE, asserted as a knowing trade
+    // above.
+    //
+    // The bounds below are the guard: they fail if lambda drifts back up.
     const RETIRED_BLEND_AT_12_MATCHES = 1 - 12 / (12 + 8);
     expect(RETIRED_BLEND_AT_12_MATCHES).toBeCloseTo(0.4, 12);
 
@@ -536,13 +563,13 @@ describe("the effective league weight lambda = 10 actually implies", () => {
       `(range ${ONE_EVENT.effectiveLeagueShareRange.map((v) => v.toFixed(4)).join("..")}), ` +
       `retired blend at 12 matches ${RETIRED_BLEND_AT_12_MATCHES.toFixed(4)}`;
 
-    // Full season: genuinely far lighter than the retired blend.
+    // BOTH horizons must now come in under half the rejected blend. The
+    // one-event bound is the load-bearing one: it is the horizon the shipped
+    // event-scoped solve actually runs at, and it is the one that failed this
+    // standard at lambda 10. Raising lambda back to 7 or beyond breaks it,
+    // which is the intended tripwire.
     expect(FULL_SEASON.effectiveLeagueShare, message).toBeLessThan(0.5 * RETIRED_BLEND_AT_12_MATCHES);
-    // One event: comparable to it, and measured ABOVE it. Pinned as a range
-    // rather than an inequality in either direction, so a future change that
-    // moved it materially — in EITHER direction — fails and gets documented.
-    expect(ONE_EVENT.effectiveLeagueShare, message).toBeGreaterThan(0.3);
-    expect(ONE_EVENT.effectiveLeagueShare, message).toBeLessThan(0.6);
+    expect(ONE_EVENT.effectiveLeagueShare, message).toBeLessThan(0.5 * RETIRED_BLEND_AT_12_MATCHES);
   });
 
   it("RECORDED, NOT GATED: the one-event slope at lambda 0 beside lambda 10", () => {

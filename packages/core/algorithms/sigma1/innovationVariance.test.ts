@@ -430,17 +430,28 @@ describe("D-Q2 — the published ± recovers a known sigma", () => {
       state = vpr.update(state, syntheticMatchResult(m, i));
     });
 
-    const metrics = vpr.teamMetrics(state, [...league.teams]);
+    // RETARGETED (260902-varopr) from the PUBLISHED spread to the FILTER's own
+    // R. Both halves of that sentence matter.
+    //
+    // What this file is for is the innovation-based estimator that feeds
+    // `predict()`'s `P + R` — the quantity the match path actually uses, which
+    // is unchanged and still needs a recovery guard. What it USED to reach that
+    // quantity through was `teamMetrics`, back when the published spread was
+    // `sqrt(P + R)`. It no longer is: the display is now the event-scoped
+    // variance decomposition, whose own recovery is guarded far more thoroughly
+    // in `varianceOpr.recovery.test.ts` (five seeds, two horizons, both
+    // incumbents as controls). Reading the display here tested the wrong
+    // estimator through the wrong door and duplicated a better test.
+    //
+    // Summing each team's per-component R gives its total-contribution variance
+    // under the module's own independent-components assumption — the same sum
+    // `teamOwnComponentVarianceSum` performs for P on the match path.
     const spreads: number[] = [];
     for (const team of league.teams) {
-      const spread = metrics[team]?.[TOTAL_METRIC_KEY]?.spread;
-      // `TeamMetric.spread` is optional in the shared type, so this is
-      // asserted rather than defaulted: an absent TOTAL spread would
-      // otherwise sink into the median as a silent NaN or 0, and Sigma1
-      // publishing no spread at all would be the very failure this file
-      // exists to catch.
-      expect(spread).toBeDefined();
-      spreads.push(spread!);
+      const teamState = (state as unknown as { teams: Map<string, { consistency: Record<string, number> }> }).teams.get(team);
+      expect(teamState, `no state for ${team}`).toBeDefined();
+      const totalR = Object.values(teamState!.consistency).reduce((sum, v) => sum + v, 0);
+      spreads.push(Math.sqrt(totalR));
     }
     const measured = median(spreads);
 

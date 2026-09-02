@@ -170,14 +170,62 @@ import { CholeskyDecomposition, Matrix } from "ml-matrix";
 /**
  * The ridge `lambda`. A VERSIONED, NEVER-SEARCHED display constant.
  *
- * Measured slope against known synthetic sigma at a full season, by lambda:
+ * CORRECTED from 10 to 2 (260902-varopr, after the value shipped once at 10).
+ * The original justification cited the FULL-SEASON recovery table, but this
+ * solve is EVENT-SCOPED (D-V3) — roughly 12 appearances per team, not 60. The
+ * two scopes disagree sharply, and only the event numbers govern what ships:
  *
- *     lambda      0        10       100      1000
- *     slope       1.032    0.871    0.35     0.14
+ *     lambda                 0      2      4      7      10
+ *     slope (12 appearances) 0.782  0.785  0.722  0.636  0.558
+ *     RMSE                   9.41   8.25   7.56   7.04   6.43
+ *     effective league wt    0.00   0.174  0.290  ~0.40  0.502
+ *     teams with NO spread   35.3%  27.5%  21.6%  13.4%  6.3%
  *
- * 10 is near-best on slope AND best on RMSE (3.62, better than every
- * incumbent). Anything at 100 or above reintroduces exactly the league-blending
- * the user rejected for the old display, under a different name.
+ * THE LAST ROW IS AN UNRESOLVED PRODUCT TRADE, not a settled one. A team whose
+ * solve lands on a non-positive variance publishes no `±` at all (see
+ * `teamMetrics`'s `spreadOf`), and lowering lambda to buy discrimination buys it
+ * partly by turning numbers into blanks: at 2, better than a quarter of a
+ * 40-team event shows nothing. These are not thin-history teams — they have a
+ * full 12 matches; their estimate simply lands below zero as noise around a
+ * genuinely small variance.
+ *
+ * There is no lambda that is good on all three rows, and the honest reading is
+ * that clamping-then-omitting is the wrong terminal behaviour rather than
+ * lambda being wrong. The principled fix is a NON-NEGATIVE least squares solve,
+ * which constrains beta >= 0 DURING the solve instead of discarding negatives
+ * after it — variances are non-negative by definition, so that is the more
+ * correct estimator, not a workaround. It would make the low-lambda regime
+ * viable and is the recommended next step. Do not "fix" the blank rate by
+ * raising lambda: 7 already reaches the rejected 0.400 league weight.
+ *
+ * The last row is the constraint, and it is the one the first attempt missed.
+ * It answers "how much of a published number is the LEAGUE rather than this
+ * robot", measured two ways that agree: analytically the ridge sits against a
+ * team's appearance count as `lambda / (appearances + lambda)`, and empirically
+ * by how far a ridged estimate moves from its own-data-only solve toward
+ * `vBar`. The RETIRED empirical-Bayes blend this decomposition replaced put
+ * 0.400 league on a 12-match team, and that blend is precisely what the user
+ * rejected — "it needs to show a variable humans can understand about how
+ * reliable a robot is."
+ *
+ * At lambda 10 the effective league weight is 0.502: HEAVIER than the rejected
+ * blend. Shipping it would have re-introduced the defect under a new name while
+ * a comment claimed the opposite. 10 won on RMSE alone, which is the wrong
+ * criterion for a number whose job is to distinguish one robot from another.
+ *
+ * 2 is chosen because it maximises slope (0.785 — the visibility of the
+ * difference between a 50/50 robot and a 30/70 one, which is the user's own
+ * stated test) while holding league contamination to 0.174, well under half the
+ * rejected level. Its cost is RMSE 8.25 against 6.43. That cost is accepted
+ * knowingly: at one event EVERY estimator here is noisy (correlation ~0.55
+ * regardless of lambda), so the honest choice between "noisy but spread out"
+ * and "tighter but clustered toward the league" is the former — a clustered
+ * number is confidently wrong about the only question it is asked.
+ *
+ * 4 (slope 0.722, RMSE 7.56, league 0.290) is the defensible alternative if
+ * absolute accuracy is later judged to matter more than discrimination. Do not
+ * go above 4 without re-measuring the league weight: 7 already reaches the
+ * rejected 0.400.
  *
  * ITS VALUE IS DEFENDED BY `varianceOpr.recovery.test.ts`, NOT BY BRIER. D-V4
  * states the constraint outright: this is a DISPLAY quantity, and D-01's
@@ -193,7 +241,7 @@ import { CholeskyDecomposition, Matrix } from "ml-matrix";
  * rule. This module imports NOTHING from `params.ts`, so no TDZ import cycle
  * exists in either direction.
  */
-export const SIGMA1_VARIANCE_OPR_RIDGE = 10;
+export const SIGMA1_VARIANCE_OPR_RIDGE = 2;
 
 /**
  * One event's accumulated normal equations for the decomposition.
