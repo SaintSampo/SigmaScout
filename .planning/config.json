@@ -26,7 +26,7 @@
     "node_repair": true,
     "node_repair_budget": 2,
     "ui_phase": true,
-    "ui_safety_gate": true,
+    "ui_safety_gate": false,
     "ai_integration_phase": true,
     "api_coverage_gate": false,
     "human_verify_mode": "end-of-phase",
@@ -36,7 +36,7 @@
     "discuss_mode": "discuss",
     "skip_discuss": false,
     "code_review": true,
-    "code_review_depth": "standard",
+    "code_review_depth": "quick",
     "code_review_command": null,
     "pattern_mapper": true,
     "plan_bounce": false,
@@ -89,6 +89,6 @@
     "source_grounding_authority": "grep"
   },
   "mode": "yolo",
-  "granularity": "standard",
+  "granularity": "coarse",
   "context_window": 1000000
 }
