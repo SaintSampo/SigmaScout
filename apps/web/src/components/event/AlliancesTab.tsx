@@ -265,10 +265,12 @@ export const ALLIANCES_INDEPENDENCE_CAVEAT =
   "Combined values assume each robot's performance is independent of its alliance partners. Real alliances are not fully independent, so the true uncertainty is likely larger than shown.";
 
 /**
- * G-8's approximate-tier disclosure, surfaced as a `title`/`aria-label` on
- * the small marker next to a tiered Combined Total (never a bolted-on
- * banner — "quiet and consistent with the design language" per the
- * sketch-findings skill's stated direction). Cites the same reasoning
+ * G-8's approximate-tier disclosure, surfaced as the `title`/`aria-label` of
+ * the labelled `role="group"` wrapping a tiered Combined Total (never a
+ * bolted-on banner — "quiet and consistent with the design language" per the
+ * sketch-findings skill's stated direction; the small visible marker this
+ * used to hang off was removed by user request 2026-09-01, and the group role
+ * is what keeps the label exposed without it). Cites the same reasoning
  * `@/lib/allianceTierApproximation.ts`'s header comment gives in full.
  */
 export const ALLIANCE_APPROX_TIER_DISCLOSURE =
@@ -385,11 +387,11 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
  * `MetricValue`, tiered by the 3x heuristic's APPROXIMATE percentile when
  * one is available, plus a small, quiet marker disclosing the
  * approximation — never a loud banner, matching the sketch-findings skill's
- * "serious tool, more alive" direction. The marker renders only when a tier
- * BOX is actually drawn (Common renders no box at all, so there is nothing
- * for the marker to qualify); it carries both `title` and `aria-label` so
- * the disclosure reaches a mouse-hover reader and a screen-reader user
- * alike (mirrors `BonusRpDots.tsx`'s own title+aria-label pairing).
+ * "serious tool, more alive" direction. The disclosure attaches only when a
+ * tier BOX is actually drawn (Common renders no box at all, so there is
+ * nothing to qualify); it carries `role="group"` plus `title` and
+ * `aria-label` so it reaches a mouse-hover reader and a screen-reader user
+ * alike (mirrors `BonusRpDots.tsx`'s own role+title+aria-label trio).
  */
 function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined }) {
   const boxed = approx !== undefined && approx.tier !== "common";
@@ -397,8 +399,20 @@ function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; a
   // still a 3x-heuristic APPROXIMATION (see `@/lib/allianceTierApproximation`),
   // so the disclosure survives invisibly — hover/assistive tech reach it via
   // the cell's own title/aria-label whenever a box is drawn.
+  //
+  // CR-02 (review 260902): `role="group"` is load-bearing, not decoration. A
+  // <span> with no role maps to `role="generic"`, on which `aria-label` is a
+  // PROHIBITED attribute under ARIA 1.2 / ARIA-in-HTML — browsers drop it from
+  // the accessibility tree, so the label announced nothing at all and `title`
+  // (hover-only, unreachable on touch) was the whole disclosure in practice.
+  // `BonusRpDots.tsx:58` supplies the role alongside its label, which is
+  // exactly what makes THAT label expose; this comment used to claim it
+  // mirrored that pairing while omitting the one attribute that carries it.
+  // The role is conditional for the same reason the label is: an unboxed cell
+  // has no approximation to disclose and must not announce an empty group.
   return (
     <span
+      role={boxed ? "group" : undefined}
       className="flex items-center gap-[var(--spacing-xs)]"
       title={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
       aria-label={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}

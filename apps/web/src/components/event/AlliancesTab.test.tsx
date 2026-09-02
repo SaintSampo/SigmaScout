@@ -20,6 +20,7 @@ import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
+  ALLIANCE_APPROX_TIER_DISCLOSURE,
   ALLIANCES_INDEPENDENCE_CAVEAT,
   AlliancesTab,
   alliancesIncompleteNotice,
@@ -250,6 +251,32 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     const disclosed = cell.querySelector("[title]");
     expect(disclosed?.getAttribute("title")).toContain("Approximate");
     expect(disclosed?.getAttribute("aria-label")).toBe(disclosed?.getAttribute("title"));
+  });
+
+  it("the approximate-tier disclosure carries a ROLE, so the aria-label is legal and actually exposed (CR-01/CR-02, review 260902)", async () => {
+    // `aria-label` is a PROHIBITED attribute on `role="generic"` — a bare
+    // <span>'s implicit role — so browsers drop it from the accessibility
+    // tree entirely and the disclosure reaches no screen-reader user. The
+    // visible "≈" glyph stays removed (2026-09-01 user request); this pins
+    // only that the remaining disclosure is exposed, the same way
+    // `BonusRpDots.tsx` exposes its own title+aria-label pairing.
+    const highPercentileTeams = FOUR_TEAMS.map((t) => ({
+      ...t,
+      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 99, tier: "legendary" as const } },
+    }));
+    renderAlliances(makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    const disclosed = within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE });
+    expect(disclosed.getAttribute("title")).toBe(ALLIANCE_APPROX_TIER_DISCLOSURE);
+    expect(cell.textContent).not.toContain("≈");
+  });
+
+  it("an unboxed Combined Total exposes no group and no label — there is no approximation to disclose", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.querySelector(".metric-tier")).toBeNull();
+    expect(within(cell).queryByRole("group")).toBeNull();
+    expect(cell.querySelector("[aria-label]")).toBeNull();
   });
 
   it("the Combined Total cell renders NO tier box and no marker when the interpolated percentile lands in Common, even though a percentile WAS interpolated (07-UAT.md G-8)", async () => {
