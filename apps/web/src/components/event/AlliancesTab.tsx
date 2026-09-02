@@ -437,9 +437,12 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor("allianceNumber", {
       id: "allianceNumber",
       header: ALLIANCES_COLUMN_HEADERS[0],
-      // 112, not 84 (2026-09-01 user report): the uppercase 11px "ALLIANCE #"
-      // header was ellipsis-truncating at 84px.
-      size: 112,
+      // 88 (Task 3, 260902-ixg), not 112 and not the 84 that truncated (the
+      // 2026-09-01 report that produced 112): the uppercase 11px
+      // "ALLIANCE #" header's own intrinsic text is 72px plus 16px cell
+      // padding — 88 is exactly its requirement with nothing to spare.
+      // Verified live: no ellipsis renders at 88.
+      size: 88,
       cell: (info) => <span className="numeric-cell">{info.getValue()}</span>,
     }),
     columnHelper.accessor((row) => row.picks[0], {
@@ -482,7 +485,10 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor("record", {
       id: "record",
       header: ALLIANCES_COLUMN_HEADERS[6],
-      size: 100,
+      // 72 (Task 3, 260902-ixg), not 100: header "RECORD" needs 66px,
+      // widest content ("4-3-0" etc.) needs 62px — 72 covers both with cell
+      // padding to spare.
+      size: 72,
       cell: (info) => <span className="numeric-cell">{formatAllianceRecord(info.getValue())}</span>,
     }),
   ]);
@@ -575,8 +581,23 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           the breakpoint, so `fixed` is now load-bearing the same way it is
           on Insights: it keeps the pinned column's sticky `left` offset in
           sync with where its neighbour actually renders (G-1's own lesson).
+
+          Task 3 (260902-ixg): `width` is the EXACT sum of the column sizes
+          (`table.getTotalSize()`), never `100%`. Live-measured regression:
+          with `width: "100%"` + `minWidth: table.getTotalSize()` (the
+          pattern Insights/Breakdown/TeamsTable still use, where the column
+          sum is close enough to the page's available width that this never
+          surfaces), shrinking this tab's columns below the ~1150px content
+          area let `100%` win over `minWidth`, and `table-layout: fixed`
+          redistributed the freed space proportionally BACK across every
+          column — the 88px Alliance # column rendered at 113.7px live,
+          silently undoing the whole point of tightening it. An explicit
+          pixel `width` is simultaneously the floor (the wrapper's own
+          `overflow-x-auto` still engages below it, unchanged) and the
+          ceiling (never stretches past it) — exactly what "tightened
+          spacing" means for a table this small.
         */}
-        <table style={{ width: "100%", tableLayout: "fixed", minWidth: table.getTotalSize(), borderCollapse: "separate", borderSpacing: 0 }}>
+        <table style={{ width: table.getTotalSize(), tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>

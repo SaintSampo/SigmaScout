@@ -217,6 +217,24 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     ]);
   });
 
+  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg): the two columns Task 3 tightens, measured against the running app — the three pick columns and Combined Total stay at their content-bound 190/160 and are OUT of this task's scope", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
+    const allianceHeader = await screen.findByTestId("alliances-header-allianceNumber");
+    const recordHeader = await screen.findByTestId("alliances-header-record");
+    expect(allianceHeader.style.width).toBe("88px");
+    expect(recordHeader.style.width).toBe("72px");
+    // Spot-check the untouched columns did not move.
+    expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("190px");
+    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("160px");
+  });
+
+  it("the table itself is pinned to the sum of its own column sizes (890px on this no-backup fixture), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
+    const scrollRegion = await screen.findByTestId("alliances-table-scroll");
+    const table = scrollRegion.querySelector("table");
+    expect(table?.style.width).toBe("890px");
+  });
+
   it("a fourth pick renders in the Backup cell with a (backup) suffix, and its total is excluded from the combined value", async () => {
     const withBackup = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]);
     const withoutBackup = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]);
