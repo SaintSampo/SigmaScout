@@ -402,13 +402,13 @@ body {
  * (regular) and 600 (semibold) — no 500 or 700 anywhere in this file.
  */
 .text-role-body {
-  font-size: 14px;
+  font-size: clamp(11.5px, 9.71px + 0.558vw, 14px);
   font-weight: 400;
   line-height: 1.5;
 }
 
 .text-role-label {
-  font-size: 12px;
+  font-size: clamp(10px, 8.57px + 0.446vw, 12px);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -420,7 +420,9 @@ body {
 }
 
 .text-role-display {
-  font-size: 28px;
+  /* Fluid (2026-09-02): 28px squeezed the ribbon's two dropdowns at 360px,
+     collapsing the algorithm select to a bare chevron. 21px at 320. */
+  font-size: clamp(21px, 16px + 1.5625vw, 28px);
   font-weight: 600;
   line-height: 1.2;
 }
@@ -433,7 +435,7 @@ body {
  * text-muted-foreground utility, which aliases it above), never a literal.
  */
 .text-role-spread-suffix {
-  font-size: 12px;
+  font-size: clamp(10px, 8.57px + 0.446vw, 12px);
   font-weight: 400;
   line-height: 1.3;
 }
@@ -449,7 +451,7 @@ body {
  * on one element.
  */
 .th-cell-label {
-  font-size: 11px;
+  font-size: clamp(9.5px, 8.43px + 0.335vw, 11px);
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: 0.06em;
@@ -497,7 +499,7 @@ body {
   display: inline-block;
   border-radius: 5px;
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: clamp(10px, 8.57px + 0.446vw, 12px);
   font-weight: 600;
   line-height: 1.5;
   white-space: nowrap;
@@ -634,7 +636,7 @@ body {
  * sharing one baseline.
  */
 .metric-spread-superscript {
-  font-size: 9px;
+  font-size: clamp(7.5px, 6.43px + 0.335vw, 9px);
   font-weight: 400;
   line-height: 1;
   position: relative;
@@ -839,7 +841,7 @@ body {
   display: inline-block;
   border-radius: 5px;
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: clamp(10px, 8.57px + 0.446vw, 12px);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -874,3 +876,49 @@ body {
  */
 .call-hit { color: #047857; font-weight: 700; }
 .call-miss { color: #be123c; font-weight: 700; }
+
+/*
+ * Every data table inherits the fluid body size (2026-09-02). Some tables
+ * put `.text-role-body` on their cells and some do not — the shadcn `Table`
+ * primitive carries a fixed `text-sm`, and several tables are raw `<table>`
+ * elements — so sizing the roles alone left the events list and the team
+ * page's match tables at a hard 14px on a phone (measured). Setting it on
+ * the element itself reaches all of them at once; this rule is unlayered, so
+ * it wins over Tailwind's layered `text-sm`, while any explicit
+ * `.text-role-*` on a descendant still overrides it.
+ */
+table {
+  font-size: clamp(11.5px, 9.71px + 0.558vw, 14px);
+}
+
+/*
+ * Mobile table density (2026-09-02, user: "on mobile you can't see much of
+ * the teams list at all"). Smaller type alone does not buy a single extra
+ * column — the cells' own padding and the tier box's `min-width` are fixed
+ * pixels that dominate a narrow layout — so this block shrinks those to
+ * match the fluid type above. Scoped below `MOBILE_BREAKPOINT_PX` (768,
+ * `lib/breakpoints.ts`), so every desktop rendering is untouched.
+ *
+ * The breakpoint is written as `767.98px` rather than `767px` so a viewport
+ * at a fractional width (browser zoom, a scaled device) cannot land in a gap
+ * between this rule and the `useIsMobile()` media query it must agree with.
+ */
+@media (max-width: 767.98px) {
+  [data-slot="table-cell"] {
+    padding: 5px;
+  }
+  [data-slot="table-head"] {
+    height: 34px;
+    padding-inline: 5px;
+  }
+  /*
+   * The tier box keeps holding a column of values in alignment, just at the
+   * narrow type's scale: 58px was measured against a 14px value plus a 9px
+   * raised spread, and the fluid roles above put those at ~11.5px/~7.5px on
+   * a phone, so the same worst-case string needs about a fifth less room.
+   */
+  .metric-tier {
+    min-width: 46px;
+    padding: 2px 5px;
+  }
+}

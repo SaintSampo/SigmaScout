@@ -144,7 +144,7 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
   const location = displayLocation(event);
   return (
     <TableRow className={isUnofficial(event) ? "event-row-unofficial" : undefined}>
-      <TableCell className="max-w-[22rem] p-0">
+      <TableCell className="max-w-[11rem] p-0 sm:max-w-[22rem]">
         {/*
           07-15-PLAN.md Task 2, PD-06: only the name cell links — the header
           row already carries per-cell sort buttons a row-level anchor would
@@ -160,7 +160,7 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
           params={{ eventKey: event.eventKey }}
           search={{ year, algorithm, tab: DEFAULT_EVENT_TAB }}
           title={event.name}
-          className="block max-w-[22rem] truncate p-2 font-medium text-[var(--color-accent)]"
+          className="block max-w-[11rem] truncate p-2 font-medium text-[var(--color-accent)] sm:max-w-[22rem]"
         >
           {event.name}
         </Link>
