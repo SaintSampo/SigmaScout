@@ -357,6 +357,7 @@ None yet.
 | 260822-wqt | Restrict the Worker's live folding tier to sigma1 via a tracked LIVE_ALGORITHM_IDS var, fixing the measured defect where three live algorithms cost 50 subrequests against ~41 usable and deferred every ordinary match forever; all three algorithms remain published. Also fixed an AND/OR precedence bug in readScopedState that leaked one algorithm's league row into another's read | 2026-08-23 | a37f40e7 | [260822-wqt-restrict-live-folding-to-sigma1](./quick/260822-wqt-restrict-live-folding-to-sigma1/) |
 | 260830-p6s | Give apps/web's layout/visual e2e specs a local page origin via a Vite preview /v1 proxy to real R2 artifact bytes and two new local Playwright projects, closing the render-and-look loop G-06-2 found structurally broken (no-page-pan.spec.ts had never actually run) | 2026-08-30 | 6b13a449 | [260830-p6s-add-a-local-render-loop-to-playwright-so](./quick/260830-p6s-add-a-local-render-loop-to-playwright-so/) |
 | 260901-is2 | Four model correctness fixes from the 2026-09-01 adversarial review: EPA attributes the alliance ERROR not the total (Statbotics parity, slope 0.49→0.84); VPR's published ± estimated from innovations not gain-weighted corrections (real-corpus SD(z) 1.62→1.14 quals, 2.14→1.07 elims); a no-call counts as a MISS in winner accuracy; OPR's fixed logistic scale becomes an expanding-window alliance-score SD. epa 2.0.0, opr 4.0.0, SIGMA1_CODE_VERSION 3.0.0, both version files re-promoted | 2026-09-01 | 3b3c0dbf | [260901-is2-model-correctness-fixes-from-adversarial](./quick/260901-is2-model-correctness-fixes-from-adversarial/) |
+| 260901-trz | Scale-relative reparameterization and rolling-origin selection. Five Sigma1 hyperparameters become dimensionless fractions of the season own alliance-score variance and two carry weights merge into one share (SIGMA1_CODE_VERSION 4.0.0, both version files re-promoted); the search space gains an enforced SEARCH_EXCLUSIONS partition (16 searchable keys, covShrinkage fixed at 0.3); the tuner replaces the fixed tune/holdout split with rolling-origin selection behind four gates and applies D-T7 pre-committed acceptance bar over an event-blocked paired bootstrap. All four equivalence gates PASS; 2026 score MAE 58.53 -> 53.14 and bias magnitude 25.89 -> 13.89. No search was run | 2026-09-01 | f22ce9e0 | [260901-trz-scale-relative-reparameterization-and-ro](./quick/260901-trz-scale-relative-reparameterization-and-ro/) |
 
 ### Roadmap Evolution
 
@@ -374,8 +375,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T02:35:39.675Z
-Stopped at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
+Last session: 2026-09-02T03:45:23.498Z
+Stopped at: Completed quick task 260901-trz (tasks 4-7) -- reparameterization measured and gated, rolling-origin selection and the acceptance rule wired in. Re-tune NOT run (filed as retune-sigma1-rolling-origin.md)
 Resume file: None
 
 ## Decisions
