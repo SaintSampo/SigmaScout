@@ -13,9 +13,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertNoFutureSeasonLeak,
   assertSelectionPrecedesOrigin,
+  buildAcceptanceReport,
   buildJointArtifact,
+  buildPairedOriginUnits,
   deriveSelectionSeasons,
   determineWinner,
+  evaluationCountForBar,
+  loadIncumbent,
   loadSurvivors,
   objectiveForCandidate,
   planJointCandidates,
@@ -311,6 +315,152 @@ describe("buildJointArtifact (D-T5's recorded discipline)", () => {
     } as never);
     expect(artifact["origin"]).toBeNull();
     expect(artifact["overfittingGuard"]).toBe("rolling-origin (D-T5)");
+  });
+});
+
+/**
+ * D-T6/D-T7's WIRING (quick task 260901-trz Task 6). The bootstrap itself and
+ * the acceptance rule itself are unit-tested in `eventBootstrap.test.ts` and
+ * `acceptance.test.ts`; what is tested here is that the tuner hands them the
+ * right quantities — the paired SE to the bar, the level SE only to the
+ * report, N counted over what was actually evaluated, and a comparison that
+ * refuses to proceed unpaired.
+ */
+describe("evaluationCountForBar (D-T7's N)", () => {
+  it("counts candidates ACTUALLY EVALUATED — not --evals, and not the rejected-and-resampled draws", () => {
+    // 40 random draws + 18 coordinate-descent refinement candidates = 58
+    // evaluated; 6 draws were rejected by isValidParamSet before ever being
+    // scored and were therefore never a chance to win by luck.
+    expect(evaluationCountForBar(58, 6, 40)).toBe(58);
+    expect(evaluationCountForBar(58, 6, 40)).not.toBe(40);
+    expect(evaluationCountForBar(58, 6, 40)).not.toBe(64);
+  });
+
+  it("throws below 2 evaluated candidates — the union bound at N = 1 is exactly 0, which is not a bar", () => {
+    expect(() => evaluationCountForBar(1, 0, 1)).toThrow(/at least 2 evaluated candidates/);
+    expect(() => evaluationCountForBar(0, 3, 40)).toThrow(/not a bar/);
+  });
+});
+
+describe("buildPairedOriginUnits (the paired comparison's precondition)", () => {
+  const row = (matchKey: string, eventKey: string, brier: number, absoluteError: number) => ({ matchKey, eventKey, brier, absoluteError });
+
+  it("pairs by matchKey, not by array position", () => {
+    const candidate = [row("m1", "e1", 0.1, 5), row("m2", "e1", 0.2, 6)];
+    // Deliberately reversed: a positional pairing would silently mis-attribute
+    // both matches and still return a plausible-looking number.
+    const incumbent = [row("m2", "e1", 0.4, 9), row("m1", "e1", 0.3, 8)];
+    const units = buildPairedOriginUnits(candidate as never, incumbent as never);
+    expect(units).toHaveLength(2);
+    expect(units[0]!.matchKey).toBe("m1");
+    expect(units[0]!.candidateBrier).toBe(0.1);
+    expect(units[0]!.incumbentBrier).toBe(0.3);
+    expect(units[1]!.incumbentAbsoluteError).toBe(9);
+  });
+
+  it("throws when the two lists differ in LENGTH", () => {
+    const candidate = [row("m1", "e1", 0.1, 5), row("m2", "e1", 0.2, 6)];
+    const incumbent = [row("m1", "e1", 0.3, 8)];
+    expect(() => buildPairedOriginUnits(candidate as never, incumbent as never)).toThrow(/IDENTICAL match set/);
+  });
+
+  it("throws when the two lists differ in MATCH SET at equal length", () => {
+    // The subtler failure: same count, different matches. An unpaired
+    // difference would still produce a standard error, and that SE would be
+    // meaningless while looking entirely normal.
+    const candidate = [row("m1", "e1", 0.1, 5), row("m2", "e1", 0.2, 6)];
+    const incumbent = [row("m1", "e1", 0.3, 8), row("m3", "e1", 0.4, 9)];
+    expect(() => buildPairedOriginUnits(candidate as never, incumbent as never)).toThrow(/"m2" was scored for the candidate but not for/);
+  });
+});
+
+describe("buildAcceptanceReport (D-T7's three outcomes, as the artifact records them)", () => {
+  /**
+   * Synthetic paired units with an exactly-known mean difference, so the
+   * report's arithmetic is checkable without a corpus. Two events, so the
+   * event-blocked bootstrap in the real path would have something to resample;
+   * here the SEs are injected directly, which is the point — this test is
+   * about the wiring, not about the resampler.
+   */
+  function units(candidateBrier: number, incumbentBrier: number, candidateMae: number, incumbentMae: number) {
+    return [
+      { eventKey: "e1", matchKey: "m1", candidateBrier, incumbentBrier, candidateAbsoluteError: candidateMae, incumbentAbsoluteError: incumbentMae },
+      { eventKey: "e2", matchKey: "m2", candidateBrier, incumbentBrier, candidateAbsoluteError: candidateMae, incumbentAbsoluteError: incumbentMae },
+    ];
+  }
+
+  const BASE = {
+    originSeason: 2025,
+    selectionSeasons: [2022, 2023, 2024],
+    incumbentVersionPath: "data/algorithm-versions/vpr@4.0.0+tuned-2026-08.json",
+    incumbentVersion: "4.0.0+tuned-2026-08",
+    eventCount: 2,
+    brierDeltaStandardError: 0.0005,
+    brierLevelStandardError: 0.00122,
+    maeDeltaStandardError: 0.02,
+    evaluationCount: 58,
+  };
+
+  it("accept: a comfortable margin with unchanged MAE", () => {
+    // Bar at N=58, SE 0.0005 is sqrt(2 ln 58) * 0.0005 ~ 0.00143. Margin 0.01.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("accept");
+    expect(report.verdict).toMatch(/ACCEPTED/);
+    expect(report.candidateBrier).toBeCloseTo(0.15, 12);
+    expect(report.incumbentBrier).toBeCloseTo(0.16, 12);
+  });
+
+  it("keep-incumbent / below-threshold: a positive but sub-bar margin, reported as a completed search", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.1599, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
+    expect(report.verdict).toMatch(/INCUMBENT STANDS/);
+    // The contract, asserted rather than assumed: this is NOT phrased as a
+    // failure, because a search that clears nothing has succeeded.
+    expect(report.verdict).toMatch(/completed search, not a failed one/);
+  });
+
+  it("keep-incumbent / mae-veto: bar cleared, guardrail tripped, and the reported reason names the VETO", () => {
+    // +8% MAE (20 -> 21.6) against a small SE: both halves of the guardrail's
+    // AND are satisfied, the shape of the regression that motivated it.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 21.6, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("mae-veto");
+    expect(report.verdict).toMatch(/VETOED/);
+    // The report must say the candidate was vetoed on MAE, not the far less
+    // useful "nothing was accepted" -- the Brier bar WAS cleared.
+    expect(report.verdict).toMatch(/and was cleared/);
+  });
+
+  it("records evaluationCount, the threshold, and BOTH SEs under distinct, unconfusable names", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 20, 20) });
+    expect(report.outcome.evaluationCount).toBe(58);
+    expect(report.outcome.threshold).toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.0005, 12);
+    expect(report.brierDeltaStandardError).toBe(0.0005);
+    expect(report.brierLevelStandardError).toBe(0.00122);
+    // The paired SE is the one the bar was built from; the level SE is
+    // reported only. Confusing them is the mistake the distinct names exist to
+    // prevent, so assert the bar used the paired one.
+    expect(report.outcome.threshold).not.toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.00122, 12);
+    expect(report.verdict).toMatch(/N = 58/);
+  });
+});
+
+describe("loadIncumbent (D-T7's bar is against WHAT SHIPS)", () => {
+  it("throws by name for a missing version file rather than defaulting", () => {
+    expect(() => loadIncumbent(join(tmpdir(), "definitely-not-a-version-file-260901-trz.json"))).toThrow(/does not exist/);
+    // The refusal must say WHY, so an operator does not "fix" it by pointing
+    // the run at the defaults.
+    expect(() => loadIncumbent(join(tmpdir(), "definitely-not-a-version-file-260901-trz.json"))).toThrow(
+      /NOT DEFAULT_SIGMA1_PARAMS|Refusing to silently substitute the defaults/
+    );
+  });
+
+  it("reads the real committed incumbent and its version string", () => {
+    const incumbent = loadIncumbent();
+    expect(incumbent.version).toBe("4.0.0+tuned-2026-08");
+    // D-T3's fix is present in what ships, which is what the bar compares to.
+    expect(incumbent.params.covShrinkage).toBe(0.3);
   });
 });
 

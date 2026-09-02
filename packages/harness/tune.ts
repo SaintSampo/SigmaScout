@@ -103,6 +103,42 @@
  * already-promoted files describe how THEY were selected, and removing it
  * would invalidate a historical record.
  *
+ * ## D-T7's PRE-COMMITTED ACCEPTANCE RULE, and D-T4's two arms
+ *
+ * After gate 4's write, an `--origin` run evaluates the winner AND the
+ * incumbent on the origin season and applies `acceptance.ts`'s
+ * `decideAcceptance`. The bar is `sqrt(2 ln N) * SE_paired`, where N is the
+ * number of candidates actually evaluated (`evaluationCountForBar` — not the
+ * requested `--evals`, and not the rejected-and-resampled draws that were
+ * never scored). N is recorded in the artifact beside the threshold it
+ * produced, because the bar MOVES with it.
+ *
+ * The incumbent is read from the committed
+ * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+tuned-2026-08.json` and a
+ * missing file THROWS. D-T7's bar is "beats what ships", and the shipped set
+ * is not `DEFAULT_SIGMA1_PARAMS`.
+ *
+ * Two standard errors are reported under deliberately distinct names.
+ * `brierDeltaStandardError` is the PAIRED difference SE, and it is the one the
+ * bar is on. `brierLevelStandardError` is the candidate's own level SE, the
+ * quantity D-T6's published 0.001219 is comparable to. Two fields both called
+ * `se` would be confusable at a glance; these are not.
+ *
+ * `keep-incumbent` EXITS 0 and reads as a result. A search that clears nothing
+ * has completed successfully.
+ *
+ * D-T4's arms need no new machinery — `--adaptation on|off` already exists and
+ * `adaptationEnabled` is in `SEARCH_EXCLUSIONS` (a mode, not a dimension). What
+ * the acceptance rule adds is the COMPARISON SHAPE: the two arms produce two
+ * artifacts per origin, and adaptation ships only if ITS arm's winner clears
+ * the D-T7 bar against the incumbent out-of-sample. D-T4's measured -0.0015
+ * Brier for adaptation-on (holdout 0.153558 -> 0.152054, on top of 16x process
+ * noise, so it is NOT merely a proxy for process noise) is a real result with a
+ * real caveat: its winning sub-parameters were selected by LOOKING AT HOLDOUT,
+ * which inflates that figure by an unknown amount. That is exactly why it must
+ * re-earn its place out-of-sample rather than being enabled on the strength of
+ * the number.
+ *
  * ### Measured cost, and the lean run shape it argues for
  *
  * One candidate's replay is ~1 ms/match with `rpMonteCarloDraws: 0` (this
@@ -158,13 +194,22 @@
  * for a Monte Carlo draw the objective never reads.
  */
 import { dirname, join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
-import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import {
+  DEFAULT_SIGMA1_PARAMS,
+  SIGMA1_CODE_VERSION,
+  Sigma1ParamsSchema,
+  type Sigma1Params,
+} from "../core/algorithms/sigma1/params.js";
+import { outcomeTarget } from "../core/scoring/brier.js";
+import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
+import { decideAcceptance, type AcceptanceOutcome } from "./acceptance.js";
+import { eventBlockedBootstrap, type EventBlockedUnit } from "./eventBootstrap.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 // D-T5: `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit` are deliberately NOT
@@ -328,6 +373,24 @@ function boundedSeasonStream(db: Corpus, season: number, eventsLimit: number | u
 }
 
 /**
+ * One replayed prediction, carrying everything `aggregateScores` needs PLUS
+ * the match's ACTUAL alliance scores.
+ *
+ * It extends `HarnessPredictionInput` rather than replacing it, so these rows
+ * still pass straight into `aggregateScores` unchanged (the extra fields are
+ * simply not read there). The actual scores are needed by D-T7's score-MAE
+ * guardrail (`evaluateOriginSeason` below), which compares
+ * `|predicted - actual|` per alliance — a quantity the win-probability side of
+ * the harness has never needed and therefore never carried. Widening the row
+ * here rather than adding two fields to `HarnessPredictionInput` keeps the
+ * shared scoring interface describing exactly what scoring reads.
+ */
+interface ReplayedPrediction extends HarnessPredictionInput {
+  readonly actualRedScore: number;
+  readonly actualBlueScore: number;
+}
+
+/**
  * Mirrors `cli.ts`'s exported `runSeasons` season loop (D-16/D-19
  * `carrySeason` threading across boundaries) but sources each season's
  * stream from `boundedSeasonStream` above instead of the unbounded
@@ -341,8 +404,8 @@ async function runBoundedSeasons(
   seasons: readonly number[],
   algorithms: readonly AlgorithmModule<any>[],
   eventsLimit: number | undefined
-): Promise<HarnessPredictionInput[]> {
-  const all: HarnessPredictionInput[] = [];
+): Promise<ReplayedPrediction[]> {
+  const all: ReplayedPrediction[] = [];
   let liveStates = new Map<string, unknown>();
 
   for (const season of seasons) {
@@ -375,9 +438,11 @@ async function runBoundedSeasons(
         ` across ${algorithms.length} candidates`
     );
 
-    const predictions: HarnessPredictionInput[] = records.map((r) => ({
+    const predictions: ReplayedPrediction[] = records.map((r) => ({
       matchKey: r.match.matchKey,
       season,
+      actualRedScore: r.match.redScore,
+      actualBlueScore: r.match.blueScore,
       // D-T6 (quick task 260901-trz): carried for downstream event-blocked
       // resampling — see `HarnessPredictionInput.eventKey`'s own doc comment.
       eventKey: r.match.eventKey,
@@ -1156,9 +1221,41 @@ async function runJointStage(
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify(output, null, 2), "utf8");
     console.log(`Wrote ${outPath}`);
-    if (originSeason !== null) {
-      console.log(`  winner committed to disk BEFORE any origin-season (${originSeason}) evaluation — D-T5 gate 4.`);
+
+    // Everything below this line reads the ORIGIN season. Nothing below it may
+    // ever influence `output` above, which is why `output` is already on disk.
+    if (originSeason === null) {
+      console.log(
+        `--seasons mode: no origin season, so no out-of-sample evaluation and no D-T7 acceptance decision. ` +
+          `Re-run with --origin to get one.`
+      );
+      return;
     }
+
+    const evaluationCount = evaluationCountForBar(results.length, rejectedCandidates, evalsCount);
+    console.log(`Evaluating the winner and the incumbent on origin season ${originSeason} (out-of-sample, D-T6/D-T7)...`);
+    const acceptance = await evaluateOriginSeason(db, {
+      originSeason,
+      selectionSeasons: seasons,
+      eventsLimit,
+      winnerParams: winner.params,
+      evaluationCount,
+    });
+
+    const acceptancePath = outPath.replace(/\.json$/, "-acceptance.json");
+    writeFileSync(acceptancePath, JSON.stringify(acceptance, null, 2), "utf8");
+    console.log(acceptance.verdict);
+    console.log(`Wrote ${acceptancePath}`);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // The process exits 0 for EVERY outcome, `keep-incumbent` included.
+    // This is the single place a future operator is most likely to "fix" by
+    // adding a non-zero exit or a retry loop, so: doing either would defeat
+    // the entire purpose of a pre-committed bar. A search that finds nothing
+    // above the bar has SUCCEEDED and its correct output is "the incumbent
+    // stands, and here is the bar it could not clear" (D-T7; `acceptance.ts`'s
+    // header states the same contract at the decision function itself).
+    // ─────────────────────────────────────────────────────────────────────
   } finally {
     db.close();
   }
@@ -1215,6 +1312,319 @@ export function buildJointArtifact(input: {
     atBound: input.atBound,
     candidates: input.results.map((result, index) => ({ index, ...result, winner: index === input.winnerIndex })),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Origin-season evaluation and D-T7's pre-committed acceptance rule
+// (quick task 260901-trz Task 6)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Where the incumbent comes from. THE COMMITTED PROMOTED FILE, never
+ * `DEFAULT_SIGMA1_PARAMS`: D-T7's bar is "beats what SHIPS", and Finding F1
+ * of this task's own plan is that the shipped set is not the defaults — the
+ * promoted `tuned-2026-08` carries a searched `linkC` override that exists
+ * nowhere else. A run that silently fell back to the defaults would compare
+ * the candidate against a model no user has ever seen and report the result
+ * as though it were a shipping decision.
+ */
+const INCUMBENT_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
+
+/** One origin-season match, scored for BOTH models. `eventKey` makes it an `EventBlockedUnit`, so every SE below is event-blocked (D-T6). */
+export interface PairedOriginUnit extends EventBlockedUnit {
+  readonly matchKey: string;
+  readonly candidateBrier: number;
+  readonly incumbentBrier: number;
+  /** Mean `|predicted - actual|` across the match's TWO alliances, so a mean over matches equals the alliance-level MAE `reparamEquivalence.ts` reports. */
+  readonly candidateAbsoluteError: number;
+  readonly incumbentAbsoluteError: number;
+}
+
+/** Per-model per-match row, before pairing. */
+interface OriginScoredRow extends EventBlockedUnit {
+  readonly matchKey: string;
+  readonly brier: number;
+  readonly absoluteError: number;
+}
+
+function scoreOriginRows(predictions: readonly ReplayedPrediction[], algorithmId: string, originSeason: number): OriginScoredRow[] {
+  const rows: OriginScoredRow[] = [];
+  for (const p of predictions) {
+    if (p.algorithmId !== algorithmId || p.season !== originSeason) continue;
+    // The SAME exclusions `aggregateScores` applies, so Brier and MAE describe
+    // one population. Two populations would make the acceptance rule's two
+    // conditions incomparable and would reintroduce, inside the measuring
+    // instrument, exactly the silent-narrowing failure `score.ts`'s quarantine
+    // bounds exist to prevent.
+    if (p.isOffseason || p.isSurrogateAffected) continue;
+    if (p.actualWinner === null) continue;
+    if (!isValidPRedWin(p.pRedWin)) continue;
+    rows.push({
+      eventKey: p.eventKey,
+      matchKey: p.matchKey,
+      brier: (p.pRedWin - outcomeTarget(p.actualWinner)) ** 2,
+      absoluteError:
+        (Math.abs(p.predictedRedScore - p.actualRedScore) + Math.abs(p.predictedBlueScore - p.actualBlueScore)) / 2,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Pairs the two models' origin-season rows BY `matchKey`, and refuses anything
+ * else.
+ *
+ * The paired bootstrap's validity rests entirely on both models having been
+ * scored on the SAME matches — that is what makes the shared match-difficulty
+ * variance cancel inside the difference before resampling (see
+ * `eventBootstrap.ts`'s header). An unpaired or partially-overlapping
+ * comparison would still produce a number, and that number would be a
+ * meaningless standard error that the acceptance bar would then be built on.
+ * So a mismatch throws here rather than degrading quietly.
+ */
+export function buildPairedOriginUnits(
+  candidateRows: readonly OriginScoredRow[],
+  incumbentRows: readonly OriginScoredRow[]
+): PairedOriginUnit[] {
+  if (candidateRows.length !== incumbentRows.length) {
+    throw new Error(
+      `tune: cannot pair the origin-season comparison — the candidate produced ${candidateRows.length} scorable matches and the ` +
+        `incumbent produced ${incumbentRows.length}. A paired event-blocked standard error requires both models scored on the ` +
+        `IDENTICAL match set; an unpaired difference would report a meaningless SE that D-T7's bar would then be built on.`
+    );
+  }
+  const incumbentByMatch = new Map(incumbentRows.map((row) => [row.matchKey, row]));
+  const units: PairedOriginUnit[] = [];
+  for (const candidate of candidateRows) {
+    const incumbent = incumbentByMatch.get(candidate.matchKey);
+    if (incumbent === undefined) {
+      throw new Error(
+        `tune: cannot pair the origin-season comparison — match "${candidate.matchKey}" was scored for the candidate but not for ` +
+          `the incumbent. Both models must see the identical match set (D-T6/D-T7).`
+      );
+    }
+    units.push({
+      eventKey: candidate.eventKey,
+      matchKey: candidate.matchKey,
+      candidateBrier: candidate.brier,
+      incumbentBrier: incumbent.brier,
+      candidateAbsoluteError: candidate.absoluteError,
+      incumbentAbsoluteError: incumbent.absoluteError,
+    });
+  }
+  return units;
+}
+
+/**
+ * D-T7's N: how many candidates were actually EVALUATED in this origin's
+ * search — random draws plus coordinate-descent neighbours — and deliberately
+ * NOT the requested `--evals`, nor that plus the rejected-and-resampled draws.
+ *
+ * The union bound `sqrt(2 ln N)` is over the number of CHANCES the search had
+ * to beat the incumbent by luck. A draw that was rejected by
+ * `isValidParamSet` before ever being scored was never such a chance, so
+ * counting it would inflate the bar. The requested `--evals` understates it
+ * whenever the coordinate-descent refinement pass added candidates, which it
+ * normally does — and understating the bar is the direction that lets noise
+ * through. Recorded in the artifact next to the threshold it produced, because
+ * D-T7 requires it: the bar MOVES with N, so a decision quoted without its N
+ * cannot be checked.
+ */
+export function evaluationCountForBar(evaluatedCandidates: number, rejectedAndResampled: number, requestedEvals: number): number {
+  if (!Number.isInteger(evaluatedCandidates) || evaluatedCandidates < 2) {
+    throw new Error(
+      `tune: the acceptance bar needs at least 2 evaluated candidates, got ${evaluatedCandidates} ` +
+        `(rejected-and-resampled: ${rejectedAndResampled}, requested --evals: ${requestedEvals}). At N = 1 the union bound is exactly 0, which is not a bar.`
+    );
+  }
+  return evaluatedCandidates;
+}
+
+/** The acceptance block this run writes alongside its winner artifact. */
+export interface OriginAcceptanceReport {
+  readonly originSeason: number;
+  readonly selectionSeasons: readonly number[];
+  readonly incumbentVersionPath: string;
+  readonly incumbentVersion: string;
+  readonly matchCount: number;
+  readonly eventCount: number;
+  readonly candidateBrier: number;
+  readonly incumbentBrier: number;
+  readonly candidateMae: number;
+  readonly incumbentMae: number;
+  /** PAIRED event-blocked SE of `candidateBrier - incumbentBrier` — the quantity D-T7's bar is actually on. */
+  readonly brierDeltaStandardError: number;
+  /** LEVEL event-blocked SE of the candidate's own Brier — the quantity D-T6's published 0.001219 is comparable to. Reported alongside so a later reader cannot compare a paired SE against a level one by mistake. */
+  readonly brierLevelStandardError: number;
+  readonly maeDeltaStandardError: number;
+  readonly outcome: AcceptanceOutcome;
+  readonly verdict: string;
+}
+
+/**
+ * Builds D-T7's decision and the one plain sentence that reports it.
+ *
+ * Pure, and exported, so `tune.test.ts` can assert the shape of all three
+ * outcomes without a corpus. The bootstrap and the rule itself are already
+ * unit-tested in `eventBootstrap.test.ts`/`acceptance.test.ts`; what this
+ * function is responsible for is the WIRING — that the paired SE goes to the
+ * bar, the level SE goes only into the report, and the veto's two bounds
+ * travel with the number they judged.
+ */
+export function buildAcceptanceReport(input: {
+  originSeason: number;
+  selectionSeasons: readonly number[];
+  incumbentVersionPath: string;
+  incumbentVersion: string;
+  units: readonly PairedOriginUnit[];
+  eventCount: number;
+  brierDeltaStandardError: number;
+  brierLevelStandardError: number;
+  maeDeltaStandardError: number;
+  evaluationCount: number;
+}): OriginAcceptanceReport {
+  const n = input.units.length;
+  const mean = (pick: (u: PairedOriginUnit) => number): number => input.units.reduce((sum, u) => sum + pick(u), 0) / n;
+  const candidateBrier = mean((u) => u.candidateBrier);
+  const incumbentBrier = mean((u) => u.incumbentBrier);
+  const candidateMae = mean((u) => u.candidateAbsoluteError);
+  const incumbentMae = mean((u) => u.incumbentAbsoluteError);
+
+  const outcome = decideAcceptance({
+    incumbentBrier,
+    candidateBrier,
+    incumbentMae,
+    candidateMae,
+    brierStandardError: input.brierDeltaStandardError,
+    maeStandardError: input.maeDeltaStandardError,
+    evaluationCount: input.evaluationCount,
+  });
+
+  // One plain sentence per case. `keep-incumbent` reads as a RESULT, not as a
+  // failure — see `acceptance.ts`'s header; a report that phrases it as a
+  // failure is how an operator gets talked into widening the bar.
+  const shared =
+    `Origin ${input.originSeason}: the search evaluated ${input.evaluationCount} candidates on ${input.selectionSeasons.join(", ")} ` +
+    `and its winner beat the incumbent (${input.incumbentVersion}) by ${outcome.margin.toFixed(6)} Brier out-of-sample ` +
+    `over ${n} matches across ${input.eventCount} events; the bar at N = ${input.evaluationCount} was ${outcome.threshold.toFixed(6)}`;
+  const verdict =
+    outcome.decision === "accept"
+      ? `${shared}, so the candidate is ACCEPTED (score-MAE delta ${outcome.maeDelta.toFixed(4)}, inside the guardrail's ${outcome.maeVetoBound.toFixed(4)} bound).`
+      : outcome.reason === "below-threshold"
+        ? `${shared}, so the INCUMBENT STANDS. Nothing cleared a pre-committed bar, which is a completed search, not a failed one.`
+        : `${shared} and was cleared — but the candidate worsens alliance-score MAE by ${outcome.maeDelta.toFixed(4)} points, past the ` +
+          `guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so it is VETOED and the INCUMBENT STANDS. D-T7's guardrail exists because ` +
+          `the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both rated equal-or-better.`;
+
+  return {
+    originSeason: input.originSeason,
+    selectionSeasons: [...input.selectionSeasons],
+    incumbentVersionPath: input.incumbentVersionPath,
+    incumbentVersion: input.incumbentVersion,
+    matchCount: n,
+    eventCount: input.eventCount,
+    candidateBrier,
+    incumbentBrier,
+    candidateMae,
+    incumbentMae,
+    brierDeltaStandardError: input.brierDeltaStandardError,
+    brierLevelStandardError: input.brierLevelStandardError,
+    maeDeltaStandardError: input.maeDeltaStandardError,
+    outcome,
+    verdict,
+  };
+}
+
+/** Reads the committed incumbent. Throws by name if it is missing rather than substituting `DEFAULT_SIGMA1_PARAMS` — see `INCUMBENT_VERSION_PATH`. */
+export function loadIncumbent(path: string = INCUMBENT_VERSION_PATH): { params: Sigma1Params; version: string } {
+  if (!existsSync(path)) {
+    throw new Error(
+      `tune: the incumbent version file ${path} does not exist. D-T7's bar is "beats what SHIPS", and the shipped parameter set is ` +
+        `NOT DEFAULT_SIGMA1_PARAMS (the promoted set carries overrides that exist nowhere else). Refusing to silently substitute the defaults.`
+    );
+  }
+  const raw = JSON.parse(readFileSync(path, "utf8")) as { version?: unknown; params?: unknown };
+  return { params: Sigma1ParamsSchema.parse(raw.params), version: typeof raw.version === "string" ? raw.version : "(unknown)" };
+}
+
+/**
+ * D-T6/D-T7's out-of-sample evaluation. Runs strictly AFTER the winner has
+ * been written to disk (gate 4).
+ *
+ * DEVIATION FROM THE PLAN'S LETTER, recorded because it changes what is
+ * measured: the plan said "replay exactly two candidates over the ORIGIN
+ * season alone". This replays the SELECTION seasons THROUGH the origin as one
+ * continuous run with `carrySeason` threading, and SCORES only the origin
+ * season. A cold-start replay of the origin alone would measure a model that
+ * does not exist — Sigma1 carries state across season boundaries (D-16/D-19,
+ * and `reparamEquivalence.ts` makes the same point in as many words: "five
+ * independent per-season runs would measure a different model"). The extra
+ * cost is a few minutes of replay against a search measured in hours, so
+ * there is no reason to approximate it.
+ *
+ * Both candidates go through ONE `runBoundedSeasons` call and therefore ONE
+ * shared stream, which is what makes the PAIRED bootstrap valid.
+ *
+ * Note the boundary handed to gate 3 here: `originSeason + 1`, not
+ * `originSeason`. This phase is DELIBERATELY allowed to score the origin —
+ * that is the whole point of an out-of-sample evaluation — and is still
+ * forbidden anything after it. The selection phase's own boundary was
+ * `originSeason`, and it ran before this and against a different number.
+ */
+async function evaluateOriginSeason(
+  db: Corpus,
+  input: {
+    originSeason: number;
+    selectionSeasons: readonly number[];
+    eventsLimit: number | undefined;
+    winnerParams: Sigma1Params;
+    evaluationCount: number;
+  }
+): Promise<OriginAcceptanceReport> {
+  const incumbent = loadIncumbent();
+  const CANDIDATE_ID = "acceptance-candidate";
+  const INCUMBENT_ID = "acceptance-incumbent";
+
+  const algorithms = [
+    makeSigma1({ id: CANDIDATE_ID, linkMode: "predictive-variance", params: input.winnerParams }),
+    makeSigma1({ id: INCUMBENT_ID, linkMode: "predictive-variance", params: incumbent.params }),
+  ];
+  const replaySeasons = [...input.selectionSeasons, input.originSeason].sort((a, b) => a - b);
+  const predictions = await runBoundedSeasons(db, replaySeasons, algorithms, input.eventsLimit);
+
+  assertNoFutureSeasonLeak(aggregateScores(predictions), input.originSeason + 1);
+
+  const units = buildPairedOriginUnits(
+    scoreOriginRows(predictions, CANDIDATE_ID, input.originSeason),
+    scoreOriginRows(predictions, INCUMBENT_ID, input.originSeason)
+  );
+
+  // PAIRED differences for both axes — one resample of events, both models
+  // scored on the same draw. `eventBootstrap.ts`'s header explains why the
+  // paired SE, not either side's level SE, is the faithful quantity for a bar
+  // that is itself on a difference.
+  const brierDelta = eventBlockedBootstrap(units, (sample) =>
+    sample.reduce((sum, u) => sum + (u.candidateBrier - u.incumbentBrier), 0) / sample.length
+  );
+  const maeDelta = eventBlockedBootstrap(units, (sample) =>
+    sample.reduce((sum, u) => sum + (u.candidateAbsoluteError - u.incumbentAbsoluteError), 0) / sample.length
+  );
+  // The LEVEL SE as well: one extra call, and it prevents a later reader
+  // comparing this run's paired SE against D-T6's published level figure.
+  const brierLevel = eventBlockedBootstrap(units, (sample) => sample.reduce((sum, u) => sum + u.candidateBrier, 0) / sample.length);
+
+  return buildAcceptanceReport({
+    originSeason: input.originSeason,
+    selectionSeasons: input.selectionSeasons,
+    incumbentVersionPath: INCUMBENT_VERSION_PATH,
+    incumbentVersion: incumbent.version,
+    units,
+    eventCount: brierDelta.eventCount,
+    brierDeltaStandardError: brierDelta.standardError,
+    brierLevelStandardError: brierLevel.standardError,
+    maeDeltaStandardError: maeDelta.standardError,
+    evaluationCount: input.evaluationCount,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
