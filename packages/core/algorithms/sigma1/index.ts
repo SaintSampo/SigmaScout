@@ -264,14 +264,23 @@ function leagueConsistencyFor(league: Sigma1League, component: string, fallback:
  * of the estimator change and is fixed here rather than left to surface as
  * a frozen team.
  *
- * Deliberately reuses `shrinkConsistency`'s OWN floor
- * (`SIGMA1_MIN_CONSISTENCY_VARIANCE`, via `params.minConsistencyVariance`)
- * rather than introducing a second constant: it is the same statement — a
- * variance blended toward a still-cold-start league average must not claim
- * an implausibly tiny spread — applied one step earlier, at the seed rather
- * than at the read. With a realistic league prior (hundreds of points^2
- * under this estimator) the floor never binds; it exists for exactly the
- * early-season and synthetic-fixture cases where the prior is still 0.
+ * Deliberately reuses `shrinkConsistency`'s OWN floor rather than introducing
+ * a second constant: it is the same statement — a variance blended toward a
+ * still-cold-start league average must not claim an implausibly tiny spread —
+ * applied one step earlier, at the seed rather than at the read.
+ *
+ * Since 4.0.0 (D-T1) that floor is `params.minConsistencyVariance` on the
+ * RESOLVED parameter set, i.e. `minConsistencyVarianceRel * sigma^2` for this
+ * call's own realized alliance-score scale. `consistency.ts`'s
+ * `SIGMA1_MIN_CONSISTENCY_VARIANCE` is no longer the value applied here — it
+ * is only the absolute constant the relative DEFAULT was derived from, at
+ * `SIGMA1_REFERENCE_SCORE_VARIANCE`. The floor therefore tracks each season's
+ * own scale instead of holding a single points^2 number across five seasons
+ * whose variances span 718 to 20,164.
+ *
+ * With a realistic league prior (hundreds of points^2 under this estimator)
+ * the floor never binds; it exists for exactly the early-season and
+ * synthetic-fixture cases where the prior is still 0.
  */
 function seedConsistencyFor(league: Sigma1League, component: string, params: Sigma1ResolvedParams): number {
   return Math.max(params.minConsistencyVariance, leagueConsistencyFor(league, component, params.coldStartConsistencyVariance));
@@ -1312,9 +1321,13 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
  * D-16/D-17/D-19/D-04: carries every team's rating across a season boundary
  * via `sigma1/carryover.ts`'s `sigma1Carryover` — Sigma1's OWN tunable copy
  * of the same reference shape EPA's `carrySeason` builds on (`epaCarryover`,
- * frozen), so tuning `params.carryMeanReversion`/`carryLastYearWeight`/
- * `carryPriorYearWeight` moves Sigma1's carried ratings without moving
- * EPA's (D-04). Component MEANS carry via the blend; posterior variance
+ * frozen), so tuning `params.carryMeanReversion`/`params.carryPriorYearShare`
+ * moves Sigma1's carried ratings without moving EPA's (D-04). Since 4.0.0
+ * (D-T2) those are the only two carry knobs: the retired
+ * `carryLastYearWeight`/`carryPriorYearWeight` pair was UNNORMALIZED, so its
+ * SUM duplicated `carryMeanReversion`'s shrinkage job while only its RATIO
+ * asked a distinct question — the ratio is now `carryPriorYearShare` and the
+ * shrinkage is `carryMeanReversion` alone. Component MEANS carry via the blend; posterior variance
  * re-inflates to the cold-start prior (a year of layoff is a bigger regime
  * change than an event boundary, D-07's own reasoning applied one level
  * up) rather than carrying the outgoing season's converged, and therefore

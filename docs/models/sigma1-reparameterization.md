@@ -200,9 +200,182 @@ The two JSON reports are byte-identical, including every Brier to its last
 digit. A replay that was not deterministic would invalidate every comparison
 in this document.
 
-## AFTER — `vpr@4.0.0+tuned-2026-08`
+## AFTER — `vpr@4.0.0+tuned-2026-08`, measured 2026-09-01
 
-*Not yet measured. Task 7 of quick task `260901-trz` fills this section, with:
-the same five-season table under the migrated scale-relative parameter set;
-the rename-only delta against every gate above; and the `covShrinkage`-fix
-delta reported SEPARATELY, never summed into the rename-only number.*
+Two readings, kept apart on purpose. **(a) rename-only** is the parameter set
+exactly as the shape-change commit (`8bc90fd4`) promoted it, with
+`covShrinkage` still at its searched `0.12817359956447036` — this is the
+reparameterization, and gates A–C judge it. **(b) shipped** is the current
+committed file, with D-T3's `covShrinkage` fix applied (0.3, the documented
+constant). The difference between them is a deliberate deviation and is
+reported on its own below; **it is never summed into the rename-only delta.**
+
+All three readings (BEFORE, (a), (b)) were taken against the identical corpus —
+363,192,320 bytes, mtime `2026-08-28T17:49:24.774Z` — so the deltas are
+attributable to the code, not to the data moving underneath them.
+
+```
+# (a) rename-only — the shape-change commit's own promoted file
+git show 8bc90fd4:data/algorithm-versions/vpr@4.0.0+tuned-2026-08.json > reports/_rename-only-params.json
+pnpm reparam:equivalence --mode measure --params reports/_rename-only-params.json \
+  --seasons 2022,2023,2024,2025,2026 --out reports/reparam-after-rename-only.json
+
+# (b) shipped — covShrinkage fixed at 0.3
+pnpm reparam:equivalence --mode measure \
+  --params data/algorithm-versions/vpr@4.0.0+tuned-2026-08.json \
+  --seasons 2022,2023,2024,2025,2026 --out reports/reparam-after-shipped.json
+```
+
+### (a) rename-only
+
+| season | split | matches | events | Brier ± event-blocked SE | winner acc. | score MAE ± SE | bias |
+|---|---|---|---|---|---|---|---|
+| 2022 | tune | 14,603 | 184 | 0.156738 ± 0.002132 | 0.7550 | 13.054 ± 0.147 | −3.889 |
+| 2023 | tune | 16,290 | 185 | 0.164063 ± 0.002224 | 0.7556 | 15.708 ± 0.112 | −3.354 |
+| 2024 | tune | 16,958 | 192 | 0.170309 ± 0.001830 | 0.7443 | 13.411 ± 0.136 | +0.527 |
+| 2025 | holdout | 17,815 | 204 | 0.158786 ± 0.002031 | 0.7625 | 20.585 ± 0.179 | −7.759 |
+| 2026 | holdout | 18,337 | 214 | 0.146569 ± 0.002009 | 0.7880 | 53.136 ± 1.149 | −13.891 |
+| **pooled** | — | **84,003** | **979** | **0.159113 ± 0.000948** | 0.7618 | 23.987 ± 0.589 | −5.898 |
+| *tune pool only* | tune | *47,851* | *561* | *0.164041* | — | *14.084* | *−2.142* |
+
+### (b) shipped, with `covShrinkage = 0.3`
+
+| season | split | matches | events | Brier ± event-blocked SE | winner acc. | score MAE ± SE | bias |
+|---|---|---|---|---|---|---|---|
+| 2022 | tune | 14,603 | 184 | 0.156598 ± 0.002146 | 0.7550 | 13.054 ± 0.147 | −3.889 |
+| 2023 | tune | 16,290 | 185 | 0.164320 ± 0.002242 | 0.7556 | 15.708 ± 0.112 | −3.354 |
+| 2024 | tune | 16,958 | 192 | 0.170239 ± 0.001833 | 0.7443 | 13.411 ± 0.136 | +0.527 |
+| 2025 | holdout | 17,815 | 204 | 0.158636 ± 0.002025 | 0.7625 | 20.585 ± 0.179 | −7.759 |
+| 2026 | holdout | 18,337 | 214 | 0.146373 ± 0.002017 | 0.7880 | 53.136 ± 1.149 | −13.891 |
+| **pooled** | — | **84,003** | **979** | **0.159049 ± 0.000952** | 0.7618 | 23.987 ± 0.589 | −5.898 |
+| *tune pool only* | tune | *47,851* | *561* | *0.164061* | — | *14.084* | *−2.142* |
+
+## THE VERDICT — gates A–C, on (a), on the tune seasons only
+
+Bound and measurement side by side. **Every gate PASSES.**
+
+| gate | scope | bound | measured | |
+|---|---|---|---|---|
+| **A. Brier** | 2022 | `abs(dBrier) <= 0.0024` | **+0.001103** | ✅ PASS |
+| | 2023 | | **−0.000087** | ✅ PASS |
+| | 2024 | | **−0.000227** | ✅ PASS |
+| | tune pool | | **+0.000227** | ✅ PASS |
+| **B. score MAE** | 2022 | `abs(dMAE) <= 2%` relative | **+1.44%** (12.868 → 13.054) | ✅ PASS |
+| | 2023 | | **−0.02%** (15.712 → 15.708) | ✅ PASS |
+| | 2024 | | **−0.23%** (13.441 → 13.411) | ✅ PASS |
+| | tune pool | | **+0.32%** (14.039 → 14.084) | ✅ PASS |
+| **C. bias** | 2022 | `abs(dbias) <= 1.0` point | **−0.538** (−3.351 → −3.889) | ✅ PASS |
+| | 2023 | | **−0.048** (−3.306 → −3.354) | ✅ PASS |
+| | 2024 | | **+0.111** (+0.416 → +0.527) | ✅ PASS |
+| | tune pool | | **−0.141** (−2.001 → −2.142) | ✅ PASS |
+| **D. scale-equivariance** | synthetic | EXACT (bitwise) at factor 4 | **bitwise identical `pRedWin`, exactly 4x predicted scores** | ✅ PASS |
+
+Gate D is proven by `packages/core/algorithms/sigma1/scale.test.ts`, not by this
+document's instrument: a synthetic stream replayed at scores `s` with
+`fallbackScoreSd = f` and at `4s` with `4f` produces bitwise-identical win
+probabilities and exactly-4x predicted scores. 4 is a power of two, so IEEE-754
+makes that an equality assertion rather than a tolerance.
+
+**2022 is the loosest of the twelve, and that is expected rather than
+surprising.** It is the only season that pays the cold-start transient in full:
+`fallbackScoreSd = 25` resolves a fresh state to a scale of 625, roughly 0.61x
+`V_ref`, so the first few dozen matches of 2022 run tight before the expanding
+statistic converges. Every later season inherits a warmed-up statistic. Even so
+2022 lands at less than half of gate A's bound and less than three quarters of
+gate B's.
+
+## The `covShrinkage` fix, ISOLATED — (b) minus (a)
+
+| season | dBrier | dMAE | dbias | d winner acc. |
+|---|---|---|---|---|
+| 2022 | −0.000140 | 0.000000 | 0.000000 | 0.00000 |
+| 2023 | +0.000256 | 0.000000 | 0.000000 | 0.00000 |
+| 2024 | −0.000071 | 0.000000 | 0.000000 | 0.00000 |
+| 2025 | −0.000150 | 0.000000 | 0.000000 | 0.00000 |
+| 2026 | −0.000196 | 0.000000 | 0.000000 | 0.00000 |
+| tune pool | **+0.000020** | 0.000000 | 0.000000 | 0.00000 |
+| all-five pooled | **−0.000063** | 0.000000 | 0.000000 | 0.00000 |
+
+**Finding 1 — it did NOT land at CONTEXT's predicted magnitude, and the miss is
+in the harmless direction.** CONTEXT estimated the screen's `covShrinkage`
+optimum was buying about **0.0005 Brier**. The measured cost of giving that back
+is **+0.000020 on the tune pool** and **−0.000063 pooled across all five
+seasons** — roughly an order of magnitude smaller, and *negative* (an
+improvement) on four of the five seasons taken individually.
+
+The discrepancy is explicable rather than alarming, and the explanation matters
+because it is about what the screen actually measured: CONTEXT's ~0.0005 is the
+range of a one-at-a-time sweep from **0 to 0.9** with every other parameter at
+its **default**, under the **retired absolute parameterization** and, for part
+of that history, the retired R estimator. What is measured here is a move from
+**0.128 to 0.3** at the **promoted** operating point under the **new
+scale-relative** parameterization. Different range, different operating point,
+different code version.
+
+The finding strengthens D-T3's argument rather than weakening it. The search's
+case for a low `covShrinkage` was that it bought ~0.0005 Brier; at the point
+where it actually ships, restoring the PSD safeguard costs **essentially
+nothing measurable** — 0.00002 on the pool it was tuned on, against an
+event-blocked SE of 0.001258 on that same pool, i.e. about **1.6% of one
+standard error**. There was never a real trade here.
+
+**Finding 2 — predicted SCORES are bitwise unchanged, and only Brier moves.**
+MAE, bias and winner accuracy are identical to the last bit across the fix
+(verified as exact equality, not rounding: 2026 MAE is `53.13557504246273` in
+both). This is exactly the structural behaviour `covShrinkage` should have.
+It shrinks the OFF-DIAGONAL entries of a team's component covariance, which
+feeds the predictive VARIANCE — the published `±` and the win-probability
+link's denominator — and never the predicted MEAN. Identical predicted scores
+mean identical margins, hence identical favored winners, hence identical winner
+accuracy; only the probability attached to each call moves. A `dMAE` of
+anything other than exactly zero here would have meant `covShrinkage` was
+reaching something it has no business reaching.
+
+## Holdout seasons — REPORTED, never gated
+
+No parameter was selected from these. They are re-measured because CONTEXT
+publishes the same figures, so this is a reproduction rather than a new peek.
+
+| | BEFORE (3.0.0) | AFTER (a) | retired estimator's target | recovered |
+|---|---|---|---|---|
+| 2025 score MAE | 21.144 | **20.585** | ~19.75 | **40%** of the gap |
+| 2026 score MAE | 58.531 | **53.136** | ~50.56 | **68%** of the gap |
+| 2025 bias | −9.097 | **−7.759** | ~−4.05 | **27%** of the gap |
+| 2026 bias | −25.887 | **−13.891** | ~−4.92 | **57%** of the gap |
+| 2025 Brier | 0.159971 | **0.158786** | — | improved |
+| 2026 Brier | 0.152721 | **0.146569** | — | improved by 0.0062 |
+
+**The answer, stated plainly: the regression is SUBSTANTIALLY recovered, and it
+is NOT fully recovered.** D-T1 was aimed at a measured defect — a +7.0% (2025)
+and +15.8% (2026) score-MAE regression that Brier and SD(z) both rated
+equal-or-better — and making the five parameters scale-relative recovers 40% of
+the 2025 gap and 68% of the 2026 gap on its own, while *also* improving Brier on
+both holdout seasons. 2026's bias, the single worst symptom, falls from −25.89
+to −13.89.
+
+This is the expected shape of a partial fix, and the reason it is partial is
+known rather than mysterious. The reparameterization only makes the parameters
+*track* each season's scale; it does not re-choose them. The relative values
+currently shipped are the old absolute values divided by `V_ref`, i.e. the
+optimum for a scale-blind filter re-expressed, not the optimum for a
+scale-relative one. CONTEXT measured that reaching 2026 MAE ≈ 50.8 needs process
+noise at roughly **16x** the shipped value; the scale-relative mapping supplies
+a season-tracking multiplier, not that specific magnitude.
+
+**Closing the remaining gap is the rolling-origin re-tune's job**
+(`.planning/todos/pending/retune-sigma1-rolling-origin.md`), which is exactly
+what D-T5/D-T7's machinery was built for and what this task deliberately did not
+run. A null result here would have been the most important finding this task
+could produce; it is not a null result, and the residual gap is named rather
+than buried.
+
+## What this document does NOT claim
+
+- It does not claim the shipped parameter set is good. Every parameter bar
+  `covShrinkage` and `linkC` was selected under the retired parameterization on
+  a fixed split and is stale pending the re-tune.
+- It does not claim per-match equivalence. See the section above on why that is
+  impossible by construction.
+- It does not gate on 2025/2026. Those rows are a reproduction, and the
+  rolling-origin machinery exists precisely so future selection never charges
+  against them.

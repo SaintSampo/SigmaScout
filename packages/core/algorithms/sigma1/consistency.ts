@@ -10,6 +10,21 @@
  * updated by plan 07-06, D-01/D-02/D-03 — see that plan's own doc comment
  * on `sigma1/index.ts`'s `teamMetrics` for the full redefinition):
  *
+ * SINCE 4.0.0 (D-T1) THERE IS A FOURTH QUANTITY TO KEEP APART, and it is a
+ * different KIND of thing from the other three rather than a fourth member of
+ * the same list: the SCALE those three are now expressed relative to — the
+ * season's own realized alliance-score variance, `sigma^2`, read from the
+ * leak-free expanding `state.allianceScoreStats`. The three below are all
+ * per-team, per-component quantities in points^2. `sigma^2` is a LEAGUE-WIDE,
+ * per-season quantity, and it is the divisor that turns a tuned constant into
+ * a dimensionless fraction. `minConsistencyVariance` and
+ * `coldStartConsistencyVariance` as this module's constants are still
+ * points^2; the PARAMETERS of the same name on `Sigma1ResolvedParams` are
+ * `rel * sigma^2` for the season being replayed, and only the resolved ones
+ * are ever applied. Reading a `*Rel` field as though it were points^2 (or
+ * this module's constants as though they were what the filter applies) is the
+ * 4.0.0-era version of exactly the conflation this header exists to prevent.
+ *
  *   - consistency (D-09, THIS module) — the measurement noise `R`: the
  *     per-team, per-component variance of one match's REALIZED contribution
  *     around that team's CURRENT mean. Estimated online by an EWMA

@@ -254,16 +254,25 @@ describe("committed baseline fingerprints", () => {
    * The three versions below are a HISTORICAL RECORD, not a claim about what
    * the code currently ships. They are the versions this fingerprint was
    * MEASURED under on 2026-08-30 (pre-260901-is2), and they are what produced
-   * its committed `predictionStreamSha256` digests. Quick task 260901-is2
-   * (2026-09-01) bumped all three past these values — opr 3.1.0 -> 4.0.0
-   * (D-Q4), epa 1.1.0 -> 2.0.0 (D-Q1), vpr 2.1.0 -> 3.0.0 (D-Q2) — and also
-   * changed the winner-accuracy denominator for every algorithm (D-Q3).
+   * its committed `predictionStreamSha256` digests.
+   *
+   * HOW FAR BEHIND, kept current so a reader can tell at a glance:
+   *   - quick task 260901-is2 (2026-09-01) bumped all three — opr 3.1.0 ->
+   *     4.0.0 (D-Q4), epa 1.1.0 -> 2.0.0 (D-Q1), vpr 2.1.0 -> 3.0.0 (D-Q2) —
+   *     and changed the winner-accuracy denominator for every algorithm
+   *     (D-Q3);
+   *   - quick task 260901-trz (2026-09-01) bumped vpr again, 3.0.0 -> 4.0.0
+   *     (D-T1/D-T2, the scale-relative parameter reshape).
+   * So vpr is now TWO model versions ahead of what this file records, and
+   * opr/epa are one each.
    *
    * DO NOT "update" these three assertions to the new version strings. Doing so
    * would attach a real digest to code that never produced it, i.e. falsify a
    * measurement record. The correct response to the bumps is a NEW fingerprint
    * file measured under the new code, added alongside this one:
-   * `.planning/todos/pending/remeasure-baseline-fingerprint-post-is2.md`.
+   * `.planning/todos/pending/remeasure-baseline-fingerprint-post-trz.md`
+   * (which supersedes the post-is2 todo, since a single re-measurement now
+   * covers both bumps).
    */
   it("the offseason-inclusive fingerprint carries exactly opr/epa/vpr, at the versions it was measured under (pre-260901-is2)", () => {
     const raw: unknown = JSON.parse(

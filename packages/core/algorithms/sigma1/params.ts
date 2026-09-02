@@ -244,11 +244,23 @@ export const SIGMA1_CONSISTENCY_CARRY_DECAY = 0.5;
 /**
  * Every tunable Sigma1 hyperparameter, as plain data threaded through
  * `makeSigma1` (`sigma1/index.ts`) rather than read as a module constant.
- * Every field is a `readonly number` — this is a data declaration, not
- * behaviour, so the interface is declared in full now even though this
- * task (03-01 Task 1) only wires `processNoiseWithinEvent`/
- * `processNoiseEventBoundary` through the update path; Task 2 wires the
- * remaining ten, Task 3 wires the three carry fields.
+ * Every field is a `readonly number` (bar `adaptationEnabled`) — this is a
+ * data declaration, not behaviour.
+ *
+ * Since 4.0.0 (D-T1) the interface splits three ways, and the split is worth
+ * knowing before reading any individual field:
+ *
+ *   - Five `*Rel` fields are DIMENSIONLESS fractions of the season's own
+ *     realized alliance-score variance (or, for `coldStartTeamTotalRel`, its
+ *     standard deviation). No helper ever reads them: `scale.ts`'s
+ *     `resolveSigma1Params` turns them into absolute quantities exactly once
+ *     per public entry point, and `Sigma1ResolvedParams` `Omit`s them so the
+ *     type system — not a convention — enforces that.
+ *   - The `rp*` process-noise and cold-start fields are ABSOLUTE, because RP
+ *     threshold variables are COUNTS rather than points (F3).
+ *   - Everything else is dimensionless already (rates, shares, exponents,
+ *     clamps) or is `fallbackScoreSd`, which stays absolute because it is the
+ *     bootstrap for the very scale the `*Rel` fields are expressed against.
  */
 export interface Sigma1Params {
   /**
@@ -393,7 +405,33 @@ export interface Sigma1Params {
    * numeric knob, and is therefore deliberately EXCLUDED from the
    * sensitivity screen's one-at-a-time sweep — plan 03-05 searches it as
    * two independent optimizer runs per D-06, never as a dimension inside
-   * one run.
+   * one run. Since 4.0.0 that exclusion is DATA, not prose: it is a named
+   * entry in `packages/harness/searchSpace.ts`'s `SEARCH_EXCLUSIONS`, with a
+   * test that fails if any parameter lands in neither the search space nor
+   * the exclusion list (D-T3).
+   *
+   * D-T4's MEASUREMENT, and the caveat that is inseparable from it (quick
+   * task 260901-trz). Adaptation-on beat adaptation-off in EVERY arm
+   * measured, and still added **-0.0015 Brier on top of 16x process noise**
+   * (holdout 0.153558 -> 0.152054). That second figure is the load-bearing
+   * one: it means adaptation is NOT merely a slow proxy for process noise,
+   * which was the obvious alternative explanation and would have made it
+   * redundant once D-T1's scale-relative process noise landed.
+   *
+   * THE CAVEAT: adaptation's winning SUB-PARAMETERS (`adaptationEwmaAlpha`,
+   * `adaptationExponent`, the two clamp bounds, `adaptationMinObservations`)
+   * were selected BY LOOKING AT HOLDOUT. A figure whose configuration was
+   * chosen on the same data it is reported against is inflated by an unknown
+   * amount, so -0.0015 is an upper bound on the real effect, not an estimate
+   * of it.
+   *
+   * Consequently D-T4 neither deletes adaptation nor enables it. It enters
+   * the rolling-origin re-tune (D-T5) as two independent optimizer runs per
+   * origin — the D-06 precedent — with its sub-parameters selected on
+   * strictly-prior seasons only, and it SHIPS ONLY IF its arm's winner clears
+   * D-T7's acceptance bar against the incumbent out-of-sample. Quick task
+   * 260901-trz did NOT enable it; see
+   * `.planning/todos/pending/retune-sigma1-rolling-origin.md`.
    */
   readonly adaptationEnabled: boolean;
   /** D-05 (plan 03-04): EWMA rate for `./adaptation.js`'s `foldInnovation` squared-normalized-innovation fold — matches `consistencyEwmaAlpha`'s reasoning: one off match must not swing the factor. Phase 3 hyperparameter, default unverified. */
