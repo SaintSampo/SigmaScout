@@ -11,11 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
-  assertNoHoldoutLeak,
+  assertNoFutureSeasonLeak,
+  assertSelectionPrecedesOrigin,
+  buildJointArtifact,
+  deriveSelectionSeasons,
   determineWinner,
   loadSurvivors,
   objectiveForCandidate,
   planJointCandidates,
+  resolveJointSelection,
   selectBestScreenRow,
   SCREEN_SURVIVAL_THRESHOLD,
   type ScreenRow,
@@ -128,19 +132,185 @@ describe("D-01: the objective ignores winner accuracy", () => {
 
 });
 
-describe("assertNoHoldoutLeak (T-03-07's gate 3)", () => {
-  it("throws when any produced slice is holdout-labelled or headline-eligible", () => {
-    const holdoutLabelled = fakeSlice("cand", 2025, 0.1, 0.5);
-    const withHoldoutSlice: ScoreSlice[] = [fakeSlice("cand", 2022, 0.1, 0.5), { ...holdoutLabelled, seasonLabel: "holdout" }];
-    expect(() => assertNoHoldoutLeak(withHoldoutSlice)).toThrow(/non-tune \/ headline-eligible/);
-
-    const headlineEligibleSlice: ScoreSlice[] = [{ ...fakeSlice("cand", 2022, 0.1, 0.5), headlineEligible: true }];
-    expect(() => assertNoHoldoutLeak(headlineEligibleSlice)).toThrow(/non-tune \/ headline-eligible/);
+/**
+ * D-T5's four gates (quick task 260901-trz). This is the single edit in that
+ * task that can silently re-open hyperparameter-level leakage, so the gates
+ * are tested individually and the retired gate's NAME is asserted absent.
+ */
+describe("assertNoFutureSeasonLeak (D-T5 gate 3)", () => {
+  it("throws for a slice AT the boundary season", () => {
+    const slices: ScoreSlice[] = [fakeSlice("cand", 2022, 0.1, 0.5), fakeSlice("cand", 2025, 0.1, 0.5)];
+    expect(() => assertNoFutureSeasonLeak(slices, 2025)).toThrow(/season 2025/);
+    expect(() => assertNoFutureSeasonLeak(slices, 2025)).toThrow(/boundary season 2025/);
   });
 
-  it("does not throw for a genuinely tune-only, non-headline-eligible slice set", () => {
-    const slices: ScoreSlice[] = [fakeSlice("cand", 2022, 0.1, 0.5), fakeSlice("cand", 2023, 0.12, 0.6)];
-    expect(() => assertNoHoldoutLeak(slices)).not.toThrow();
+  it("throws for a slice AFTER the boundary season", () => {
+    const slices: ScoreSlice[] = [fakeSlice("cand", 2026, 0.1, 0.5)];
+    expect(() => assertNoFutureSeasonLeak(slices, 2025)).toThrow(/season 2026/);
+  });
+
+  it("passes for slices strictly BEFORE the boundary", () => {
+    const slices: ScoreSlice[] = [fakeSlice("cand", 2022, 0.1, 0.5), fakeSlice("cand", 2023, 0.12, 0.6), fakeSlice("cand", 2024, 0.13, 0.6)];
+    expect(() => assertNoFutureSeasonLeak(slices, 2025)).not.toThrow();
+  });
+
+  it("no longer keys off seasonLabel — a tune-labelled slice at the boundary is still a leak", () => {
+    // The retired gate asked `seasonLabel !== "tune"`, a statement about
+    // D-09's FIXED split. Under rolling origin an origin-2024 run selecting on
+    // 2022-2023 must reject a 2024 slice, and 2024 is labelled "tune".
+    const slices: ScoreSlice[] = [fakeSlice("cand", 2024, 0.1, 0.5)];
+    expect(slices[0]!.seasonLabel).toBe("tune");
+    expect(() => assertNoFutureSeasonLeak(slices, 2024)).toThrow(/boundary season 2024/);
+  });
+
+  it("the retired assertNoHoldoutLeak export is GONE, not aliased", async () => {
+    // Deleted rather than kept as an alias: leaving both names would let a
+    // call site keep the retired predicate by accident, and that predicate
+    // passes happily on exactly the leak above.
+    const tuneModule = await import("./tune.js");
+    expect(Object.keys(tuneModule)).not.toContain("assertNoHoldoutLeak");
+  });
+});
+
+describe("deriveSelectionSeasons (D-T5 gate 1)", () => {
+  const CORPUS = [2022, 2023, 2024, 2025, 2026];
+
+  it("derives strictly-prior seasons for each of the three origins", () => {
+    expect(deriveSelectionSeasons(CORPUS, 2024)).toEqual([2022, 2023]);
+    expect(deriveSelectionSeasons(CORPUS, 2025)).toEqual([2022, 2023, 2024]);
+    expect(deriveSelectionSeasons(CORPUS, 2026)).toEqual([2022, 2023, 2024, 2025]);
+  });
+
+  it("never includes the origin season itself", () => {
+    for (const origin of [2023, 2024, 2025, 2026]) {
+      expect(deriveSelectionSeasons(CORPUS, origin)).not.toContain(origin);
+    }
+  });
+
+  it("throws for origin 2022 — an empty selection window, named as such", () => {
+    expect(() => deriveSelectionSeasons(CORPUS, 2022)).toThrow(/EMPTY selection window/);
+    expect(() => deriveSelectionSeasons(CORPUS, 2022)).toThrow(/2022/);
+  });
+
+  it("returns a sorted, de-duplicated list regardless of the corpus query's own ordering", () => {
+    expect(deriveSelectionSeasons([2024, 2022, 2023, 2022], 2025)).toEqual([2022, 2023, 2024]);
+  });
+});
+
+describe("assertSelectionPrecedesOrigin (D-T5 gate 2)", () => {
+  it("passes when every selection season is strictly prior", () => {
+    expect(() => assertSelectionPrecedesOrigin([2022, 2023, 2024], 2025)).not.toThrow();
+  });
+
+  it("throws when the latest selection season equals the origin", () => {
+    expect(() => assertSelectionPrecedesOrigin([2022, 2025], 2025)).toThrow(/not strictly before origin 2025/);
+  });
+
+  it("throws when the latest selection season is after the origin", () => {
+    expect(() => assertSelectionPrecedesOrigin([2022, 2026], 2025)).toThrow(/2026/);
+  });
+
+  it("throws on an empty selection set", () => {
+    expect(() => assertSelectionPrecedesOrigin([], 2025)).toThrow(/empty selection season set/);
+  });
+
+  /**
+   * T-03-07's "one gate is a convention": the two gates must be INDEPENDENT
+   * code paths, so an input that defeats one is still caught by the other. If
+   * a single fix silenced both, they would be one gate wearing two names.
+   */
+  it("fires on an input that DEFEATS gate 1 — the two gates are independent paths", () => {
+    // Gate 1 lives inside the derivation and can only ever see what the
+    // derivation produced. Gate 2 takes the season list as an ARGUMENT, so it
+    // still catches a leaking list handed to it directly — which is exactly
+    // what a future refactor that computes the selection set some other way
+    // (a hardcoded list, a config file, an operator flag) would produce.
+    const leakingListThatSkippedTheDerivation = [2022, 2023, 2024, 2025];
+    expect(() => deriveSelectionSeasons([2022, 2023, 2024, 2025, 2026], 2025)).not.toThrow();
+    expect(() => assertSelectionPrecedesOrigin(leakingListThatSkippedTheDerivation, 2025)).toThrow(/D-T5 gate 2/);
+  });
+
+  it("gate 1 fires on an input that never reaches gate 2", () => {
+    // The mirror image: an empty window is rejected by the derivation before
+    // gate 2 is ever called, so gate 1 is load-bearing on its own too.
+    expect(() => deriveSelectionSeasons([2022], 2022)).toThrow(/EMPTY selection window/);
+  });
+});
+
+describe("resolveJointSelection (D-T5's --origin / --seasons mutual exclusion)", () => {
+  const CORPUS = [2022, 2023, 2024, 2025, 2026];
+
+  it("throws when BOTH --origin and --seasons are given", () => {
+    expect(() => resolveJointSelection("2025", "2022,2023", CORPUS)).toThrow(/mutually exclusive/);
+    // Two sources of truth for one question -- neither may silently win.
+    expect(() => resolveJointSelection("2025", "2022,2023", CORPUS)).toThrow(/two sources\s+of truth|two sources of truth/);
+  });
+
+  it("--origin derives the selection seasons and sets the boundary to the origin itself", () => {
+    const resolved = resolveJointSelection("2025", undefined, CORPUS);
+    expect(resolved.selectionSeasons).toEqual([2022, 2023, 2024]);
+    expect(resolved.originSeason).toBe(2025);
+    expect(resolved.boundary.season).toBe(2025);
+    expect(resolved.boundary.source).toMatch(/rolling-origin/);
+  });
+
+  it("--seasons names them explicitly, records origin null, and sets a max+1 boundary that is NOT a blindness guarantee", () => {
+    const resolved = resolveJointSelection(undefined, "2022,2023", CORPUS);
+    expect(resolved.selectionSeasons).toEqual([2022, 2023]);
+    expect(resolved.originSeason).toBeNull();
+    expect(resolved.boundary.season).toBe(2024);
+    expect(resolved.boundary.source).toMatch(/NOT a forward-blindness guarantee/);
+  });
+
+  it("rejects a non-4-digit --origin", () => {
+    expect(() => resolveJointSelection("25", undefined, CORPUS)).toThrow(/--origin must be a 4-digit year/);
+  });
+});
+
+describe("buildJointArtifact (D-T5's recorded discipline)", () => {
+  const BASE = {
+    adaptationSpec: "off",
+    seasons: [2022, 2023, 2024],
+    originSeason: 2025,
+    boundary: { season: 2025, source: "--origin 2025 (rolling-origin selection, D-T5)" },
+    eventsLimit: undefined,
+    evalsCount: 40,
+    seed: 42,
+    batchSize: 4,
+    survivorsPath: "reports/sensitivity-screen.json",
+    survivors: ["linkC"],
+    skipped: null,
+    rejectedCandidates: 0,
+    ties: [],
+    winnerIndex: 0,
+    atBound: { linkC: false },
+    results: [{ id: "cand-0", params: DEFAULT_SIGMA1_PARAMS, perSeason: [], objective: 0.17 }],
+  };
+
+  it("records origin, selectionSeasons and overfittingGuard", () => {
+    const artifact = buildJointArtifact(BASE as never);
+    expect(artifact["origin"]).toBe(2025);
+    expect(artifact["selectionSeasons"]).toEqual([2022, 2023, 2024]);
+    expect(artifact["overfittingGuard"]).toBe("rolling-origin (D-T5)");
+    expect(artifact["leakBoundarySeason"]).toBe(2025);
+  });
+
+  it("carries NO loso key — LOSO was deleted, not skipped", () => {
+    // A `loso: { skipped: ... }` key would describe a discipline the tuner no
+    // longer practises, which is the stale-artifact failure mode D-T5 removes.
+    const artifact = buildJointArtifact(BASE as never);
+    expect(artifact).not.toHaveProperty("loso");
+    expect(Object.keys(artifact)).not.toContain("loso");
+  });
+
+  it("records origin null for a --seasons-mode run", () => {
+    const artifact = buildJointArtifact({
+      ...BASE,
+      originSeason: null,
+      boundary: { season: 2024, source: "--seasons 2022,2023 (nothing beyond the requested set; NOT a forward-blindness guarantee)" },
+    } as never);
+    expect(artifact["origin"]).toBeNull();
+    expect(artifact["overfittingGuard"]).toBe("rolling-origin (D-T5)");
   });
 });
 

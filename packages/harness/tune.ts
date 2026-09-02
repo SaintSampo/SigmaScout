@@ -14,22 +14,126 @@
  *     other parameter held at its default, answering "which knobs are
  *     actually live" — published as `docs/models/sigma1-sensitivity-screen.md`.
  *   - `joint` (plan 03-05 Task 2, D-01/D-06): a seeded random + coordinate-
- *     descent search over the screen's survivors only, minimizing
- *     tune-season Brier, run twice (once per `--adaptation on|off`) at
+ *     descent search over the screen's survivors only, minimizing Brier over
+ *     the SELECTION seasons, run twice (once per `--adaptation on|off`) at
  *     IDENTICAL budgets for D-06's best-vs-best comparison.
  *
- * Holdout blindness is STRUCTURAL, not conventional (Claude's Discretion,
- * recommended by CONTEXT.md), enforced by THREE independent gates, because
- * one gate is a convention (T-03-07):
- *   1. every requested season checked against `HOLDOUT_SEASONS` BEFORE any
- *      corpus read;
- *   2. every requested season independently re-checked via `seasonSplit`
- *      (a separate code path from gate 1, so a bug in one cannot silently
- *      disable the other);
- *   3. every produced `ScoreSlice` checked for `seasonLabel !== "tune"` /
- *      `headlineEligible !== false` AFTER scoring.
- * The optimizer must be UNABLE to read 2025/2026, not merely expected not
- * to.
+ * ## ROLLING-ORIGIN SELECTION (D-T5, quick task 260901-trz)
+ *
+ * THIS REPLACED A FIXED TUNE/HOLDOUT SPLIT, and the replacement is the point
+ * of the change, not a refactor of it. Until `SIGMA1_CODE_VERSION` 4.0.0 this
+ * module selected on `TUNE_SEASONS` (2022-2024) and was structurally forbidden
+ * from reading `HOLDOUT_SEASONS` (2025-2026). That made the split itself a
+ * fixed, one-shot resource: every hyperparameter decision the project ever
+ * makes is charged against the same two holdout seasons, and once they have
+ * been looked at a few times they no longer measure what they claim to.
+ *
+ * Rolling origin replaces it. For each scored season S — the ORIGIN —
+ * hyperparameters are selected using ONLY seasons strictly before S:
+ *
+ *     scored (origin) | selected on
+ *     2024            | 2022-2023
+ *     2025            | 2022-2024
+ *     2026            | 2022-2025
+ *
+ * This lifts the project's match-level predict-before-update discipline
+ * (`replay.ts`'s `toLeakProofUpcoming`) up one level, to the HYPERPARAMETER
+ * level — which D-T5 names as the one place that discipline currently does not
+ * reach. A match may not be predicted using its own result; by exactly the
+ * same argument a season may not be scored using hyperparameters that were
+ * chosen by looking at it. The origin season is SCORED but never SELECTED ON.
+ *
+ * ### The four gates, because one gate is a convention (T-03-07)
+ *
+ *   1. **Derivation (before any match is read).** `deriveSelectionSeasons`
+ *      keeps only seasons STRICTLY LESS than the origin, and throws if any
+ *      survivor is not. The origin's own season never enters the list that
+ *      the replay is driven from.
+ *   2. **Independent re-check.** `assertSelectionPrecedesOrigin` recomputes
+ *      `Math.max(...selectionSeasons)` by a SEPARATE code path and re-asserts
+ *      it is below the origin. Two paths so a bug in either cannot silently
+ *      disable the other — the same reasoning the retired gates 1+2 used,
+ *      carried over with the predicate changed.
+ *   3. **Post-scoring.** `assertNoFutureSeasonLeak(slices, boundary)` checks
+ *      every produced `ScoreSlice` for `season >= boundary` AFTER scoring, so
+ *      a stream-building or aggregation bug that pulls in a later season is
+ *      caught at the point the number is produced rather than at the point it
+ *      is believed. This is the retired `assertNoHoldoutLeak` with its
+ *      predicate changed from `seasonLabel !== "tune"` to a season
+ *      comparison; the old name is DELETED rather than kept as an alias,
+ *      because leaving both would let a call site keep the retired check by
+ *      accident.
+ *   4. **Write ordering (structural).** The winner is chosen from the
+ *      selection seasons alone and WRITTEN TO DISK BEFORE any origin-season
+ *      evaluation runs. Committing the choice to a file first is what makes
+ *      it structurally impossible for the out-of-sample result to feed back
+ *      into the choice — a later refactor that "tidies up" by moving the
+ *      write to the end of the function would be removing the guarantee, not
+ *      reordering statements.
+ *
+ * ### `--origin` mode versus `--seasons` mode, stated plainly
+ *
+ * `--origin S` DERIVES its selection seasons and carries all four gates.
+ * `--seasons L` names them explicitly and carries only gates 3 and 4; its
+ * boundary is `max(L) + 1`, i.e. "nothing beyond what was asked for was
+ * scored", which catches a replay bug but is NOT a blindness guarantee — in
+ * that mode the operator, not the machinery, is responsible for the choice.
+ * Passing both is an error: two sources of truth for the same question.
+ *
+ * The screen stage stays in `--seasons` mode deliberately, and its own
+ * leak-freeness is an ARGUMENT rather than a gate: survivor selection IS
+ * hyperparameter selection, so it obeys the same rule, and running the screen
+ * once at the EARLIEST origin's selection window (2022-2023) makes its
+ * survivor set strictly prior to 2024, 2025 and 2026 simultaneously. One
+ * screen is therefore leak-free for all three origins at once, and three
+ * screens would cost three times as much for no additional discipline.
+ *
+ * `score.ts`'s `TUNE_SEASONS`/`HOLDOUT_SEASONS` still EXIST — other callers
+ * and every already-committed artifact read them (D-T5 says so explicitly) —
+ * but this module no longer imports them. The tuner's dependence on the fixed
+ * split is what D-T5 removes; the constants' other consumers are untouched.
+ *
+ * `computeLoso`/`LosoFold` were DELETED here rather than gated off.
+ * Leave-one-season-out re-sliced a POOLED selection over a fixed set of three
+ * seasons, which is exactly the construct rolling origin removes, and dead
+ * code describing a retired discipline is the specific failure mode this
+ * project's log names. The artifact now records
+ * `overfittingGuard: "rolling-origin (D-T5)"` in its place.
+ * `ProvenanceSchema.losoSummary` STAYS in `promote.ts` (optional): it is how
+ * already-promoted files describe how THEY were selected, and removing it
+ * would invalidate a historical record.
+ *
+ * ### Measured cost, and the lean run shape it argues for
+ *
+ * One candidate's replay is ~1 ms/match with `rpMonteCarloDraws: 0` (this
+ * file's own runtime assumption); batching amortizes the stream build but not
+ * the per-candidate compute:
+ *
+ *     origin | selection seasons | matches | one candidate
+ *     2024   | 2022-2023         | 31,030  | ~31 s
+ *     2025   | 2022-2024         | 48,059  | ~48 s
+ *     2026   | 2022-2025         | 65,936  | ~66 s
+ *
+ * A joint run at the retired default `--evals 60` plus coordinate descent over
+ * ~12 survivors is ~84 evaluations, i.e. ~43 / ~67 / ~92 min per origin per
+ * adaptation arm — about 6.7 HOURS sequential across three origins and D-T4's
+ * two arms, before a per-origin screen would add ~4 hours more. Over ten hours
+ * of single-threaded replay is not something to schedule by accident, so the
+ * recommended shape is:
+ *
+ *   1. ONE screen, at the earliest origin's window (see the argument above).
+ *   2. `--evals 40` per origin rather than 60. D-T7's acceptance bar moves
+ *      with N as `sqrt(2 ln N)`, so 60 -> 40 moves it from ~0.003488 to
+ *      ~0.003310 — a 5% relaxation of the bar for a 33% compute saving. The
+ *      runner prints that tradeoff so the operator sees what the budget
+ *      bought rather than finding it in a comment later.
+ *   3. Six INDEPENDENT PROCESSES (3 origins x 2 adaptation arms) run
+ *      concurrently — `openCorpusReadOnly` permits concurrent readers, so
+ *      wall clock collapses to the largest single run (~70 min) rather than
+ *      ~5 hours. Use `--batch 4`, not the default 8: `runBoundedSeasons`
+ *      accumulates every prediction for a whole batch across every selection
+ *      season, which at batch 8 on the 2026 origin is over half a million
+ *      objects held per process.
  *
  * `--events <N>` bounds the replay to the first N event keys of a season
  * (`ORDER BY event_key ASC`) for a fast, deterministic verification run.
@@ -63,7 +167,11 @@ import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-import { aggregateScores, HOLDOUT_SEASONS, seasonSplit, TUNE_SEASONS, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+// D-T5: `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit` are deliberately NOT
+// imported. They still exist in `score.ts` for other callers and for every
+// already-committed artifact, but the tuner's dependence on the fixed split is
+// exactly what rolling-origin selection removes — see this module's header.
+import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import {
   SEARCHABLE_PARAM_KEYS,
   SEARCH_EXCLUSIONS,
@@ -114,39 +222,89 @@ function parsePositiveInt(name: string, spec: string): number {
 }
 
 /**
- * Structural holdout blindness, gates 1+2 — checked BEFORE any corpus read.
- * Two INDEPENDENT code paths (T-03-07: "one gate is a convention") so a bug
- * in either cannot silently disable the other.
+ * D-T5 GATE 1 — the derivation itself, run before any MATCH is read.
+ *
+ * Keeps only the seasons STRICTLY BEFORE `originSeason`, and throws if the
+ * result would be empty. `availableSeasons` is whatever the corpus actually
+ * carries (a metadata query, not a replay), so this stays pure and
+ * `tune.test.ts` drives it directly.
+ *
+ * Note the wording shift from the retired gates' "before any corpus read":
+ * enumerating which seasons EXIST is unavoidably a corpus read. What matters,
+ * and what is true, is that the check happens before any match is replayed and
+ * before the origin's own season could reach a stream — the origin never
+ * enters the list the replay is driven from at all.
+ *
+ * An origin with no prior season (2022, the cold-start season) THROWS rather
+ * than falling back to selecting on itself or on the defaults. There is
+ * nothing to select on, so there is no honest answer to give, and the leanest
+ * correct behaviour is to refuse.
  */
-function assertSeasonsAreTuneOnly(seasons: readonly number[]): void {
-  for (const season of seasons) {
-    if ((HOLDOUT_SEASONS as readonly number[]).includes(season)) {
-      throw new Error(
-        `tune: season ${season} is a HOLDOUT season (${HOLDOUT_SEASONS.join(", ")}) — the optimizer must never read holdout data. Structural blindness, not a convention.`
-      );
+export function deriveSelectionSeasons(availableSeasons: readonly number[], originSeason: number): number[] {
+  const selection = [...new Set(availableSeasons)].filter((season) => season < originSeason).sort((a, b) => a - b);
+  if (selection.length === 0) {
+    throw new Error(
+      `tune: origin ${originSeason} has an EMPTY selection window — the corpus carries no season strictly before it ` +
+        `(available: ${[...availableSeasons].sort((a, b) => a - b).join(", ") || "none"}). Rolling-origin selection needs at least one ` +
+        `prior season to select on; there is nothing to select from and no honest answer to give.`
+    );
+  }
+  // Gate 1's own assertion, kept explicit rather than left implicit in the
+  // filter above: a filter typo is exactly the class of bug this catches.
+  for (const season of selection) {
+    if (!(season < originSeason)) {
+      throw new Error(`tune: selection season ${season} is not strictly before origin ${originSeason} (D-T5 gate 1).`);
     }
   }
-  for (const season of seasons) {
-    let label: "tune" | "holdout";
-    try {
-      label = seasonSplit(season);
-    } catch (err) {
-      throw new Error(`tune: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (label !== "tune") {
-      throw new Error(
-        `tune: season ${season} is labelled "${label}" by seasonSplit, not "tune" — the optimizer must never read non-tune data.`
-      );
-    }
+  return selection;
+}
+
+/**
+ * D-T5 GATE 2 — an INDEPENDENT re-check of the same fact, by a different
+ * route: recompute the maximum of the selection set and compare it against the
+ * origin, rather than re-walking the per-element comparison gate 1 already
+ * did.
+ *
+ * T-03-07's reasoning, unchanged from the retired gates it replaces: one gate
+ * is a convention. Two gates over one fact, computed differently, mean a bug
+ * in either cannot silently disable the other. This is the single edit in
+ * quick task 260901-trz that can silently re-open hyperparameter-level
+ * leakage, which is why it has two gates and its own paragraph in the module
+ * header.
+ */
+export function assertSelectionPrecedesOrigin(selectionSeasons: readonly number[], originSeason: number): void {
+  if (selectionSeasons.length === 0) {
+    throw new Error(`tune: empty selection season set for origin ${originSeason} (D-T5 gate 2).`);
+  }
+  const latestSelected = Math.max(...selectionSeasons);
+  if (!(latestSelected < originSeason)) {
+    throw new Error(
+      `tune: the latest selection season (${latestSelected}) is not strictly before origin ${originSeason} — ` +
+        `hyperparameters would be chosen partly by looking at the season they are about to be scored on (D-T5 gate 2).`
+    );
   }
 }
 
-/** Structural holdout blindness, gate 3 — checked AFTER scoring, on every produced slice. Exported so `tune.test.ts` can assert a holdout-labelled slice makes this guard throw, without spinning up a real corpus replay. */
-export function assertNoHoldoutLeak(slices: readonly ScoreSlice[]): void {
+/**
+ * D-T5 GATE 3 — checked AFTER scoring, on every produced slice. Exported so
+ * `tune.test.ts` can assert a future-season slice makes this guard throw
+ * without spinning up a real corpus replay.
+ *
+ * Replaces the retired `assertNoHoldoutLeak`, whose predicate was
+ * `seasonLabel !== "tune"` — a statement about D-09's FIXED split, which no
+ * longer governs this module. The predicate is now a plain season comparison
+ * against the run's own boundary, which is what rolling origin actually
+ * requires. The old name is deleted rather than aliased: an alias would let a
+ * call site keep the retired check by accident, and the retired check would
+ * pass happily on an origin-2026 run selecting on 2025.
+ */
+export function assertNoFutureSeasonLeak(slices: readonly ScoreSlice[], boundarySeason: number): void {
   for (const slice of slices) {
-    if (slice.seasonLabel !== "tune" || slice.headlineEligible !== false) {
+    if (slice.season >= boundarySeason) {
       throw new Error(
-        `tune: produced a non-tune / headline-eligible score slice (season ${slice.season}, algorithm ${slice.algorithmId}, seasonLabel ${slice.seasonLabel}) — this must be structurally impossible.`
+        `tune: produced a score slice for season ${slice.season} (algorithm ${slice.algorithmId}), which is at or after this run's ` +
+          `boundary season ${boundarySeason} — selection must never see the origin season or anything after it. ` +
+          `This must be structurally impossible (D-T5 gate 3).`
       );
     }
   }
@@ -282,22 +440,61 @@ export function objectiveForCandidate(slices: readonly ScoreSlice[], candidateId
 }
 
 /**
+ * Every non-offseason season the corpus actually carries, ascending. A
+ * METADATA query, not a replay — it is what `deriveSelectionSeasons` (gate 1)
+ * filters against, and it is deliberately read from the corpus rather than
+ * hardcoded so an origin's selection window cannot silently disagree with the
+ * data that exists.
+ */
+function corpusSeasons(db: Corpus): number[] {
+  const rows = db.prepare(`SELECT DISTINCT year FROM events WHERE is_offseason = 0 ORDER BY year ASC`).all() as { year: number }[];
+  return rows.map((row) => row.year);
+}
+
+/**
+ * The season at or after which NOTHING may be scored during selection, and
+ * where that number came from. Carried as a pair rather than a bare number so
+ * gate 3's failure message can say which mode set the boundary — an operator
+ * reading "boundary 2025" needs to know whether that was derived from
+ * `--origin 2025` or is just `max(--seasons) + 1`.
+ */
+interface LeakBoundary {
+  readonly season: number;
+  readonly source: string;
+}
+
+/**
+ * `--seasons` mode's boundary: one past the latest season the operator asked
+ * for. This asserts "nothing beyond what was requested was scored", which
+ * catches a stream-building or aggregation bug, and is NOT a blindness
+ * guarantee — see the module header's `--origin` vs `--seasons` section. Said
+ * plainly here rather than left for a reader to infer from the arithmetic.
+ */
+function requestedSeasonsBoundary(seasons: readonly number[]): LeakBoundary {
+  return {
+    season: Math.max(...seasons) + 1,
+    source: `--seasons ${[...seasons].sort((a, b) => a - b).join(",")} (nothing beyond the requested set; NOT a forward-blindness guarantee)`,
+  };
+}
+
+/**
  * Evaluates one BATCH of candidates through a single shared-stream replay
  * (`runBoundedSeasons`'s own `runAll` call underneath) — one corpus read
  * and one stream build serving every candidate in `batch`, per this file's
- * batching contract. Runs gate 3 (post-scoring holdout check) once per
- * batch, immediately after scoring.
+ * batching contract. Runs D-T5 gate 3 (the post-scoring future-season check)
+ * once per batch, immediately after scoring.
  */
 async function evaluateCandidateBatch(
   db: Corpus,
   seasons: readonly number[],
   eventsLimit: number | undefined,
-  batch: readonly { id: string; params: Sigma1Params }[]
+  batch: readonly { id: string; params: Sigma1Params }[],
+  boundary: LeakBoundary
 ): Promise<EvaluatedCandidate[]> {
   const algorithms = batch.map((c) => makeSigma1({ id: c.id, linkMode: "predictive-variance", params: c.params }));
   const predictions = await runBoundedSeasons(db, seasons, algorithms, eventsLimit);
   const slices = aggregateScores(predictions);
-  assertNoHoldoutLeak(slices);
+  assertNoFutureSeasonLeak(slices, boundary.season);
   return batch.map((c) => {
     const { perSeason, objective } = objectiveForCandidate(slices, c.id);
     return { id: c.id, params: c.params, perSeason, objective };
@@ -310,12 +507,13 @@ async function evaluateAll(
   seasons: readonly number[],
   eventsLimit: number | undefined,
   candidates: readonly { id: string; params: Sigma1Params }[],
-  batchSize: number
+  batchSize: number,
+  boundary: LeakBoundary
 ): Promise<EvaluatedCandidate[]> {
   const results: EvaluatedCandidate[] = [];
   for (let i = 0; i < candidates.length; i += batchSize) {
     const chunk = candidates.slice(i, i + batchSize);
-    const evaluated = await evaluateCandidateBatch(db, seasons, eventsLimit, chunk);
+    const evaluated = await evaluateCandidateBatch(db, seasons, eventsLimit, chunk, boundary);
     results.push(...evaluated);
   }
   return results;
@@ -384,13 +582,13 @@ function buildTracerCandidates(): { id: string; params: Sigma1Params }[] {
 
 async function runTracerStage(seasonsSpec: string, eventsLimit: number | undefined, outPath: string): Promise<void> {
   const seasons = parseSeasonsList(seasonsSpec);
-  assertSeasonsAreTuneOnly(seasons);
+  const boundary = requestedSeasonsBoundary(seasons);
 
   const candidates = buildTracerCandidates();
   const db = openCorpusReadOnly(CORPUS_PATH);
   let results: EvaluatedCandidate[];
   try {
-    results = await evaluateAll(db, seasons, eventsLimit, candidates, candidates.length);
+    results = await evaluateAll(db, seasons, eventsLimit, candidates, candidates.length, boundary);
   } finally {
     db.close();
   }
@@ -501,7 +699,11 @@ async function runScreenStage(
   outPath: string
 ): Promise<void> {
   const seasons = parseSeasonsList(seasonsSpec);
-  assertSeasonsAreTuneOnly(seasons);
+  // D-T5: the screen stays in `--seasons` mode, and its leak-freeness is an
+  // ARGUMENT rather than a gate — run it once at the EARLIEST origin's
+  // selection window and its survivor set is strictly prior to every origin
+  // simultaneously. See the module header's screen paragraph.
+  const boundary = requestedSeasonsBoundary(seasons);
 
   interface ScreenCandidate {
     readonly id: string;
@@ -535,7 +737,7 @@ async function runScreenStage(
   const db = openCorpusReadOnly(CORPUS_PATH);
   let evaluated: EvaluatedCandidate[];
   try {
-    evaluated = await evaluateAll(db, seasons, eventsLimit, candidates, batchSize);
+    evaluated = await evaluateAll(db, seasons, eventsLimit, candidates, batchSize, boundary);
   } finally {
     db.close();
   }
@@ -651,67 +853,15 @@ function neighborValues(bound: { min: number; max: number; scale: "linear" | "lo
   return [clamp(current - step), clamp(current + step)];
 }
 
-interface LosoFold {
-  readonly heldOutSeason: number;
-  readonly trainingSeasons: readonly number[];
-  readonly losoWinnerIndex: number;
-  readonly losoWinnerHeldOutBrier: number | null;
-  readonly losoWinnerHeldOutAccuracy: number | null;
-  readonly matchesPooledWinner: boolean;
-}
-
 /**
- * The overfitting guard (Claude's Discretion, resolved: leave-one-season-out
- * over the tune seasons). Costs NO new replays — every candidate's
- * per-season score is already in hand from the pooled evaluation above; LOSO
- * only re-slices that already-computed data. Requires exactly the three
- * TUNE_SEASONS to be meaningful; any other `--seasons` request records an
- * explicit skip rather than fabricating folds over a season set that was
- * never asked to support them. Never touches 2025/2026 — LOSO happens
- * entirely inside 2022-2024.
+ * D-T5: the overfitting guard this artifact records, replacing the deleted
+ * `computeLoso`. Leave-one-season-out re-sliced a POOLED selection over a
+ * FIXED set of three seasons — precisely the construct rolling origin removes
+ * — so it was deleted rather than gated off, and the artifact names its
+ * replacement instead of carrying a `loso` key that would describe a
+ * discipline the tuner no longer practises.
  */
-function computeLoso(
-  seasons: readonly number[],
-  results: readonly EvaluatedCandidate[],
-  pooledWinnerIndex: number
-): { skipped: string } | { folds: LosoFold[]; pooledWinnerPerSeasonBrierSpread: number | null } {
-  const tuneSeasonsSorted: number[] = [...TUNE_SEASONS].sort((a, b) => a - b);
-  const requestedSorted = [...seasons].sort((a, b) => a - b);
-  if (requestedSorted.length !== tuneSeasonsSorted.length || requestedSorted.some((s, i) => s !== tuneSeasonsSorted[i])) {
-    return {
-      skipped: `LOSO requires exactly the three tune seasons (${tuneSeasonsSorted.join(", ")}); this run used [${seasons.join(", ")}]`,
-    };
-  }
-
-  const folds: LosoFold[] = tuneSeasonsSorted.map((heldOutSeason) => {
-    const trainingSeasons = tuneSeasonsSorted.filter((s) => s !== heldOutSeason);
-    const foldObjectives = results.map((r) => {
-      const values = r.perSeason
-        .filter((p) => trainingSeasons.includes(p.season))
-        .map((p) => p.brierScore)
-        .filter((v): v is number => v !== null);
-      return values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : Number.POSITIVE_INFINITY;
-    });
-    let losoWinnerIndex = 0;
-    for (let i = 1; i < foldObjectives.length; i++) {
-      if (foldObjectives[i]! < foldObjectives[losoWinnerIndex]!) losoWinnerIndex = i;
-    }
-    const heldOutEntry = results[losoWinnerIndex]!.perSeason.find((p) => p.season === heldOutSeason) ?? null;
-    return {
-      heldOutSeason,
-      trainingSeasons,
-      losoWinnerIndex,
-      losoWinnerHeldOutBrier: heldOutEntry?.brierScore ?? null,
-      losoWinnerHeldOutAccuracy: heldOutEntry?.winnerAccuracy ?? null,
-      matchesPooledWinner: losoWinnerIndex === pooledWinnerIndex,
-    };
-  });
-
-  const pooledWinnerBriers = results[pooledWinnerIndex]!.perSeason.map((p) => p.brierScore).filter((v): v is number => v !== null);
-  const pooledWinnerPerSeasonBrierSpread = pooledWinnerBriers.length > 0 ? Math.max(...pooledWinnerBriers) - Math.min(...pooledWinnerBriers) : null;
-
-  return { folds, pooledWinnerPerSeasonBrierSpread };
-}
+const OVERFITTING_GUARD = "rolling-origin (D-T5)";
 
 export type JointPlanMode = "empty" | "singleton" | "random";
 
@@ -831,8 +981,51 @@ export function loadSurvivors(path: string): SearchableParamKey[] {
   return survivors;
 }
 
+/**
+ * D-T5: resolves ONE run's selection seasons and its leak boundary from
+ * mutually exclusive `--origin` / `--seasons` inputs. Exported so
+ * `tune.test.ts` can exercise the mutual exclusion and the derivation without
+ * a corpus (`availableSeasons` is injected).
+ *
+ * Passing BOTH is an error, not a precedence rule: they are two sources of
+ * truth for the same question, and silently letting one win is how a run ends
+ * up selecting on a set the operator did not intend.
+ */
+export function resolveJointSelection(
+  originSpec: string | undefined,
+  seasonsSpec: string | undefined,
+  availableSeasons: readonly number[]
+): { selectionSeasons: number[]; originSeason: number | null; boundary: LeakBoundary } {
+  if (originSpec !== undefined && seasonsSpec !== undefined) {
+    throw new Error(
+      `tune: --origin and --seasons are mutually exclusive (got --origin ${originSpec} and --seasons ${seasonsSpec}). ` +
+        `--origin DERIVES the selection seasons as every corpus season strictly before it; passing both would be two sources ` +
+        `of truth for the same question (D-T5).`
+    );
+  }
+
+  if (originSpec !== undefined) {
+    const originSeason = Number.parseInt(originSpec, 10);
+    if (!Number.isInteger(originSeason) || String(originSeason).length !== 4) {
+      throw new Error(`--origin must be a 4-digit year, got "${originSpec}"`);
+    }
+    // Gate 1, then gate 2 by an independent route.
+    const selectionSeasons = deriveSelectionSeasons(availableSeasons, originSeason);
+    assertSelectionPrecedesOrigin(selectionSeasons, originSeason);
+    return {
+      selectionSeasons,
+      originSeason,
+      boundary: { season: originSeason, source: `--origin ${originSeason} (rolling-origin selection, D-T5)` },
+    };
+  }
+
+  const selectionSeasons = parseSeasonsList(seasonsSpec ?? "2022,2023,2024");
+  return { selectionSeasons, originSeason: null, boundary: requestedSeasonsBoundary(selectionSeasons) };
+}
+
 async function runJointStage(
-  seasonsSpec: string,
+  originSpec: string | undefined,
+  seasonsSpec: string | undefined,
   eventsLimit: number | undefined,
   evalsCount: number,
   seed: number,
@@ -841,9 +1034,6 @@ async function runJointStage(
   adaptationSpec: string,
   outPath: string
 ): Promise<void> {
-  const seasons = parseSeasonsList(seasonsSpec);
-  assertSeasonsAreTuneOnly(seasons);
-
   if (adaptationSpec !== "on" && adaptationSpec !== "off") {
     throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
   }
@@ -851,18 +1041,43 @@ async function runJointStage(
 
   const survivors = loadSurvivors(survivorsPath);
 
-  const plan = planJointCandidates(survivors, evalsCount, seed, adaptationEnabled);
-  let rejectedCandidates = plan.rejectedCandidates;
-  const skipped = plan.skipped;
-
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
+    // Gates 1 and 2 run HERE, before a single match is replayed — the corpus
+    // is open only for the season-metadata query `resolveJointSelection`
+    // filters against.
+    const { selectionSeasons: seasons, originSeason, boundary } = resolveJointSelection(originSpec, seasonsSpec, corpusSeasons(db));
+
+    if (originSeason !== null) {
+      console.log(
+        `Rolling origin ${originSeason} (D-T5): selecting on ${seasons.join(", ")} — strictly prior seasons only. ` +
+          `The origin season is SCORED but never SELECTED ON.`
+      );
+    } else {
+      console.log(
+        `--seasons mode: selecting on ${seasons.join(", ")}. This carries NO forward-blindness guarantee — ` +
+          `the operator, not the machinery, chose this set. Use --origin for D-T5's rolling-origin discipline.`
+      );
+    }
+    // The budget tradeoff, printed rather than buried: D-T7's acceptance bar
+    // moves with N as sqrt(2 ln N), so the operator can see what a reduced
+    // --evals bought before the run rather than after.
+    console.log(
+      `Budget: --evals ${evalsCount}, --batch ${batchSize}. D-T7's acceptance bar scales as sqrt(2 ln N) x SE, so a smaller ` +
+        `--evals both costs less and RELAXES the bar (60 -> 40 moves it from ~0.003488 to ~0.003310 at SE 0.001219).`
+    );
+
+    const plan = planJointCandidates(survivors, evalsCount, seed, adaptationEnabled);
+    let rejectedCandidates = plan.rejectedCandidates;
+    const skipped = plan.skipped;
+
     let results: EvaluatedCandidate[] = await evaluateAll(
       db,
       seasons,
       eventsLimit,
       plan.candidates,
-      plan.mode === "empty" ? 1 : batchSize
+      plan.mode === "empty" ? 1 : batchSize,
+      boundary
     );
 
     if (plan.mode === "random") {
@@ -886,7 +1101,7 @@ async function runJointStage(
         rejectedCandidates += distinctNeighbors.length - neighborCandidates.length;
         if (neighborCandidates.length === 0) continue;
 
-        const evaluatedNeighbors = await evaluateCandidateBatch(db, seasons, eventsLimit, neighborCandidates);
+        const evaluatedNeighbors = await evaluateCandidateBatch(db, seasons, eventsLimit, neighborCandidates, boundary);
         results.push(...evaluatedNeighbors);
 
         for (const candidate of evaluatedNeighbors) {
@@ -905,42 +1120,101 @@ async function runJointStage(
       atBound[key] = value === bound.min || value === bound.max;
     }
 
-    const loso = computeLoso(seasons, results, winnerIndex);
-
     for (const result of results) {
       const index = results.indexOf(result);
       console.log(`Candidate ${index} (${result.id}): objective=${result.objective.toFixed(6)}${index === winnerIndex ? " <- winner" : ""}`);
     }
 
-    const output = {
-      generatedAt: new Date().toISOString(),
-      stage: "joint",
-      adaptation: adaptationSpec,
+    const output = buildJointArtifact({
+      adaptationSpec,
       seasons,
-      eventsLimit: eventsLimit ?? null,
-      corpusIdentity: CORPUS_PATH,
-      objective: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
-      evals: evalsCount,
+      originSeason,
+      boundary,
+      eventsLimit,
+      evalsCount,
       seed,
-      batch: batchSize,
+      batchSize,
       survivorsPath,
       survivors,
       skipped,
       rejectedCandidates,
-      tieBreak: ties.length > 0 ? "objective tied across multiple candidates — lowest candidate index wins" : null,
       ties,
       winnerIndex,
       atBound,
-      loso,
-      candidates: results.map((result, index) => ({ index, ...result, winner: index === winnerIndex })),
-    };
+      results,
+    });
 
+    // ─────────────────────────────────────────────────────────────────────
+    // D-T5 GATE 4 — STRUCTURAL. The winner is written to disk HERE, before
+    // any origin-season evaluation runs, and that ORDERING IS THE GUARANTEE:
+    // once the choice is committed to a file, it is structurally impossible
+    // for an out-of-sample result to feed back into it. A later refactor that
+    // "tidies up" by moving this write to the end of the function would be
+    // deleting the guarantee, not reordering statements. Anything that reads
+    // the origin season must come strictly after this line.
+    // ─────────────────────────────────────────────────────────────────────
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify(output, null, 2), "utf8");
     console.log(`Wrote ${outPath}`);
+    if (originSeason !== null) {
+      console.log(`  winner committed to disk BEFORE any origin-season (${originSeason}) evaluation — D-T5 gate 4.`);
+    }
   } finally {
     db.close();
   }
+}
+
+/** The joint stage's artifact shape, built as a named function so `tune.test.ts` can assert the recorded fields without running a search. */
+export function buildJointArtifact(input: {
+  adaptationSpec: string;
+  seasons: readonly number[];
+  originSeason: number | null;
+  boundary: { season: number; source: string };
+  eventsLimit: number | undefined;
+  evalsCount: number;
+  seed: number;
+  batchSize: number;
+  survivorsPath: string;
+  survivors: readonly string[];
+  skipped: string | null;
+  rejectedCandidates: number;
+  ties: readonly TieRecord[];
+  winnerIndex: number;
+  atBound: Record<string, boolean>;
+  results: readonly EvaluatedCandidate[];
+}): Record<string, unknown> {
+  return {
+    generatedAt: new Date().toISOString(),
+    stage: "joint",
+    adaptation: input.adaptationSpec,
+    // D-T5: the origin and the seasons it was selected on, recorded at the top
+    // level so a reader of the artifact alone can reconstruct the discipline
+    // that produced it. `origin: null` marks a `--seasons`-mode run, which
+    // carries no forward-blindness guarantee.
+    origin: input.originSeason,
+    selectionSeasons: [...input.seasons],
+    leakBoundarySeason: input.boundary.season,
+    leakBoundarySource: input.boundary.source,
+    overfittingGuard: OVERFITTING_GUARD,
+    // `seasons` kept alongside `selectionSeasons` for artifact readers written
+    // against the retired shape; the two are the same list.
+    seasons: [...input.seasons],
+    eventsLimit: input.eventsLimit ?? null,
+    corpusIdentity: CORPUS_PATH,
+    objective: "mean selection-season brierScore (combined compLevelView), minimized (D-01)",
+    evals: input.evalsCount,
+    seed: input.seed,
+    batch: input.batchSize,
+    survivorsPath: input.survivorsPath,
+    survivors: [...input.survivors],
+    skipped: input.skipped,
+    rejectedCandidates: input.rejectedCandidates,
+    tieBreak: input.ties.length > 0 ? "objective tied across multiple candidates — lowest candidate index wins" : null,
+    ties: input.ties,
+    winnerIndex: input.winnerIndex,
+    atBound: input.atBound,
+    candidates: input.results.map((result, index) => ({ index, ...result, winner: index === input.winnerIndex })),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -951,6 +1225,9 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       seasons: { type: "string" },
+      // D-T5: the joint stage's rolling origin. Mutually exclusive with
+      // `--seasons` (`resolveJointSelection` throws for both).
+      origin: { type: "string" },
       events: { type: "string" },
       stage: { type: "string" },
       out: { type: "string" },
@@ -977,14 +1254,18 @@ async function main(): Promise<void> {
     const outPath = values.out ?? join("reports", "sensitivity-screen.json");
     await runScreenStage(seasonsSpec, eventsLimit, valueCount, batchSize, outPath);
   } else if (stage === "joint") {
-    const seasonsSpec = values.seasons ?? "2022,2023,2024";
     const evalsCount = values.evals !== undefined ? parsePositiveInt("--evals", values.evals) : 60;
     const seed = values.seed !== undefined ? parsePositiveInt("--seed", values.seed) : 42;
     const batchSize = values.batch !== undefined ? parsePositiveInt("--batch", values.batch) : 8;
     const survivorsPath = values.survivors ?? join("reports", "sensitivity-screen.json");
     const adaptationSpec = values.adaptation ?? "off";
-    const outPath = values.out ?? join("reports", `tune-joint-${adaptationSpec}.json`);
-    await runJointStage(seasonsSpec, eventsLimit, evalsCount, seed, batchSize, survivorsPath, adaptationSpec, outPath);
+    // D-T5: ONE ARTIFACT PER ORIGIN. The origin is in the default filename so
+    // six concurrent runs (3 origins x 2 adaptation arms, the recommended
+    // shape in this module's header) cannot overwrite each other's results.
+    const outPath =
+      values.out ??
+      join("reports", values.origin !== undefined ? `tune-joint-${adaptationSpec}-origin${values.origin}.json` : `tune-joint-${adaptationSpec}.json`);
+    await runJointStage(values.origin, values.seasons, eventsLimit, evalsCount, seed, batchSize, survivorsPath, adaptationSpec, outPath);
   } else {
     throw new Error(`tune: unknown --stage "${stage}" (expected "tracer", "screen", or "joint")`);
   }
