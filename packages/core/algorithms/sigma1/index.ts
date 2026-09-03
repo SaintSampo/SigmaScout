@@ -1542,6 +1542,16 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
  * up) rather than carrying the outgoing season's converged, and therefore
  * small, `P` forward. The consistency estimate ALSO carries (D-17), decayed
  * by `params.consistencyCarryDecay`.
+ *
+ * Quick task 260903-3bv (D-2): both the reversion above and the consistency
+ * decay below are now applied once per YEAR ELAPSED across the boundary
+ * (`gap = boundary.toSeason - boundary.fromSeason`), not once per boundary —
+ * so a boundary spanning the permanently-excluded 2021 season (2020 -> 2022)
+ * is treated as two years of student-cohort turnover, not one. Belief
+ * variance is explicitly NOT part of this generalization (D-2 item 3): it is
+ * RESET to a cold-start prior below, never inflated by adding process noise,
+ * and a longer layoff cannot make a cold-start prior more uncertain than
+ * cold-start already is.
  */
 function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma1Params): Sigma1State {
   if (boundary.isColdStart) return state;
@@ -1554,6 +1564,18 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
   // every season with no scale at all.
   const resolved = resolveSigma1Params(params, state.allianceScoreStats);
 
+  // Quick task 260903-3bv (D-2): the boundary is asserted, not merely
+  // trusted, to hold >= 1 whole year. The cold-start boundary — the only one
+  // whose `fromSeason` is a nominal `season - 1` label rather than an
+  // observed season — has already returned above, so this guard only ever
+  // sees real, non-cold-start boundaries.
+  const gap = boundary.toSeason - boundary.fromSeason;
+  if (!Number.isInteger(gap) || gap < 1) {
+    throw new Error(
+      `carrySeason: boundary must span at least one whole year (fromSeason=${boundary.fromSeason}, toSeason=${boundary.toSeason})`
+    );
+  }
+
   const teamTotals = new Map<string, number>();
   for (const [team, teamState] of state.teams) {
     let total = 0;
@@ -1561,7 +1583,12 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     teamTotals.set(team, total);
   }
 
-  const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, resolved);
+  const carryResult = sigma1Carryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings }, resolved, gap);
+  // Quick task 260903-3bv (D-2 item 2): same fast-path shape and reason as
+  // `reversionOverGap` — `decay ** 1` does not reproduce `decay` bitwise for
+  // every IEEE-754 input, so `gap === 1` returns the base value unchanged
+  // rather than round-tripping through `**`.
+  const consistencyDecayOverGap = gap === 1 ? resolved.consistencyCarryDecay : resolved.consistencyCarryDecay ** gap;
   const toComponentOrder = componentMapForSeason(boundary.toSeason).components;
   // D-09: threshold variables are season-specific (2022's cargo count has
   // no 2023 analog) — RP state does NOT carry across a season boundary,
@@ -1583,7 +1610,7 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       const coldStartVariance = seedConsistencyFor(state.league, name, resolved);
       beliefs[name] = { mean: share, variance: coldStartVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
-      consistency[name] = carriedObserved * resolved.consistencyCarryDecay;
+      consistency[name] = carriedObserved * consistencyDecayOverGap;
     }
     nextTeams.set(team, {
       beliefs,

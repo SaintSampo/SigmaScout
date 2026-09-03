@@ -11,13 +11,19 @@
  *      shared mutable state, no cross-module leakage.
  */
 import { describe, expect, it } from "vitest";
-import { epaCarryover, normalizedFromPoints, normalizedToSeasonUnits, type EpaCarryoverInput } from "../carryover.js";
+import {
+  epaCarryover,
+  normalizedFromPoints,
+  normalizedToSeasonUnits,
+  populationMeanSd,
+  type EpaCarryoverInput,
+} from "../carryover.js";
 import { epa } from "../epa.js";
 import { makeSigma1 } from "./index.js";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
-import { EPA_ROOKIE_BASELINE, sigma1Carryover } from "./carryover.js";
+import { EPA_ROOKIE_BASELINE, reversionOverGap, sigma1Carryover } from "./carryover.js";
 
 /**
  * D-T1 (4.0.0): `sigma1Carryover` takes RESOLVED params, because `carrySeason`
@@ -73,7 +79,7 @@ describe("sigma1Carryover at DEFAULT_SIGMA1_PARAMS reproduces epaCarryover exact
     ["a simpler both/one/none-mixed fixture", fixtureInput()],
   ])("%s", (_label, input) => {
     const epaResult = epaCarryover(input);
-    const sigma1Result = sigma1Carryover(input, RESOLVED_DEFAULTS);
+    const sigma1Result = sigma1Carryover(input, RESOLVED_DEFAULTS, 1);
 
     expect(mapToObject(sigma1Result.teamPointTotals)).toEqual(mapToObject(epaResult.teamPointTotals));
     expect(mapToObject(sigma1Result.priorSeasonRatings.lastSeason)).toEqual(
@@ -89,9 +95,9 @@ describe("D-04 freeze — tuning Sigma1's carry params never moves EPA's", () =>
   it("a perturbed carryMeanReversion changes sigma1Carryover's output, while epaCarryover(input) is byte-identical to its DEFAULT_SIGMA1_PARAMS-run counterpart", () => {
     const input = fixtureInputMixedHistory();
 
-    const defaultResult = sigma1Carryover(input, RESOLVED_DEFAULTS);
+    const defaultResult = sigma1Carryover(input, RESOLVED_DEFAULTS, 1);
     const perturbedParams: Sigma1ResolvedParams = { ...RESOLVED_DEFAULTS, carryMeanReversion: 0.9 };
-    const perturbedResult = sigma1Carryover(input, perturbedParams);
+    const perturbedResult = sigma1Carryover(input, perturbedParams, 1);
 
     // The perturbation is real: sigma1Carryover's own output moves.
     expect(mapToObject(perturbedResult.teamPointTotals)).not.toEqual(mapToObject(defaultResult.teamPointTotals));
@@ -337,7 +343,8 @@ describe("D-T2 — carryPriorYearShare = 0.3 reproduces the retired 0.7/0.3 blen
           yearBefore: new Map(),
         },
       },
-      RESOLVED_DEFAULTS
+      RESOLVED_DEFAULTS,
+      1
     );
 
     const reversion = RESOLVED_DEFAULTS.carryMeanReversion;
@@ -361,8 +368,49 @@ describe("D-T2 — carryPriorYearShare = 0.3 reproduces the retired 0.7/0.3 blen
     // Non-vacuity for the assertion above — without this, a `sigma1Carryover`
     // that ignored the share entirely would pass.
     const input = fixtureInputMixedHistory();
-    const atDefault = sigma1Carryover(input, RESOLVED_DEFAULTS);
-    const atNine = sigma1Carryover(input, { ...RESOLVED_DEFAULTS, carryPriorYearShare: 0.9 });
+    const atDefault = sigma1Carryover(input, RESOLVED_DEFAULTS, 1);
+    const atNine = sigma1Carryover(input, { ...RESOLVED_DEFAULTS, carryPriorYearShare: 0.9 }, 1);
     expect(mapToObject(atNine.teamPointTotals)).not.toEqual(mapToObject(atDefault.teamPointTotals));
+  });
+});
+
+/**
+ * Quick task 260903-3bv, task 1's acceptance bar (D-2 item 1, D-3): at
+ * `gap === 1`, `sigma1Carryover` must reproduce the PRE-CHANGE carried
+ * values bitwise — `toBe`, never `toBeCloseTo` — against hand-written
+ * expressions that do not call `reversionOverGap` at all. A
+ * re-implementation of the new formula would pass even if both it and the
+ * production code were wrong in the same way, which is exactly why this is
+ * spelled out in full rather than delegated to a helper.
+ */
+describe("gap === 1 reproduces the pre-change carried values exactly (D-2 item 1, D-3)", () => {
+  it("sigma1Carryover(..., 1) matches the hand-written pre-change expression, per team, bitwise", () => {
+    const input = fixtureInputMixedHistory();
+    const { mean, sd } = populationMeanSd([...input.teamTotals.values()]);
+    const reversion = RESOLVED_DEFAULTS.carryMeanReversion;
+    const share = RESOLVED_DEFAULTS.carryPriorYearShare;
+
+    const result = sigma1Carryover(input, RESOLVED_DEFAULTS, 1);
+
+    for (const [team, points] of input.teamTotals) {
+      const lastYear = normalizedFromPoints(points, mean, sd);
+      const yearBefore = input.priorSeasonRatings.lastSeason.get(team) ?? null;
+      // The PRE-CHANGE expression, written out in full: no gap concept, no
+      // `reversionOverGap` call — this is what `gap === 1` must reproduce
+      // bitwise, not merely closely.
+      const blended = yearBefore !== null ? (1 - share) * lastYear + share * yearBefore : lastYear;
+      const expectedCarried = blended + reversion * (EPA_ROOKIE_BASELINE - blended);
+      const expectedPoints = normalizedToSeasonUnits(expectedCarried, mean, sd);
+      expect(result.teamPointTotals.get(team)!, `${team}: gap === 1 must reproduce the pre-change value bitwise`).toBe(
+        expectedPoints
+      );
+    }
+  });
+
+  it("reversionOverGap(0.37, 1) is 0.37 exactly, which the fast path guarantees and the general expression does not", () => {
+    // The general expression 1 - (1 - 0.37) ** 1 evaluates to
+    // 0.37000000000000005 in IEEE-754 — this is the value the fast path in
+    // `reversionOverGap` exists to avoid.
+    expect(reversionOverGap(0.37, 1)).toBe(0.37);
   });
 });
