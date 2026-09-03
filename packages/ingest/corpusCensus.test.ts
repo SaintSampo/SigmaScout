@@ -170,7 +170,36 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
     expect(row.n).toBeGreaterThan(150);
   });
 
-  it("the count of corpus events with no event_rankings row at all is less than 400", () => {
+  /**
+   * Upper bound raised 400 -> 550 on 2026-09-03, when the corpus grew from five
+   * seasons (2022-2026) to seven (2019, 2020 added; 2021 is permanently excluded
+   * -- the at-home season has no conventional alliance matches). The bound is a
+   * function of corpus SIZE, so it had to move; what matters is that it moved for
+   * a stated reason and only after the real fix was applied.
+   *
+   * The real fix came first. Adding the two seasons took this count 259 -> 758,
+   * because `pnpm ingest --years 2019-2020` writes events and matches but not
+   * rankings. Running `pnpm ingest:rankings --years 2019-2020` brought it to
+   * **449**, which is where it now sits:
+   *
+   *     season | no rankings | of which never played a match
+   *     2019   |  47         |  37
+   *     2020   | 143         | 139   <-- the cancelled season
+   *     2022-2026 (unchanged) | 259
+   *
+   * 2020's 143 are irreducible: that season was cancelled after roughly three
+   * weeks, so 139 of its listed events never happened and can never post a
+   * ranking. Chasing this count below 400 would mean deleting real events from
+   * the corpus to satisfy a test, which is backwards.
+   *
+   * 550 was chosen to leave room for roughly two more seasons at the observed
+   * per-season rate of ~40-65 events that never post rankings (2026 contributed
+   * 64), rather than being set just above the current reading. If a future season
+   * pushes past it, re-measure and re-document -- do NOT raise it reflexively,
+   * because the failure this bound exists to catch is `ingestSeasonRankingsOnly`
+   * silently writing nothing, which looks exactly like a slow upward drift.
+   */
+  it("the count of corpus events with no event_rankings row at all is less than 550", () => {
     const row = db
       .prepare(
         `SELECT COUNT(*) AS n
@@ -178,7 +207,7 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
          WHERE NOT EXISTS (SELECT 1 FROM event_rankings er WHERE er.event_key = e.event_key)`
       )
       .get() as { n: number };
-    expect(row.n).toBeLessThan(400);
+    expect(row.n).toBeLessThan(550);
   });
 });
 
