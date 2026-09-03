@@ -245,23 +245,44 @@ softens that considerably:** it fires **6.5% — 1,953 positive examples** acros
 That is an ordinary low-base-rate binary prediction, not a special case. The combinatorial rule
 governs how the RP was SCORED; predicting it only requires predicting a binary outcome.
 
-### CRITICAL — read the authoritative RP flags, NEVER reconstruct them
+### CORRECTED 2026-09-03 — the flags DO get recomputed; the earlier instruction here was wrong
 
-Both seasons show bonus-RP flags that **do not reconcile** with their own apparent component
-booleans:
+An earlier version of this section said the modules "must read the `*RankingPoint` flags as
+ground truth and must NOT derive them from component fields." **That was architecturally wrong
+and would have broken the module contract.** It is corrected here rather than deleted, because
+the observation underneath it is still valuable.
 
-| Season | RP flag | Rate | Apparent components | Rate |
+**What the contract actually requires.** Every `RpRuleModule.parse` returns BOTH
+(`rp/constants.ts:127-140`):
+
+- `bonusFlags` — **RECOMPUTED** from a threshold rule
+- `recordedBonusFlags` — TBA's own boolean, read verbatim
+
+Keeping both is exactly what makes `reconciliation.test.ts` a comparison rather than a
+restatement (D-12). And the recomputation is not optional: `predictThresholds` receives only
+threshold-variable VALUES and never a raw breakdown, because the Monte Carlo draw in
+`rp/distribution.ts` samples threshold variables rather than synthesising a breakdown. A module
+that merely echoed TBA's flag could score history and could not predict a single future match.
+
+**What the observation actually means.** The measured discrepancies stand:
+
+| Season | RP flag | Rate | Apparent component | Rate |
 |---|---|---|---|---|
-| 2019 | `completeRocketRankingPoint` | 6.5% | `completedRocketNear` + `completedRocketFar` | 2.4% + 2.4% ≈ 4.8% |
+| 2019 | `completeRocketRankingPoint` | 6.5% | `completedRocketNear` + `...Far` | 2.4% + 2.4% |
 | 2020 | `shieldOperationalRankingPoint` | 14.7% | `stage2Activated` | **0.5%** — off by ~30x |
 
-The mechanism behind each discrepancy is **not known** and was deliberately not guessed at.
+They do not mean "do not derive". They mean **the obvious component is the wrong derivation**,
+and a threshold taken from memory of the game manual would have reconciled badly while looking
+plausible. The 2020 case is the clearest: an operational RP driven by the control panel is
+contradicted by the data at 30x, which is what redirected the hypothesis to the endgame instead.
 
-**The instruction that follows is not optional:** `rp/rules/2019.ts` and `rp/rules/2020.ts` must
-read the `*RankingPoint` flags as ground truth and must NOT derive them from component fields.
-Deriving them from the game rules as understood would have produced two quietly wrong modules
-whose tests passed against their own derivation — the exact failure shape this project's failure
-log already names.
+**So the thresholds are DERIVED FROM THE DATA**, by
+`scripts/recon-rp-thresholds-2019-2020.ts` → `docs/data/tba-rp-thresholds-2019-2020.md`. It
+sweeps every candidate cut point per event tier and reports the agreement rate with TBA's own
+recorded flag, plus the trivial always-false baseline a real rule has to beat. Those measured
+numbers are what the modules encode as `RpTieredThreshold` data, and their measured
+disagreement rate is what `reconciliation.test.ts`'s `KNOWN_TOLERANCES` records — the same
+"measured tolerance over a forced fit" precedent 2022's cargo bonus already sets.
 
 ### Module difficulty, revised by the measurements
 
