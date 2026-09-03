@@ -3,10 +3,14 @@ id: rolling-origin-hyperparameter-tuning
 created: 2026-08-30
 source: 08-CONTEXT.md discussion — user challenged the tune/holdout split's necessity
 resolves_phase:
-priority: medium
+priority: high
 ---
 
 # Rolling-origin hyperparameter tuning — remove the tune/holdout split at its source
+
+> **Status: all four gating decisions ANSWERED** (see "Decisions — ANSWERED 2026-09-03" at
+> the end of this file). Per D-1, this work is sequenced onto `retune-sigma1-rolling-origin`
+> and rides its promotion and republish — it is not to be run standalone.
 
 ## What the user said
 
@@ -27,10 +31,17 @@ tuning — tune only on seasons strictly *before* the season being scored:
 
 | Scored season | Tuned on |
 |---|---|
-| 2023 | 2022 |
+| 2023 | 2022 — not an origin (D-4) |
 | 2024 | 2022–2023 |
 | 2025 | 2022–2024 |
 | 2026 | 2022–2025 |
+
+The rolling-origin selection machinery this table proposes **already shipped** in quick
+task `260901-trz` (`--origin` mode in `packages/harness/tune.ts` with four leakage gates,
+plus `packages/harness/acceptance.ts`'s D-T7 bar). What remains in this todo is the
+scoring, labeling, and versioning half: `TUNE_SEASONS`/`HOLDOUT_SEASONS` at
+`packages/harness/score.ts:16-19`, `SeasonLabel` at `score.ts:14`, and the `seasonLabel`
+enum at `artifact.ts:51` and `pageArtifacts.ts:1219`.
 
 Every scored season then becomes genuinely out-of-sample. This lifts the project's
 existing match-level discipline — predict strictly before you update — up to the
@@ -45,20 +56,22 @@ gain is **2 headline seasons → 3 or 4**, not 5. The user accepted this before 
 
 ## Known costs
 
-- **Four hyperparameter searches instead of one.** Phase 3's two-stage screen (9 of 20
-  params survive `SCREEN_SURVIVAL_THRESHOLD = 1e-4`) plus a joint search over the
-  survivors, run four times. Offline Node — wall-clock, not money.
-- **Four parameter sets, which collides with the versioning contract.**
-  `data/algorithm-versions/vpr@2.1.0+tuned-2026-08.json` is a single promoted set whose
+- **The rolling-origin searches**, not four sequential full searches as originally
+  estimated here. `retune-sigma1-rolling-origin` measured the shipped run shape: one
+  ~41-min screen at the earliest origin's window, plus six concurrent joint runs (3 origins
+  x 2 adaptation arms) at ~70 min wall clock. Offline Node — wall-clock, not money. See that
+  todo for the full cost table.
+- **Three parameter sets, which collides with the versioning contract.**
+  `data/algorithm-versions/vpr@5.0.0+tuned-2026-08.json` is a single promoted set whose
   prediction-stream digest is enforced as a CI gate (`packages/harness/promote.ts`). Either
-  four versions or one version whose params vary by season — either way the promote path
+  three versions or one version whose params vary by season — either way the promote path
   and the digest gate need rework. **This is the biggest single cost and the reason this is
-  its own phase rather than a tweak.**
+  its own phase rather than a tweak** — D-2 is the answer to it, not a refutation; the
+  collision is resolved, not open.
 - **Downstream re-measurement:** SC-3's 8/8 verdict (last re-measured 2026-08-30, see
   `docs/models/offseason-inclusion-remeasurement.md`), every published artifact, and
   `docs/models/sigma1-tuning-results.md`.
-- **A new decision:** which param set the live 2027 site runs on. Presumably the
-  2026-evaluation set (tuned on 2022–2025), but that is not currently decided.
+- **A new decision:** which param set the live 2027 site runs on. Decided — see D-3.
 
 ## Why it was not urgent
 
@@ -75,8 +88,9 @@ evidence base.
 
 ## Acceptance criteria
 
-1. Hyperparameter selection for a scored season uses only seasons strictly preceding it;
-   a test proves a search cannot read a season at or after its evaluation target.
+1. **SATISFIED (260901-trz)** — Hyperparameter selection for a scored season uses only
+   seasons strictly preceding it; a test proves a search cannot read a season at or after
+   its evaluation target. Met by `tune.ts`'s leakage gates and `tune.test.ts`.
 2. The number of headline-eligible seasons increases from 2 to at least 3, and
    `seasonLabel`/`headlineEligible` in `CompareSliceSchema` reflect the new scheme.
 3. The algorithm-version digest CI gate still passes under whatever multi-param-set
