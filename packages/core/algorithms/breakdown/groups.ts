@@ -64,8 +64,18 @@ export type SeasonComponentGroups = Readonly<Record<ComponentGroupId, readonly s
  *  - 2020 `autoInitLine`/`autoCell` are auto-period; `teleopCell`/
  *    `controlPanel` are teleop; `endgame` groups by its own name, same
  *    treatment 2022's bare `endgame` component already gets.
+ *  - 2019 `habClimb`: TBA's own `teleopPoints` roll-up bundles HAB climb
+ *    together with hatch panels and cargo, but the climb is plainly an
+ *    ENDGAME action and is grouped as endgame here — the identical
+ *    treatment 2022 already gives its own endgame component, which TBA
+ *    likewise folds into a `teleopPoints` roll-up.
  */
 const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
+  2019: {
+    auto: ["sandstormBonus"],
+    teleop: ["hatchPanel", "cargo"],
+    endgame: ["habClimb"],
+  },
   2020: {
     auto: ["autoInitLine", "autoCell"],
     teleop: ["teleopCell", "controlPanel"],

@@ -23,12 +23,13 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const SAMPLE_SIZE = 2000;
 const RECONCILIATION_TOLERANCE = 1e-6;
 /**
- * All six seasons registered in `breakdown/index.ts` (D-19: additive, no
- * dispatch branching). 2024 was registered by plan 02-01; 2022/2023 by this
- * plan's Task 1; 2025/2026 by Task 2; 2020 by quick task 260903-4fs Task 1
- * (2019 is NOT here yet at that point — Task 2 of that quick task adds it).
+ * All seven seasons registered in `breakdown/index.ts` (D-19: additive, no
+ * dispatch branching). 2024 was registered by plan 02-01; 2022/2023 by
+ * plan 02-01's Task 1; 2025/2026 by its Task 2; 2020 and 2019 by quick task
+ * 260903-4fs's Tasks 1 and 2 respectively. 2021 is deliberately absent —
+ * no standard FRC season was played that year.
  */
-const REGISTERED_SEASONS = [2020, 2022, 2023, 2024, 2025, 2026] as const;
+const REGISTERED_SEASONS = [2019, 2020, 2022, 2023, 2024, 2025, 2026] as const;
 
 interface SampledBreakdownRow {
   match_key: string;

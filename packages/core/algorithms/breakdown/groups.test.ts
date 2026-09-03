@@ -8,7 +8,7 @@ import {
   UNGROUPED_COMPONENTS,
 } from "./groups.js";
 
-const SEASONS = [2020, 2022, 2023, 2024, 2025, 2026];
+const SEASONS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
 
 describe("component groups cover every season exactly once", () => {
   for (const season of SEASONS) {
