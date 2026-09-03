@@ -6,8 +6,8 @@ current_phase: 08
 status: completed
 stopped_at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
 last_updated: "2026-09-02T18:30:00.000Z"
-last_activity: 2026-09-02
-last_activity_desc: Quick task 260902-pbc — dropped unpublished match components
+last_activity: 2026-09-03
+last_activity_desc: Quick task 260902-pbe — teams positional metrics
 progress:
   total_phases: 11
   completed_phases: 11
@@ -364,6 +364,7 @@ None yet.
 | 260902-sbx | The ribbon and home-hero search each drew two concentric rounded rectangles: shadcn's `InputGroup` carries its own border/bg/`h-8` inside a `Command` root that `SearchBox` also styles per tone. Regressed visible at `d4ccc32e` (2026-09-01 "larger ribbon"), whose own `[&>div]:h-full` fix silently targeted the wrong element. Fixed at the composition seam for BOTH tones with a descendant selector on `data-slot=input-group`; also restored a focus indicator that never matched in this composition (the control had none at all) | 2026-09-02 | 88175354 | [260902-sbx-search-box-double-border](./quick/260902-sbx-search-box-double-border/) |
 | 260902-rax | Two defects from a render-and-measure audit (11 pages x 2 viewports): the phone Teams rank header read "VPR ..." with the informative half ellipsized, resolved between G-2's narrow width and D-20's provenance requirement by showing `Rank` with `VPR Rank` as the `<th>`'s accessible name; and the Events sort controls' ~40x14 hit area widened to the full 44px cell. The first hit-area attempt (`c2c72fbd`) overhung the cell by 8px and ate clicks on the top 7px of the first result row -- caught by orchestrator re-measurement and fixed in `864d9624`. Audit found ZERO doubled-box / focus-ring / hover-shift / overflow / console-error hits site-wide | 2026-09-02 | 864d9624 | [260902-rax-render-audit-findings](./quick/260902-rax-render-audit-findings/) |
 | 260902-pbc | Stopped publishing `redComponents`/`blueComponents` on team and event page artifacts -- 44% and 47.6% of those artifacts respectively, and no page reads either (repo-wide grep: three mock fixtures only). Model untouched (zero diff in `packages/core/algorithms/**`); only the published shape changed. Schema version deliberately NOT bumped, following D-02's precedent for a riskier same-name change. Live artifacts still parse (neither schema is strict; `apps/web` imports the same file, not a copy). Also fixed a fourth copy of the helper in `scripts/replayRig.ts` that would have made the 04-07 equivalence rig report a spurious mismatch | 2026-09-02 | f139d03c | [260902-pbc-drop-unpublished-match-components](./quick/260902-pbc-drop-unpublished-match-components/) |
+| 260902-pbe | Teams artifact metrics encoded positionally with the key list in the preamble: 3,704,776 -> 1,489,187 B raw (-59.8%), clearing the 3,500,000 budget on merit. Wire saving is -11.8% at Brotli q11, NOT the -30% the attribution claimed (that was measured at q5; the todo is corrected). Two schemas -- a wire schema that validates both shapes and a decoding wrapper -- so the client needed zero functional change. `MetricsRecordSchema` wrapped in a union, not replaced, so event/team artifacts and five client components are untouched. Caught a blocking bug outside the plan: `artifactWriter.ts` validated Worker writes with the DECODING schema, which would have discarded the whole saving on the live path | 2026-09-03 | b75b49cf | [260902-pbe-teams-positional-metrics](./quick/260902-pbe-teams-positional-metrics/) |
 
 ### Roadmap Evolution
 

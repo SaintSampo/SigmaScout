@@ -173,8 +173,28 @@ Raw bytes are not what a visitor downloads. Under Brotli:
 
 | | wire now | wire after | 5 Mbps venue wifi |
 |---|---|---|---|
-| teams | 410 KB | **285 KB (-30%)** | 0.67s -> 0.47s |
+| teams | 298 KB | **242 KB (-19%)** | 0.49s -> 0.40s |
 | team | 76 KB | **41 KB (-46%)** | 0.12s -> 0.07s |
+
+
+**CORRECTED 2026-09-03.** The teams row above first read `410 KB -> 285 KB (-30%)`.
+That was measured at **Brotli quality 5**; a CDN serves quality 11, where both the
+baseline and the saving are smaller. Re-measured on the same artifact:
+
+| brotli quality | now | positional | saving |
+|---|---|---|---|
+| 5 | 410 KB | 285 KB | -30.4% |
+| 9 | 368 KB | 265 KB | -27.9% |
+| **11 (production)** | **298 KB** | **242 KB** | **-18.7%** |
+
+Quick task 260902-pbe's shipped encoding, which also carries a `tier` element,
+measured -11.8% at q11. So the honest range is **-12% to -19%**, not -30%.
+
+The verdict is unchanged: the binding goal was the RAW budget (3,704,776 ->
+1,489,187 B against a 3,500,000 ceiling), met either way. But the teams page was
+never as heavy as -30% implied, and the wire win is a modest bonus rather than
+the headline. Recorded because a wrong number left in a decision document is
+worse than no number at all.
 
 **The raw -66% headline overstates the user benefit** — Brotli already collapses
 repeated key names, so the real teams win is -30%, not -66%. It is still worth
