@@ -87,48 +87,90 @@ evidence base.
 
 ---
 
-## Decision briefing (added 2026-09-01 — read before starting; nothing below has been executed)
+## Decisions — ANSWERED 2026-09-03 (all four; none open)
 
-Everything else from the 2026-08-31 sweep is done; this is the one item left open. Four decisions
-gate it, with the facts gathered so far:
+All four decisions below were answered by the user in quick task `260903-230` on
+2026-09-03. **No decision in this todo is open.** The measured costs and rejected
+alternatives are kept underneath as recorded rationale for why each answer holds up, not
+as a menu still to choose from.
 
 ### The measured costs
 
-- **One full-corpus joint search ≈ 50 min** on this machine (03-05 ran two in parallel at ~50 min
-  each); the screen stage is similar. Four rolling searches (2023←{22}, 2024←{22-23},
-  2025←{22-24}, 2026←{22-25}) have *shrinking* tune sets, so expect **~2–3.5h total**, backgroundable.
-- **The full cascade after the searches:** re-tuned params change every 2023–2026 prediction, so:
-  full harness re-run for the accuracy record → **another full republish** (~56k PUTs, ~25 min) →
-  re-commit `apps/web/src/routes/__fixtures__/compare-*.json` (byte-pinned in tests) → re-measure
-  SC-3 (dated doc, pass or fail) → re-measure the rewind gap (its 10.85% figure came from the
+- **The rolling-origin searches** run in the shape measured in
+  `retune-sigma1-rolling-origin`: one ~41-min screen at the earliest origin's window, plus
+  six concurrent joint runs (3 origins x 2 adaptation arms) at ~70 min wall clock — see that
+  todo for the full cost table rather than restating it here. Offline Node — wall-clock, not
+  money.
+- **The full cascade after the searches:** re-tuned params change every 2023–2026
+  prediction, so: full harness re-run for the accuracy record → **one republish** (~56k
+  PUTs, ~25 min; not two — see D-1) → re-commit
+  `apps/web/src/routes/__fixtures__/compare-*.json` (byte-pinned in tests) → re-measure SC-3
+  (dated doc, pass or fail) → re-measure the rewind gap (its 10.85% figure came from the
   current promoted set; `rewindGap.ts` mirror + caption depend on it) → rewrite
   `docs/models/sigma1-tuning-results.md`.
 
-### Decision 1 — go/when
-Options: implement + run searches immediately; implement code only and run compute later; defer
-whole. (Deferred 2026-09-01 by user.)
+### D-1 — Go/when: ANSWERED — sequence onto the re-tune
 
-### Decision 2 — versioning representation (the todo's own "biggest single cost")
-Artifact keys embed one `{algorithmId}@{version}` and `v1/manifest/algorithms.json` names exactly
-one version per algorithm — Worker and clients resolve through it.
-- **One version, per-season sets** (`vpr@3.0.0+rolling-YYYY-MM` carrying `paramSetsBySeason` +
-  one prediction-stream digest over the full replay): manifest/Worker/client contracts unchanged;
-  only `promote.ts`'s file shape and the digest definition change. *Recommended.*
-- **Four promoted versions**: matches promote.ts's current one-set-per-file shape, but manifest,
-  Worker, and every client must learn per-season version resolution — much wider blast radius.
+This todo's labeling and versioning change lands together with the promotion and republish
+produced by `retune-sigma1-rolling-origin`. One republish (~56k PUTs, ~25 min), not two, and
+the season labels get written knowing which origins actually cleared the D-T7 acceptance
+bar.
 
-### Decision 3 — what the live site runs in 2027 (until 2027 data exists)
-- **The 2026-eval set (tuned on 2022–2025)** — the todo's own presumption; most recent honestly
-  evaluated set. *Recommended.*
-- A fifth search tuned on all 2022–2026 — more data for live, but that set is never honestly
-  evaluable (nothing is out-of-sample for it).
+**Rejected:** doing the labeling standalone now (costs a second republish, and writes
+labels before the acceptance verdicts exist); keeping the whole thing deferred.
 
-### Decision 4 — is 2023 headline-eligible on a one-season prior?
-- **Not eligible** → headline = 2024/2025/2026 (meets the ≥3 acceptance); 2023 labeled "tuned on
-  one season", 2022 runs untuned defaults, also non-headline. *Recommended (stricter honesty).*
-- Eligible → 4 headline seasons; thinness carried in the methodology note.
+### D-2 — Versioning representation: ANSWERED — one version, per-season sets
 
-### Also implied (implementation detail, no decision needed)
-`CompareSliceSchema.seasonLabel` is `z.enum(["tune","holdout"])` — the enum needs a new vocabulary
-(e.g. `rolling`/`thin-prior`/`untuned`) which is a published-contract change riding the same
-republish. A leakage test (acceptance 1) proves a search cannot read a season ≥ its target.
+`vpr@6.0.0+rolling-YYYY-MM` carries `paramSetsBySeason` plus one prediction-stream digest
+over the full replay. Seasons whose origin returned `keep-incumbent` fall back to the
+incumbent set. `v1/manifest/algorithms.json`, the Worker, and every client keep their
+current one-version-per-algorithm contract unchanged; only `promote.ts`'s file shape and
+the digest definition move.
+
+**Version-number correction:** this todo originally proposed `vpr@3.0.0+rolling-YYYY-MM`,
+written back when 2.1.0 was the current promoted set. The promoted set is now
+`data/algorithm-versions/vpr@5.0.0+tuned-2026-08.json`, so 3.0.0 would be a downgrade. The
+target is **6.0.0**.
+
+**Rejected:** three promoted version files (one per origin) — matches `promote.ts`'s
+current one-set-per-file shape, but forces the manifest, the Worker, and every client to
+learn per-season version resolution.
+
+### D-3 — What the live site runs in 2027: ANSWERED — the 2026-origin set
+
+Selected on 2022–2025; the most recent set that was also honestly evaluated out-of-sample.
+If the 2026 origin returns `keep-incumbent`, the incumbent stands and serves live.
+
+**Rejected:** an extra search over all 2022–2026 (more data, but never honestly evaluable —
+nothing is out-of-sample for it, so it could never carry a headline claim); deferring the
+decision until after the re-tune reports.
+
+### D-4 — Is 2023 headline-eligible on a one-season prior: ANSWERED — not eligible
+
+Headline seasons are **2024 / 2025 / 2026** — three, which meets acceptance criterion 2's
+">= 3" bar. 2022 and 2023 are labeled selection-only/untuned and carry no headline claim.
+This ratifies what the shipped tuner already does rather than changing it: `tune.ts`'s
+origins are 2024/2025/2026 with 2022–2023 as the earliest selection window, so no 2023
+parameter set exists to score.
+
+**Rejected:** adding a 2023 origin tuned on 2022 alone — four headline seasons, but two
+more joint search runs, and it weakens the one-screen leak-free argument the current run
+shape rests on.
+
+**Open sub-question, surfaced by D-4 (2026-09-03): which parameter set scores 2022 and
+2023?** All five seasons are published and displayed on Compare today —
+`compare-2022.json` through `compare-2026.json` all exist, and every 2022/2023/2024 slice
+currently carries `seasonLabel: "tune"`. Under the decided scheme neither 2022 nor 2023 has
+an origin, so neither has an honestly out-of-sample parameter set: any set that scores them
+was selected having already seen them. D-4 correctly removes their headline claim, but it
+does NOT say which set produces the numbers still shown for them. That must be decided
+before the republish, and it is not decided here.
+
+### Also implied
+
+`CompareSliceSchema.seasonLabel` is `z.enum(["tune","holdout"])` — the enum still needs a
+new vocabulary (e.g. `rolling`/`thin-prior`/`untuned`), which is a published-contract
+change; per D-1 it rides the re-tune's republish rather than shipping standalone. The
+leakage test this section used to describe as pending (acceptance criterion 1: a test
+proving a search cannot read a season at or after its evaluation target) already shipped in
+`260901-trz`.
