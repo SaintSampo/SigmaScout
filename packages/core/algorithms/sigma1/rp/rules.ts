@@ -33,6 +33,7 @@ import type { RpRuleModule } from "./constants.js";
 
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).
+import { rp2020 } from "./2020.js";
 import { rp2022 } from "./2022.js";
 import { rp2023 } from "./2023.js";
 import { rp2024 } from "./2024.js";
@@ -40,6 +41,7 @@ import { rp2025 } from "./2025.js";
 import { rp2026 } from "./2026.js";
 
 export const RP_RULE_MODULES: Readonly<Record<number, RpRuleModule>> = {
+  2020: rp2020,
   2022: rp2022,
   2023: rp2023,
   2024: rp2024,

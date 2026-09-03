@@ -37,6 +37,7 @@ import { ZodError } from "zod";
 
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).
+import { breakdown2020 } from "./2020.js";
 import { breakdown2022 } from "./2022.js";
 import { breakdown2023 } from "./2023.js";
 import { breakdown2024 } from "./2024.js";
@@ -44,6 +45,7 @@ import { breakdown2025 } from "./2025.js";
 import { breakdown2026 } from "./2026.js";
 
 const SEASON_COMPONENT_MAPS: Readonly<Record<number, SeasonComponentMap>> = {
+  2020: breakdown2020,
   2022: breakdown2022,
   2023: breakdown2023,
   2024: breakdown2024,

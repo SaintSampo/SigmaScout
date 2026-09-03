@@ -9,20 +9,20 @@ import { eventTierFor } from "./constants.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, rpRuleModuleForSeason } from "./rules.js";
 
 describe("rpRuleModuleForSeason", () => {
-  it("throws for an unregistered season, naming 2022-2026", () => {
-    expect(() => rpRuleModuleForSeason(2021)).toThrow(/2022, 2023, 2024, 2025, 2026/);
+  it("throws for an unregistered season, naming every registered season (2021 stays absent — no standard season was played)", () => {
+    expect(() => rpRuleModuleForSeason(2021)).toThrow(/2020, 2022, 2023, 2024, 2025, 2026/);
   });
 
-  it("returns the registered module for every season 2022-2026", () => {
-    for (const season of [2022, 2023, 2024, 2025, 2026] as const) {
+  it("returns the registered module for every season 2020, 2022-2026", () => {
+    for (const season of [2020, 2022, 2023, 2024, 2025, 2026] as const) {
       expect(rpRuleModuleForSeason(season).season).toBe(season);
     }
   });
 });
 
 describe("RP_REGISTERED_SEASONS", () => {
-  it("is the sorted tuple 2022-2026", () => {
-    expect(RP_REGISTERED_SEASONS).toEqual([2022, 2023, 2024, 2025, 2026]);
+  it("is the sorted tuple 2020, 2022-2026 (2021 absent — no standard season was played)", () => {
+    expect(RP_REGISTERED_SEASONS).toEqual([2020, 2022, 2023, 2024, 2025, 2026]);
   });
 });
 

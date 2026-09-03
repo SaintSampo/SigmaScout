@@ -61,8 +61,16 @@ export type SeasonComponentGroups = Readonly<Record<ComponentGroupId, readonly s
  *  - 2026 `hub*`: `hubAuto` is the auto-period hub score; `hubTransition`
  *    and `hubShift1`..`hubShift4` are the teleop shifts; `hubEndgame` is the
  *    endgame period. `autoTower`/`endGameTower` group by their own names.
+ *  - 2020 `autoInitLine`/`autoCell` are auto-period; `teleopCell`/
+ *    `controlPanel` are teleop; `endgame` groups by its own name, same
+ *    treatment 2022's bare `endgame` component already gets.
  */
 const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
+  2020: {
+    auto: ["autoInitLine", "autoCell"],
+    teleop: ["teleopCell", "controlPanel"],
+    endgame: ["endgame"],
+  },
   2022: {
     auto: ["autoTaxi", "autoCargo"],
     teleop: ["teleopCargo"],
