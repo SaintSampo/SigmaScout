@@ -12,7 +12,15 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TeamsTable } from "./TeamsTable";
-import { buildColumns, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, RANK_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX, sortableColumnIds } from "./columns";
+import {
+  buildColumns,
+  MOBILE_PINNED_COLUMN_IDS,
+  PINNED_COLUMN_IDS,
+  rankColumnAccessibleLabel,
+  RANK_COLUMN_WIDTH_NARROW_PX,
+  TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX,
+  sortableColumnIds,
+} from "./columns";
 import type { TeamRow } from "./rowModel";
 
 // Same jsdom layout-engine workaround as TeamsTable.test.tsx — see that
@@ -166,5 +174,35 @@ describe("buildColumns — G-2's isNarrow column-size switch", () => {
     expect(MOBILE_PINNED_COLUMN_IDS).toEqual(["rank", "teamNumber"]);
     expect(PINNED_COLUMN_IDS).toContain("nickname");
     expect(MOBILE_PINNED_COLUMN_IDS).not.toContain("nickname");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 260902-rax Task 1 — the G-2/D-20 resolution: narrow mode shows the bare
+// "Rank" (not the truncated-away half of "VPR Rank"), while the algorithm's
+// provenance moves to `rankColumnAccessibleLabel` for `TeamsTable.tsx` to
+// hang off the `<th>` as its accessible name. The full render-level
+// (visible-text vs accessible-name) assertion lives in `TeamsTable.test.tsx`,
+// which can observe the `aria-label`/`title` that only that component adds —
+// these tests cover the two pieces `buildColumns`/`columns.tsx` themselves
+// own: the VISIBLE header string, and the exported label helper.
+// ---------------------------------------------------------------------------
+describe("buildColumns — 260902-rax's narrow-mode rank header text", () => {
+  it("narrow (isNarrow=true): the VISIBLE header is the bare literal 'Rank', not the algorithm-prefixed string", () => {
+    const columns = buildColumns("vpr", 2026, true) as { header: unknown }[];
+    expect(columns[0]!.header).toBe("Rank");
+  });
+
+  it("wide (isNarrow=false): the VISIBLE header is UNCHANGED — still the full algorithm-derived string", () => {
+    const columns = buildColumns("vpr", 2026, false) as { header: unknown }[];
+    expect(columns[0]!.header).toBe(`${algorithmDisplayLabel("vpr")} Rank`);
+  });
+
+  it("rankColumnAccessibleLabel is the same derivation buildColumns uses for the wide-mode header — one function, not a second hand-typed copy", () => {
+    expect(rankColumnAccessibleLabel("vpr")).toBe(`${algorithmDisplayLabel("vpr")} Rank`);
+    expect(rankColumnAccessibleLabel("opr")).toBe(`${algorithmDisplayLabel("opr")} Rank`);
+    // Distinct algorithms still produce distinct accessible names — D-20's
+    // provenance guarantee survives the narrow-mode split.
+    expect(rankColumnAccessibleLabel("vpr")).not.toBe(rankColumnAccessibleLabel("opr"));
   });
 });

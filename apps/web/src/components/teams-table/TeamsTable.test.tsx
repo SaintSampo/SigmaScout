@@ -4,6 +4,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { TOTAL_KEY } from "@/lib/metricKeys";
+import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { PINNED_COLUMN_IDS } from "./columns";
 import { TeamsTable } from "./TeamsTable";
 import type { TeamRow } from "./rowModel";
@@ -73,6 +74,31 @@ function row(overrides: Partial<TeamRow> = {}): TeamRow {
 }
 
 const noop = () => {};
+
+/**
+ * Same phone-viewport `matchMedia` override `Ribbon.test.tsx` uses (query
+ * argument ignored, always `matches: true`) — sufficient here because
+ * `TeamsTable`'s two breakpoint hooks (`useIsMobile`/`useIsF3MetricFirstWidth`)
+ * only need `isNarrow` to resolve `true`; `metricFirst`'s value doesn't
+ * affect the rank column under test.
+ */
+function mockNarrowViewport(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
 
 describe("TeamsTable", () => {
   it("renders the declared column set for the given algorithm/season, and switching algorithm changes it", async () => {
@@ -280,5 +306,60 @@ describe("TeamsTable", () => {
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getAllByTestId("teams-row")).toHaveLength(1));
+  });
+
+  // -------------------------------------------------------------------------
+  // 260902-rax Task 1 — the visible header text and the accessible name are
+  // DELIBERATELY different below the breakpoint (G-2's width stands, D-20's
+  // provenance is preserved as the `<th>`'s aria-label). A test asserting
+  // only one of the two would miss the entire point of the fix, so both are
+  // asserted here, separately, in the same test.
+  // -------------------------------------------------------------------------
+  it("narrow mode: the rank header's VISIBLE text is 'Rank' while its ACCESSIBLE name still carries the algorithm — the two differ on purpose", async () => {
+    const restoreMatchMedia = mockNarrowViewport();
+    try {
+      render(
+        <TestHarness>
+          <TeamsTable status="success" rows={[row()]} algorithmId="vpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+        </TestHarness>,
+      );
+      const header = await screen.findByTestId("teams-header-rank");
+
+      // Visible text: the bare "Rank" — G-2's narrow width no longer
+      // truncates away the one informative half of "VPR Rank".
+      expect(header.textContent).toBe("Rank");
+
+      // Accessible name: still the full, algorithm-derived string — D-20's
+      // provenance disclosure, reachable via a legal `aria-label` carrier
+      // (the `<th>`'s own `columnheader` role), not a bare `<span>` (the
+      // CR-02 bug this must not reintroduce).
+      const fullLabel = `${algorithmDisplayLabel("vpr")} Rank`;
+      expect(header.getAttribute("aria-label")).toBe(fullLabel);
+      expect(header.getAttribute("title")).toBe(fullLabel);
+      expect(header.tagName).toBe("TH");
+
+      // The two are asserted to genuinely differ — a test that only checked
+      // one would pass even if the fix regressed to a single shared string.
+      expect(header.textContent).not.toBe(header.getAttribute("aria-label"));
+
+      // A real accessible-name query (not just "the attribute exists in the
+      // DOM") finds this header by its full, algorithm-derived name.
+      expect(screen.getByRole("columnheader", { name: /VPR Rank/ })).toBe(header);
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  it("wide mode: the rank header's visible text IS the full accessible name — no aria-label/title needed", async () => {
+    render(
+      <TestHarness>
+        <TeamsTable status="success" rows={[row()]} algorithmId="vpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+      </TestHarness>,
+    );
+    const header = await screen.findByTestId("teams-header-rank");
+    const fullLabel = `${algorithmDisplayLabel("vpr")} Rank`;
+    expect(header.textContent).toBe(fullLabel);
+    expect(header.getAttribute("aria-label")).toBeNull();
+    expect(header.getAttribute("title")).toBeNull();
   });
 });

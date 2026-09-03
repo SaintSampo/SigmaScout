@@ -22,7 +22,7 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
-import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, sortableColumnIds, type TeamsTableView } from "./columns";
+import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, rankColumnAccessibleLabel, sortableColumnIds, type TeamsTableView } from "./columns";
 import type { SortDirection, TeamRow } from "./rowModel";
 
 const ROW_HEIGHT_PX = 44;
@@ -200,6 +200,19 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                 const isSortable = sortableIds.has(header.column.id);
                 const isActive = isSortable && header.column.id === sortKey;
                 const ariaSort = !isSortable ? undefined : isActive ? (sortDirection === "asc" ? "ascending" : "descending") : "none";
+                // 260902-rax Task 1: below the breakpoint the rank header's
+                // VISIBLE text is the bare "Rank" (`columns.tsx`'s own
+                // `isNarrow` branch) so it stops truncating away the one
+                // informative half of "VPR Rank" — but D-20's
+                // algorithm-provenance disclosure still has to reach
+                // assistive tech and hover. `aria-label`/`title` go on the
+                // `<th>` itself, which already carries the implicit
+                // `columnheader` role: a bare `<span>`'s `role="generic"`
+                // drops `aria-label` outright (the CR-02 bug this must not
+                // repeat), and the `<th>` is not wrapped in a button here
+                // since `rank` is never sortable. Wide mode needs neither —
+                // the visible text already IS the full accessible name.
+                const rankAccessibleName = isNarrow && header.column.id === "rank" ? rankColumnAccessibleLabel(algorithmId) : undefined;
 
                 return (
                   <TableHead
@@ -207,6 +220,8 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                     data-testid={`teams-header-${header.column.id}`}
                     data-pinned={pinned ? "true" : "false"}
                     aria-sort={ariaSort}
+                    aria-label={rankAccessibleName}
+                    title={rankAccessibleName}
                     className="text-role-label truncate"
                     style={{
                       // `minWidth`/`maxWidth` paired with `width`: see the

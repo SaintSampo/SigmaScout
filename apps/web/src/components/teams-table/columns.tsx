@@ -217,6 +217,18 @@ export function sortableColumnIds(algorithmId: string, season: number, view: Tea
   return [...displayedMetricKeys(algorithmId, season, view), WIN_RATE_SORT_KEY];
 }
 
+/**
+ * The rank column's full, provenance-carrying accessible name — "VPR Rank",
+ * "Sigma1 Rank", etc. Exported so `TeamsTable.tsx` can hang it off the `<th>`
+ * as `aria-label`/`title` in narrow mode (260902-rax Task 1), rather than
+ * hand-deriving a second copy there: one function, two call sites, so the
+ * visible-wide-mode string and the narrow-mode accessible name can never
+ * drift apart. See the `rank` column's own comment below for why both exist.
+ */
+export function rankColumnAccessibleLabel(algorithmId: string): string {
+  return `${algorithmDisplayLabel(algorithmId as PublishedAlgorithmId)} Rank`;
+}
+
 function formatWinRate(value: number | null): string {
   if (value === null) return "";
   return `${(value * 100).toFixed(1)}%`;
@@ -318,12 +330,33 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     // eight or nine ("Sigma1 Rank"/"VPR Rank"), and `TeamsTable.tsx` derives
     // every pinned cell's sticky `left` offset from this column's declared
     // size — a stale 56 would clip the new header inside its own box on the
-    // one column the whole table is ordered by. Below the breakpoint it
-    // tightens to `RANK_COLUMN_WIDTH_NARROW_PX` (G-2) — the header may
-    // ellipsis-truncate there (it already carries `truncate`), which is an
-    // accepted narrow-mode trade for two extra metric columns' worth of
-    // width; the VALUE itself never clips at either size.
-    columnHelper.accessor("rank", { header: `${algorithmDisplayLabel(algorithm)} Rank`, size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 96 }),
+    // one column the whole table is ordered by.
+    //
+    // Below the breakpoint (G-2) the column tightens to
+    // `RANK_COLUMN_WIDTH_NARROW_PX` — that width stands, UNCHANGED, per the
+    // 260902-rax user decision below. What G-2 did NOT anticipate is which
+    // half of "VPR Rank" a 56px `truncate` box keeps: a render audit found
+    // it keeps "VPR" (already shown in the ribbon's algorithm selector) and
+    // ellipsizes away "Rank" — the only informative half, on the one column
+    // the whole table is ordered by. G-2's "accepted narrow-mode trade" was
+    // a trade against the wrong failure mode; this is not that trade holding,
+    // it is a bug in it.
+    //
+    // Resolution (260902-rax, user decision 2026-09-02): the VISIBLE text
+    // below the breakpoint is the literal "Rank" — D-20's algorithm-derived
+    // label survives only as the ACCESSIBLE name, via
+    // `rankColumnAccessibleLabel` above, which `TeamsTable.tsx` applies as
+    // `aria-label`/`title` on the `<th>` itself (columnheader is a legal
+    // aria-label carrier; a bare `<span>`'s `role="generic"` is NOT — see
+    // that quick task's CR-02 fix for the bug this must not reintroduce).
+    // Do NOT "simplify" this back to one literal string for both modes:
+    // that either re-breaks G-2 (truncating "Rank" again) or re-breaks D-20
+    // (losing the algorithm-provenance disclosure). The VALUE cell itself
+    // never clips at either size, unaffected by any of this.
+    columnHelper.accessor("rank", {
+      header: isNarrow ? "Rank" : rankColumnAccessibleLabel(algorithm),
+      size: isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 96,
+    }),
     columnHelper.accessor("teamNumber", {
       header: "Team #",
       size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
