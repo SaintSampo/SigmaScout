@@ -312,11 +312,20 @@ describe("loadFromVersionFile — provenance for a migrated promotion", () => {
 
     expect(source.params.processNoiseWithinEventRel).toBeCloseTo(0.5 / SIGMA1_REFERENCE_SCORE_VARIANCE, 12);
     expect(source.provenance.derivedFromVersion).toBe("3.0.0+tuned-2026-08");
-    // COMPOSED since 5.0.0 (D-V4): loadFromVersionFile chains the two
-    // one-hop maps rather than owning a 3-to-5 map of its own, and records
-    // BOTH tags so a reader can tell exactly which conversions ran.
+    // COMPOSED since 5.0.0 (D-V4): loadFromVersionFile chains the one-hop maps
+    // rather than owning a 3-to-current map of its own, and records EVERY tag
+    // so a reader can tell exactly which conversions ran.
+    //
+    // THREE hops since 7.0.0 (D-Y1, quick task 260903-750). The third was added
+    // without touching the 3.x branch at all — `migrate4to5` composes through
+    // `migrate6to7` internally — which is precisely the property the chained
+    // design exists for, and precisely why the TAG has to be asserted rather
+    // than assumed: a hop can now join the chain without any edit visible at
+    // the call site, so this literal is the only thing that notices.
     expect(source.provenance.paramShapeMigration).toBe(
-      "sigma1-3.0.0-absolute-to-4.0.0-scale-relative+sigma1-4.0.0-shrinkage-to-5.0.0-variance-decomposition"
+      "sigma1-3.0.0-absolute-to-4.0.0-scale-relative" +
+        "+sigma1-4.0.0-shrinkage-to-5.0.0-variance-decomposition" +
+        "+sigma1-6.0.0-variance-decomposition-to-7.0.0-recency-swing"
     );
   });
 

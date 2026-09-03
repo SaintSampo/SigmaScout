@@ -138,9 +138,9 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * would have silently dropped it.
  *
  * Bumped `"4.0.0"` -> `"5.0.0"` (quick task 260902-varopr, D-V1/D-V2/D-V3/D-V4,
- * 2026-09-02): the published `±` is now the PER-TEAM VARIANCE DECOMPOSITION
- * (`sigma1/varianceOpr.ts`), solved per event on a `vBar`-centred ridge,
- * rather than `sqrt(P + R)`.
+ * 2026-09-02): the published `±` became the PER-TEAM VARIANCE DECOMPOSITION
+ * (`sigma1/varianceOpr.ts`, deleted at 7.0.0 — see git history), solved per
+ * event on a `vBar`-centred ridge, rather than `sqrt(P + R)`.
  *
  * The parameter set's SHAPE changed, so no 4.0.0 file parses as a 5.0.0 one at
  * all (`Sigma1ParamsSchema` is `z.strictObject`; `shrinkagePriorMatches` was
@@ -165,8 +165,9 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * is measured rather than argued — against known synthetic sigma the retired
  * `sqrt(P + R)` recovers a SLOPE of 0.312, compressing a true 3-to-25 point
  * spread into a ~4-point band so every robot reads as equally consistent; the
- * decomposition recovers 0.79-0.94 at equal correlation and better RMSE. See
- * `varianceOpr.ts`'s header and `varianceOpr.recovery.test.ts`.
+ * decomposition recovers 0.79-0.94 at equal correlation and better RMSE. That
+ * evidence lived in `varianceOpr.ts`'s header and `varianceOpr.recovery.test.ts`,
+ * both deleted at 7.0.0; `git show` at that commit's parent is the record.
  *
  * Bumped `"5.0.0"` -> `"6.0.0"` (quick task 260903-5dp, D-N1/D-N2/D-N3/D-N4,
  * 2026-09-03): the variance decomposition now solves a NON-NEGATIVE least
@@ -207,10 +208,106 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * forbidding a negative `beta` removes the slack that let a co-appearing
  * teammate carry an inflated positive one. NOTHING WAS REPUBLISHED on the
  * strength of it. The published artifacts still carry the 5.0.0 numbers, and
- * the display decision (`0 ±`, fall back to `vBar`, or keep omitting) is an
- * open product question. See `varianceOpr.ts`'s `SIGMA1_VARIANCE_OPR_RIDGE`.
+ * the display decision (`0 ±`, fall back to `vBar`, or keep omitting) was left
+ * as an open product question. 7.0.0, immediately below, ANSWERS it — with none
+ * of the three, by retiring the estimator that raised it.
+ *
+ * Bumped `"6.0.0"` -> `"7.0.0"` (quick task 260903-750, D-Y1/D-Y2/D-Y3/D-Y4,
+ * 2026-09-03): the published `±` is no longer a variance decomposition at all.
+ * It is now each team's OWN RECENCY-WEIGHTED SWING (`sigma1/swing.ts`) —
+ *
+ *     Y = swingScale * sqrt( recency-weighted mean of that team's past squared
+ *                            per-match contribution deviations )
+ *
+ * with a half-life of 6 matches — and the whole per-event solve behind the two
+ * previous versions is DELETED, `varianceOpr.ts` with it.
+ *
+ * WHY, AND IT IS THE USER'S QUESTION RATHER THAN A STATISTICAL ONE. The `±`
+ * answers one thing: is this robot the same robot every match? Alliance 1 wants
+ * the low number, Alliance 8 wants the high one, and a mid-quals partner needs
+ * to know which it is playing beside. The decomposition RANKED robots well but
+ * could not always SPEAK: a team whose constrained fit pinned at exactly 0
+ * published no `±` at all, because there `0` meant "the solve could not support
+ * a positive variance" and printing it would have been a false claim of perfect
+ * consistency. That is precisely the low-consistency robot Alliance 8 is
+ * hunting for, blanked. 6.0.0 made it WORSE by making the solve more correct.
+ *
+ * THE COVERAGE NUMBER, measured identically to the two it replaces — one
+ * 2022-2026 replay with season carry, promoted `tuned-2026-08` params, counting
+ * published cells for every 2026 team against its own last event:
+ *
+ *     34.9%  (19,436 / 55,770)  5.0.0, unconstrained solve + post-hoc clamp
+ *     40.2%  (22,412 / 55,770)  6.0.0, Lawson-Hanson NNLS
+ *      0.0%  (0 / 55,785)       7.0.0, recency-weighted swing
+ *
+ * Teams missing at least one cell: 97.7% -> 98.8% -> 0.0% (0 of 3,719).
+ *
+ * The denominator moved by ONE TEAM — 3,718 x 15 keys to 3,719 x 15 — and that
+ * is recorded rather than rounded away, because a silently-shifting denominator
+ * is how a coverage comparison stops meaning anything. The cause is the corpus,
+ * not the code: 2026 is the live season and the earlier rows were measured
+ * against an ingest one team smaller. It does not touch the reading. Zero is
+ * zero against either denominator, and the 15-cell difference is 0.03% of it.
+ *
+ * THE 0% IS STRUCTURAL, NOT TUNED. There is no floor, no minimum-match rule and
+ * no coverage fallback anywhere in `swing.ts` — the developer rejected such a
+ * rule twice. Deviations are residuals and therefore already centred about
+ * zero, so ONE observation is already a valid (noisy) estimate of `E[dev^2]`
+ * and the estimator is defined from a team's first match onward. The single
+ * remaining `undefined` case is a key that was never folded, i.e. a team that
+ * has not played, which no denominator here contains.
+ *
+ * BOTH CONSTANTS WERE MEASURED, and `swing.ts` carries the evidence. The
+ * half-life was swept walk-forward over 275,172 team-matches against how well
+ * the estimate predicts a team's ACTUAL next-match deviation (6 wins at
+ * r = 0.5930; a flat no-decay control scores 0.5794, so DECAY HELPS BY 2.3% —
+ * real, and modest). The scale, 1.92, was regressed NON-CIRCULARLY on 86,844
+ * alliance-observations against the one per-robot-adjacent quantity that is
+ * actually observable, the alliance's own residual magnitude. Both are
+ * display-only and both are named in `searchSpace.ts`'s `SEARCH_EXCLUSIONS`
+ * with their reason as data.
+ *
+ * The parameter SHAPE changed, so no 6.0.0 file parses as a 7.0.0 one
+ * (`Sigma1ParamsSchema` is `z.strictObject`; `varianceOprRidge` was deleted and
+ * `swingHalfLifeMatches`/`swingScale` added). `legacyParams.ts` gains a frozen
+ * `Legacy6Sigma1ParamsSchema` and `migrate6to7`, reached by `promote.ts`'s new
+ * `6.` branch — which, unlike the `5.` branch it replaces, DOES record a
+ * `paramShapeMigration` tag, because this hop genuinely drops a field and adds
+ * two.
+ *
+ * `teamMetrics`'s observable output MOVED and `predict()`'s / `update()`'s did
+ * NOT — the same display-only constraint 5.0.0 and 6.0.0 each carried, verified
+ * the same way rather than asserted. Both `vpr@6.0.0+*.json` files were retired
+ * and re-promoted as `vpr@7.0.0+*.json` in THIS SAME COMMIT via
+ * `pnpm promote --from-version` running the new code, and each new file's
+ * `digest.predictionStreamSha256` reproduces its retired predecessor's
+ * CHARACTER FOR CHARACTER —
+ * `380c598065c72897e8c7a944b6de77a32a69177eab7ff7541d386cb83e7783fb` for
+ * `tuned-2026-08` and
+ * `38d091e0377272244a3ddaf4eb8ff1b3c9e318f8db466d20fff479be99029a1c` for
+ * `tracer-check`, unchanged since 5.0.0, with both headline Brier/accuracy
+ * pairs identical too. Neither digest was hand-edited.
+ *
+ * `update()` IS ALSO VERIFIED UNCHANGED, and by a stronger instrument than the
+ * digest: `displayOnly.test.ts` hashes the post-fold and post-carrySeason
+ * filter state against a fixture generated ONCE, before 260902-varopr, and that
+ * fixture WAS NOT REGENERATED for this task. With the new `swing` field
+ * excluded — for exactly the reason `perEventVariance` was excluded at 5.0.0 —
+ * both hashes still reproduce character for character. Two successive
+ * display-estimator swaps have now been judged against one unregenerated
+ * baseline.
+ *
+ * MAJOR, not minor: this changes the number on every team page. NOTHING HAS
+ * BEEN REPUBLISHED on the strength of it — the live artifacts still carry the
+ * 5.0.0 numbers, as they did after 6.0.0. Republishing is a separate step.
+ *
+ * ONE HONEST LIMIT, recorded here rather than left to be rediscovered: both
+ * constants were measured against `reports/is2-full` predictions, produced by
+ * an EARLIER model version. Re-measure after the rolling-origin re-tune lands.
+ * The half-life sits on a plateau (the sweep is flat between 4 and 12) and is
+ * unlikely to move much; the scale may.
  */
-export const SIGMA1_CODE_VERSION = "6.0.0";
+export const SIGMA1_CODE_VERSION = "7.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:
