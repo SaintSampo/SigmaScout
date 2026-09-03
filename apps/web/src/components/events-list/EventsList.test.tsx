@@ -247,6 +247,56 @@ describe("EventsList", () => {
     expect(onSortChange).toHaveBeenCalledWith("week");
   });
 
+  // ---------------------------------------------------------------------
+  // 260902-rax Task 2 — the sort buttons' hit area was ~40x14 to ~59x14,
+  // well under the project's own 44x44 `.tap-target` convention
+  // (theme.css:395). The fix adds an invisible, full-cell overlay button
+  // purely to widen the CLICKABLE area; the original visible button is
+  // untouched (so column auto-width and the visible header stay
+  // pixel-identical — verified live against the running dev server, not
+  // in this jsdom suite, which has no real layout engine to measure
+  // against).
+  // ---------------------------------------------------------------------
+  it("each sortable header cell carries exactly one ACCESSIBLE button, plus a hidden pointer-only overlay that fires the same onSortChange", async () => {
+    const onSortChange = vi.fn();
+    const events = makeRows([makeRow()]);
+    render(
+      <TestHarness>
+        <EventsList status="success" events={events} {...BASE_PROPS} onSortChange={onSortChange} />
+      </TestHarness>,
+    );
+
+    const typeHeader = (await screen.findByRole("columnheader", { name: /Type/ })) as HTMLElement;
+    const buttonsInCell = within(typeHeader).getAllByRole("button", { hidden: true });
+    // Exactly two <button> elements exist in the DOM (visible + overlay)...
+    expect(buttonsInCell).toHaveLength(2);
+    // ...but only ONE is exposed to the accessibility tree/tab order.
+    const accessibleButtons = within(typeHeader).getAllByRole("button");
+    expect(accessibleButtons).toHaveLength(1);
+    expect(accessibleButtons[0]!.textContent).toBe("Type");
+
+    const overlay = buttonsInCell.find((button) => button !== accessibleButtons[0]);
+    expect(overlay).toBeDefined();
+    expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+    expect(overlay!.getAttribute("tabindex")).toBe("-1");
+
+    // The hidden overlay is a real, functioning click target for the same
+    // column — not decoration.
+    fireEvent.click(overlay!);
+    expect(onSortChange).toHaveBeenCalledWith("week");
+  });
+
+  it("a non-sortable header (Location) is unchanged — no button, hidden or otherwise", async () => {
+    const events = makeRows([makeRow()]);
+    render(
+      <TestHarness>
+        <EventsList status="success" events={events} {...BASE_PROPS} />
+      </TestHarness>,
+    );
+    const locationHeader = await screen.findByText("Location");
+    expect(within(locationHeader.closest("th")!).queryAllByRole("button", { hidden: true })).toHaveLength(0);
+  });
+
   // -------------------------------------------------------------------------
   // 07-15-PLAN.md Task 2 — the row link that makes /event/{eventKey} reachable
   // -------------------------------------------------------------------------

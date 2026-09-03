@@ -91,7 +91,57 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
           const isActive = column.key === sortKey;
           const ariaSort = isActive ? (sortDir === "asc" ? "ascending" : "descending") : "none";
           return (
-            <TableHead key={column.label} aria-sort={ariaSort} className={column.numeric ? "numeric-cell text-role-label" : "text-role-label"}>
+            <TableHead
+              key={column.label}
+              aria-sort={ariaSort}
+              className={`relative ${column.numeric ? "numeric-cell text-role-label" : "text-role-label"}`}
+            >
+              {/*
+                260902-rax Task 2: the visible button below is UNTOUCHED —
+                same markup, same normal-flow flex layout it always had —
+                deliberately, because this table has no `table-layout:
+                fixed` (unlike TeamsTable.tsx's own G-1 fix): column widths
+                come from the browser's auto-layout content measurement,
+                which only counts NORMAL-FLOW content. An earlier version of
+                this fix made the button itself `position: absolute` to
+                fill the cell, and that silently pulled the header text out
+                of the width calculation entirely — TEAMS's column visibly
+                narrowed to fit its numeric body cells instead of its own
+                "TEAMS" label, crowding it against MATCHES. Caught by
+                re-measuring after the change, not before.
+                The fix instead ADDS a second, invisible full-cell button
+                purely to catch pointer/touch input across the whole
+                header cell — `aria-hidden` + `tabIndex={-1}` remove it
+                from the accessibility tree and tab order entirely, so
+                keyboard/AT users only ever see the one real, visible
+                button (unaffected `getByRole("button", { name })` lookups).
+                A `position: absolute` sibling paints above a static one by
+                default regardless of DOM order, so this overlay
+                intercepts clicks landing anywhere in the cell — including
+                directly over the visible label — without changing what
+                fires (the same `onSortChange` call).
+                Height: the row's own visible height (`h-10`, 40px) must
+                stay unchanged (measured before/after), but the tap target
+                needs >=44px. `-bottom-2` grows the OVERLAY 8px past the
+                th's own bottom edge without growing the th itself — an
+                absolutely positioned descendant is out of normal flow, so
+                it never contributes to the th's own established height.
+                The overhang lands on the gap before the first body row,
+                not above the table (no top-of-viewport clipping risk from
+                the table container's `overflow-x-auto`, which per spec
+                forces the paired y-axis to `auto` too), and — per the same
+                paint-order rule — still hit-tests as part of this overlay
+                rather than being shadowed by the row underneath it
+                (confirmed live: a click 3px below the visible cell still
+                fires `onSortChange`).
+              */}
+              <button
+                type="button"
+                aria-hidden="true"
+                tabIndex={-1}
+                onClick={() => onSortChange(column.key as EventSortKey)}
+                className="absolute inset-x-0 top-0 -bottom-2"
+              />
               <button
                 type="button"
                 onClick={() => onSortChange(column.key as EventSortKey)}
