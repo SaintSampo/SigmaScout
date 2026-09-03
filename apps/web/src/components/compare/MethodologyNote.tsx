@@ -15,18 +15,19 @@ import type { CompareArtifact } from "../../../../../packages/harness/pageArtifa
  * note's own best-season clause false against the committed data, since
  * VPR's 2022 elimination Brier is lower than its 2026 one).
  *
- * Rewritten by quick task 260903-krp for D-2/D-3's origin-based headline
- * eligibility: the retired fixed tune/holdout split (`score.ts`'s deleted
- * `SeasonLabel`) had a subject — "these seasons were selected on, those
- * were held out" — that the origin-based rule no longer provides, because
- * every season this page ever displays is an origin season (D-5 of
- * `rolling-origin-hyperparameter-tuning`) and none of them is scored using
- * hyperparameters chosen by looking at it. The prose below states THAT
- * claim — rolling-origin selection — instead. The former evidential clause
- * ("if the fixed split were flattering VPR, holdout years would score
- * visibly worse than tune years — they don't") is deleted with it: it
- * compared two categories of season, and there is no longer a second
- * category to compare against.
+ * Quick task 260903-n2o (D-5) removed this module's selection-claim
+ * paragraph entirely — the sentence quick task 260903-krp installed here
+ * asserted that every displayed season's hyperparameters were chosen using
+ * only seasons before it. The shipped `provenance.tuneSeasons` names 2022,
+ * 2023 and 2024 as seasons the optimizer WAS fitted on, so that sentence was
+ * false for three of the five displayed seasons. It is not replaced with a
+ * corrected version: the fetched Compare artifact carries no record of any
+ * algorithm's selected-on set, so a replacement sentence cannot be derived
+ * from it. `headlineEligible` is NOT an acceptable substitute source for
+ * that claim — a `false` there conflates "too few prior seasons" with "the
+ * optimizer saw this season," and this module deliberately reads neither
+ * `seasonLabel` nor `headlineEligible` (unchanged from the instruction
+ * below). Per D-5, saying less is preferred to saying something false.
  *
  * This module now reads NEITHER `seasonLabel` NOR `headlineEligible` — the
  * inverse of this module's prior instruction to read `seasonLabel`. Every
@@ -151,20 +152,6 @@ function numberWord(n: number): string {
   return SMALL_NUMBER_WORDS[n] ?? String(n);
 }
 
-/**
- * States the honest claim rolling-origin selection makes (`tune.ts:20-52`):
- * each displayed season's hyperparameters were chosen using only seasons
- * strictly before it, so no displayed season was scored using
- * hyperparameters chosen by looking at it. Uses `formatSeasonList` on the
- * displayed set — the season list it formats is now simply that set, not a
- * partition of it.
- */
-function buildSelectionSentence(figures: MethodologyFigures): string {
-  const seasonList = formatSeasonList(figures.seasons);
-  const subject = figures.seasons.length === 1 ? `season ${seasonList}` : `each of ${seasonList}`;
-  return `VPR's hyperparameters for ${subject} were selected using only seasons before it — no displayed season was scored using hyperparameters chosen by looking at it.`;
-}
-
 /** One clause per displayed season's Brier score, in the same ascending order `formatSeasonList` uses. */
 function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
   const parts = seasonBriers.map((b) => `${b.season} ${b.text}`).join(", ");
@@ -172,19 +159,18 @@ function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
 }
 
 /**
- * The full D-08 methodology sentence. In the incomplete form, only the
- * selection sentence renders — the Brier list and the best-season clause
- * both rest on a claim over all five seasons and must not render from fewer.
+ * The D-08 methodology sentence, minus the retired selection claim (D-5,
+ * quick task 260903-n2o — see this module's header comment for why). Only
+ * ever called on the COMPLETE form: the Brier list and the best-season
+ * clause both rest on a claim over all five seasons and must not render
+ * from fewer, so the incomplete form now has nothing left to say here.
  */
-function buildMethodologySentence(figures: MethodologyFigures): string {
-  const selection = buildSelectionSentence(figures);
-  if (!figures.complete) return selection;
-
+function buildMethodologySentence(figures: MethodologyFiguresComplete): string {
   const brierList = buildBrierListSentence(figures.seasonBriers);
   const seasonCountWord = numberWord(figures.seasons.length);
   const bestClause = `${figures.bestSeason} is VPR's single best season of the ${seasonCountWord}.`;
 
-  return `${selection} ${brierList} ${bestClause}`;
+  return `${brierList} ${bestClause}`;
 }
 
 export interface MethodologyNoteProps {
@@ -196,7 +182,7 @@ export function MethodologyNote({ artifactsByYear }: MethodologyNoteProps) {
   return (
     <div data-testid={METHODOLOGY_NOTE_TESTID} className="flex flex-col gap-[var(--spacing-xs)]">
       <p className="text-role-body text-[var(--color-text-muted)]">{NEAR_TIE_CAPTION}</p>
-      {figures !== undefined && (
+      {figures?.complete === true && (
         <p className="text-role-body text-[var(--color-text-muted)]">{buildMethodologySentence(figures)}</p>
       )}
     </div>

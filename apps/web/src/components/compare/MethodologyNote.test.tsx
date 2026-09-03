@@ -178,7 +178,7 @@ describe("buildMethodologyFigures", () => {
 });
 
 describe("MethodologyNote — rendering", () => {
-  it("the complete case renders the derived season list, every season's Brier figure and the best-season clause naming the derived season", () => {
+  it("the complete case renders every season's Brier figure and the best-season clause naming the derived season (D-5, quick task 260903-n2o: no season-list assertion — that text only ever came from the retired selection sentence)", () => {
     const artifactsByYear = realArtifactsByYear();
     const figures = buildMethodologyFigures(artifactsByYear);
     if (figures?.complete !== true) throw new Error("expected complete figures");
@@ -186,21 +186,28 @@ describe("MethodologyNote — rendering", () => {
     const note = screen.getByTestId(METHODOLOGY_NOTE_TESTID);
     const text = note.textContent ?? "";
 
-    expect(text).toContain(formatSeasonList(figures.seasons));
     for (const brier of figures.seasonBriers) expect(text).toContain(brier.text);
     expect(text).toContain(String(figures.bestSeason));
   });
 
-  it("the incomplete case omits the Brier figures and best-season clause from the rendered text while the selection sentence still renders", () => {
+  it("the incomplete case renders the near-tie caption alone and no second paragraph (D-5, quick task 260903-n2o: the retired selection sentence is gone, not replaced)", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
       [2022, makeMinimalArtifact(2022, 0.19)],
       [2023, makeMinimalArtifact(2023, 0.17)],
     ]);
     render(<MethodologyNote artifactsByYear={artifactsByYear} />);
+    const note = screen.getByTestId(METHODOLOGY_NOTE_TESTID);
+    const text = note.textContent ?? "";
+    expect(text).toBe(NEAR_TIE_CAPTION);
+    expect(note.querySelectorAll("p")).toHaveLength(1);
+  });
+
+  it("the complete form renders neither fragment of the retired leak-free-selection claim (D-5, quick task 260903-n2o)", () => {
+    const artifactsByYear = realArtifactsByYear();
+    render(<MethodologyNote artifactsByYear={artifactsByYear} />);
     const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
-    expect(text).toContain("2022");
-    expect(text).toContain("selected");
-    expect(text).not.toMatch(/single best season/);
+    expect(text).not.toMatch(/selected using only seasons before/i);
+    expect(text).not.toMatch(/no displayed season was scored/i);
   });
 
   it("the D-11 caption renders in every case, including when buildMethodologyFigures returns nothing", () => {
