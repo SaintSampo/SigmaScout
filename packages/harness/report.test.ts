@@ -339,6 +339,24 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
     expect(html).toContain(">opr<");
     expect((html.match(/<tr class="(?:headline|selection)-row">/g) ?? []).length).toBe(1);
   });
+
+  /**
+   * D-6 (quick task 260903-n2o): the caption must never name a fixed season
+   * range or the retired tune/holdout split — that vocabulary is exactly
+   * what would sit directly beneath a green "Headline-eligible" badge on a
+   * row the caption forbids, post-republish. Pinned here because
+   * `report.test.ts` previously pinned the badge CLASSES but never the
+   * caption TEXT, which is how the contradiction survived undetected.
+   */
+  it("the caption names no fixed season range and no retired tune/holdout vocabulary", () => {
+    const artifact = buildThreeAlgorithmArtifact();
+    const html = renderHeadToHeadTable(artifact);
+    const captionMatch = html.match(/<caption>([\s\S]*?)<\/caption>/);
+    expect(captionMatch).not.toBeNull();
+    const caption = captionMatch![1]!;
+    expect(caption).not.toMatch(/\d{4}/);
+    expect(caption).not.toMatch(/holdout/i);
+  });
 });
 
 describe("renderStatboticsCaveat — D-15 loud unverified marker", () => {

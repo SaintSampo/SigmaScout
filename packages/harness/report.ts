@@ -94,7 +94,7 @@ export function renderHeadToHeadTable(artifact: HarnessArtifact): string {
     .join("\n");
 
   return `  <table class="head-to-head-table">
-    <caption>Head-to-head — every algorithm's raw score, one row per (algorithm, season, view), grouped by season so the same season's algorithms sit adjacent for direct comparison. Holdout rows (2025–2026) are the only headline-eligible figures per D-09; tune rows (2022–2024) are shown for transparency but must never be presented as a headline claim. No deltas or significance figures are computed here (D-21) — read the numbers side by side yourself.</caption>
+    <caption>Head-to-head — every algorithm's raw score, one row per (algorithm, season, view), grouped by season so the same season's algorithms sit adjacent for direct comparison. A row is headline-eligible when its season has enough distinct prior seasons in the declared corpus AND that algorithm's hyperparameters were not selected on it — otherwise it is shown for transparency but must never be presented as a headline claim. No deltas or significance figures are computed here (D-21) — read the numbers side by side yourself.</caption>
     <thead>
       <tr>
         <th>Algorithm</th><th>Season</th><th>View</th><th>Label</th><th>Brier score</th><th>Winner accuracy</th>
