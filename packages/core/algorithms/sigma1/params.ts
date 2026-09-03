@@ -55,7 +55,7 @@ import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "
 // `ml-matrix` — so this edge is one-directional and cannot recreate the
 // module-evaluation-time TDZ cycle this file's header warns about at length.
 // Verified by reading that module's import list, not assumed.
-import { SIGMA1_VARIANCE_OPR_RIDGE } from "./varianceOpr.js";
+import { SIGMA1_SWING_HALF_LIFE_MATCHES, SIGMA1_SWING_SCALE } from "./swing.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
@@ -373,7 +373,43 @@ export interface Sigma1Params {
    * KNOWN synthetic sigma — a strictly better instrument for this question
    * than Brier could ever be.
    */
-  readonly varianceOprRidge: number;
+  /**
+   * D-Y1 (quick task 260903-750): the half-life, IN MATCHES, of the published
+   * `±`'s recency weighting. MEASURED, not chosen: swept 1.5/2/3/4/6/8/12/20
+   * against how well the estimate predicts a team's ACTUAL deviation in its
+   * next match, walk-forward over 275,172 team-matches, and 6 wins
+   * (r = 0.5930). A FLAT average — no decay at all — scores 0.5794, so decay
+   * genuinely helps but only by 2.3%; record that as modest rather than
+   * overselling it. `swing.ts` derives the per-observation decay from this
+   * rather than storing it, because the half-life is the number that was
+   * measured and the number a reader can reason about.
+   *
+   * Display-only, therefore search-excluded — see `searchSpace.ts`.
+   */
+  readonly swingHalfLifeMatches: number;
+  /**
+   * D-Y1: the multiplier that puts the published `±` into TRUE POINTS.
+   *
+   * A team's per-match deviation is its share of the alliance residual,
+   * `(observed - predicted) / n`, which is systematically smaller than the
+   * robot's own swing. MEASURED non-circularly on 86,844 alliance-observations:
+   * if `Y_i` is really robot i's swing then `sqrt(Ya^2+Yb^2+Yc^2)` must equal
+   * the alliance's residual magnitude, which IS observable. Regressing gives
+   * 1.92.
+   *
+   * Note against the independence-assumption prediction of `sqrt(3) = 1.73`:
+   * the excess is D-06's independent-teams assumption FAILING — teammates
+   * correlate, so an alliance swings more than three independent robots would.
+   * This constant absorbs that rather than assuming it away.
+   *
+   * A first attempt regressed a team's even-split deviation on its OWN past
+   * even-split deviations and returned ~1.0. That was CIRCULAR — it predicted a
+   * quantity from past values of the same quantity — and is recorded here so
+   * nobody re-derives it and believes the answer.
+   *
+   * Display-only, therefore search-excluded.
+   */
+  readonly swingScale: number;
   /** D-T1: floor applied to every shrunk consistency VARIANCE, as a dimensionless fraction of the season's alliance-score variance — `minConsistencyVarianceRel * sigma^2` is what `consistency.ts`'s `shrinkConsistency` actually receives. Default DERIVED from `consistency.ts`'s `SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE`. */
   readonly minConsistencyVarianceRel: number;
   /** EWMA rate for `covariance.ts`'s `ewmaCovarianceSample` fold step (D-Q2; `ewmaCovariance` was the update path's entry point before 3.0.0 and now delegates to it). Sourced from `covariance.ts`'s `SIGMA1_COV_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
@@ -561,7 +597,8 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   processNoiseEventBoundaryRel: SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY / SIGMA1_REFERENCE_SCORE_VARIANCE,
   consistencyEwmaAlpha: SIGMA1_CONSISTENCY_EWMA_ALPHA,
   // D-V4: IMPORTED from varianceOpr.ts, never a re-typed 10.
-  varianceOprRidge: SIGMA1_VARIANCE_OPR_RIDGE,
+  swingHalfLifeMatches: SIGMA1_SWING_HALF_LIFE_MATCHES,
+  swingScale: SIGMA1_SWING_SCALE,
   minConsistencyVarianceRel: SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE,
   covEwmaAlpha: SIGMA1_COV_EWMA_ALPHA,
   covShrinkage: SIGMA1_COV_SHRINKAGE,
@@ -641,7 +678,8 @@ export const Sigma1ParamsSchema = z
     processNoiseWithinEventRel: z.number().finite(),
     processNoiseEventBoundaryRel: z.number().finite(),
     consistencyEwmaAlpha: z.number().finite(),
-    varianceOprRidge: z.number().finite(),
+    swingHalfLifeMatches: z.number().finite().positive(),
+    swingScale: z.number().finite().positive(),
     minConsistencyVarianceRel: z.number().finite(),
     covEwmaAlpha: z.number().finite(),
     covShrinkage: z.number().finite(),

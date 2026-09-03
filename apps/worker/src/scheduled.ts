@@ -281,7 +281,11 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
  * entry, not a fourth branch that could be forgotten — the forgetting is the
  * failure mode this constant exists to make hard (see `selectionsFor`).
  */
-export const EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr", "vpr"]);
+// D-Y3 (quick task 260903-750): "vpr" was REMOVED. Sigma1 no longer writes
+// `scopeKind: "event"` rows — its published `±` became one running number per
+// team, which rides the team rows — so loading event rows for it would fetch
+// nothing and cost a subrequest per tick.
+export const EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr"]);
 
 /**
  * Plan 04-08: an algorithm's FULL selection list for one event's fold — every

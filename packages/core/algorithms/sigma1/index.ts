@@ -87,13 +87,7 @@ import {
 // `consistency.ts`'s own header explains why a function whose contract is still
 // correct survives losing its last live caller.
 import { foldConsistencyVariance } from "./consistency.js";
-import {
-  emptyEventVarianceAccumulator,
-  foldVarianceObservation,
-  solveEventVariance,
-  type EventVarianceAccumulator,
-  type SolvedEventVariance,
-} from "./varianceOpr.js";
+import { emptyTeamSwing, foldSwingObservation, swingSpread, type TeamSwing } from "./swing.js";
 import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
@@ -143,16 +137,15 @@ export {
   shrinkConsistency,
 } from "./consistency.js";
 export {
-  SIGMA1_VARIANCE_OPR_RIDGE,
-  VarianceKeySetMismatchError,
-  VarianceSolveNotPositiveDefiniteError,
-  emptyEventVarianceAccumulator,
-  foldVarianceObservation,
-  solveEventVariance,
-  vBarFor,
-  type EventVarianceAccumulator,
-  type SolvedEventVariance,
-} from "./varianceOpr.js";
+  SIGMA1_SWING_HALF_LIFE_MATCHES,
+  SIGMA1_SWING_SCALE,
+  emptyTeamSwing,
+  foldSwingObservation,
+  swingDecayFor,
+  swingSpread,
+  type SwingAccumulator,
+  type TeamSwing,
+} from "./swing.js";
 export { SIGMA1_LINK_C, erf, normalCdf, winProbability } from "./linkFunctions.js";
 export {
   SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY,
@@ -185,6 +178,23 @@ export interface Sigma1TeamState extends RpTeamState {
   readonly lastEventKey: string | null;
   /** D-05/D-07 (plan 03-04, `./adaptation.js`): this team's own recency-weighted innovation history, scaling `applyTeamProcessNoise`'s `q` via `adaptationFactor`. ONE scalar-producing statistic per team (D-07's granularity), never one per component. */
   readonly innovationStats: InnovationStats;
+  /**
+   * D-Y1/D-Y3 (quick task 260903-750): this team's recency-weighted swing
+   * accumulator (`./swing.js`), keyed by PUBLISHED METRIC KEY — every learned
+   * component, `TOTAL_METRIC_KEY`, and each phase group. `teamMetrics` reads
+   * it and nothing else does; `predict()`/`update()` never consult it.
+   *
+   * DELIBERATELY PER-TEAM AND NOT PER-EVENT, which is the shape change this
+   * replaced the retired decomposition's `Sigma1State.perEventVariance` with.
+   * A robot's match-to-match swing is a property OF THE ROBOT, and a team
+   * arriving at its second event of a season has genuinely already told you
+   * how consistent it is — the six-match half-life is what keeps that history
+   * from dominating once the new event's own matches arrive, so no event
+   * partition is needed to get recency right. It is also what removes the two
+   * omission cases the event-scoped state forced (a team with no
+   * `lastEventKey`, and an event with no accumulator).
+   */
+  readonly swing: TeamSwing;
 }
 
 /**
@@ -232,23 +242,13 @@ export interface Sigma1State extends BreakdownParseTelemetry {
    * unchanged" choice) — makes the skip observable rather than silent.
    */
   readonly rpSkippedMatchCount: number;
-  /**
-   * D-V1/D-V3 (quick task 260902-varopr): the per-team variance
-   * decomposition's accumulated normal equations, PARTITIONED BY `eventKey`
-   * exactly as `OprState.perEvent` is.
-   *
-   * Partitioned, NEVER reset on an `eventKey` change, for the reason `opr.ts`'s
-   * own header records: `replay.ts`'s `buildSeasonStream` interleaves
-   * concurrent events into one chronological stream, so resetting would
-   * corrupt every simultaneously-running event. `displayOnly.test.ts`'s stream
-   * interleaves two events precisely so a reset cannot pass as a partition.
-   *
-   * `carrySeason` empties it for the same reason the retired contribution
-   * accumulators were emptied: squared residuals are POINTS^2 under one
-   * season's scoring rules, and 2024 points are not 2025 points — a series
-   * crossing the boundary would mostly measure the rule change.
-   */
-  readonly perEventVariance: ReadonlyMap<string, EventVarianceAccumulator>;
+  // D-Y3 (quick task 260903-750): `perEventVariance` — the retired variance
+  // decomposition's per-event normal equations — IS GONE. The published `±` is
+  // now one running number per team per metric key (`Sigma1TeamState.swing`),
+  // so the state this algorithm carries no longer has an event granularity at
+  // all. `stateSnapshot.ts` stopped emitting `scopeKind: "event"` rows for
+  // Sigma1 in the same change, and `apps/worker/src/scheduled.ts`'s
+  // `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr" with it.
   // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
   // above) — see that interface's own doc comment for why this is a
   // SEPARATE, never-merged counter from `rpSkippedMatchCount` above.
@@ -265,7 +265,6 @@ function initState(): Sigma1State {
     allianceScoreStats: emptyExpandingStats(),
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     rpSkippedMatchCount: 0,
-    perEventVariance: new Map(),
     breakdownParseFailureCount: 0,
   };
 }
@@ -369,6 +368,12 @@ function coldStartTeamState(
     // at the cold-start "assume correctly specified" prior — see
     // `emptyInnovationStats`'s own doc comment for why that is 1.0, not 0.
     innovationStats: emptyInnovationStats(),
+    // D-Y2 (quick task 260903-750): a brand-new team has NO swing observation
+    // yet, and that is the ONE state in which `teamMetrics` publishes no `±`.
+    // Empty is not a zero-valued accumulator: "never observed" and "observed a
+    // deviation of exactly zero" are different claims, and only the first may
+    // publish nothing. The team leaves this state after ONE match.
+    swing: emptyTeamSwing(),
     // D-09: a brand-new team's RP state starts fully empty (never carries
     // score-side data into it) — `foldRpObservation` (rp/state.ts) cold-starts
     // individual threshold-variable beliefs lazily the first time each is
@@ -561,13 +566,6 @@ interface AllianceUpdateResult {
    * magnitude (which the gain-weighted share is not).
    */
   readonly residualsByTeam: ReadonlyMap<string, readonly number[]>;
-  /**
-   * D-V1/D-V3: this event's decomposition accumulator with THIS alliance's row
-   * folded in — the same object that was passed in when the alliance had no
-   * rating-eligible teams (an all-surrogate alliance or a whole-alliance
-   * DQ-zero), because those rows fold NOTHING.
-   */
-  readonly eventVariance: EventVarianceAccumulator;
 }
 
 /**
@@ -592,18 +590,16 @@ function applyAllianceUpdate(
   eventKey: string,
   params: Sigma1ResolvedParams,
   rpVariableCount: number,
-  varianceGroups: Readonly<Record<string, readonly string[]>>,
-  eventVariance: EventVarianceAccumulator
+  varianceGroups: Readonly<Record<string, readonly string[]>>
 ): AllianceUpdateResult {
   if (allianceTeams.length === 0) {
     // Every team on this alliance was a surrogate — nothing to attribute,
     // a genuine no-op (mirrors opr.ts's/epa.ts's own empty-observation
     // handling, and kalman.ts's updateAllianceSum for an empty teammates
-    // array). D-V1: the decomposition accumulator passes through UNCHANGED
-    // here, so the all-surrogate and whole-alliance-DQ-zero cases are covered
-    // by this ONE pre-existing early return rather than by a second
-    // eligibility rule that could drift from it.
-    return { teams, league, residualsByTeam: new Map(), eventVariance };
+    // array). D-Y3: no swing is folded here either, so the all-surrogate and
+    // whole-alliance-DQ-zero cases are covered by this ONE pre-existing early
+    // return rather than by a second eligibility rule that could drift from it.
+    return { teams, league, residualsByTeam: new Map() };
   }
 
   const workingTeams = new Map<string, Sigma1TeamState>();
@@ -820,11 +816,23 @@ function applyAllianceUpdate(
     for (const index of indices) summedInnovation += innovationByComponent[index]!;
     squaredResidualByKey[metricKey] = summedInnovation * summedInnovation;
   }
-  // Folds exactly the rows the Kalman update already folded: `allianceTeams`
-  // is rating-eligible, demo-remapped and surrogate-filtered, and the
-  // `allianceTeams.length === 0` early return above covers the all-surrogate
-  // and whole-alliance-DQ-zero cases. NO second eligibility rule is added.
-  const nextEventVariance = foldVarianceObservation(eventVariance, allianceTeams, squaredResidualByKey);
+  // D-Y1: the swing estimator wants each TEAM's own share of the alliance's
+  // residual, `(observed - predicted) / n`, so its squared deviation is the
+  // alliance's squared residual over `n^2`. That share is the exact quantity
+  // `SIGMA1_SWING_SCALE` was measured against (86,844 alliance-observations),
+  // so dividing anywhere else — or not at all — would silently move the
+  // published `±` off the scale the constant was fitted for.
+  //
+  // Every teammate receives the SAME deviation for a given key. There is no way
+  // to recover a team-differentiated residual from a summed observation; that is
+  // the identical limitation `componentGains` and `residualsByTeam` already
+  // document, and it is why per-team differentiation comes from WHICH alliances
+  // a team played on across many matches rather than from within one match.
+  const teamCount = allianceTeams.length;
+  const squaredDeviationByKey: Record<string, number> = {};
+  for (const [metricKey, squaredResidual] of Object.entries(squaredResidualByKey)) {
+    squaredDeviationByKey[metricKey] = squaredResidual / (teamCount * teamCount);
+  }
 
   const nextTeams = new Map(teams);
   for (const team of allianceTeams) {
@@ -862,6 +870,9 @@ function applyAllianceUpdate(
       matchCount: working.matchCount + 1,
       lastEventKey: eventKey,
       innovationStats: foldInnovation(working.innovationStats, aggregateNormalizedInnovation, params.adaptationEwmaAlpha),
+      // D-Y1/D-Y3: the published `±`'s only input, folded in the loop that is
+      // already running rather than in a second pass over the alliance.
+      swing: foldSwingObservation(working.swing, squaredDeviationByKey, params.swingHalfLifeMatches),
     });
   }
 
@@ -872,7 +883,6 @@ function applyAllianceUpdate(
     // RP data.
     league: { ...league, componentMean: nextComponentMean, componentConsistency: nextComponentConsistency },
     residualsByTeam,
-    eventVariance: nextEventVariance,
   };
 }
 
@@ -1212,12 +1222,6 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     }
   }
 
-  // D-V3: this EVENT's own accumulator, threaded red-then-blue and written
-  // back under its own key. Partitioned by `eventKey`, never reset on an event
-  // change — `buildSeasonStream` interleaves concurrent events, so a reset
-  // would destroy whichever event happened not to own the current match.
-  const eventVarianceBefore = state.perEventVariance.get(result.eventKey) ?? emptyEventVarianceAccumulator();
-
   const afterRed = applyAllianceUpdate(
     state.teams,
     state.league,
@@ -1228,8 +1232,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    varianceGroups,
-    eventVarianceBefore
+    varianceGroups
   );
   const afterBlue = applyAllianceUpdate(
     afterRed.teams,
@@ -1241,17 +1244,11 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     result.eventKey,
     resolved,
     rpVariableCount,
-    varianceGroups,
-    afterRed.eventVariance
+    varianceGroups
   );
-  // Only rewritten when a row actually folded — an all-surrogate/DQ-zero match
-  // on an event with no accumulator yet must not register an empty one, since
-  // `teamMetrics` distinguishes "no accumulator for this event" from "an
-  // accumulator that says nothing".
-  const perEventVariance =
-    afterBlue.eventVariance === eventVarianceBefore
-      ? state.perEventVariance
-      : new Map(state.perEventVariance).set(result.eventKey, afterBlue.eventVariance);
+  // D-Y3: no event-level accumulator is threaded any more. Swing lives on each
+  // TEAM (`Sigma1TeamState.swing`), so `applyAllianceUpdate` carries it in the
+  // team map it already returns and there is nothing to write back here.
 
   // Pitfall EPA-1's fix, reused here: fold each alliance's observed total
   // into the expanding-window SD — the score itself is always known, even
@@ -1351,7 +1348,6 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     allianceScoreStats,
     priorSeasonRatings: state.priorSeasonRatings,
     rpSkippedMatchCount,
-    perEventVariance,
     breakdownParseFailureCount,
   };
 }
@@ -1462,37 +1458,29 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
   const requestedTeams = teams ?? [...state.teams.keys()];
   const result: TeamMetrics = {};
 
-  // Solve ONCE per distinct event named in this call. `solveEventVariance` is
-  // itself memoized on the accumulator OBJECT, so this local map is only about
-  // avoiding repeated map lookups within one call; the expensive factorization
-  // is shared across calls too, which is what keeps `publish.ts`'s per-match
-  // `teamMetrics` loop from paying one per match. Measured: a cold solve at the
-  // corpus's widest real event (78 teams, 13 keys) is ~0.45 ms; a memo hit is
-  // ~0.05 microseconds.
-  const solvedByEvent = new Map<string, SolvedEventVariance | undefined>();
-  const solvedFor = (eventKey: string | null): SolvedEventVariance | undefined => {
-    if (eventKey === null) return undefined;
-    if (solvedByEvent.has(eventKey)) return solvedByEvent.get(eventKey);
-    const accumulator = state.perEventVariance.get(eventKey);
-    const solved =
-      accumulator === undefined ? undefined : solveEventVariance(accumulator, params.varianceOprRidge, { context: eventKey });
-    solvedByEvent.set(eventKey, solved);
-    return solved;
-  };
-
   for (const team of requestedTeams) {
     const teamState = state.teams.get(team);
     if (!teamState) continue;
 
-    // Keyed off the team's OWN `lastEventKey`, so a request naming teams from
-    // several events resolves each against its own event's system rather than
-    // whichever event the caller had in mind.
-    const solvedForTeam = solvedFor(teamState.lastEventKey)?.get(team);
-    /** `{ spread }` when the decomposition has a strictly positive variance for this key, `{}` otherwise — see this function's doc comment for the three omission cases. The `<= 0` test is the domain check, and since 6.0.0 the value it catches is an NNLS-pinned exact 0 rather than a clamped one. */
+    /**
+     * D-Y1: a direct read of this team's own swing accumulator. No solve, no
+     * event lookup, no memo — the retired decomposition needed all three
+     * because its unknown was an event-wide system; a recency-weighted mean is
+     * already finished by the time it is stored.
+     *
+     * D-Y2: `{}` is returned in EXACTLY ONE case, and `swingSpread` owns it —
+     * the key has never been folded for this team, i.e. it has played no
+     * matches. A team with ONE match publishes a `±`, and an exact `0` is
+     * PUBLISHED rather than omitted, because here a 0 means "every observed
+     * deviation was 0" (a statement about the data) rather than the retired
+     * estimator's "the fit could not support a positive variance" (a statement
+     * about the solve). No floor, no minimum-match rule: the developer rejected
+     * both, and story 2 — a low seed WANTING a high `±` — makes an omitted cell
+     * actively harmful.
+     */
     const spreadOf = (metricKey: string): { spread?: number } => {
-      const variance = solvedForTeam?.[metricKey];
-      if (variance === undefined || variance <= 0) return {};
-      return { spread: Math.sqrt(variance) };
+      const spread = swingSpread(teamState.swing, metricKey, params.swingScale);
+      return spread === undefined ? {} : { spread };
     };
 
     const perTeam: Record<string, TeamMetric> = {};
@@ -1629,6 +1617,15 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       beliefs,
       covariance: emptyCovariance(toComponentOrder.length),
       consistency,
+      // D-Y1/D-Y3: swing is DROPPED at a season boundary, for the reason the
+      // retired decomposition's accumulator was: its input is a squared
+      // deviation in POINTS^2 under one season's scoring rules, and 2024 points
+      // are not 2025 points. A series crossing the boundary would mostly
+      // measure the rule change, and the six-match half-life would take most of
+      // an event to work the stale scale back out. A team therefore publishes
+      // no `±` until its first match of the new season, which is the SAME
+      // never-observed case `coldStartTeamState` produces — not a second rule.
+      swing: emptyTeamSwing(),
       matchCount: 0,
       lastEventKey: null,
       // D-05/D-07 (plan 03-04): a year of layoff makes last season's
@@ -1660,13 +1657,6 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     // lifetime — never reset at a season boundary (see `Sigma1State`'s own
     // doc comment).
     rpSkippedMatchCount: state.rpSkippedMatchCount,
-    // D-V1/D-V3 (quick task 260902-varopr): every event's decomposition
-    // accumulator is DROPPED at a season boundary. Its target is a SQUARED
-    // RESIDUAL in points^2 under one season's scoring rules, and 2024 points
-    // are not 2025 points — carrying it would mostly measure the rule change.
-    // The events themselves are season-scoped anyway, so nothing that could
-    // still be published is lost.
-    perEventVariance: new Map(),
     // D-Q2 (quick task 260818-inm): also cumulative over the algorithm's
     // whole lifetime, never reset at a season boundary — identical
     // "carry forward unchanged" treatment to `rpSkippedMatchCount` above.

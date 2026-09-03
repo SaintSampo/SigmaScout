@@ -285,8 +285,50 @@ export const SIGMA1_4_TO_5_MIGRATION_TAG = "sigma1-4.0.0-shrinkage-to-5.0.0-vari
  */
 export function migrate4to5(legacy: Legacy4Sigma1Params): Sigma1Params {
   const { shrinkagePriorMatches: _dropped, ...carried } = legacy;
+  // Composes with the 6->7 hop rather than duplicating it: a 4.0.0 set has
+  // neither `varianceOprRidge` nor the swing pair, so it is a 6.0.0-shaped set
+  // minus one field, and `migrate6to7` owns the rest of the journey.
+  return migrate6to7(
+    Legacy6Sigma1ParamsSchema.parse({ ...carried, varianceOprRidge: LEGACY_6_VARIANCE_OPR_RIDGE })
+  );
+}
+
+/**
+ * The 6.0.0 parameter shape, FROZEN. Identical to 5.0.0's — the 5->6 change was
+ * the NNLS solve, which moved no field — so one schema covers both.
+ *
+ * DO NOT EDIT IT to track `Sigma1Params`. It is a historical record of what the
+ * two committed `vpr@6.0.0+*.json` files actually contain, and the only reason
+ * they can still be read.
+ */
+export const Legacy6Sigma1ParamsSchema = Sigma1ParamsSchema.omit({
+  swingHalfLifeMatches: true,
+  swingScale: true,
+}).extend({ varianceOprRidge: z.number().finite() });
+
+export type Legacy6Sigma1Params = z.infer<typeof Legacy6Sigma1ParamsSchema>;
+
+/** The ridge 6.0.0 shipped. Recorded here because the constant it came from is deleted with `varianceOpr.ts`, and a frozen schema may not depend on a live one. */
+const LEGACY_6_VARIANCE_OPR_RIDGE = 2;
+
+/** A machine-readable tag for the 6->7 map, recorded in a migrated file's provenance. */
+export const SIGMA1_6_TO_7_MIGRATION_TAG = "sigma1-6.0.0-variance-decomposition-to-7.0.0-recency-swing";
+
+/**
+ * 6.0.0 -> 7.0.0 (D-Y1/D-Y3, quick task 260903-750): drops `varianceOprRidge`
+ * and adds the two swing constants.
+ *
+ * Both incoming and outgoing values are NEVER-SEARCHED display constants, so the
+ * default IS the shipped value and there is no tuned alternative this migration
+ * could be failing to carry. The ridge is dropped rather than translated because
+ * the estimator it parameterised no longer exists: a recency-weighted mean has
+ * no ridge, and inventing a correspondence between the two would be fiction.
+ */
+export function migrate6to7(legacy: Legacy6Sigma1Params): Sigma1Params {
+  const { varianceOprRidge: _dropped, ...carried } = legacy;
   return Sigma1ParamsSchema.parse({
     ...carried,
-    varianceOprRidge: DEFAULT_SIGMA1_PARAMS.varianceOprRidge,
+    swingHalfLifeMatches: DEFAULT_SIGMA1_PARAMS.swingHalfLifeMatches,
+    swingScale: DEFAULT_SIGMA1_PARAMS.swingScale,
   });
 }

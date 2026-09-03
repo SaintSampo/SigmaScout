@@ -33,7 +33,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
-import type { EventVarianceAccumulator, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
+import type { Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 
 // ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ export class MissingLeagueRowError extends Error {
  * loud `LeagueRowShapeVersionError` naming the re-seed as the fix, rather than
  * a site that quietly stops showing `±`.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 6;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 7;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -237,6 +237,8 @@ interface SerializedSigma1TeamState {
   rpBeliefs: Sigma1TeamState["rpBeliefs"];
   rpCovariance: number[][];
   rpCrossCovariance: number[][];
+  /** D-Y3 (quick task 260903-750): the recency-weighted swing behind the published `±`. It rides the TEAM row because it is a property of the robot; the `scopeKind: "event"` rows the retired decomposition needed are gone. */
+  swing: Sigma1TeamState["swing"];
 }
 
 interface SerializedSigma1League {
@@ -286,7 +288,6 @@ interface SerializedSigma1TeamRow {
  * rounding the target sums, which would trade a size problem for a
  * reproducibility one.
  */
-type SerializedSigma1EventState = EventVarianceAccumulator;
 
 function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState {
   return {
@@ -299,6 +300,7 @@ function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState
     rpBeliefs: team.rpBeliefs,
     rpCovariance: team.rpCovariance,
     rpCrossCovariance: team.rpCrossCovariance,
+    swing: team.swing,
   };
 }
 
@@ -339,12 +341,13 @@ function serializeSigma1State(algorithmId: string, algorithmVersion: string, sta
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
 
-  // D-V1/D-V3: one `scopeKind: "event"` row per event, emitted from
-  // `sortedEntries` exactly as OPR's own event rows are.
-  for (const [eventKey, accumulator] of sortedEntries(state.perEventVariance)) {
-    const eventJson: SerializedSigma1EventState = accumulator;
-    rows.push(makeRow(algorithmId, algorithmVersion, "event", eventKey, eventJson, stamp));
-  }
+  // D-Y3 (quick task 260903-750): Sigma1 emits NO `scopeKind: "event"` rows any
+  // more. The published `±` moved from an event-wide decomposition to one
+  // running number per team (`Sigma1TeamState.swing`), which rides the existing
+  // team rows, so there is no event-granular Sigma1 state left to persist.
+  // `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
+  // in the same change; leaving it there would have made the Worker load event
+  // rows that are never written.
   return rows;
 }
 
@@ -359,12 +362,11 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
   const teams = new Map<string, Sigma1TeamState>();
   const lastSeason = new Map<string, number>();
   const yearBefore = new Map<string, number>();
-  const perEventVariance = new Map<string, EventVarianceAccumulator>();
   for (const row of rows) {
-    if (row.scopeKind === "event") {
-      perEventVariance.set(row.scopeKey, JSON.parse(row.stateJson) as SerializedSigma1EventState);
-      continue;
-    }
+    // D-Y3: a Sigma1 `scopeKind: "event"` row can only be a pre-7 leftover.
+    // The shape-version gate on the league row above is what actually rejects
+    // such a snapshot; this skip keeps the loop total rather than relying on
+    // that gate having already thrown.
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamRow;
     if (teamJson.current !== undefined) teams.set(row.scopeKey, teamJson.current);
@@ -380,7 +382,6 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     allianceScoreStats: leagueJson.allianceScoreStats,
     priorSeasonRatings: { lastSeason, yearBefore },
     rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
-    perEventVariance,
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
 }
