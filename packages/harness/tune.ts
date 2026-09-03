@@ -88,10 +88,13 @@
  * screen is therefore leak-free for all three origins at once, and three
  * screens would cost three times as much for no additional discipline.
  *
- * `score.ts`'s `TUNE_SEASONS`/`HOLDOUT_SEASONS` still EXIST — other callers
- * and every already-committed artifact read them (D-T5 says so explicitly) —
- * but this module no longer imports them. The tuner's dependence on the fixed
- * split is what D-T5 removes; the constants' other consumers are untouched.
+ * `score.ts`'s retired `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit` were
+ * DELETED outright by quick task 260903-krp, rather than kept as an alias
+ * this module simply stopped importing — D-T5 already established that the
+ * fixed split had nothing left to say once only origin seasons are ever
+ * displayed, and 260903-krp carried that through to the vocabulary itself.
+ * This module's own dependence on the fixed split was removed earlier, by
+ * D-T5; 260903-krp is what removed the split from the rest of the harness.
  *
  * `computeLoso`/`LosoFold` were DELETED here rather than gated off.
  * Leave-one-season-out re-sliced a POOLED selection over a fixed set of three
@@ -213,10 +216,10 @@ import { decideAcceptance, type AcceptanceOutcome } from "./acceptance.js";
 import { eventBlockedBootstrap, type EventBlockedUnit } from "./eventBootstrap.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-// D-T5: `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit` are deliberately NOT
-// imported. They still exist in `score.ts` for other callers and for every
-// already-committed artifact, but the tuner's dependence on the fixed split is
-// exactly what rolling-origin selection removes — see this module's header.
+// D-T5 removed this module's dependence on the fixed split; quick task
+// 260903-krp then deleted `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit`
+// entirely from `score.ts` — there is nothing left to import. See this
+// module's header for the full history.
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import {
   SEARCHABLE_PARAM_KEYS,
@@ -559,7 +562,9 @@ async function evaluateCandidateBatch(
 ): Promise<EvaluatedCandidate[]> {
   const algorithms = batch.map((c) => makeSigma1({ id: c.id, linkMode: "predictive-variance", params: c.params }));
   const predictions = await runBoundedSeasons(db, seasons, algorithms, eventsLimit);
-  const slices = aggregateScores(predictions);
+  // D-2 (quick task 260903-krp): this batch's own `seasons` parameter is the
+  // replay's declared season set.
+  const slices = aggregateScores(predictions, { corpusSeasons: seasons });
   assertNoFutureSeasonLeak(slices, boundary.season);
   return batch.map((c) => {
     const { perSeason, objective } = objectiveForCandidate(slices, c.id);
@@ -1593,7 +1598,9 @@ async function evaluateOriginSeason(
   const replaySeasons = [...input.selectionSeasons, input.originSeason].sort((a, b) => a - b);
   const predictions = await runBoundedSeasons(db, replaySeasons, algorithms, input.eventsLimit);
 
-  assertNoFutureSeasonLeak(aggregateScores(predictions), input.originSeason + 1);
+  // D-2 (quick task 260903-krp): `replaySeasons` (selection seasons plus the
+  // origin) is this run's declared season set.
+  assertNoFutureSeasonLeak(aggregateScores(predictions, { corpusSeasons: replaySeasons }), input.originSeason + 1);
 
   const units = buildPairedOriginUnits(
     scoreOriginRows(predictions, CANDIDATE_ID, input.originSeason),

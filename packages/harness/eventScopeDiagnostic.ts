@@ -212,7 +212,12 @@ export function poolSlices(slices: readonly ScoreSlice[]): PooledAccuracyResult 
 /** Reuses `aggregateScores` (never a hand-rolled second scoring path) and pools its per-season `combined` slices. Returns the zero-population result for an empty input without calling `aggregateScores` at all (it would otherwise return no slices, same effect, but this short-circuit reads clearer). */
 export function poolPredictions(predictions: readonly HarnessPredictionInput[]): PooledAccuracyResult {
   if (predictions.length === 0) return { brierScore: null, winnerAccuracy: null, scoredCount: 0 };
-  const slices = aggregateScores(predictions).filter((s) => s.compLevelView === "combined");
+  // D-2 (quick task 260903-krp): no `seasons` parameter is in scope here, so
+  // the declared corpus is exactly the seasons present in `predictions`.
+  // `poolSlices` below discards `headlineEligible` entirely, so the narrow
+  // set is never mistaken for a headline claim.
+  const corpusSeasons = Array.from(new Set(predictions.map((p) => p.season)));
+  const slices = aggregateScores(predictions, { corpusSeasons }).filter((s) => s.compLevelView === "combined");
   return poolSlices(slices);
 }
 

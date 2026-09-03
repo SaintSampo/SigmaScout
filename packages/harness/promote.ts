@@ -725,7 +725,11 @@ async function main(): Promise<void> {
     isOffseason: false,
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
   }));
-  const slices = aggregateScores(predictions);
+  // D-2 (quick task 260903-krp): a deliberately bounded single-season slice —
+  // `headlineEligible` is never read below (only `brierScore`/
+  // `winnerAccuracy` are), so the narrow `[sliceSeason]` set is not mistaken
+  // for a headline claim.
+  const slices = aggregateScores(predictions, { corpusSeasons: [sliceSeason] });
   const combinedSlice = slices.find((s) => s.compLevelView === "combined" && s.season === sliceSeason);
   const headlineMetrics = combinedSlice
     ? [{ season: sliceSeason, brierScore: combinedSlice.brierScore, winnerAccuracy: combinedSlice.winnerAccuracy }]

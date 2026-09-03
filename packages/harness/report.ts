@@ -12,7 +12,7 @@
  */
 import type { CalibrationBin } from "../core/scoring/calibration.js";
 import type { HarnessArtifact } from "./artifact.js";
-import type { CompLevelView, ScoreSlice, SeasonLabel } from "./score.js";
+import type { CompLevelView, ScoreSlice } from "./score.js";
 
 export function escapeHtml(value: string): string {
   return value
@@ -27,11 +27,6 @@ const VIEW_LABELS: Record<CompLevelView, string> = {
   qualification: "Qualification",
   elimination: "Elimination",
   combined: "Combined",
-};
-
-const SEASON_LABEL_TEXT: Record<SeasonLabel, string> = {
-  tune: "Tune",
-  holdout: "Holdout",
 };
 
 /** Renders a Brier/accuracy figure, or the not-applicable marker — never a fabricated `0`. */
@@ -78,15 +73,15 @@ export function renderHeadToHeadTable(artifact: HarnessArtifact): string {
     .map((slice) => {
       const excludedTotal =
         slice.exclusionCounts.offseason + slice.exclusionCounts.surrogateAffected + slice.exclusionCounts.missingResult;
-      const rowClass = slice.headlineEligible ? "holdout-row" : "tune-row";
+      const rowClass = slice.headlineEligible ? "headline-row" : "selection-row";
       const labelBadge = slice.headlineEligible
-        ? `<span class="badge badge-headline">Holdout — headline-eligible</span>`
-        : `<span class="badge badge-tune">Tune</span>`;
+        ? `<span class="badge badge-headline">Headline-eligible</span>`
+        : `<span class="badge badge-selection">Selection-only</span>`;
       return `      <tr class="${rowClass}">
         <td>${escapeHtml(slice.algorithmId)}</td>
         <td>${escapeHtml(String(slice.season))}</td>
         <td>${escapeHtml(VIEW_LABELS[slice.compLevelView])}</td>
-        <td>${labelBadge} <span class="season-label-text">(${escapeHtml(SEASON_LABEL_TEXT[slice.seasonLabel])})</span></td>
+        <td>${labelBadge}</td>
         <td>${renderMetric(slice.brierScore, fmtBrier)}</td>
         <td>${renderMetric(slice.winnerAccuracy, fmtPercent)}</td>
         <td>${slice.scoredCount}</td>
@@ -185,7 +180,7 @@ function renderScoreBarsSvg(slices: readonly ScoreSlice[]): string {
       }
       const barHeight = slice.winnerAccuracy * plotHeight;
       const y = BAR_CHART_MARGIN.top + (plotHeight - barHeight);
-      const cls = slice.headlineEligible ? "bar bar-holdout" : "bar bar-tune";
+      const cls = slice.headlineEligible ? "bar bar-headline" : "bar bar-selection";
       return `    <g>
       <rect class="${cls}" x="${x}" y="${y}" width="${barWidth}" height="${barHeight}"><title>${escapeHtml(
         String(slice.season)
@@ -261,7 +256,7 @@ function renderCalibrationSection(slices: readonly ScoreSlice[]): string {
   const charts = combined
     .map(
       (slice) => `    <figure class="cal-figure">
-      <figcaption>Season ${escapeHtml(String(slice.season))} (${escapeHtml(SEASON_LABEL_TEXT[slice.seasonLabel])})</figcaption>
+      <figcaption>Season ${escapeHtml(String(slice.season))} (${slice.headlineEligible ? "headline-eligible" : "selection-only"})</figcaption>
 ${renderCalibrationSvg(slice.calibrationBins, slice.season)}
     </figure>`
     )
@@ -283,21 +278,20 @@ const REPORT_STYLE = `
   caption { text-align: left; font-size: 0.85rem; color: #444; margin-bottom: 0.4rem; caption-side: top; }
   th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; }
   th { background: #f0f0f0; }
-  tr.holdout-row { background: #eef7ee; font-weight: 600; }
-  tr.tune-row { background: #fff; }
+  tr.headline-row { background: #eef7ee; font-weight: 600; }
+  tr.selection-row { background: #fff; }
   .statbotics-caveat { background: #fff3cd; border: 1px solid #e6c200; border-radius: 4px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; font-size: 0.85rem; color: #664d03; }
   .statbotics-caveat code { background: #fff9e6; padding: 0 0.2rem; }
   .badge { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
   .badge-headline { background: #2e7d32; color: #fff; }
-  .badge-tune { background: #999; color: #fff; }
-  .season-label-text { color: #666; font-size: 0.8rem; }
+  .badge-selection { background: #999; color: #fff; }
   .exclusion-breakdown { color: #777; font-size: 0.78rem; }
   .na { color: #999; font-style: italic; }
   .score-bars, .calibration-chart { background: #fafafa; border: 1px solid #e0e0e0; border-radius: 6px; }
   .axis-line { stroke: #888; stroke-width: 1; }
   .axis-label { font-size: 10px; fill: #444; }
-  .bar-tune { fill: #9e9e9e; }
-  .bar-holdout { fill: #2e7d32; }
+  .bar-selection { fill: #9e9e9e; }
+  .bar-headline { fill: #2e7d32; }
   .bar-value { font-size: 10px; fill: #222; }
   .na-label { font-size: 10px; fill: #999; font-style: italic; }
   .cal-grid { display: flex; flex-wrap: wrap; gap: 1rem; }

@@ -307,7 +307,9 @@ function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: strin
   // `aggregateScores`' combined-view Brier to the last digit. A mismatch means
   // the two populations diverged, which invalidates every MAE/bias figure
   // below — so it throws rather than printing a caveat.
-  const slices = aggregateScores(harnessPredictions);
+  // D-2 (quick task 260903-krp): `seasons` (in scope from this script's own
+  // loop above) is the declared season set.
+  const slices = aggregateScores(harnessPredictions, { corpusSeasons: seasons });
   for (const season of seasons) {
     const slice = slices.find((s) => s.season === season && s.compLevelView === "combined");
     if (!slice || slice.brierScore === null) throw new Error(`reparamEquivalence: aggregateScores produced no combined slice for ${season}`);

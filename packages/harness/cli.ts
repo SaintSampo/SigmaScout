@@ -761,7 +761,10 @@ async function runSeasonsMode(
       metricHistoryOutDir: writeMetricHistory ? outDir : undefined,
       secretToScrub: undefined,
     });
-    const slices = aggregateScores(predictions);
+    // D-2 (quick task 260903-krp): this function's own `seasons` parameter is
+    // the run's full declared season set — the correct value to pass, not a
+    // narrower slice.
+    const slices = aggregateScores(predictions, { corpusSeasons: seasons });
 
     const statboticsReferences: StatboticsReference[] = [];
     for (const season of seasons) {
@@ -863,7 +866,11 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
     }));
 
-    const slices = aggregateScores(predictions);
+    // D-2 (quick task 260903-krp): this legacy single-event smoke path scores
+    // exactly one season by construction (`season` derived from the event
+    // key above) — `headlineEligible` is never meaningful here, since a
+    // one-season declared corpus can never have two priors.
+    const slices = aggregateScores(predictions, { corpusSeasons: [season] });
     const statboticsRef = await statboticsReference(season, { cachePath: STATBOTICS_CACHE_PATH });
 
     const artifact = buildArtifact({

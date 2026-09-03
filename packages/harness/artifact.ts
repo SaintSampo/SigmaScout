@@ -48,8 +48,12 @@ const ScoreSliceSchema = z.object({
   /** D-20: which algorithm this slice's metrics belong to. */
   algorithmId: z.string().min(1),
   season: z.number().int(),
-  seasonLabel: z.enum(["tune", "holdout"]),
-  /** D-09's discipline made structural: derived from `seasonLabel`, never set independently. */
+  /**
+   * D-2/D-3 (quick task 260903-krp): derived from `isHeadlineEligible`
+   * against the run's own declared season set, never set independently and
+   * never derived from a `seasonLabel` — that retired tune/holdout field is
+   * deleted, not aliased.
+   */
   headlineEligible: z.boolean(),
   compLevelView: z.enum(["qualification", "elimination", "combined"]),
   /** Unrounded — rounding happens only when the HTML report renders a value. */

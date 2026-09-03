@@ -1971,7 +1971,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     }
 
     // --- compare/{year}.json — one file, every algorithm, per D-02's exception ---
-    const slices = aggregateScores(harnessPredictions);
+    // D-2 (quick task 260903-krp): MUST pass `seasonsSorted` (this run's WHOLE
+    // season set, declared at the top of this function) — NEVER this loop's
+    // own `season`. `harnessPredictions` above is built from a single season,
+    // so passing `[season]` here would make every published slice's
+    // `headlineEligible` come back false, silently, with every test still
+    // green (Finding 1). `seasonsSorted` is what makes the declared corpus
+    // the run's whole range, not the loop's current iteration.
+    const slices = aggregateScores(harnessPredictions, { corpusSeasons: seasonsSorted });
     const compareArtifact = buildCompareArtifact({
       algorithms: options.algorithms.map((a) => ({ id: a.id, version: a.version })),
       slices,

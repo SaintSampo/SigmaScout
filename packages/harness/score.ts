@@ -1,32 +1,50 @@
 /**
- * Aggregation by season, competition-level view, and tune/holdout label
- * (D-09, D-10, D-11), with exclusion accounting (this plan's must_haves:
- * "MUST NOT silently narrow the scored population"). This is the mechanism
- * that makes D-09's tune/holdout discipline structural: a slice's
- * `headlineEligible` flag is derived from its season, not remembered by an
- * operator, so a tune-season figure cannot be marked headline-eligible.
+ * Aggregation by season, competition-level view, and origin-based headline
+ * eligibility (D-2, quick task 260903-krp — supersedes D-09/D-10/D-11's
+ * retired fixed tune/holdout split), with exclusion accounting (this plan's
+ * must_haves: "MUST NOT silently narrow the scored population"). This is the
+ * mechanism that makes headline eligibility structural: a slice's
+ * `headlineEligible` flag is derived from the run's own season set — never
+ * from a hardcoded year list and never remembered by an operator — so a
+ * season with too few priors cannot be marked headline-eligible by mistake.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import { scoreSet, type MatchOutcome, type ScoredPrediction } from "../core/scoring/brier.js";
 import { calibrationBins, type CalibrationBin } from "../core/scoring/calibration.js";
 import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 
-export type SeasonLabel = "tune" | "holdout";
-
-/** D-09's fixed split: the optimizer may only ever see these seasons. */
-export const TUNE_SEASONS = [2022, 2023, 2024] as const;
-/** D-09's fixed split: headline accuracy claims come exclusively from these seasons. */
-export const HOLDOUT_SEASONS = [2025, 2026] as const;
+/**
+ * D-2 (quick task 260903-krp): the minimum number of DISTINCT seasons that
+ * must precede a season, within the run's own season set, for that season to
+ * carry a headline accuracy claim. Two, not one —
+ * `rolling-origin-hyperparameter-tuning`'s D-4 ruled that a single-season
+ * prior is too thin to carry a headline claim; that ruling is preserved here
+ * with only its inputs changed, from a fixed 2022-2026 corpus to whatever
+ * seasons the run actually declares.
+ */
+export const MIN_PRIOR_SEASONS_FOR_HEADLINE = 2;
 
 /**
- * Labels a season tune or holdout per D-09's fixed split. Throws for a
- * season outside 2022-2026 rather than silently defaulting — an
- * unrecognized season has no defensible label to assign.
+ * D-2/D-3: whether `season` is headline-eligible, given the full set of
+ * seasons the run has in play (`corpusSeasons`). Counts DISTINCT seasons in
+ * `corpusSeasons` strictly less than `season` and compares against
+ * `MIN_PRIOR_SEASONS_FOR_HEADLINE` — a duplicated prior season in the input
+ * must not buy eligibility. No year literal appears here: a hardcoded set
+ * would be the retired guard wearing a new name, exactly the failure D-2
+ * exists to prevent.
+ *
+ * D-3's payoff: on the 2019/2020-backfilled seven-season corpus (2019, 2020,
+ * 2022-2026) this rule yields five headline-eligible seasons (2022-2026),
+ * where the retired fixed split gave two (2025-2026 only) — and six once
+ * 2027 plays. `rolling-origin-hyperparameter-tuning`'s D-4 verdict that
+ * "2023 is not headline-eligible" is SUPERSEDED here — not because this rule
+ * changed, but because the corpus it was evaluated against did: against a
+ * 2022-2026-only corpus 2023 had a single prior (2022); with 2019/2020
+ * backfilled it has three (2019, 2020, 2022).
  */
-export function seasonSplit(season: number): SeasonLabel {
-  if ((HOLDOUT_SEASONS as readonly number[]).includes(season)) return "holdout";
-  if ((TUNE_SEASONS as readonly number[]).includes(season)) return "tune";
-  throw new Error(`seasonSplit: season ${season} is outside the covered range (2022-2026)`);
+export function isHeadlineEligible(season: number, corpusSeasons: readonly number[]): boolean {
+  const distinctPriors = new Set(corpusSeasons.filter((s) => s < season));
+  return distinctPriors.size >= MIN_PRIOR_SEASONS_FOR_HEADLINE;
 }
 
 /** D-11: every season is reported three ways. */
@@ -138,8 +156,15 @@ export interface ScoreSlice {
   /** D-20/D-21: identifies which algorithm this slice's metrics belong to. */
   algorithmId: string;
   season: number;
-  seasonLabel: SeasonLabel;
-  /** Only holdout-season slices are headline-eligible — this is D-09's discipline made structural. */
+  /**
+   * D-2/D-3: whether this season has at least `MIN_PRIOR_SEASONS_FOR_HEADLINE`
+   * distinct prior seasons within the run's own declared season set — the
+   * single honest flag; the retired `seasonLabel` tune/holdout vocabulary is
+   * deleted rather than kept as an alias. Meaningful at slice level, rather
+   * than constant across a whole run, because `aggregateScores` also scores
+   * selection-only seasons (e.g. 2019, 2020) that the tuner needs and
+   * Compare never displays.
+   */
   headlineEligible: boolean;
   compLevelView: CompLevelView;
   brierScore: number | null;
@@ -157,6 +182,22 @@ export interface ScoreSlice {
 const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 };
 
 /**
+ * `aggregateScores`' options. `corpusSeasons` is REQUIRED, with no default
+ * and no fallback: `aggregateScores` cannot safely derive the season set
+ * from `predictions` alone — a caller that already narrowed `predictions` to
+ * one season (e.g. `publish.ts`'s per-season loop) would silently make
+ * every slice ineligible under a self-derived rule, and every test would
+ * still pass. Callers whose own scope is narrower than the run's full season
+ * set (e.g. `promote.ts`'s bounded single-season slice) must say so
+ * explicitly via this field, never by omission.
+ */
+export interface AggregateScoresOptions {
+  /** The full set of seasons this run has in play — see the interface doc comment above. */
+  readonly corpusSeasons: readonly number[];
+  readonly binCount?: number;
+}
+
+/**
  * Produces one slice per algorithm per season per competition-level view
  * (D-11: quals-only, elims-only, and combined; D-20/D-22: grouped by
  * `algorithmId` first, so one harness run scoring many algorithms over the
@@ -168,10 +209,26 @@ const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, 
  */
 export function aggregateScores(
   predictions: readonly HarnessPredictionInput[],
-  binCount?: number
+  options: AggregateScoresOptions
 ): ScoreSlice[] {
+  const { corpusSeasons, binCount } = options;
   const algorithmIds = Array.from(new Set(predictions.map((p) => p.algorithmId))).sort();
   const seasons = Array.from(new Set(predictions.map((p) => p.season))).sort((a, b) => a - b);
+
+  // A caller scoring a season it did not declare is narrowing the population
+  // the headline-eligibility rule is measured against — that must be loud,
+  // not silent (Finding 1: a self-derived rule would pass every test while
+  // being wrong).
+  const corpusSeasonSet = new Set(corpusSeasons);
+  const undeclaredSeasons = seasons.filter((s) => !corpusSeasonSet.has(s));
+  if (undeclaredSeasons.length > 0) {
+    throw new Error(
+      `aggregateScores: predictions include season(s) ${undeclaredSeasons.join(", ")} not present in the declared ` +
+        `corpusSeasons (${[...corpusSeasonSet].sort((a, b) => a - b).join(", ") || "none"}) — a caller must declare ` +
+        `the full season set it is scoring against, never narrow it silently.`
+    );
+  }
+
   const slices: ScoreSlice[] = [];
 
   for (const algorithmId of algorithmIds) {
@@ -180,7 +237,6 @@ export function aggregateScores(
     for (const season of seasons) {
       const seasonPredictions = algorithmPredictions.filter((p) => p.season === season);
       if (seasonPredictions.length === 0) continue;
-      const label = seasonSplit(season);
 
       for (const view of COMP_LEVEL_VIEWS) {
         const candidates = seasonPredictions.filter((p) => matchesView(p.compLevel, view));
@@ -227,8 +283,7 @@ export function aggregateScores(
         slices.push({
           algorithmId,
           season,
-          seasonLabel: label,
-          headlineEligible: label === "holdout",
+          headlineEligible: isHeadlineEligible(season, corpusSeasons),
           compLevelView: view,
           brierScore: result.brierScore,
           winnerAccuracy: result.winnerAccuracy,
