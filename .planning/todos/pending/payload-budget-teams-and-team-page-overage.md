@@ -4,6 +4,8 @@ created: 2026-09-01
 source: quick task 260901-is2 Task 6 whole-suite run — pre-existing failures, surfaced not caused
 resolves_phase:
 priority: high
+attribution_done: 2026-09-02
+verdict: shrink-both-no-ceiling-change
 ---
 
 # `payloadBudget.test.ts`: the teams table and the 292-match team page are over budget
@@ -111,3 +113,85 @@ A ~3.7 MB JSON for one year's teams table is a real user-facing cost even after 
 - [[regenerate-published-artifacts-post-is2]] — **sequencing:** that republish re-measures the
   budget anyway. Doing the attribution work here first means the re-measurement lands with
   ceilings that were decided rather than back-filled.
+
+
+---
+
+# ATTRIBUTION (2026-09-02) — step 1 and step 2 answered, measured not reasoned
+
+Measured against the live published artifacts, per this todo's own instruction to
+"measure a real artifact's field-level byte breakdown rather than reasoning from
+the schema".
+
+## Where the bytes are
+
+**teams** (`v1/teams/2024/vpr@2.1.0+tuned-2026-08.json`, 3,704,776 B, over by 204,776):
+
+| field | bytes | share |
+|---|---|---|
+| `metrics` | 3,208,322 | **86.6%** |
+| `record` | 146,972 | 4.0% |
+| `nickname` | 98,144 | 2.6% |
+| everything else | <2% each | — |
+
+Inside `metrics`: **the metric KEY NAMES alone cost 979,248 B — 26.4% of the whole
+artifact** — because 17 key strings repeat across 3,549 teams.
+
+**team** (`v1/team/frc3538/2024/...`, 675,956 B, over by 300,956):
+
+| field | bytes | share |
+|---|---|---|
+| `events[].matches` | 443,291 | **65.6%** |
+| `metricHistory` | 229,118 | 33.9% |
+
+Inside each match (1,894 B avg): `redComponents` + `blueComponents` = **1,269 B,
+67% of every match**.
+
+## Decimal precision is NOT the problem
+
+D-06's rounding rule is being applied correctly — max 2 dp on every teams metric
+value and spread, 2-4 dp on match fields. Decimal places total only 6.1% (teams)
+and 6.6% (team). **Do not "fix" precision; there is nothing wrong with it.**
+
+## Two shrinks, both defensible, neither needing a ceiling change
+
+1. **`redComponents`/`blueComponents` are published but never read.** A repo-wide
+   grep finds no consumer in `apps/web` outside tests — no page, component or
+   route renders them. The pipeline produces them (`packages/core/algorithms/*`,
+   `publish.ts`, `scheduled.ts` write them); nothing consumes them from the
+   artifact. Dropping them: 675,956 -> 378,843 B (**-44%**), under the 600,000
+   absolute ceiling with room, and within 3,843 B (1%) of the 375,000 budget.
+
+2. **teams metrics encoded positionally** (`[[value, spread], ...]` with the key
+   list in the preamble) instead of 17 repeated `{"value":…,"spread":…}` objects:
+   3,704,776 -> 1,262,628 B (**-66%**), comfortably under the 3,500,000 budget.
+   Lossless — same numbers, same precision.
+
+## Page-load impact (step 4), stated honestly
+
+Raw bytes are not what a visitor downloads. Under Brotli:
+
+| | wire now | wire after | 5 Mbps venue wifi |
+|---|---|---|---|
+| teams | 410 KB | **285 KB (-30%)** | 0.67s -> 0.47s |
+| team | 76 KB | **41 KB (-46%)** | 0.12s -> 0.07s |
+
+**The raw -66% headline overstates the user benefit** — Brotli already collapses
+repeated key names, so the real teams win is -30%, not -66%. It is still worth
+doing: 410 KB is heavy for one page on venue wifi. The team-page change is
+justified on hygiene grounds regardless of bytes — publishing per-match,
+per-alliance data that nothing reads is wrong at any size.
+
+## A hypothesis that was WRONG, recorded so it is not retried
+
+The components looked like duplicated values in a truncated sample. Checked
+across 468 blocks on three teams and two seasons: **93.8% are fully distinct,
+0% identical**. They are real, differentiated data. The case for dropping them
+is that nothing consumes them, NOT that they are redundant.
+
+## Verdict
+
+**Shrink both; change no ceiling.** Every page kind then passes its existing
+budget on merit. Decided with the user 2026-09-02. Sequenced BEFORE the
+is2/trz/varopr republish so that one republish serves both (and re-measures the
+budget against the new shapes), rather than publishing twice.
