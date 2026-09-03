@@ -27,10 +27,17 @@ export interface BonusRp {
 }
 
 /**
- * Seasons 2022–2024 carry two bonus RP; 2025 and 2026 carry three. The dot
- * count per alliance is therefore season-dependent, never a fixed three.
+ * 2019 carries two bonus RP; 2020 carries one (Shield Energized is not
+ * modelled — see `rp/2020.ts` — so it has no entry here); 2022–2024 carry
+ * two; 2025 and 2026 carry three. The dot count per alliance is therefore
+ * season-dependent, never a fixed number.
  */
 export const BONUS_RP_BY_SEASON: Readonly<Record<number, readonly BonusRp[]>> = {
+  2019: [
+    { key: "habDocking", letter: "H", label: "HAB Docking" },
+    { key: "completeRocket", letter: "R", label: "Complete Rocket" },
+  ],
+  2020: [{ key: "shieldOperational", letter: "S", label: "Shield Operational" }],
   2022: [
     { key: "cargoBonus", letter: "C", label: "Cargo" },
     { key: "hangarBonus", letter: "H", label: "Hangar" },
