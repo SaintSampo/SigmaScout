@@ -1140,24 +1140,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-08-31T19:39:13Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- plan 08-05's D-03/D-12 republish, generation e2d220d9-e97b-480a-bcf1-82d3e2076b42; redRpPmf/blueRpPmf and actualRedRp/actualBlueRp now populate every played event-artifact row, moving only the event page kind (327,172 -> 342,405 bytes max, +4.66%, same largestKey)",
+  "measuredAt": "2026-09-03T05:05:23Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation aebc5638-7892-41e3-b918-121a74c9a778, 56,774 objects, 2,226,644,593 bytes total (down from 3,310,309,807, -32.7%). First publish under the is2/trz/varopr model work (vpr 2.1.0 -> 5.0.0, epa 1.1.0 -> 2.0.0, opr 3.1.0 -> 4.0.0) AND the two payload shrinks: quick task 260902-pbc dropped redComponents/blueComponents from the team and event artifacts (published but read by no page), and 260902-pbe encoded the teams artifact's metrics positionally with the key list in the preamble. NO CEILING WAS MOVED: every budgetMaxBytes below is unchanged from the previous block, and every page kind now passes on merit. teams 3,704,776 -> 1,435,371 (-61.3%, was 204,776 OVER its 3,500,000 budget, now 2,064,629 under). team 675,956 -> 366,310 (-45.8%, was 300,956 over its 375,000 budget and 75,956 over the 600,000 absolute ceiling, now 8,690 under budget). event 342,405 -> 160,071 (-53.2%) as a side effect of the same component removal.",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 1757866,
-      "p95Bytes": 3704776,
-      "maxBytes": 3704776,
+      "medianBytes": 965228,
+      "p95Bytes": 1435371,
+      "maxBytes": 1435371,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2024/vpr@2.1.0+tuned-2026-08.json"
+      "largestKey": "v1/teams/2024/vpr@5.0.0+tuned-2026-08.json"
     },
     "team": {
       "count": 52596,
-      "medianBytes": 42217,
-      "p95Bytes": 147853,
-      "maxBytes": 675956,
+      "medianBytes": 31249,
+      "p95Bytes": 91494,
+      "maxBytes": 366310,
       "budgetMaxBytes": 375000,
-      "largestKey": "v1/team/frc3538/2024/vpr@2.1.0+tuned-2026-08.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@5.0.0+tuned-2026-08.json"
     },
     "events": {
       "count": 15,
@@ -1165,21 +1165,21 @@ rendering of these same numbers, not a second source.
       "p95Bytes": 84113,
       "maxBytes": 84113,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@2.1.0+tuned-2026-08.json"
+      "largestKey": "v1/events/2025/vpr@5.0.0+tuned-2026-08.json"
     },
     "event": {
       "count": 4143,
-      "medianBytes": 78127,
-      "p95Bytes": 197483,
-      "maxBytes": 342405,
+      "medianBytes": 47735,
+      "p95Bytes": 95480,
+      "maxBytes": 160071,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024gal/vpr@2.1.0+tuned-2026-08.json"
+      "largestKey": "v1/event/2024arc/vpr@5.0.0+tuned-2026-08.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 14029,
-      "p95Bytes": 14144,
-      "maxBytes": 14144,
+      "medianBytes": 14129,
+      "p95Bytes": 14225,
+      "maxBytes": 14225,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }

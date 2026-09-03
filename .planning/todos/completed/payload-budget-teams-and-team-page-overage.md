@@ -1,4 +1,7 @@
 ---
+status: resolved
+resolved: 2026-09-03
+resolved_by: "publish:seasons generation aebc5638-7892-41e3-b918-121a74c9a778"
 id: payload-budget-teams-and-team-page-overage
 created: 2026-09-01
 source: quick task 260901-is2 Task 6 whole-suite run — pre-existing failures, surfaced not caused
@@ -215,3 +218,29 @@ is that nothing consumes them, NOT that they are redundant.
 budget on merit. Decided with the user 2026-09-02. Sequenced BEFORE the
 is2/trz/varopr republish so that one republish serves both (and re-measures the
 budget against the new shapes), rather than publishing twice.
+
+
+---
+
+## RESOLVED 2026-09-03
+
+Full republish `aebc5638-7892-41e3-b918-121a74c9a778`: 56,774 objects,
+2,226,644,593 bytes total (down from 3,310,309,807, **-32.7%**).
+
+**No ceiling was moved.** Every page kind passes its pre-existing
+`budgetMaxBytes` on merit, after the two shrinks that preceded this run:
+
+| page | budget | before | after | margin |
+|---|---|---|---|---|
+| teams | 3,500,000 | 3,704,776 (over) | **1,435,371** | 2,064,629 under |
+| team | 375,000 | 675,956 (over) | **366,310** | 8,690 under |
+| event | 350,000 | 342,405 | **160,071** | 189,929 under |
+
+The team page was expected to land at ~378,843 and need a deliberate bump to
+400,000. It came in at 366,310 — **under the existing budget** — so the bump was
+dropped. Predicting a ceiling change and then not needing it is the right
+direction to be wrong in.
+
+Live manifest now serves `opr@4.0.0+baseline`, `epa@2.0.0+baseline`,
+`vpr@5.0.0+tuned-2026-08`. Full repo suite: **167/167 files, 2,893 passing** —
+green for the first time since 2026-08-26.
