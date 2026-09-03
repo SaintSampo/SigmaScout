@@ -12,6 +12,10 @@ priority: high
 > the end of this file). Per D-1, this work is sequenced onto `retune-sigma1-rolling-origin`
 > and rides its promotion and republish — it is not to be run standalone.
 >
+> **D-5 was added the same day:** Compare displays only origin seasons, so 2022 and 2023
+> come off the accuracy tables entirely. That closes D-4's open sub-question and turns the
+> `seasonLabel` enum migration into a deletion.
+>
 > **D-3 was revised later the same day** and now defines the scheme's steady state: the live
 > season always runs its own origin set, so 2027 is tuned on 2022–2026 and origins become
 > 2024/2025/2026/2027. Read D-3 in full before running the re-tune — it changes that todo's
@@ -235,20 +239,75 @@ about the scheme.
 more joint search runs, and it weakens the one-screen leak-free argument the current run
 shape rests on.
 
-**Open sub-question, surfaced by D-4 (2026-09-03): which parameter set scores 2022 and
-2023?** All five seasons are published and displayed on Compare today —
-`compare-2022.json` through `compare-2026.json` all exist, and every 2022/2023/2024 slice
-currently carries `seasonLabel: "tune"`. Under the decided scheme neither 2022 nor 2023 has
-an origin, so neither has an honestly out-of-sample parameter set: any set that scores them
-was selected having already seen them. D-4 correctly removes their headline claim, but it
-does NOT say which set produces the numbers still shown for them. That must be decided
-before the republish, and it is not decided here.
+**Sub-question surfaced by D-4, and CLOSED by D-5 below (2026-09-03).** All five seasons
+are published and displayed on Compare today — `compare-2022.json` through
+`compare-2026.json` all exist, and every 2022/2023/2024 slice currently carries
+`seasonLabel: "tune"`. Under the decided scheme neither 2022 nor 2023 has an origin, so
+neither has an honestly out-of-sample parameter set: any set that scores them was selected
+having already seen them. D-4 removed their headline claim but did not say which set
+produces the numbers still shown for them. **D-5 answers it by removing the numbers rather
+than sourcing them.**
+
+### D-5 — What Compare displays: ANSWERED — only origin seasons
+
+**Decided 2026-09-03 by the user**, closing the sub-question above.
+
+Compare displays **only seasons that have an origin** — i.e. only seasons the project can
+honestly score. Today that is **2024 / 2025 / 2026**, with 2027 joining under D-3. The
+non-origin seasons 2022 and 2023 are not displayed on Compare at all, so no parameter set
+needs to be nominated to score them and the sub-question above does not need an answer.
+
+**Reading of "tune seasons", stated because the word is overloaded.** This means seasons
+with **no origin** — 2022 and 2023. It does NOT mean the currently-shipped
+`seasonLabel: "tune"` set, which also contains 2024. 2024 is an origin under the decided
+scheme and is headline-eligible; it stays on Compare.
+
+**This SIMPLIFIES the contract change D-1 carries, rather than adding to it.** If every
+displayed slice is an origin season, then `seasonLabel` and `headlineEligible` are constant
+across everything published — every slice is eligible. The "Also implied" note below
+originally called for migrating `z.enum(["tune","holdout"])` to a new three-value
+vocabulary. Under D-5 the right move is **deletion, not re-vocabularization**:
+
+- `CompareSliceSchema.seasonLabel` and `headlineEligible` (`artifact.ts:51-53`,
+  `pageArtifacts.ts:1219-1220`) lose their reason to exist.
+- `report.ts`'s two-tone styling (`holdout-row`/`tune-row` at :81, `bar-holdout`/`bar-tune`
+  at :188, the label badge at :82) collapses to one tone.
+- `apps/web/src/components/compare/MethodologyNote.tsx` loses its subject — it exists to
+  explain the tune-versus-holdout distinction to readers.
+
+**The cost, which is NOT "delete two rows".** `COMPARE_SEASONS` is not its own list; it is
+derived from the site-wide `SEASONS` constant, and `apps/web/src/lib/api/compare.ts:43-48`
+states the invariant in as many words: *"There is therefore exactly one source of 'which
+seasons exist' in this codebase; a `CURRENT_SEASON` bump automatically reaches this page."*
+D-5 **deliberately breaks that invariant**: Compare needs its own, narrower list of origin
+seasons, separate from the site-wide list. This is intentional and must not be "fixed" back
+— the site legitimately still has 2022 and 2023 data on team and event pages, and only the
+*accuracy comparison* is restricted to seasons that can be honestly scored. Whoever
+implements this should leave a comment at that seam saying so.
+
+**What does NOT change.** 2022 and 2023 stay in the corpus and stay load-bearing as
+*selection* seasons — they are what the 2024 origin is tuned on. They also stay on team and
+event pages. D-5 scopes to the Compare page's accuracy tables only.
+
+**Why the user judged the coverage loss acceptable:** the corpus is planned to extend back
+to 2016, at which point the stranded seasons are 2016–2017 rather than 2022–2023 and the
+displayed set grows to roughly eight seasons. That backfill was **not tracked anywhere** as
+of 2026-09-03 and is now filed as `extend-corpus-to-2016`, including the 2020/2021
+complication that affects it.
+
+**Rejected:** nominating a parameter set to score 2022/2023 and displaying them with a
+caveat (keeps two seasons on the page, but every such number is in-sample by construction —
+the exact thing this todo exists to remove); displaying them greyed out or below a fold
+(same problem, more UI).
 
 ### Also implied
 
-`CompareSliceSchema.seasonLabel` is `z.enum(["tune","holdout"])` — the enum still needs a
-new vocabulary (e.g. `rolling`/`thin-prior`/`untuned`), which is a published-contract
-change; per D-1 it rides the re-tune's republish rather than shipping standalone. The
+`CompareSliceSchema.seasonLabel` is `z.enum(["tune","holdout"])`. This note originally
+called for migrating it to a new three-value vocabulary (`rolling`/`thin-prior`/`untuned`).
+**Superseded by D-5:** since only origin seasons are displayed, the field and its derived
+`headlineEligible` are constant across every published slice and should be **deleted**, not
+re-vocabularized. It is still a published-contract change, and per D-1 it still rides the
+re-tune's republish rather than shipping standalone. The
 leakage test this section used to describe as pending (acceptance criterion 1: a test
 proving a search cannot read a season at or after its evaluation target) already shipped in
 `260901-trz`.
