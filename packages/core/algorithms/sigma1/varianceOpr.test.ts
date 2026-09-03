@@ -5,8 +5,10 @@
  *
  * The three-estimator RECOVERY comparison against known synthetic sigma lives
  * in `varianceOpr.recovery.test.ts`; this file covers the accumulator's own
- * algebra, the rank-deficiency answer, the memo, and the clamp.
+ * algebra, the rank-deficiency answer, the memo, and D-N1's non-negative
+ * least-squares solve (which replaced the retired `Math.max(0, x)` clamp).
  */
+import { CholeskyDecomposition, Matrix } from "ml-matrix";
 import { describe, expect, it } from "vitest";
 import {
   SIGMA1_VARIANCE_OPR_RIDGE,
@@ -185,18 +187,19 @@ describe("solveEventVariance — rank deficiency answered by the math (D-V2)", (
     expect(solveEventVariance(emptyEventVarianceAccumulator(), SIGMA1_VARIANCE_OPR_RIDGE).size).toBe(0);
   });
 
-  it("a solved value that the least-squares fit wants NEGATIVE is clamped at 0 (D-V1)", () => {
+  it("a solved value that the UNCONSTRAINED fit wants NEGATIVE is pinned at exactly 0 (D-N1)", () => {
     // sigma_A + sigma_B = 10, sigma_B + sigma_C = 200, sigma_A + sigma_C = 0
-    // has the exact solution sigma_A = -95, which is not a variance. The clamp
-    // returns 0; `teamMetrics` then OMITS the spread rather than publishing
-    // `0 ±`, because a clamped value means the additive model failed for that
-    // team and `0 ±` would claim perfection.
+    // has the exact unconstrained solution sigma_A = -95, which is not a
+    // variance. The non-negativity constraint binds and returns exactly 0;
+    // `teamMetrics` then OMITS the spread rather than publishing `0 ±`, because
+    // a pinned value means the additive model failed for that team and `0 ±`
+    // would claim perfection.
     let acc = fold(emptyEventVarianceAccumulator(), ["A", "B"], 10);
     acc = fold(acc, ["B", "C"], 200);
     acc = fold(acc, ["A", "C"], 0);
     const solved = solveEventVariance(acc, 1e-6);
     expect(solved.get("A")![KEY]).toBe(0);
-    // Non-vacuity: the other two are genuinely positive, so the clamp is
+    // Non-vacuity: the other two are genuinely positive, so the constraint is
     // selective rather than flattening the whole solve.
     expect(solved.get("B")![KEY]).toBeGreaterThan(0);
     expect(solved.get("C")![KEY]).toBeGreaterThan(0);
@@ -212,6 +215,131 @@ describe("solveEventVariance — rank deficiency answered by the math (D-V2)", (
     // vBar is 400 and every row agrees, so the ridge pulls toward the same
     // value the data states: exactly 400 (a variance), not 20 (its SD).
     expect(solved.get("SOLO")![KEY]).toBeCloseTo(400, 9);
+  });
+});
+
+/**
+ * D-N1 (quick task 260903-5dp): the two assertions that decide whether the
+ * non-negative least-squares solve replaced the retired `Math.max(0, x)` clamp
+ * CORRECTLY, rather than merely replacing it.
+ *
+ * They are a pair on purpose and neither is sufficient alone. The first proves
+ * the change is SURGICAL — where the constraint is inactive, nothing moved, to
+ * the bit. The second proves the change is REAL — where the constraint binds,
+ * NNLS returns a genuinely different vector rather than the clamp's answer
+ * under a new name. A change that passed only the first would be a no-op; a
+ * change that passed only the second would have moved numbers it had no
+ * business moving.
+ */
+describe("solveEventVariance — non-negative least squares (D-N1)", () => {
+  /** Rebuilds the exact system `solveEventVariance` builds, so the reference solve is the real one and not an approximation of it. */
+  function ridgedSystem(acc: EventVarianceAccumulator, lambda: number): { a: Matrix; b: Matrix } {
+    const n = acc.teamOrder.length;
+    const a = Matrix.zeros(n, n);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) a.set(i, j, acc.gram[i]?.[j] ?? 0);
+      a.set(i, i, a.get(i, i) + lambda);
+    }
+    const vBar = (acc.vBarSums[KEY] ?? 0) / acc.rowCount;
+    const b = Matrix.zeros(n, 1);
+    for (let i = 0; i < n; i++) b.set(i, 0, (acc.targets[KEY]![i] ?? 0) + lambda * vBar);
+    return { a, b };
+  }
+
+  it("is BITWISE the plain Cholesky solve whenever the unconstrained solution is already non-negative", () => {
+    // sigma_A + sigma_B = 100, sigma_B + sigma_C = 140, sigma_A + sigma_C = 120
+    // solves to (40, 60, 80) — every component strictly positive, so the
+    // constraint is INACTIVE and the KKT conditions are already satisfied by
+    // the unconstrained answer. NNLS must therefore return that answer
+    // UNCHANGED, not a re-derivation of it that agrees to nine decimals.
+    //
+    // `toBe` (Object.is), never `toBeCloseTo`: a tolerance here would pass for
+    // an implementation that quietly re-solves every column through the
+    // active-set path and lands a few ULPs away, which is exactly the
+    // non-surgical outcome this assertion exists to rule out — and which would
+    // move the published `±` for the ~65% of cells that were never clamped.
+    let acc = fold(emptyEventVarianceAccumulator(), ["A", "B"], 100);
+    acc = fold(acc, ["B", "C"], 140);
+    acc = fold(acc, ["A", "C"], 120);
+
+    const { a, b } = ridgedSystem(acc, SIGMA1_VARIANCE_OPR_RIDGE);
+    const reference = new CholeskyDecomposition(a).solve(b);
+    // Non-vacuity: the premise of this test is that the reference is positive.
+    for (let i = 0; i < 3; i++) expect(reference.get(i, 0)).toBeGreaterThan(0);
+
+    const solved = solveEventVariance(acc, SIGMA1_VARIANCE_OPR_RIDGE);
+    acc.teamOrder.forEach((team, i) => {
+      expect(solved.get(team)![KEY]).toBe(reference.get(i, 0));
+    });
+  });
+
+  it("RE-OPTIMISES the surviving components when the constraint binds, rather than zeroing one and keeping the rest", () => {
+    // The distinction this pins is the entire point of D-N1, worked by hand.
+    //
+    // Design rows (residual^2 on the right):
+    //     A + B = 10        B + C = 200        A + C = 0
+    // Unconstrained, this is exactly determined: A = -95, B = 105, C = 95.
+    // A = -95 is not a variance, so the constraint binds on A.
+    //
+    // The RETIRED clamp would publish max(0, .) = (0, 105, 95) — B and C left
+    // at values fitted while A was allowed to absorb -95 of residual.
+    //
+    // NNLS instead re-solves the remaining free components with A HELD AT 0,
+    // i.e. minimizes (B - 10)^2 + (B + C - 200)^2 + (C - 0)^2 over B, C >= 0:
+    //     d/dB:  2(B - 10) + 2(B + C - 200) = 0  ->  2B +  C = 210
+    //     d/dC:  2(B + C - 200) + 2C        = 0  ->   B + 2C = 200
+    //     ->  B = 220/3 = 73.333...,  C = 190/3 = 63.333...
+    // Both are strictly positive, and the KKT check at A holds:
+    //     df/dA = 2(A + B - 10) + 2(A + C - 0) = 2(190/3) + 2(190/3) > 0,
+    // so pushing A above 0 would only increase the residual. (0, 220/3, 190/3)
+    // is the constrained optimum.
+    //
+    // lambda is 1e-6 rather than 0 solely to keep the system positive definite
+    // (`solveEventVariance` requires it); at that size it perturbs the answer
+    // in the sixth decimal, which is why the assertions below carry precision 4.
+    let acc = fold(emptyEventVarianceAccumulator(), ["A", "B"], 10);
+    acc = fold(acc, ["B", "C"], 200);
+    acc = fold(acc, ["A", "C"], 0);
+    const solved = solveEventVariance(acc, 1e-6);
+
+    expect(solved.get("A")![KEY]).toBe(0);
+    expect(solved.get("B")![KEY]).toBeCloseTo(220 / 3, 4);
+    expect(solved.get("C")![KEY]).toBeCloseTo(190 / 3, 4);
+
+    // And explicitly NOT `max(0, cholesky)`. Asserted as a separate, negative
+    // statement so that a future revert to the clamp cannot be made to pass by
+    // loosening the tolerances above.
+    expect(solved.get("B")![KEY]).not.toBeCloseTo(105, 1);
+    expect(solved.get("C")![KEY]).not.toBeCloseTo(95, 1);
+  });
+
+  it("is DETERMINISTIC across two structurally identical but distinct accumulators, to the bit", () => {
+    // The memo returns the identical OBJECT for a repeated call, so re-solving
+    // the same accumulator proves nothing about the solver. Two separately
+    // built, structurally equal accumulators are different WeakMap keys, so
+    // both of these genuinely run the active-set loop — and the whole reason
+    // D-N1 forbids a tolerance-terminated method is that this must hold
+    // bitwise, since promoted digests and published artifacts are pinned that
+    // way.
+    const build = (): EventVarianceAccumulator => {
+      let acc = fold(emptyEventVarianceAccumulator(), ["A", "B", "C"], 10);
+      acc = fold(acc, ["B", "C", "D"], 400);
+      acc = fold(acc, ["A", "C", "D"], 0);
+      acc = fold(acc, ["A", "B", "D"], 250);
+      return acc;
+    };
+    const first = solveEventVariance(build(), 1e-3);
+    const second = solveEventVariance(build(), 1e-3);
+    expect(first).not.toBe(second);
+
+    // Non-vacuity: this system must actually EXERCISE the constraint, or the
+    // test would be re-proving the unconstrained fast path above.
+    const pinned = [...first.values()].filter((perKey) => perKey[KEY] === 0).length;
+    expect(pinned).toBeGreaterThan(0);
+
+    for (const team of ["A", "B", "C", "D"]) {
+      expect(second.get(team)![KEY]).toBe(first.get(team)![KEY]);
+    }
   });
 });
 

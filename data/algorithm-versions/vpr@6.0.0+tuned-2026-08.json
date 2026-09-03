@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "5.0.0",
+  "codeVersion": "6.0.0",
   "paramSetName": "tuned-2026-08",
-  "version": "5.0.0+tuned-2026-08",
+  "version": "6.0.0+tuned-2026-08",
   "params": {
     "processNoiseWithinEventRel": 0.00014123880999220739,
     "processNoiseEventBoundaryRel": 0.0009725587575408342,
@@ -33,7 +33,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-joint-off.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-02T15:43:41.217Z",
+    "promotedAt": "2026-09-03T08:18:43.956Z",
     "objective": 0.17076606538105618,
     "tuneSeasons": [
       2022,

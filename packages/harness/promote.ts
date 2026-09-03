@@ -81,9 +81,18 @@
  * machine-readable tag naming the map applied). It sets
  * `objectiveAppliesToPromotedParams: false` UNCONDITIONALLY, even with no
  * `--set-param`: the recorded objective was computed by a DIFFERENT code
- * version on a DIFFERENTLY-SHAPED parameter set, so it does not describe the
- * shipped set. That is a stronger statement than the `--set-param` case, not
- * a weaker one.
+ * version, so it does not describe the shipped set. That is a stronger
+ * statement than the `--set-param` case, not a weaker one.
+ *
+ * A SHAPE CHANGE IS NOT REQUIRED for any of the above. The 5.0.0 -> 6.0.0 bump
+ * (quick task 260903-5dp, D-N3) went through this path with the parameter shape
+ * completely unchanged — the code version had to move because the OUTPUT moved,
+ * which is D-13's rule, and re-promoting through a real replay is what proves
+ * the digest still reproduces. That promotion records `derivedFromVersion` and
+ * `objectiveAppliesToPromotedParams: false` like any other, but NO
+ * `paramShapeMigration`, since naming a no-op map would be a false provenance
+ * entry. `--from-version` is therefore the tool for "the code changed" as much
+ * as for "the shape changed".
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -507,6 +516,22 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
   let paramShapeMigration: string | undefined;
   if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
     params = Sigma1ParamsSchema.parse(sourceVersion.params);
+  } else if (sourceVersion.codeVersion.startsWith("5.")) {
+    // D-N3 (quick task 260903-5dp): 5.0.0 -> 6.0.0 is the first bump whose
+    // parameter SHAPE did not change at all. No field was added, removed or
+    // renamed — only the variance solve's terminal behaviour did (post-hoc
+    // clamp -> non-negative least squares) — so the CURRENT schema validates a
+    // 5.x file directly and there is nothing to map.
+    //
+    // Deliberately NOT given a `paramShapeMigration` tag, and this branch's
+    // existence is why: a tag naming a no-op migration would put a false entry
+    // in the provenance of every file promoted through here, and
+    // `legacyParams.ts`'s "each retired shape gets a schema of its own" rule
+    // does not apply to a shape that was never retired. `derivedFromVersion`
+    // and `objectiveAppliesToPromotedParams: false` are still recorded below —
+    // the objective was computed by a DIFFERENT code version, which is true
+    // whether or not the shape moved.
+    params = Sigma1ParamsSchema.parse(sourceVersion.params);
   } else if (sourceVersion.codeVersion.startsWith("4.")) {
     // D-V4 (quick task 260902-varopr): 4.0.0 -> 5.0.0. Its own frozen schema,
     // BESIDE the 3.x one rather than replacing it — see `legacyParams.ts`.
@@ -523,7 +548,7 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
   } else {
     throw new Error(
       `promote --from-version: ${fromVersionPath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
-        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 4.x and 3.x are the migratable shapes). Refusing to guess at a shape it has never seen.`
+        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 5.x is shape-identical and 4.x/3.x are the migratable shapes). Refusing to guess at a shape it has never seen.`
     );
   }
 
@@ -755,7 +780,15 @@ async function main(): Promise<void> {
   if (source.provenance.derivedFromVersion !== undefined) {
     console.log(`  derivedFromVersion: ${source.provenance.derivedFromVersion}`);
     console.log(`  paramShapeMigration: ${source.provenance.paramShapeMigration ?? "(none — source already used the current shape)"}`);
-    console.log(`  NOTE: provenance.objective was computed by a DIFFERENT code version on a DIFFERENTLY-SHAPED parameter set.`);
+    // The shape half of this warning is only true when a map actually ran. A
+    // same-shape promotion (5.0.0 -> 6.0.0) must not print a claim about a
+    // reshaping that did not happen — the code-version half is what is always
+    // true, and overstating it here is how a terminal log stops being evidence.
+    console.log(
+      source.provenance.paramShapeMigration !== undefined
+        ? `  NOTE: provenance.objective was computed by a DIFFERENT code version on a DIFFERENTLY-SHAPED parameter set.`
+        : `  NOTE: provenance.objective was computed by a DIFFERENT code version (the parameter shape is unchanged).`
+    );
   }
   console.log(`  slice: season ${sliceSeason}, ${sliceEventKeys.length} events, ${records.length} matches`);
   // Task 4: a promotion that silently applied an override must be

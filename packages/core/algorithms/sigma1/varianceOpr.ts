@@ -19,11 +19,47 @@
  * That is LINEAR in the unknowns with a 0/1 team-membership design matrix `X`
  * — structurally identical to OPR, with SQUARED RESIDUALS as the target and
  * VARIANCE as the unknown instead of points and rating. Solve by least
- * squares; clamp a negative solution at 0 (a variance cannot be negative). A
- * proper NNLS would be better and is a documented future refinement, not a
- * blocker — the CLAMP RATE is measured on both the synthetic harness and a
- * real corpus event by `scripts/measureVarianceOpr.ts`, and a non-trivial rate
- * is the finding that would motivate it.
+ * squares SUBJECT TO `beta >= 0`, because a variance cannot be negative.
+ *
+ * ---------------------------------------------------------------------------
+ * THE CONSTRAINT IS IN THE SOLVE, NOT AFTER IT (D-N1, quick task 260903-5dp)
+ * ---------------------------------------------------------------------------
+ *
+ * This module shipped once (`SIGMA1_CODE_VERSION` 5.0.0) with an unconstrained
+ * Cholesky solve followed by a per-entry `Math.max(0, x)`. That was the wrong
+ * terminal behaviour, and the measurement that says so is not a preference:
+ * against the published 2026 teams artifact
+ * (`teams/2026/vpr@5.0.0+tuned-2026-08.json`, fetched 2026-09-03) the clamp
+ * left 34.9% of metric cells with NO `±` at all, spread across 97.7% of teams,
+ * NONE of which had zero matches. The inversion is the point — noise around a
+ * genuinely SMALL variance is what solves slightly negative, so the clamp hid
+ * the interval for exactly the robots whose consistency was most worth showing.
+ *
+ * A clamp answers the wrong question and then edits the answer: it finds the
+ * beta that best fits the data over ALL of R^n, discovers that beta is not a
+ * variance vector, and truncates it. The constrained estimator asks the right
+ * question instead — the beta that best fits the data over the FEASIBLE set —
+ * and its answer is a different vector, not a truncation of the first one.
+ * Pinning one team at zero frees residual budget that lifts a co-appearing
+ * teammate, so the other components MOVE. `varianceOpr.test.ts` pins a
+ * hand-worked system where NNLS and `max(0, cholesky)` differ, precisely so
+ * "this is just the clamp with extra steps" is refutable rather than arguable.
+ *
+ * The solver is LAWSON-HANSON ACTIVE-SET NNLS (`solveNonNegativeLeastSquares`
+ * below). It was chosen for DETERMINISM, not for speed: it terminates finitely
+ * on a fixed pivot rule with no convergence epsilon anywhere, which is what
+ * this repo's bitwise-pinned digests require. A projected-gradient or
+ * coordinate-descent solver whose answer depends on an iteration count or a
+ * tolerance would not be acceptable here at any accuracy.
+ *
+ * NNLS DOES NOT CLEAR THE BLANK CELLS. It still returns EXACTLY 0 for a team
+ * the data cannot support, and measured on the real 2026 season it returns 0
+ * MORE OFTEN than the clamp did: 40.2% of published cells against 34.9%. That
+ * is the opposite of what this change was expected to buy, it is not a defect
+ * in the solve (which is verified KKT-optimal), and it is recorded rather than
+ * smoothed. `SIGMA1_VARIANCE_OPR_RIDGE`'s block carries the full before/after
+ * table, the mechanism, and the optimality evidence — read it before drawing
+ * any conclusion about coverage from this module.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS EXISTS: SCALE, NOT RANKING
@@ -126,8 +162,14 @@
  * not the same kind of thing. A sample standard deviation over one point
  * genuinely DOES NOT EXIST (`0/0`); a ridge-regularized solve has a defined,
  * honest answer at one row. Omitting there would be a THRESHOLD, not a domain
- * check. The one omission `teamMetrics` does make is at a CLAMPED (`<= 0`)
- * solve, where publishing `0 ±` would be a positive claim of perfection.
+ * check. The one omission `teamMetrics` does make is at a solve PINNED AT
+ * EXACTLY 0 by the non-negativity constraint, where publishing `0 ±` would be
+ * a positive claim of perfection. The RULE is unchanged by D-N1 — a pinned
+ * team still says "the data will not support a positive variance here", and
+ * that is still not `0 ±`. What D-N1 changed is how OFTEN the rule fires, and
+ * it fires MORE often, not less (`SIGMA1_VARIANCE_OPR_RIDGE`'s measured table).
+ * Whether omission is still the right answer at that rate is an OPEN product
+ * question this module does not get to settle on its own.
  *
  * ---------------------------------------------------------------------------
  * WHY THE NORMAL EQUATIONS ARE ACCUMULATED, NOT THE RAW OBSERVATIONS
@@ -181,22 +223,76 @@ import { CholeskyDecomposition, Matrix } from "ml-matrix";
  *     effective league wt    0.00   0.174  0.290  ~0.40  0.502
  *     teams with NO spread   35.3%  27.5%  21.6%  13.4%  6.3%
  *
- * THE LAST ROW IS AN UNRESOLVED PRODUCT TRADE, not a settled one. A team whose
- * solve lands on a non-positive variance publishes no `±` at all (see
- * `teamMetrics`'s `spreadOf`), and lowering lambda to buy discrimination buys it
- * partly by turning numbers into blanks: at 2, better than a quarter of a
- * 40-team event shows nothing. These are not thin-history teams — they have a
- * full 12 matches; their estimate simply lands below zero as noise around a
- * genuinely small variance.
+ * EVERY ROW OF THAT TABLE WAS MEASURED UNDER THE RETIRED CLAMP, before D-N1,
+ * and it is kept verbatim rather than re-run because it is the evidence that
+ * SELECTED this lambda and because D-N4 defers the re-measurement to its own
+ * task. Read it as the clamp-era record it is: the slope/RMSE/league-weight
+ * rows will all move somewhat under the constrained solve, and the last row —
+ * which is what motivated D-N1 in the first place — is already known to move a
+ * lot (see the before/after below). No conclusion about NNLS should be drawn
+ * from these four rows.
  *
- * There is no lambda that is good on all three rows, and the honest reading is
- * that clamping-then-omitting is the wrong terminal behaviour rather than
- * lambda being wrong. The principled fix is a NON-NEGATIVE least squares solve,
- * which constrains beta >= 0 DURING the solve instead of discarding negatives
- * after it — variances are non-negative by definition, so that is the more
- * correct estimator, not a workaround. It would make the low-lambda regime
- * viable and is the recommended next step. Do not "fix" the blank rate by
- * raising lambda: 7 already reaches the rejected 0.400 league weight.
+ * A team whose solve lands on a non-positive variance publishes no `±` at all
+ * (see `teamMetrics`'s `spreadOf`), and under the clamp, lowering lambda to buy
+ * discrimination bought it partly by turning numbers into blanks. Those were
+ * never thin-history teams — they had a full 12 matches; the unconstrained
+ * estimate simply landed below zero as noise around a genuinely small variance.
+ *
+ * The honest reading was that clamping-then-omitting was the wrong TERMINAL
+ * BEHAVIOUR rather than lambda being wrong, and that is what D-N1 changed: the
+ * solve now constrains `beta >= 0` DURING the fit (`solveNonNegativeLeastSquares`).
+ *
+ * WHAT THAT ACTUALLY COST, MEASURED RATHER THAN ASSUMED (D-N2, quick task
+ * 260903-5dp). Full 2022-2026 replay with season carry, promoted
+ * `tuned-2026-08` params at this lambda, counting published metric cells for
+ * every 2026 team against its own last event — the same population the site's
+ * `teams/2026` artifact publishes, and the BEFORE row reproduces that live
+ * artifact exactly, which is what makes the AFTER row comparable:
+ *
+ *     terminal behaviour        cells with no ±        teams missing >= 1
+ *     Math.max(0, cholesky)     34.9%  (19,436)        97.7%  (3,632)
+ *     Lawson-Hanson NNLS        40.2%  (22,412)        98.8%  (3,675)
+ *
+ * THE BLANK RATE WENT UP, NOT DOWN. That inverts the expectation D-N1 was
+ * written under and it is recorded here in full rather than smoothed, because
+ * the number is the finding. 214 cells GAINED a `±`; 3,190 LOST one. Teams with
+ * every cell blank went 2 -> 4.
+ *
+ * WHY, and why this is not a bug: the constraint propagates zeros OUTWARD. In
+ * the unconstrained fit a negative `beta` is slack — it lets a co-appearing
+ * teammate take a LARGER positive value and still sum to the observed `e^2`.
+ * The clamp discarded the negative and KEPT the inflated positive it was
+ * propping up. Forbidding the negative during the solve removes the need for
+ * that inflation, so the teammate shrinks, and often to the boundary. Fewer
+ * intervals survive, and the ones that do are no longer partly an artifact of a
+ * neighbour's impossible variance.
+ *
+ * The solve is verified OPTIMAL rather than merely different, on these same
+ * real accumulators: across 3,795 (event x metric key) systems the constrained
+ * objective `0.5*beta'A beta - b'beta` is strictly LOWER than the clamp's in
+ * 3,715 and higher in ZERO (both vectors are feasible, so this is a like-for-
+ * like comparison); no component is ever returned negative; and the KKT
+ * residual is at machine precision (worst `|w|` on the passive set 1.0e-15,
+ * worst POSITIVE `w` on the active set exactly 0). The estimator is right. The
+ * DISPLAY RULE it feeds is what the number above indicts.
+ *
+ * That residual is a REAL, OPEN product question — publish `0 ±` (a false claim
+ * of perfect consistency), fall back to `vBar` (the rule zero-row teams already
+ * get from the algebra), or leave the cell blank — and D-N2 deliberately does
+ * NOT answer it with a display rule invented inside this module. Nothing was
+ * republished on the strength of this change; the live artifacts still carry
+ * the 5.0.0 numbers until that decision is made.
+ *
+ * D-N4: lambda is NOT re-picked here. `2` was selected against synthetic data
+ * whose true-sigma distribution was invented rather than measured, and it is
+ * the known-weakest link in this chain. Re-picking it on real data is a
+ * SEPARATE task that must run AFTER this one, because the blank rate it is
+ * partly chosen on is exactly what the table above just moved — and moved in
+ * the direction that makes the re-pick MORE consequential, not less. The
+ * `teams with NO spread` row above still falls as lambda rises, so lambda is
+ * now the live lever on this trade rather than a settled constant. Do NOT
+ * pre-empt that by raising lambda here: 7 already reaches the 0.400 league
+ * weight this project rejected.
  *
  * The last row is the constraint, and it is the one the first attempt missed.
  * It answers "how much of a published number is the LEAGUE rather than this
@@ -328,6 +424,220 @@ export class VarianceSolveNotPositiveDefiniteError extends Error {
   }
 }
 
+/**
+ * Thrown when the active-set loop exceeds its STRUCTURAL iteration bound.
+ *
+ * This is not a convergence tolerance, and the distinction is the whole reason
+ * D-N1 names Lawson-Hanson specifically. The method terminates FINITELY: every
+ * outer iteration either strictly decreases a strictly-convex objective over a
+ * passive set that therefore can never repeat, or permanently blocks the index
+ * it just admitted (`solveNonNegativeLeastSquares`'s zero-step rule), so the
+ * loop is bounded by how many index subsets it can visit. The bound below is an
+ * ASSERTION that the floating-point arithmetic behaved the way that proof
+ * requires — reaching it means round-off broke the strict decrease.
+ *
+ * It THROWS rather than returning the current iterate, for the same reason
+ * `VarianceSolveNotPositiveDefiniteError` aborts: a "best effort so far" would
+ * turn a broken solve into a plausible-looking `±` on a team page, and a
+ * plausible-looking wrong number is worse than a stopped run.
+ */
+export class VarianceNnlsIterationGuardError extends Error {
+  constructor(
+    readonly teamCount: number,
+    readonly metricKey: string,
+    readonly context: string
+  ) {
+    super(
+      `solveEventVariance: the non-negative active-set solve for metric key "${metricKey}" at ${context} ` +
+        `(${teamCount} teams) exceeded its structural iteration bound. Lawson-Hanson terminates finitely for a ` +
+        `positive-definite system, so reaching this bound means floating-point round-off broke that guarantee — ` +
+        `the run aborts rather than publishing a spread derived from an unfinished solve.`
+    );
+    this.name = "VarianceNnlsIterationGuardError";
+  }
+}
+
+/**
+ * Solves `A[P,P] z = b[P]` for the current PASSIVE set `P`, returning a
+ * full-length vector with an exact `0` in every ACTIVE position.
+ *
+ * `P` is materialized in ASCENDING INDEX ORDER, never in the order indices were
+ * admitted. That is a determinism requirement rather than tidiness: Cholesky is
+ * not permutation-invariant in floating point, so an insertion-ordered
+ * submatrix would make the published number depend on the path the active set
+ * took to arrive at a set, not just on the set. Ascending order makes the
+ * subproblem a pure function of `P`.
+ *
+ * `A` is positive definite (the ridge guarantees it — see
+ * `VarianceSolveNotPositiveDefiniteError`), and every PRINCIPAL SUBMATRIX of a
+ * positive-definite matrix is itself positive definite, so this factorization
+ * cannot legitimately fail. `fail` is called if it does, so NNLS can never mask
+ * a broken Gram matrix by quietly dropping the offending rows.
+ */
+function solveOnPassiveSet(
+  a: Matrix,
+  b: readonly number[],
+  passive: readonly boolean[],
+  fail: () => never
+): number[] {
+  const n = b.length;
+  const indices: number[] = [];
+  for (let i = 0; i < n; i++) if (passive[i]) indices.push(i);
+
+  const size = indices.length;
+  const sub = Matrix.zeros(size, size);
+  const rhs = Matrix.zeros(size, 1);
+  for (let r = 0; r < size; r++) {
+    const row = indices[r]!;
+    for (let c = 0; c < size; c++) sub.set(r, c, a.get(row, indices[c]!));
+    rhs.set(r, 0, b[row]!);
+  }
+
+  const chol = new CholeskyDecomposition(sub);
+  if (!chol.isPositiveDefinite()) fail();
+  const z = chol.solve(rhs);
+
+  const s = new Array<number>(n).fill(0);
+  for (let r = 0; r < size; r++) s[indices[r]!] = z.get(r, 0);
+  return s;
+}
+
+/**
+ * LAWSON-HANSON ACTIVE-SET NNLS (D-N1), applied to the ALREADY-RIDGED normal
+ * equations for ONE metric key.
+ *
+ * Minimizes `0.5 * beta' A beta - b' beta` subject to `beta >= 0`, which is the
+ * non-negatively constrained form of `A beta = b` — i.e. of
+ * `(X'X + lambda*I) beta = X'y + lambda*vBar`. `A` is positive definite, so the
+ * objective is STRICTLY convex over a convex feasible set and the minimizer is
+ * unique: there is exactly one right answer here, and this function's job is to
+ * find it deterministically rather than to approximate it.
+ *
+ * The formulation takes `A` and `b` (the Gram form) rather than a design matrix
+ * and observations, matching Bro & De Jong's "fast NNLS" restatement of the
+ * same algorithm. That is not an optimization choice — the accumulator stores
+ * only `X'X` and `X'y` and has no raw observations to hand a textbook NNLS.
+ *
+ * WHY THIS ALGORITHM AND NOT A GRADIENT METHOD (D-N1). Every choice below is
+ * discrete and exact:
+ *
+ *   - The PIVOT RULE is `argmax w` over the active set with `>` (never `>=`),
+ *     so a tie resolves to the LOWEST index. One deterministic winner, always.
+ *   - The STEP is an exact line search to the nearest constraint boundary, a
+ *     closed-form ratio — not a tuned or backtracked step size.
+ *   - TERMINATION is the KKT condition itself (`w <= 0` on every active index),
+ *     reached in finitely many iterations. There is NO tolerance, NO epsilon
+ *     and NO iteration budget in the answer.
+ *
+ * That matters because this repo pins prediction-stream digests bitwise and
+ * publishes artifacts that must reproduce. A solver with a convergence epsilon
+ * would make the published `±` a function of how many iterations happened to
+ * run, which is not a property of the data.
+ *
+ * THE ZERO-STEP RULE (`blocked`) is the one guard the textbook algorithm does
+ * not state, because in exact arithmetic it cannot happen: `w[entering] > 0`
+ * implies the subproblem's `s[entering] > 0`, so the line search always makes
+ * progress. In floating point a marginal case can produce `s[entering] <= 0`,
+ * a zero-length step, and an admit/expel cycle on the same index forever.
+ * Blocking an index that produced a provably zero-length step retires it for
+ * the rest of THIS solve, which both guarantees termination and keeps the
+ * result a pure function of the inputs — no randomization, no perturbation, no
+ * epsilon.
+ */
+function solveNonNegativeLeastSquares(
+  a: Matrix,
+  b: readonly number[],
+  fail: () => never,
+  guard: () => never
+): number[] {
+  const n = b.length;
+  const x = new Array<number>(n).fill(0);
+  const passive = new Array<boolean>(n).fill(false);
+  const blocked = new Array<boolean>(n).fill(false);
+
+  // `w = b - A*x` is the NEGATIVE gradient of the objective. `x` starts at the
+  // feasible point 0, so `w` starts as `b` exactly.
+  const w = [...b];
+
+  // See `VarianceNnlsIterationGuardError`: assertions, not stopping criteria.
+  // The outer loop admits at most one index per pass and can revisit an index
+  // only after an expulsion; the inner loop expels at least one index per pass.
+  const outerBound = 4 * n + 16;
+  const innerBound = n + 8;
+
+  for (let outer = 0; ; outer++) {
+    if (outer > outerBound) guard();
+
+    let entering = -1;
+    let best = 0;
+    for (let i = 0; i < n; i++) {
+      if (passive[i] || blocked[i]) continue;
+      // `>` and not `>=`: the lowest index wins a tie. This is the only place
+      // the algorithm chooses anything, so it is the only place determinism
+      // could have been lost.
+      if (w[i]! > best) {
+        best = w[i]!;
+        entering = i;
+      }
+    }
+    // KKT satisfied: `x >= 0`, `w = 0` on the passive set by construction, and
+    // no active index has a strictly positive `w` left. `x` is THE minimizer.
+    if (entering === -1) return x;
+
+    passive[entering] = true;
+    const xBefore = [...x];
+
+    for (let inner = 0; ; inner++) {
+      if (inner > innerBound) guard();
+      const s = solveOnPassiveSet(a, b, passive, fail);
+
+      let minPassive = Infinity;
+      for (let i = 0; i < n; i++) if (passive[i] && s[i]! < minPassive) minPassive = s[i]!;
+      if (minPassive > 0) {
+        // The unconstrained solve over the passive set is itself feasible, so
+        // it is optimal for this set — accept it wholesale and go re-test KKT.
+        for (let i = 0; i < n; i++) x[i] = s[i]!;
+        break;
+      }
+
+      // Exact line search: move as far toward `s` as feasibility allows. The
+      // ratio is closed-form, and the minimum over the blocking indices is the
+      // largest feasible step.
+      let alpha = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (!passive[i] || s[i]! > 0) continue;
+        const denominator = x[i]! - s[i]!;
+        const step = denominator > 0 ? x[i]! / denominator : 0;
+        if (step < alpha) alpha = step;
+      }
+      if (!Number.isFinite(alpha)) alpha = 0;
+      for (let i = 0; i < n; i++) x[i] = x[i]! + alpha * (s[i]! - x[i]!);
+
+      // Everything the step drove to (or below) the boundary leaves the passive
+      // set, and is set to an EXACT 0 rather than a tiny negative residue — the
+      // published contract is that a constrained-out team's variance is exactly
+      // 0, which is what `teamMetrics`'s `spreadOf` tests.
+      for (let i = 0; i < n; i++) {
+        if (passive[i] && x[i]! <= 0) {
+          x[i] = 0;
+          passive[i] = false;
+        }
+      }
+    }
+
+    // The zero-step rule — see this function's doc comment. `entering` was
+    // admitted and expelled again without moving `x` at all, so admitting it
+    // again would repeat this pass forever.
+    if (!passive[entering] && x.every((value, i) => value === xBefore[i])) blocked[entering] = true;
+
+    for (let i = 0; i < n; i++) {
+      let ax = 0;
+      for (let k = 0; k < n; k++) ax += a.get(i, k) * x[k]!;
+      w[i] = b[i]! - ax;
+    }
+  }
+}
+
 function keySetOf(record: Readonly<Record<string, unknown>>): string[] {
   return Object.keys(record).sort();
 }
@@ -426,14 +736,28 @@ export function foldVarianceObservation(
 const SOLVE_MEMO = new WeakMap<EventVarianceAccumulator, Map<number, SolvedEventVariance>>();
 
 /**
- * Solves `(X'X + lambda*I) * beta = X'y + lambda * vBar` for every metric key
- * at once, returning per-team VARIANCES — never standard deviations. The
- * caller takes `Math.sqrt` only at the point of display, matching
- * `consistency.ts`'s boundary-contract convention.
+ * Solves `(X'X + lambda*I) * beta = X'y + lambda * vBar` SUBJECT TO
+ * `beta >= 0` for every metric key, returning per-team VARIANCES — never
+ * standard deviations. The caller takes `Math.sqrt` only at the point of
+ * display, matching `consistency.ts`'s boundary-contract convention.
  *
- * ONE Cholesky factorization serves every key: `A` does not depend on the key,
- * only the right-hand side does, so the key columns are solved as a single
- * multi-column right-hand side.
+ * ONE Cholesky factorization still serves every key for the UNCONSTRAINED
+ * solve: `A` does not depend on the key, only the right-hand side does, so the
+ * key columns go through as a single multi-column right-hand side exactly as
+ * they did at 5.0.0.
+ *
+ * THE CONSTRAINED SOLVE IS PER-RIGHT-HAND-SIDE and cannot be batched (D-N1).
+ * NNLS's active set is a property of ONE key's data — which teams the fit wants
+ * to push negative differs key by key — so the shared factorization has nothing
+ * to share past the unconstrained step and each column is solved on its own.
+ *
+ * A column whose unconstrained solution is ALREADY non-negative is returned
+ * VERBATIM, not re-derived: such a solution has `w = b - A*x = 0` with
+ * `x >= 0`, so it already satisfies the KKT conditions and IS the NNLS answer.
+ * That is both the fast path and the guarantee that this change is surgical —
+ * when the constraint is inactive the published number is BITWISE what 5.0.0
+ * published, and `varianceOpr.test.ts` pins that with an exact-equality
+ * assertion rather than a tolerance.
  *
  * `centreOnVBar: false` selects the ZERO-CENTRED ridge. It exists only so
  * `varianceOpr.test.ts` can run D-V2's negative control against the real solve
@@ -479,17 +803,46 @@ export function solveEventVariance(
   if (!chol.isPositiveDefinite()) {
     throw new VarianceSolveNotPositiveDefiniteError(lambda, n, acc.rowCount, context);
   }
-  const x = chol.solve(b);
+  const unconstrained = chol.solve(b);
+
+  const solvedColumns: number[][] = keys.map((key, column) => {
+    const candidate = new Array<number>(n);
+    let anyNegative = false;
+    for (let i = 0; i < n; i++) {
+      const value = unconstrained.get(i, column);
+      candidate[i] = value;
+      // `< 0` and not `!(>= 0)`: a NaN is passed through untouched, exactly as
+      // the retired `Math.max(0, NaN)` did. A NaN here would mean a corrupt
+      // accumulator, and inventing a different answer for it in this change
+      // would hide that rather than surface it.
+      if (value < 0) anyNegative = true;
+    }
+    if (!anyNegative) return candidate;
+
+    const rhs = new Array<number>(n);
+    for (let i = 0; i < n; i++) rhs[i] = b.get(i, column);
+    return solveNonNegativeLeastSquares(
+      a,
+      rhs,
+      () => {
+        throw new VarianceSolveNotPositiveDefiniteError(lambda, n, acc.rowCount, context);
+      },
+      () => {
+        throw new VarianceNnlsIterationGuardError(n, key, context);
+      }
+    );
+  });
 
   acc.teamOrder.forEach((team, i) => {
     const perKey: Record<string, number> = {};
     keys.forEach((key, column) => {
-      // D-V1's clamp. A clamped value means the least-squares fit wanted a
-      // NEGATIVE variance for this team — the additive model failed for it.
-      // `teamMetrics` OMITS the spread at a clamped value rather than
+      // D-N1. A value of EXACTLY 0 means the non-negativity constraint is
+      // ACTIVE for this team — the fit wanted a negative variance and the
+      // feasible optimum pinned it at the boundary, i.e. the additive model
+      // failed for it. `teamMetrics` OMITS the spread there rather than
       // publishing `0 ±`, which would be a positive claim of perfect
       // consistency; that omission is a domain check, not a floor.
-      perKey[key] = Math.max(0, x.get(i, column));
+      perKey[key] = solvedColumns[column]![i]!;
     });
     solved.set(team, perKey);
   });

@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "5.0.0",
+  "codeVersion": "6.0.0",
   "paramSetName": "tracer-check",
-  "version": "5.0.0+tracer-check",
+  "version": "6.0.0+tracer-check",
   "params": {
     "processNoiseWithinEventRel": 0.0004862793787704171,
     "processNoiseEventBoundaryRel": 0.003890235030163337,
@@ -33,7 +33,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-02T07:02:30.621Z",
+    "promotedAt": "2026-09-03T08:18:51.712Z",
     "objective": 0.17465514532650941,
     "tuneSeasons": [
       2022
@@ -42,8 +42,7 @@
     "objectiveDefinition": "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
     "evaluationCount": 1,
     "objectiveAppliesToPromotedParams": false,
-    "derivedFromVersion": "4.0.0+tracer-check",
-    "paramShapeMigration": "sigma1-4.0.0-shrinkage-to-5.0.0-variance-decomposition"
+    "derivedFromVersion": "5.0.0+tracer-check"
   },
   "digest": {
     "sliceSeason": 2022,

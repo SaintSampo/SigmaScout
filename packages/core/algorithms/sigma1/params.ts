@@ -166,8 +166,50 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * spread into a ~4-point band so every robot reads as equally consistent; the
  * decomposition recovers 0.79-0.94 at equal correlation and better RMSE. See
  * `varianceOpr.ts`'s header and `varianceOpr.recovery.test.ts`.
+ *
+ * Bumped `"5.0.0"` -> `"6.0.0"` (quick task 260903-5dp, D-N1/D-N2/D-N3/D-N4,
+ * 2026-09-03): the variance decomposition now solves a NON-NEGATIVE least
+ * squares problem (Lawson-Hanson active set) instead of solving unconstrained
+ * and applying a post-hoc `Math.max(0, x)`. Variances are non-negative BY
+ * DEFINITION, so constraining `beta >= 0` DURING the fit is the more correct
+ * estimator; the clamp answered the wrong question and then edited the answer.
+ *
+ * The parameter SHAPE is UNCHANGED — no field was added, removed or renamed,
+ * and a 5.0.0 file's `params` validates against the current
+ * `Sigma1ParamsSchema` untouched. This bump exists solely because D-13 forbids
+ * one `codeVersion` string standing for two different computations, and the
+ * OUTPUT changed. It is therefore the first bump with a `--from-version` path
+ * that records NO `paramShapeMigration` (`promote.ts`'s `5.` branch), which is
+ * the honest statement that nothing was migrated.
+ *
+ * `teamMetrics`'s observable output MOVED and `predict()`'s / `update()`'s did
+ * NOT — the same display-only constraint 5.0.0 carried, verified the same way
+ * rather than asserted. Both `vpr@5.0.0+*.json` files were retired and
+ * re-promoted as `vpr@6.0.0+*.json` in THIS SAME COMMIT via
+ * `pnpm promote --from-version` running the new code, and each new file's
+ * `digest.predictionStreamSha256` reproduces its retired predecessor's
+ * CHARACTER FOR CHARACTER —
+ * `380c598065c72897e8c7a944b6de77a32a69177eab7ff7541d386cb83e7783fb` for
+ * `tuned-2026-08` and
+ * `38d091e0377272244a3ddaf4eb8ff1b3c9e318f8db466d20fff479be99029a1c` for
+ * `tracer-check`, unchanged from 5.0.0, with both headline Brier/accuracy pairs
+ * identical too. Neither digest was hand-edited.
+ *
+ * MAJOR, not minor: this changes the number on every team page. AND IT CHANGES
+ * COVERAGE IN THE UNEXPECTED DIRECTION, which is recorded here because a
+ * version block that only listed the good half would be the drift this project
+ * keeps failing on. Measured over the full 2026 season, published cells with no
+ * `±` went 34.9% -> 40.2% (19,436 -> 22,412 of 55,770; 214 cells gained a `±`,
+ * 3,190 lost one). The solve is verified KKT-optimal on those same real
+ * systems — strictly lower constrained objective in 3,715 of 3,795, higher in
+ * zero — so this is a property of the correct estimator, not a defect in it:
+ * forbidding a negative `beta` removes the slack that let a co-appearing
+ * teammate carry an inflated positive one. NOTHING WAS REPUBLISHED on the
+ * strength of it. The published artifacts still carry the 5.0.0 numbers, and
+ * the display decision (`0 ±`, fall back to `vBar`, or keep omitting) is an
+ * open product question. See `varianceOpr.ts`'s `SIGMA1_VARIANCE_OPR_RIDGE`.
  */
-export const SIGMA1_CODE_VERSION = "5.0.0";
+export const SIGMA1_CODE_VERSION = "6.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:

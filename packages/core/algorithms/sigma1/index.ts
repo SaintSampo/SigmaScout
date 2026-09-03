@@ -1427,10 +1427,23 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  *     event whose system it could be solved in;
  *   - its event has no accumulator (every alliance it appeared on folded
  *     nothing — all-surrogate or whole-alliance-DQ-zero);
- *   - its solved variance CLAMPED at 0, meaning least squares wanted a
- *     negative variance for it and the additive model failed for that team.
- *     Publishing `0 ±` there would be a positive claim of perfect consistency,
- *     which is the honest-uncertainty failure PROJECT.md forbids.
+ *   - its solved variance is PINNED AT EXACTLY 0 by the non-negativity
+ *     constraint, meaning the constrained fit could not support a positive
+ *     variance for it and the additive model failed for that team. Publishing
+ *     `0 ±` there would be a positive claim of perfect consistency, which is
+ *     the honest-uncertainty failure PROJECT.md forbids.
+ *
+ *     Since 6.0.0 (D-N1) that pinning comes from a Lawson-Hanson NNLS solve,
+ *     not from the retired post-hoc `Math.max(0, x)` clamp. THE THIRD CASE NOW
+ *     FIRES MORE OFTEN, not less: measured over the full 2026 season, 40.2% of
+ *     published cells omit the `±` against the clamp's 34.9%. That is a
+ *     property of the correct estimator (the constraint stops a negative
+ *     teammate from propping up an inflated positive one), not a regression in
+ *     it, and whether OMISSION remains the right display answer at that rate is
+ *     an open product question — see `varianceOpr.ts`'s
+ *     `SIGMA1_VARIANCE_OPR_RIDGE` block for the table, the mechanism and the
+ *     optimality evidence. Do not resolve it by quietly relaxing the `<= 0`
+ *     test below into a `0 ±`.
  *
  * HONEST LIMITS, stated rather than implied away: the estimate is
  * MODEL-INFERRED (FRC records no individual robot's score, so a team's figure
@@ -1475,7 +1488,7 @@ function teamMetrics(state: Sigma1State, teams: readonly string[] | undefined, p
     // several events resolves each against its own event's system rather than
     // whichever event the caller had in mind.
     const solvedForTeam = solvedFor(teamState.lastEventKey)?.get(team);
-    /** `{ spread }` when the decomposition has a strictly positive variance for this key, `{}` otherwise — see this function's doc comment for the three omission cases. */
+    /** `{ spread }` when the decomposition has a strictly positive variance for this key, `{}` otherwise — see this function's doc comment for the three omission cases. The `<= 0` test is the domain check, and since 6.0.0 the value it catches is an NNLS-pinned exact 0 rather than a clamped one. */
     const spreadOf = (metricKey: string): { spread?: number } => {
       const variance = solvedForTeam?.[metricKey];
       if (variance === undefined || variance <= 0) return {};

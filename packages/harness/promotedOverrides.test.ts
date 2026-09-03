@@ -22,17 +22,31 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { ALGORITHMS, applyPromotedOverrides, loadPromotedVpr, loadSearchWinnerVpr } from "./cli.js";
 import { makeSigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 
 /**
  * The committed promoted version `applyPromotedOverrides` resolves for the
  * `vpr` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
  * unlike `reports/tune-joint-on.json` it is always present, in CI included.
+ *
+ * DERIVED from `SIGMA1_CODE_VERSION`, not re-typed (quick task 260903-5dp).
+ * These three were hardcoded `5.0.0+...` literals and the 6.0.0 bump broke all
+ * three, which is the same hand-edited-at-every-bump failure `cli.ts`'s
+ * `PROMOTED_VPR_VERSION_PATH` already retired for exactly this reason ("the
+ * next bump moves them all by construction and a stale path is unrepresentable
+ * rather than merely caught by a test").
+ *
+ * What this test actually defends is UNWEAKENED by the change: the assertions
+ * below are about the `+{paramSetName}` half — that `vpr-defaults` and
+ * `vpr-adapt` resolve to DISTINCT identities and neither collides with the
+ * promoted one — and those suffixes are still literal here. The code-version
+ * half was never the thing under test; `digest.test.ts` is what pins a
+ * committed version file's identity to the code that produced it.
  */
-const PROMOTED_VERSION_IDENTITY = "5.0.0+tuned-2026-08";
-const DEFAULTS_VERSION_IDENTITY = "5.0.0+defaults";
-const ADAPT_VERSION_IDENTITY = "5.0.0+defaults-adapt";
+const PROMOTED_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+tuned-2026-08`;
+const DEFAULTS_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+defaults`;
+const ADAPT_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+defaults-adapt`;
 
 let tempDir: string | undefined;
 
@@ -213,7 +227,7 @@ describe("loadPromotedVpr (ALGO-06)", () => {
 
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr");
-    expect(loaded?.version).toBe("5.0.0+test-tuned");
+    expect(loaded?.version).toBe(`${SIGMA1_CODE_VERSION}+test-tuned`);
   });
 
   it("threads the file's params into the module's actual predict/update path — a tuned file produces a DIFFERENT prediction stream than defaults", () => {
@@ -283,7 +297,7 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
     const loaded = loadSearchWinnerVpr("vpr-adapt", artifactPath, "tune-joint-on-winner");
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr-adapt");
-    expect(loaded?.version).toBe("5.0.0+tune-joint-on-winner");
+    expect(loaded?.version).toBe(`${SIGMA1_CODE_VERSION}+tune-joint-on-winner`);
 
     // The restore is only observable through predict(): rpPmfForMatch
     // short-circuits to no pmf at 0 draws. A control module built with the
