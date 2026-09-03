@@ -277,11 +277,14 @@ export const SIGMA1_4_TO_5_MIGRATION_TAG = "sigma1-4.0.0-shrinkage-to-5.0.0-vari
  * no behaviour to preserve, so dropping is the only honest map and no refusal
  * is warranted.
  *
- * `varianceOprRidge` comes from `DEFAULT_SIGMA1_PARAMS` — the same
- * `SIGMA1_VARIANCE_OPR_RIDGE` constant `varianceOpr.ts` exports and
- * `varianceOpr.recovery.test.ts` defends. It is a never-searched display
- * constant, so the default IS the shipped value; there is no tuned alternative
- * a migration could be failing to carry.
+ * `varianceOprRidge` comes from `LEGACY_6_VARIANCE_OPR_RIDGE` below — a literal
+ * recording what 6.0.0 shipped, because the `SIGMA1_VARIANCE_OPR_RIDGE`
+ * constant it used to read was deleted along with `varianceOpr.ts` at 7.0.0. It
+ * was a never-searched display constant, so that literal IS the shipped value;
+ * there is no tuned alternative a migration could be failing to carry. The
+ * value is immediately dropped again by `migrate6to7`, which this function
+ * composes onto — it exists here only so the 6.0.0-shaped intermediate is a
+ * complete, parseable set rather than a partial one.
  */
 export function migrate4to5(legacy: Legacy4Sigma1Params): Sigma1Params {
   const { shrinkagePriorMatches: _dropped, ...carried } = legacy;

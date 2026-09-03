@@ -141,9 +141,10 @@ export const SIGMA1_CONSISTENCY_EWMA_ALPHA = 0.2;
  * NOT ON ANY PATH since `SIGMA1_CODE_VERSION` 5.0.0 (D-V4, quick task
  * 260902-varopr), and no longer a `Sigma1Params` field either — the shipped
  * parameter set's `shrinkagePriorMatches` was DELETED in that version, because
- * the published `±` is now the per-team variance decomposition
- * (`varianceOpr.ts`) and nothing shrinks a consistency estimate toward the
- * league average any more.
+ * the published `±` no longer contains an R term at all — it is each team's
+ * own recency-weighted swing since 7.0.0 (`swing.ts`, D-Y1), and it was the
+ * per-team variance decomposition between 5.0.0 and 6.0.0 — so nothing shrinks
+ * a consistency estimate toward the league average any more.
  *
  * It survives as this module's own documented default for `shrinkConsistency`
  * below, which survives for the reason `foldConsistency` already does: its
@@ -235,7 +236,7 @@ export function foldConsistencyVariance(
  *
  * NO LIVE CALLER since `SIGMA1_CODE_VERSION` 5.0.0 (D-V4, quick task
  * 260902-varopr). `teamMetrics` was its only one, and the published `±` is now
- * the per-team variance decomposition (`varianceOpr.ts`) — so the paragraph
+ * each team's own recency-weighted swing (`swing.ts`, D-Y1) — so the paragraph
  * above describes what this function WAS wired into. It is kept as the
  * accurate history of the `sqrt(P + R)` construction, not as a description of
  * current behaviour, and `params.shrinkagePriorMatches` no longer exists to be

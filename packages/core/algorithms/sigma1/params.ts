@@ -44,17 +44,18 @@
  * runtime, in either import order, the first time this module graph is
  * loaded — not a style preference, a load-time crash. Keeping this module a
  * pure leaf (it imports only from `kalman.ts`/`consistency.ts`/`covariance.ts`/
- * `linkFunctions.ts`/`carryover.ts`/`varianceOpr.ts`, never from
+ * `linkFunctions.ts`/`carryover.ts`/`swing.ts`, never from
  * `sigma1/index.ts`) is the only acyclic direction, matching this file's own
  * module-ownership discipline precedent in `carryover.ts`'s header.
  */
 import { z } from "zod";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
-// D-V4 (5.0.0). `varianceOpr.ts` imports NOTHING from this module — only
-// `ml-matrix` — so this edge is one-directional and cannot recreate the
-// module-evaluation-time TDZ cycle this file's header warns about at length.
-// Verified by reading that module's import list, not assumed.
+// D-Y1 (7.0.0). `swing.ts` imports NOTHING AT ALL — it is a pure leaf with no
+// dependencies whatever — so this edge is one-directional and cannot recreate
+// the module-evaluation-time TDZ cycle this file's header warns about at
+// length. Verified by reading that module's import list, not assumed. (The
+// edge this replaced pointed at `varianceOpr.ts`, deleted at 7.0.0.)
 import { SIGMA1_SWING_HALF_LIFE_MATCHES, SIGMA1_SWING_SCALE } from "./swing.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
@@ -353,27 +354,6 @@ export interface Sigma1Params {
   /** EWMA rate for `consistency.ts`'s `foldConsistencyVariance` innovation-based variance fold (D-Q2; was `foldConsistency`'s squared-residual fold before 3.0.0). Sourced from `consistency.ts`'s `SIGMA1_CONSISTENCY_EWMA_ALPHA`. Phase 3 hyperparameter, default unverified. */
   readonly consistencyEwmaAlpha: number;
   /**
-   * D-V4 (5.0.0): the ridge `lambda` for the per-team variance decomposition
-   * that produces every published `±` (`sigma1/varianceOpr.ts`). Defaulted by
-   * IMPORTING `SIGMA1_VARIANCE_OPR_RIDGE`, never by re-typing `10` — this
-   * module's own "never a re-typed literal" rule.
-   *
-   * A VERSIONED, NEVER-SEARCHED parameter. Versioned because "unchanged means
-   * bitwise identical" requires it to be part of the committed set — the same
-   * argument `rpMonteCarloSeed` carries. Never-searched because it is a
-   * DISPLAY quantity and D-01's objective is Brier over the predicted win
-   * probability, which is structurally blind to `teamMetrics` entirely; D-V4
-   * states the constraint outright, a display quantity cannot move a
-   * prediction. Its exclusion is DATA, not prose: a named entry in
-   * `packages/harness/searchSpace.ts`'s `SEARCH_EXCLUSIONS`, enforced by
-   * `searchSpace.test.ts`'s partition test.
-   *
-   * The VALUE's justification lives in `varianceOpr.ts` (the measured slope
-   * table by lambda) and is defended by `varianceOpr.recovery.test.ts` against
-   * KNOWN synthetic sigma — a strictly better instrument for this question
-   * than Brier could ever be.
-   */
-  /**
    * D-Y1 (quick task 260903-750): the half-life, IN MATCHES, of the published
    * `±`'s recency weighting. MEASURED, not chosen: swept 1.5/2/3/4/6/8/12/20
    * against how well the estimate predicts a team's ACTUAL deviation in its
@@ -596,7 +576,9 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   processNoiseWithinEventRel: SIGMA1_PROCESS_NOISE_WITHIN_EVENT / SIGMA1_REFERENCE_SCORE_VARIANCE,
   processNoiseEventBoundaryRel: SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY / SIGMA1_REFERENCE_SCORE_VARIANCE,
   consistencyEwmaAlpha: SIGMA1_CONSISTENCY_EWMA_ALPHA,
-  // D-V4: IMPORTED from varianceOpr.ts, never a re-typed 10.
+  // D-Y1: IMPORTED from swing.ts, never a re-typed 6 and 1.92. Sharper here
+  // than for most defaults, because both were MEASURED: a re-typed copy could
+  // drift from the measurement its doc comment records.
   swingHalfLifeMatches: SIGMA1_SWING_HALF_LIFE_MATCHES,
   swingScale: SIGMA1_SWING_SCALE,
   minConsistencyVarianceRel: SIGMA1_MIN_CONSISTENCY_VARIANCE / SIGMA1_REFERENCE_SCORE_VARIANCE,

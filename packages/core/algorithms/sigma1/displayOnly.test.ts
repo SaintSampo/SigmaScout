@@ -265,9 +265,8 @@ function buildStream(seed: number): { teams: string[]; matches: SynthMatch[] } {
     trueComponentMean.set(team, (24 + rng() * 72) / COMPONENT_COUNT);
   }
   // A genuine 3-25 point spread in per-match consistency, so the stream is a
-  // realistic exercise for the decomposition Task 3 introduces (this test
-  // itself asserts nothing about spreads — that is `varianceOpr.recovery.
-  // test.ts`'s job).
+  // realistic exercise for whatever display estimator is in force (this test
+  // itself asserts nothing about spreads — that is `swing.test.ts`'s job).
   const trueSigma = new Map<string, number>();
   for (const team of teams) trueSigma.set(team, 3 + rng() * 22);
 

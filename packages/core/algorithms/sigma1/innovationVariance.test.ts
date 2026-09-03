@@ -437,11 +437,11 @@ describe("D-Q2 — the published ± recovers a known sigma", () => {
     // `predict()`'s `P + R` — the quantity the match path actually uses, which
     // is unchanged and still needs a recovery guard. What it USED to reach that
     // quantity through was `teamMetrics`, back when the published spread was
-    // `sqrt(P + R)`. It no longer is: the display is now the event-scoped
-    // variance decomposition, whose own recovery is guarded far more thoroughly
-    // in `varianceOpr.recovery.test.ts` (five seeds, two horizons, both
-    // incumbents as controls). Reading the display here tested the wrong
-    // estimator through the wrong door and duplicated a better test.
+    // `sqrt(P + R)`. It no longer is: the display became the event-scoped
+    // variance decomposition at 5.0.0 and each team's own recency-weighted
+    // swing at 7.0.0 (`swing.ts`), whose recovery is guarded in
+    // `swing.test.ts` against the developer's own user stories. Reading the
+    // display here tested the wrong estimator through the wrong door.
     //
     // Summing each team's per-component R gives its total-contribution variance
     // under the module's own independent-components assumption — the same sum

@@ -124,11 +124,11 @@ export class MissingLeagueRowError extends Error {
  * the only thing that turns that into a loud `LeagueRowShapeVersionError` at
  * load time, naming the re-seed as the fix.
  *
- * Bumped 5 -> 6 (D-V1/D-V3, quick task 260902-varopr): Sigma1 now emits
+ * Bumped 5 -> 6 (D-V1/D-V3, quick task 260902-varopr): Sigma1 emitted
  * `scopeKind: "event"` rows of its own — one per event, carrying that event's
  * variance-decomposition normal equations (`{ rowCount, teamOrder, gram,
- * targets, vBarSums }`, `sigma1/varianceOpr.ts`). Until this version only OPR
- * had event-scoped state.
+ * targets, vBarSums }`, the since-deleted `sigma1/varianceOpr.ts`). Until that
+ * version only OPR had event-scoped state.
  *
  * The load-bearing reason, which is the same one both bumps above give and is
  * SHARPER here: a shape-5 row deserializes with `perEventVariance` as an empty
@@ -137,6 +137,23 @@ export class MissingLeagueRowError extends Error {
  * cannot speak to. The shape check is the only thing that turns that into a
  * loud `LeagueRowShapeVersionError` naming the re-seed as the fix, rather than
  * a site that quietly stops showing `±`.
+ *
+ * Bumped 6 -> 7 (D-Y1/D-Y3, quick task 260903-750): that event row is GONE
+ * again, one version after arriving, and each TEAM row gains a `swing` object —
+ * the recency-weighted accumulator (`{ weightedSquares, weight }` per metric
+ * key, `sigma1/swing.ts`) that replaced the decomposition as the source of
+ * every published `±`. Sigma1 is team-scoped only once more, and
+ * `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
+ * in the same task.
+ *
+ * The load-bearing reason is the SHARPEST of the four, because at shape 7 the
+ * failure is indistinguishable from correct behaviour: a shape-6 team row
+ * carries no `swing` at all, and D-Y2 makes "this key was never folded" a
+ * LEGAL, publishable-as-nothing state meaning "a team that has not played yet".
+ * A stale row would therefore deserialize into a team that looks brand new
+ * rather than into anything that looks broken — every `±` on the site quietly
+ * absent, with no error, no NaN and no malformed row anywhere to find. The
+ * shape check is the only thing standing between that and a live tick.
  */
 export const STATE_SNAPSHOT_SHAPE_VERSION = 7;
 
