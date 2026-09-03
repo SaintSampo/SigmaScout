@@ -137,17 +137,52 @@ Why this shape rather than a 2020-specific special case:
 - It fixes the **variance** side, which is what matters. A two-year-stale mean is survivable; a
   two-year-stale mean carried with one-year confidence produces confidently wrong predictions.
 
-## Open implementation question — it prices the whole job
+## ANSWERED 2026-09-03: RP is NOT separable, and it costs FOUR modules
 
-`rpRuleModuleForSeason` (`packages/core/algorithms/sigma1/rp/rules.ts:67-74`) **throws** for an
-unregistered season, and neither 2019 nor 2020 has a module. Whether that matters is
-**unverified**: does the replay fold RP for a season it only *selects* on, or is RP separable
-from the match-outcome Brier objective?
+The open question was whether the replay folds RP for a season it only *selects* on. **It
+does.** All three `rpRuleModuleForSeason` call sites in `packages/core/algorithms/sigma1/index.ts`
+are unconditional — there is no path that skips RP:
 
-- **If separable:** the backfill needs **zero** RP modules — 2019/2020 never display under D-5.
-- **If not:** two RP rule modules of per-season manual work, the largest single cost in this job.
+| Call site | What it does |
+|---|---|
+| `predict()` — `index.ts:1015` | Computes the RP pmf for EVERY match predicted |
+| `update()` — `index.ts:1187` | Resolves the rule module for every match update, and sizes a new team's RP state from it |
+| `carrySeason()` — `index.ts:1570` | Resolves the INCOMING season's module to size the reset RP state at every boundary |
 
-Check this before scoping.
+So replaying 2019 or 2020 **at all** — purely as selection seasons, with nothing RP-related ever
+displayed — throws on the first predict/update/carry. The "zero RP modules" branch does not
+exist.
+
+### A SECOND per-season module, found while verifying the first
+
+`carrySeason` also calls `componentMapForSeason` (`packages/core/algorithms/breakdown/index.ts:59-64`),
+which has the **identical** throw-for-unmapped-season design and its own per-season `{year}.ts`
+file (`breakdown/2022.ts` through `2026.ts`).
+
+**Each backfilled season therefore needs TWO modules, not one:**
+
+1. `breakdown/2019.ts`, `breakdown/2020.ts` — the score-component map for that year's game
+2. `rp/rules/2019.ts`, `rp/rules/2020.ts` — that year's RP threshold variables and bonuses
+
+**Four modules total.** This is the largest single line item in this job.
+
+### What makes it tractable
+
+It is mechanical, not novel:
+
+- Five worked examples of each already exist.
+- `breakdown/index.ts:3` documents the extension path in one line: *"a new entry in
+  `SEASON_COMPONENT_MAPS` below and a new `{year}.ts`"*.
+- Both directories carry a `reconciliation.test.ts`, so a new season's mapping can be **proven**
+  against real corpus data rather than eyeballed.
+
+### Do this FIRST — a ~10-minute de-risk
+
+`scripts/recon-tba-fields.ts` is a read-only probe of TBA's actual `score_breakdown` shape per
+season. It is hardcoded to `SEASONS = [2022, 2023, 2024, 2025, 2026]`. **Point it at 2019 and
+2020 before anyone writes a module** — it will report exactly what those games expose, which is
+the one genuine unknown here. 2019 and 2020 predate every season this codebase was built
+against, and their breakdown JSON is shaped differently.
 
 ## What the corpus becomes
 
