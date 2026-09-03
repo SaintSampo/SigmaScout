@@ -8,6 +8,11 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
+> **BLOCKED 2026-09-03: run `extend-corpus-2019-2020` FIRST.** The user decided to add 2019
+> and 2020 to the corpus before this job, so tuning happens once on the final corpus rather
+> than now and again afterwards. That changes the selection seasons for EVERY origin below and
+> adds 2022 and 2023 as new origins. Do not run this until that job lands.
+>
 > **Run shape changed 2026-09-03 — read before running anything.**
 > `rolling-origin-hyperparameter-tuning`'s D-3 was answered and then revised the same day.
 > The steady-state rule is now *the live season runs its own origin set*, which **adds a
