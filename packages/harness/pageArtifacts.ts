@@ -42,7 +42,29 @@
 import { z } from "zod";
 import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
 
-/** Bumped whenever a published page artifact's shape changes in a way a client consumer must know about. Independent of `packages/harness/artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` — see file header. */
+/**
+ * Bumped whenever a published page artifact's shape changes in a way a
+ * client consumer must know about. Independent of
+ * `packages/harness/artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` — see file
+ * header.
+ *
+ * NOT bumped by quick task 260902-pbc's removal of `redComponents`/
+ * `blueComponents` from `EventMatchSchema`/`EventUpcomingMatchSchema`/
+ * `TeamSeasonMatchSchema` — a repo-wide grep found zero readers of the field
+ * anywhere in `apps/web`, and the removal is safety-compatible in both
+ * directions without a version bump: a pre-removal artifact still HAS the
+ * keys and parses fine (neither schema is `.strict()`, so the now-unlisted
+ * keys are simply ignored), and a post-removal artifact simply omits keys no
+ * schema requires anymore. This is a strictly SAFER change than D-02's own
+ * precedent (Phase 7 plan 07-06), which redefined `TeamMetric.spread`'s
+ * MEANING under the same name without a version bump either — that one
+ * accepted a real (bounded, `max-age=60`) risk of a stale reader
+ * misinterpreting a value; this one has no reader to misinterpret anything
+ * at all. The per-alliance-per-match component predictions themselves are
+ * unchanged in the model (`packages/core/algorithms/types.ts`'s
+ * `ComponentPrediction`, still returned by `sigma1/index.ts` and `epa.ts`'s
+ * `predict()`) — only the published artifact stopped carrying them.
+ */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;
 
 /** The five page kinds `artifactKey` builds a key for. */
@@ -270,12 +292,6 @@ const RecordAndMetricsSchema = z.object({
 // Shared match-row building blocks
 // ---------------------------------------------------------------------------
 
-/** One component's predicted contribution to an alliance's score (D-24). Mirrors `packages/core/algorithms/types.ts`'s `ComponentPrediction`. */
-const ComponentPredictionSchema = z.object({
-  mean: z.number(),
-  variance: z.number().optional(),
-});
-
 /** D-10: a discrete pmf's sum tolerance — the same 1e-9 bound `packages/harness/predictions.ts`'s `PredictionRecordSchema` enforces, applied identically here so a published pmf can never drift looser than the sidecar that fed it. */
 const RP_PMF_SUM_TOLERANCE = 1e-9;
 
@@ -330,8 +346,6 @@ const EventMatchSchema = z
     pRedWin: z.number(),
     predictedRedScore: z.number(),
     predictedBlueScore: z.number(),
-    redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
-    blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
     /**
      * D-18 item 3, plan 07-07 Task 1: this alliance's own predicted-score
      * variance — the same quantity, under the same field name, that
@@ -446,8 +460,6 @@ const EventUpcomingMatchSchema = z
     pRedWin: z.number(),
     predictedRedScore: z.number(),
     predictedBlueScore: z.number(),
-    redComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
-    blueComponents: z.record(z.string(), ComponentPredictionSchema).optional(),
     /** D-18 item 3, plan 07-07 Task 1: see `EventMatchSchema.redScoreVarianceOwn`/`blueScoreVarianceOwn`'s doc comments for the full contract — same fields, same spelling, same optional-when-OPR/EPA convention. */
     redScoreVarianceOwn: z.number().optional(),
     blueScoreVarianceOwn: z.number().optional(),
@@ -540,8 +552,6 @@ const TeamSeasonMatchSchema = z
     pRedWin: z.number(),
     predictedRedScore: z.number(),
     predictedBlueScore: z.number(),
-    redComponents: z.record(z.string(), ComponentPredictionSchema),
-    blueComponents: z.record(z.string(), ComponentPredictionSchema),
     variance: z.number().optional(),
     /**
      * D-01 (Phase 6), redefined by D-01/D-02 (plan 07-06): each alliance's

@@ -19,8 +19,6 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     pRedWin: 0.6,
     predictedRedScore: 250,
     predictedBlueScore: 220,
-    redComponents: {},
-    blueComponents: {},
     redTeams: ["frc118"],
     blueTeams: ["frc254"],
     ...overrides,

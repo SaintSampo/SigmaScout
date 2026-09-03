@@ -67,7 +67,7 @@ import { z } from "zod";
 import { opr } from "../packages/core/algorithms/opr.js";
 import { epa } from "../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../packages/core/algorithms/sigma1/index.js";
-import type { AlgorithmModule, ComponentPrediction, MatchResult, Prediction, TeamMetric } from "../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../packages/core/algorithms/types.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../packages/corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "../packages/harness/replay.js";
 import { computePredictionStreamDigest } from "../packages/harness/promote.js";
@@ -239,15 +239,6 @@ function buildAlgorithmModulesLocal(algorithmsManifest: AlgorithmsManifest): Map
     modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
   }
   return modules;
-}
-
-function roundComponentsLocal(components: Record<string, ComponentPrediction> | undefined): Record<string, ComponentPrediction> | undefined {
-  if (components === undefined) return undefined;
-  const result: Record<string, ComponentPrediction> = {};
-  for (const [key, c] of Object.entries(components)) {
-    result[key] = { mean: roundMetric(c.mean), ...(c.variance !== undefined ? { variance: roundMetric(c.variance) } : {}) };
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,8 +507,6 @@ function buildOfflineEventMatchRow(match: MatchResult, prediction: Prediction) {
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponentsLocal(prediction.redComponents),
-    blueComponents: roundComponentsLocal(prediction.blueComponents),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,

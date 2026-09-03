@@ -88,7 +88,7 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
-import type { AlgorithmModule, ComponentPrediction, MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
@@ -371,15 +371,6 @@ function toUpcomingMatch(match: CorpusMatch, eventType: number): UpcomingMatch {
 // -heavy and must never be imported by the Worker.
 // ---------------------------------------------------------------------------
 
-function roundComponents(components: Record<string, ComponentPrediction> | undefined): Record<string, ComponentPrediction> | undefined {
-  if (components === undefined) return undefined;
-  const result: Record<string, ComponentPrediction> = {};
-  for (const [key, c] of Object.entries(components)) {
-    result[key] = { mean: roundMetric(c.mean), ...(c.variance !== undefined ? { variance: roundMetric(c.variance) } : {}) };
-  }
-  return result;
-}
-
 function roundTeamMetricRecord(metrics: Record<string, TeamMetric>): Record<string, TeamMetric> {
   const result: Record<string, TeamMetric> = {};
   for (const [key, m] of Object.entries(metrics)) {
@@ -417,8 +408,6 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction) {
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponents(prediction.redComponents),
-    blueComponents: roundComponents(prediction.blueComponents),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -437,8 +426,6 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction) {
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponents(prediction.redComponents),
-    blueComponents: roundComponents(prediction.blueComponents),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
   };
@@ -510,8 +497,6 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponents(prediction.redComponents) ?? {},
-    blueComponents: roundComponents(prediction.blueComponents) ?? {},
     variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,

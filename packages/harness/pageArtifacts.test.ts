@@ -59,8 +59,6 @@ function validMatchRowFixture() {
     pRedWin: 0.62,
     predictedRedScore: 110,
     predictedBlueScore: 95,
-    redComponents: {},
-    blueComponents: {},
     actualWinner: "red" as const,
     actualRedScore: 120,
     actualBlueScore: 90,

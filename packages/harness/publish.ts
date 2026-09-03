@@ -44,7 +44,6 @@ import { pathToFileURL } from "node:url";
 import type {
   AlgorithmModule,
   CompLevel,
-  ComponentPrediction,
   MatchResult,
   Prediction,
   SeasonBoundary,
@@ -131,18 +130,6 @@ const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa
  */
 function toIntegerRpOrNull(value: number | null): number | null {
   return value !== null && Number.isInteger(value) ? value : null;
-}
-
-/** Rounds one component's mean/variance at `ROUNDING_RULE.metric` (D-06's "component means/variances" row) — `undefined` in, `undefined` out. */
-function roundComponents(
-  components: Record<string, ComponentPrediction> | undefined
-): Record<string, ComponentPrediction> | undefined {
-  if (components === undefined) return undefined;
-  const result: Record<string, ComponentPrediction> = {};
-  for (const [key, c] of Object.entries(components)) {
-    result[key] = { mean: roundMetric(c.mean), ...(c.variance !== undefined ? { variance: roundMetric(c.variance) } : {}) };
-  }
-  return result;
 }
 
 /**
@@ -510,8 +497,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponents(prediction.redComponents),
-    blueComponents: roundComponents(prediction.blueComponents),
     // D-18 item 3, plan 07-08: each alliance's OWN predicted-score variance
     // — the same quantity, under the same field name, that
     // `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
@@ -579,8 +564,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    redComponents: roundComponents(prediction.redComponents),
-    blueComponents: roundComponents(prediction.blueComponents),
     /** D-18 item 3, plan 07-08: see the `matches` row builder's `redScoreVarianceOwn`/`blueScoreVarianceOwn` comment above for the full contract. */
     redScoreVarianceOwn:
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
@@ -902,11 +885,6 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
         pRedWin: roundProbability(prediction.pRedWin),
         predictedRedScore: roundMetric(prediction.redScore),
         predictedBlueScore: roundMetric(prediction.blueScore),
-        // TeamSeasonMatchSchema requires these present (mirrors predictions.ts's
-        // PredictionRecordSchema: empty {} for an algorithm like OPR that does
-        // not decompose its prediction, never omitted).
-        redComponents: roundComponents(prediction.redComponents) ?? {},
-        blueComponents: roundComponents(prediction.blueComponents) ?? {},
         variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
         // D-01 (Phase 6): each alliance's OWN predicted-score variance —
         // reuses ROUNDING_RULE.variance unchanged (same physical quantity as

@@ -1344,8 +1344,6 @@ describe("buildTeamSeasonArtifact", () => {
       Math.round(row!.predictedBlueScore * 10 ** ROUNDING_RULE.score) / 10 ** ROUNDING_RULE.score,
       10
     );
-    expect(row!.redComponents).toEqual({});
-    expect(row!.blueComponents).toEqual({});
   });
 
   it("accepts a team with no matches — events: [] and metricHistory: [] parse as a valid, non-missing artifact (D-05/D-07)", () => {
