@@ -294,17 +294,63 @@ export function migrate4to5(legacy: Legacy4Sigma1Params): Sigma1Params {
 }
 
 /**
- * The 6.0.0 parameter shape, FROZEN. Identical to 5.0.0's — the 5->6 change was
- * the NNLS solve, which moved no field — so one schema covers both.
+ * ## `Legacy6Sigma1ParamsSchema` IS A HISTORICAL RECORD. DO NOT EDIT IT.
  *
- * DO NOT EDIT IT to track `Sigma1Params`. It is a historical record of what the
- * two committed `vpr@6.0.0+*.json` files actually contain, and the only reason
- * they can still be read.
+ * The 6.0.0 parameter shape, FROZEN. Identical to 5.0.0's — the 5->6 change was
+ * the NNLS solve, which moved no field — so one schema covers both. Everything
+ * `Legacy4Sigma1ParamsSchema`'s header says about editing applies here verbatim:
+ * it describes a shape that no longer exists in the running system, and its only
+ * job is to read the two committed `vpr@6.0.0+*.json` files and say exactly what
+ * they meant.
+ *
+ * WRITTEN LONGHAND, BESIDE the 4.x schema rather than DERIVED from the live
+ * `Sigma1ParamsSchema`, and the reason is both principled and mechanical:
+ *
+ *   - PRINCIPLED, and the same rule the 3.x and 4.x schemas already follow: a
+ *     frozen schema that quotes a live one is not frozen. Every future edit to
+ *     `Sigma1Params` would retroactively change what a 6.0.0 file is understood
+ *     to have said.
+ *   - MECHANICAL, and this one bit: the first draft of this schema WAS
+ *     `Sigma1ParamsSchema.omit({...}).extend({...})`, and zod 4 refuses
+ *     `.omit()` on an object schema carrying `.check(...)` refinements — which
+ *     `Sigma1ParamsSchema` does, for its cross-parameter invariants. That throws
+ *     at MODULE-EVALUATION time, so importing this file at all (and therefore
+ *     `promote.ts`, and therefore every promotion) died before running a line.
+ *     TypeScript cannot see it; only executing the module can.
+ *
+ * `z.strictObject` and no `.check(...)`, for the same reasons the 4.x schema
+ * gives: an unknown key in a file claiming to be a 6.0.0 set is a corrupted or
+ * hand-edited artifact, and the cross-parameter invariants belong to the CURRENT
+ * schema — `migrate6to7` parses its own result through `Sigma1ParamsSchema`, one
+ * hop later, exactly as `migrateAbsoluteToScaleRelative` defers to `migrate4to5`.
  */
-export const Legacy6Sigma1ParamsSchema = Sigma1ParamsSchema.omit({
-  swingHalfLifeMatches: true,
-  swingScale: true,
-}).extend({ varianceOprRidge: z.number().finite() });
+export const Legacy6Sigma1ParamsSchema = z.strictObject({
+  processNoiseWithinEventRel: z.number().finite(),
+  processNoiseEventBoundaryRel: z.number().finite(),
+  consistencyEwmaAlpha: z.number().finite(),
+  varianceOprRidge: z.number().finite(),
+  minConsistencyVarianceRel: z.number().finite(),
+  covEwmaAlpha: z.number().finite(),
+  covShrinkage: z.number().finite(),
+  linkC: z.number().finite(),
+  coldStartTeamTotalRel: z.number().finite(),
+  coldStartConsistencyVarianceRel: z.number().finite(),
+  fallbackScoreSd: z.number().finite(),
+  consistencyCarryDecay: z.number().finite(),
+  carryMeanReversion: z.number().finite(),
+  carryPriorYearShare: z.number().finite(),
+  rpProcessNoiseWithinEvent: z.number().finite(),
+  rpProcessNoiseEventBoundary: z.number().finite(),
+  rpColdStartVariance: z.number().finite(),
+  rpMonteCarloSeed: z.number().finite(),
+  rpMonteCarloDraws: z.number().finite(),
+  adaptationEnabled: z.boolean(),
+  adaptationEwmaAlpha: z.number().finite(),
+  adaptationExponent: z.number().finite(),
+  adaptationMinFactor: z.number().finite(),
+  adaptationMaxFactor: z.number().finite(),
+  adaptationMinObservations: z.number().finite(),
+});
 
 export type Legacy6Sigma1Params = z.infer<typeof Legacy6Sigma1ParamsSchema>;
 
