@@ -10,8 +10,10 @@ import {
   SIGMA1_CONSISTENCY_CARRY_DECAY,
   SIGMA1_MIN_CONSISTENCY_VARIANCE,
   allianceTotalPredictiveVariance,
+  emptyTeamSwing,
+  foldSwingObservation,
   makeSigma1,
-  solveEventVariance,
+  swingSpread,
   teamTotalVariance,
   vpr,
   vprNormalCdf,
@@ -387,19 +389,29 @@ describe("teamMetrics — D-27 contract shape", () => {
 });
 
 /**
- * D-V1/D-V4 (quick task 260902-varopr): `TeamMetric.spread` is redefined at
- * its assembly site, from `sqrt(P + R)` to `sqrt` of the per-team variance
- * decomposition's solved variance for that same key (`varianceOpr.ts`).
+ * D-Y1/D-Y2/D-Y3 (quick task 260903-750): `TeamMetric.spread` is redefined at
+ * its assembly site AGAIN — from `sqrt` of the per-team variance
+ * decomposition's solved variance to `swingScale * sqrt` of the team's own
+ * recency-weighted mean squared deviation (`swing.ts`).
  *
- * This block replaces plan 07-06's own D-01/D-02 block wholesale. What that
- * block proved — the alliance-additivity identity, the "spread exceeds sqrt(R)
- * alone" direction, the min-consistency floor erring wide — were all
- * properties OF the `sqrt(P + R)` construction, and every one of them is false
- * by design now. Retiring them silently would leave the suite green about a
- * model that no longer exists; the retirement and its cost are recorded here
- * and in `teamMetrics`'s own doc comment.
+ * WHAT SURVIVED THE SWAP AND WHAT DID NOT, because both halves are load-bearing:
+ *
+ *   - SURVIVED, and is tested below against the NEW source: P is absent from
+ *     the display; a phase group publishes from its own key and a group with
+ *     no present component publishes nothing; the alliance-additivity identity
+ *     is false by design.
+ *   - DID NOT SURVIVE, and was DELETED rather than given a contrived swing
+ *     analogue: everything that named the retired estimator's INTERNALS —
+ *     `perEventVariance` keys, `rowCount`, per-event partitioning, and the
+ *     `solveEventVariance` lookup identity. Those asserted properties of a
+ *     solve that no longer runs, and porting them would have manufactured
+ *     coverage of a model that does not exist.
+ *
+ * `swing.test.ts` owns the estimator's own algebra and all three of the
+ * developer's user stories at the unit level. This block owns the WIRING: that
+ * `teamMetrics` reads that estimator and nothing else.
  */
-describe("teamMetrics — D-V1/D-V4 the published +/- is the variance decomposition", () => {
+describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted swing", () => {
   /**
    * The same field set as `rawBreakdown2024Uniform`, but with INDEPENDENT
    * red/blue per-component values and a SEPARATE `foulPoints` knob. The
@@ -527,80 +539,71 @@ describe("teamMetrics — D-V1/D-V4 the published +/- is the variance decomposit
     expect(streaky! - steady!).toBeGreaterThan(1);
   });
 
-  it("A LOOKUP, NOT A RECONCILIATION — every published key's spread is sqrt of the decomposition's solved variance for that SAME key", () => {
-    // Asserted against a DIRECTLY-COMPUTED `solveEventVariance` result over
-    // the same state, so a divergent second construction inside `teamMetrics`
-    // — a group assembled differently from a component, say — fails here
-    // rather than being invisible.
-    const state = buildSixTeamFixtureState();
-    const metrics = vpr.teamMetrics(state, ["T1", "T2", "T3", "T4", "T5", "T6"]);
-    const solved = solveEventVariance(
-      state.perEventVariance.get("2024test")!,
-      DEFAULT_SIGMA1_PARAMS.varianceOprRidge
-    );
-
-    let checkedKeys = 0;
-    for (const team of ["T1", "T2", "T3", "T4", "T5", "T6"]) {
-      const perTeam = metrics[team]!;
-      const solvedForTeam = solved.get(team)!;
-      // Every key the site shows: each component, TOTAL, and each phase group.
-      expect(Object.keys(perTeam).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1 + 3);
-      for (const [key, metric] of Object.entries(perTeam)) {
-        const variance = solvedForTeam[key];
-        expect(variance, `${team}/${key} has a solved variance`).toBeDefined();
-        if (variance! <= 0) {
-          // The clamped case: the additive model failed for this team on this
-          // key, and publishing `0 +/-` would claim perfect consistency.
-          expect(metric.spread, `${team}/${key} clamped -> no spread`).toBeUndefined();
-          continue;
-        }
-        expect(metric.spread, `${team}/${key}`).toBe(Math.sqrt(variance!));
-        checkedKeys++;
-      }
-    }
-    // Non-vacuity: an all-clamped fixture would satisfy the loop above without
-    // ever comparing a published number.
-    expect(checkedKeys).toBeGreaterThan(0);
-  });
-
-  it("a team with lastEventKey === null publishes every value and NO spread", () => {
-    // There is no event whose system it could be solved in — so the honest
-    // answer is the absence of a `spread` key, not a fabricated one. This is a
-    // DOMAIN check (the statistic does not exist), never a minimum-match
-    // threshold: a team with ONE row does get a published spread.
+  it("D-Y2 — THE ONLY no-spread case is a key this team has NEVER FOLDED, and `lastEventKey` is no longer any part of the rule", () => {
+    // THE RULE CHANGED HERE, and the change is the point of the whole task.
+    // Until 6.0.0 a team with `lastEventKey === null` published no spread
+    // (there was no event whose system it could be solved in) and, worse, a
+    // team WITH an event could still be blanked whenever its solved variance
+    // pinned at 0 — 40.2% of published cells on real 2026 data. D-Y2 replaces
+    // both with ONE domain check: the key has no observation to summarise.
+    //
+    // Both teams below are hand-built with `lastEventKey: null`, so the RETIRED
+    // rule would blank BOTH. They differ only in whether their swing carries
+    // the key, which is the new rule and the only rule.
     const componentOrder = ["autoLeave"];
+    function teamState(swing: ReturnType<typeof emptyTeamSwing>, matchCount: number) {
+      return {
+        beliefs: { autoLeave: { mean: 10, variance: 4 } },
+        covariance: [[4]],
+        consistency: { autoLeave: 2 },
+        matchCount,
+        lastEventKey: null,
+        innovationStats: emptyInnovationStats(),
+        rpBeliefs: {},
+        rpCovariance: [],
+        rpCrossCovariance: [],
+        swing,
+      };
+    }
+    // ONE observation, which under D-Y2 is already a valid (noisy) estimate.
+    const oneMatchSwing = foldSwingObservation(
+      emptyTeamSwing(),
+      { autoLeave: 9, [TOTAL_METRIC_KEY]: 49 },
+      DEFAULT_SIGMA1_PARAMS.swingHalfLifeMatches
+    );
     const state: Sigma1State = {
       season: 2024,
       componentOrder,
       teams: new Map([
-        [
-          "NEVERPLAYED",
-          {
-            beliefs: { autoLeave: { mean: 10, variance: 4 } },
-            covariance: [[4]],
-            consistency: { autoLeave: 2 },
-            matchCount: 0,
-            lastEventKey: null,
-            innovationStats: emptyInnovationStats(),
-            rpBeliefs: {},
-            rpCovariance: [],
-            rpCrossCovariance: [],
-          },
-        ],
+        ["NEVERPLAYED", teamState(emptyTeamSwing(), 0)],
+        ["ONEMATCH", teamState(oneMatchSwing, 1)],
       ]),
       league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
-      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
-    const metrics = vpr.teamMetrics(state, ["NEVERPLAYED"]);
+    const metrics = vpr.teamMetrics(state, ["NEVERPLAYED", "ONEMATCH"]);
+
+    // Never folded -> the one undefined case. `value` is still published.
     expect(metrics["NEVERPLAYED"]!["autoLeave"]!.value).toBe(10);
     expect(metrics["NEVERPLAYED"]!["autoLeave"]!.spread).toBeUndefined();
     expect(metrics["NEVERPLAYED"]!["total"]!.value).toBe(10);
     expect(metrics["NEVERPLAYED"]!["total"]!.spread).toBeUndefined();
+
+    // ONE match, `lastEventKey: null`, and it publishes anyway — exactly
+    // `scale * |dev|`, with no floor and no minimum-match threshold. Story 2
+    // (a low seed WANTING to see a high `±`) is why an omission here would be
+    // actively harmful rather than merely conservative.
+    expect(metrics["ONEMATCH"]!["autoLeave"]!.spread).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * 3);
+    expect(metrics["ONEMATCH"]!["total"]!.spread).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * 7);
+
+    // Non-vacuity, and the sharpest statement of the change: the two teams
+    // carry IDENTICAL `lastEventKey`, beliefs, consistency and covariance, so
+    // nothing but the swing accumulator can be producing the difference.
+    expect(state.teams.get("NEVERPLAYED")!.lastEventKey).toBe(state.teams.get("ONEMATCH")!.lastEventKey);
   });
 
   it("P IS GONE FROM THE DISPLAY — belief.variance and the shrunk consistency term reach no published spread", () => {
@@ -678,20 +681,33 @@ describe("teamMetrics — D-V1/D-V4 the published +/- is the variance decomposit
     expect(vpr.predict(state, SIX_TEAM_UPCOMING).redScoreVarianceOwn).toBe(prediction.redScoreVarianceOwn);
   });
 
-  it("a phase group publishes from the decomposition's own group key, and a group with no present component publishes nothing", () => {
+  it("a phase group publishes from the swing accumulator's own group key, and a group with no present component publishes nothing", () => {
+    // PORTED, not reinvented: the property is unchanged — a group key is a
+    // LOOKUP of that same key, never a second assembly rule over the
+    // per-component spreads — only its source moved. Asserted against a
+    // DIRECTLY-COMPUTED `swingSpread` over the same team's own accumulator, so
+    // a divergent second construction inside `teamMetrics` fails here rather
+    // than being invisible.
     const state = buildSixTeamFixtureState();
     const metrics = vpr.teamMetrics(state, ["T1"]);
-    const solved = solveEventVariance(
-      state.perEventVariance.get("2024test")!,
-      DEFAULT_SIGMA1_PARAMS.varianceOprRidge
-    ).get("T1")!;
+    const swing = state.teams.get("T1")!.swing;
     for (const groupId of ["auto", "teleop", "endgame"] as const) {
       const key = COMPONENT_GROUP_METRIC_KEYS[groupId];
       const metric = metrics["T1"]![key];
       expect(metric, `${key} is published`).toBeDefined();
-      const variance = solved[key]!;
-      if (variance > 0) expect(metric!.spread).toBe(Math.sqrt(variance));
-      else expect(metric!.spread).toBeUndefined();
+      const expected = swingSpread(swing, key, DEFAULT_SIGMA1_PARAMS.swingScale);
+      expect(expected, `${key} was folded at all`).toBeDefined();
+      expect(metric!.spread, key).toBe(expected);
+    }
+    // The same lookup holds at EVERY aggregation level, which is what leaves
+    // nothing to drift between levels: each component and TOTAL too.
+    for (const key of [...state.componentOrder, TOTAL_METRIC_KEY]) {
+      expect(metrics["T1"]![key]!.spread, key).toBe(swingSpread(swing, key, DEFAULT_SIGMA1_PARAMS.swingScale));
+    }
+    // D-Y2 non-vacuity: a played team publishes a `±` on EVERY key it shows —
+    // the never-blank guarantee, at the wiring level rather than the unit one.
+    for (const [key, metric] of Object.entries(metrics["T1"]!)) {
+      expect(metric.spread, `${key} is never blank for a played team`).toBeDefined();
     }
 
     // A group whose components are ALL absent from `componentOrder` publishes
@@ -1150,6 +1166,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
+            swing: emptyTeamSwing(),
           },
         ],
         [
@@ -1172,6 +1189,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
+            swing: emptyTeamSwing(),
           },
         ],
       ]),
@@ -1179,7 +1197,6 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
       allianceScoreStats: emptyExpandingStats(),
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
-      perEventVariance: new Map(),
       breakdownParseFailureCount: 0,
     };
 
@@ -1579,200 +1596,34 @@ describe("vpr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)
 });
 
 /**
- * D-V1/D-V3 (quick task 260902-varopr): the per-team variance decomposition's
- * EVENT-SCOPED accumulator. This block covers the STATE side — what gets
- * folded, from which rows, partitioned how, and reset when.
- * `varianceOpr.test.ts` covers the accumulator's own algebra and the solve.
+ * D-Y1/D-Y3 (quick task 260903-750): the swing fold, at the STATE level.
+ * `swing.test.ts` owns the estimator's algebra; this block owns what
+ * `update()` and `carrySeason` do to the accumulator that lives on each team.
+ *
+ * THIS BLOCK REPLACES "per-event variance accumulator (D-V1/D-V3)", and most
+ * of that block was DELETED rather than ported, deliberately. Its subjects
+ * were the retired estimator's own internals — `perEventVariance` map keys,
+ * `rowCount`, and per-event PARTITIONING (a team at two events feeding two
+ * independent accumulators). None of those is a property of a per-team running
+ * mean: there is no map, no row count, and swing is deliberately NOT
+ * partitioned by event, because a robot's match-to-match consistency is a
+ * property of the robot and does not restart when it travels. Inventing swing
+ * analogues for them would have manufactured coverage of a model that no
+ * longer exists.
+ *
+ * The two no-fold cases those tests also touched (an all-surrogate alliance
+ * and a whole-alliance-DQ-zero alliance) keep their coverage where it already
+ * lived and is stronger — "all-surrogate alliance — no throw, no NaN, genuine
+ * no-op" and the whole-alliance-DQ block above both assert that NO TEAM STATE
+ * IS TOUCHED at all, which subsumes "no swing was folded".
  */
-describe("per-event variance accumulator (D-V1/D-V3)", () => {
-  /**
-   * A 2024 breakdown with INDEPENDENT red/blue own-field values and a
-   * separately controlled `foulPoints`. The separate foul knob matters: each
-   * side's own `foulPoints` becomes the OPPOSING side's `foulsCommitted`
-   * component (breakdown/2024.ts), so tying fouls to the own-field value would
-   * leak one alliance's variation into the other's observed total.
-   */
-  function breakdown(redVal: number, blueVal: number, foulPoints: number): string {
-    function side(perComponentValue: number): Record<string, unknown> {
-      return {
-        autoLeavePoints: perComponentValue,
-        autoAmpNotePoints: perComponentValue,
-        autoSpeakerNotePoints: perComponentValue,
-        teleopAmpNotePoints: perComponentValue,
-        teleopSpeakerNotePoints: perComponentValue,
-        teleopSpeakerNoteAmplifiedPoints: perComponentValue,
-        endGameOnStagePoints: perComponentValue,
-        endGameParkPoints: perComponentValue,
-        endGameHarmonyPoints: perComponentValue,
-        endGameNoteInTrapPoints: perComponentValue,
-        endGameSpotLightBonusPoints: perComponentValue,
-        adjustPoints: perComponentValue,
-        foulPoints,
-        autoAmpNoteCount: 0,
-        autoSpeakerNoteCount: 0,
-        teleopAmpNoteCount: 0,
-        teleopSpeakerNoteCount: 0,
-        teleopSpeakerNoteAmplifiedCount: 0,
-        endGameTotalStagePoints: 0,
-        endGameRobot1: "None",
-        endGameRobot2: "None",
-        endGameRobot3: "None",
-        coopertitionBonusAchieved: false,
-        melodyBonusAchieved: false,
-        ensembleBonusAchieved: false,
-        melodyBonusThresholdCoop: 0,
-        melodyBonusThresholdNonCoop: 0,
-        ensembleBonusStagePointsThreshold: 0,
-        ensembleBonusOnStageRobotsThreshold: 0,
-      };
-    }
-    return JSON.stringify({ red: side(redVal), blue: side(blueVal) });
-  }
-
-  it("PARTITIONED BY EVENT across an INTERLEAVED two-event stream — a team at both events feeds both accumulators, and neither is contaminated", () => {
-    // `replay.ts`'s `buildSeasonStream` interleaves concurrent events into one
-    // chronological stream. A single-event fixture cannot tell "partition by
-    // event" apart from "reset on event change"; this one can, and the shared
-    // team is what makes it non-vacuous.
-    let state = vpr.initState([]);
-    const stream: MatchResult[] = [
-      match({
-        matchKey: "2024eva_qm1",
-        redTeams: ["A1", "A2", "SHARED"],
-        blueTeams: ["A4", "A5", "A6"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(20, 9, 3),
-      }),
-      match({
-        matchKey: "2024evb_qm1",
-        redTeams: ["B1", "B2", "SHARED"],
-        blueTeams: ["B4", "B5", "B6"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(6, 24, 5),
-      }),
-      match({
-        matchKey: "2024eva_qm2",
-        redTeams: ["A1", "A4", "SHARED"],
-        blueTeams: ["A2", "A5", "A6"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(11, 17, 2),
-      }),
-      match({
-        matchKey: "2024evb_qm2",
-        redTeams: ["B1", "B4", "SHARED"],
-        blueTeams: ["B2", "B5", "B6"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(28, 7, 4),
-      }),
-    ];
-    for (const m of stream) state = vpr.update(state, m);
-
-    expect([...state.perEventVariance.keys()].sort()).toEqual(["2024eva", "2024evb"]);
-    const eva = state.perEventVariance.get("2024eva")!;
-    const evb = state.perEventVariance.get("2024evb")!;
-    // Two matches per event, two alliance rows per match.
-    expect(eva.rowCount).toBe(4);
-    expect(evb.rowCount).toBe(4);
-    // Each accumulator knows ONLY its own event's teams, plus the shared one.
-    expect([...eva.teamOrder].sort()).toEqual(["A1", "A2", "A4", "A5", "A6", "SHARED"]);
-    expect([...evb.teamOrder].sort()).toEqual(["B1", "B2", "B4", "B5", "B6", "SHARED"]);
-    // Non-vacuity: the shared team really did accumulate independently at both
-    // events, and its two rows are genuinely different numbers.
-    const evaShared = eva.targets[TOTAL_METRIC_KEY]![eva.teamOrder.indexOf("SHARED")]!;
-    const evbShared = evb.targets[TOTAL_METRIC_KEY]![evb.teamOrder.indexOf("SHARED")]!;
-    expect(evaShared).toBeGreaterThan(0);
-    expect(evbShared).toBeGreaterThan(0);
-    expect(evaShared).not.toBe(evbShared);
-  });
-
-  it("an ALL-SURROGATE alliance folds NO row (rowCount unchanged, not merely no throw)", () => {
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(14, 11, 3),
-      })
-    );
-    const before = state.perEventVariance.get("2024test")!.rowCount;
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm2",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        redSurrogates: ["R1", "R2", "R3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(30, 11, 3),
-      })
-    );
-    // Blue still folds; red does not. +1, never +2.
-    expect(state.perEventVariance.get("2024test")!.rowCount).toBe(before + 1);
-  });
-
-  it("a WHOLE-ALLIANCE-DQ-ZERO alliance folds NO row (rowCount unchanged)", () => {
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(14, 11, 3),
-      })
-    );
-    const before = state.perEventVariance.get("2024test")!.rowCount;
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm2",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        redDqs: ["R1", "R2", "R3"],
-        redScore: 0,
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(30, 11, 3),
-      })
-    );
-    expect(state.perEventVariance.get("2024test")!.rowCount).toBe(before + 1);
-    // Both no-fold cases reach `applyAllianceUpdate`'s PRE-EXISTING
-    // `allianceTeams.length === 0` early return — no second eligibility rule
-    // was added for the decomposition, which is what keeps predict, update and
-    // this fold from drifting apart.
-  });
-
-  it("carrySeason EMPTIES the map — points^2 under one season's rules are not points^2 under another's", () => {
-    let state = vpr.initState([]);
-    state = vpr.update(
-      state,
-      match({
-        matchKey: "2024test_qm1",
-        redTeams: ["R1", "R2", "R3"],
-        blueTeams: ["B1", "B2", "B3"],
-        hasScoreBreakdown: true,
-        scoreBreakdownRaw: breakdown(14, 11, 3),
-      })
-    );
-    expect(state.perEventVariance.size).toBeGreaterThan(0);
-    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
-    expect(carried.perEventVariance.size).toBe(0);
-  });
-
-  it("the folded TOTAL target is the SQUARE OF THE SUM of the per-component innovations, not the sum of their squares", () => {
-    // On the FIRST match of a cold-start state every component's belief mean is
-    // the same cold-start value and the observation is uniform across
-    // components, so every component's innovation is the SAME number `i`. Then
-    // per component the folded target is `i^2`, and TOTAL's is
-    // `(C * i)^2 = C^2 * i^2` — a factor of C^2 (169 at 2024's 13 components),
-    // against the factor of C a sum-of-squares would produce. The distinction
-    // is the whole reason an aggregate key sums innovations BEFORE squaring:
-    // `e_m` for the TOTAL key is the alliance's total-score residual, and
-    // squaring per component first would discard every cross-component term it
-    // carries.
+describe("swing folding into state (D-Y1/D-Y3)", () => {
+  it("carrySeason DROPS every team's swing — points^2 under one season's rules are not points^2 under another's", () => {
+    // PORTED from "carrySeason EMPTIES the map": the map is gone but the
+    // DECISION survived intact into `carrySeason`'s `swing: emptyTeamSwing()`,
+    // for the identical reason. A 2024 deviation measured in 2024 points says
+    // nothing about a robot's consistency under 2025's scoring rules, so
+    // carrying it would publish a number about a game that is not being played.
     let state = vpr.initState([]);
     state = vpr.update(
       state,
@@ -1784,17 +1635,105 @@ describe("per-event variance accumulator (D-V1/D-V3)", () => {
         scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
       })
     );
-    const acc = state.perEventVariance.get("2024test")!;
-    const index = acc.teamOrder.indexOf("R1");
+    // Non-vacuity: there IS something to drop, and it was being published.
+    expect(Object.keys(state.teams.get("R1")!.swing).length).toBeGreaterThan(0);
+    expect(vpr.teamMetrics(state, ["R1"])["R1"]![TOTAL_METRIC_KEY]!.spread).toBeDefined();
+
+    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+    for (const [team, teamState] of carried.teams) {
+      expect(Object.keys(teamState.swing).length, `${team} carries no swing`).toBe(0);
+    }
+    // And the display follows: D-Y2's ONE undefined case is exactly "never
+    // folded", which a carried team now is. The `value` still publishes —
+    // `carrySeason` carries the MEAN forward, only the spread resets.
+    for (const [key, metric] of Object.entries(vpr.teamMetrics(carried, ["R1"])["R1"]!)) {
+      expect(metric.spread, `${key} publishes no spread after the carry`).toBeUndefined();
+      expect(Number.isFinite(metric.value), `${key} still publishes a value`).toBe(true);
+    }
+  });
+
+  it("the TOTAL key's folded deviation is the SQUARE OF THE SUM of the per-component innovations, not the sum of their squares", () => {
+    // PORTED from the retired accumulator's `targets` assertion — the rule it
+    // pinned did not move, only where its answer is stored.
+    // `applyAllianceUpdate` still sums a key's component innovations BEFORE
+    // squaring, because `e_m` for the TOTAL key is the alliance's total-score
+    // residual and squaring per component first would discard every
+    // cross-component term it carries.
+    //
+    // On the FIRST match of a cold-start state every component's belief mean is
+    // the same cold-start value and the observation is uniform across
+    // components, so every component's innovation is the SAME number `i`. The
+    // published spread after ONE fold is exactly `scale * |dev|` (D-Y2), so the
+    // ratio of TOTAL's spread to a component's is `C` — against the `sqrt(C)` a
+    // sum-of-squares fold would produce. Asserted on the SPREAD rather than on
+    // the squared target because the spread is the number that ships.
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
     const componentCount = state.componentOrder.length;
     expect(componentCount).toBe(SIGMA1_2024_COMPONENT_COUNT);
 
-    const perComponent = acc.targets[state.componentOrder[0]!]![index]!;
-    const total = acc.targets[TOTAL_METRIC_KEY]![index]!;
+    const metrics = vpr.teamMetrics(state, ["R1"])["R1"]!;
+    const perComponent = metrics[state.componentOrder[0]!]!.spread!;
+    const total = metrics[TOTAL_METRIC_KEY]!.spread!;
     expect(perComponent).toBeGreaterThan(0);
-    expect(total / perComponent).toBeCloseTo(componentCount * componentCount, 6);
-    // Non-vacuity: the sum-of-squares alternative would give a ratio of C,
-    // which this fixture keeps a factor of 13 away from the asserted value.
-    expect(total / perComponent).not.toBeCloseTo(componentCount, 6);
+    expect(total / perComponent).toBeCloseTo(componentCount, 6);
+    // Non-vacuity: the sum-of-squares alternative would give sqrt(C) ~ 3.6,
+    // which this fixture keeps a wide margin away from the asserted 13.
+    expect(total / perComponent).not.toBeCloseTo(Math.sqrt(componentCount), 6);
+  });
+
+  it("every teammate receives the SAME deviation for a match — per-team differentiation comes from ACROSS matches, never from within one", () => {
+    // NOT a defect and not a fixture artifact: there is no way to recover a
+    // team-differentiated residual from a SUMMED observation (FRC records no
+    // individual robot's score — this project's Assumption A1), which is the
+    // same limitation `componentGains` and `residualsByTeam` already document.
+    // Per-team differentiation comes from WHICH alliances a team played on
+    // across many matches. Pinning it here is what stops a future "improvement"
+    // from inventing a within-match split that the data cannot support, and it
+    // is also why the module header states an honest ceiling of r ~= 0.59.
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    const r1 = vpr.teamMetrics(state, ["R1"])["R1"]![TOTAL_METRIC_KEY]!.spread!;
+    for (const team of ["R2", "R3"]) {
+      expect(vpr.teamMetrics(state, [team])[team]![TOTAL_METRIC_KEY]!.spread, team).toBe(r1);
+    }
+
+    // The OPPOSING alliance, folded from the SAME match, gets a different
+    // number — so "identical" is a statement about teammates specifically, not
+    // a fixture in which every team happens to coincide.
+    expect(vpr.teamMetrics(state, ["B1"])["B1"]![TOTAL_METRIC_KEY]!.spread).not.toBe(r1);
+
+    // And the k = 1 case D-Y2 rests on, at the wiring level: one fold leaves
+    // weight at exactly 1, so the published spread is exactly `scale * |dev|`
+    // with no averaging, no seeding and no floor in between.
+    //
+    // The `/ n` in `dev = (observed - predicted) / n` is NOT re-derived here.
+    // It is the exact quantity `SIGMA1_SWING_SCALE` was regressed against over
+    // 86,844 alliance-observations, and reconstructing the alliance residual
+    // independently would mean reimplementing the breakdown parse and the
+    // cold-start prior in the test — which would pin the fixture rather than
+    // the division. `swing.test.ts` owns the estimator's algebra given a
+    // deviation; this owns that a deviation reaches it at all.
+    const accumulator = state.teams.get("R1")!.swing[TOTAL_METRIC_KEY]!;
+    expect(accumulator.weight).toBe(1);
+    expect(r1).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * Math.sqrt(accumulator.weightedSquares));
   });
 });

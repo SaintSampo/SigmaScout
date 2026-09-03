@@ -21,7 +21,7 @@ import {
 import { emptyInnovationStats } from "./adaptation.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
-import { SIGMA1_VARIANCE_OPR_RIDGE } from "./varianceOpr.js";
+import { SIGMA1_SWING_HALF_LIFE_MATCHES, SIGMA1_SWING_SCALE, emptyTeamSwing } from "./swing.js";
 import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
@@ -273,11 +273,14 @@ describe("DEFAULT_SIGMA1_PARAMS reproduces Phase-2 behaviour exactly", () => {
     // The ONE linear field: a point total, so sqrt(V_ref), not V_ref.
     expect(DEFAULT_SIGMA1_PARAMS.coldStartTeamTotalRel).toBe(20 / Math.sqrt(SIGMA1_REFERENCE_SCORE_VARIANCE));
     expect(DEFAULT_SIGMA1_PARAMS.consistencyEwmaAlpha).toBe(SIGMA1_CONSISTENCY_EWMA_ALPHA);
-    // D-V4 (5.0.0): shrinkagePriorMatches is DELETED and varianceOprRidge
-    // takes its place. Asserted as an IDENTITY against the imported constant,
-    // never against a literal 10 — the same never-re-typed rule every other
-    // default here follows.
-    expect(DEFAULT_SIGMA1_PARAMS.varianceOprRidge).toBe(SIGMA1_VARIANCE_OPR_RIDGE);
+    // D-Y1 (7.0.0): `varianceOprRidge` is DELETED in its turn and the two
+    // swing constants take its place. Asserted as IDENTITIES against the
+    // imported constants, never against the literals 6 and 1.92 — the same
+    // never-re-typed rule every other default here follows, and the reason it
+    // matters is sharper for these two than for most: both were MEASURED, so a
+    // re-typed copy could drift from the measurement it records.
+    expect(DEFAULT_SIGMA1_PARAMS.swingHalfLifeMatches).toBe(SIGMA1_SWING_HALF_LIFE_MATCHES);
+    expect(DEFAULT_SIGMA1_PARAMS.swingScale).toBe(SIGMA1_SWING_SCALE);
     expect(DEFAULT_SIGMA1_PARAMS.covEwmaAlpha).toBe(SIGMA1_COV_EWMA_ALPHA);
     expect(DEFAULT_SIGMA1_PARAMS.covShrinkage).toBe(SIGMA1_COV_SHRINKAGE);
     expect(DEFAULT_SIGMA1_PARAMS.linkC).toBe(SIGMA1_LINK_C);
@@ -419,17 +422,28 @@ describe("fields observable through the predict/update replay stream", () => {
 });
 
 describe("fields observable only through teamMetrics (D-27's display contract)", () => {
-  // `varianceOprRidge` (D-V4, 5.0.0) is read ONLY inside teamMetrics — it is
-  // the ridge lambda of the per-team variance decomposition that produces
-  // every published +/-. predict()/update() never read it, so a
-  // predict()-stream comparison would (correctly) show no difference at all;
-  // that would be a false "not wired" signal, not evidence of a bug.
+  // `swingHalfLifeMatches`/`swingScale` (D-Y1, 7.0.0) are read ONLY inside
+  // teamMetrics and `update()`'s swing fold — they parameterise the
+  // recency-weighted consistency estimate that produces every published +/-.
+  // `predict()` never reads either, so a predict()-stream comparison would
+  // (correctly) show no difference at all; that would be a false "not wired"
+  // signal, not evidence of a bug.
   //
-  // It replaced `shrinkagePriorMatches`, which was DELETED from Sigma1Params
-  // in the same version, and `minConsistencyVarianceRel` moved UP to the
-  // replay group because the display no longer reads it either.
+  // They replaced `varianceOprRidge`, which was DELETED from Sigma1Params in
+  // the same version — which in its turn had replaced `shrinkagePriorMatches`
+  // at 5.0.0. Three display parameters, three versions, and the SAME wiring
+  // test each time: the display contract is the one thing that has to keep
+  // being checked while the estimator behind it changes.
+  //
+  // `swingHalfLifeMatches` is perturbed to 0.5 rather than to something large:
+  // the decay `0.5 ** (1 / h)` is bounded in (0, 1) and flattens as `h` grows,
+  // so a big half-life converges toward the flat average and could plausibly
+  // round to it on a short fixture. A SHORT half-life cannot — it weights the
+  // newest observation overwhelmingly, which is the direction that always
+  // moves the number.
   const WIRED_VIA_TEAM_METRICS: readonly { field: keyof Sigma1Params; perturbed: number }[] = [
-    { field: "varianceOprRidge", perturbed: 1000 },
+    { field: "swingHalfLifeMatches", perturbed: 0.5 },
+    { field: "swingScale", perturbed: 1000 },
   ];
 
   it.each(WIRED_VIA_TEAM_METRICS)("$field changes teamMetrics output", ({ field, perturbed }) => {
@@ -559,6 +573,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],
+              swing: emptyTeamSwing(),
             },
           ],
           [
@@ -573,6 +588,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],
+              swing: emptyTeamSwing(),
             },
           ],
         ]),
@@ -580,7 +596,6 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
         allianceScoreStats: emptyExpandingStats(), // count === 0, forces the fallback
         priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
         rpSkippedMatchCount: 0,
-        perEventVariance: new Map(),
         breakdownParseFailureCount: 0,
       };
     }

@@ -62,14 +62,33 @@
  *     per-match contribution fold. It is excluded because it is about to be
  *     deleted, not because it is allowed to drift.
  *   - `lastContribution` — same fold, same reason.
- *   - `perEventVariance` (as `scopeKind: "event"` rows) — Task 4 ADDS the
- *     variance-decomposition accumulator to `Sigma1State` and serializes it as
+ *   - `perEventVariance` (as `scopeKind: "event"` rows) — Task 4 ADDED the
+ *     variance-decomposition accumulator to `Sigma1State` and serialized it as
  *     event-scoped rows. New state that publishes nothing is legitimately new;
- *     the point of this test is that adding it moves nothing else.
+ *     the point of this test is that adding it moves nothing else. RETIRED at
+ *     7.0.0 (quick task 260903-750) along with the estimator itself — the
+ *     exclusion is kept as a no-op so a re-added event row would still be
+ *     silently ignored rather than silently hashed, and so this entry's history
+ *     survives its subject.
+ *   - `swing` — quick task 260903-750 REPLACES that accumulator with one
+ *     running number per team per metric key, living on the TEAM row. Excluded
+ *     for exactly the reason `perEventVariance` was: it is new state that
+ *     `predict()` and `update()`'s filter math never read, and the whole claim
+ *     under test is that adding it moves nothing else.
+ *
+ *     THE FIXTURE WAS NOT REGENERATED FOR IT, and that is the load-bearing
+ *     half. With `swing` excluded, the SAME committed
+ *     `display-only-baseline.json` — generated once, before 260902-varopr —
+ *     still reproduces both state hashes character for character. Two
+ *     successive display-estimator swaps have now been judged against one
+ *     unregenerated baseline, which is the strongest form of the claim this
+ *     file exists to make and is strictly stronger than a refreshed fixture
+ *     could ever be.
  *   - `snapshotShapeVersion` — a SERIALIZER version, not filter state. Tasks 2
- *     and 4 each bump it (4 -> 5 -> 6) precisely because the stored field set
- *     changed; letting that number into the hash would make this test report a
- *     storage-format bump as though it were a prediction change.
+ *     and 4 each bump it (4 -> 5 -> 6), and 260903-750 bumps it again (6 -> 7),
+ *     precisely because the stored field set changed; letting that number into
+ *     the hash would make this test report a storage-format bump as though it
+ *     were a prediction change.
  *
  * Nothing else may be added to this list without a recorded reason, and adding
  * a field to it to make a red test green is the prohibited move above under a
@@ -100,9 +119,9 @@ const WRITE_MODE = process.env["SIGMA1_WRITE_DISPLAY_ONLY_BASELINE"] === "1";
  * to each — the list is the contract, so it lives beside the code that applies
  * it rather than only in prose.
  */
-const EXCLUDED_TEAM_FIELDS = ["contributionStats", "lastContribution"] as const;
+const EXCLUDED_TEAM_FIELDS = ["contributionStats", "lastContribution", "swing"] as const;
 const EXCLUDED_LEAGUE_FIELDS = ["snapshotShapeVersion"] as const;
-/** Task 4's `perEventVariance` serializes as its own scope kind; excluded wholesale. */
+/** Task 4's `perEventVariance` serialized as its own scope kind; excluded wholesale. A NO-OP since 7.0.0 (Sigma1 emits no event rows) and kept deliberately — see the header. */
 const EXCLUDED_SCOPE_KINDS = new Set<string>(["event"]);
 
 // ---------------------------------------------------------------------------
