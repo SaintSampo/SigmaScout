@@ -79,7 +79,16 @@ function SortIcon({ direction }: { direction: EventSortDirection }) {
 function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProps, "sortKey" | "sortDir" | "onSortChange">) {
   return (
     <TableHeader>
-      <TableRow>
+      {/*
+        `h-11` (44px), not the table's default `h-10` (40px): the sort
+        controls' hit-area overlay below is `inset-0`, so the CELL is the tap
+        target and the cell must itself meet the project's own
+        `.tap-target` floor of 44px (`theme.css`). Buying those 4px from the
+        header row is deliberate — the alternative, growing the overlay past
+        the cell instead, put it on top of the first result row and ate
+        clicks meant for it. See the overlay's own comment below.
+      */}
+      <TableRow className="h-11">
         {COLUMNS.map((column) => {
           if (column.key === null) {
             return (
@@ -120,27 +129,30 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
                 intercepts clicks landing anywhere in the cell — including
                 directly over the visible label — without changing what
                 fires (the same `onSortChange` call).
-                Height: the row's own visible height (`h-10`, 40px) must
-                stay unchanged (measured before/after), but the tap target
-                needs >=44px. `-bottom-2` grows the OVERLAY 8px past the
-                th's own bottom edge without growing the th itself — an
-                absolutely positioned descendant is out of normal flow, so
-                it never contributes to the th's own established height.
-                The overhang lands on the gap before the first body row,
-                not above the table (no top-of-viewport clipping risk from
-                the table container's `overflow-x-auto`, which per spec
-                forces the paired y-axis to `auto` too), and — per the same
-                paint-order rule — still hit-tests as part of this overlay
-                rather than being shadowed by the row underneath it
-                (confirmed live: a click 3px below the visible cell still
-                fires `onSortChange`).
+                Height: the overlay is `inset-0` — exactly its own cell,
+                never a pixel more. The header ROW carries `h-11` (44px) so
+                that cell is already >=44px on its own.
+
+                It is deliberately NOT `-bottom-2` (an 8px overhang past the
+                th, which is what the first version of this fix shipped).
+                That overhang did produce a >=44px box without growing the
+                row, but it landed ON the first body row: measured live,
+                clicks in the top 7px of row 1 (y 222-229) fired
+                `onSortChange` instead of opening the event, and only clicks
+                >=8px in behaved. An absolutely positioned sibling paints and
+                hit-tests above the static row beneath it, so the overhang
+                silently stole a strip of the first result. The original
+                verification read that same behaviour ("a click 3px below the
+                visible cell still fires onSortChange") as PROOF the overhang
+                worked, because it never asked what else occupies that space.
+                Growing the row by 4px is the honest way to buy the target.
               */}
               <button
                 type="button"
                 aria-hidden="true"
                 tabIndex={-1}
                 onClick={() => onSortChange(column.key as EventSortKey)}
-                className="absolute inset-x-0 top-0 -bottom-2"
+                className="absolute inset-0"
               />
               <button
                 type="button"
