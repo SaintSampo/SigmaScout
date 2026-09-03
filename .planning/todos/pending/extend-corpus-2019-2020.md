@@ -317,3 +317,57 @@ being handicapped rather than from VPR being better.
 **Owed follow-up:** when the backtest runs, compute EPA's 2022 figures both ways once and report
 the delta, so this caveat is a measured number rather than an open worry. If it is negligible the
 concern dissolves; if it is large it is disclosed rather than discovered later.
+
+---
+
+## PROGRESS 2026-09-03 — ingest and modules are DONE
+
+### Done
+
+- **Sigma1 gap handling** — quick task `260903-3bv` (`91044bf7`, `003dc7f1`, `bc9fb3d2`).
+- **Ingest** — `pnpm ingest --years 2019-2020` (538 requests) then
+  `pnpm ingest:rankings --years 2019-2020` (500 requests). Corpus now holds:
+
+  | season | matches | official quals w/ breakdown |
+  |---|---|---|
+  | 2019 | 21,899 | **14,929** |
+  | 2020 | 4,763 | **3,820** |
+
+  **2019 is a FULL-SIZE season** — its 14,929 sits inside the 2022–2026 range of 12,064–15,191.
+  Only 2020 is small. The earlier note that the 2022 origin would select on thin evidence was
+  too pessimistic: 2019 + 2020 is 18,749 official quals, against 31,030 for today's earliest
+  origin, and most of that is a normal season rather than a fragment.
+
+- **The four modules** — quick task `260903-4fs` (`a5052194`, `1b87a079`, `0b1dbd9c`, `ad70f6ef`):
+  `breakdown/2019.ts`, `breakdown/2020.ts`, `sigma1/rp/2019.ts`, `sigma1/rp/2020.ts`, registered
+  in both dispatch tables plus `groups.ts`.
+- **Census re-bounded** — `6e6f9338`. See that commit; the rankings backfill was done first, and
+  the bound moved only for 2020's irreducible cancelled events.
+
+### Two traps found on the way, both worth remembering
+
+1. **`breakdown/reconciliation.test.ts` and `groups.test.ts` carry HARDCODED season lists**, not
+   registry-driven ones. Registering a season without editing them ships an entirely unproven
+   component map with a green suite. Only `rules.test.ts` fails loudly. Any future season
+   registration must edit all three.
+2. **Reconciliation structurally cannot catch one 2019 error.** `autoPoints` is numerically
+   identical to `sandStormBonusPoints` in every row, so a module reading the roll-up would
+   reconcile perfectly. A comment-stripped source gate covers it instead.
+
+### Verified independently by the orchestrator, not taken on an agent's report
+
+`completeRocket` re-derived straight from the corpus: 29,858 sides, 6.541% flag rate,
+**98.191% agreement, 540 false negatives, 0 FALSE POSITIVES**. The zero-false-positive property
+is what the conservative-branch argument rests on, so it was worth re-proving rather than
+trusting.
+
+Full suite after everything: 168 files, 2,946 passed, 1 skipped, **0 failures**.
+
+### What remains in this todo
+
+- **Nothing blocking.** The corpus and modules are ready for a replay over 2019, 2020, 2022–2026.
+- Not yet done, and NOT required by this todo: `score.ts`'s season guard still throws outside
+  2022–2026 (`TUNE_SEASONS`/`HOLDOUT_SEASONS` and the range check at `score.ts:23-29`). That is
+  `rolling-origin-hyperparameter-tuning`'s D-5 work, which rides the re-tune's republish.
+- `retune-sigma1-rolling-origin` is now unblocked on the corpus side, and its origin list grows:
+  **2022 and 2023 become origins**, since 2019 and 2020 now precede them.
