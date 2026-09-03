@@ -96,7 +96,6 @@ function fakeSlice(algorithmId: string, season: number, brierScore: number, winn
   return {
     algorithmId,
     season,
-    seasonLabel: "tune",
     headlineEligible: false,
     compLevelView: "combined",
     brierScore,
@@ -158,14 +157,13 @@ describe("assertNoFutureSeasonLeak (D-T5 gate 3)", () => {
     expect(() => assertNoFutureSeasonLeak(slices, 2025)).not.toThrow();
   });
 
-  it("no longer keys off seasonLabel — a tune-labelled slice at the boundary is still a leak", () => {
-    // The retired gate asked `seasonLabel !== "tune"`, a statement about
-    // D-09's FIXED split. Under rolling origin an origin-2024 run selecting on
-    // 2022-2023 must reject a 2024 slice, and 2024 is labelled "tune".
-    const slices: ScoreSlice[] = [fakeSlice("cand", 2024, 0.1, 0.5)];
-    expect(slices[0]!.seasonLabel).toBe("tune");
-    expect(() => assertNoFutureSeasonLeak(slices, 2024)).toThrow(/boundary season 2024/);
-  });
+  // The "no longer keys off seasonLabel" regression test that lived here is
+  // deleted rather than retargeted (quick task 260903-krp): `seasonLabel` no
+  // longer exists on `ScoreSlice` at all, so its claim ("a tune-labelled
+  // slice at the boundary is still a leak") has no subject left to guard.
+  // The boundary behaviour itself remains covered by "throws for a slice AT
+  // the boundary season" above, which asserts the same season-comparison
+  // gate without referencing the retired field.
 
   it("the retired assertNoHoldoutLeak export is GONE, not aliased", async () => {
     // Deleted rather than kept as an alias: leaving both names would let a

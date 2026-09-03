@@ -62,6 +62,81 @@ describe("isHeadlineEligible", () => {
   });
 });
 
+/**
+ * D-2/D-3 (quick task 260903-krp): the five behaviours the plan's own
+ * `<behavior>` block requires, each an OUTPUT of the rule rather than a
+ * second hardcoded list.
+ */
+describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
+  // The real seven-season corpus (2019, 2020, then 2022-2026 — no FRC season
+  // played in 2021).
+  const SEVEN_SEASON_CORPUS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
+
+  function predictionFor(season: number): HarnessPredictionInput {
+    return {
+      matchKey: `${season}test_qm1`,
+      season,
+      eventKey: `${season}test`,
+      compLevel: "qm",
+      algorithmId: "opr",
+      pRedWin: 0.6,
+      predictedRedScore: 60,
+      predictedBlueScore: 40,
+      actualWinner: "red",
+      isOffseason: false,
+      isSurrogateAffected: false,
+    };
+  }
+
+  it("on the seven-season corpus, scores every season with no throw, and the eligible set is exactly what the rule computes — never a hardcoded literal", () => {
+    const predictions = SEVEN_SEASON_CORPUS.map(predictionFor);
+    let slices: ReturnType<typeof aggregateScores> = [];
+    expect(() => {
+      slices = aggregateScores(predictions, { corpusSeasons: SEVEN_SEASON_CORPUS });
+    }).not.toThrow();
+
+    const combined = slices.filter((s) => s.compLevelView === "combined");
+    expect(combined.map((s) => s.season).sort((a, b) => a - b)).toEqual(SEVEN_SEASON_CORPUS);
+
+    // DERIVED by filtering the declared corpus through the same
+    // distinct-prior-count reasoning the rule itself states — restating
+    // 2022-2026 as a literal array here would make this a second copy of
+    // the hardcoded list D-2 forbids, not a test of the rule.
+    const expectedEligible = SEVEN_SEASON_CORPUS.filter(
+      (season) => new Set(SEVEN_SEASON_CORPUS.filter((s) => s < season)).size >= MIN_PRIOR_SEASONS_FOR_HEADLINE
+    );
+    expect(expectedEligible).toHaveLength(5);
+    expect(SEVEN_SEASON_CORPUS.length - expectedEligible.length).toBe(2);
+
+    for (const slice of combined) {
+      expect(slice.headlineEligible).toBe(expectedEligible.includes(slice.season));
+    }
+  });
+
+  it("a two-season set leaves its later season ineligible (D-2's two-prior threshold, not one)", () => {
+    const predictions = [predictionFor(2025), predictionFor(2026)];
+    const slices = aggregateScores(predictions, { corpusSeasons: [2025, 2026] });
+    const combined = slices.filter((s) => s.compLevelView === "combined");
+    expect(combined.find((s) => s.season === 2026)?.headlineEligible).toBe(false);
+  });
+
+  it("a duplicated prior season in corpusSeasons does not buy eligibility", () => {
+    // 2022 appears three times; the distinct priors before 2024 are still
+    // just {2022, 2023} — two, not three.
+    const corpusSeasons = [2022, 2022, 2022, 2023, 2024];
+    const predictions = [predictionFor(2022), predictionFor(2023), predictionFor(2024)];
+    const slices = aggregateScores(predictions, { corpusSeasons });
+    const combined = slices.filter((s) => s.compLevelView === "combined");
+    expect(combined.find((s) => s.season === 2024)?.headlineEligible).toBe(true); // 2 distinct priors: 2022, 2023
+    expect(combined.find((s) => s.season === 2023)?.headlineEligible).toBe(false); // 1 distinct prior: 2022
+  });
+
+  it("throws when predictions carry a season absent from the declared corpusSeasons, naming the undeclared season", () => {
+    const predictions = [predictionFor(2024), predictionFor(2025)];
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024] })).toThrow(/2025/);
+  });
+});
+
 describe("aggregateScores", () => {
   // 2024 (tune): 3 candidate qual matches (2 scorable, 1 offseason, 1
   // surrogate-affected, 1 missing-result — 5 qual candidates total) plus 1

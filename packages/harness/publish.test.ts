@@ -2560,7 +2560,6 @@ describe("buildCompareArtifact", () => {
     const slice: ScoreSlice = {
       algorithmId: "opr",
       season: 2025,
-      seasonLabel: "holdout",
       headlineEligible: true,
       compLevelView: "combined",
       brierScore: 0.181234567,

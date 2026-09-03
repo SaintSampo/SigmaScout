@@ -18,7 +18,6 @@ const populatedBins2025 = calibrationBins(
 const slice2024Qual: ScoreSlice = {
   algorithmId: "opr",
   season: 2024,
-  seasonLabel: "tune",
   headlineEligible: false,
   compLevelView: "qualification",
   brierScore: 0.185,
@@ -37,7 +36,6 @@ const slice2024Qual: ScoreSlice = {
 const slice2024Elim: ScoreSlice = {
   algorithmId: "opr",
   season: 2024,
-  seasonLabel: "tune",
   headlineEligible: false,
   compLevelView: "elimination",
   brierScore: null,
@@ -53,7 +51,6 @@ const slice2024Elim: ScoreSlice = {
 const slice2025Combined: ScoreSlice = {
   algorithmId: "opr",
   season: 2025,
-  seasonLabel: "holdout",
   headlineEligible: true,
   compLevelView: "combined",
   brierScore: 0.132,
@@ -115,12 +112,12 @@ describe("renderHtmlReport", () => {
     expect(html).toContain("all 2024 qualification + elimination matches");
   });
 
-  it("marks holdout rows distinguishably from tune rows", () => {
+  it("marks headline-eligible rows distinguishably from selection-only rows", () => {
     const html = renderHtmlReport(buildFixtureArtifact());
-    expect(html).toContain("holdout-row");
-    expect(html).toContain("tune-row");
+    expect(html).toContain("headline-row");
+    expect(html).toContain("selection-row");
     expect(html).toContain("badge-headline");
-    expect(html).toContain("badge-tune");
+    expect(html).toContain("badge-selection");
   });
 
   it("renders a not-applicable marker and its count for a slice with null metrics, never the digit zero as its score", () => {
@@ -268,7 +265,7 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
     expect(html).toContain(">epa<");
     expect(html).toContain(">vpr<");
 
-    const rowCount = (html.match(/<tr class="(?:holdout|tune)-row">/g) ?? []).length;
+    const rowCount = (html.match(/<tr class="(?:headline|selection)-row">/g) ?? []).length;
     expect(rowCount).toBe(artifact.slices.length);
   });
 
@@ -340,7 +337,7 @@ describe("renderHeadToHeadTable — SC-1's one comparable table (D-20/D-21)", ()
     });
     const html = renderHeadToHeadTable(oneAlgorithmArtifact);
     expect(html).toContain(">opr<");
-    expect((html.match(/<tr class="(?:holdout|tune)-row">/g) ?? []).length).toBe(1);
+    expect((html.match(/<tr class="(?:headline|selection)-row">/g) ?? []).length).toBe(1);
   });
 });
 

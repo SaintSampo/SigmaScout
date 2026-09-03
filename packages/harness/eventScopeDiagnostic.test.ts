@@ -189,7 +189,6 @@ function scoreSlice(overrides: Partial<ScoreSlice>): ScoreSlice {
   return {
     algorithmId: "test-algo",
     season: 2024,
-    seasonLabel: "tune",
     headlineEligible: false,
     compLevelView: "combined",
     brierScore: 0.2,

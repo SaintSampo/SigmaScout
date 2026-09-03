@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 async function buildFixtureArtifact(): Promise<HarnessArtifact> {
-  const slices = aggregateScores(FIXTURE_PREDICTIONS);
+  const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
   const statboticsReferences = await Promise.all(
     [2024, 2025].map((season) => statboticsReference(season, { fetchImpl: () => Promise.reject(new Error("no network in tests")) }))
   );
@@ -117,7 +117,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("D-13/plan 03-03: derives codeVersion/paramSetName by splitting version on the first '+'", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS);
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
     const artifact = await buildArtifact({
       algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08" }],
       corpusIdentity: "test-corpus",
@@ -130,7 +130,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("D-13/plan 03-03: throws when an algorithm's version carries no '+' (a module that has not adopted the identity scheme)", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS);
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
     expect(() =>
       buildArtifact({
         algorithms: [{ id: "legacy", version: "1.0.0" }],
@@ -148,13 +148,12 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
     expect(() => HarnessArtifactSchema.parse(broken)).toThrow();
   });
 
-  it("carries season, competition-level view, tune-or-holdout label, headline eligibility, both metrics, scored count, exclusion counts, and calibration bins on every slice", async () => {
+  it("carries season, competition-level view, headline eligibility, both metrics, scored count, exclusion counts, and calibration bins on every slice", async () => {
     const artifact = await buildFixtureArtifact();
     expect(artifact.slices.length).toBeGreaterThan(0);
     for (const slice of artifact.slices) {
       expect(typeof slice.season).toBe("number");
       expect(["qualification", "elimination", "combined"]).toContain(slice.compLevelView);
-      expect(["tune", "holdout"]).toContain(slice.seasonLabel);
       expect(typeof slice.headlineEligible).toBe("boolean");
       expect(slice.brierScore === null || typeof slice.brierScore === "number").toBe(true);
       expect(slice.winnerAccuracy === null || typeof slice.winnerAccuracy === "number").toBe(true);
@@ -171,7 +170,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("stores brierScore and winnerAccuracy unrounded, matching the full-precision computed value", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS);
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
     const qualSlice2024 = slices.find((s) => s.season === 2024 && s.compLevelView === "qualification")!;
     // Hand-computed at full precision from the 1/3 and 0.6 predictions above:
     //   (1/3 - 1)^2 = (−2/3)^2 = 4/9

@@ -163,7 +163,7 @@ describe("promoted algorithm version reproducibility (D-15/SC-5)", () => {
           isOffseason: false,
           isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
         }));
-        const slices = aggregateScores(predictions);
+        const slices = aggregateScores(predictions, { corpusSeasons: [promoted.digest.sliceSeason] });
         const combinedSlice = slices.find(
           (s) => s.compLevelView === "combined" && s.season === promoted.digest.sliceSeason
         );
