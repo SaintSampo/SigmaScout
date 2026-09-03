@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, decodeTeamsRowMetrics } from "../../../packages/harness/pageArtifacts.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
 // `version` (see scheduled.ts's `info.algorithm.version`), never from the
 // algorithms manifest below — so these expectations must track the module too.
@@ -766,5 +766,71 @@ describe("runTick — global rebuild (D-16)", () => {
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.globalRebuildRan).toBe(false);
+  });
+
+  it("260902-pbe: reads an object-form (pre-republish) teams artifact, merges touched teams, and writes it back POSITIONALLY — an untouched row's metrics survive the decode/re-encode round trip exactly", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+
+    // Seed R2 with the shape production actually serves today: object-form
+    // `metrics`, no `metricKeys` preamble at all — this Worker has never
+    // written one before this task.
+    const teamsKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    const legacyObjectFormArtifact = {
+      schemaVersion: 1,
+      generation: "gen-0",
+      computedAt: "2026-08-01T00:00:00.000Z",
+      algorithmId: "opr",
+      algorithmVersion: opr.version,
+      season: SEASON,
+      teams: [
+        {
+          teamKey: "frc999",
+          teamNumber: 999,
+          nickname: "Untouched Legacy Team",
+          record: { wins: 1, losses: 0, ties: 0 },
+          metrics: { total: { value: 10, spread: 1 } },
+          eventCount: 1,
+          matchCount: 1,
+        },
+      ],
+    };
+    await r2.put(teamsKey, JSON.stringify(legacyObjectFormArtifact));
+
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.globalRebuildRan).toBe(true);
+
+    const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
+    expect(teamsPut).toBeDefined();
+    const written = JSON.parse(teamsPut!.body) as { metricKeys?: string[]; teams: { teamKey: string; metrics: unknown }[] };
+
+    // Every write this Worker makes is positional now, regardless of what
+    // shape it just read.
+    expect(Array.isArray(written.metricKeys)).toBe(true);
+    for (const row of written.teams) {
+      expect(Array.isArray(row.metrics)).toBe(true);
+    }
+
+    // The untouched legacy row survived the decode-then-re-encode round trip
+    // with its exact metrics intact — the merge path's whole safety argument.
+    const untouchedRow = written.teams.find((t) => t.teamKey === "frc999");
+    expect(untouchedRow).toBeDefined();
+    const decoded = decodeTeamsRowMetrics(untouchedRow!.metrics as never, written.metricKeys!);
+    expect(decoded.total).toEqual({ value: 10, spread: 1 });
+
+    // And the newly-touched teams acquired a real row too.
+    for (const teamKey of ALL_TEAMS) {
+      expect(written.teams.some((t) => t.teamKey === teamKey)).toBe(true);
+    }
   });
 });

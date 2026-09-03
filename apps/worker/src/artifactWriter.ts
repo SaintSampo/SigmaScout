@@ -19,7 +19,7 @@ import {
   CompareArtifactSchema,
   EventArtifactSchema,
   EventsArtifactSchema,
-  TeamsArtifactSchema,
+  TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
   type ArtifactKeyParams,
   type PageKind,
@@ -31,8 +31,18 @@ import type { Env } from "./env.js";
 export const ARTIFACT_CACHE_CONTROL = "public, max-age=60";
 export const ARTIFACT_CONTENT_TYPE = "application/json";
 
+/**
+ * 260902-pbe: `teams` validates against `TeamsArtifactWireSchema`, NOT the
+ * decoding `TeamsArtifactSchema` used everywhere this Worker READS a teams
+ * artifact (`scheduled.ts`'s `runGlobalRebuild`). `writeArtifactObject`
+ * below `JSON.stringify`s exactly what this map's `.parse()` call returns —
+ * decoding here would silently turn every write back into the object-form
+ * shape this task exists to shrink, undoing the entire wire saving on the
+ * one path (the live Worker's incremental rebuild) that writes a teams
+ * artifact between now and the later full republish.
+ */
 const SCHEMA_BY_PAGE: Record<PageKind, { parse(input: unknown): unknown }> = {
-  teams: TeamsArtifactSchema,
+  teams: TeamsArtifactWireSchema,
   team: TeamSeasonArtifactSchema,
   events: EventsArtifactSchema,
   event: EventArtifactSchema,

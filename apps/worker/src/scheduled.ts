@@ -97,6 +97,8 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { deserializeState, serializeState } from "../../../packages/harness/stateSnapshot.js";
 import {
   artifactKey,
+  deriveMetricKeyOrder,
+  encodeTeamsRowMetrics,
   EventArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
@@ -931,6 +933,21 @@ async function runPhaseBAndReport(
 // D-16's slower-cadence global rebuild (see this module's header for scope)
 // ---------------------------------------------------------------------------
 
+/**
+ * D-16's slower-cadence rebuild — see this module's header for scope.
+ *
+ * 260902-pbe: `existing` is read and decoded through `TeamsArtifactSchema`
+ * above, which accepts EITHER shape currently on R2 (object-form, still
+ * production's real content until the later republish, or positional, once
+ * this Worker or that republish has written one) and always hands back the
+ * canonical record-form `metrics` this function's merge logic already
+ * expects — nothing below this comment needed to change for that half of
+ * the transition. What DOES have to change is the write: `rows` here is
+ * always record-form (decoded existing rows plus freshly computed touched
+ * rows), and every write this Worker makes from here on must be positional
+ * — re-encoding, never assuming either shape, is what keeps a live event
+ * from corrupting the season's teams artifact mid-transition.
+ */
 async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>, touchedTeamsByAlgorithm: ReadonlyMap<string, Map<string, TouchedTeamInfo>>, stamp: Stamp): Promise<boolean> {
   if (touchedTeamsByAlgorithm.size === 0) return true; // trigger fired, nothing to merge — a legitimate no-op "ran"
 
@@ -972,7 +989,22 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
       }),
     ];
 
-    const candidate = { schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION, generation: stamp.generation, computedAt: stamp.computedAt, algorithmId, algorithmVersion: algorithm.version, season, teams: rows };
+    // 260902-pbe: re-encode positionally before writing — `rows` above is
+    // always canonical record-form (decoded from whichever shape was
+    // actually on disk), so every write this Worker makes converges the
+    // artifact onto the compact wire shape one incremental rebuild at a
+    // time, even during the pre-republish transition.
+    const metricKeys = deriveMetricKeyOrder(rows.map((row) => row.metrics));
+    const candidate = {
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: stamp.generation,
+      computedAt: stamp.computedAt,
+      algorithmId,
+      algorithmVersion: algorithm.version,
+      season,
+      metricKeys,
+      teams: rows.map((row) => ({ ...row, metrics: encodeTeamsRowMetrics(row.metrics, metricKeys) })),
+    };
     try {
       const result = await writeArtifactObject(env, budget, "teams", params, candidate);
       if (result.deferred) return false;

@@ -10,10 +10,16 @@ import {
   artifactKey,
   CompareArtifactSchema,
   composeEventLocation,
+  decodeTeamMetricEntry,
+  decodeTeamsRowMetrics,
+  deriveMetricKeyOrder,
+  encodeTeamMetricEntry,
+  encodeTeamsRowMetrics,
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
+  TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
 } from "./pageArtifacts.js";
 
@@ -310,6 +316,129 @@ describe("algorithm-scoping — four pages require it, compare carries neither f
     const parsed = CompareArtifactSchema.parse(validCompareFixture());
     expect("algorithmId" in parsed).toBe(false);
     expect("algorithmVersion" in parsed).toBe(false);
+  });
+});
+
+describe("teams-table positional metrics (260902-pbe)", () => {
+  interface TestTeamMetric {
+    value: number;
+    spread?: number;
+    tier?: "rare" | "epic" | "legendary";
+  }
+  interface TestTeamsRow {
+    teamKey: string;
+    teamNumber: number;
+    nickname: string;
+    record: { wins: number; losses: number; ties: number };
+    eventCount: number;
+    matchCount: number;
+    metrics: Record<string, TestTeamMetric>;
+  }
+
+  /** A three-team, three-shape fixture exercising every `PositionalMetricEntrySchema` state: `frc1` has a spread but no tier (Common); `frc2` has a tier and no spread (a boxed, no-variance-modeling metric); `frc3` is missing `bar` entirely, and its `foo` has neither spread nor tier — plus a genuine zero spread, which must never collapse with "absent". */
+  function objectFormTeamsRows(): TestTeamsRow[] {
+    return [
+      { teamKey: "frc1", teamNumber: 1, nickname: "A", record: { wins: 1, losses: 0, ties: 0 }, eventCount: 1, matchCount: 1, metrics: { foo: { value: 10, spread: 2 }, bar: { value: 0, spread: 0 } } },
+      { teamKey: "frc2", teamNumber: 2, nickname: "B", record: { wins: 0, losses: 1, ties: 0 }, eventCount: 1, matchCount: 1, metrics: { foo: { value: 20, tier: "epic" }, bar: { value: 5 } } },
+      { teamKey: "frc3", teamNumber: 3, nickname: "C", record: { wins: 0, losses: 0, ties: 1 }, eventCount: 1, matchCount: 1, metrics: { foo: { value: 30 } } },
+    ];
+  }
+
+  interface WireFixture {
+    schemaVersion: number;
+    generation: string;
+    computedAt: string;
+    algorithmId: string;
+    algorithmVersion: string;
+    season: number;
+    metricKeys?: string[];
+    teams: unknown[];
+  }
+
+  function teamsArtifactWith(teams: unknown[], metricKeys?: string[]): WireFixture {
+    return {
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+test",
+      season: 2026,
+      ...(metricKeys !== undefined ? { metricKeys } : {}),
+      teams,
+    };
+  }
+
+  it("TeamsArtifactSchema decodes an object-form artifact and its positionally-encoded equivalent to IDENTICAL output — the whole safety argument for the pre-republish transition", () => {
+    const objectForm = teamsArtifactWith(objectFormTeamsRows());
+    const metricKeys = deriveMetricKeyOrder(objectFormTeamsRows().map((t) => t.metrics));
+    const positionalForm = teamsArtifactWith(
+      objectFormTeamsRows().map((t) => ({ ...t, metrics: encodeTeamsRowMetrics(t.metrics, metricKeys) })),
+      metricKeys
+    );
+
+    // Sanity: the positional fixture really is array-shaped, not accidentally
+    // still object-form (a no-op test would pass trivially otherwise).
+    expect(Array.isArray((positionalForm.teams[0] as { metrics: unknown }).metrics)).toBe(true);
+
+    const decodedFromObject = TeamsArtifactSchema.parse(objectForm);
+    const decodedFromPositional = TeamsArtifactSchema.parse(positionalForm);
+    expect(decodedFromPositional).toEqual(decodedFromObject);
+
+    // And the decoded shape is exactly what a pre-existing reader (rowModel.ts) expects: a record, not an array.
+    expect(decodedFromObject.teams[0]!.metrics).toEqual({ foo: { value: 10, spread: 2 }, bar: { value: 0, spread: 0 } });
+    expect(decodedFromObject.teams[1]!.metrics).toEqual({ foo: { value: 20, tier: "epic" }, bar: { value: 5 } });
+    // frc3 never had a `bar` key — absence must round-trip as absence, never a fabricated zero.
+    expect(decodedFromObject.teams[2]!.metrics).toEqual({ foo: { value: 30 } });
+    expect("bar" in decodedFromObject.teams[2]!.metrics).toBe(false);
+  });
+
+  it("a real zero spread round-trips distinctly from an absent one (never collapsed)", () => {
+    expect(encodeTeamMetricEntry({ value: 0, spread: 0 })).toEqual([0, 0]);
+    expect(encodeTeamMetricEntry({ value: 0 })).toEqual([0]);
+    expect(decodeTeamMetricEntry([0, 0])).toEqual({ value: 0, spread: 0 });
+    expect(decodeTeamMetricEntry([0])).toEqual({ value: 0 });
+  });
+
+  it("a metric absent for a row (undefined) encodes to null and decodes back to undefined (key omitted)", () => {
+    expect(encodeTeamMetricEntry(undefined)).toBeNull();
+    expect(decodeTeamMetricEntry(null)).toBeUndefined();
+    const decoded = decodeTeamsRowMetrics([null, [5]], ["missing", "present"]);
+    expect("missing" in decoded).toBe(false);
+    expect(decoded.present).toEqual({ value: 5 });
+  });
+
+  it("a tier with no spread encodes the spread slot as null, never a fabricated number, and decodes back with spread absent", () => {
+    const entry = encodeTeamMetricEntry({ value: 20, tier: "epic" });
+    expect(entry).toEqual([20, null, "epic"]);
+    expect(decodeTeamMetricEntry(entry)).toEqual({ value: 20, tier: "epic" });
+  });
+
+  it("encodeTeamMetricEntry throws on a metric carrying percentile — the teams row has no positional slot for it", () => {
+    expect(() => encodeTeamMetricEntry({ value: 1, percentile: 50 })).toThrow(/percentile/);
+  });
+
+  it("TeamsArtifactWireSchema rejects a positional row whose array is shorter than metricKeys with no top-level metricKeys at all", () => {
+    const badArtifact = teamsArtifactWith([{ ...objectFormTeamsRows()[0]!, metrics: [[10, 2]] as unknown as ReturnType<typeof objectFormTeamsRows>[number]["metrics"] }]);
+    expect(() => TeamsArtifactWireSchema.parse(badArtifact)).toThrow();
+  });
+
+  it("TeamsArtifactWireSchema rejects a positional row whose array length does not match a PRESENT metricKeys list", () => {
+    const badArtifact = teamsArtifactWith(
+      [{ ...objectFormTeamsRows()[0]!, metrics: [[10, 2]] as unknown as ReturnType<typeof objectFormTeamsRows>[number]["metrics"] }],
+      ["foo", "bar", "extra"]
+    );
+    expect(() => TeamsArtifactWireSchema.parse(badArtifact)).toThrow();
+  });
+
+  it("TeamsArtifactWireSchema does NOT decode — it returns the wire shape exactly as given, positional metrics included", () => {
+    const metricKeys = deriveMetricKeyOrder(objectFormTeamsRows().map((t) => t.metrics));
+    const positionalForm = teamsArtifactWith(
+      objectFormTeamsRows().map((t) => ({ ...t, metrics: encodeTeamsRowMetrics(t.metrics, metricKeys) })),
+      metricKeys
+    );
+    const validated = TeamsArtifactWireSchema.parse(positionalForm);
+    expect(Array.isArray(validated.teams[0]!.metrics)).toBe(true);
+    expect(validated.metricKeys).toEqual(metricKeys);
   });
 });
 
@@ -972,7 +1101,12 @@ describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped fie
   }
 
   it("no top-level field on any of the five schemas matches the comparison pattern", () => {
-    const schemas = [TeamsArtifactSchema, TeamSeasonArtifactSchema, EventsArtifactSchema, EventArtifactSchema, CompareArtifactSchema];
+    // 260902-pbe: TeamsArtifactSchema itself is a ZodPipe (the `.transform()`
+    // that decodes positional metrics back to record-form) and has no
+    // `.shape` — TeamsArtifactWireSchema is the underlying ZodObject with the
+    // SAME top-level field set (plus `metricKeys`, itself not comparison-shaped),
+    // so this mechanical scan reads that one instead.
+    const schemas = [TeamsArtifactWireSchema, TeamSeasonArtifactSchema, EventsArtifactSchema, EventArtifactSchema, CompareArtifactSchema];
     for (const schema of schemas) {
       const names = collectFieldNames(schema.shape);
       for (const name of names) {

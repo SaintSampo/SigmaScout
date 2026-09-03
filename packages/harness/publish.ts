@@ -73,17 +73,19 @@ import {
   artifactKey,
   CompareArtifactSchema,
   composeEventLocation,
+  deriveMetricKeyOrder,
+  encodeTeamsRowMetrics,
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   publishedTierForPercentile,
-  TeamsArtifactSchema,
+  TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
   type CompareArtifact,
   type EventArtifact,
   type EventsArtifact,
   type PageKind,
-  type TeamsArtifact,
+  type TeamsArtifactWire,
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
@@ -688,8 +690,31 @@ export interface BuildTeamsArtifactParams {
   readonly computedAt?: string;
 }
 
-/** D-05's first at-risk artifact (~3,750 rows/season). Parses through `TeamsArtifactSchema` before returning (T-04-22). */
-export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtifact {
+/**
+ * D-05's first at-risk artifact (~3,750 rows/season). Parses through
+ * `TeamsArtifactWireSchema` before returning (T-04-22) — deliberately the
+ * WIRE schema, not the decoding `TeamsArtifactSchema`: this function's
+ * return value is exactly what gets `JSON.stringify`'d and uploaded
+ * (`publishSeasons`'s `uploader.publish("teams", teamsKey,
+ * JSON.stringify(teamsArtifact))` call), so parsing through the schema that
+ * decodes positional metrics back to record-form would silently throw away
+ * the entire wire saving 260902-pbe exists to capture.
+ */
+export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtifactWire {
+  const roundedTeams = params.teams.map((t) => ({
+    teamKey: t.teamKey,
+    teamNumber: t.teamNumber,
+    nickname: t.nickname,
+    record: t.record,
+    metrics: roundTeamMetricRecord(t.metrics),
+    eventCount: t.eventCount,
+    matchCount: t.matchCount,
+  }));
+  // 260902-pbe: the ordered key list every row's positional `metrics` array
+  // aligns to — derived from the rounded rows themselves (first-seen order
+  // across teams) rather than a hardcoded per-algorithm list, so an
+  // algorithm this file has never special-cased still encodes correctly.
+  const metricKeys = deriveMetricKeyOrder(roundedTeams.map((t) => t.metrics));
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
@@ -697,17 +722,10 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
     algorithmId: params.algorithmId,
     algorithmVersion: params.algorithmVersion,
     season: params.season,
-    teams: params.teams.map((t) => ({
-      teamKey: t.teamKey,
-      teamNumber: t.teamNumber,
-      nickname: t.nickname,
-      record: t.record,
-      metrics: roundTeamMetricRecord(t.metrics),
-      eventCount: t.eventCount,
-      matchCount: t.matchCount,
-    })),
+    metricKeys,
+    teams: roundedTeams.map((t) => ({ ...t, metrics: encodeTeamsRowMetrics(t.metrics, metricKeys) })),
   };
-  return TeamsArtifactSchema.parse(candidate);
+  return TeamsArtifactWireSchema.parse(candidate);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,9 +2,19 @@
  * Pure row construction, ranking, win-rate derivation and the deterministic
  * sort for the Teams table (Task 1, 05-06-PLAN.md). Imports no React and no
  * TanStack anything — this file is a plain data transform over the published
- * `TeamsArtifact` (`packages/harness/pageArtifacts.ts`'s `TeamsTableRowSchema`),
+ * `TeamsArtifact` (`packages/harness/pageArtifacts.ts`'s teams-table row),
  * consumed by `columns.tsx`/`TeamsTable.tsx` (Task 2) and `routes/teams.tsx`
  * (Task 3).
+ *
+ * 260902-pbe: on the WIRE, a row's `metrics` may be encoded positionally (an
+ * array aligned to the artifact's top-level `metricKeys` list) rather than
+ * the keyed record shown below — this file never sees that shape. Decoding
+ * both the positional form and the pre-existing (pre-republish) object form
+ * back to the one canonical `Record<string, TeamMetric>` happens once, in
+ * `pageArtifacts.ts`'s `TeamsArtifactSchema` itself (a `.transform()` on the
+ * wire schema), before `fetchTeamsArtifact` ever returns. `TeamMetrics`
+ * below is that decoded shape — nothing in this file changed for the
+ * positional encoding to exist.
  *
  * Nothing here derives a statistic the artifact does not carry (NAV-06).
  * `winRate` is arithmetic over three published integers, which NAV-06 permits

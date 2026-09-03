@@ -52,7 +52,7 @@ import {
   type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
-import { artifactKey } from "./pageArtifacts.js";
+import { artifactKey, decodeTeamsRowMetrics } from "./pageArtifacts.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
@@ -1195,7 +1195,7 @@ describe("T-04-22: schema-parse failure occurs before any upload call is made", 
 });
 
 describe("buildTeamsArtifact", () => {
-  it("assembles a small fixture that parses against TeamsArtifactSchema, rounding metrics", () => {
+  it("assembles a small fixture that parses against TeamsArtifactWireSchema, rounding metrics and encoding positionally (260902-pbe)", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
@@ -1215,7 +1215,15 @@ describe("buildTeamsArtifact", () => {
       computedAt: "2026-08-22T00:00:00.000Z",
     });
     expect(artifact.teams).toHaveLength(1);
-    expect(artifact.teams[0]?.metrics.total?.value).toBe(12.35);
+    // 260902-pbe: buildTeamsArtifact returns the WIRE shape — `metricKeys`
+    // carries the ordered key list, and each row's `metrics` is the
+    // positional array aligned to it, not the pre-existing object-form
+    // record. `decodeTeamsRowMetrics` (the schema's own decode helper) is
+    // the round-trip proof this assertion leans on rather than re-deriving
+    // the encoding by hand.
+    expect(artifact.metricKeys).toEqual(["total"]);
+    expect(artifact.teams[0]?.metrics).toEqual([[12.35]]);
+    expect(decodeTeamsRowMetrics(artifact.teams[0]!.metrics as never, artifact.metricKeys!).total?.value).toBe(12.35);
   });
 });
 

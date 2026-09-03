@@ -192,6 +192,9 @@ const AlgorithmScopedPreambleSchema = PagePreambleSchema.extend({
  * artifact renders the old (R-alone) quantity under the new meaning until
  * the next republish, a window bounded by Phase 4 D-26's `max-age=60`.
  */
+/** The D-17 rarity-tier vocabulary, factored out so `TeamMetricSchema.tier` and 260902-pbe's `PositionalMetricEntrySchema` (below, teams-table row only) share one literal set rather than two copies that could drift. */
+const TEAM_METRIC_TIERS = ["rare", "epic", "legendary"] as const;
+
 const TeamMetricSchema = z.object({
   value: z.number(),
   spread: z.number().optional(),
@@ -226,11 +229,17 @@ const TeamMetricSchema = z.object({
    * tier box. Never write "common" explicitly; that is pure payload for a
    * no-op.
    */
-  tier: z.enum(["rare", "epic", "legendary"]).optional(),
+  tier: z.enum(TEAM_METRIC_TIERS).optional(),
 });
+
+/** One team's decoded metric, exactly `TeamMetricSchema`'s inferred shape — declared as a standalone type because `TeamMetricSchema` itself is module-private, and 260902-pbe's positional encode/decode helpers below need to name it. */
+type PublishedTeamMetric = z.infer<typeof TeamMetricSchema>;
 
 /** Component name -> that team's metric, per `AlgorithmModule.teamMetrics` (D-27). */
 const MetricsRecordSchema = z.record(z.string(), TeamMetricSchema);
+
+/** `MetricsRecordSchema`'s inferred type, named for reuse by 260902-pbe's decode path below. */
+type MetricsRecordOut = z.infer<typeof MetricsRecordSchema>;
 
 /**
  * The single definition of the D-17 rarity cuts (Common 0-50 / Rare 50-75 /
@@ -735,25 +744,221 @@ const TeamSeasonMatchSchema = z
 
 // ---------------------------------------------------------------------------
 // TeamsArtifactSchema — v1/teams/{year}/{algorithmId}@{version}.json
+//
+// 260902-pbe: the teams artifact's `metrics` field is encoded POSITIONALLY —
+// see the payload-budget attribution this quick task resolves
+// (`.planning/todos/pending/payload-budget-teams-and-team-page-overage.md`):
+// the 17 metric key strings repeated across ~3,549 rows cost 979,248 B
+// (26.4%) of the artifact on their own. `MetricsRecordSchema` above is
+// SHARED by the team-season `seasonStats` and the event artifact's
+// standings row — this encoding applies to the teams-table row ONLY, so
+// neither of those two other consumers changes shape at all.
+//
+// Two schemas exist for exactly this reason:
+//   - `TeamsArtifactWireSchema` validates the WIRE shape as written/read —
+//     a row's `metrics` is EITHER the pre-existing object-form record
+//     (back-compat: production serves this shape until the later republish)
+//     OR the new positional array. It does NOT decode; `publish.ts`'s
+//     `buildTeamsArtifact` and `apps/worker/src/scheduled.ts`'s
+//     `runGlobalRebuild` both validate-and-return THIS schema's shape,
+//     because that returned object is exactly what gets `JSON.stringify`'d
+//     to R2 — decoding it here would silently undo the entire wire saving.
+//   - `TeamsArtifactSchema` wraps the wire schema with a `.transform()` that
+//     DECODES every row's `metrics` to the one canonical record-form shape
+//     every other consumer already expects, regardless of which shape was
+//     actually on the wire. `apps/web`'s `fetchTeamsArtifact` and
+//     `rowModel.ts`'s `buildTeamRows` both parse/read through THIS schema,
+//     so neither needed a functional change for this task — decoding both
+//     shapes happens once, here, at the schema boundary.
 // ---------------------------------------------------------------------------
+
+/**
+ * 260902-pbe: one team's one metric, encoded positionally for the
+ * teams-table row. Four states, chosen by array length so the shape stays
+ * unambiguous without a discriminant field:
+ *
+ *   - `null` — this metric is absent for this row entirely (the published
+ *     key set the declared metric list allows is a per-algorithm union, not
+ *     a guarantee every row carries every key) — never confused with a
+ *     metric that IS present but carries no `spread`.
+ *   - `[value]` — present, no `spread`, no `tier`. OPR and EPA rows are
+ *     length-1 for every metric they publish (D-07: neither models an
+ *     alliance/team-level own variance, so "no spread" is normal, not an
+ *     error).
+ *   - `[value, spread]` — present with a real `spread` (including a
+ *     genuine `0`, which is a real measured spread and never coerced from
+ *     "absent"), no `tier` (Common, which renders unboxed — see
+ *     `TeamMetricSchema.tier`'s own doc comment).
+ *   - `[value, spread | null, tier]` — a boxed tier. The middle slot is
+ *     `null` when this metric has a tier but no spread (carries tier's
+ *     presence without inventing a spread), and the real number otherwise —
+ *     `null` here is unambiguous with a real `0` because they are never the
+ *     same JSON value.
+ */
+const PositionalMetricEntrySchema = z.union([
+  z.null(),
+  z.tuple([z.number()]),
+  z.tuple([z.number(), z.number()]),
+  z.tuple([z.number(), z.number().nullable(), z.enum(TEAM_METRIC_TIERS)]),
+]);
+
+type PositionalMetricEntry = z.infer<typeof PositionalMetricEntrySchema>;
+
+/**
+ * Encodes one team's one metric into its positional wire slot (see
+ * `PositionalMetricEntrySchema`'s doc comment for the four-state contract).
+ * `undefined` (key absent from the row's metrics record) encodes to `null`,
+ * matching the decode side's own absent-vs-present-zero distinction.
+ *
+ * Throws on a metric carrying `percentile` — the teams-table row has never
+ * published `percentile` (`publish.ts`'s `withPublishedTiers` replaces it
+ * with `tier` before a metric ever reaches this row; `apps/worker/src/
+ * scheduled.ts`'s incremental rebuild never computes one at all), and this
+ * positional encoding has no slot for it. A future caller that started
+ * attaching a percentile to a teams row would need this encoding extended
+ * deliberately — silently dropping the field here would be a real, silent
+ * loss of a real published quantity.
+ */
+export function encodeTeamMetricEntry(metric: PublishedTeamMetric | undefined): PositionalMetricEntry {
+  if (metric === undefined) return null;
+  if (metric.percentile !== undefined) {
+    throw new Error(
+      "encodeTeamMetricEntry: the teams-table positional encoding has no slot for `percentile` — only `tier` is ever published on a teams row (see this function's doc comment)"
+    );
+  }
+  if (metric.tier !== undefined) {
+    return [metric.value, metric.spread ?? null, metric.tier];
+  }
+  if (metric.spread !== undefined) {
+    return [metric.value, metric.spread];
+  }
+  return [metric.value];
+}
+
+/** The exact inverse of `encodeTeamMetricEntry` — `undefined` for `null` (absent), otherwise the reconstructed metric object. */
+export function decodeTeamMetricEntry(entry: PositionalMetricEntry): PublishedTeamMetric | undefined {
+  if (entry === null) return undefined;
+  if (entry.length === 1) return { value: entry[0] };
+  if (entry.length === 2) return { value: entry[0], spread: entry[1] };
+  const [value, spread, tier] = entry;
+  return { value, ...(spread !== null ? { spread } : {}), tier };
+}
+
+/**
+ * Encodes one team's full metrics record into the positional array aligned
+ * to `metricKeys` — index `i` of the result is `metricKeys[i]`'s slot for
+ * this row, per `encodeTeamMetricEntry`.
+ */
+export function encodeTeamsRowMetrics(metrics: Readonly<Record<string, PublishedTeamMetric>>, metricKeys: readonly string[]): PositionalMetricEntry[] {
+  return metricKeys.map((key) => encodeTeamMetricEntry(metrics[key]));
+}
+
+/** The exact inverse of `encodeTeamsRowMetrics` — a metric key whose slot decodes to `undefined` (absent) is omitted from the result entirely, never written as a key with an `undefined` value. */
+export function decodeTeamsRowMetrics(entries: readonly PositionalMetricEntry[], metricKeys: readonly string[]): MetricsRecordOut {
+  const result: MetricsRecordOut = {};
+  metricKeys.forEach((key, index) => {
+    const decoded = decodeTeamMetricEntry(entries[index] ?? null);
+    if (decoded !== undefined) result[key] = decoded;
+  });
+  return result;
+}
+
+/**
+ * The ordered metric-key union across a set of teams-table rows' metrics
+ * records, first-seen order (stable within one call, since a JS object's
+ * own string-key enumeration order is insertion order) — used by
+ * `publish.ts`'s `buildTeamsArtifact` and `apps/worker/src/scheduled.ts`'s
+ * `runGlobalRebuild` to derive ONE artifact's `metricKeys` preamble from
+ * whatever rows it is about to write, rather than hardcoding a
+ * per-algorithm list here that this file (a plain Zod schema module) has no
+ * business owning.
+ */
+export function deriveMetricKeyOrder(metricsRecords: readonly Readonly<Record<string, unknown>>[]): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const record of metricsRecords) {
+    for (const key of Object.keys(record)) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        ordered.push(key);
+      }
+    }
+  }
+  return ordered;
+}
 
 /**
  * D-05's first at-risk artifact (~3,750 rows). Kept as narrow as a sortable
  * table actually needs — anything a row does not need for the teams table
  * belongs on the team page (`TeamSeasonArtifactSchema`) instead.
+ *
+ * Deliberately does NOT extend `RecordAndMetricsSchema` (unlike before
+ * 260902-pbe) — that shared schema's `metrics` field is fixed to
+ * `MetricsRecordSchema`'s object form, and this row's `metrics` must accept
+ * the positional array too. `record` still reuses the shared `RecordSchema`
+ * unchanged.
  */
-const TeamsTableRowSchema = RecordAndMetricsSchema.extend({
+const TeamsTableRowRawSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int(),
   nickname: z.string(),
   eventCount: z.number().int().nonnegative(),
   matchCount: z.number().int().nonnegative(),
+  record: RecordSchema,
+  metrics: z.union([MetricsRecordSchema, z.array(PositionalMetricEntrySchema)]),
 });
 
-export const TeamsArtifactSchema = AlgorithmScopedPreambleSchema.extend({
+export const TeamsArtifactWireSchema = AlgorithmScopedPreambleSchema.extend({
   season: z.number().int(),
-  teams: z.array(TeamsTableRowSchema),
-});
+  /**
+   * 260902-pbe: the ordered key list every row's POSITIONAL `metrics` array
+   * aligns to, carried once here instead of once per row — the entire
+   * saving this encoding buys. Optional: absent on a back-compat,
+   * object-form artifact (every row's `metrics` is a record, so there is
+   * nothing to align), required — enforced by the `.refine()` below, not by
+   * this field's own type — on any artifact carrying even one positional
+   * row.
+   */
+  metricKeys: z.array(z.string()).optional(),
+  teams: z.array(TeamsTableRowRawSchema),
+}).refine(
+  (artifact) =>
+    artifact.teams.every(
+      (row) => !Array.isArray(row.metrics) || (artifact.metricKeys !== undefined && row.metrics.length === artifact.metricKeys.length)
+    ),
+  {
+    message: "a team row with positional (array) metrics requires the artifact's top-level metricKeys list, sized to match that row's array length",
+    path: ["metricKeys"],
+  }
+);
+
+export type TeamsArtifactWire = z.infer<typeof TeamsArtifactWireSchema>;
+
+type TeamsTableRowRaw = z.infer<typeof TeamsTableRowRawSchema>;
+type DecodedTeamsTableRow = Omit<TeamsTableRowRaw, "metrics"> & { metrics: MetricsRecordOut };
+
+/** Decodes one wire-shaped teams-table row's `metrics` to the canonical record-form — an object-form row passes through unchanged, a positional row decodes against `metricKeys` (guaranteed defined for any array-form row by `TeamsArtifactWireSchema`'s own `.refine()`, which runs before this ever sees the row). A concrete (non-generic) parameter type, deliberately — a generic constrained on `{ metrics: ... }` left the `.transform()` callback below inferring `{}` for each row under this file's `noUncheckedIndexedAccess`/`verbatimModuleSyntax` config, silently erasing every other row field from `TeamsArtifact`'s exported type. */
+function decodeTeamsTableRow(row: TeamsTableRowRaw, metricKeys: readonly string[] | undefined): DecodedTeamsTableRow {
+  if (!Array.isArray(row.metrics)) return { ...row, metrics: row.metrics };
+  return { ...row, metrics: decodeTeamsRowMetrics(row.metrics, metricKeys!) };
+}
+
+/**
+ * `metricKeys` is deliberately DROPPED from the decoded output (via
+ * destructuring it out, never spread back in) — it is a wire-level
+ * implementation detail of the positional encoding, not a fact any
+ * consumer of the DECODED artifact needs: every row's `metrics` is already
+ * a keyed record after this transform runs, so nothing downstream ever
+ * looks the key list up separately. Keeping it would also make
+ * `TeamsArtifactSchema.parse(objectForm)` and `TeamsArtifactSchema.parse(
+ * positionalForm)` disagree on an object-form and a positional artifact
+ * encoding the SAME data — exactly the equivalence this task's own safety
+ * argument rests on (see `pageArtifacts.test.ts`).
+ */
+export const TeamsArtifactSchema = TeamsArtifactWireSchema.transform(({ metricKeys, ...artifact }) => ({
+  ...artifact,
+  teams: artifact.teams.map((row) => decodeTeamsTableRow(row, metricKeys)),
+}));
 
 export type TeamsArtifact = z.infer<typeof TeamsArtifactSchema>;
 
