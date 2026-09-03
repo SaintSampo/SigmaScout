@@ -73,7 +73,19 @@ function mapToObject<V>(map: ReadonlyMap<string, V>): Record<string, V> {
   return Object.fromEntries(map);
 }
 
-describe("sigma1Carryover at DEFAULT_SIGMA1_PARAMS reproduces epaCarryover exactly", () => {
+/**
+ * Quick task 260903-3bv narrowed this equality to `gap === 1`. It was NOT
+ * weakened: D-1 freezes EPA at literal Statbotics parity including the gap
+ * (EPA never learns what a gap is), while D-2 makes Sigma1's carry apply
+ * once per year elapsed. Those two constraints together mean the equality
+ * this block asserts can only ever hold at a one-year gap — at any longer
+ * gap the two are SUPPOSED to diverge (see the sibling block immediately
+ * below). Deleting this test to make room for the divergence would have
+ * hidden that the equality still holds exactly where it always did; the
+ * divergence sibling exists precisely so the intentional split is pinned
+ * rather than merely implied.
+ */
+describe("sigma1Carryover at DEFAULT_SIGMA1_PARAMS reproduces epaCarryover exactly, at gap === 1", () => {
   it.each([
     ["both prior seasons present, one present, and neither (mixed fixture)", fixtureInputMixedHistory()],
     ["a simpler both/one/none-mixed fixture", fixtureInput()],
@@ -88,6 +100,178 @@ describe("sigma1Carryover at DEFAULT_SIGMA1_PARAMS reproduces epaCarryover exact
     expect(mapToObject(sigma1Result.priorSeasonRatings.yearBefore)).toEqual(
       mapToObject(epaResult.priorSeasonRatings.yearBefore)
     );
+  });
+});
+
+/**
+ * The intentional divergence at gap === 2 (D-1, D-2): EPA's frozen carry has
+ * no concept of a gap at all, so `epaCarryover(input)` is the SAME call
+ * whether the underlying boundary spans one year or two. Sigma1's carry
+ * DOES change with gap, so at a two-year gap the two must disagree — and
+ * disagree in a specific DIRECTION (Sigma1 reverts strictly further toward
+ * `EPA_ROOKIE_BASELINE`), not merely produce different numbers. A bare
+ * `not.toEqual` would also pass on a sign error (e.g. reverting the wrong
+ * way), so this asserts direction explicitly.
+ */
+describe("sigma1Carryover(..., 2) diverges from epaCarryover, strictly toward EPA_ROOKIE_BASELINE (D-1, D-2)", () => {
+  it("teamPointTotals differ from epaCarryover's, and every team sits strictly closer to the baseline", () => {
+    // Reuses the D-T2 block's two-team, mean-50/sd-10 fixture shape so the
+    // baseline's point-unit image is known by construction.
+    const teamTotals = new Map<string, number>([
+      ["frcA", 40],
+      ["frcB", 60],
+    ]);
+    const input: EpaCarryoverInput = {
+      teamTotals,
+      priorSeasonRatings: {
+        lastSeason: new Map([
+          ["frcA", 1.5],
+          ["frcB", -0.5],
+        ]),
+        yearBefore: new Map(),
+      },
+    };
+
+    const epaResult = epaCarryover(input);
+    const sigma1AtGap2 = sigma1Carryover(input, RESOLVED_DEFAULTS, 2);
+
+    expect(mapToObject(sigma1AtGap2.teamPointTotals)).not.toEqual(mapToObject(epaResult.teamPointTotals));
+
+    const { mean, sd } = populationMeanSd([...teamTotals.values()]);
+    const baselinePoints = normalizedToSeasonUnits(EPA_ROOKIE_BASELINE, mean, sd);
+    for (const team of teamTotals.keys()) {
+      const epaPoints = epaResult.teamPointTotals.get(team)!;
+      const sigma1Points = sigma1AtGap2.teamPointTotals.get(team)!;
+      expect(
+        Math.abs(sigma1Points - baselinePoints),
+        `${team}: a two-year gap must revert strictly closer to the baseline than EPA's one-year-shaped carry`
+      ).toBeLessThan(Math.abs(epaPoints - baselinePoints));
+    }
+  });
+});
+
+/**
+ * Composition property (D-2): applying a two-year gap once is the same
+ * generalization as applying a one-year gap twice — this is what makes
+ * "per year elapsed" the right shape rather than an arbitrary curve.
+ * `toBeCloseTo`, NOT `toBe`, is correct here: the composition is exact in
+ * REAL arithmetic, but the two float evaluation orders differ, so demanding
+ * bitwise equality would be a flaky test asserting something IEEE-754 never
+ * promised. (Contrast task 1's `gap === 1` bar, where `toBe` is correct
+ * because the fast path guarantees the SAME expression, not an equivalent
+ * one evaluated a different way.)
+ */
+describe("gap === 2 composes with gap === 1 applied twice (D-2)", () => {
+  it("reversionOverGap(r, 2) matches the two-step composite r + (1 - r) * r", () => {
+    const r = RESOLVED_DEFAULTS.carryMeanReversion;
+    expect(reversionOverGap(r, 2)).toBeCloseTo(r + (1 - r) * r, 12);
+  });
+
+  it("consistencyCarryDecay ** 2 matches the two-step composite d * d", () => {
+    const d = RESOLVED_DEFAULTS.consistencyCarryDecay;
+    expect(d ** 2).toBeCloseTo(d * d, 12);
+  });
+});
+
+/**
+ * Monotonicity (D-2 items 1 and 2): a longer gap must revert/decay strictly
+ * further than a shorter one, both at the `reversionOverGap` level and
+ * end-to-end through a full `carrySeason` call.
+ */
+describe("a longer gap reverts and decays strictly further than a shorter one (D-2)", () => {
+  it("reversionOverGap(r, 2) is strictly greater than reversionOverGap(r, 1) for the default reversion", () => {
+    const r = RESOLVED_DEFAULTS.carryMeanReversion;
+    expect(reversionOverGap(r, 2)).toBeGreaterThan(reversionOverGap(r, 1));
+  });
+
+  it("consistencyCarryDecay ** 2 is strictly less than consistencyCarryDecay for the default value", () => {
+    const d = RESOLVED_DEFAULTS.consistencyCarryDecay;
+    expect(d ** 2).toBeLessThan(d);
+  });
+
+  it("a team's carried consistency after a two-year boundary is strictly smaller than after a one-year boundary, from the same starting state", () => {
+    const sigma1TwoYear = makeSigma1({ id: "sigma1-gap-monotonicity-2y", linkMode: "predictive-variance" });
+    const sigma1OneYear = makeSigma1({ id: "sigma1-gap-monotonicity-1y", linkMode: "predictive-variance" });
+    const { season2024 } = twoSeasonSequence();
+
+    function replayThenCarry(sigma1: ReturnType<typeof makeSigma1>, boundary: SeasonBoundary) {
+      let state = sigma1.initState([]);
+      for (const m of season2024) state = sigma1.update(state, m);
+      return sigma1.carrySeason!(state, boundary);
+    }
+
+    // Both boundaries share the SAME toSeason (2024, season2024's own
+    // component set) so the resulting consistency/beliefs keys line up
+    // one-to-one across the two states — only the gap (fromSeason) differs.
+    const stateTwoYear = replayThenCarry(sigma1TwoYear, { fromSeason: 2022, toSeason: 2024, isColdStart: false });
+    const stateOneYear = replayThenCarry(sigma1OneYear, { fromSeason: 2023, toSeason: 2024, isColdStart: false });
+
+    for (const [team, teamStateOneYear] of stateOneYear.teams) {
+      const teamStateTwoYear = stateTwoYear.teams.get(team)!;
+      for (const name of Object.keys(teamStateOneYear.consistency)) {
+        expect(
+          teamStateTwoYear.consistency[name]!,
+          `${team}/${name}: a two-year gap must decay consistency strictly further than a one-year gap`
+        ).toBeLessThan(teamStateOneYear.consistency[name]!);
+      }
+    }
+  });
+});
+
+/**
+ * The gap guard (D-2's asserted, not merely documented, bar): `carrySeason`
+ * throws rather than silently treating a non-advancing or backwards boundary
+ * as a valid one-year gap.
+ */
+describe("carrySeason throws when the boundary does not advance by at least one whole year", () => {
+  it("throws when toSeason === fromSeason", () => {
+    const sigma1 = makeSigma1({ id: "sigma1-gap-guard-flat", linkMode: "predictive-variance" });
+    const state = sigma1.initState([]);
+    expect(() => sigma1.carrySeason!(state, { fromSeason: 2025, toSeason: 2025, isColdStart: false })).toThrow();
+  });
+
+  it("throws when toSeason < fromSeason", () => {
+    const sigma1 = makeSigma1({ id: "sigma1-gap-guard-backwards", linkMode: "predictive-variance" });
+    const state = sigma1.initState([]);
+    expect(() => sigma1.carrySeason!(state, { fromSeason: 2026, toSeason: 2025, isColdStart: false })).toThrow();
+  });
+});
+
+/**
+ * Belief-variance regression (constraint D-2 item 3): an earlier framing of
+ * this task wrongly said to ADD process noise `gap` times at a season
+ * boundary. `carrySeason` does not add process noise here — it RESETS
+ * belief variance to a cold-start value via `seedConsistencyFor`, and
+ * nothing is more uncertain than cold start, so a longer gap must not
+ * inflate it further. This test exists because a corrected instruction with
+ * no test behind it is an instruction waiting to be re-broken.
+ */
+describe("belief variance is unchanged by gap (D-2 item 3)", () => {
+  it("every beliefs[name].variance is identical whether the boundary spans one year or two", () => {
+    const sigma1TwoYear = makeSigma1({ id: "sigma1-belief-variance-2y", linkMode: "predictive-variance" });
+    const sigma1OneYear = makeSigma1({ id: "sigma1-belief-variance-1y", linkMode: "predictive-variance" });
+    const { season2024 } = twoSeasonSequence();
+
+    function replayThenCarry(sigma1: ReturnType<typeof makeSigma1>, boundary: SeasonBoundary) {
+      let state = sigma1.initState([]);
+      for (const m of season2024) state = sigma1.update(state, m);
+      return sigma1.carrySeason!(state, boundary);
+    }
+
+    // Same reasoning as the monotonicity test above: identical toSeason so
+    // the beliefs keys line up, only the gap differs.
+    const stateTwoYear = replayThenCarry(sigma1TwoYear, { fromSeason: 2022, toSeason: 2024, isColdStart: false });
+    const stateOneYear = replayThenCarry(sigma1OneYear, { fromSeason: 2023, toSeason: 2024, isColdStart: false });
+
+    for (const [team, teamStateOneYear] of stateOneYear.teams) {
+      const teamStateTwoYear = stateTwoYear.teams.get(team)!;
+      for (const name of Object.keys(teamStateOneYear.consistency)) {
+        expect(
+          teamStateTwoYear.beliefs[name]!.variance,
+          `${team}/${name}: belief variance must be reset to the same cold-start value regardless of gap`
+        ).toBe(teamStateOneYear.beliefs[name]!.variance);
+      }
+    }
   });
 });
 
