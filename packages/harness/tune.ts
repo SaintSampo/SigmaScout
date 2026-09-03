@@ -220,7 +220,7 @@ import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 // 260903-krp then deleted `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit`
 // entirely from `score.ts` — there is nothing left to import. See this
 // module's header for the full history.
-import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import {
   SEARCHABLE_PARAM_KEYS,
   SEARCH_EXCLUSIONS,
@@ -564,7 +564,9 @@ async function evaluateCandidateBatch(
   const predictions = await runBoundedSeasons(db, seasons, algorithms, eventsLimit);
   // D-2 (quick task 260903-krp): this batch's own `seasons` parameter is the
   // replay's declared season set.
-  const slices = aggregateScores(predictions, { corpusSeasons: seasons });
+  // D-2 (quick task 260903-n2o): the sentinel — `objectiveForCandidate` below
+  // reads only `brierScore`, never `headlineEligible`.
+  const slices = aggregateScores(predictions, { corpusSeasons: seasons, selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED });
   assertNoFutureSeasonLeak(slices, boundary.season);
   return batch.map((c) => {
     const { perSeason, objective } = objectiveForCandidate(slices, c.id);
@@ -1600,7 +1602,12 @@ async function evaluateOriginSeason(
 
   // D-2 (quick task 260903-krp): `replaySeasons` (selection seasons plus the
   // origin) is this run's declared season set.
-  assertNoFutureSeasonLeak(aggregateScores(predictions, { corpusSeasons: replaySeasons }), input.originSeason + 1);
+  // D-2 (quick task 260903-n2o): the sentinel — `assertNoFutureSeasonLeak`
+  // reads only `season`, never `headlineEligible`.
+  assertNoFutureSeasonLeak(
+    aggregateScores(predictions, { corpusSeasons: replaySeasons, selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED }),
+    input.originSeason + 1
+  );
 
   const units = buildPairedOriginUnits(
     scoreOriginRows(predictions, CANDIDATE_ID, input.originSeason),

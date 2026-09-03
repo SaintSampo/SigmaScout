@@ -34,7 +34,7 @@ import type { MatchResult } from "../core/algorithms/types.js";
 import type { DigestSliceFixture } from "./fixtures/extract-digest-slice.js";
 import { computePredictionStreamDigest, PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { WalkForwardSimulator } from "./replay.js";
-import { aggregateScores, type HarnessPredictionInput } from "./score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
@@ -163,7 +163,14 @@ describe("promoted algorithm version reproducibility (D-15/SC-5)", () => {
           isOffseason: false,
           isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
         }));
-        const slices = aggregateScores(predictions, { corpusSeasons: [promoted.digest.sliceSeason] });
+        // D-2 (quick task 260903-n2o): the sentinel — this reproducibility
+        // gate reads only brierScore/winnerAccuracy below, never
+        // headlineEligible, and this bounded single-season slice has no
+        // provenance to support any eligibility claim.
+        const slices = aggregateScores(predictions, {
+          corpusSeasons: [promoted.digest.sliceSeason],
+          selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+        });
         const combinedSlice = slices.find(
           (s) => s.compLevelView === "combined" && s.season === promoted.digest.sliceSeason
         );

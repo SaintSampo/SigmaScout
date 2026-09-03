@@ -37,7 +37,7 @@ import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
 import { ratingEligibleTeams } from "../core/algorithms/opr.js";
 import { computeDesignMatrix, type AllianceRow, type DesignMatrixResult } from "./identifiability.js";
-import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_RUN_DIR = join("reports", "event-scoped-v1");
@@ -216,8 +216,17 @@ export function poolPredictions(predictions: readonly HarnessPredictionInput[]):
   // the declared corpus is exactly the seasons present in `predictions`.
   // `poolSlices` below discards `headlineEligible` entirely, so the narrow
   // set is never mistaken for a headline claim.
+  // D-2/anti-pattern note (quick task 260903-n2o): `corpusSeasons` above is
+  // self-derived from `predictions` — the exact pattern the options contract
+  // forbids for a caller that DOES claim eligibility. It is safe here only
+  // because eligibility is not claimed at all: the sentinel below means
+  // nothing is derived from `predictions` in order to answer an eligibility
+  // question, and `corpusSeasons` is retained solely to satisfy
+  // `aggregateScores`' undeclared-season guard.
   const corpusSeasons = Array.from(new Set(predictions.map((p) => p.season)));
-  const slices = aggregateScores(predictions, { corpusSeasons }).filter((s) => s.compLevelView === "combined");
+  const slices = aggregateScores(predictions, { corpusSeasons, selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED }).filter(
+    (s) => s.compLevelView === "combined"
+  );
   return poolSlices(slices);
 }
 

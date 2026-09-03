@@ -58,7 +58,7 @@ import { ratingEligibleTeams } from "../packages/core/algorithms/opr.js";
 import { COLD_START_SEASON } from "../packages/core/algorithms/breakdown/index.js";
 import { outcomeTarget, scoreSet, type MatchOutcome } from "../packages/core/scoring/brier.js";
 import { isValidPRedWin } from "../packages/core/scoring/predictionValidity.js";
-import { aggregateScores, type HarnessPredictionInput } from "../packages/harness/score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "../packages/harness/score.js";
 import { eventBlockedBootstrap, type EventBlockedUnit } from "../packages/harness/eventBootstrap.js";
 import { PromotedVersionSchema } from "../packages/harness/promote.js";
 
@@ -309,7 +309,12 @@ function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: strin
   // below — so it throws rather than printing a caveat.
   // D-2 (quick task 260903-krp): `seasons` (in scope from this script's own
   // loop above) is the declared season set.
-  const slices = aggregateScores(harnessPredictions, { corpusSeasons: seasons });
+  // D-2 (quick task 260903-n2o): the sentinel — this cross-check reads only
+  // `brierScore`/`scoredCount`, never `headlineEligible`.
+  const slices = aggregateScores(harnessPredictions, {
+    corpusSeasons: seasons,
+    selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+  });
   for (const season of seasons) {
     const slice = slices.find((s) => s.season === season && s.compLevelView === "combined");
     if (!slice || slice.brierScore === null) throw new Error(`reparamEquivalence: aggregateScores produced no combined slice for ${season}`);

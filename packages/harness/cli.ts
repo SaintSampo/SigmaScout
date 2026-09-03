@@ -83,7 +83,8 @@ import {
 import { PromotedVersionSchema, TuneSearchOutputMinimalSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-import { aggregateScores, type HarnessPredictionInput } from "./score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
+import { selectedOnSeasonsFor } from "./selectionProvenance.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
@@ -764,7 +765,14 @@ async function runSeasonsMode(
     // D-2 (quick task 260903-krp): this function's own `seasons` parameter is
     // the run's full declared season set — the correct value to pass, not a
     // narrower slice.
-    const slices = aggregateScores(predictions, { corpusSeasons: seasons });
+    // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
+    // `selectionProvenance.ts`'s single explicit registry, over exactly the
+    // algorithm ids this run scores — never a second, independently-derived
+    // resolution.
+    const slices = aggregateScores(predictions, {
+      corpusSeasons: seasons,
+      selectedOnSeasons: selectedOnSeasonsFor(algorithms.map((a) => a.id)),
+    });
 
     const statboticsReferences: StatboticsReference[] = [];
     for (const season of seasons) {
@@ -870,7 +878,12 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
     // exactly one season by construction (`season` derived from the event
     // key above) — `headlineEligible` is never meaningful here, since a
     // one-season declared corpus can never have two priors.
-    const slices = aggregateScores(predictions, { corpusSeasons: [season] });
+    // D-2 (quick task 260903-n2o): this path claims no eligibility at all —
+    // the sentinel, never a per-algorithm map.
+    const slices = aggregateScores(predictions, {
+      corpusSeasons: [season],
+      selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+    });
     const statboticsRef = await statboticsReference(season, { cachePath: STATBOTICS_CACHE_PATH });
 
     const artifact = buildArtifact({

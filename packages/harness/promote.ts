@@ -122,7 +122,7 @@ import {
 } from "./legacyParams.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
-import { aggregateScores, type HarnessPredictionInput } from "./score.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
@@ -729,7 +729,12 @@ async function main(): Promise<void> {
   // `headlineEligible` is never read below (only `brierScore`/
   // `winnerAccuracy` are), so the narrow `[sliceSeason]` set is not mistaken
   // for a headline claim.
-  const slices = aggregateScores(predictions, { corpusSeasons: [sliceSeason] });
+  // D-2 (quick task 260903-n2o): the sentinel — this bounded digest slice
+  // claims no eligibility at all.
+  const slices = aggregateScores(predictions, {
+    corpusSeasons: [sliceSeason],
+    selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+  });
   const combinedSlice = slices.find((s) => s.compLevelView === "combined" && s.season === sliceSeason);
   const headlineMetrics = combinedSlice
     ? [{ season: sliceSeason, brierScore: combinedSlice.brierScore, winnerAccuracy: combinedSlice.winnerAccuracy }]

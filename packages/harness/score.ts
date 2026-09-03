@@ -1,12 +1,15 @@
 /**
- * Aggregation by season, competition-level view, and origin-based headline
- * eligibility (D-2, quick task 260903-krp — supersedes D-09/D-10/D-11's
- * retired fixed tune/holdout split), with exclusion accounting (this plan's
- * must_haves: "MUST NOT silently narrow the scored population"). This is the
- * mechanism that makes headline eligibility structural: a slice's
- * `headlineEligible` flag is derived from the run's own season set — never
- * from a hardcoded year list and never remembered by an operator — so a
- * season with too few priors cannot be marked headline-eligible by mistake.
+ * Aggregation by season, competition-level view, and provenance-aware
+ * headline eligibility (D-1/D-2, quick task 260903-n2o — supersedes quick
+ * task 260903-krp's ordering-only rule, which itself superseded
+ * D-09/D-10/D-11's retired fixed tune/holdout split), with exclusion
+ * accounting (this plan's must_haves: "MUST NOT silently narrow the scored
+ * population"). This is the mechanism that makes headline eligibility
+ * structural: a slice's `headlineEligible` flag requires BOTH that the
+ * season have enough priors in the run's own season set AND that the
+ * scoring algorithm's own selected-on set (never a hardcoded year list,
+ * never remembered by an operator, never omitted by default) does not name
+ * this season.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import { scoreSet, type MatchOutcome, type ScoredPrediction } from "../core/scoring/brier.js";
@@ -25,27 +28,71 @@ import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 export const MIN_PRIOR_SEASONS_FOR_HEADLINE = 2;
 
 /**
- * D-2/D-3: whether `season` is headline-eligible, given the full set of
- * seasons the run has in play (`corpusSeasons`). Counts DISTINCT seasons in
- * `corpusSeasons` strictly less than `season` and compares against
- * `MIN_PRIOR_SEASONS_FOR_HEADLINE` — a duplicated prior season in the input
- * must not buy eligibility. No year literal appears here: a hardcoded set
- * would be the retired guard wearing a new name, exactly the failure D-2
- * exists to prevent.
+ * D-1 (quick task 260903-n2o): whether `season` is headline-eligible,
+ * given the full set of seasons the run has in play (`corpusSeasons`) AND
+ * the scoring algorithm's own selected-on set (`selectedOnSeasons`) — the
+ * seasons that algorithm's hyperparameters were fitted on, if any. BOTH
+ * clauses below must hold; neither alone is sufficient:
  *
- * D-3's payoff: on the 2019/2020-backfilled seven-season corpus (2019, 2020,
- * 2022-2026) this rule yields five headline-eligible seasons (2022-2026),
- * where the retired fixed split gave two (2025-2026 only) — and six once
- * 2027 plays. `rolling-origin-hyperparameter-tuning`'s D-4 verdict that
- * "2023 is not headline-eligible" is SUPERSEDED here — not because this rule
- * changed, but because the corpus it was evaluated against did: against a
- * 2022-2026-only corpus 2023 had a single prior (2022); with 2019/2020
- * backfilled it has three (2019, 2020, 2022).
+ *   1. At least `MIN_PRIOR_SEASONS_FOR_HEADLINE` DISTINCT seasons in
+ *      `corpusSeasons` strictly less than `season` — a duplicated prior
+ *      season in the input must not buy eligibility. No year literal
+ *      appears in this clause: a hardcoded set would be the retired guard
+ *      wearing a new name, exactly the failure D-2 exists to prevent.
+ *   2. `season` is absent from `selectedOnSeasons` — restores the
+ *      structural guarantee the retired fixed `TUNE_SEASONS` list gave and
+ *      quick task 260903-krp deleted: a season the optimizer was fitted on
+ *      can never be marked headline-eligible, however many priors it has.
+ *
+ * Throws when `season` is not present in `corpusSeasons` — matching the
+ * discipline `componentMapForSeason`/`rpRuleModuleForSeason` already use, so
+ * a typo'd year gets no defensible-looking answer rather than silently
+ * reading as eligible.
+ *
+ * Conditional payoff, not an unconditional one (D-3): on the
+ * 2019/2020-backfilled seven-season corpus (2019, 2020, 2022-2026), clause 1
+ * alone would yield five headline-eligible seasons (2022-2026) — but against
+ * the currently shipped `tuneSeasons: [2022, 2023, 2024]`, clause 2 removes
+ * three of those, leaving exactly {2025, 2026}. The five-season outcome
+ * arrives only once origin-selected parameters are promoted (the
+ * `retune-sigma1-rolling-origin` todo); it has not happened yet, so this
+ * function must not assume it has.
  */
-export function isHeadlineEligible(season: number, corpusSeasons: readonly number[]): boolean {
+export function isHeadlineEligible(
+  season: number,
+  corpusSeasons: readonly number[],
+  selectedOnSeasons: readonly number[]
+): boolean {
+  if (!corpusSeasons.includes(season)) {
+    throw new Error(
+      `isHeadlineEligible: season ${season} is not present in the declared corpusSeasons (${corpusSeasons.join(", ") || "none"}) — a caller must declare the full season set it is scoring against, never ask about an undeclared season.`
+    );
+  }
   const distinctPriors = new Set(corpusSeasons.filter((s) => s < season));
-  return distinctPriors.size >= MIN_PRIOR_SEASONS_FOR_HEADLINE;
+  const hasEnoughPriors = distinctPriors.size >= MIN_PRIOR_SEASONS_FOR_HEADLINE;
+  const wasSelectedOn = selectedOnSeasons.includes(season);
+  return hasEnoughPriors && !wasSelectedOn;
 }
+
+/**
+ * D-2: the sentinel a caller passes to `AggregateScoresOptions.selectedOnSeasons`
+ * when it does not read `headlineEligible` at all — never a permissive empty
+ * map. Forces every produced slice's `headlineEligible` to `false`, the
+ * strictest possible answer, so a caller with no provenance to support an
+ * eligibility claim never manufactures one by omission.
+ */
+export const ELIGIBILITY_NOT_CLAIMED = "eligibility-not-claimed" as const;
+
+/**
+ * D-2: the per-algorithm record of which seasons each scored algorithm's
+ * hyperparameters were selected on — keyed by `algorithmId`, since one
+ * `aggregateScores` call scores several algorithms (each with its own
+ * provenance) over one shared stream. The ONLY permitted absence of a
+ * per-algorithm map is the explicit `ELIGIBILITY_NOT_CLAIMED` sentinel; an
+ * algorithm genuinely never tuned (a baseline) must declare `[]` explicitly
+ * rather than being left out of the map.
+ */
+export type SelectedOnSeasons = Readonly<Record<string, readonly number[]>> | typeof ELIGIBILITY_NOT_CLAIMED;
 
 /** D-11: every season is reported three ways. */
 export type CompLevelView = "qualification" | "elimination" | "combined";
@@ -190,10 +237,22 @@ const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, 
  * still pass. Callers whose own scope is narrower than the run's full season
  * set (e.g. `promote.ts`'s bounded single-season slice) must say so
  * explicitly via this field, never by omission.
+ *
+ * `selectedOnSeasons` (D-2, quick task 260903-n2o) is REQUIRED for the same
+ * reason `corpusSeasons` is: a default of "empty map" reads as "nothing was
+ * tuned on anything," which is the most permissive claim available and
+ * would silently restore the bug this task exists to fix. The ONLY
+ * permitted absence of a real per-algorithm map is the explicit
+ * `ELIGIBILITY_NOT_CLAIMED` sentinel — it forces every produced slice's
+ * `headlineEligible` to `false`, the strictest answer rather than a
+ * permissive default, so a caller that does not read the flag says so
+ * instead of manufacturing eligibility it has no provenance to support.
  */
 export interface AggregateScoresOptions {
   /** The full set of seasons this run has in play — see the interface doc comment above. */
   readonly corpusSeasons: readonly number[];
+  /** Which seasons each scored algorithm's hyperparameters were selected on — see the interface doc comment above. */
+  readonly selectedOnSeasons: SelectedOnSeasons;
   readonly binCount?: number;
 }
 
@@ -211,7 +270,7 @@ export function aggregateScores(
   predictions: readonly HarnessPredictionInput[],
   options: AggregateScoresOptions
 ): ScoreSlice[] {
-  const { corpusSeasons, binCount } = options;
+  const { corpusSeasons, selectedOnSeasons, binCount } = options;
   const algorithmIds = Array.from(new Set(predictions.map((p) => p.algorithmId))).sort();
   const seasons = Array.from(new Set(predictions.map((p) => p.season))).sort((a, b) => a - b);
 
@@ -229,10 +288,32 @@ export function aggregateScores(
     );
   }
 
+  // D-2: a real per-algorithm map must cover every algorithm this call
+  // scores — a missing entry is exactly the "never-tuned baseline declared
+  // by omission" failure D-2 forbids, so it throws naming the missing ids
+  // rather than defaulting them to "never selected on anything." The
+  // sentinel skips this check entirely: it claims nothing about any
+  // algorithm.
+  if (selectedOnSeasons !== ELIGIBILITY_NOT_CLAIMED) {
+    const missingAlgorithmIds = algorithmIds.filter((id) => !(id in selectedOnSeasons));
+    if (missingAlgorithmIds.length > 0) {
+      throw new Error(
+        `aggregateScores: selectedOnSeasons is missing an entry for algorithm(s) ${missingAlgorithmIds.join(", ")} — ` +
+          `a never-tuned algorithm must declare its selected-on set as [] explicitly, never by omission (D-2).`
+      );
+    }
+  }
+
   const slices: ScoreSlice[] = [];
 
   for (const algorithmId of algorithmIds) {
     const algorithmPredictions = predictions.filter((p) => p.algorithmId === algorithmId);
+    // D-2: the sentinel forces `false` for every slice this algorithm
+    // produces without consulting the rule at all — a caller passing it has
+    // no provenance to support any eligibility claim. Otherwise the record
+    // is guaranteed (by the check above) to carry this algorithm's entry.
+    const algorithmSelectedOnSeasons =
+      selectedOnSeasons === ELIGIBILITY_NOT_CLAIMED ? undefined : selectedOnSeasons[algorithmId]!;
 
     for (const season of seasons) {
       const seasonPredictions = algorithmPredictions.filter((p) => p.season === season);
@@ -283,7 +364,10 @@ export function aggregateScores(
         slices.push({
           algorithmId,
           season,
-          headlineEligible: isHeadlineEligible(season, corpusSeasons),
+          headlineEligible:
+            algorithmSelectedOnSeasons === undefined
+              ? false
+              : isHeadlineEligible(season, corpusSeasons, algorithmSelectedOnSeasons),
           compLevelView: view,
           brierScore: result.brierScore,
           winnerAccuracy: result.winnerAccuracy,

@@ -99,6 +99,7 @@ import {
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { selectedOnSeasonsFor } from "./selectionProvenance.js";
 import type { MetricHistoryRow } from "./metricHistory.js";
 import { putObject } from "./r2Client.js";
 
@@ -1978,7 +1979,15 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // `headlineEligible` come back false, silently, with every test still
     // green (Finding 1). `seasonsSorted` is what makes the declared corpus
     // the run's whole range, not the loop's current iteration.
-    const slices = aggregateScores(harnessPredictions, { corpusSeasons: seasonsSorted });
+    // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
+    // `selectionProvenance.ts`'s single explicit registry, over exactly the
+    // algorithm ids this run publishes — never a second, independently-derived
+    // resolution. (`corpusSeasons` above is corrected from the `--seasons`
+    // range to the corpus itself under D-4, Task 3 of the same quick task.)
+    const slices = aggregateScores(harnessPredictions, {
+      corpusSeasons: seasonsSorted,
+      selectedOnSeasons: selectedOnSeasonsFor(options.algorithms.map((a) => a.id)),
+    });
     const compareArtifact = buildCompareArtifact({
       algorithms: options.algorithms.map((a) => ({ id: a.id, version: a.version })),
       slices,

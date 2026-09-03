@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 async function buildFixtureArtifact(): Promise<HarnessArtifact> {
-  const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
+  const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: [] } });
   const statboticsReferences = await Promise.all(
     [2024, 2025].map((season) => statboticsReference(season, { fetchImpl: () => Promise.reject(new Error("no network in tests")) }))
   );
@@ -117,7 +117,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("D-13/plan 03-03: derives codeVersion/paramSetName by splitting version on the first '+'", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: [] } });
     const artifact = await buildArtifact({
       algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-08" }],
       corpusIdentity: "test-corpus",
@@ -130,7 +130,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("D-13/plan 03-03: throws when an algorithm's version carries no '+' (a module that has not adopted the identity scheme)", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: [] } });
     expect(() =>
       buildArtifact({
         algorithms: [{ id: "legacy", version: "1.0.0" }],
@@ -170,7 +170,7 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
   });
 
   it("stores brierScore and winnerAccuracy unrounded, matching the full-precision computed value", async () => {
-    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025] });
+    const slices = aggregateScores(FIXTURE_PREDICTIONS, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: [] } });
     const qualSlice2024 = slices.find((s) => s.season === 2024 && s.compLevelView === "qualification")!;
     // Hand-computed at full precision from the 1/3 and 0.6 predictions above:
     //   (1/3 - 1)^2 = (−2/3)^2 = 4/9
