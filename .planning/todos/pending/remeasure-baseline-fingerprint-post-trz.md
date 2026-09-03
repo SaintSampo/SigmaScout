@@ -10,9 +10,25 @@ priority: medium
 
 ## Relationship to `remeasure-baseline-fingerprint-post-is2.md`
 
-**This supersedes it.** That todo is still correct about the procedure; it is now one
-version behind for `vpr`. A single re-measurement closes both, so do them as one job and
-close both together.
+**This superseded it, and that todo was closed on 2026-09-03** during a backlog review —
+it was correct about the procedure but one `vpr` version behind, and a single
+re-measurement was always going to close both. This file is now the only open record of
+the job. The predecessor survives in the git history and in
+`.planning/quick/260901-is2-model-correctness-fixes-from-adversarial/SUMMARY.md`.
+
+## Sequencing — run this AFTER the Sigma1 re-tune, not before
+
+Noted 2026-09-03 (backlog review); it was not recorded anywhere previously.
+`retune-sigma1-rolling-origin` promotes a new tuned `vpr` set wherever the D-T7 acceptance
+rule accepts one, which bumps the very version this fingerprint records. Measuring first
+would produce a fingerprint that goes stale again at the moment the re-tune promotes, so
+the measurement would be spent twice. Order: re-tune → promote → republish → re-measure
+this fingerprint.
+
+The one case where that order does not bind is a run in which **every** origin returns
+`keep-incumbent` — no promotion, no version bump, and this measurement stands. That is a
+legitimate completed outcome of the re-tune, not a failure, so do not treat "waiting on the
+re-tune" as open-ended.
 
 ## What the committed fingerprint records, and how far behind it now is
 

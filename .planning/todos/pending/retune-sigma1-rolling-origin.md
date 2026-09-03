@@ -118,5 +118,21 @@ the parameter or recording that the search declined to.
 ## Promotion, afterwards
 
 Promote only what the acceptance rule accepted, via `pnpm promote --from-version` (so the
-shipped `linkC` and `covShrinkage` overrides survive the merge), and then file the
-republish: `.planning/todos/pending/regenerate-published-artifacts-post-trz.md`.
+shipped `linkC` and `covShrinkage` overrides survive the merge), and then file a **new**
+republish todo.
+
+Corrected 2026-09-03 (backlog review): this section used to point at
+`.planning/todos/pending/regenerate-published-artifacts-post-trz.md`. That todo has since
+been completed and moved to `.planning/todos/completed/`, so the pointer no longer resolves
+— and it would be the wrong target anyway. A promotion here bumps `vpr` past the version
+that republish covered, so it needs a republish of its own, not a re-run of that one.
+
+Two consequences of the promotion also have to ride the same republish, and neither is
+optional:
+
+- `remeasure-baseline-fingerprint-post-trz` must run **after** the republish, not before —
+  see that todo's own sequencing section.
+- If the promotion adopts per-season parameter sets (Decision 2 in
+  `rolling-origin-hyperparameter-tuning`), `CompareSliceSchema.seasonLabel`'s
+  `z.enum(["tune","holdout"])` is a published-contract change that must land in the same
+  republish.
