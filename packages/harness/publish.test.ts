@@ -32,7 +32,7 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator, type PredictionRecord } from "./replay.js";
-import type { EventArtifact, TeamSeasonArtifact } from "./pageArtifacts.js";
+import type { CompareArtifact, EventArtifact, TeamSeasonArtifact } from "./pageArtifacts.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import {
   actualBonusFlagsForSeason,
@@ -2138,6 +2138,70 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
       ([msg]) => typeof msg === "string" && msg.includes("2026") && msg.toLowerCase().includes("activeyears")
     );
     expect(warned).toBe(true);
+  });
+});
+
+/**
+ * D-2/D-4 (quick task 260903-n2o, Task 4): real coverage on `publish.ts`'s
+ * `compare/{year}.json` call site — the CONTEXT's first surviving finding
+ * was that this call site decides EVERY published `headlineEligible`, and
+ * today reverting either of its two eligibility arguments keeps the suite
+ * green. The corpus below seeds two priors (2022, 2023) that exist in the
+ * corpus but are ABSENT from the publish range (`--seasons 2024` alone) —
+ * the exact shape that distinguishes a corpus-derived `corpusSeasons` from
+ * a range- or loop-derived one.
+ */
+describe("publishSeasons — compare artifact eligibility sources the CORPUS, not the published range (D-2/D-4, quick task 260903-n2o Task 4)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-compare-eligibility-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findCompareArtifact(year: number): CompareArtifact {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => key === `v1/compare/${year}.json`);
+    expect(call, `expected a v1/compare/${year}.json putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string) as CompareArtifact;
+  }
+
+  it("2024, published alone, is headline-eligible for opr because the CORPUS (not the publish range) supplies its two priors", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2022prior", year: 2022 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2022prior_qm1", eventKey: "2022prior" }));
+
+    upsertEvent(db, seasonEvent({ eventKey: "2023prior", year: 2023 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2023prior_qm1", eventKey: "2023prior" }));
+
+    upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2024casj_qm1", eventKey: "2024casj" }));
+
+    await publishSeasons(db, { seasons: [2024], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findCompareArtifact(2024);
+    const oprCombined2024 = artifact.slices.find(
+      (s) => s.algorithmId === "opr" && s.season === 2024 && s.compLevelView === "combined"
+    );
+    expect(oprCombined2024).toBeDefined();
+    expect(oprCombined2024?.headlineEligible).toBe(true);
+
+    // Two reverts this test is standing guard over (both manually confirmed
+    // to redden this test — recorded in the SUMMARY):
+    //   1. Reverting publish.ts's `corpusSeasons` argument (at the
+    //      compare-artifact `aggregateScores` call) to this loop's own
+    //      `[season]`, or to `seasonsSorted` (the `--seasons` range): 2024
+    //      would have zero declared priors instead of two, so
+    //      `headlineEligible` above reads `false`.
+    //   2. Reverting the same call's `selectedOnSeasons` argument to an
+    //      empty record `{}`: `opr` is absent from that map, so
+    //      `aggregateScores` throws naming it (D-2's missing-entry guard)
+    //      and this `await publishSeasons(...)` call itself rejects.
   });
 });
 

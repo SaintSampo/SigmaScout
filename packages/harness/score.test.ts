@@ -571,3 +571,122 @@ describe("aggregateScores — D-2 selectedOnSeasons contract", () => {
     expect(slices.every((s) => s.headlineEligible === false)).toBe(true);
   });
 });
+
+/**
+ * D-2 (quick task 260903-n2o, Task 4): the structural guarantee that
+ * eligibility feeds ONLY `headlineEligible` — no `brierScore`,
+ * `winnerAccuracy`, `scoredCount`, `tieCount`, `noCallCount`,
+ * `exclusionCounts`, `candidateCount` or `calibrationBins` value can move
+ * because of this task. Two `aggregateScores` calls over identical
+ * predictions, differing only in `selectedOnSeasons`, prove it.
+ */
+describe("aggregateScores — selectedOnSeasons feeds only headlineEligible (no-number-moved proof)", () => {
+  function predictionsFixture(): HarnessPredictionInput[] {
+    const predictions: HarnessPredictionInput[] = [];
+    for (const season of [2024, 2025]) {
+      for (let i = 0; i < 3; i++) {
+        predictions.push({
+          matchKey: `${season}test_qm${i}`,
+          season,
+          eventKey: `${season}test`,
+          compLevel: i === 2 ? "sf" : "qm",
+          algorithmId: "vpr",
+          pRedWin: 0.4 + i * 0.15,
+          predictedRedScore: 50 + i,
+          predictedBlueScore: 50 - i,
+          actualWinner: i % 2 === 0 ? "red" : "blue",
+          isOffseason: false,
+          isSurrogateAffected: false,
+        });
+      }
+    }
+    return predictions;
+  }
+
+  it("produces slices identical in every field but headlineEligible when only selectedOnSeasons changes", () => {
+    // Enough priors (2019, 2020, 2022, 2023) in the declared corpus that
+    // both 2024 and 2025 clear the prior-count clause — so the two calls
+    // below differ ONLY on the selected-on clause, and headlineEligible is
+    // genuinely exercised rather than pinned false by both.
+    const corpusSeasons = [2019, 2020, 2022, 2023, 2024, 2025];
+
+    const notSelectedOn = aggregateScores(predictionsFixture(), {
+      corpusSeasons,
+      selectedOnSeasons: { vpr: [] },
+    });
+    const selectedOn = aggregateScores(predictionsFixture(), {
+      corpusSeasons,
+      selectedOnSeasons: { vpr: [2024, 2025] },
+    });
+
+    expect(notSelectedOn.length).toBeGreaterThan(0);
+    expect(notSelectedOn.length).toBe(selectedOn.length);
+
+    const stripEligibility = (slices: typeof notSelectedOn) =>
+      slices.map(({ headlineEligible: _headlineEligible, ...rest }) => rest);
+    expect(stripEligibility(notSelectedOn)).toEqual(stripEligibility(selectedOn));
+
+    // headlineEligible itself DOES differ — proves the two calls were not
+    // simply identical no-ops with respect to the field under test.
+    expect(notSelectedOn.every((s) => s.headlineEligible === true)).toBe(true);
+    expect(selectedOn.every((s) => s.headlineEligible === false)).toBe(true);
+  });
+});
+
+/**
+ * D-3 (quick task 260903-n2o, Task 4): VPR's eligible set over the real
+ * seven-season corpus and the shipped `tuneSeasons` is EXACTLY {2025,
+ * 2026} — asserted as an OUTPUT of the rule, never as an input to it. The
+ * epa/opr expansion to {2022-2026} alongside it is the deliberate,
+ * non-user-visible consequence of D-1 plus D-4 for a never-tuned baseline
+ * (a baseline has no selected-on set to fail the second clause against, so
+ * its eligibility reduces to the prior-count clause alone) — pinned here so
+ * a future re-tune or republish moves those badges on purpose, not by
+ * accident. This changes no currently PUBLISHED number (this task
+ * republishes nothing) and nothing the client renders.
+ */
+describe("aggregateScores — D-3 pin: vpr's eligible set is exactly {2025, 2026}; epa/opr expand to {2022-2026}", () => {
+  const SEVEN_SEASON_CORPUS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
+
+  function predictionsFor(algorithmId: string): HarnessPredictionInput[] {
+    return SEVEN_SEASON_CORPUS.map((season) => ({
+      matchKey: `${algorithmId}_${season}test_qm1`,
+      season,
+      eventKey: `${season}test`,
+      compLevel: "qm",
+      algorithmId,
+      pRedWin: 0.6,
+      predictedRedScore: 60,
+      predictedBlueScore: 40,
+      actualWinner: "red",
+      isOffseason: false,
+      isSurrogateAffected: false,
+    }));
+  }
+
+  it("vpr is eligible only in 2025/2026; epa and opr (declared [] — never-tuned baselines) are eligible from 2022 onward", () => {
+    const predictions = [...predictionsFor("vpr"), ...predictionsFor("epa"), ...predictionsFor("opr")];
+    const slices = aggregateScores(predictions, {
+      corpusSeasons: SEVEN_SEASON_CORPUS,
+      selectedOnSeasons: { vpr: [2022, 2023, 2024], epa: [], opr: [] },
+    });
+    const combined = slices.filter((s) => s.compLevelView === "combined");
+
+    const eligibleSeasonsFor = (algorithmId: string) =>
+      combined
+        .filter((s) => s.algorithmId === algorithmId && s.headlineEligible)
+        .map((s) => s.season)
+        .sort((a, b) => a - b);
+
+    expect(eligibleSeasonsFor("vpr")).toEqual([2025, 2026]);
+
+    // DERIVED by filtering the declared corpus through the same
+    // distinct-prior-count reasoning the rule itself states — never a
+    // second hardcoded literal.
+    const expectedBaselineEligible = SEVEN_SEASON_CORPUS.filter(
+      (season) => new Set(SEVEN_SEASON_CORPUS.filter((s) => s < season)).size >= MIN_PRIOR_SEASONS_FOR_HEADLINE
+    );
+    expect(eligibleSeasonsFor("epa")).toEqual(expectedBaselineEligible);
+    expect(eligibleSeasonsFor("opr")).toEqual(expectedBaselineEligible);
+  });
+});
