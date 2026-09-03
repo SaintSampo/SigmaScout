@@ -31,7 +31,8 @@
     "worker:deploy": "pnpm --filter worker run deploy",
     "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",
     "cleanup:retired-objects": "tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts",
-    "cleanup:orphaned-demo-teams": "tsx --env-file=.env scripts/deleteOrphanedDemoTeamObjects.ts"
+    "cleanup:orphaned-demo-teams": "tsx --env-file=.env scripts/deleteOrphanedDemoTeamObjects.ts",
+    "recon:tba-2019-2020": "tsx --env-file=.env scripts/recon-tba-fields-2019-2020.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
