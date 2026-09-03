@@ -50,7 +50,9 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
 });
 
 describe("winRp per season (Pitfall 2)", () => {
-  it("is 2 for 2022, 2023, 2024", () => {
+  it("is 2 for 2019, 2020, 2022, 2023, 2024", () => {
+    expect(rpRuleModuleForSeason(2019).winRp).toBe(2);
+    expect(rpRuleModuleForSeason(2020).winRp).toBe(2);
     expect(rpRuleModuleForSeason(2022).winRp).toBe(2);
     expect(rpRuleModuleForSeason(2023).winRp).toBe(2);
     expect(rpRuleModuleForSeason(2024).winRp).toBe(2);

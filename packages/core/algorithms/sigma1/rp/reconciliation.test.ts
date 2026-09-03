@@ -173,6 +173,21 @@ const KNOWN_TOLERANCES: readonly Tolerance[] = [
   // over-predicts at base tier — 0 false positives measured); a much
   // smaller (<1%) residual also present at every other tier.
   { season: 2025, bonus: "bargeBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.05 },
+  // 2019 Complete Rocket Bonus: recomputed as `completedRocketNear ||
+  // completedRocketFar`, which UNDER-fires relative to TBA's own recorded
+  // flag — every disagreement measured is a false negative, 0 false
+  // positives at every tier (confirmed directly against the corpus:
+  // falsePos=0, falseNeg=540/29,858 this session). This is a conservative
+  // under-firing rule (see 2019.ts's file header), not a threshold error,
+  // and must never be widened to cover a rule change. Rate is tier-varying
+  // — roughly 1.4% at base (event_type 0/1) against 3.0-3.8% at the higher
+  // tiers (district championship/championship). Measured maximum across
+  // event types (this run's own printed report):
+  // 1.383/1.464/3.203/3.829/3.021/0.000% at event_type 0/1/2/3/5/100 — the
+  // ceiling is 3.829% at event_type 3. 0.04 keeps a small margin above that
+  // exact measured ceiling, matching the planner's independent SQL
+  // cross-check (predicted ceiling 3.8292%, predicted tolerance 0.04).
+  { season: 2019, bonus: "completeRocket", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.04 },
 ];
 
 function toleranceFor(season: number, bonus: string, eventType: number): Tolerance | undefined {
@@ -339,6 +354,8 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
   }
 
   const CHECKS: readonly BoundaryCheck[] = [
+    { season: 2019, bonus: "habDocking", variable: "habClimbPoints", threshold: { base: 15, districtChampionship: 15, championship: 15 } },
+    { season: 2020, bonus: "shieldOperational", variable: "endgamePoints", threshold: { base: 65, districtChampionship: 65, championship: 65 } },
     { season: 2022, bonus: "hangarBonus", variable: "endgamePoints", threshold: { base: 16, districtChampionship: 16, championship: 16 } },
     {
       season: 2023,
