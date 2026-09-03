@@ -197,8 +197,9 @@ import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
+import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import {
   DEFAULT_SIGMA1_PARAMS,
@@ -408,12 +409,12 @@ async function runBoundedSeasons(
   const all: ReplayedPrediction[] = [];
   let liveStates = new Map<string, unknown>();
 
-  for (const season of seasons) {
-    const boundary: SeasonBoundary = {
-      fromSeason: season - 1,
-      toSeason: season,
-      isColdStart: season === COLD_START_SEASON,
-    };
+  for (const [seasonIdx, season] of seasons.entries()) {
+    // Quick task 260903-3bv: `fromSeason` is now the ACTUAL preceding
+    // element of `seasons`, not `season - 1` — see `seasonBoundary.ts`'s doc
+    // comment for why a hardcoded label became a live behavioural input the
+    // moment `carrySeason` started reading `fromSeason` to compute a gap.
+    const boundary = seasonBoundaryFor(seasons, seasonIdx, COLD_START_SEASON);
 
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (!boundary.isColdStart) {

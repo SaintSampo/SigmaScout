@@ -46,11 +46,11 @@ import type {
   CompLevel,
   MatchResult,
   Prediction,
-  SeasonBoundary,
   TeamMetric,
   TeamMetrics,
   UpcomingMatch,
 } from "../core/algorithms/types.js";
+import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
@@ -1542,7 +1542,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   let liveStatesAcrossSeasons = new Map<string, unknown>();
   let finalSeasonStates = new Map<string, unknown>();
 
-  for (const season of seasonsSorted) {
+  for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
     const scheduled = selectScheduledMatches(db, { year: season, excludeOffseason: !includeOffseason });
     // Published-surface exclusion (`.planning/todos/pending/exclude-offseason-demo-teams.md`
@@ -1597,7 +1597,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // `update()` RP-fold skip predicate.
     const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
 
-    const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === coldStartSeason };
+    // Quick task 260903-3bv: `fromSeason` is now the ACTUAL preceding
+    // element of `seasonsSorted`, not `season - 1` — see `seasonBoundary.ts`'s
+    // doc comment for why a hardcoded label became a live behavioural input
+    // the moment `carrySeason` started reading `fromSeason` to compute a gap.
+    const boundary = seasonBoundaryFor(seasonsSorted, seasonIdx, coldStartSeason);
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (boundary.isColdStart) {
       console.log(`publish: season ${season} is the cold-start season (${coldStartSeason}) — every algorithm starts fresh.`);

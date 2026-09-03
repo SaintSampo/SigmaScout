@@ -37,7 +37,8 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { breakdownParseFailureCountOf } from "../core/algorithms/types.js";
-import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
+import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import {
@@ -686,17 +687,14 @@ export async function runSeasons(
   let liveStates = new Map<string, unknown>();
 
   for (const [seasonIdx, season] of seasons.entries()) {
-    // 02-REVIEW IN-01: derive `fromSeason` from the ACTUAL previous element of
-    // `seasons`, not `season - 1` — identical for the contiguous ranges every
-    // current caller passes, but correct (rather than silently wrong) if a
-    // non-contiguous `seasons` array ever reaches this loop and a future
-    // `carrySeason` starts consuming `fromSeason`. Cold-start has no
-    // predecessor; `season - 1` is kept there as the boundary's nominal label.
-    const boundary: SeasonBoundary = {
-      fromSeason: seasonIdx > 0 ? seasons[seasonIdx - 1]! : season - 1,
-      toSeason: season,
-      isColdStart: season === coldStartSeason,
-    };
+    // 02-REVIEW IN-01, now `seasonBoundary.ts`'s job: derive `fromSeason`
+    // from the ACTUAL previous element of `seasons`, not `season - 1` —
+    // identical for the contiguous ranges every current caller passes, but
+    // correct (rather than silently wrong) once a non-contiguous `seasons`
+    // array reaches this loop and `carrySeason` (quick task 260903-3bv)
+    // starts consuming `fromSeason`. Cold-start has no predecessor;
+    // `season - 1` is kept there as the boundary's nominal label.
+    const boundary = seasonBoundaryFor(seasons, seasonIdx, coldStartSeason);
 
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (boundary.isColdStart) {
