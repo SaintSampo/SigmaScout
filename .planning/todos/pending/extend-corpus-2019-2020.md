@@ -203,3 +203,96 @@ Seasons: **2019, 2020, 2022, 2023, 2024, 2025, 2026** — 2021 permanently absen
 seasons (2024/2025/2026); with this backfill it becomes six (2022 through 2027), because 2022 and
 2023 gain genuine origins. The coverage loss D-5 accepted is largely undone by this job — which
 is exactly why it runs first.
+
+---
+
+## MEASURED 2026-09-03 — the recon results, and what they decide
+
+Two read-only probes were run against TBA. Both are committed with their output:
+
+- `scripts/recon-tba-fields-2019-2020.ts` → `docs/data/tba-field-recon-2019-2020.md` (the
+  complete `score_breakdown` key set per season)
+- `scripts/recon-rp-rates-2019-2020.ts` → `docs/data/tba-rp-rates-2019-2020.md` (bonus-RP base
+  rates across EVERY in-season event, not a sample)
+
+### Season sizes, so "2020 was barely a season" is a number
+
+| Season | Events that played quals | Qual matches |
+|---|---|---|
+| 2019 | 189 of 193 listed | **14,916** |
+| 2020 | **52 of 186 listed** | **3,806** |
+
+2020 is ~26% the size of 2019. **Consequence for tuning:** the new 2022 origin selects on
+2019 + 2020 = **18,722 matches**, versus 31,030 for the earliest origin today (2022+2023). The
+earliest origin will therefore be tuned on thinner evidence than any current origin. Not a
+blocker, but its results deserve that caveat when read.
+
+### DECIDED: 2020's `shieldEnergizedRankingPoint` is NOT modelled
+
+It fired **0 times in 7,612 alliance-sides**. Not rare — never. `stage3Activated` is likewise
+exactly 0. The observed `rp` total maxes out at 3 (win 2 + operational 1), never 4, which
+independently confirms it.
+
+`rp/rules/2020.ts` must therefore treat the energized RP as **structurally unavailable**, not as
+a live threshold variable. A threshold variable whose target is a constant zero spends a
+parameter learning nothing and adds noise to everything it touches.
+
+### RESOLVED: 2019's rocket RP is NOT the hard case it was assumed to be
+
+An earlier note in this file flagged `completeRocketRankingPoint` as a modelling problem because
+it is a combinatorial completion condition rather than a count threshold. **The measurement
+softens that considerably:** it fires **6.5% — 1,953 positive examples** across 14,916 matches.
+That is an ordinary low-base-rate binary prediction, not a special case. The combinatorial rule
+governs how the RP was SCORED; predicting it only requires predicting a binary outcome.
+
+### CRITICAL — read the authoritative RP flags, NEVER reconstruct them
+
+Both seasons show bonus-RP flags that **do not reconcile** with their own apparent component
+booleans:
+
+| Season | RP flag | Rate | Apparent components | Rate |
+|---|---|---|---|---|
+| 2019 | `completeRocketRankingPoint` | 6.5% | `completedRocketNear` + `completedRocketFar` | 2.4% + 2.4% ≈ 4.8% |
+| 2020 | `shieldOperationalRankingPoint` | 14.7% | `stage2Activated` | **0.5%** — off by ~30x |
+
+The mechanism behind each discrepancy is **not known** and was deliberately not guessed at.
+
+**The instruction that follows is not optional:** `rp/rules/2019.ts` and `rp/rules/2020.ts` must
+read the `*RankingPoint` flags as ground truth and must NOT derive them from component fields.
+Deriving them from the game rules as understood would have produced two quietly wrong modules
+whose tests passed against their own derivation — the exact failure shape this project's failure
+log already names.
+
+### Module difficulty, revised by the measurements
+
+| Module | Difficulty | Note |
+|---|---|---|
+| `breakdown/2019.ts` | Easy | Clean auto/teleop/endgame split; point values confirmed against observed sums |
+| `breakdown/2020.ts` | Easy | Same |
+| `rp/rules/2019.ts` | Easy-Medium | Two live RPs (rocket 6.5%, HAB docking 41.3%); read the flags, do not derive |
+| `rp/rules/2020.ts` | Easy-Medium | ONE live RP (operational 14.7%); energized is structurally absent |
+
+The four modules are routine. The risk in this job is **not** the modelling — it is the
+reconstruct-vs-read trap above.
+
+## Sigma1 gap handling — DONE, ahead of this job
+
+Quick task `260903-3bv` (commits `91044bf7`, `003dc7f1`, `bc9fb3d2`) landed the gap-aware carry
+this backfill needs, so no Sigma1 carry work remains here:
+
+- `carryMeanReversion` and `consistencyCarryDecay` both apply once per year elapsed.
+- Belief variance is unchanged by gap — `carrySeason` already resets it to a cold-start prior,
+  and a regression test pins that.
+- `cli.ts`, `tune.ts` and `publish.ts` now build boundaries through one shared
+  `seasonBoundaryFor`, fixing a hardcoded `fromSeason: season - 1` in tune and publish that would
+  have pinned the gap at 1 forever on exactly the two paths that matter.
+- Proven a bitwise no-op on the contiguous 2022-2026 corpus.
+
+**EPA is deliberately NOT gap-aware** (user decision, 2026-09-03): it keeps literal
+Statbotics-parity behaviour. The accepted consequence is that across the 2020 → 2022 boundary VPR
+handles the gap and EPA does not, so VPR gains some advantage on 2022 and 2023 from the baseline
+being handicapped rather than from VPR being better.
+
+**Owed follow-up:** when the backtest runs, compute EPA's 2022 figures both ways once and report
+the delta, so this caveat is a measured number rather than an open worry. If it is negligible the
+concern dissolves; if it is large it is disclosed rather than discovered later.
