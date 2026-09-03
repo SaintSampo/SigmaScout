@@ -8,6 +8,17 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
+> **Run shape changed 2026-09-03 — read before running anything.**
+> `rolling-origin-hyperparameter-tuning`'s D-3 was answered and then revised the same day.
+> The steady-state rule is now *the live season runs its own origin set*, which **adds a
+> fourth origin, 2027, selecting on 2022–2026**. Everything below describes the three-origin
+> shape (2024/2025/2026) and is correct for those three; it is simply no longer the whole
+> job. The 2027 origin differs in kind from the other three: 2027 has not been played, so it
+> has **no origin-season evaluation step and no D-T7 acceptance verdict** — it produces a
+> winner that is promoted ungated and scored retroactively when the season ends. Do not try
+> to run `acceptance.ts` against it. See D-3 in that todo for the full reasoning and the
+> tradeoff that was accepted.
+
 ## What changed, and why every promoted parameter is now stale
 
 Quick task `260901-trz` reshaped Sigma1's parameter set and rebuilt the selection

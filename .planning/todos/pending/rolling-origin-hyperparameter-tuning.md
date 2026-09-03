@@ -11,6 +11,11 @@ priority: high
 > **Status: all four gating decisions ANSWERED** (see "Decisions — ANSWERED 2026-09-03" at
 > the end of this file). Per D-1, this work is sequenced onto `retune-sigma1-rolling-origin`
 > and rides its promotion and republish — it is not to be run standalone.
+>
+> **D-3 was revised later the same day** and now defines the scheme's steady state: the live
+> season always runs its own origin set, so 2027 is tuned on 2022–2026 and origins become
+> 2024/2025/2026/2027. Read D-3 in full before running the re-tune — it changes that todo's
+> run shape by one origin.
 
 ## What the user said
 
@@ -61,7 +66,7 @@ gain is **2 headline seasons → 3 or 4**, not 5. The user accepted this before 
   ~41-min screen at the earliest origin's window, plus six concurrent joint runs (3 origins
   x 2 adaptation arms) at ~70 min wall clock. Offline Node — wall-clock, not money. See that
   todo for the full cost table.
-- **Three parameter sets, which collides with the versioning contract.**
+- **Four parameter sets (origins 2024/2025/2026/2027 — see D-3), which collides with the versioning contract.**
   `data/algorithm-versions/vpr@5.0.0+tuned-2026-08.json` is a single promoted set whose
   prediction-stream digest is enforced as a CI gate (`packages/harness/promote.ts`). Either
   three versions or one version whose params vary by season — either way the promote path
@@ -150,14 +155,66 @@ target is **6.0.0**.
 current one-set-per-file shape, but forces the manifest, the Worker, and every client to
 learn per-season version resolution.
 
-### D-3 — What the live site runs in 2027: ANSWERED — the 2026-origin set
+### D-3 — What the live site runs in 2027: ANSWERED — the 2027-origin set, tuned on 2022–2026
 
-Selected on 2022–2025; the most recent set that was also honestly evaluated out-of-sample.
-If the 2026 origin returns `keep-incumbent`, the incumbent stands and serves live.
+**Revised 2026-09-03 by the user, same day, before any of it was executed.** The answer
+first recorded here was "the 2026-origin set (selected on 2022–2025)". It is superseded by
+the rule below; the original and the reason it was replaced are kept as rationale.
 
-**Rejected:** an extra search over all 2022–2026 (more data, but never honestly evaluable —
-nothing is out-of-sample for it, so it could never carry a headline claim); deferring the
-decision until after the re-tune reports.
+The live season always runs **its own origin set**: season S is served by the set tuned on
+2022…S−1, committed to disk before S's first match. For 2027 that is a **2027 origin
+selecting on 2022–2026**. 2026 is a completed season — its last official match was in the
+spring of 2026 — so including it costs nothing in honesty, and it is the most informed set
+available.
+
+The user's stated reason was year-round maintainability. It holds on honesty grounds too:
+
+- It **deletes the special case.** There is no longer a "live params" question distinct from
+  an "evaluation params" question. The answer is always "season S's origin set", every year,
+  with no annual decision to re-make.
+- It is **temporally honest by construction.** No 2027 match informs a set selected on
+  2022–2026, so serving 2027 from it is not a leak, and scoring 2027 with it afterwards is
+  genuine out-of-sample scoring.
+- It makes 2027 a **headline season automatically** once it completes, because the set was
+  committed before the season — which is exactly what a headline claim requires. The count
+  goes 3 → 4 with no extra work, and grows by one every year after.
+
+**The annual maintenance loop this defines:**
+
+1. Preseason of S: run one origin-S search, selecting on 2022…S−1.
+2. Commit the winner to `paramSetsBySeason[S]` **before** any S match is played.
+3. Serve live S from it.
+4. When S completes, score S with that same set — honest headline season, no extra step.
+5. **Never re-tune a past origin.** Re-selecting a committed origin with hindsight is the
+   exact construct rolling origin exists to prevent.
+
+One search per year (~70 min, in preseason) and one new entry in the version file. This fits
+D-2's `paramSetsBySeason` shape with no change to it.
+
+**The tradeoff, stated rather than buried: the preseason set ships UNGATED.** D-T7's
+acceptance rule compares a candidate against the incumbent *on the origin season*, and the
+live season has not been played yet — there is no data to run the gate against. So the
+season-S set is promoted as the best-on-prior-seasons winner, without a validated
+improvement over the incumbent. The accepted handling is that **the gate applies
+retroactively**: when S completes, score it, record whether the set actually beat the
+incumbent, and let that verdict inform the S+1 preseason search. The rejected alternative —
+hold out S−1 to validate, then refit on 2022…S−1 — restores the gate but reintroduces
+exactly the fixed-split complexity this todo exists to remove.
+
+**This makes gate 4 load-bearing.** For the back origins (2024–2026), "winner written to disk
+before any origin-season evaluation" is a belt-and-braces check with the acceptance gate
+behind it. For the live season it is the *only* thing making the eventual score honest. A
+refactor that relaxes gate 4 silently invalidates every future headline season.
+
+**Consequence for the run shape:** origins become **2024 / 2025 / 2026 / 2027**.
+`retune-sigma1-rolling-origin`'s cost table covers the first three. The 2027 origin adds one
+further search whose selection window is 2022–2026 and which has **no origin-season
+evaluation step**, since 2027 has not been played — so it produces a winner and a promotion,
+but no acceptance verdict until the season is over.
+
+**Rejected:** the 2026-origin set (the original answer — one season staler than necessary,
+and it left a separate live-versus-evaluation question to re-answer every year); deferring
+the decision until after the re-tune reports.
 
 ### D-4 — Is 2023 headline-eligible on a one-season prior: ANSWERED — not eligible
 
@@ -166,6 +223,13 @@ Headline seasons are **2024 / 2025 / 2026** — three, which meets acceptance cr
 This ratifies what the shipped tuner already does rather than changing it: `tune.ts`'s
 origins are 2024/2025/2026 with 2022–2023 as the earliest selection window, so no 2023
 parameter set exists to score.
+
+**Not a permanent ceiling (added 2026-09-03 with D-3's revision).** Three is the count
+*today*. D-3's rule adds one origin per season from here, so 2027 joins the headline set the
+moment it completes, 2028 the year after, and so on. Only 2022 and 2023 are permanently
+stranded — no amount of future data can put a season *before* them. The "2 → 3 or 4, not 5"
+ceiling stated further up this file is therefore a statement about the back catalogue, not
+about the scheme.
 
 **Rejected:** adding a 2023 origin tuned on 2022 alone — four headline seasons, but two
 more joint search runs, and it weakens the one-screen leak-free argument the current run
