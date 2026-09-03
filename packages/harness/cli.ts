@@ -57,6 +57,7 @@ import {
   openCorpus,
   openCorpusReadOnly,
   readEtag,
+  selectCorpusSeasons,
   selectMatchesChronological,
   upsertEvent,
   upsertMatch,
@@ -762,15 +763,18 @@ async function runSeasonsMode(
       metricHistoryOutDir: writeMetricHistory ? outDir : undefined,
       secretToScrub: undefined,
     });
-    // D-2 (quick task 260903-krp): this function's own `seasons` parameter is
-    // the run's full declared season set — the correct value to pass, not a
-    // narrower slice.
+    // D-2 (quick task 260903-krp): this function's own `seasons` parameter
+    // used to be treated as the run's declared season set.
+    // D-4 (quick task 260903-n2o): corrected to `selectCorpusSeasons(db)` —
+    // the declared corpus is what the corpus HOLDS, not what this
+    // invocation asked to replay. `db` (opened above) is already in scope,
+    // so this is a single extra query, not a second corpus handle.
     // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
     // `selectionProvenance.ts`'s single explicit registry, over exactly the
     // algorithm ids this run scores — never a second, independently-derived
     // resolution.
     const slices = aggregateScores(predictions, {
-      corpusSeasons: seasons,
+      corpusSeasons: selectCorpusSeasons(db),
       selectedOnSeasons: selectedOnSeasonsFor(algorithms.map((a) => a.id)),
     });
 

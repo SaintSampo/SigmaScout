@@ -1155,3 +1155,35 @@ export function selectTeamKeysForYear(
   }
   return [...teamKeys].sort();
 }
+
+interface CorpusSeasonRow {
+  year: number;
+}
+
+/**
+ * D-4 (quick task 260903-n2o): the distinct, non-offseason seasons actually
+ * present in the corpus — the CORRECT source for `aggregateScores`'
+ * `corpusSeasons`, never a `--seasons` CLI range. Eligibility is a property
+ * of the data available, not of what a given run chose to publish or
+ * replay; sourcing it from the CLI range made a single-season republish
+ * capable of flipping a live key's eligibility (`publish.ts:1981`'s
+ * pre-fix `seasonsSorted` argument).
+ *
+ * Mirrors `selectTeamKeysForYear`'s join-to-`events` shape. The
+ * non-offseason filter matches the population `aggregateScores` actually
+ * scores by default (D-06 excludes offseason matches) — a season that
+ * exists only as offseason exhibitions is not a genuine prior for headline
+ * eligibility purposes.
+ */
+export function selectCorpusSeasons(db: Corpus): number[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT e.year AS year
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE e.is_offseason = 0
+       ORDER BY e.year ASC`
+    )
+    .all() as CorpusSeasonRow[];
+  return rows.map((row) => row.year);
+}

@@ -17,6 +17,7 @@ import {
   openCorpus,
   parseAllianceRecord,
   recordIngestRun,
+  selectCorpusSeasons,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
   selectMatchesChronological,
@@ -770,6 +771,48 @@ describe("team_media — corpus table and accessors (plan 06-03 Task 1)", () => 
     const withoutOffseason = selectTeamKeysForYear(db, 2024, { excludeOffseason: true });
     expect(withoutOffseason).not.toContain("frc20");
     expect(withoutOffseason).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+  });
+});
+
+/**
+ * D-4 (quick task 260903-n2o): `selectCorpusSeasons` is the corrected source
+ * of `aggregateScores`' `corpusSeasons` — the corpus itself, never a
+ * `--seasons` CLI range.
+ */
+describe("selectCorpusSeasons", () => {
+  it("returns the distinct, non-offseason seasons present in the corpus, ascending", () => {
+    upsertEvent(db, event({ eventKey: "2022aaaa", year: 2022 }));
+    upsertEvent(db, event({ eventKey: "2024aaaa", year: 2024 }));
+    upsertEvent(db, event({ eventKey: "2023aaaa", year: 2023 }));
+    upsertMatch(db, match({ matchKey: "2022aaaa_qm1", eventKey: "2022aaaa" }));
+    upsertMatch(db, match({ matchKey: "2024aaaa_qm1", eventKey: "2024aaaa" }));
+    upsertMatch(db, match({ matchKey: "2023aaaa_qm1", eventKey: "2023aaaa" }));
+
+    expect(selectCorpusSeasons(db)).toEqual([2022, 2023, 2024]);
+  });
+
+  it("excludes a year that exists only as an offseason event — an offseason-only year is not counted as a prior", () => {
+    upsertEvent(db, event({ eventKey: "2024normal", year: 2024, eventType: 0, isOffseason: false }));
+    upsertEvent(db, event({ eventKey: "2025off", year: 2025, eventType: 99, isOffseason: true }));
+    upsertMatch(db, match({ matchKey: "2024normal_qm1", eventKey: "2024normal" }));
+    upsertMatch(db, match({ matchKey: "2025off_qm1", eventKey: "2025off" }));
+
+    expect(selectCorpusSeasons(db)).toEqual([2024]);
+  });
+
+  it("over a seeded corpus holding one offseason-only year and two regular years, returns just the two regular years", () => {
+    upsertEvent(db, event({ eventKey: "2022reg", year: 2022, eventType: 0, isOffseason: false }));
+    upsertEvent(db, event({ eventKey: "2023off", year: 2023, eventType: 99, isOffseason: true }));
+    upsertEvent(db, event({ eventKey: "2024reg", year: 2024, eventType: 0, isOffseason: false }));
+    upsertMatch(db, match({ matchKey: "2022reg_qm1", eventKey: "2022reg" }));
+    upsertMatch(db, match({ matchKey: "2023off_qm1", eventKey: "2023off" }));
+    upsertMatch(db, match({ matchKey: "2024reg_qm1", eventKey: "2024reg" }));
+
+    expect(selectCorpusSeasons(db)).toEqual([2022, 2024]);
+  });
+
+  it("returns an empty array over a corpus with no matches", () => {
+    expect(selectCorpusSeasons(db)).toEqual([]);
   });
 });
 

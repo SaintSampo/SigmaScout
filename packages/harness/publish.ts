@@ -61,6 +61,7 @@ import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/si
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
+  selectCorpusSeasons,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
   selectScheduledMatches,
@@ -1509,6 +1510,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
 
+  // D-4 (quick task 260903-n2o): read once, up front, rather than once per
+  // season inside the loop below — this is the corpus-sourced season set
+  // headline eligibility is measured against (see the compare-artifact
+  // call site's own comment for why this must never be `seasonsSorted`).
+  const corpusSeasons = selectCorpusSeasons(db);
+
   const uploader = new BoundedUploader(options.bucket, concurrency, dryRun);
   const teamInfo = lookupAllTeamInfo(db);
   const seedFiles: string[] = [];
@@ -1972,20 +1979,24 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     }
 
     // --- compare/{year}.json — one file, every algorithm, per D-02's exception ---
-    // D-2 (quick task 260903-krp): MUST pass `seasonsSorted` (this run's WHOLE
-    // season set, declared at the top of this function) — NEVER this loop's
-    // own `season`. `harnessPredictions` above is built from a single season,
-    // so passing `[season]` here would make every published slice's
-    // `headlineEligible` come back false, silently, with every test still
-    // green (Finding 1). `seasonsSorted` is what makes the declared corpus
-    // the run's whole range, not the loop's current iteration.
+    // D-2 (quick task 260903-krp): must NOT pass this loop's own `season` —
+    // `harnessPredictions` above is built from a single season, so passing
+    // `[season]` here would make every published slice's `headlineEligible`
+    // come back false, silently, with every test still green (Finding 1).
+    // D-4 (quick task 260903-n2o): `corpusSeasons` (hoisted above the season
+    // loop, read once from `selectCorpusSeasons(db)`) is the CORRECT value —
+    // NOT `seasonsSorted`, this run's `--seasons` range. Eligibility is a
+    // property of the data available, not of what a given run chose to
+    // publish: passing `seasonsSorted` made the declared corpus a property
+    // of the CLI invocation, so a single-season republish (`--seasons 2026`
+    // alone) would silently flip a live key's eligibility — the exact D-4
+    // defect this call site used to carry.
     // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
     // `selectionProvenance.ts`'s single explicit registry, over exactly the
     // algorithm ids this run publishes — never a second, independently-derived
-    // resolution. (`corpusSeasons` above is corrected from the `--seasons`
-    // range to the corpus itself under D-4, Task 3 of the same quick task.)
+    // resolution.
     const slices = aggregateScores(harnessPredictions, {
-      corpusSeasons: seasonsSorted,
+      corpusSeasons,
       selectedOnSeasons: selectedOnSeasonsFor(options.algorithms.map((a) => a.id)),
     });
     const compareArtifact = buildCompareArtifact({
