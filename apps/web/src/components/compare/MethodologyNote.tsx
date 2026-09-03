@@ -15,18 +15,25 @@ import type { CompareArtifact } from "../../../../../packages/harness/pageArtifa
  * note's own best-season clause false against the committed data, since
  * VPR's 2022 elimination Brier is lower than its 2026 one).
  *
- * The fixed evidential clause ("if the fixed split were flattering VPR,
- * holdout years would score visibly worse than tune years — they don't")
- * is the one piece that stays AUTHORED rather than derived, and it is
- * GUARDED rather than trusted: `MethodologyNote.test.tsx`'s evidential-clause
- * guard asserts this claim still holds against the five committed real
- * fixtures, so a re-measurement that inverted it fails the suite instead of
- * shipping a sentence the data no longer supports.
+ * Rewritten by quick task 260903-krp for D-2/D-3's origin-based headline
+ * eligibility: the retired fixed tune/holdout split (`score.ts`'s deleted
+ * `SeasonLabel`) had a subject — "these seasons were selected on, those
+ * were held out" — that the origin-based rule no longer provides, because
+ * every season this page ever displays is an origin season (D-5 of
+ * `rolling-origin-hyperparameter-tuning`) and none of them is scored using
+ * hyperparameters chosen by looking at it. The prose below states THAT
+ * claim — rolling-origin selection — instead. The former evidential clause
+ * ("if the fixed split were flattering VPR, holdout years would score
+ * visibly worse than tune years — they don't") is deleted with it: it
+ * compared two categories of season, and there is no longer a second
+ * category to compare against.
  *
- * This module DOES read `seasonLabel` — that is correct and D-08 says so
- * explicitly: the tune/holdout disclosure belongs in PROSE, and only in
- * prose. `AccuracyTable.tsx` continues to read neither `seasonLabel` nor
- * `headlineEligible`, and this note must never be mounted inside it.
+ * This module now reads NEITHER `seasonLabel` NOR `headlineEligible` — the
+ * inverse of this module's prior instruction to read `seasonLabel`. Every
+ * season `COMPARE_SEASONS` selects is, by construction, an origin season the
+ * Compare page displays, so there is nothing left for either field to
+ * distinguish here. `AccuracyTable.tsx` continues to read neither field
+ * either, and this note must never be mounted inside it.
  */
 
 export const METHODOLOGY_NOTE_TESTID = "compare-methodology-note";
@@ -43,8 +50,8 @@ interface SeasonBrier {
 }
 
 interface MethodologyFiguresBase {
-  readonly tuneSeasons: readonly number[];
-  readonly holdoutSeasons: readonly number[];
+  /** The seasons that yielded a VPR combined-view slice, ascending — the displayed set, per Decision 5. */
+  readonly seasons: readonly number[];
 }
 
 export interface MethodologyFiguresIncomplete extends MethodologyFiguresBase {
@@ -53,10 +60,8 @@ export interface MethodologyFiguresIncomplete extends MethodologyFiguresBase {
 
 export interface MethodologyFiguresComplete extends MethodologyFiguresBase {
   readonly complete: true;
-  readonly tuneBriers: readonly SeasonBrier[];
-  readonly holdoutBriers: readonly SeasonBrier[];
+  readonly seasonBriers: readonly SeasonBrier[];
   readonly bestSeason: number;
-  readonly bestSeasonLabel: "tune" | "holdout";
   readonly bestBrierText: string;
 }
 
@@ -85,56 +90,44 @@ export function formatSeasonList(seasons: readonly number[]): string {
 /**
  * For each season in `COMPARE_SEASONS` ascending, selects VPR's own
  * combined-view slice from that season's fetched artifact — never another
- * algorithm's, never another view's. Partitions whatever seasons yielded a
- * slice by that slice's OWN `seasonLabel`. Returns the COMPLETE form only
- * when every one of the five seasons yielded a slice carrying a non-null
- * Brier; otherwise the INCOMPLETE form (season lists alone, built from
- * whatever labels are present); with no labelled slice at all, returns
- * `undefined` — a claim resting on all five seasons must not be made from
- * fewer.
+ * algorithm's, never another view's. Returns the COMPLETE form only when
+ * every one of the five seasons yielded a slice carrying a non-null Brier;
+ * otherwise the INCOMPLETE form (the season list alone, built from whatever
+ * seasons are present); with no slice at all, returns `undefined` — a claim
+ * resting on all five seasons must not be made from fewer.
  */
 export function buildMethodologyFigures(
   artifactsByYear: ReadonlyMap<number, CompareArtifact>,
 ): MethodologyFigures | undefined {
-  const entries: { season: number; seasonLabel: "tune" | "holdout"; brierScore: number | null }[] = [];
+  const entries: { season: number; brierScore: number | null }[] = [];
   for (const season of COMPARE_SEASONS) {
     const artifact = artifactsByYear.get(season);
     const slice = artifact?.slices.find(
       (candidate) => candidate.algorithmId === VPR_ALGORITHM_ID && candidate.season === season && candidate.compLevelView === "combined",
     );
     if (slice !== undefined) {
-      entries.push({ season, seasonLabel: slice.seasonLabel, brierScore: slice.brierScore });
+      entries.push({ season, brierScore: slice.brierScore });
     }
   }
 
   if (entries.length === 0) return undefined;
 
-  const tuneSeasons = entries.filter((e) => e.seasonLabel === "tune").map((e) => e.season);
-  const holdoutSeasons = entries.filter((e) => e.seasonLabel === "holdout").map((e) => e.season);
+  const seasons = entries.map((e) => e.season);
 
   const complete = entries.length === COMPARE_SEASONS.length && entries.every((e) => e.brierScore !== null);
   if (!complete) {
-    return { complete: false, tuneSeasons, holdoutSeasons };
+    return { complete: false, seasons };
   }
 
-  const withBrier = entries as { season: number; seasonLabel: "tune" | "holdout"; brierScore: number }[];
-  const tuneBriers = withBrier
-    .filter((e) => e.seasonLabel === "tune")
-    .map((e) => ({ season: e.season, text: formatBrierDisplay(e.brierScore) }));
-  const holdoutBriers = withBrier
-    .filter((e) => e.seasonLabel === "holdout")
-    .map((e) => ({ season: e.season, text: formatBrierDisplay(e.brierScore) }));
-
+  const withBrier = entries as { season: number; brierScore: number }[];
+  const seasonBriers = withBrier.map((e) => ({ season: e.season, text: formatBrierDisplay(e.brierScore) }));
   const best = withBrier.reduce((min, e) => (e.brierScore < min.brierScore ? e : min));
 
   return {
     complete: true,
-    tuneSeasons,
-    holdoutSeasons,
-    tuneBriers,
-    holdoutBriers,
+    seasons,
+    seasonBriers,
     bestSeason: best.season,
-    bestSeasonLabel: best.seasonLabel,
     bestBrierText: formatBrierDisplay(best.brierScore),
   };
 }
@@ -158,38 +151,40 @@ function numberWord(n: number): string {
   return SMALL_NUMBER_WORDS[n] ?? String(n);
 }
 
-function pluralize(count: number, singular: string, plural: string): string {
-  return count === 1 ? singular : plural;
+/**
+ * States the honest claim rolling-origin selection makes (`tune.ts:20-52`):
+ * each displayed season's hyperparameters were chosen using only seasons
+ * strictly before it, so no displayed season was scored using
+ * hyperparameters chosen by looking at it. Uses `formatSeasonList` on the
+ * displayed set — the season list it formats is now simply that set, not a
+ * partition of it.
+ */
+function buildSelectionSentence(figures: MethodologyFigures): string {
+  const seasonList = formatSeasonList(figures.seasons);
+  const subject = figures.seasons.length === 1 ? `season ${seasonList}` : `each of ${seasonList}`;
+  return `VPR's hyperparameters for ${subject} were selected using only seasons before it — no displayed season was scored using hyperparameters chosen by looking at it.`;
 }
 
-function buildSplitDisclosureSentence(figures: MethodologyFigures): string {
-  const tuneList = formatSeasonList(figures.tuneSeasons);
-  const holdoutList = formatSeasonList(figures.holdoutSeasons);
-  const holdoutVerb = pluralize(figures.holdoutSeasons.length, "is", "are");
-  const holdoutNoun = pluralize(figures.holdoutSeasons.length, "season", "seasons");
-  return `VPR's hyperparameters were tuned only on ${tuneList} ('tune' seasons); ${holdoutList} ${holdoutVerb} true holdout ${holdoutNoun} the tuning process never saw.`;
+/** One clause per displayed season's Brier score, in the same ascending order `formatSeasonList` uses. */
+function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
+  const parts = seasonBriers.map((b) => `${b.season} ${b.text}`).join(", ");
+  return `Brier by season: ${parts}.`;
 }
 
 /**
  * The full D-08 methodology sentence. In the incomplete form, only the
- * split-disclosure sentence renders — the evidential clause, the figures
- * and the best-season clause all rest on a claim over all five seasons and
- * must not render from fewer.
+ * selection sentence renders — the Brier list and the best-season clause
+ * both rest on a claim over all five seasons and must not render from fewer.
  */
 function buildMethodologySentence(figures: MethodologyFigures): string {
-  const disclosure = buildSplitDisclosureSentence(figures);
-  if (!figures.complete) return disclosure;
+  const selection = buildSelectionSentence(figures);
+  if (!figures.complete) return selection;
 
-  const tuneBrierText = figures.tuneBriers.map((b) => b.text).join(" / ");
-  const holdoutBrierText = figures.holdoutBriers.map((b) => b.text).join(" / ");
-  const bestSeasonNoun = figures.bestSeasonLabel;
-  const seasonCountWord = numberWord(COMPARE_SEASONS.length);
+  const brierList = buildBrierListSentence(figures.seasonBriers);
+  const seasonCountWord = numberWord(figures.seasons.length);
+  const bestClause = `${figures.bestSeason} is VPR's single best season of the ${seasonCountWord}.`;
 
-  const evidential =
-    "If the fixed split were flattering VPR, holdout years would score visibly worse than tune years, and they don't.";
-  const bestClause = `${figures.bestSeason}, a ${bestSeasonNoun} year, is VPR's single best season of the ${seasonCountWord}.`;
-
-  return `${disclosure} ${evidential} Tune-season Brier: ${tuneBrierText}. Holdout-season Brier: ${holdoutBrierText}. ${bestClause}`;
+  return `${selection} ${brierList} ${bestClause}`;
 }
 
 export interface MethodologyNoteProps {

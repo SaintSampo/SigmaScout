@@ -44,34 +44,40 @@ function vprCombinedSlice(artifact: CompareArtifact, season: number) {
   return slice;
 }
 
-/** A minimal single-slice artifact — only the fields buildMethodologyFigures reads. */
+/**
+ * A minimal single-slice artifact — only the fields `buildMethodologyFigures`
+ * reads. `includeSeasonLabel` (default true) is D-4's tolerance requirement
+ * asserted at the component: the note must render identically whether or not
+ * the vestigial field is present on every slice.
+ */
 function makeMinimalArtifact(
   season: number,
-  seasonLabel: "tune" | "holdout",
   brierScore: number | null,
+  options: { includeSeasonLabel?: boolean } = {},
 ): CompareArtifact {
+  const { includeSeasonLabel = true } = options;
+  const slice: Record<string, unknown> = {
+    algorithmId: "vpr",
+    season,
+    headlineEligible: true,
+    compLevelView: "combined",
+    brierScore,
+    winnerAccuracy: 0.75,
+    scoredCount: 1000,
+    tieCount: 0,
+    noCallCount: 0,
+    exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+    candidateCount: 1000,
+    calibrationBins: [],
+  };
+  if (includeSeasonLabel) slice.seasonLabel = "holdout";
+
   return {
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-30T00:00:00.000Z",
     algorithms: [{ id: "vpr", version: "1.0.0+x", codeVersion: "1.0.0", paramSetName: "x" }],
-    slices: [
-      {
-        algorithmId: "vpr",
-        season,
-        seasonLabel,
-        headlineEligible: seasonLabel === "holdout",
-        compLevelView: "combined",
-        brierScore,
-        winnerAccuracy: 0.75,
-        scoredCount: 1000,
-        tieCount: 0,
-        noCallCount: 0,
-        exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
-        candidateCount: 1000,
-        calibrationBins: [],
-      },
-    ],
+    slices: [slice],
   } as CompareArtifact;
 }
 
@@ -98,26 +104,15 @@ describe("formatSeasonList", () => {
 });
 
 describe("buildMethodologyFigures", () => {
-  it("reads only VPR's combined-view slice for each season in COMPARE_SEASONS, partitions by seasonLabel, and formats every Brier through the shared formatter", () => {
+  it("reads only VPR's combined-view slice for each season in COMPARE_SEASONS and formats every Brier through the shared formatter", () => {
     const artifactsByYear = realArtifactsByYear();
     const figures = buildMethodologyFigures(artifactsByYear);
     expect(figures?.complete).toBe(true);
     if (figures?.complete !== true) throw new Error("expected complete figures");
 
-    const expectedTuneSeasons = COMPARE_SEASONS.filter(
-      (season) => vprCombinedSlice(FIXTURES_BY_YEAR[season]!, season).seasonLabel === "tune",
-    );
-    const expectedHoldoutSeasons = COMPARE_SEASONS.filter(
-      (season) => vprCombinedSlice(FIXTURES_BY_YEAR[season]!, season).seasonLabel === "holdout",
-    );
-    expect(figures.tuneSeasons).toEqual(expectedTuneSeasons);
-    expect(figures.holdoutSeasons).toEqual(expectedHoldoutSeasons);
+    expect(figures.seasons).toEqual(COMPARE_SEASONS);
 
-    for (const brier of figures.tuneBriers) {
-      const slice = vprCombinedSlice(FIXTURES_BY_YEAR[brier.season]!, brier.season);
-      expect(brier.text).toBe(formatBrierDisplay(slice.brierScore!));
-    }
-    for (const brier of figures.holdoutBriers) {
+    for (const brier of figures.seasonBriers) {
       const slice = vprCombinedSlice(FIXTURES_BY_YEAR[brier.season]!, brier.season);
       expect(brier.text).toBe(formatBrierDisplay(slice.brierScore!));
     }
@@ -125,7 +120,6 @@ describe("buildMethodologyFigures", () => {
     const allSlices = COMPARE_SEASONS.map((season) => vprCombinedSlice(FIXTURES_BY_YEAR[season]!, season));
     const expectedBest = allSlices.reduce((min, s) => (s.brierScore! < min.brierScore! ? s : min));
     expect(figures.bestSeason).toBe(expectedBest.season);
-    expect(figures.bestSeasonLabel).toBe(expectedBest.seasonLabel);
     expect(figures.bestBrierText).toBe(formatBrierDisplay(expectedBest.brierScore!));
   });
 
@@ -142,38 +136,49 @@ describe("buildMethodologyFigures", () => {
     expect(buildMethodologyFigures(shuffledMap)).toEqual(buildMethodologyFigures(orderedMap));
   });
 
-  it("returns the incomplete form when a season lacks a VPR combined slice — season lists build from whatever labels are present, figures and best-season clause are absent", () => {
+  it("returns the incomplete form when a season lacks a VPR combined slice — the season list builds from whatever seasons are present, figures and best-season clause are absent", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
-      [2022, makeMinimalArtifact(2022, "tune", 0.19)],
-      [2023, makeMinimalArtifact(2023, "tune", 0.17)],
+      [2022, makeMinimalArtifact(2022, 0.19)],
+      [2023, makeMinimalArtifact(2023, 0.17)],
       // 2024, 2025, 2026 missing entirely.
     ]);
     const figures = buildMethodologyFigures(artifactsByYear);
     expect(figures?.complete).toBe(false);
-    expect(figures?.tuneSeasons).toEqual([2022, 2023]);
-    expect(figures?.holdoutSeasons).toEqual([]);
-    expect(figures && "tuneBriers" in figures).toBe(false);
+    expect(figures?.seasons).toEqual([2022, 2023]);
+    expect(figures && "seasonBriers" in figures).toBe(false);
   });
 
   it("returns the incomplete form when a season carries a null Brier", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
-      [2022, makeMinimalArtifact(2022, "tune", 0.19)],
-      [2023, makeMinimalArtifact(2023, "tune", 0.17)],
-      [2024, makeMinimalArtifact(2024, "tune", 0.18)],
-      [2025, makeMinimalArtifact(2025, "holdout", null)],
-      [2026, makeMinimalArtifact(2026, "holdout", 0.15)],
+      [2022, makeMinimalArtifact(2022, 0.19)],
+      [2023, makeMinimalArtifact(2023, 0.17)],
+      [2024, makeMinimalArtifact(2024, 0.18)],
+      [2025, makeMinimalArtifact(2025, null)],
+      [2026, makeMinimalArtifact(2026, 0.15)],
     ]);
     const figures = buildMethodologyFigures(artifactsByYear);
     expect(figures?.complete).toBe(false);
   });
 
-  it("returns nothing (undefined) when no season carries a labelled slice at all", () => {
+  it("returns nothing (undefined) when no season carries a matching slice at all", () => {
     expect(buildMethodologyFigures(new Map())).toBeUndefined();
+  });
+
+  it("reads no seasonLabel and produces identical figures whether or not every slice carries the vestigial field (D-4 tolerance)", () => {
+    const withLabel = new Map<number, CompareArtifact>([
+      [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: true })],
+      [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: true })],
+    ]);
+    const withoutLabel = new Map<number, CompareArtifact>([
+      [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: false })],
+      [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: false })],
+    ]);
+    expect(buildMethodologyFigures(withLabel)).toEqual(buildMethodologyFigures(withoutLabel));
   });
 });
 
 describe("MethodologyNote — rendering", () => {
-  it("the complete case renders the derived tune list, holdout list, tune figures, holdout figures and the best-season clause naming the derived season and label", () => {
+  it("the complete case renders the derived season list, every season's Brier figure and the best-season clause naming the derived season", () => {
     const artifactsByYear = realArtifactsByYear();
     const figures = buildMethodologyFigures(artifactsByYear);
     if (figures?.complete !== true) throw new Error("expected complete figures");
@@ -181,23 +186,20 @@ describe("MethodologyNote — rendering", () => {
     const note = screen.getByTestId(METHODOLOGY_NOTE_TESTID);
     const text = note.textContent ?? "";
 
-    expect(text).toContain(formatSeasonList(figures.tuneSeasons));
-    expect(text).toContain(formatSeasonList(figures.holdoutSeasons));
-    for (const brier of figures.tuneBriers) expect(text).toContain(brier.text);
-    for (const brier of figures.holdoutBriers) expect(text).toContain(brier.text);
+    expect(text).toContain(formatSeasonList(figures.seasons));
+    for (const brier of figures.seasonBriers) expect(text).toContain(brier.text);
     expect(text).toContain(String(figures.bestSeason));
-    expect(text).toContain(figures.bestSeasonLabel);
   });
 
-  it("the incomplete case omits the figures and best-season clause from the rendered text while the split-disclosure sentence still renders", () => {
+  it("the incomplete case omits the Brier figures and best-season clause from the rendered text while the selection sentence still renders", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
-      [2022, makeMinimalArtifact(2022, "tune", 0.19)],
-      [2023, makeMinimalArtifact(2023, "tune", 0.17)],
+      [2022, makeMinimalArtifact(2022, 0.19)],
+      [2023, makeMinimalArtifact(2023, 0.17)],
     ]);
     render(<MethodologyNote artifactsByYear={artifactsByYear} />);
     const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
     expect(text).toContain("2022");
-    expect(text).toContain("tuned");
+    expect(text).toContain("selected");
     expect(text).not.toMatch(/single best season/);
   });
 
@@ -230,18 +232,31 @@ describe("MethodologyNote — rendering", () => {
     expect(text).not.toMatch(/mcnemar/);
   });
 
-  it("the evidential-clause guard: against the five committed real fixtures, the worst holdout-season VPR combined Brier is no worse than the worst tune-season one, and the season holding the overall minimum is a holdout season", () => {
+  it("renders no dangling reference to the retired tune/holdout categories anywhere in its output, case-insensitively", () => {
     const artifactsByYear = realArtifactsByYear();
-    const figures = buildMethodologyFigures(artifactsByYear);
-    if (figures?.complete !== true) throw new Error("expected complete figures against real fixtures");
+    render(<MethodologyNote artifactsByYear={artifactsByYear} />);
+    const text = (screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "").toLowerCase();
+    expect(text).not.toMatch(/\btune\b/);
+    expect(text).not.toMatch(/\bholdout\b/);
+  });
 
-    const tuneValues = figures.tuneSeasons.map((season) => vprCombinedSlice(FIXTURES_BY_YEAR[season]!, season).brierScore!);
-    const holdoutValues = figures.holdoutSeasons.map(
-      (season) => vprCombinedSlice(FIXTURES_BY_YEAR[season]!, season).brierScore!,
-    );
-    const worstTune = Math.max(...tuneValues);
-    const worstHoldout = Math.max(...holdoutValues);
-    expect(worstHoldout).toBeLessThanOrEqual(worstTune);
-    expect(figures.bestSeasonLabel).toBe("holdout");
+  it("renders identically whether or not every slice carries seasonLabel (D-4 tolerance, asserted at the component)", () => {
+    const withLabel = new Map<number, CompareArtifact>([
+      [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: true })],
+      [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: true })],
+    ]);
+    const withoutLabel = new Map<number, CompareArtifact>([
+      [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: false })],
+      [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: false })],
+    ]);
+
+    const { unmount } = render(<MethodologyNote artifactsByYear={withLabel} />);
+    const withLabelText = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
+    unmount();
+
+    render(<MethodologyNote artifactsByYear={withoutLabel} />);
+    const withoutLabelText = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
+
+    expect(withoutLabelText).toBe(withLabelText);
   });
 });

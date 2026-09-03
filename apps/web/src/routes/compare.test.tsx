@@ -348,7 +348,7 @@ describe("/compare route — MethodologyNote (D-08, D-11)", () => {
 
     const textBefore = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
     expect(textBefore).toContain(String(figures.bestSeason));
-    for (const brier of figures.tuneBriers) expect(textBefore).toContain(brier.text);
+    for (const brier of figures.seasonBriers) expect(textBefore).toContain(brier.text);
 
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).toBe(FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "vpr" && s.compLevelView === "elimination")!.brierScore!.toFixed(4)));
