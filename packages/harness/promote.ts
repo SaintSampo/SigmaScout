@@ -111,11 +111,14 @@ import {
 } from "../core/algorithms/sigma1/params.js";
 import {
   Legacy4Sigma1ParamsSchema,
+  Legacy6Sigma1ParamsSchema,
   LegacyAbsoluteSigma1ParamsSchema,
   migrate4to5,
+  migrate6to7,
   migrateAbsoluteToScaleRelative,
   SIGMA1_3_TO_4_MIGRATION_TAG,
   SIGMA1_4_TO_5_MIGRATION_TAG,
+  SIGMA1_6_TO_7_MIGRATION_TAG,
 } from "./legacyParams.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
@@ -494,7 +497,9 @@ function loadFromSearchArtifact(fromPath: string): PromotionSource {
  * A file at the CURRENT `SIGMA1_CODE_VERSION` is parsed by
  * `Sigma1ParamsSchema` and promoted as-is; an OLDER file is parsed by ITS OWN
  * frozen schema and mapped by that shape's own migration
- * (`Legacy4Sigma1ParamsSchema` + `migrate4to5` for 4.x,
+ * (`Legacy6Sigma1ParamsSchema` + `migrate6to7` for 6.x AND 5.x — one shape,
+ * two versions, since the 5->6 bump moved no field —
+ * `Legacy4Sigma1ParamsSchema` + `migrate4to5` for 4.x,
  * `LegacyAbsoluteSigma1ParamsSchema` + `migrateAbsoluteToScaleRelative` for
  * 3.x). Each retired shape gets a schema of its own, never an edit to an
  * existing one — that rule is what keeps an already-migrated file's meaning
@@ -516,39 +521,54 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
   let paramShapeMigration: string | undefined;
   if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
     params = Sigma1ParamsSchema.parse(sourceVersion.params);
-  } else if (sourceVersion.codeVersion.startsWith("5.")) {
-    // D-N3 (quick task 260903-5dp): 5.0.0 -> 6.0.0 is the first bump whose
-    // parameter SHAPE did not change at all. No field was added, removed or
-    // renamed — only the variance solve's terminal behaviour did (post-hoc
-    // clamp -> non-negative least squares) — so the CURRENT schema validates a
-    // 5.x file directly and there is nothing to map.
+  } else if (sourceVersion.codeVersion.startsWith("6.") || sourceVersion.codeVersion.startsWith("5.")) {
+    // D-Y1/D-Y3 (quick task 260903-750): 6.0.0 -> 7.0.0 DROPS
+    // `varianceOprRidge` and ADDS `swingHalfLifeMatches`/`swingScale`, because
+    // the estimator behind every published `±` changed from a per-event
+    // variance decomposition to each team's own recency-weighted swing.
     //
-    // Deliberately NOT given a `paramShapeMigration` tag, and this branch's
-    // existence is why: a tag naming a no-op migration would put a false entry
-    // in the provenance of every file promoted through here, and
-    // `legacyParams.ts`'s "each retired shape gets a schema of its own" rule
-    // does not apply to a shape that was never retired. `derivedFromVersion`
-    // and `objectiveAppliesToPromotedParams: false` are still recorded below —
-    // the objective was computed by a DIFFERENT code version, which is true
-    // whether or not the shape moved.
-    params = Sigma1ParamsSchema.parse(sourceVersion.params);
+    // ONE branch for 6.x and 5.x, which is not a shortcut but the shape's own
+    // history: `legacyParams.ts` records that the 5->6 bump moved no field at
+    // all, so `Legacy6Sigma1ParamsSchema` describes both versions exactly and a
+    // separate 5.x branch would be the same schema under a second name. The
+    // 5.x branch this replaces did no mapping (the CURRENT schema then
+    // validated a 5.x file directly); that stopped being true the moment 7.0.0
+    // changed the field set, so both versions now route through the same map.
+    //
+    // A `paramShapeMigration` TAG IS RECORDED HERE, and the contrast with the
+    // branch this replaces is the point. That one deliberately recorded NO tag,
+    // on the grounds that naming a no-op migration would put a false entry in
+    // every promoted file's provenance. This hop genuinely drops a field and
+    // adds two, so a tag is the honest statement rather than a decorative one —
+    // the rule was never "prefer no tag", it was "the tag must be true".
+    params = migrate6to7(Legacy6Sigma1ParamsSchema.parse(sourceVersion.params));
+    paramShapeMigration = SIGMA1_6_TO_7_MIGRATION_TAG;
   } else if (sourceVersion.codeVersion.startsWith("4.")) {
     // D-V4 (quick task 260902-varopr): 4.0.0 -> 5.0.0. Its own frozen schema,
     // BESIDE the 3.x one rather than replacing it — see `legacyParams.ts`.
+    //
+    // The TAG names TWO hops now, because `migrate4to5` composes through
+    // `migrate6to7` rather than duplicating it (a 4.0.0 set is a 6.0.0-shaped
+    // set minus one field). It really does traverse both maps, so recording
+    // only the first would understate what happened to the file — the same
+    // "the tag must be true" rule the 6.x branch above states and the 3.x
+    // branch below has followed since 5.0.0.
     params = migrate4to5(Legacy4Sigma1ParamsSchema.parse(sourceVersion.params));
-    paramShapeMigration = SIGMA1_4_TO_5_MIGRATION_TAG;
+    paramShapeMigration = `${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`;
   } else if (sourceVersion.codeVersion.startsWith("3.")) {
-    // CHAINED, one hop per map: 3.0.0 -> 4.0.0 -> 5.0.0. Each migration knows
-    // only about the shape immediately after its own, so adding 5.0.0 did not
-    // require editing the 3.x map's field-by-field conversion at all — only
-    // composing onto it here. `legacyParams.ts`'s header records why this
-    // chaining was unavoidable rather than optional.
+    // CHAINED, one hop per map: 3.0.0 -> 4.0.0 -> 5.0.0 -> 7.0.0. Each
+    // migration knows only about the shape immediately after its own, so adding
+    // 5.0.0 did not require editing the 3.x map's field-by-field conversion at
+    // all — only composing onto it here — and adding 7.0.0 did not require
+    // editing this line at all, because the new hop composed inside
+    // `migrate4to5`. `legacyParams.ts`'s header records why this chaining was
+    // unavoidable rather than optional.
     params = migrate4to5(migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params)));
-    paramShapeMigration = `${SIGMA1_3_TO_4_MIGRATION_TAG}+${SIGMA1_4_TO_5_MIGRATION_TAG}`;
+    paramShapeMigration = `${SIGMA1_3_TO_4_MIGRATION_TAG}+${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`;
   } else {
     throw new Error(
       `promote --from-version: ${fromVersionPath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
-        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 5.x is shape-identical and 4.x/3.x are the migratable shapes). Refusing to guess at a shape it has never seen.`
+        `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 6.x and 5.x share one retired shape, and 4.x/3.x are the other two migratable shapes). Refusing to guess at a shape it has never seen.`
     );
   }
 
