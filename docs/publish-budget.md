@@ -97,10 +97,13 @@ committed `budgetMaxBytes` (350,000) and `EVENT_PAGE_ABSOLUTE_MAX_BYTES`. Agains
 machine-readable block below, `payloadBudget.test.ts` is **10/11** — every test passes except the
 internal-consistency assertion's `team` iteration (`maxBytes (380020) should be <= budgetMaxBytes
 (375000)`), which is exactly this overage, measured directly rather than asserted. The committed
-`budgetMaxBytes` figures are left unchanged per this document's own standing prohibition against
-raising a budget to fit a measurement — this is a finding for a future developer to act on (shrink
-the artifact, or deliberately raise the ceiling with its own review), not something this quick task
-is authorized to resolve.
+`budgetMaxBytes` figures were left unchanged at publish time per this document's own standing
+prohibition against raising a budget to fit a measurement — recorded as a finding for a deliberate
+decision (shrink the artifact, or raise the ceiling with its own review), not something the quick
+task was authorized to resolve. **Resolved same day (2026-09-04):** the user explicitly authorized
+raising the `team/{teamKey}/{year}` ceiling 375,000 → 400,000 — the sanctioned deliberate-raise
+path — recorded in the machine-readable block below; `payloadBudget.test.ts` returns to 11/11. The
+`TEAM_PAGE_ABSOLUTE_MAX_BYTES` structural ceiling (600,000) in the test is untouched.
 
 **Post-run health check.** `pnpm verify:subset` (equivalently `tsx scripts/verifySubsetPublish.ts`):
 35 entries checked, 0 failing, generation uniformity 1 distinct value
@@ -1225,7 +1228,7 @@ rendering of these same numbers, not a second source.
 ```json budget
 {
   "measuredAt": "2026-09-04T08:25:39.576Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 4ba99e89-b196-4f88-90c7-3bc1ffae3de9, 56,774 objects, 2,258,714,595 bytes total (up from 2,226,644,593, +1.44%). Quick task 260904-586: teams/{year}'s metrics field now reflects each team's LAST OFFICIAL match, not season-final -- verified against frc5002/2024 (teams row total 17.04 == its 2024cur/official metric-history value, != 6.45, its 2024aroz/offseason season-final value; team artifact still lists 2024aroz). events/event/team/compare movement is attributed to undocumented vpr 5.0.0->7.0.0 promotions that landed between the last documented block and this run's own pre-run baseline (79a0a71a-..., already vpr@7.0.0 before this run started), not to this run's own code change -- not further isolated. NO CEILING RAISED: every budgetMaxBytes below is unchanged from the previous block. team's maxBytes (380,020) now exceeds its committed budgetMaxBytes (375,000) by 5,020 bytes (1.34%) -- a genuine, newly measured, un-actioned finding, left open per this document's standing prohibition against raising a budget to fit a measurement; it stays well under the separate absolute ceiling (600,000). Every other page kind stays under its own committed budgetMaxBytes.",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 4ba99e89-b196-4f88-90c7-3bc1ffae3de9, 56,774 objects, 2,258,714,595 bytes total (up from 2,226,644,593, +1.44%). Quick task 260904-586: teams/{year}'s metrics field now reflects each team's LAST OFFICIAL match, not season-final -- verified against frc5002/2024 (teams row total 17.04 == its 2024cur/official metric-history value, != 6.45, its 2024aroz/offseason season-final value; team artifact still lists 2024aroz). events/event/team/compare movement is attributed to undocumented vpr 5.0.0->7.0.0 promotions that landed between the last documented block and this run's own pre-run baseline (79a0a71a-..., already vpr@7.0.0 before this run started), not to this run's own code change -- not further isolated. ONE CEILING DELIBERATELY RAISED (same-day follow-up, 2026-09-04, explicit user authorization): team's maxBytes (380,020) exceeded the then-committed budgetMaxBytes (375,000) by 5,020 bytes (1.34%) -- at publish time this was recorded as an un-actioned finding per this document's standing prohibition against raising a budget to fit a measurement; the user then explicitly authorized raising the team ceiling 375,000 -> 400,000 (the sanctioned deliberate-raise path, not a silent absorption), which is the value below. It stays well under the separate absolute ceiling (600,000). Every other page kind's budgetMaxBytes is unchanged from the previous block and stays under its own committed budgetMaxBytes.",
   "pages": {
     "teams": {
       "count": 15,
@@ -1240,7 +1243,7 @@ rendering of these same numbers, not a second source.
       "medianBytes": 31467,
       "p95Bytes": 93648,
       "maxBytes": 380020,
-      "budgetMaxBytes": 375000,
+      "budgetMaxBytes": 400000,
       "largestKey": "v1/team/frc3538/2024/vpr@7.0.0+rolling-2026-09.json"
     },
     "events": {
