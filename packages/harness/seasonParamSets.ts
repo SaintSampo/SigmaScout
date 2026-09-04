@@ -25,7 +25,7 @@
 import type { PromotedVersion } from "./promote.js";
 import { z } from "zod";
 import { makeSigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
-import { DEFAULT_SIGMA1_PARAMS, Sigma1ParamsSchema } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult, SeasonBoundary, TeamMetrics, UpcomingMatch } from "../core/algorithms/types.js";
 import type { WinProbMode } from "../core/algorithms/sigma1/index.js";
 
@@ -193,7 +193,15 @@ export interface MakeSeasonalSigma1Options {
  */
 export function makeSeasonalSigma1(promoted: PromotedVersion, options: MakeSeasonalSigma1Options): AlgorithmModule<Sigma1State> {
   const resolved = resolveParamSets(promoted);
-  const version = `${promoted.codeVersion}+${promoted.paramSetName}`;
+  // Deliberately `SIGMA1_CODE_VERSION` (the RUNNING code's own constant),
+  // never `promoted.codeVersion` (whatever label the file happens to carry)
+  // — this mirrors `makeSigma1`'s own long-standing convention exactly
+  // (`sigma1/index.ts`: `` `${SIGMA1_CODE_VERSION}+${options.paramSetName}` ``,
+  // never a caller-supplied codeVersion). A version string exists to
+  // describe the code ACTUALLY producing a prediction; trusting a
+  // potentially stale file field instead would let a promoted-but-outdated
+  // `codeVersion` label misrepresent what is really executing.
+  const version = `${SIGMA1_CODE_VERSION}+${promoted.paramSetName}`;
 
   const modulesBySeason = new Map<number, AlgorithmModule<Sigma1State>>();
   for (const season of resolved.seasons) {

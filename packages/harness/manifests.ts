@@ -25,6 +25,7 @@ import { epa } from "../core/algorithms/epa.js";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { resolveParamSets } from "./seasonParamSets.js";
 import type { Corpus } from "../corpus/db.js";
 import {
   AlgorithmManifestEntrySchema,
@@ -228,6 +229,13 @@ export interface BuildAlgorithmsManifestOptions {
   readonly generation: string;
   /** D-04: ISO timestamp of when this manifest was computed. */
   readonly computedAt: string;
+  /**
+   * D-2 (quick task 260904-100): REQUIRED, no default — a default is how the
+   * wrong season's parameter set gets published silently. The Worker only
+   * ever runs the LIVE season, so the manifest names exactly one season's
+   * set (never the full `paramSetsBySeason` map); this is that season.
+   */
+  readonly paramsSeason: number;
 }
 
 /**
@@ -242,7 +250,7 @@ export interface BuildAlgorithmsManifestOptions {
  * version file disagreeing with itself).
  */
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
-  const { generation, computedAt } = options;
+  const { generation, computedAt, paramsSeason } = options;
 
   const oprSplit = splitManifestVersion(opr.id, opr.version);
   const epaSplit = splitManifestVersion(epa.id, epa.version);
@@ -254,6 +262,12 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   const promotedRaw: unknown = JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8"));
   const promoted = PromotedVersionSchema.parse(promotedRaw);
   const vprSplit = splitManifestVersion(promoted.id, promoted.version);
+  // D-2: resolved for `paramsSeason` rather than read off `promoted.params`
+  // directly — `promoted.params` is schema-optional (absent for a
+  // `paramSetsBySeason` file), so a direct read would silently publish
+  // `undefined` for the Worker's only tunable-parameter source the moment
+  // the pinned file becomes a per-season one.
+  const paramsForManifest = resolveParamSets(promoted).forSeason(paramsSeason).params;
 
   const algorithms: AlgorithmManifestEntry[] = [
     { id: opr.id, version: opr.version, codeVersion: oprSplit.codeVersion, paramSetName: oprSplit.paramSetName },
@@ -263,7 +277,8 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
       version: promoted.version,
       codeVersion: vprSplit.codeVersion,
       paramSetName: vprSplit.paramSetName,
-      params: promoted.params,
+      params: paramsForManifest,
+      paramsSeason,
     },
   ];
 

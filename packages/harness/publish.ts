@@ -2012,7 +2012,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
   if (!options.skipState) {
     const liveWindows = buildLiveWindowsManifest(db, { seasons: seasonsSorted, generation, computedAt });
-    const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt });
+    // D-2 (quick task 260904-100): the manifest carries the season whose set
+    // is actually LIVE for the Worker — the maximum season this publish run
+    // covers, sourced from the run's own already-sorted season list, never a
+    // hardcoded year.
+    const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt, paramsSeason: seasonsSorted[seasonsSorted.length - 1]! });
     const liveWindowsKey = "v1/manifest/live-windows.json";
     const algorithmsManifestKey = "v1/manifest/algorithms.json";
     if (!dryRun) {

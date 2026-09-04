@@ -429,13 +429,13 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // (it is still correct, and a future accidental re-split would now fail
   // this case rather than pass vacuously).
   it("returns exactly 3 entries whose ids are opr, epa, vpr — in that order", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
     expect(manifest.algorithms).toHaveLength(3);
     expect(manifest.algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);
   });
 
   it("reads opr/epa's id and version straight from the modules", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
     const oprEntry = manifest.algorithms.find((a) => a.id === "opr")!;
     const epaEntry = manifest.algorithms.find((a) => a.id === "epa")!;
     expect(oprEntry.version).toBe(opr.version);
@@ -451,14 +451,14 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // rather than the string "vpr".
   it("the published entry's id strictly equals the id parsed from the committed promoted version file (read, not written)", () => {
     const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
     const vprEntry = manifest.algorithms[2]!;
     expect(vprEntry.id).toBe(committed.id);
   });
 
   it("the VPR entry's version equals the committed promoted version file's version field (read at test time, never hardcoded)", () => {
     const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
     const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
     expect(vprEntry.version).toBe(committed.version);
     expect(vprEntry.version).toContain("+");
@@ -466,9 +466,22 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 
   it("the VPR entry's params parse against Sigma1ParamsSchema (already enforced by AlgorithmsManifestSchema.parse inside buildAlgorithmsManifest, asserted here for presence)", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
     const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
     expect(vprEntry.params).toBeDefined();
+  });
+
+  // D-2 (quick task 260904-100): the season `buildAlgorithmsManifest` is
+  // asked for round-trips onto the VPR entry itself, and OPR/EPA (which
+  // carry no tunable parameter set) never gain the field.
+  it("round-trips paramsSeason onto the VPR entry only", () => {
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2023 });
+    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
+    const oprEntry = manifest.algorithms.find((a) => a.id === "opr")!;
+    const epaEntry = manifest.algorithms.find((a) => a.id === "epa")!;
+    expect(vprEntry.paramsSeason).toBe(2023);
+    expect(oprEntry.paramsSeason).toBeUndefined();
+    expect(epaEntry.paramsSeason).toBeUndefined();
   });
 });
 

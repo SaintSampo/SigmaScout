@@ -6,7 +6,7 @@
  * `tune.ts` specifically so this file can exercise them without spinning up
  * a real corpus replay.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -454,15 +454,26 @@ describe("loadIncumbent (D-T7's bar is against WHAT SHIPS)", () => {
     );
   });
 
-  it("reads the real committed incumbent and its version string", () => {
+  it("reads the real committed incumbent and builds a module carrying its version", () => {
+    // D-2 (quick task 260904-100): `loadIncumbent` now returns a built
+    // `AlgorithmModule` (routed through `makeSeasonalSigma1`) rather than a
+    // bare `{ params, version }` pair, so the module's own params are no
+    // longer directly readable here — D-T3's covShrinkage fix is asserted
+    // directly against the committed file's own JSON instead (params.test.ts
+    // separately pins DEFAULT_SIGMA1_PARAMS.covShrinkage).
     const incumbent = loadIncumbent();
     // Derived rather than pinned: what this test cares about is that the
     // incumbent read from disk is the one the RUNNING code ships, not that it
     // carries any particular version string. Pinning the literal made it fail on
     // a bump the code handled correctly.
     expect(incumbent.version).toBe(`${SIGMA1_CODE_VERSION}+tuned-2026-08`);
-    // D-T3's fix is present in what ships, which is what the bar compares to.
-    expect(incumbent.params.covShrinkage).toBe(0.3);
+  });
+
+  it("the incumbent's own committed params carry D-T3's covShrinkage fix", () => {
+    const raw = JSON.parse(
+      readFileSync(join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`), "utf8")
+    ) as { params?: { covShrinkage?: number } };
+    expect(raw.params?.covShrinkage).toBe(0.3);
   });
 });
 

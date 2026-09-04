@@ -81,6 +81,7 @@ import {
 } from "./predictions.js";
 import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
+import { makeSeasonalSigma1 } from "./seasonParamSets.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
@@ -162,7 +163,15 @@ export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModul
   if (!existsSync(versionPath)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(versionPath, "utf8"));
   const promoted = PromotedVersionSchema.parse(raw);
-  return makeSigma1({ id, linkMode: "predictive-variance", params: promoted.params, paramSetName: promoted.paramSetName });
+  // D-2 (quick task 260904-100): routed through the per-season facade rather
+  // than a bare `makeSigma1({ params: promoted.params, ... })` — `params` is
+  // schema-optional (undefined for a `paramSetsBySeason` file), and
+  // `Sigma1Options.params` is ALSO optional, so a bare `makeSigma1` call
+  // would silently fall back to `DEFAULT_SIGMA1_PARAMS` for a per-season
+  // file instead of throwing or resolving the right season's set — `tsc`
+  // does not catch this because both sides of the assignment are already
+  // optional.
+  return makeSeasonalSigma1(promoted, { id, linkMode: "predictive-variance" });
 }
 
 /**

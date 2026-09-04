@@ -105,6 +105,15 @@ export const AlgorithmManifestEntrySchema = z.object({
   paramSetName: z.string().min(1),
   /** Present only for the VPR entry (`Sigma1ParamsSchema` — the implementation's own parameter type, not renamed per PD-02) — a Worker rebuilds the module with `makeSigma1({ params, ... })`; OPR/EPA carry no tunable parameter set. */
   params: Sigma1ParamsSchema.optional(),
+  /**
+   * D-2 (quick task 260904-100): the season whose set `params` carries.
+   * OPTIONAL so every already-published manifest keeps validating — added
+   * additively, no `MANIFEST_SCHEMA_VERSION` bump, since the Worker only
+   * ever runs the LIVE season and needs exactly one season's set (never the
+   * full `paramSetsBySeason` map, which would widen the published manifest
+   * shape for no gain). Present whenever `params` is.
+   */
+  paramsSeason: z.number().int().optional(),
 });
 
 export type AlgorithmManifestEntry = z.infer<typeof AlgorithmManifestEntrySchema>;

@@ -50,7 +50,6 @@ import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../packages/c
 import { openCorpusReadOnly, type Corpus } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../packages/core/scoring/expandingStats.js";
-import { makeSigma1 } from "../packages/core/algorithms/sigma1/index.js";
 import { SIGMA1_FALLBACK_SCORE_SD } from "../packages/core/algorithms/sigma1/params.js";
 import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
 import { isFullyDemoAlliance } from "../packages/core/algorithms/demoTeams.js";
@@ -61,6 +60,7 @@ import { isValidPRedWin } from "../packages/core/scoring/predictionValidity.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "../packages/harness/score.js";
 import { eventBlockedBootstrap, type EventBlockedUnit } from "../packages/harness/eventBootstrap.js";
 import { PromotedVersionSchema } from "../packages/harness/promote.js";
+import { makeSeasonalSigma1 } from "../packages/harness/seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -228,17 +228,18 @@ interface MeasureReport {
  */
 function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: string, bootstrapResamples: number): MeasureReport {
   const promoted = PromotedVersionSchema.parse(JSON.parse(readFileSync(paramsFile, "utf8")));
+  // D-2 (quick task 260904-100): routed through the per-season facade rather
+  // than a bare `makeSigma1({ params: promoted.params, ... })` — `params` is
+  // schema-optional (absent for a `paramSetsBySeason` file), and this
+  // script's own multi-season loop below (with its own `carrySeason`
+  // threading) needs the season-appropriate set at every boundary, not a
+  // silent `DEFAULT_SIGMA1_PARAMS` fallback.
   // `AlgorithmModule<any>` matches `cli.ts`'s/`tune.ts`'s own convention for a
   // module whose state is threaded across boundaries as an opaque value —
   // `finalStates` is a `ReadonlyMap<string, unknown>` by design (it holds many
   // algorithms' differently-shaped states), so the carried value cannot be
   // statically narrowed back to `Sigma1State` at this seam.
-  const algorithm: AlgorithmModule<any> = makeSigma1({
-    id: "vpr",
-    linkMode: "predictive-variance",
-    params: promoted.params,
-    paramSetName: promoted.paramSetName,
-  });
+  const algorithm: AlgorithmModule<any> = makeSeasonalSigma1(promoted, { id: "vpr", linkMode: "predictive-variance" });
 
   const bySeason = new Map<number, ScoredRecord[]>();
   const all: ScoredRecord[] = [];

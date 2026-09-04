@@ -215,7 +215,9 @@ import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 import { decideAcceptance, type AcceptanceOutcome } from "./acceptance.js";
 import { eventBlockedBootstrap, type EventBlockedUnit } from "./eventBootstrap.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
+import { PromotedVersionSchema } from "./promote.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
+import { makeSeasonalSigma1 } from "./seasonParamSets.js";
 // D-T5 removed this module's dependence on the fixed split; quick task
 // 260903-krp then deleted `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit`
 // entirely from `score.ts` — there is nothing left to import. See this
@@ -1543,16 +1545,32 @@ export function buildAcceptanceReport(input: {
   };
 }
 
-/** Reads the committed incumbent. Throws by name if it is missing rather than substituting `DEFAULT_SIGMA1_PARAMS` — see `INCUMBENT_VERSION_PATH`. */
-export function loadIncumbent(path: string = INCUMBENT_VERSION_PATH): { params: Sigma1Params; version: string } {
+/**
+ * Reads the committed incumbent and builds a runnable module for it. Throws
+ * by name if it is missing rather than substituting `DEFAULT_SIGMA1_PARAMS`
+ * — see `INCUMBENT_VERSION_PATH`.
+ *
+ * D-2 (quick task 260904-100): returns a built `AlgorithmModule`, via
+ * `makeSeasonalSigma1`, rather than a bare `{ params, version }` pair. The
+ * OLD shape hand-rolled `JSON.parse(...) as { params?: unknown }` and pushed
+ * `raw.params` straight into `Sigma1ParamsSchema.parse` — `tsc` cannot flag
+ * that as broken by a `paramSetsBySeason` file (both sides are already
+ * `unknown`/optional), so a per-season incumbent would have failed with an
+ * opaque Zod error instead of a named one. Parsing through
+ * `PromotedVersionSchema` first gives a named, schema-validated error for
+ * either file shape, and the returned module's own `id`/`params` are
+ * whichever season's set actually governs each replayed match.
+ */
+export function loadIncumbent(path: string = INCUMBENT_VERSION_PATH, id = "acceptance-incumbent"): AlgorithmModule<any> {
   if (!existsSync(path)) {
     throw new Error(
       `tune: the incumbent version file ${path} does not exist. D-T7's bar is "beats what SHIPS", and the shipped parameter set is ` +
         `NOT DEFAULT_SIGMA1_PARAMS (the promoted set carries overrides that exist nowhere else). Refusing to silently substitute the defaults.`
     );
   }
-  const raw = JSON.parse(readFileSync(path, "utf8")) as { version?: unknown; params?: unknown };
-  return { params: Sigma1ParamsSchema.parse(raw.params), version: typeof raw.version === "string" ? raw.version : "(unknown)" };
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const promoted = PromotedVersionSchema.parse(raw);
+  return makeSeasonalSigma1(promoted, { id, linkMode: "predictive-variance" });
 }
 
 /**
@@ -1589,13 +1607,18 @@ async function evaluateOriginSeason(
     evaluationCount: number;
   }
 ): Promise<OriginAcceptanceReport> {
-  const incumbent = loadIncumbent();
   const CANDIDATE_ID = "acceptance-candidate";
   const INCUMBENT_ID = "acceptance-incumbent";
+  // D-2 (quick task 260904-100): `loadIncumbent` now returns a built module
+  // directly (routed through `makeSeasonalSigma1`) rather than a
+  // `{ params, version }` pair rebuilt here with a bare `makeSigma1` call —
+  // see `loadIncumbent`'s own doc comment for why that bare rebuild was the
+  // one `tsc` could not have caught.
+  const incumbent = loadIncumbent(undefined, INCUMBENT_ID);
 
   const algorithms = [
     makeSigma1({ id: CANDIDATE_ID, linkMode: "predictive-variance", params: input.winnerParams }),
-    makeSigma1({ id: INCUMBENT_ID, linkMode: "predictive-variance", params: incumbent.params }),
+    incumbent,
   ];
   const replaySeasons = [...input.selectionSeasons, input.originSeason].sort((a, b) => a - b);
   const predictions = await runBoundedSeasons(db, replaySeasons, algorithms, input.eventsLimit);

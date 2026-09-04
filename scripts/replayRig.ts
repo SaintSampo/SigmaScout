@@ -644,7 +644,14 @@ export async function runRig(options: RigOptions): Promise<ReplayRigResult> {
     if (rows.length === 0) throw new Error(`replayRig: event "${options.event}" has no played matches in the corpus`);
     const touchedTeams = touchedTeamsOf(rows);
 
-    const algorithmsManifest = buildAlgorithmsManifest({ generation: `replay-rig-${Date.now()}`, computedAt: new Date().toISOString() });
+    // D-2 (quick task 260904-100): `paramsSeason` is REQUIRED, no default —
+    // this rig replays exactly one event, so its own event's season is the
+    // only season whose parameter set could ever matter here.
+    const algorithmsManifest = buildAlgorithmsManifest({
+      generation: `replay-rig-${Date.now()}`,
+      computedAt: new Date().toISOString(),
+      paramsSeason: info.season,
+    });
     const allModules = buildAlgorithmModulesLocal(algorithmsManifest);
     const modules = options.algorithms.map((id) => {
       const mod = allModules.get(id);
