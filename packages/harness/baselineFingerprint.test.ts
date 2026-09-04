@@ -176,6 +176,21 @@ const OFFSEASON_INCLUSIVE_FINGERPRINT_FILE = "sc3-offseason-inclusive-2026-08.js
 const ROLLING_ORIGIN_FINGERPRINT_FILE = "sc3-rolling-origin-2026-09.json";
 
 /**
+ * The 2026-09-04 re-tune/republish session's re-measurement under the FINAL
+ * shipped code of that day: `opr@4.0.0+baseline`, `epa@5.0.0+baseline`
+ * (no-foul total, 1/3 elim discount, adjust pinned) and
+ * `vpr@8.0.0+rolling-2026-09b` (origin 2022's off-arm winner; every other
+ * season carried from `rolling-2026-09`). Scores the identical match
+ * population as both SC-3 fingerprints above (per-season `scoredCount`s
+ * match on all five seasons), keeping all three directly comparable.
+ *
+ * Same do-not-rewrite rule: added ALONGSIDE its predecessors, which stay
+ * exactly as committed. Excluded by name from the "retired-implementation"
+ * loop below (its `opr` entry is `4.0.0+baseline`, not `2.0.0+baseline`).
+ */
+const ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE = "sc3-rolling-origin-2026-09b.json";
+
+/**
  * Quick task 260904-4aa (SC-2): NOT a `BaselineFingerprintSchema` fingerprint
  * at all — a different baseline family entirely, sharing this directory
  * because `data/baselines/` is this repo's general home for "a committed,
@@ -240,6 +255,7 @@ describe("committed baseline fingerprints", () => {
         name !== EVENT_SCOPED_FINGERPRINT_FILE &&
         name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE &&
         name !== ROLLING_ORIGIN_FINGERPRINT_FILE &&
+        name !== ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE &&
         name !== EPA_VS_STATBOTICS_BASELINE_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
@@ -299,7 +315,7 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 6 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, the rolling-origin SC-3 re-measurement, and the SC-2 EPA-vs-Statbotics tolerance baseline", () => {
+  it("data/baselines/ contains exactly 7 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, both rolling-origin SC-3 re-measurements, and the SC-2 EPA-vs-Statbotics tolerance baseline", () => {
     // The fingerprint count only ever goes UP. Each fingerprint records what
     // one completed run measured under the versions of its day, so a later
     // re-measurement is added alongside its predecessor, never in place of
@@ -307,10 +323,11 @@ describe("committed baseline fingerprints", () => {
     // doc comment) but lives in this same directory and is counted here too,
     // since this is the one test asserting the directory's exact contents.
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(6);
+    expect(files).toHaveLength(7);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
     expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
     expect(files).toContain(ROLLING_ORIGIN_FINGERPRINT_FILE);
+    expect(files).toContain(ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE);
     expect(files).toContain(EPA_VS_STATBOTICS_BASELINE_FILE);
   });
 
@@ -380,6 +397,27 @@ describe("committed baseline fingerprints", () => {
    * and this measurement (2026-09-04). The discrepancy is recorded here rather
    * than quietly resolved.
    */
+  /**
+   * The 2026-09-04 session's re-measurement (see the constant's own doc
+   * comment). Unlike its two predecessors this one was generated the SAME
+   * session its versions were promoted and republished — the source note is
+   * a command transcript, not a reconstruction, and there is no
+   * code-currency gap to instrument. The same do-not-rewrite rule applies
+   * the moment the code moves past these versions: add an eighth
+   * fingerprint and an eighth block; do not touch these three lines.
+   */
+  it("the 2026-09-04b rolling-origin fingerprint carries exactly opr/epa/vpr, at the versions the re-tune/republish session shipped", () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(join(BASELINES_DIR, ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE), "utf8")
+    );
+    const parsed = BaselineFingerprintSchema.parse(raw);
+    const byId = new Map(parsed.algorithms.map((a) => [a.id, a.version]));
+    expect(Array.from(byId.keys()).sort()).toEqual(["epa", "opr", "vpr"]);
+    expect(byId.get("opr")).toBe("4.0.0+baseline");
+    expect(byId.get("epa")).toBe("5.0.0+baseline");
+    expect(byId.get("vpr")).toBe("8.0.0+rolling-2026-09b");
+  });
+
   it("the rolling-origin fingerprint carries exactly opr/epa/vpr, at the current promoted versions it was measured under", () => {
     const raw: unknown = JSON.parse(
       readFileSync(join(BASELINES_DIR, ROLLING_ORIGIN_FINGERPRINT_FILE), "utf8")

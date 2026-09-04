@@ -1,0 +1,144 @@
+{
+  "label": "sc3-rolling-origin-2026-09b",
+  "generatedAt": "2026-09-04T20:02:49.584Z",
+  "sourceNote": "SC-3 re-measurement under the FINAL 2026-09-04 shipped code, closing republish-after-adjust-model-change Item 1: records opr@4.0.0+baseline, epa@5.0.0+baseline (no-foul total, 1/3 elim discount, adjust pinned), vpr@8.0.0+rolling-2026-09b (2026-09-04 re-tune: 2022 off-arm winner, other seasons carried from rolling-2026-09). COMMAND IS A TRANSCRIPT, run this session: tsx --env-file=.env packages/harness/cli.ts --seasons 2022-2026 --algorithm opr,epa,vpr --include-offseason --out reports/rolling-2026-09b. Measured the same session the versions were promoted and republished — no code-currency gap to instrument. Added ALONGSIDE sc3-rolling-origin-2026-09 per the do-not-rewrite convention; that file's digests were produced by retired code (epa@2.0.0, vpr@7.0.0, pre-adjust-pinning) and stay untouched.",
+  "runDir": "reports/rolling-2026-09b",
+  "runTimestamp": "2026-09-04T20:02:14.492Z",
+  "corpusIdentity": "data/corpus.sqlite",
+  "artifactSchemaVersion": 3,
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "algorithms": [
+    {
+      "id": "opr",
+      "version": "4.0.0+baseline",
+      "perSeason": [
+        {
+          "season": 2022,
+          "brierScore": 0.18094074807490626,
+          "winnerAccuracy": 0.6930754834684966,
+          "scoredCount": 14603,
+          "predictionStreamSha256": "9ff3fd379bcb9e89e4940cb27b66c408e7f787095c586bbaa53299a6edc3a540"
+        },
+        {
+          "season": 2023,
+          "brierScore": 0.19624190925728152,
+          "winnerAccuracy": 0.6634663032705649,
+          "scoredCount": 16290,
+          "predictionStreamSha256": "294162b678a6869736ce1becd82ebbcd7f55ce0922965360831ef902e594185c"
+        },
+        {
+          "season": 2024,
+          "brierScore": 0.20144760197480235,
+          "winnerAccuracy": 0.6553328561202577,
+          "scoredCount": 16958,
+          "predictionStreamSha256": "02c009b0e10cea99bd85e31071c39c982816f07bd5bde6c7b0fecc999d49be91"
+        },
+        {
+          "season": 2025,
+          "brierScore": 0.18894931226825123,
+          "winnerAccuracy": 0.6769161202803528,
+          "scoredCount": 17815,
+          "predictionStreamSha256": "d0be1bb23c8197141b5e9acb1006fb78bd06d63f32070d01ae04863fc4be32f8"
+        },
+        {
+          "season": 2026,
+          "brierScore": 0.1791203871373397,
+          "winnerAccuracy": 0.699376776732998,
+          "scoredCount": 18337,
+          "predictionStreamSha256": "34237e5b18b7d3af28bfdd24c8ff08bd5826ccf9184a0362fcfcac848463ba5e"
+        }
+      ],
+      "predictionStreamSha256": "17bb2003edc0735c0df00f7f35dcbf4f6fc291d44023bb4c503ef97885574486"
+    },
+    {
+      "id": "epa",
+      "version": "5.0.0+baseline",
+      "perSeason": [
+        {
+          "season": 2022,
+          "brierScore": 0.16089190158365727,
+          "winnerAccuracy": 0.7601718999098912,
+          "scoredCount": 14603,
+          "predictionStreamSha256": "903bc8bb935eb5ec19a5afd507f84202d33023c93d78b21c542131331e2ca219"
+        },
+        {
+          "season": 2023,
+          "brierScore": 0.16431799993524693,
+          "winnerAccuracy": 0.7607779980178394,
+          "scoredCount": 16290,
+          "predictionStreamSha256": "f65dbced6b55c94f997c6c9679f656caaa14c4176209ef96ae425632ac10f010"
+        },
+        {
+          "season": 2024,
+          "brierScore": 0.18738897556479645,
+          "winnerAccuracy": 0.7338344070627535,
+          "scoredCount": 16958,
+          "predictionStreamSha256": "ce61518e3bf0b503f14894c096fc57a4696edabd48f251454629adb595c5eba6"
+        },
+        {
+          "season": 2025,
+          "brierScore": 0.1598621347620657,
+          "winnerAccuracy": 0.7742482477956139,
+          "scoredCount": 17815,
+          "predictionStreamSha256": "e2d8a2978faf24af596070575af142b3f918bdf09bb79d435435014a6ad2899b"
+        },
+        {
+          "season": 2026,
+          "brierScore": 0.14335255247468812,
+          "winnerAccuracy": 0.7941723157664553,
+          "scoredCount": 18337,
+          "predictionStreamSha256": "21074ed6be172a777de53495ffa814dcffba49956fc06600569565eeeba60c0c"
+        }
+      ],
+      "predictionStreamSha256": "7ee85784545c775140023c7a043374f2683efec01922fa329f01001b1c9dab60"
+    },
+    {
+      "id": "vpr",
+      "version": "8.0.0+rolling-2026-09b",
+      "perSeason": [
+        {
+          "season": 2022,
+          "brierScore": 0.15564766925090118,
+          "winnerAccuracy": 0.7569141193595342,
+          "scoredCount": 14603,
+          "predictionStreamSha256": "53df49bb0da5a0c48511591605c5f9c0ac691541238f2c6fac3b5e0f51f00b46"
+        },
+        {
+          "season": 2023,
+          "brierScore": 0.16502740023226983,
+          "winnerAccuracy": 0.7535926660059464,
+          "scoredCount": 16290,
+          "predictionStreamSha256": "9a98cd711c494d46712bce3b49f0b9ef07c5f71549717b242069efecf799947b"
+        },
+        {
+          "season": 2024,
+          "brierScore": 0.1696637304465339,
+          "winnerAccuracy": 0.7431997136721546,
+          "scoredCount": 16958,
+          "predictionStreamSha256": "23b05fdd3851d575ae797787de27d29f010275872321ff13f2f1199d8d772274"
+        },
+        {
+          "season": 2025,
+          "brierScore": 0.1599107889017203,
+          "winnerAccuracy": 0.7618697716482026,
+          "scoredCount": 17815,
+          "predictionStreamSha256": "f358b0177ee26728f84a72be83fcfcb133d536d624c94395cceec933d69317d2"
+        },
+        {
+          "season": 2026,
+          "brierScore": 0.1448022101531929,
+          "winnerAccuracy": 0.7883227640498579,
+          "scoredCount": 18337,
+          "predictionStreamSha256": "8f87fdf40a1a919ff5643a29f634c5f3434fd11c8b665cc59c523b7f266dbd2e"
+        }
+      ],
+      "predictionStreamSha256": "893fb87aac913d500eda81b8c2f5e652e8a140f3bf92960b585a54ea2fc97650"
+    }
+  ]
+}
