@@ -76,14 +76,25 @@ function TeamPage() {
   // artifact does — one small, CDN-cached parallel fetch closes the gap
   // with no republish. Until it resolves (or if it errors) the tiles show
   // the season-final values, then swap.
+  //
+  // IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): `headerMetrics` used
+  // to fall back to `data.seasonStats.metrics` right here, which made
+  // `metricsOverride !== undefined` an untrustworthy signal for labelling —
+  // a team with no resolvable official snapshot would still receive a
+  // defined (but SEASON-FINAL) override, and labelling that "as of last
+  // official match" would have shipped a new false claim in the act of
+  // fixing a missing one. The fallback is removed here so `headerMetrics` is
+  // the official snapshot or `undefined` and nothing else — the prop now
+  // MEANS "this is the official-match snapshot", which is the precondition
+  // `SeasonHeader` needs before it can label the tiles that way. This is
+  // behaviour-preserving for the RENDERED NUMBERS: `SeasonHeader.tsx`
+  // already resolves `metricsOverride ?? artifact.seasonStats.metrics`
+  // itself, so the season-final fallback still happens, one layer down.
   const eventsQuery = useQuery({
     ...eventsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
     enabled: isValidTeamNumber && version !== undefined,
   });
-  const headerMetrics =
-    data !== undefined && eventsQuery.data !== undefined
-      ? officialSnapshotMetrics(data.metricHistory, eventsQuery.data.events) ?? data.seasonStats.metrics
-      : undefined;
+  const headerMetrics = data !== undefined && eventsQuery.data !== undefined ? officialSnapshotMetrics(data.metricHistory, eventsQuery.data.events) : undefined;
 
   if (!isValidTeamNumber) {
     return (

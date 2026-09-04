@@ -121,6 +121,15 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
               {formatRecord(record)}
             </span>
             <span className="numeric-cell text-role-body text-[var(--color-text-muted)]">{formatWinRate(winRateOf(record))}</span>
+            {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): the record
+                is `artifact.seasonStats.record` — always season-final and
+                inclusive of offseason/preseason play — which is a DIFFERENT
+                as-of instant from the tiles beside it whenever a snapshot is
+                present below. Named here so the two never read as the same
+                claim. */}
+            <span data-testid="team-record-basis" className="text-role-label text-[var(--color-text-muted)]">
+              Season-final, includes offseason/preseason
+            </span>
             {/* TEAM-02's "working link to the team's TBA page" — built from the team NUMBER, not the internal corpus key, per 06-UI-SPEC.md's Copywriting Contract. */}
             <a
               href={tbaUrl}
@@ -143,6 +152,20 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           is a bounded numeric, so nothing can force horizontal overflow
           (06-UI-SPEC.md E2 overflow).
         */}
+        {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): the tiles
+            below can be one of two DIFFERENT as-of instants — the team's
+            last official-match snapshot, or the season-final values — and
+            the block must never be unlabelled in either state. The
+            last-official-match caption is reachable ONLY when
+            `metricsOverride` is genuinely a resolved snapshot: the route
+            (team.$teamNumber.tsx) no longer falls back to season-final
+            values before passing this prop, so `metricsOverride !==
+            undefined` is now a trustworthy signal here — it was NOT before
+            that route change, which is why this label could not have been
+            added safely without it. */}
+        <span data-testid="season-header-as-of" className="text-role-label text-[var(--color-text-muted)]">
+          {metricsOverride !== undefined ? "As of last official match" : "Season-final (includes offseason/preseason play)"}
+        </span>
         {/* Left-justified with fixed gaps (2026-09-01 user request: "don't
             space out the chosen metrics") — the old equal-track grid spread
             four tiles across the whole card width. */}

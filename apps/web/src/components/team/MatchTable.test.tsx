@@ -71,6 +71,62 @@ describe("MatchTable", () => {
     expect(blueDot.className).not.toContain("loser-ink");
   });
 
+  /**
+   * WR-02 (260902-post-phase08-ungoverned-ui/REVIEW.md): a played match
+   * whose rosters contain NEITHER the page's `teamKey` — the published
+   * letter-suffixed shape `teamKey.ts` documents as real (a team's second
+   * robot, e.g. `frc5199B` when the page renders the parent `frc5199`) —
+   * must render an EMPTY Result cell, never a fabricated "Loss". Paired with
+   * a positive case in the same describe so the gate cannot pass by
+   * rendering nothing ever.
+   */
+  describe("Result chip roster-participation gate (WR-02)", () => {
+    it("renders an empty Result cell for a played match whose rosters exclude the page's team (letter-suffixed B-team roster)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redTeams: ["frc118", "frc254", "frc971"],
+              blueTeams: ["frc604", "frc1678", "frc5199B"],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc5199"
+          season={2024}
+        />,
+      );
+      const resultCell = screen.getByTestId("result-m1");
+      expect(resultCell.textContent).toBe("");
+      expect(resultCell.querySelector(".result-chip")).toBeNull();
+    });
+
+    it("still renders a Win chip when the page's team is genuinely on the winning roster (companion positive case)", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              actualWinner: "red",
+              actualRedScore: 260,
+              actualBlueScore: 200,
+              redTeams: ["frc118", "frc254", "frc971"],
+              blueTeams: ["frc604", "frc1678", "frc2056"],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+      const resultCell = screen.getByTestId("result-m1");
+      expect(within(resultCell).getByText("Win")).toBeDefined();
+    });
+  });
+
   it("greys the losing number in the Actual column and leaves the winning number ungreyed", () => {
     render(
       <MatchTable
@@ -101,7 +157,13 @@ describe("MatchTable", () => {
     expect(screen.queryByTestId("alliance-mark-m1-blue-dot")).toBeNull();
 
     const actual = screen.getByTestId("actual-m1");
-    expect(actual.textContent).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2} (AM|PM)$/);
+    // WR-06 (260902-post-phase08-ungoverned-ui/REVIEW.md): the rendered time
+    // must carry a trailing zone label so a scout reading another timezone's
+    // schedule can see the time is THEIRS, not the venue's. The zone token
+    // itself is environment-dependent (e.g. "PST", "GMT-8", "UTC"), so the
+    // regex requires SOME trailing token rather than a fixed one — this is
+    // the widened assertion that would break if the label were dropped.
+    expect(actual.textContent).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2}:\d{2} (AM|PM) \S+$/);
 
     const call = screen.getByTestId("call-m1");
     expect(call.textContent).toBe("");

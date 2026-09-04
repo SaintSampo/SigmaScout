@@ -210,3 +210,22 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });
 });
+
+describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverned-ui/REVIEW.md)", () => {
+  afterEach(() => cleanup());
+
+  it("labels the tiles 'As of last official match' when metricsOverride is supplied", () => {
+    const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 50, spread: 3, percentile: 60 } };
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} />);
+
+    expect(screen.getByTestId("season-header-as-of").textContent).toBe("As of last official match");
+  });
+
+  it("labels the tiles season-final, never the official-match label, when metricsOverride is absent", () => {
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    const asOf = screen.getByTestId("season-header-as-of");
+    expect(asOf.textContent).not.toContain("official match");
+    expect(asOf.textContent).toContain("Season-final");
+  });
+});

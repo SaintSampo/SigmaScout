@@ -168,14 +168,14 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
 
   // Every finite value actually reachable on the Y axis — the line's own
   // `value` plus the band's `[low, high]` pair — feeds BOTH the tick
-  // formatter and the axis width below, so they can never disagree (see the
-  // constants' own doc comment above).
+  // formatter and (below, once the rendered domain is known) the axis width,
+  // so they can never disagree (see the constants' own doc comment above).
   const yAxisDomainValues: number[] = [];
   for (const datum of data) {
     if (datum.value !== null) yAxisDomainValues.push(datum.value);
     if (datum.band !== null) yAxisDomainValues.push(datum.band[0], datum.band[1]);
   }
-  const yAxisWidth = computeYAxisWidth(yAxisDomainValues);
+  let yAxisWidth = computeYAxisWidth(yAxisDomainValues);
 
   // 2026-09-01 (user report): with a bare ["dataMin", "dataMax"] domain the
   // line/band reach the literal top of the plot — exactly the strip the
@@ -189,7 +189,16 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
     const yMin = Math.min(...yAxisDomainValues);
     const yMax = Math.max(...yAxisDomainValues);
     const headroom = yMax > yMin ? (yMax - yMin) * 0.12 : 1;
-    yDomain = [yMin, yMax + headroom];
+    const yMaxExtended = yMax + headroom;
+    yDomain = [yMin, yMaxExtended];
+    // WR-08 (260902-post-phase08-ungoverned-ui/REVIEW.md): the width above
+    // was measured against the RAW domain values, but the headroom just
+    // extended the RENDERED domain past every one of them — so a headroom
+    // extension crossing a digit boundary (e.g. 98 -> 109.76) could produce
+    // a top tick label wider than the width reserved for it. Recompute the
+    // width from the values plus this extended upper bound, so the space
+    // reserved matches the domain the axis actually renders.
+    yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended]);
   }
 
   return (

@@ -59,12 +59,27 @@ export function matchLabel(match: Pick<TeamSeasonMatch, "compLevel" | "setNumber
 }
 
 /**
- * `Sat 10:32 AM` in the viewer's own locale/timezone, from an epoch-seconds
- * `sortTime` (D-08's scheduled-match Actual column). Promoted to an export
- * (07-12-PLAN.md Task 1, step 2a) so `EventMatchTable.tsx` renders the
+ * `Sat 10:32 AM PST` — the scheduled instant rendered in the VIEWER's own
+ * locale/timezone, labelled with that zone (WR-02.5/WR-06,
+ * `260902-post-phase08-ungoverned-ui/REVIEW.md`). The published artifact
+ * carries no event `timezone` field (verified at plan time), so the venue's
+ * own zone cannot be shown — only the reader's can, and unlabelled that read
+ * silently as the venue's. The label is the honest interim: it tells a scout
+ * reading another timezone's schedule that the time is THEIRS, not the
+ * venue's, rather than fabricating a shift into a zone the artifact never
+ * published. This differs from `eventDates.ts`'s UTC-pinning, which solves
+ * the opposite problem: an event DATE must never shift off its calendar day,
+ * while a match TIME cannot be pinned to the venue's zone without the
+ * artifact publishing one. The durable fix — publish TBA's event `timezone`
+ * and format in it — is recorded in
+ * `.planning/quick/260904-4b3-fix-the-ten-open-ui-review-findings-from/260904-4b3-deferred-items.md`;
+ * until it lands this function keeps showing the reader's own zone, labelled.
+ *
+ * Promoted to an export (07-12-PLAN.md Task 1, step 2a) so
+ * `EventMatchTable.tsx` and `StartMatchPicker.tsx`'s summary row render the
  * identical string for the identical instant rather than reimplementing the
  * date-format construction, which would be free to drift in weekday
- * abbreviation, hour cycle or separator.
+ * abbreviation, hour cycle, separator, or (now) zone label.
  */
 export function formatScheduledTime(sortTime: number): string {
   // 2026-09-01 (user report: picker times "totally wrong"): the published
@@ -77,7 +92,7 @@ export function formatScheduledTime(sortTime: number): string {
   const epochMs = sortTime > 1e11 ? sortTime : sortTime * 1000;
   const date = new Date(epochMs);
   const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(date);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).format(date);
   return `${weekday} ${time}`;
 }
 
@@ -258,6 +273,13 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
   const played = match.actualWinner !== undefined;
   const teamIsRed = match.redTeams.includes(teamKey);
   const teamIsBlue = match.blueTeams.includes(teamKey);
+  // WR-02 (260902-post-phase08-ungoverned-ui/REVIEW.md): a roster key
+  // matching neither side — the published letter-suffixed shape
+  // (`teamKey.ts`'s `frc5199B`, a second robot entered only at offseason
+  // events) is the real case that reaches this — must not fall through the
+  // chip chain below and read as a confident "Loss". `teamOnRoster` gates
+  // the whole chain alongside `played`.
+  const teamOnRoster = teamIsRed || teamIsBlue;
 
   const confidence = match.predictedWinner === "red" ? match.pRedWin : 1 - match.pRedWin;
   const winnerCorrect = played && match.predictedWinner === match.actualWinner;
@@ -267,11 +289,20 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
 
   return (
     <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
-      {/* Result (2026-09-01): THIS team's outcome, computed from actualWinner
-          against the side the roster puts the team on. Unplayed renders
-          empty (not an em-dash — the user's own spec: "empty otherwise"). */}
+      {/* Result (2026-09-01, corrected WR-02 2026-09-04): THIS team's
+          outcome, computed from actualWinner against the side the roster
+          puts the team on. Empty when unplayed, AND empty when the team is
+          on NEITHER roster — a third absence alongside the unplayed case.
+          That third case is real, not theoretical: the published
+          letter-suffixed key shape (`teamKey.ts`'s `frc5199B`, a team's
+          second robot, offseason-only) matches neither `redTeams` nor
+          `blueTeams` when the page renders the parent key, and without the
+          `teamOnRoster` gate below the final arm of this chain fell through
+          unguarded and rendered a confident "Loss" for a match the team
+          never played (WR-02, `260902-post-phase08-ungoverned-ui/REVIEW.md`). */}
       <td data-testid={`result-${match.matchKey}`} className={cn("sticky left-0 z-[1] w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         {played &&
+          teamOnRoster &&
           (match.actualWinner === "tie" ? (
             <span className="result-chip result-chip--tie">Tie</span>
           ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
