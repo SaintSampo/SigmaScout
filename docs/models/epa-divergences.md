@@ -4,17 +4,36 @@ D-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md`): "Faithf
 
 Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics` during this phase's research (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`, fetched 2026-08-13): `backend/src/models/epa/{math,main,init,constants,breakdown}.py`, `backend/src/breakdown.py`.
 
-**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points` — that document is the committed, re-runnable per-team comparison (SC-2), and its measured slope (0.80-0.94, offseason-inclusive; 0.95-1.01, offseason-excluded) is the resting point these divergences, plus a newly-measured offseason-population effect, together produce.
+**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the newly-measured offseason-population effect. That document is the committed, re-runnable per-team comparison (SC-2); its re-measured slope under `epa@5.0.0+baseline` (derived from `data/baselines/epa-vs-statbotics-2026-09.json`'s min-matches-arm band centres) is 0.80-0.96, offseason-inclusive — the offseason-excluded figure (0.95-1.01) is retained from the `epa@2.0.0+baseline` measurement and was not re-run under `5.0.0+baseline`.
 
-## 1. Elimination matches — full weight and counted, not discounted (D-08)
+## 1. Elimination matches — CLOSED as of `epa@5.0.0+baseline` (was D-08: full weight and counted, not discounted)
+
+**CLOSED 2026-09-04 (quick task 260904-5px, D-05).** This project adopted BOTH halves of
+Statbotics' elimination handling described below: the one-third outer EWMA weight on every
+elimination-match observation (`EPA_ELIM_WEIGHT`, `packages/core/algorithms/epa.ts`), and the
+per-team match counter that does not advance on an elimination match (`applyComponentUpdate`'s
+`isElimination ? matchCount : matchCount + 1`). The developer's goal is for SigmaScout's EPA to
+track the real Statbotics as closely as possible, and this divergence — the single largest
+remaining rating-mechanics reason the measured slope sat below 1.0 — is now closed rather than
+carried forward. What follows is the historical record of the divergence AS IT STOOD before this
+adoption; it is kept, not deleted, because a future reader auditing what changed and why needs the
+"before" half of the story.
+
+**What this project measured, closing the "Why" paragraph's open question below:** the original
+"Why" reasoning said the walk-forward harness itself would show whether adopting Statbotics'
+discount was worth it, rather than assuming it a priori. That question is now answered by
+measurement, not assumption — see `docs/models/epa-vs-statbotics.md`'s before/after table
+(`epa@2.0.0+baseline` vs `epa@5.0.0+baseline`) for the per-season OLS slope, Pearson, mean absolute
+difference, and win-probability accuracy/Brier movement the adoption produced, and whether
+agreement with Statbotics got tighter or looser as a result.
 
 **Statbotics:** `update_team` applies `ELIM_WEIGHT = 1/3` to every elimination-match observation's outer EWMA blend, and does **not** increment the team's match counter for elim matches — so an elim match both moves a team's rating less than a qual match and never advances the decaying learning-rate schedule (`percent_func`).
 
-**This project:** `epa.ts`'s `update()`/`applyComponentUpdate()` calls `twoStageEwma(..., percent, 1)` — `weight` is always `1`, never Statbotics' `1/3` discount — and `epaPercentFunc`'s match counter increments on every match, elims included (`nextCounts.set(team, matchCount + 1)`, unconditional).
+**This project (historical, pre-`5.0.0+baseline`):** `epa.ts`'s `update()`/`applyComponentUpdate()` called `twoStageEwma(..., percent, 1)` — `weight` was always `1`, never Statbotics' `1/3` discount — and `epaPercentFunc`'s match counter incremented on every match, elims included (`nextCounts.set(team, matchCount + 1)`, unconditional).
 
-**Why:** D-08 locks this as a deliberate divergence: elimination matches are learned from normally — predict, then update, treated as ordinary observations. Statbotics' own elim-discount reflects an assumption (elim matches are less representative of a team's "true" ability, perhaps due to strategic/alliance-selection effects) that this project does not adopt without evidence; the walk-forward harness itself (Brier score, sliced by `compLevelView` including `elimination`) is the mechanism that would show if this choice costs accuracy, rather than assuming Statbotics' discount is correct a priori.
+**Why (historical):** D-08 locked this as a deliberate divergence: elimination matches were learned from normally — predict, then update, treated as ordinary observations. Statbotics' own elim-discount reflects an assumption (elim matches are less representative of a team's "true" ability, perhaps due to strategic/alliance-selection effects) that this project did not adopt without evidence; the walk-forward harness itself (Brier score, sliced by `compLevelView` including `elimination`) was named as the mechanism that would show if this choice costs accuracy, rather than assuming Statbotics' discount is correct a priori — see the measurement note above for how that question was resolved.
 
-**Effect:** EPA's ratings move faster per elim match, and the per-team learning-rate schedule decays faster overall (since elims count toward the same 12-match threshold `percent_func` uses to reach its floor of `0.2`) than the equivalent Statbotics computation over the identical match history.
+**Effect (historical):** EPA's ratings moved faster per elim match, and the per-team learning-rate schedule decayed faster overall (since elims counted toward the same 12-match threshold `percent_func` uses to reach its floor of `0.2`) than the equivalent Statbotics computation over the identical match history.
 
 ## 2. Fouls — a per-team component, cross-attributed to the opponent (D-04)
 
@@ -27,6 +46,8 @@ Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics`
 **Correction recorded here (not a new divergence, a bug fix to this divergence's implementation):** commit `a0ec5d54` fixed `epa.ts`'s `predict()`, which had previously summed an alliance's OWN `foulsCommitted` mean into its OWN predicted score (backwards — crediting a team's fouls to itself, and omitting the opponent's fouls entirely) rather than the opposing alliance's, as D-04 actually specifies and as `sigma1/index.ts` had implemented correctly from the start (flagged as WINDOWS.md entry 3 by plan 02-04, now resolved). Every EPA number in this phase's `reports/full-v2/artifact.json` and this SUMMARY is from a run at or after that fix; no pre-fix EPA figure is cited anywhere in this phase's published output.
 
 **Second correction recorded here (code review, phase 02, CR-01):** `predict()`'s D-04 cross-attribution above was correct, but `update()`'s D-05 fallback path (a match with no `score_breakdown`, `epa.ts`'s `fallbackObserved`) had a related bug in the SAME quantity: it fed a fraction of an alliance's own actual score into that alliance's own `foulsCommitted` slot, and never netted the opponent's predicted foul contribution out of the alliance's own score before splitting it across offensive components — silently reintroducing the exact cross-alliance misattribution D-04/`a0ec5d54` had already closed for `predict()`, just in the fallback update path instead. Fixed in `dc6b841b`: the fallback split now mirrors `predict()`'s own formula exactly (own score net of the opponent's predicted `foulsCommitted`, split across offensive components only), and `foulsCommitted` itself is carried forward unchanged rather than synthesized (genuinely unobservable without a real breakdown). Every EPA number in `reports/full-v2/artifact.json` as of this correction is from a run at or after `dc6b841b`; see `02-06-SUMMARY.md`'s regeneration note for whether this fix moved the head-to-head figures.
+
+**Third correction recorded here (D-01, quick task 260904-5px) — this divergence NARROWED, not withdrawn:** the per-team, cross-attributed `foulsCommitted` component described above still exists exactly as written and still drives match prediction — `predict()` is untouched by this correction. What changed is the PUBLISHED per-team metric: `epa.ts`'s `teamMetrics()` now excludes `foulsCommitted` from `total`, matching Statbotics' own no-foul `epa.total_points` (verified live: `frc254`/2024's `total_points` 51.71 reconciles against auto + teleop + endgame alone, with no foul term). `foulsCommitted` is still published as its own per-team entry — only its membership in the summed `total` moved. This creates a deliberate ASYMMETRY worth stating plainly: `carrySeason()`'s cross-season carryover input stays the fouls-INCLUSIVE per-team sum (pinned by a dedicated test in `epa.test.ts`), so the published `total` and the quantity carried across a season boundary are now two different numbers for any team that has ever committed a foul. VPR's own `total` (`sigma1/index.ts`) is unaffected by this correction and keeps summing every component including its own `foulsCommitted` — D-01 and D-05 are scoped to EPA alone, since EPA exists specifically to match Statbotics and VPR does not.
 
 ## 3. No per-season post-processing (D-13)
 

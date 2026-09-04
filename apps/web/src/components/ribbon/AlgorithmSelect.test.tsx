@@ -109,6 +109,55 @@ describe("useAlgorithmOptions", () => {
     expect(algorithmDisplayLabel("opr")).toBe("OPR");
     expect(algorithmDisplayLabel("epa")).toBe("EPA");
   });
+
+  // D-03 (quick task 260904-5px): the EPA ribbon option's version-gated full
+  // name.
+  describe("D-03: EPA's version-gated full name", () => {
+    function manifestWithEpaVersion(epaVersion: string | undefined) {
+      const algorithms = [
+        { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },
+        { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+      ];
+      if (epaVersion !== undefined) {
+        algorithms.push({ id: "epa", version: epaVersion, codeVersion: epaVersion.split("+")[0]!, paramSetName: "baseline" });
+      }
+      return new Response(
+        JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-24T00:00:00.000Z", algorithms }),
+        { status: 200 }
+      );
+    }
+
+    it("epa at 5.x reads exactly 'EPA Statbotics 5.0' — no version suffix appended", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("5.0.0+baseline"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
+    });
+
+    it("epa at a pre-5.0 version (e.g. 2.0.0+baseline) reads the ordinary base-label-plus-version form, unchanged", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("2.0.0+baseline"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 2.0.0+baseline"));
+    });
+
+    it("no manifest entry for epa (pending/failed/absent) reads the plain base label, unchanged", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion(undefined));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0.0+baseline"));
+      expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA");
+    });
+
+    it("opr and vpr options are unaffected by the epa gate in every case above", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("5.0.0+baseline"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
+      expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0.0+baseline");
+      expect(result.current.find((o) => o.id === "vpr")?.label).toBe("VPR 2.0.0+tuned-2026-08");
+    });
+
+    it("algorithmDisplayLabel('epa') still returns the short 'EPA' regardless of the ribbon's version-gated full name", () => {
+      expect(algorithmDisplayLabel("epa")).toBe("EPA");
+    });
+  });
 });
 
 describe("AlgorithmSelect", () => {

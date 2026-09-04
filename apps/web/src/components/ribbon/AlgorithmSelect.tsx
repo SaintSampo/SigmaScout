@@ -11,17 +11,49 @@ import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../
  * Display labels for the three published ids — a build-time constant, never
  * derived from the manifest. This is the SINGLE place the site's model name
  * is written (D-04, plan 07-18): every other model-name render in the app —
- * this ribbon option, the Teams-page rank column header (D-20,
- * `columns.tsx`), the Insights tab's fallback notice (D-08, `InsightsTab.tsx`)
- * and the Breakdown tab's model-estimates caption (D-11, `BreakdownTab.tsx`)
- * — reads through `algorithmDisplayLabel` below rather than holding a second
+ * the Teams-page rank column header (D-20, `columns.tsx`), the Insights
+ * tab's fallback notice (D-08, `InsightsTab.tsx`), the Breakdown tab's
+ * model-estimates caption (D-11, `BreakdownTab.tsx`), and the home podium —
+ * reads through `algorithmDisplayLabel` below rather than holding a second
  * literal, so a future rename needs no second edit anywhere in that list.
+ *
+ * D-03 (quick task 260904-5px) narrows this: the RIBBON OPTION for EPA is
+ * the one exception, reading `EPA_STATBOTICS_FULL_NAME` below instead of
+ * this short label, but only while the manifest confirms EPA 5.x is what is
+ * actually served. Every other render everywhere else in the app keeps the
+ * short `EPA` from this constant, unconditionally — the full name is scoped
+ * to the ribbon dropdown alone.
  */
 const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> = {
   opr: "OPR",
   epa: "EPA",
   vpr: "VPR",
 };
+
+/**
+ * D-03 (quick task 260904-5px) — the ribbon dropdown's EPA option, ONLY,
+ * reads this full name instead of the short `ALGORITHM_DISPLAY_LABELS.epa` +
+ * version-suffix pattern every other option uses, gated on the manifest's
+ * resolved `epa` version starting with major `5` (`useAlgorithmOptions`
+ * below). Every other model-name render in the app (table headers, the
+ * Insights notice, the Breakdown caption, the podium) keeps reading the
+ * short `EPA` via `algorithmDisplayLabel` — this constant is the ribbon
+ * option only.
+ *
+ * The gate exists because R2 does not necessarily serve what the code just
+ * shipped: this repo's own failure log is a documentation-describes-a-
+ * deleted-model story, and a HARDCODED "EPA Statbotics 5.0" would keep
+ * claiming that name during the window between this code shipping and the
+ * republish (`.planning/todos/pending/republish-after-adjust-model-change.md`)
+ * that actually re-publishes EPA artifacts under `epa@5.0.0+baseline` — the
+ * site would be claiming a number it is not yet serving. Reading the
+ * manifest instead makes the gate self-correcting: it needs no second edit
+ * when the republish eventually lands, and no coordination with it either.
+ * The full name embeds its own version, which is why the ordinary
+ * `${baseLabel} ${entry.version}` suffix is not appended a second time on
+ * this branch.
+ */
+const EPA_STATBOTICS_FULL_NAME = "EPA Statbotics 5.0";
 
 interface AlgorithmOption {
   id: PublishedAlgorithmId;
@@ -50,6 +82,14 @@ export function useAlgorithmOptions(): AlgorithmOption[] {
   return PUBLISHED_ALGORITHM_IDS.map((id): AlgorithmOption => {
     const entry = data?.algorithms.find((candidate) => candidate.id === id);
     const baseLabel = ALGORITHM_DISPLAY_LABELS[id];
+    // D-03 (quick task 260904-5px): EPA gets its full Statbotics-parity name
+    // ONLY when the manifest confirms the SERVED artifacts are EPA 5.x —
+    // every other id/version keeps today's `${baseLabel} ${entry.version}`
+    // branch, including a pre-5.0 EPA (which still reads the honest older
+    // version string).
+    if (id === "epa" && entry !== undefined && entry.version.startsWith("5.")) {
+      return { id, label: EPA_STATBOTICS_FULL_NAME };
+    }
     return { id, label: entry === undefined ? baseLabel : `${baseLabel} ${entry.version}` };
   });
 }
