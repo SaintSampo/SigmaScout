@@ -10,6 +10,20 @@ from `reports/sensitivity-screen.json`, produced by `packages/harness/tune.ts --
 
 ## Method
 
+> **2026-09-04 update (quick task 260904-oiu, OBJ-RANK/OBJ-DOCS):** the JOINT SEARCH's objective
+> has moved to accuracy-primary — winner accuracy is now the search's PRIMARY, maximized
+> objective, with Brier demoted to the within-noise-band tie-break. This SCREEN's own objective
+> below is UNCHANGED and deliberately stays Brier-based: Brier is strictly more sensitive than
+> accuracy, so a Brier-based screen catches every accuracy-relevant knob, while an accuracy-based
+> screen would surface FEWER survivors, not more — the joint search would then have fewer
+> candidate dimensions to explore, not a more honest set. From this date the screen's stated
+> objective and the joint search's are DELIBERATELY DIFFERENT; a reader who finds them different
+> without this note would reasonably read it as a bug rather than the intended split it is. The
+> authoritative wording for both objectives lives in `packages/harness/objectiveDefinition.ts`'s
+> exported `SEARCH_OBJECTIVE_DEFINITION` (joint search) and `SCREEN_OBJECTIVE_DEFINITION` (this
+> screen) — quoted there rather than restated by hand here, so this document cannot drift from
+> the code.
+
 - **Seasons:** 2022, 2023 (both TUNE seasons — see plan's default; 2024 is intentionally left
   out of the screen, reserved for the joint search's own three-tune-season budget, and 2025/2026
   were HOLDOUT and structurally unreachable by `tune.ts` at the time this screen ran — see below
@@ -22,9 +36,11 @@ from `reports/sensitivity-screen.json`, produced by `packages/harness/tune.ts --
   candidates total (20 x 5), batched 8 at a time through a shared stream build per
   `packages/harness/tune.ts`'s batching contract; every candidate additionally fixes
   `rpMonteCarloDraws: 0` (plan 03-03 proved this never moves `pRedWin`/predicted scores).
-- **Objective:** mean tune-season `brierScore` (`combined` `compLevelView`), minimized — the
-  identical D-01 objective the joint search (Task 2) uses, so a parameter's screen verdict and
-  its joint-search behaviour are directly comparable.
+- **Objective:** mean tune-season `brierScore` (`combined` `compLevelView`), minimized — at the
+  time this screen ran, the IDENTICAL D-01 objective the joint search (Task 2) used, so a
+  parameter's screen verdict and its joint-search behaviour were directly comparable. **This is no
+  longer true as of 2026-09-04** — see the dated update at the top of this section for what
+  changed and why the screen's objective deliberately did NOT move with it.
 - **Survival threshold:** `SCREEN_SURVIVAL_THRESHOLD = 1e-4`
   (`packages/harness/tune.ts`), justified in prose there and repeated here: roughly 0.06% of
   Phase 2's measured ~0.17 combined-view tune Brier (03-CONTEXT.md's own starting-position

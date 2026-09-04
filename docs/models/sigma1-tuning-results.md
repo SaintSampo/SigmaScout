@@ -29,6 +29,18 @@ dated re-run against the model as it publishes today: **SC-3 still passes 8/8**,
 season (2025) measurably worse for both EPA and VPR and the other (2026) measurably better,
 reported there in full alongside this document's original figures.
 
+**D-T7 acceptance-bar retirement (2026-09-04, quick task 260904-oiu, OBJ-BAR):** every D-T7
+acceptance verdict recorded to date — including the ten already-recorded verdicts referenced
+throughout `packages/harness/acceptance.ts` and `.planning/todos/completed/retune-sigma1-rolling-origin.md`'s
+two rolling-origin search runs — was decided under the RETIRED Brier ship/don't-ship bar
+(`sqrt(2 ln N) * SE_paired(Brier delta)`, with score-MAE as a single guardrail veto). Those figures
+are left exactly as measured; nothing below has been retro-fitted to the new scheme. Any FUTURE
+D-T7 verdict is decided under the accuracy-primary bar instead — `sqrt(2 ln N) *
+SE_paired(accuracy delta)` — with Brier demoted to a second guardrail veto alongside score-MAE
+(`packages/harness/acceptance.ts`'s own header states the full three-condition rule). No tuning
+was re-run as part of this note; a re-tune under the new bar remains a separate, deliberately-
+scheduled item.
+
 The committed answer to Phase 3's four questions: did the offline search actually find something
 (ALGO-04), does tuned Sigma1 beat OPR and EPA on holdout Brier *and* winner accuracy on both
 holdout seasons (SC-3), does within-season adaptation improve holdout score (ALGO-05), and does

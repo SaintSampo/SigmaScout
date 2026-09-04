@@ -8,7 +8,7 @@ This is a clean-slate rebuild (v3). Prior implementations exist only in git hist
 
 ## Core Value
 
-Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
+Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
 
 ## Requirements
 

@@ -8,7 +8,7 @@ SigmaScout is an FRC (FIRST Robotics Competition) match-prediction website — t
 
 This is a clean-slate rebuild (v3). Prior implementations exist only in git history (tag `v2-poc`) and must not be consulted or ported — see REBUILD_SPEC.md "Clean slate" section. The only inheritance is the failure log.
 
-**Core Value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
+**Core Value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
 
 ### Constraints
 
