@@ -8,6 +8,16 @@ priority: high
 
 # Extend the corpus back to 2019 and 2020
 
+> **CLOSED 2026-09-04 (gsd-fast).** Everything this todo tracked is done, and its downstream
+> consumers have since run: the ingest, all four per-season modules, and the Sigma1 gap-aware
+> carry landed 2026-09-03 (see PROGRESS below); the `score.ts` 2022–2026 guard this file
+> explicitly left to `rolling-origin-hyperparameter-tuning` was deleted the same day (quick
+> task `260903-krp`); and the re-tune this backfill existed to feed has now run twice with
+> 2022 and 2023 as genuine origins (`retune-sigma1-rolling-origin`, completed — the
+> 2026-09-04 run under positional cold start actually carries 2019/2020 state into origin
+> 2022). D-5's justification held: the backfill restored 2022/2023 to origin status exactly
+> as the table below predicted.
+
 > **Scope set 2026-09-03 by the user, superseding this file's original "back to 2016" framing.**
 > Add **2019 and 2020**. **2021 is never part of the corpus** — it was the at-home/remote
 > season with no conventional 3v3 alliance matches, so there is nothing for a match predictor

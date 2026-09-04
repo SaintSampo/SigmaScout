@@ -8,6 +8,17 @@ priority: high
 
 # `COLD_START_SEASON = 2022` throws away the 2019/2020 backfill's carry
 
+> **RESOLVED IN FULL — 2026-09-04.** Steps 2 and 3 were completed later the same day by the
+> second re-tune run recorded in `retune-sigma1-rolling-origin` (completed): the screen was
+> re-run on 2019/2020 and all ten joint searches ran under positional cold start — origin 2022
+> now genuinely carries 2019+2020 state instead of starting from the rookie baseline. The one
+> accepted result (origin 2022, adaptation off, +0.000897 Brier at +4.7 SE against the live
+> incumbent) was promoted as `vpr@8.0.0+rolling-2026-09b` (`567ec4cc`), the republish landed
+> (`bf6cc389`, closing `republish-after-adjust-model-change`), and SC-3 was re-measured under
+> the new set (`fd0987ea`). Nothing in this file remains outstanding.
+>
+> The original partial-resolution note is kept below for the record.
+>
 > **RESOLVED, PARTIALLY — 2026-09-04 (quick task 260904-cs1).** Of this file's own three-step "why
 > fixing it is not a one-line change" list below, **step 1 is done; steps 2 and 3 remain
 > outstanding.**
@@ -21,7 +32,7 @@ priority: high
 >   survive as a narrowed, diagnostic-only override (D-4) for forcing a non-index-0 season cold.
 > - **Steps 2-3 (outstanding):** re-run the screen and all ten joint searches under the now-warmer
 >   origin-2022 trajectory; re-promote, re-publish, re-measure. This work lives in
->   `.planning/todos/pending/retune-sigma1-rolling-origin.md`, which now carries the corresponding
+>   `.planning/todos/completed/retune-sigma1-rolling-origin.md`, which now carries the corresponding
 >   non-comparability note for the ten already-recorded verdicts.
 >
 > **No re-measurement was performed by this task.** D-2's safety argument — that the in-flight
@@ -111,7 +122,7 @@ plausible source of a larger, more convincing win than the one that just cleared
 
 ## Related
 
-- `.planning/todos/pending/retune-sigma1-rolling-origin.md` — the ten verdicts this would invalidate
-- `.planning/todos/pending/extend-corpus-2019-2020.md` — the backfill whose value this suppresses
+- `.planning/todos/completed/retune-sigma1-rolling-origin.md` — the ten verdicts this would invalidate
+- `.planning/todos/completed/extend-corpus-2019-2020.md` — the backfill whose value this suppresses
 - `packages/harness/seasonBoundary.ts` — `seasonBoundaryFor`, and the comment that is now false
 - `packages/core/algorithms/breakdown/constants.ts:72` — the constant
