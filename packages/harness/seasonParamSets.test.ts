@@ -34,7 +34,12 @@ const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "diges
 // below against the committed file's own `digest.predictionStreamSha256`, so
 // neither a code change nor an edit to the version file can move the target
 // (T-260904-01).
-const COMMITTED_DIGEST = "380c598065c72897e8c7a944b6de77a32a69177eab7ff7541d386cb83e7783fb";
+//
+// Updated for `vpr@8.0.0+tuned-2026-08.json` (quick task 260904-6a1, Task 3):
+// the file was re-promoted under the adjust-pinning model change, via
+// `pnpm promote --from-version data/algorithm-versions/vpr@7.0.0+tuned-2026-08.json --name tuned-2026-08`
+// — a real replay, never hand-typed.
+const COMMITTED_DIGEST = "88ad64b02ec5214c4ba34e2af450478fb3afe951ad25ded1ae43667048ab386d";
 
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 const FIXTURE_AVAILABLE = existsSync(DIGEST_SLICE_FIXTURE_PATH);

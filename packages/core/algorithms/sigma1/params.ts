@@ -306,8 +306,58 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * an EARLIER model version. Re-measure after the rolling-origin re-tune lands.
  * The half-life sits on a plateau (the sweep is flat between 4 and 12) and is
  * unlikely to move much; the scale may.
+ *
+ * Bumped `"7.0.0"` -> `"8.0.0"` (D-7, quick task 260904-6a1, 2026-09-04):
+ * `update()`'s observable output changed for two distinct, unrelated
+ * model-correctness reasons — see `epa.ts`'s identical 3.0.0 -> 4.0.0 bump
+ * comment for the shared investigation (`2026bc2_sf14m1`, a genuine
+ * ~456-point alliance zeroed to 0 by `adjustPoints: -456` with no DQ flags):
+ *
+ *   1. `isAdjustZeroedAlliance` (`../dq.ts`) — combined with the existing
+ *      `isFullyDqZeroScoreAlliance` into one per-alliance ruling-zero
+ *      boolean, applied at both `applyAllianceUpdate`'s per-alliance seam
+ *      and the `allianceScoreStats` fold. This required moving
+ *      `redUpdateTeams`/`blueUpdateTeams`'s derivation below
+ *      `tryParseBreakdownPair` in `update()`, since the new predicate needs
+ *      the parsed breakdown's `adjust` value.
+ *   2. `adjust` is now PINNED at exactly `{ mean: 0, variance: 0 }` for
+ *      every team, in every match: `applyAllianceUpdate`'s per-component
+ *      loop returns early for it (leaving belief/residual/innovation/
+ *      variance-sample slots untouched), the post-loop consistency and
+ *      swing folds skip it (so it is the one key that never publishes a
+ *      `±`), `coldStartTeamState` seeds it directly rather than through
+ *      `leagueMeanFor`/`seedConsistencyFor`, `applyTeamProcessNoise` never
+ *      grows its variance, and both the cold-start and `carrySeason`
+ *      divisors exclude it (`modeledComponentCount`) so a cold-start team's
+ *      seeded total is unchanged.
+ *
+ * The parameter set's SHAPE is UNCHANGED — no field was added, removed or
+ * renamed, so a 7.0.0 file's `params` still validates against the current
+ * `Sigma1ParamsSchema` (`promote.ts`'s `7.` branch shares the current shape
+ * with no migration, since no parameter changed in this bump).
+ *
+ * `update()`'s observable output MOVED (both changes above) and, through it,
+ * `predict()`'s reported score moves too wherever a team's carried `adjust`
+ * belief was previously nonzero. `teamMetrics`'s published `±` also moves for
+ * any team whose swing accumulator previously folded an `adjust` deviation.
+ * MAJOR, not minor: change 2 alone moves every team's component vector in
+ * every match ever replayed (adjust was previously folded like any other
+ * component), not an edge case.
+ *
+ * All three `vpr@7.0.0+*.json` files (`+rolling-2026-09`, `+tracer-check`,
+ * `+tuned-2026-08`) were retired and re-promoted as `vpr@8.0.0+*` in this same
+ * commit via `pnpm promote --from-version` running the new code — the same
+ * precedent every prior bump above records, and for the same reason: a digest
+ * is only meaningful if the code that produced it is the code that ships.
+ *
+ * `displayOnly.test.ts`'s bitwise-freeze claim (predict()/update() unchanged,
+ * 5.0.0 through 7.0.0) is DELIBERATELY BROKEN by this bump, and its three
+ * enforcement assertions are marked superseded rather than silently made to
+ * pass — see that file's own dated header addendum. This is the first
+ * SIGMA1_CODE_VERSION bump since that file was written that is a genuine model
+ * change rather than a display-only one.
  */
-export const SIGMA1_CODE_VERSION = "7.0.0";
+export const SIGMA1_CODE_VERSION = "8.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:

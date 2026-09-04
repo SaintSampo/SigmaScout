@@ -876,7 +876,12 @@ export function migrateSourceParams(
   sourceVersion: { readonly codeVersion: string; readonly params: unknown },
   sourcePath: string
 ): { readonly params: Sigma1Params; readonly paramShapeMigration: string | undefined } {
-  if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
+  // D-7 (quick task 260904-6a1): `7.` shares the CURRENT shape — the 7.0.0
+  // -> 8.0.0 bump changed no field (it fixed two model-correctness bugs,
+  // never the parameter set), so a 7.x source parses directly against
+  // `Sigma1ParamsSchema` with no migration and no tag. This is a
+  // shared-shape ASSERTION, not a migration — do not invent one.
+  if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION || sourceVersion.codeVersion.startsWith("7.")) {
     return { params: Sigma1ParamsSchema.parse(sourceVersion.params), paramShapeMigration: undefined };
   } else if (sourceVersion.codeVersion.startsWith("6.") || sourceVersion.codeVersion.startsWith("5.")) {
     // D-Y1/D-Y3 (quick task 260903-750): 6.0.0 -> 7.0.0 DROPS

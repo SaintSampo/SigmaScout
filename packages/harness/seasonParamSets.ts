@@ -93,7 +93,7 @@ export interface ResolvedParamSets {
  * fields (`tuneSeasons` -> `selectedOnSeasons`, `searchArtifact`,
  * `paramOverrides`/`note`/`adaptationMode`/`objective` carried forward) and
  * returned for every season asked — this is what keeps
- * `vpr@7.0.0+tracer-check.json` and the incumbent validating and behaving
+ * `vpr@8.0.0+tracer-check.json` and the incumbent validating and behaving
  * exactly as they do today, with no re-promotion required.
  */
 export function resolveParamSets(promoted: PromotedVersion): ResolvedParamSets {

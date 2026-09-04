@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "7.0.0",
+  "codeVersion": "8.0.0",
   "paramSetName": "tracer-check",
-  "version": "7.0.0+tracer-check",
+  "version": "8.0.0+tracer-check",
   "params": {
     "processNoiseWithinEventRel": 0.0004862793787704171,
     "processNoiseEventBoundaryRel": 0.003890235030163337,
@@ -34,7 +34,7 @@
   "provenance": {
     "searchArtifact": "reports/tune-tracer-repromote-2.1.0.json",
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-03T17:29:19.185Z",
+    "promotedAt": "2026-09-04T09:18:41.226Z",
     "objective": 0.17465514532650941,
     "tuneSeasons": [
       2022
@@ -43,8 +43,7 @@
     "objectiveDefinition": "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
     "evaluationCount": 1,
     "objectiveAppliesToPromotedParams": false,
-    "derivedFromVersion": "6.0.0+tracer-check",
-    "paramShapeMigration": "sigma1-6.0.0-variance-decomposition-to-7.0.0-recency-swing"
+    "derivedFromVersion": "7.0.0+tracer-check"
   },
   "digest": {
     "sliceSeason": 2022,
@@ -54,12 +53,12 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "38d091e0377272244a3ddaf4eb8ff1b3c9e318f8db466d20fff479be99029a1c",
+    "predictionStreamSha256": "4c4f387265fc487467e957cb6dde14ac4655bf7a24b96cd0fd9b66ea58d97364",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.18025182412084698,
-        "winnerAccuracy": 0.7088122605363985
+        "brierScore": 0.18010287783948728,
+        "winnerAccuracy": 0.7049808429118773
       }
     ]
   }

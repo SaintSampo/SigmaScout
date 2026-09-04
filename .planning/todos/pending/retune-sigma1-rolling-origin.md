@@ -8,6 +8,33 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
+> **Sigma1's MODEL changed 2026-09-04 (quick task 260904-6a1) — the ten verdicts below are
+> NOT invalidated, but they are NON-COMPARABLE to any future re-tune run under this change.**
+> Two model-correctness changes landed, both discovered investigating `2026bc2_sf14m1` (a genuine
+> ~456-point alliance zeroed to 0 by `adjustPoints: -456`, no DQ flags): (1) `isAdjustZeroedAlliance`
+> (`dq.ts`) drops an alliance's own observation when its score is 0 and its parsed `adjust` is
+> negative, even with no DQ; (2) `adjust` is now PINNED at exactly 0 for every team, in every match —
+> never folded, never carried, excluded from every cold-start/carried-share divisor.
+> `SIGMA1_CODE_VERSION` bumped `7.0.0 -> 8.0.0` for exactly this reason; `data/algorithm-versions/`
+> now holds `vpr@8.0.0+*`, re-promoted from the same `vpr@7.0.0+*` params (no parameter changed —
+> only the model wrapped around them did).
+>
+> Any re-tune from here forward runs under the new model, by construction (there is no code path
+> back to the retired one). The ten verdicts below, and every Brier/accuracy figure quoted in this
+> file, were measured under the OLD model (adjust folded as a real per-team component, whole-alliance
+> DQ the only ruling-zero exclusion) — they remain internally consistent on their own terms and
+> nothing shipped under them is wrong, but they are NOT comparable to a future re-tune's numbers.
+> **Do not diff the two model eras as though they were one series**, for the same reason the
+> positional-cold-start note below already gives for its own boundary: a different model replays a
+> genuinely different trajectory, and a Brier delta computed across the boundary would measure the
+> model change, not the parameters.
+>
+> Expected direction: dropping ~13 previously-fitted ruling-zero observations (measured population,
+> quick task 260904-6a1's SUMMARY) and removing every team's fitted `adjust` component (previously a
+> real, nonzero per-team estimate for any team with fouls/adjustment history) both remove NOISE from
+> the observation stream — a plausible source of a small precision gain in a future re-tune, not
+> expected to reverse any of the ten verdicts' direction, but not measured here.
+
 > **Cold start made positional 2026-09-04 (quick task 260904-cs1) — the ten verdicts below are
 > NOT invalidated, but they are NON-COMPARABLE to any future re-tune run under this change.**
 > `seasonBoundaryFor` no longer decides cold start by matching a module constant

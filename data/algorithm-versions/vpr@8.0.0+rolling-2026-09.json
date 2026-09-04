@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "7.0.0",
+  "codeVersion": "8.0.0",
   "paramSetName": "rolling-2026-09",
-  "version": "7.0.0+rolling-2026-09",
+  "version": "8.0.0+rolling-2026-09",
   "paramSetsBySeason": {
     "2019": {
       "params": {
@@ -50,7 +50,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "7.0.0+tuned-2026-08"
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2020": {
       "params": {
@@ -98,7 +98,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "7.0.0+tuned-2026-08"
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2022": {
       "params": {
@@ -133,12 +133,13 @@
         2019,
         2020
       ],
-      "sourceKind": "search-winner",
+      "sourceKind": "carried-version",
       "sourceArtifact": "reports/tune-joint-on-origin2022.json",
       "sourceArtifactSha256": "b7a56427ee188b515ca681c361e9354d18729b4ffb2f8728a8c420a5e931a859",
       "objective": 0.19133018132461993,
-      "objectiveAppliesToPromotedParams": true,
-      "adaptationMode": "on"
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "on",
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2023": {
       "params": {
@@ -186,7 +187,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "7.0.0+tuned-2026-08"
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2024": {
       "params": {
@@ -234,7 +235,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "7.0.0+tuned-2026-08"
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2025": {
       "params": {
@@ -282,7 +283,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "7.0.0+tuned-2026-08"
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     },
     "2026": {
       "params": {
@@ -321,17 +322,18 @@
         2024,
         2025
       ],
-      "sourceKind": "search-winner",
+      "sourceKind": "carried-version",
       "sourceArtifact": "reports/tune-joint-on-origin2026.json",
       "sourceArtifactSha256": "fa5a426478a1359949c24e685f55e636315408b507cb1671a8c0a06cebe4d553",
       "objective": 0.17205297855845073,
-      "objectiveAppliesToPromotedParams": true,
-      "adaptationMode": "on"
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "on",
+      "derivedFromVersion": "7.0.0+rolling-2026-09"
     }
   },
   "provenance": {
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-04T05:33:17.863Z",
+    "promotedAt": "2026-09-04T09:18:58.902Z",
     "objectiveDefinition": "each season's own paramSetsBySeason entry minimizes mean selection-season brierScore (combined compLevelView) — see that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search (D-01)"
   },
   "digest": {
@@ -342,11 +344,11 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "336be0988b4e1e2351674ccd667c39ca7bf68ac07cc264b51fea85b8daadbd90",
+    "predictionStreamSha256": "2139b2f38b44b5504b1c484060da85627025159534ddbba971e9f72046661e49",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.1712785855981374,
+        "brierScore": 0.17119579207072202,
         "winnerAccuracy": 0.7126436781609196
       }
     ]

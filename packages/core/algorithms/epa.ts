@@ -839,7 +839,35 @@ export const epa: AlgorithmModule<EpaState> = {
   // that invariant, because nothing is published, fingerprinted, or written
   // into a committed measurement record between the two commits;
   // `3.0.0+baseline` names the combined result of both.
-  version: "3.0.0+baseline",
+  //
+  // Bumped 3.0.0 -> 4.0.0 (D-7, quick task 260904-6a1, 2026-09-04):
+  // `update()`'s observable output changed for a SECOND, unrelated reason
+  // since 3.0.0 shipped — two distinct model-correctness changes, both
+  // discovered investigating `2026bc2_sf14m1` (BattleCry June SF14-1), a
+  // genuine ~456-point alliance zeroed to 0 by a scorekeeper's
+  // `adjustPoints: -456` with NO DQ flags at all:
+  //
+  //   1. `isAdjustZeroedAlliance` (`dq.ts`), a sibling to
+  //      `isFullyDqZeroScoreAlliance`, drops an alliance's own observation
+  //      when its recorded score is 0 and its PARSED `adjust` value is
+  //      negative — the second way a scorekeeper's ruling zeroes an
+  //      alliance, distinct from a whole-alliance DQ (which files no DQ at
+  //      all in this population).
+  //   2. `adjust` is now PINNED at exactly 0 for every team, in every match
+  //      — `applyComponentUpdate` never folds it, the cold-start divisor
+  //      excludes it (so a rookie's seeded total is unchanged), and
+  //      `carrySeason`'s carried-share divisor excludes it too. `adjust` is
+  //      a scorekeeper's ruling applied to an alliance total, not a
+  //      quantity any robot produces — there is no per-team share of it to
+  //      learn, and every prior nonzero per-team estimate was the model
+  //      fitting a ruling.
+  //
+  // MAJOR, not minor, and deliberately so: change 2 moves every team's
+  // component vector in every match ever replayed (adjust was previously
+  // folded like any other component), not merely an edge case. Same D-13
+  // invariant as every bump above: no version string may stand for two
+  // structurally different algorithms.
+  version: "4.0.0+baseline",
   initState,
   predict,
   update,
