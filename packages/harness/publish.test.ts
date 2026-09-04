@@ -44,6 +44,7 @@ import {
   computeSizeStats,
   lastOfficialMetricsByTeam,
   OUTCOME_KEYS,
+  parseSeasonsRange,
   publishSeasons,
   resolvePublishAlgorithms,
   withEventPercentiles,
@@ -57,6 +58,7 @@ import { artifactKey, decodeTeamsRowMetrics, TeamsArtifactSchema } from "./pageA
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
+import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { HISTORY_PERCENTILE_METRIC_KEYS, percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
 
 vi.mock("./r2Client.js", () => ({
@@ -2993,5 +2995,62 @@ describe("selectScheduledMatches never carries an outcome key (D-08) — publish
         expect(Object.prototype.hasOwnProperty.call(row, key)).toBe(false);
       }
     }
+  });
+});
+
+describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () => {
+  it("a single year is unchanged", () => {
+    expect(parseSeasonsRange("2026")).toEqual([2026]);
+  });
+
+  it("a contiguous range is unchanged", () => {
+    expect(parseSeasonsRange("2022-2026")).toEqual([2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("a comma-separated list of single years and ranges parses to the gapped seven-season corpus", () => {
+    expect(parseSeasonsRange("2019,2020,2022-2026")).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("terms out of order and repeated collapse to the same ascending, de-duplicated result", () => {
+    expect(parseSeasonsRange("2026,2019,2022-2026,2020,2019")).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("a malformed term throws and the message names both the range form and the list form", () => {
+    expect(() => parseSeasonsRange("2019,not-a-year,2022-2026")).toThrowError(/single year like "2026"|range like "2022-2026"/);
+  });
+
+  it("a term whose end precedes its start still throws", () => {
+    expect(() => parseSeasonsRange("2026-2019")).toThrowError(/must be >= start/);
+  });
+
+  it("an empty spec throws", () => {
+    expect(() => parseSeasonsRange("")).toThrowError(/must not be empty/);
+  });
+
+  it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the seven-season corpus", () => {
+    const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
+    const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
+    const script = pkg.scripts["publish:seasons"];
+    expect(script, "publish:seasons script must exist in package.json").toBeDefined();
+
+    const match = /--seasons\s+(\S+)/.exec(script!);
+    expect(match, `--seasons argument not found in publish:seasons script: ${script}`).not.toBeNull();
+
+    const parsed = parseSeasonsRange(match![1]!);
+    expect(parsed).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("the gapped-boundary proof: over the parsed seven-season list, seasonBoundaryFor reports a two-year gap entering 2022, a one-year gap everywhere else, and a positional cold start only at index 0 (2019)", () => {
+    const seasons = parseSeasonsRange("2019,2020,2022-2026");
+    const boundaries = seasons.map((_, index) => seasonBoundaryFor(seasons, index));
+
+    const gaps = boundaries.map((b) => b.toSeason - b.fromSeason);
+    // index 0 (2019) has no real predecessor — its nominal `fromSeason` is
+    // 2018, a gap of 1, but isColdStart is what actually matters there.
+    expect(gaps).toEqual([1, 1, 2, 1, 1, 1, 1]);
+    expect(boundaries[2]).toMatchObject({ fromSeason: 2020, toSeason: 2022, isColdStart: false });
+
+    const coldStarts = boundaries.map((b) => b.isColdStart);
+    expect(coldStarts).toEqual([true, false, false, false, false, false, false]);
   });
 });

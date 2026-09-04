@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 
 describe("seasonBoundaryFor", () => {
-  it("D-2: is byte-identical to the stale-constant behaviour over the exact range publish:seasons and harness --seasons 2022-2026 replay", () => {
+  it("D-2: is byte-identical to the stale-constant behaviour over 2022-2026, the historical contiguous range harness --seasons 2022-2026 still replays (publish:seasons itself now covers the gapped seven-season corpus, 2019,2020,2022-2026)", () => {
     const seasons = [2022, 2023, 2024, 2025, 2026];
 
     const positional = seasons.map((_, index) => seasonBoundaryFor(seasons, index));

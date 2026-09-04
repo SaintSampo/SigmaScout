@@ -60,7 +60,7 @@ import { DEFAULT_ARTIFACT_ORIGIN, fetchArtifactFresh } from "./verifySubsetPubli
 
 const DEFAULT_BUCKET = "sigmascout-artifacts";
 
-/** The five published seasons this project's `pnpm publish:seasons` covers (`--seasons 2022-2026`) — the same range the pre-exclusion generation wrote demo-team objects under. */
+/** The five seasons the PRE-EXCLUSION generation's `pnpm publish:seasons` covered (`--seasons 2022-2026`, before quick task 260904-nt4 widened the script to the gapped seven-season corpus `2019,2020,2022-2026`) — the range that actually wrote demo-team objects. 2019/2020 were never published under that generation, so there are no orphans in those seasons to enumerate; this array is intentionally NOT extended. */
 export const SEASONS = [2022, 2023, 2024, 2025, 2026] as const;
 
 /** 30 demo team keys x 5 seasons x 3 published algorithms — the exact, fully-deterministic candidate count. No corpus, no live query: pure arithmetic over fixed constants, so this bound is checked for EQUALITY, not a band. */

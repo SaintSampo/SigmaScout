@@ -2173,31 +2173,65 @@ export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmM
 }
 
 /**
- * `--seasons "2022-2026"` -> `[2022, 2023, 2024, 2025, 2026]`, or a single
- * year `--seasons "2026"` -> `[2026]` (harness CLI splits these into two
- * flags, `--seasons`/`--season`; this file accepts both spellings through
- * one flag). The range form is the same small parser `cli.ts`'s
- * module-private `parseSeasonsRange` implements — not exported, so
- * reimplemented here, following this file's own established
- * small-duplication precedent (`splitVersion` above).
+ * `--seasons "2022-2026"` -> `[2022, 2023, 2024, 2025, 2026]`, a single year
+ * `--seasons "2026"` -> `[2026]`, or a comma-separated LIST of terms, each
+ * itself a single year or a range, e.g. `--seasons "2019,2020,2022-2026"` ->
+ * `[2019, 2020, 2022, 2023, 2024, 2025, 2026]` (harness CLI splits these into
+ * two flags, `--seasons`/`--season`; this file accepts both spellings through
+ * one flag). Terms may repeat or arrive out of order; the result is always
+ * ascending and de-duplicated.
+ *
+ * The list form exists because the corpus is GAPPED: 2021 has no registered
+ * component map (it was the at-home/remote season with no conventional 3v3
+ * alliance matches, so there is nothing to ingest or score — permanent
+ * exclusion, not a deferral), so a single contiguous `2019-2026` range would
+ * include 2021 and throw at `componentMapForSeason(2021)`. Quick task
+ * 260904-nt4 added this form specifically so `pnpm publish:seasons` can name
+ * the real seven-season corpus (`2019,2020,2022-2026`) without a contiguous
+ * range lying about what exists.
+ *
+ * This is PUBLISH-ONLY. The single/range forms are kept byte-identical to
+ * before this change, but the list form is deliberately NOT propagated to the
+ * sibling module-private `parseSeasonsRange` implementations in `cli.ts`,
+ * `baselineFingerprint.ts`, `eventScopeDiagnostic.ts`, or
+ * `identifiability.ts` — those tools were left alone (out of scope for
+ * 260904-nt4) and still accept only a single year or one contiguous range.
+ * Do not assume this file and those share behavior; they no longer do.
+ *
+ * **EXPORTED** for direct test coverage, following the exported-for-test
+ * precedent `resolvePublishAlgorithms` (above) already sets in this file.
  */
-function parseSeasonsRange(spec: string): number[] {
-  const singleMatch = /^(\d{4})$/.exec(spec);
-  if (singleMatch) {
-    return [Number.parseInt(singleMatch[1]!, 10)];
+export function parseSeasonsRange(spec: string): number[] {
+  const terms = spec
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (terms.length === 0) {
+    throw new Error(`--seasons must not be empty, got "${spec}"`);
   }
-  const rangeMatch = /^(\d{4})-(\d{4})$/.exec(spec);
-  if (!rangeMatch) {
-    throw new Error(`--seasons must be a single year like "2026" or a range like "2022-2026", got "${spec}"`);
+
+  const seasons = new Set<number>();
+  for (const term of terms) {
+    const singleMatch = /^(\d{4})$/.exec(term);
+    if (singleMatch) {
+      seasons.add(Number.parseInt(singleMatch[1]!, 10));
+      continue;
+    }
+    const rangeMatch = /^(\d{4})-(\d{4})$/.exec(term);
+    if (!rangeMatch) {
+      throw new Error(
+        `--seasons terms must each be a single year like "2026" or a range like "2022-2026" (or a comma-separated list of these, e.g. "2019,2020,2022-2026"), got invalid term "${term}" in "${spec}"`
+      );
+    }
+    const start = Number.parseInt(rangeMatch[1]!, 10);
+    const end = Number.parseInt(rangeMatch[2]!, 10);
+    if (end < start) {
+      throw new Error(`--seasons range end (${end}) must be >= start (${start}), in term "${term}" of "${spec}"`);
+    }
+    for (let year = start; year <= end; year++) seasons.add(year);
   }
-  const start = Number.parseInt(rangeMatch[1]!, 10);
-  const end = Number.parseInt(rangeMatch[2]!, 10);
-  if (end < start) {
-    throw new Error(`--seasons range end (${end}) must be >= start (${start})`);
-  }
-  const seasons: number[] = [];
-  for (let year = start; year <= end; year++) seasons.push(year);
-  return seasons;
+
+  return Array.from(seasons).sort((a, b) => a - b);
 }
 
 async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefined, bucket: string, dryRun: boolean): Promise<void> {
