@@ -120,6 +120,7 @@ import {
   SIGMA1_6_TO_7_MIGRATION_TAG,
 } from "./legacyParams.js";
 import { openCorpusReadOnly, selectCorpusSeasons, selectMatchesChronological, type Corpus } from "../corpus/db.js";
+import { SEARCH_OBJECTIVE_DEFINITION } from "./objectiveDefinition.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { makeSeasonalSigma1, ParamSetsBySeasonSchema, resolveParamSets, type SeasonParamSet } from "./seasonParamSets.js";
@@ -159,6 +160,17 @@ const ProvenanceSchema = z.object({
   searchArtifact: z.string().min(1).optional(),
   corpusIdentity: z.string().min(1),
   promotedAt: z.string().min(1),
+  /**
+   * The search winner's PRIMARY objective value. Quick task 260904-oiu
+   * (OBJ-RANK) changed WHICH QUANTITY this number is: files promoted before
+   * that task carry a mean tune-season Brier (minimized); files promoted
+   * after it carry a mean per-season winner accuracy (maximized). The
+   * NUMBER's UNITS therefore differ across a file's `promotedAt` date — this
+   * field alone cannot tell a reader which. `provenance.objectiveDefinition`
+   * is the field that says which quantity a given file's number IS; read it
+   * (or `objectiveDefinition.ts`'s exported constants directly) before
+   * comparing this value across files.
+   */
   objective: z.number().optional(),
   tuneSeasons: z.array(z.number().int()).optional(),
   /**
@@ -827,7 +839,11 @@ function loadFromSearchArtifact(fromPath: string): PromotionSource {
       // does not, and these simply stay undefined for that case, matching
       // `ProvenanceSchema`'s own optional fields).
       searchArtifactSha256,
-      objectiveDefinition: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+      // Quick task 260904-oiu: imported from the ONE definition site
+      // (`objectiveDefinition.ts`) rather than a second hardcoded literal —
+      // a second literal is exactly how a promoted file could end up
+      // describing an objective rule that no longer exists.
+      objectiveDefinition: SEARCH_OBJECTIVE_DEFINITION,
       evaluationCount: searchOutput.evals ?? searchOutput.candidates.length,
       seed: searchOutput.seed,
       screenArtifact: searchOutput.survivorsPath,
@@ -1113,10 +1129,16 @@ async function runPerSeasonPromotion(
       // searchArtifact/objective/tuneSeasons/adaptationMode/
       // objectiveAppliesToPromotedParams — never objectiveDefinition, which
       // is a general statement about what "objective" means, not a claim
-      // about any one search).
+      // about any one search). Deliberately does NOT restate a specific rule
+      // (quick task 260904-oiu): each season's entry may have been produced
+      // by a search that ran under the retired Brier-primary rule OR the
+      // current accuracy-primary one, and this top-level field cannot know
+      // which without reading that entry's own `sourceArtifact`.
       objectiveDefinition:
-        "each season's own paramSetsBySeason entry minimizes mean selection-season brierScore (combined " +
-        "compLevelView) — see that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search (D-01)",
+        "each season's own paramSetsBySeason entry's `objective` number is that entry's SOURCE search's PRIMARY " +
+        "objective value AT THE TIME that search ran — see objectiveDefinition.ts's SEARCH_OBJECTIVE_DEFINITION for " +
+        "the current (accuracy-primary/Brier-secondary) rule, and that entry's own selectedOnSeasons/sourceArtifact " +
+        "for which seasons and which search produced it",
       ...(note !== undefined ? { note } : {}),
     },
     digest: {

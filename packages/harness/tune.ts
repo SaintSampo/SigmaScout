@@ -114,22 +114,27 @@
  *
  * After gate 4's write, an `--origin` run evaluates the winner AND the
  * incumbent on the origin season and applies `acceptance.ts`'s
- * `decideAcceptance`. The bar is `sqrt(2 ln N) * SE_paired`, where N is the
+ * `decideAcceptance`. Since quick task 260904-oiu (OBJ-BAR) the bar is on
+ * ACCURACY: `sqrt(2 ln N) * SE_paired(accuracy delta)`, where N is the
  * number of candidates actually evaluated (`evaluationCountForBar` — not the
  * requested `--evals`, and not the rejected-and-resampled draws that were
  * never scored). N is recorded in the artifact beside the threshold it
- * produced, because the bar MOVES with it.
+ * produced, because the bar MOVES with it. Brier is now a two-half GUARDRAIL
+ * VETO alongside the pre-existing score-MAE veto — see `acceptance.ts`'s
+ * header for the full three-condition shape.
  *
  * The incumbent is read from the committed
  * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+tuned-2026-08.json` and a
  * missing file THROWS. D-T7's bar is "beats what ships", and the shipped set
  * is not `DEFAULT_SIGMA1_PARAMS`.
  *
- * Two standard errors are reported under deliberately distinct names.
- * `brierDeltaStandardError` is the PAIRED difference SE, and it is the one the
- * bar is on. `brierLevelStandardError` is the candidate's own level SE, the
- * quantity D-T6's published 0.001219 is comparable to. Two fields both called
- * `se` would be confusable at a glance; these are not.
+ * Three standard errors are reported under deliberately distinct names.
+ * `accuracyDeltaStandardError` is the PAIRED difference SE the bar is
+ * actually ON. `brierDeltaStandardError` is the PAIRED difference SE that now
+ * feeds only the Brier guardrail. `brierLevelStandardError` is the
+ * candidate's own level SE, the quantity D-T6's published 0.001219 is
+ * comparable to. Three fields all called `se` would be confusable at a
+ * glance; these are not.
  *
  * `keep-incumbent` EXITS 0 and reads as a result. A search that clears nothing
  * has completed successfully.
@@ -216,10 +221,11 @@ import {
   Sigma1ParamsSchema,
   type Sigma1Params,
 } from "../core/algorithms/sigma1/params.js";
-import { outcomeTarget } from "../core/scoring/brier.js";
+import { accuracyCall, outcomeTarget, type MatchOutcome } from "../core/scoring/brier.js";
 import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 import { decideAcceptance, type AcceptanceOutcome } from "./acceptance.js";
 import { eventBlockedBootstrap, type EventBlockedUnit } from "./eventBootstrap.js";
+import { SEARCH_OBJECTIVE_DEFINITION, SCREEN_OBJECTIVE_DEFINITION } from "./objectiveDefinition.js";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
@@ -436,6 +442,172 @@ interface ReplayedPrediction extends HarnessPredictionInput {
 }
 
 /**
+ * The FOUR exclusions `aggregateScores` (`score.ts`) applies to its own
+ * scorable population, in the SAME order, mirrored here rather than
+ * re-derived so the tuner's own accuracy blocks (`buildEventAccuracyBlocks`
+ * below) and the acceptance path's `scoreOriginRows` can never silently
+ * diverge from the published population or from each other (quick task
+ * 260904-oiu, `<key_links>`). `score.ts`'s own loop is not itself refactored
+ * to call this — it is out of this task's file scope — so this predicate is
+ * a mirror, not a shared implementation; keeping the two in agreement is a
+ * discipline `score.test.ts`'s own equivalence coverage checks.
+ */
+export function isScorablePrediction<
+  T extends { isOffseason: boolean; isSurrogateAffected: boolean; actualWinner: MatchOutcome | null; pRedWin: number },
+>(p: T): p is T & { actualWinner: MatchOutcome } {
+  if (p.isOffseason) return false;
+  if (p.isSurrogateAffected) return false;
+  if (p.actualWinner === null) return false;
+  if (!isValidPRedWin(p.pRedWin)) return false;
+  return true;
+}
+
+/**
+ * One event's worth of winner-accuracy evidence for ONE candidate: the
+ * correct-call count and the accuracy DENOMINATOR (non-tie scorable
+ * matches) — the minimum sufficient statistic for a paired accuracy-delta
+ * bootstrap, since the per-event difference of two candidates' correct-counts
+ * over the shared denominator is exactly the block sum of the per-match
+ * paired difference. `season` is carried because the noise-band statistic
+ * mirrors the accuracy objective's own shape (per-season accuracy, then the
+ * mean over seasons), which a bare event-keyed block cannot answer alone.
+ */
+export interface EventAccuracyBlock extends EventBlockedUnit {
+  readonly eventKey: string;
+  readonly season: number;
+  readonly correct: number;
+  readonly denominator: number;
+}
+
+/**
+ * Builds `candidateId`'s per-event accuracy blocks straight from the
+ * replayed predictions — never from `aggregateScores`' output, which has
+ * already collapsed the per-match detail a block needs. Applies
+ * `isScorablePrediction` (the same four exclusions the published accuracy
+ * figure applies) and then `accuracyCall` (the SAME predicate `scoreSet`
+ * uses) so a tie contributes to NEITHER `correct` NOR `denominator` — an
+ * event whose every prediction was a tie therefore never becomes a block at
+ * all, which is correct: it carries no accuracy-relevant evidence either way.
+ */
+export function buildEventAccuracyBlocks(predictions: readonly ReplayedPrediction[], candidateId: string): EventAccuracyBlock[] {
+  const blocksByEvent = new Map<string, { eventKey: string; season: number; correct: number; denominator: number }>();
+  for (const p of predictions) {
+    if (p.algorithmId !== candidateId) continue;
+    if (!isScorablePrediction(p)) continue;
+    const call = accuracyCall({ pRedWin: p.pRedWin, actualWinner: p.actualWinner });
+    if (call === null) continue; // an actual tie — excluded from the accuracy denominator entirely
+    let block = blocksByEvent.get(p.eventKey);
+    if (!block) {
+      block = { eventKey: p.eventKey, season: p.season, correct: 0, denominator: 0 };
+      blocksByEvent.set(p.eventKey, block);
+    }
+    block.denominator += 1;
+    if (call) block.correct += 1;
+  }
+  return [...blocksByEvent.values()];
+}
+
+/**
+ * The accuracy objective's own shape, applied to a (possibly resampled) set
+ * of event blocks: per-season accuracy from the summed blocks, then the mean
+ * over seasons that have a POSITIVE denominator in this draw. Shared by
+ * `objectiveForCandidate`'s sibling accuracy statistic and by the paired
+ * bootstrap's resampled statistic below, so the noise band is an SE OF THE
+ * OBJECTIVE rather than of a differently-shaped quantity. Returns
+ * `Number.NEGATIVE_INFINITY` when no season has a positive denominator —
+ * mirroring `objectiveForCandidate`'s own empty-case fallback.
+ */
+function seasonMeanAccuracyFromBlocks(blocks: readonly { readonly season: number; readonly correct: number; readonly denominator: number }[]): number {
+  const correctBySeason = new Map<number, number>();
+  const denominatorBySeason = new Map<number, number>();
+  for (const b of blocks) {
+    correctBySeason.set(b.season, (correctBySeason.get(b.season) ?? 0) + b.correct);
+    denominatorBySeason.set(b.season, (denominatorBySeason.get(b.season) ?? 0) + b.denominator);
+  }
+  const seasonAccuracies: number[] = [];
+  for (const [season, denominator] of denominatorBySeason) {
+    if (denominator > 0) seasonAccuracies.push(correctBySeason.get(season)! / denominator);
+  }
+  if (seasonAccuracies.length === 0) return Number.NEGATIVE_INFINITY;
+  return seasonAccuracies.reduce((sum, v) => sum + v, 0) / seasonAccuracies.length;
+}
+
+/** One event's accuracy evidence for BOTH sides of a comparison, paired by `eventKey`. */
+interface PairedAccuracyBlockUnit extends EventBlockedUnit {
+  readonly eventKey: string;
+  readonly season: number;
+  readonly aCorrect: number;
+  readonly aDenominator: number;
+  readonly bCorrect: number;
+  readonly bDenominator: number;
+}
+
+/**
+ * Pairs two candidates' event accuracy blocks by `eventKey` and refuses a
+ * mismatch by name — the same reason `buildPairedOriginUnits` already gives:
+ * an unpaired or partially-overlapping comparison would still produce a
+ * number, and that number would be a meaningless standard error the search
+ * comparator would then be built on.
+ */
+export function pairEventAccuracyBlocks(
+  aBlocks: readonly EventAccuracyBlock[],
+  bBlocks: readonly EventAccuracyBlock[]
+): PairedAccuracyBlockUnit[] {
+  if (aBlocks.length !== bBlocks.length) {
+    throw new Error(
+      `tune: cannot pair the accuracy-delta comparison — one candidate produced ${aBlocks.length} scorable event blocks and the ` +
+        `other produced ${bBlocks.length}. A paired event-blocked standard error requires both candidates scored on the ` +
+        `IDENTICAL event set; an unpaired difference would report a meaningless SE that the search comparator would then be built on.`
+    );
+  }
+  const bByEvent = new Map(bBlocks.map((b) => [b.eventKey, b]));
+  const units: PairedAccuracyBlockUnit[] = [];
+  for (const a of aBlocks) {
+    const b = bByEvent.get(a.eventKey);
+    if (b === undefined) {
+      throw new Error(
+        `tune: cannot pair the accuracy-delta comparison — event "${a.eventKey}" was scored for one candidate but not the ` +
+          `other. Both candidates must see the identical event set.`
+      );
+    }
+    units.push({ eventKey: a.eventKey, season: a.season, aCorrect: a.correct, aDenominator: a.denominator, bCorrect: b.correct, bDenominator: b.denominator });
+  }
+  return units;
+}
+
+/**
+ * The event-blocked PAIRED-DIFFERENCE standard error of the accuracy delta
+ * between two candidates — the noise band the comparator judges an accuracy
+ * delta against. Because each unit here is already an event AGGREGATE (not a
+ * per-match row), the returned `eventBlockedBootstrap` result's `matchCount`
+ * equals its block count; only `standardError` is consumed. Leaves
+ * `eventBlockedBootstrap`'s DEFAULT seed in place — a seed derived from a
+ * candidate index or a clock would make `determineWinner` non-deterministic,
+ * which is forbidden.
+ */
+export function accuracyDeltaStandardError(aBlocks: readonly EventAccuracyBlock[], bBlocks: readonly EventAccuracyBlock[]): number {
+  const paired = pairEventAccuracyBlocks(aBlocks, bBlocks);
+  const result = eventBlockedBootstrap(paired, (sample) => {
+    const aAccuracy = seasonMeanAccuracyFromBlocks(sample.map((u) => ({ season: u.season, correct: u.aCorrect, denominator: u.aDenominator })));
+    const bAccuracy = seasonMeanAccuracyFromBlocks(sample.map((u) => ({ season: u.season, correct: u.bCorrect, denominator: u.bDenominator })));
+    return aAccuracy - bAccuracy;
+  });
+  return result.standardError;
+}
+
+export type ComparatorDecisionAxis = "accuracy" | "brier" | "exact-tie";
+
+/** Which of `a`/`b` wins a noise-band lexicographic comparison, plus the evidence that decided it. */
+export interface CandidateComparison {
+  readonly winner: "a" | "b" | "tie";
+  /** `a.accuracyObjective - b.accuracyObjective`. */
+  readonly accuracyDelta: number;
+  /** The noise band this comparison judged `accuracyDelta` against. */
+  readonly band: number;
+  readonly decidedBy: ComparatorDecisionAxis;
+}
+
+/**
  * Mirrors `cli.ts`'s exported `runSeasons` season loop (D-16/D-19
  * `carrySeason` threading across boundaries) but sources each season's
  * stream from `boundedSeasonStream` above instead of the unbounded
@@ -534,25 +706,82 @@ interface EvaluatedCandidate {
   readonly id: string;
   readonly params: Sigma1Params;
   readonly perSeason: readonly PerSeasonScore[];
-  /** D-01: mean tune-season brierScore (combined compLevelView), minimized. Winner accuracy is recorded above but NEVER read here. */
-  readonly objective: number;
+  /**
+   * quick task 260904-oiu (OBJ-RANK): the PRIMARY objective, MAXIMIZED — mean
+   * per-season winner accuracy over the run's scored seasons.
+   * `Number.NEGATIVE_INFINITY` when no season scored. Retires D-01's "recorded
+   * but never read" comment — that sentence describing this exact field is
+   * now false, and leaving a stale doc comment in place is precisely the
+   * failure this project's log names.
+   */
+  readonly accuracyObjective: number;
+  /**
+   * The SECONDARY objective, MINIMIZED — mean tune-season `brierScore`
+   * (combined `compLevelView`). Decides only when two candidates' accuracy is
+   * inside the noise band (`compareCandidates`). `Number.POSITIVE_INFINITY`
+   * when no season scored.
+   */
+  readonly brierObjective: number;
+  /**
+   * This candidate's per-event accuracy evidence, consumed ONLY by
+   * `accuracyDeltaStandardError` (the comparator's noise band) — never
+   * written to a search artifact (see `buildJointArtifact`'s explicit
+   * destructure), since it is a per-event array that would bloat every
+   * artifact for no reader.
+   */
+  readonly accuracyBlocks: readonly EventAccuracyBlock[];
 }
 
 /**
- * D-01's objective, extracted from `aggregateScores`' output for ONE
- * candidate id: mean `brierScore` across the requested tune seasons for the
- * `"combined"` `compLevelView`. Shared by every stage so the objective
- * definition cannot drift between the tracer, the screen, and the joint
- * search.
+ * The joint search's structured objective, extracted from `aggregateScores`'
+ * output for ONE candidate id: mean per-season `winnerAccuracy` (PRIMARY,
+ * maximized) and mean per-season `brierScore` (SECONDARY, minimized), both
+ * for the `"combined"` `compLevelView`, both derived from the SAME slices as
+ * before D-01's retirement (quick task 260904-oiu). Shared by every stage so
+ * the objective definition cannot drift between the tracer, the screen, and
+ * the joint search.
  */
-export function objectiveForCandidate(slices: readonly ScoreSlice[], candidateId: string): { perSeason: PerSeasonScore[]; objective: number } {
+export function objectiveForCandidate(
+  slices: readonly ScoreSlice[],
+  candidateId: string
+): { perSeason: PerSeasonScore[]; accuracyObjective: number; brierObjective: number } {
   const combinedSlices = slices
     .filter((s) => s.algorithmId === candidateId && s.compLevelView === "combined")
     .sort((a, b) => a.season - b.season);
   const perSeason = combinedSlices.map((s) => ({ season: s.season, brierScore: s.brierScore, winnerAccuracy: s.winnerAccuracy }));
   const brierValues = perSeason.map((p) => p.brierScore).filter((v): v is number => v !== null);
-  const objective = brierValues.length > 0 ? brierValues.reduce((sum, v) => sum + v, 0) / brierValues.length : Number.POSITIVE_INFINITY;
-  return { perSeason, objective };
+  const brierObjective = brierValues.length > 0 ? brierValues.reduce((sum, v) => sum + v, 0) / brierValues.length : Number.POSITIVE_INFINITY;
+  const accuracyValues = perSeason.map((p) => p.winnerAccuracy).filter((v): v is number => v !== null);
+  const accuracyObjective =
+    accuracyValues.length > 0 ? accuracyValues.reduce((sum, v) => sum + v, 0) / accuracyValues.length : Number.NEGATIVE_INFINITY;
+  return { perSeason, accuracyObjective, brierObjective };
+}
+
+/**
+ * The noise-band lexicographic comparator (OBJ-RANK, quick task 260904-oiu):
+ * accuracy is PRIMARY. When the absolute accuracy delta EXCEEDS the
+ * event-blocked paired-difference noise band, the higher-accuracy candidate
+ * wins outright (`decidedBy: "accuracy"`). Otherwise the two are
+ * accuracy-tied and the LOWER `brierObjective` wins (`decidedBy: "brier"`).
+ * Otherwise — identical accuracy AND identical Brier — it is an exact tie
+ * (`decidedBy: "exact-tie"`), left to the caller's own tie-break discipline.
+ *
+ * Symmetric by construction: `compareCandidates(a, b)` and
+ * `compareCandidates(b, a)` name the same winner (swapped label) and report
+ * the same `band`, because `accuracyDeltaStandardError` resamples the
+ * IDENTICAL paired units regardless of argument order and a bootstrap SE is
+ * invariant to a uniform sign flip of the resampled statistic.
+ */
+export function compareCandidates(a: EvaluatedCandidate, b: EvaluatedCandidate): CandidateComparison {
+  const accuracyDelta = a.accuracyObjective - b.accuracyObjective;
+  const band = accuracyDeltaStandardError(a.accuracyBlocks, b.accuracyBlocks);
+  if (Math.abs(accuracyDelta) > band) {
+    return { winner: accuracyDelta > 0 ? "a" : "b", accuracyDelta, band, decidedBy: "accuracy" };
+  }
+  if (a.brierObjective !== b.brierObjective) {
+    return { winner: a.brierObjective < b.brierObjective ? "a" : "b", accuracyDelta, band, decidedBy: "brier" };
+  }
+  return { winner: "tie", accuracyDelta, band, decidedBy: "exact-tie" };
 }
 
 /**
@@ -616,8 +845,9 @@ async function evaluateCandidateBatch(
   const slices = aggregateScores(predictions, { corpusSeasons: seasons, selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED });
   assertNoFutureSeasonLeak(slices, boundary.season);
   return batch.map((c) => {
-    const { perSeason, objective } = objectiveForCandidate(slices, c.id);
-    return { id: c.id, params: c.params, perSeason, objective };
+    const { perSeason, accuracyObjective, brierObjective } = objectiveForCandidate(slices, c.id);
+    const accuracyBlocks = buildEventAccuracyBlocks(predictions, c.id);
+    return { id: c.id, params: c.params, perSeason, accuracyObjective, brierObjective, accuracyBlocks };
   });
 }
 
@@ -642,33 +872,56 @@ async function evaluateAll(
 interface TieRecord {
   readonly winnerIndex: number;
   readonly tiedIndex: number;
-  readonly objective: number;
+  /** Both sides of an EXACT tie share identical objectives by definition — one pair of values suffices. */
+  readonly accuracyObjective: number;
+  readonly brierObjective: number;
   readonly winnerParams: Sigma1Params;
   readonly tiedParams: Sigma1Params;
 }
 
 /**
- * ALGO-04's deterministic tie-break (ADJACENCY edge): candidates are
- * compared in GENERATION order; on an exact tie the earlier-generated
- * candidate wins — `winnerIndex` is only ever updated on a STRICT
- * improvement, never on equality. Every tie against the then-current
- * winner is recorded with BOTH candidates' full parameter sets, so an
- * objective that cannot separate two materially different configurations
- * is visible in the log rather than silently resolved.
+ * ALGO-04's deterministic tie-break (ADJACENCY edge), now routed through
+ * `compareCandidates`'s noise-band lexicographic rule (OBJ-RANK, quick task
+ * 260904-oiu) rather than a raw numeric comparison: candidates are compared
+ * in GENERATION order; `winnerIndex` is only ever updated when the comparator
+ * says the current candidate STRICTLY wins (`decidedBy: "accuracy"` or
+ * `"brier"`), never on an exact tie — preserving today's
+ * earlier-generation-wins-on-ties discipline. Every EXACT tie against the
+ * then-current winner is recorded with BOTH candidates' full parameter sets,
+ * so an objective that cannot separate two materially different
+ * configurations is visible in the log rather than silently resolved.
+ * `noiseBandResolvedCount` makes VISIBLE how often Brier — rather than
+ * accuracy — actually decided a comparison, rather than that fact staying
+ * invisible inside the comparator.
+ *
+ * Deterministic across repeated runs on identical input: `compareCandidates`
+ * itself is pure and uses `eventBlockedBootstrap`'s fixed default seed, so
+ * comparing the same array twice reproduces the same winner, the same ties,
+ * and the same `noiseBandResolvedCount`.
  */
-export function determineWinner(results: readonly EvaluatedCandidate[]): { winnerIndex: number; ties: TieRecord[] } {
+export function determineWinner(results: readonly EvaluatedCandidate[]): { winnerIndex: number; ties: TieRecord[]; noiseBandResolvedCount: number } {
   let winnerIndex = 0;
   const ties: TieRecord[] = [];
+  let noiseBandResolvedCount = 0;
   for (let i = 1; i < results.length; i++) {
     const current = results[i]!;
     const winner = results[winnerIndex]!;
-    if (current.objective < winner.objective) {
+    const comparison = compareCandidates(winner, current);
+    if (comparison.decidedBy === "brier") noiseBandResolvedCount += 1;
+    if (comparison.winner === "b") {
       winnerIndex = i;
-    } else if (current.objective === winner.objective) {
-      ties.push({ winnerIndex, tiedIndex: i, objective: current.objective, winnerParams: winner.params, tiedParams: current.params });
+    } else if (comparison.winner === "tie") {
+      ties.push({
+        winnerIndex,
+        tiedIndex: i,
+        accuracyObjective: winner.accuracyObjective,
+        brierObjective: winner.brierObjective,
+        winnerParams: winner.params,
+        tiedParams: current.params,
+      });
     }
   }
-  return { winnerIndex, ties };
+  return { winnerIndex, ties, noiseBandResolvedCount };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -716,7 +969,7 @@ async function runTracerStage(seasonsSpec: string, eventsLimit: number | undefin
   const { winnerIndex, ties } = determineWinner(results);
   for (const result of results) {
     console.log(
-      `Candidate ${results.indexOf(result)} (${result.id}): objective=${result.objective.toFixed(6)}${
+      `Candidate ${results.indexOf(result)} (${result.id}): accuracy=${result.accuracyObjective.toFixed(6)} brier=${result.brierObjective.toFixed(6)}${
         results.indexOf(result) === winnerIndex ? " <- winner" : ""
       }`
     );
@@ -728,10 +981,16 @@ async function runTracerStage(seasonsSpec: string, eventsLimit: number | undefin
     seasons,
     eventsLimit: eventsLimit ?? null,
     corpusIdentity: CORPUS_PATH,
-    objective: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
-    tieBreak: ties.length > 0 ? "objective tied across multiple candidates — lowest candidate index wins" : null,
+    objective: SEARCH_OBJECTIVE_DEFINITION,
+    tieBreak: ties.length > 0 ? "accuracy AND brier tied across multiple candidates — lowest candidate index wins" : null,
     winnerIndex,
-    candidates: results.map((result, index) => ({ index, ...result, winner: index === winnerIndex })),
+    // `accuracyBlocks` destructured OUT — per-event arrays that would bloat
+    // the artifact for no reader (`objective` numeric field kept for
+    // `promote.ts`'s existing readers, set to the PRIMARY (accuracy) value).
+    candidates: results.map((result, index) => {
+      const { accuracyBlocks, ...rest } = result;
+      return { index, ...rest, objective: result.accuracyObjective, winner: index === winnerIndex };
+    }),
   };
 
   mkdirSync(dirname(outPath), { recursive: true });
@@ -871,7 +1130,9 @@ async function runScreenStage(
     const paramCandidates = candidates.filter((c) => c.param === key);
     const rows = paramCandidates.map((c) => {
       const evaluatedCandidate = evaluatedById.get(c.id)!;
-      return { value: c.value, brierScore: evaluatedCandidate.objective, winnerAccuracy: evaluatedCandidate.perSeason[0]?.winnerAccuracy ?? null };
+      // The screen deliberately keeps reading the BRIER component — see
+      // `SCREEN_OBJECTIVE_DEFINITION`'s own doc comment for why.
+      return { value: c.value, brierScore: evaluatedCandidate.brierObjective, winnerAccuracy: evaluatedCandidate.perSeason[0]?.winnerAccuracy ?? null };
     });
 
     const bestRow = selectBestScreenRow(key, rows);
@@ -906,7 +1167,7 @@ async function runScreenStage(
     eventsLimit: eventsLimit ?? null,
     corpusIdentity: CORPUS_PATH,
     valuesPerParameter: valueCount,
-    objective: "mean tune-season brierScore (combined compLevelView), minimized (D-01)",
+    objective: SCREEN_OBJECTIVE_DEFINITION,
     survivalThreshold: SCREEN_SURVIVAL_THRESHOLD,
     survivalThresholdRationale:
       "roughly 0.06% of Phase 2's measured ~0.17 combined-view tune Brier -- small enough to keep a plausibly real effect, large enough to exclude pure replay noise (see SCREEN_SURVIVAL_THRESHOLD's own doc comment in tune.ts)",
@@ -1225,14 +1486,21 @@ async function runJointStage(
         const evaluatedNeighbors = await evaluateCandidateBatch(db, seasons, eventsLimit, neighborCandidates, boundary);
         results.push(...evaluatedNeighbors);
 
+        // Routed through the comparator (OBJ-RANK, quick task 260904-oiu) so
+        // the refinement pass and the final `determineWinner` ranking can
+        // never disagree about which candidate is actually better.
         for (const candidate of evaluatedNeighbors) {
-          if (candidate.objective < anchor.objective) anchor = candidate;
+          if (compareCandidates(anchor, candidate).winner === "b") anchor = candidate;
         }
       }
     }
 
-    const { winnerIndex, ties } = determineWinner(results);
+    const { winnerIndex, ties, noiseBandResolvedCount } = determineWinner(results);
     const winner = results[winnerIndex]!;
+    console.log(
+      `Noise-band comparator: ${noiseBandResolvedCount} of ${results.length - 1} comparisons were resolved by Brier ` +
+        `(inside the accuracy noise band); the rest were decided by accuracy alone.`
+    );
 
     const atBound: Record<string, boolean> = {};
     for (const key of survivors) {
@@ -1243,7 +1511,11 @@ async function runJointStage(
 
     for (const result of results) {
       const index = results.indexOf(result);
-      console.log(`Candidate ${index} (${result.id}): objective=${result.objective.toFixed(6)}${index === winnerIndex ? " <- winner" : ""}`);
+      console.log(
+        `Candidate ${index} (${result.id}): accuracy=${result.accuracyObjective.toFixed(6)} brier=${result.brierObjective.toFixed(6)}${
+          index === winnerIndex ? " <- winner" : ""
+        }`
+      );
     }
 
     const output = buildJointArtifact({
@@ -1261,6 +1533,7 @@ async function runJointStage(
       rejectedCandidates,
       ties,
       winnerIndex,
+      noiseBandResolvedCount,
       atBound,
       results,
     });
@@ -1334,6 +1607,8 @@ export function buildJointArtifact(input: {
   rejectedCandidates: number;
   ties: readonly TieRecord[];
   winnerIndex: number;
+  /** How many ranking comparisons in this run were decided by Brier (inside the accuracy noise band) rather than by accuracy alone (OBJ-RANK). */
+  noiseBandResolvedCount: number;
   atBound: Record<string, boolean>;
   results: readonly EvaluatedCandidate[];
 }): Record<string, unknown> {
@@ -1355,7 +1630,7 @@ export function buildJointArtifact(input: {
     seasons: [...input.seasons],
     eventsLimit: input.eventsLimit ?? null,
     corpusIdentity: CORPUS_PATH,
-    objective: "mean selection-season brierScore (combined compLevelView), minimized (D-01)",
+    objective: SEARCH_OBJECTIVE_DEFINITION,
     evals: input.evalsCount,
     seed: input.seed,
     batch: input.batchSize,
@@ -1363,11 +1638,20 @@ export function buildJointArtifact(input: {
     survivors: [...input.survivors],
     skipped: input.skipped,
     rejectedCandidates: input.rejectedCandidates,
-    tieBreak: input.ties.length > 0 ? "objective tied across multiple candidates — lowest candidate index wins" : null,
+    tieBreak: input.ties.length > 0 ? "accuracy AND brier tied across multiple candidates — lowest candidate index wins" : null,
     ties: input.ties,
     winnerIndex: input.winnerIndex,
+    // How often Brier actually decided a comparison — VISIBLE rather than
+    // invisible inside the comparator (OBJ-RANK's own must-have truth).
+    noiseBandResolvedCount: input.noiseBandResolvedCount,
     atBound: input.atBound,
-    candidates: input.results.map((result, index) => ({ index, ...result, winner: index === input.winnerIndex })),
+    // `accuracyBlocks` destructured OUT — see the tracer artifact's identical
+    // comment above; `objective` kept as the numeric PRIMARY (accuracy) value
+    // for `promote.ts`'s existing readers.
+    candidates: input.results.map((result, index) => {
+      const { accuracyBlocks, ...rest } = result;
+      return { index, ...rest, objective: result.accuracyObjective, winner: index === input.winnerIndex };
+    }),
   };
 }
 
@@ -1407,6 +1691,17 @@ export interface PairedOriginUnit extends EventBlockedUnit {
   /** Mean `|predicted - actual|` across the match's TWO alliances, so a mean over matches equals the alliance-level MAE `reparamEquivalence.ts` reports. */
   readonly candidateAbsoluteError: number;
   readonly incumbentAbsoluteError: number;
+  /**
+   * `0` for an actual tie (excluded from the accuracy denominator entirely),
+   * `1` otherwise. SHARED between both models — it is a fact about the
+   * MATCH's real outcome, not about either model's call — so
+   * `buildPairedOriginUnits` asserts both rows agree rather than picking one
+   * arbitrarily (quick task 260904-oiu, OBJ-BAR).
+   */
+  readonly accuracyDenominator: 0 | 1;
+  /** Whether the candidate's call was correct; `null` iff `accuracyDenominator` is 0 (no call to have been right or wrong about). Computed with `brier.ts`'s `accuracyCall` — the SAME predicate `scoreSet` uses. */
+  readonly candidateCorrect: boolean | null;
+  readonly incumbentCorrect: boolean | null;
 }
 
 /** Per-model per-match row, before pairing. */
@@ -1414,26 +1709,34 @@ interface OriginScoredRow extends EventBlockedUnit {
   readonly matchKey: string;
   readonly brier: number;
   readonly absoluteError: number;
+  readonly accuracyDenominator: 0 | 1;
+  readonly correct: boolean | null;
 }
 
 function scoreOriginRows(predictions: readonly ReplayedPrediction[], algorithmId: string, originSeason: number): OriginScoredRow[] {
   const rows: OriginScoredRow[] = [];
   for (const p of predictions) {
     if (p.algorithmId !== algorithmId || p.season !== originSeason) continue;
-    // The SAME exclusions `aggregateScores` applies, so Brier and MAE describe
-    // one population. Two populations would make the acceptance rule's two
-    // conditions incomparable and would reintroduce, inside the measuring
-    // instrument, exactly the silent-narrowing failure `score.ts`'s quarantine
-    // bounds exist to prevent.
-    if (p.isOffseason || p.isSurrogateAffected) continue;
-    if (p.actualWinner === null) continue;
-    if (!isValidPRedWin(p.pRedWin)) continue;
+    // The SAME exclusions `aggregateScores` applies, mirrored via
+    // `isScorablePrediction` so Brier, MAE and accuracy describe one
+    // population and this can never silently diverge from the tuner's own
+    // accuracy blocks (`buildEventAccuracyBlocks`, quick task 260904-oiu).
+    // Two populations would make the acceptance rule's conditions
+    // incomparable and would reintroduce, inside the measuring instrument,
+    // exactly the silent-narrowing failure `score.ts`'s quarantine bounds
+    // exist to prevent.
+    if (!isScorablePrediction(p)) continue;
+    // The SAME correctness predicate `scoreSet` uses — never a local
+    // re-derivation (OBJ-RANK/OBJ-BAR's anti-drift requirement).
+    const call = accuracyCall({ pRedWin: p.pRedWin, actualWinner: p.actualWinner });
     rows.push({
       eventKey: p.eventKey,
       matchKey: p.matchKey,
       brier: (p.pRedWin - outcomeTarget(p.actualWinner)) ** 2,
       absoluteError:
         (Math.abs(p.predictedRedScore - p.actualRedScore) + Math.abs(p.predictedBlueScore - p.actualBlueScore)) / 2,
+      accuracyDenominator: call === null ? 0 : 1,
+      correct: call,
     });
   }
   return rows;
@@ -1449,7 +1752,11 @@ function scoreOriginRows(predictions: readonly ReplayedPrediction[], algorithmId
  * `eventBootstrap.ts`'s header). An unpaired or partially-overlapping
  * comparison would still produce a number, and that number would be a
  * meaningless standard error that the acceptance bar would then be built on.
- * So a mismatch throws here rather than degrading quietly.
+ * So a mismatch throws here rather than degrading quietly. Also asserts the
+ * two rows' `accuracyDenominator` agree for each paired match — it is a fact
+ * about the match's real outcome, so a mismatch here would mean the two
+ * models were scored against different ground truth, which is a bug, not a
+ * modeling difference.
  */
 export function buildPairedOriginUnits(
   candidateRows: readonly OriginScoredRow[],
@@ -1472,6 +1779,13 @@ export function buildPairedOriginUnits(
           `the incumbent. Both models must see the identical match set (D-T6/D-T7).`
       );
     }
+    if (candidate.accuracyDenominator !== incumbent.accuracyDenominator) {
+      throw new Error(
+        `tune: cannot pair the origin-season comparison — match "${candidate.matchKey}" has DIFFERENT accuracy denominators ` +
+          `between the candidate (${candidate.accuracyDenominator}) and the incumbent (${incumbent.accuracyDenominator}). This is a ` +
+          `fact about the match's real outcome (a tie), not about either model's call, so the two must agree.`
+      );
+    }
     units.push({
       eventKey: candidate.eventKey,
       matchKey: candidate.matchKey,
@@ -1479,6 +1793,9 @@ export function buildPairedOriginUnits(
       incumbentBrier: incumbent.brier,
       candidateAbsoluteError: candidate.absoluteError,
       incumbentAbsoluteError: incumbent.absoluteError,
+      accuracyDenominator: candidate.accuracyDenominator,
+      candidateCorrect: candidate.correct,
+      incumbentCorrect: incumbent.correct,
     });
   }
   return units;
@@ -1517,11 +1834,16 @@ export interface OriginAcceptanceReport {
   readonly incumbentVersion: string;
   readonly matchCount: number;
   readonly eventCount: number;
+  /** Mean winner accuracy over the paired units' shared accuracy denominator (quick task 260904-oiu, OBJ-BAR). */
+  readonly candidateAccuracy: number;
+  readonly incumbentAccuracy: number;
   readonly candidateBrier: number;
   readonly incumbentBrier: number;
   readonly candidateMae: number;
   readonly incumbentMae: number;
-  /** PAIRED event-blocked SE of `candidateBrier - incumbentBrier` — the quantity D-T7's bar is actually on. */
+  /** PAIRED event-blocked SE of `candidateAccuracy - incumbentAccuracy` — the quantity D-T7's bar is now ON (quick task 260904-oiu). */
+  readonly accuracyDeltaStandardError: number;
+  /** PAIRED event-blocked SE of `candidateBrier - incumbentBrier` — feeds ONLY the Brier guardrail now, never the bar. */
   readonly brierDeltaStandardError: number;
   /** LEVEL event-blocked SE of the candidate's own Brier — the quantity D-T6's published 0.001219 is comparable to. Reported alongside so a later reader cannot compare a paired SE against a level one by mistake. */
   readonly brierLevelStandardError: number;
@@ -1547,6 +1869,7 @@ export function buildAcceptanceReport(input: {
   incumbentVersion: string;
   units: readonly PairedOriginUnit[];
   eventCount: number;
+  accuracyDeltaStandardError: number;
   brierDeltaStandardError: number;
   brierLevelStandardError: number;
   maeDeltaStandardError: number;
@@ -1559,11 +1882,20 @@ export function buildAcceptanceReport(input: {
   const candidateMae = mean((u) => u.candidateAbsoluteError);
   const incumbentMae = mean((u) => u.incumbentAbsoluteError);
 
+  const accuracyDenominatorSum = input.units.reduce((sum, u) => sum + u.accuracyDenominator, 0);
+  const candidateCorrectSum = input.units.reduce((sum, u) => sum + (u.accuracyDenominator === 1 && u.candidateCorrect ? 1 : 0), 0);
+  const incumbentCorrectSum = input.units.reduce((sum, u) => sum + (u.accuracyDenominator === 1 && u.incumbentCorrect ? 1 : 0), 0);
+  const candidateAccuracy = candidateCorrectSum / accuracyDenominatorSum;
+  const incumbentAccuracy = incumbentCorrectSum / accuracyDenominatorSum;
+
   const outcome = decideAcceptance({
+    incumbentAccuracy,
+    candidateAccuracy,
     incumbentBrier,
     candidateBrier,
     incumbentMae,
     candidateMae,
+    accuracyStandardError: input.accuracyDeltaStandardError,
     brierStandardError: input.brierDeltaStandardError,
     maeStandardError: input.maeDeltaStandardError,
     evaluationCount: input.evaluationCount,
@@ -1573,31 +1905,36 @@ export function buildAcceptanceReport(input: {
   // failure — see `acceptance.ts`'s header; a report that phrases it as a
   // failure is how an operator gets talked into widening the bar.
   //
-  // The shared prefix is SIGN-NEUTRAL, and must stay that way. `outcome.margin`
-  // is SIGNED (`incumbentBrier - candidateBrier`, acceptance.ts), so it is
-  // negative for every candidate that is genuinely worse. A directional verb in
-  // a prefix all three branches reuse therefore asserts the OPPOSITE of the
-  // number beside it on those outcomes — it once rendered "its winner beat the
-  // incumbent by -0.010000", making a loss read as a near-miss that only just
-  // failed the bar, which is the same hazard acceptance.ts's header names,
-  // pointing the other way. Report the number; claim no side.
+  // The shared prefix is SIGN-NEUTRAL, and must stay that way (260904-4ik's
+  // hard-won fix, carried forward through the accuracy-primary rewrite).
+  // `outcome.accuracyMargin` is SIGNED (`candidateAccuracy - incumbentAccuracy`),
+  // so it is negative for every candidate that is genuinely less accurate. A
+  // directional verb in a prefix all four branches reuse would assert the
+  // OPPOSITE of the number beside it on those outcomes — exactly the hazard
+  // that once rendered a loss as a near-miss. Report the number; claim no side.
   //
-  // The prefix's TRAILING clause is load-bearing grammar: the mae-veto branch
-  // concatenates `${shared} and was cleared`, where "cleared" refers to *the
-  // bar* the tail names. Restructuring that tail breaks that branch's sentence
-  // while every assertion still passes.
+  // The prefix's TRAILING clause is load-bearing grammar: both veto branches
+  // concatenate `${shared} and was cleared`, where "cleared" refers to *the
+  // bar* the tail names. Restructuring that tail breaks those branches'
+  // sentences while every assertion still passes.
   const shared =
     `Origin ${input.originSeason}: the search evaluated ${input.evaluationCount} candidates on ${input.selectionSeasons.join(", ")} ` +
-    `and its winner's out-of-sample Brier margin over the incumbent (${input.incumbentVersion}) was ${outcome.margin.toFixed(6)} ` +
+    `and its winner's out-of-sample ACCURACY margin over the incumbent (${input.incumbentVersion}) was ${outcome.accuracyMargin.toFixed(6)} ` +
     `over ${n} matches across ${input.eventCount} events; the bar at N = ${input.evaluationCount} was ${outcome.threshold.toFixed(6)}`;
   const verdict =
     outcome.decision === "accept"
-      ? `${shared}, so the candidate is ACCEPTED (score-MAE delta ${outcome.maeDelta.toFixed(4)}, inside the guardrail's ${outcome.maeVetoBound.toFixed(4)} bound).`
+      ? `${shared}, so the candidate is ACCEPTED (score-MAE delta ${outcome.maeDelta.toFixed(4)}, inside the guardrail's ` +
+        `${outcome.maeVetoBound.toFixed(4)} bound; Brier delta ${outcome.brierDelta.toFixed(6)}, inside the guardrail's ` +
+        `${outcome.brierVetoBound.toFixed(6)} bound).`
       : outcome.reason === "below-threshold"
         ? `${shared}, so the INCUMBENT STANDS. Nothing cleared a pre-committed bar, which is a completed search, not a failed one.`
-        : `${shared} and was cleared — but the candidate worsens alliance-score MAE by ${outcome.maeDelta.toFixed(4)} points, past the ` +
-          `guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so it is VETOED and the INCUMBENT STANDS. D-T7's guardrail exists because ` +
-          `the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both rated equal-or-better.`;
+        : outcome.reason === "mae-veto"
+          ? `${shared} and was cleared — but the candidate worsens alliance-score MAE by ${outcome.maeDelta.toFixed(4)} points, past the ` +
+            `guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so it is VETOED and the INCUMBENT STANDS. D-T7's guardrail exists because ` +
+            `the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both rated equal-or-better.`
+          : `${shared} and was cleared — but the candidate is more accurate at the cost of a Brier regression of ${outcome.brierDelta.toFixed(6)}, ` +
+            `past the guardrail's ${outcome.brierVetoBound.toFixed(6)} bound, so it is VETOED and the INCUMBENT STANDS. A challenger more ` +
+            `accurate but materially worse-calibrated is not shipped (quick task 260904-oiu).`;
 
   return {
     originSeason: input.originSeason,
@@ -1606,10 +1943,13 @@ export function buildAcceptanceReport(input: {
     incumbentVersion: input.incumbentVersion,
     matchCount: n,
     eventCount: input.eventCount,
+    candidateAccuracy,
+    incumbentAccuracy,
     candidateBrier,
     incumbentBrier,
     candidateMae,
     incumbentMae,
+    accuracyDeltaStandardError: input.accuracyDeltaStandardError,
     brierDeltaStandardError: input.brierDeltaStandardError,
     brierLevelStandardError: input.brierLevelStandardError,
     maeDeltaStandardError: input.maeDeltaStandardError,
@@ -1712,10 +2052,36 @@ async function evaluateOriginSeason(
     scoreOriginRows(predictions, INCUMBENT_ID, input.originSeason)
   );
 
-  // PAIRED differences for both axes — one resample of events, both models
-  // scored on the same draw. `eventBootstrap.ts`'s header explains why the
-  // paired SE, not either side's level SE, is the faithful quantity for a bar
-  // that is itself on a difference.
+  // PAIRED differences for the accuracy, Brier and MAE axes — one resample of
+  // events, every model scored on the same draw. `eventBootstrap.ts`'s header
+  // explains why the paired SE, not either side's level SE, is the faithful
+  // quantity for a bar that is itself on a difference.
+  //
+  // Accuracy delta (quick task 260904-oiu, OBJ-BAR): the resampled statistic
+  // is the difference of the two summed correct-counts over the summed
+  // accuracy denominator — mirroring the noise-band comparator's own paired
+  // accuracy statistic (`tune.ts`'s `accuracyDeltaStandardError`). Throws by
+  // NAME if a resampled draw's denominator is zero (every resampled event was
+  // all-ties) rather than silently returning `NaN`.
+  const accuracyDelta = eventBlockedBootstrap(units, (sample) => {
+    let candidateCorrectSum = 0;
+    let incumbentCorrectSum = 0;
+    let denominatorSum = 0;
+    for (const u of sample) {
+      denominatorSum += u.accuracyDenominator;
+      if (u.accuracyDenominator === 1) {
+        if (u.candidateCorrect) candidateCorrectSum += 1;
+        if (u.incumbentCorrect) incumbentCorrectSum += 1;
+      }
+    }
+    if (denominatorSum === 0) {
+      throw new Error(
+        `tune: a resampled origin-season accuracy-delta draw had an accuracy denominator of 0 — every resampled event was an ` +
+          `actual tie, so the accuracy delta cannot be computed for this draw.`
+      );
+    }
+    return (candidateCorrectSum - incumbentCorrectSum) / denominatorSum;
+  });
   const brierDelta = eventBlockedBootstrap(units, (sample) =>
     sample.reduce((sum, u) => sum + (u.candidateBrier - u.incumbentBrier), 0) / sample.length
   );
@@ -1733,6 +2099,7 @@ async function evaluateOriginSeason(
     incumbentVersion: incumbent.version,
     units,
     eventCount: brierDelta.eventCount,
+    accuracyDeltaStandardError: accuracyDelta.standardError,
     brierDeltaStandardError: brierDelta.standardError,
     brierLevelStandardError: brierLevel.standardError,
     maeDeltaStandardError: maeDelta.standardError,

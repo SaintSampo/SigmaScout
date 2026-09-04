@@ -80,6 +80,29 @@ export function outcomeTarget(actualWinner: MatchOutcome): number {
   return 0.5;
 }
 
+/**
+ * The winner-accuracy correctness rule for ONE prediction, extracted so
+ * `scoreSet` below and `packages/harness/tune.ts`'s own per-event accuracy
+ * blocks (quick task 260904-oiu, OBJ-RANK) share the EXACT SAME rule and
+ * cannot drift apart — a private re-derivation in the tuner is exactly the
+ * failure mode this predicate exists to close.
+ *
+ *   - Returns `null` for a prediction excluded from the accuracy denominator
+ *     ENTIRELY: an actual tie has no winner to have predicted.
+ *   - Returns `true` for a correct STRICT call.
+ *   - Returns `false` otherwise, including a `pRedWin === 0.5` no-call
+ *     (D-Q3): an abstention against a decided match is counted as a miss,
+ *     never silently credited to whichever side an operator rounds toward.
+ */
+export function accuracyCall(prediction: ScoredPrediction): boolean | null {
+  if (prediction.actualWinner === "tie") return null;
+  // Only a STRICT preference can be credited, so a 0.5 no-call falls through
+  // both branches and returns `false` — see this function's own doc comment.
+  const favoredWinner: "red" | "blue" | null =
+    prediction.pRedWin > 0.5 ? "red" : prediction.pRedWin < 0.5 ? "blue" : null;
+  return favoredWinner !== null && favoredWinner === prediction.actualWinner;
+}
+
 const EMPTY_RESULT: ScoreSetResult = {
   brierScore: null,
   winnerAccuracy: null,
@@ -108,18 +131,13 @@ export function scoreSet(predictions: readonly ScoredPrediction[]): ScoreSetResu
     if (isTie) tieCount += 1;
     if (isNoCall) noCallCount += 1;
 
-    // D-Q3: every non-tie prediction is in the denominator, including a no-call.
-    if (!isTie) {
+    // D-Q3: every non-tie prediction is in the denominator, including a
+    // no-call. `accuracyCall` returns `null` for exactly the excluded (tied)
+    // case, so this is byte-identical to the retired inline branch.
+    const call = accuracyCall(prediction);
+    if (call !== null) {
       accuracyDenominator += 1;
-      // Only a STRICT preference can be credited, so a 0.5 no-call falls through
-      // both branches and is counted incorrect. Writing it this way — rather than
-      // as a `> 0.5 ? "red" : "blue"` collapse — keeps the abstention from being
-      // silently credited to whichever side the operator happens to round toward.
-      const favoredWinner: "red" | "blue" | null =
-        prediction.pRedWin > 0.5 ? "red" : prediction.pRedWin < 0.5 ? "blue" : null;
-      if (favoredWinner !== null && favoredWinner === prediction.actualWinner) {
-        accuracyCorrect += 1;
-      }
+      if (call) accuracyCorrect += 1;
     }
   }
 

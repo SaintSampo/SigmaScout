@@ -1,87 +1,306 @@
 /**
  * Pure unit tests over the joint search's own logic (`tune.ts`'s
- * `determineWinner`, candidate generation, and the objective's
- * accuracy-blindness) — no corpus, matching the plan's stated scope.
- * `determineWinner` and `SCREEN_SURVIVAL_THRESHOLD` are exported from
- * `tune.ts` specifically so this file can exercise them without spinning up
- * a real corpus replay.
+ * `determineWinner`/`compareCandidates`, candidate generation, and the
+ * noise-band lexicographic objective, quick task 260904-oiu OBJ-RANK/OBJ-BAR)
+ * — no corpus, matching the plan's stated scope. `determineWinner` and
+ * `SCREEN_SURVIVAL_THRESHOLD` are exported from `tune.ts` specifically so
+ * this file can exercise them without spinning up a real corpus replay.
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  accuracyDeltaStandardError,
   assertNoFutureSeasonLeak,
   assertSelectionPrecedesOrigin,
   buildAcceptanceReport,
+  buildEventAccuracyBlocks,
   buildJointArtifact,
   buildPairedOriginUnits,
+  compareCandidates,
   deriveSelectionSeasons,
   determineWinner,
   evaluationCountForBar,
+  isScorablePrediction,
   loadIncumbent,
   loadSurvivors,
   objectiveForCandidate,
+  pairEventAccuracyBlocks,
   planJointCandidates,
   resolveJointSelection,
   selectBestScreenRow,
   SCREEN_SURVIVAL_THRESHOLD,
+  type EventAccuracyBlock,
   type ScreenRow,
 } from "./tune.js";
+import { scoreSet } from "../core/scoring/brier.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { isValidParamSet, SEARCHABLE_PARAM_KEYS, SEARCH_EXCLUSIONS } from "./searchSpace.js";
 import type { ScoreSlice } from "./score.js";
+
+/**
+ * A shared event-key set every fixture candidate below is scored on, so
+ * `pairEventAccuracyBlocks` (the comparator's own pairing step) never refuses
+ * a mismatch — real search candidates in one run all replay the identical
+ * season stream, so this mirrors that invariant.
+ */
+const SHARED_EVENT_KEYS = Array.from({ length: 20 }, (_, i) => `e${i}`);
+
+function accuracyBlocksFromCounts(correctCounts: readonly number[], denominator = 10, season = 2022): EventAccuracyBlock[] {
+  return SHARED_EVENT_KEYS.map((eventKey, i) => ({
+    eventKey,
+    season,
+    correct: correctCounts[i % correctCounts.length]!,
+    denominator,
+  }));
+}
+
+function meanAccuracy(blocks: readonly EventAccuracyBlock[]): number {
+  const correct = blocks.reduce((sum, b) => sum + b.correct, 0);
+  const denominator = blocks.reduce((sum, b) => sum + b.denominator, 0);
+  return correct / denominator;
+}
 
 interface FakeCandidate {
   readonly id: string;
   readonly params: Record<string, number>;
   readonly perSeason: readonly { season: number; brierScore: number | null; winnerAccuracy: number | null }[];
-  readonly objective: number;
+  readonly accuracyObjective: number;
+  readonly brierObjective: number;
+  readonly accuracyBlocks: readonly EventAccuracyBlock[];
 }
 
-function fakeCandidate(id: string, objective: number): FakeCandidate {
+/** A candidate whose accuracy is DERIVED from `correctCounts` (repeated across `SHARED_EVENT_KEYS`) and whose Brier is the given literal. */
+function fakeCandidate(id: string, correctCounts: readonly number[], brierObjective: number, denominator = 10): FakeCandidate {
+  const accuracyBlocks = accuracyBlocksFromCounts(correctCounts, denominator);
+  const accuracyObjective = meanAccuracy(accuracyBlocks);
   return {
     id,
-    params: { marker: objective },
-    perSeason: [{ season: 2022, brierScore: objective, winnerAccuracy: 0.5 }],
-    objective,
+    params: { marker: brierObjective },
+    perSeason: [{ season: 2022, brierScore: brierObjective, winnerAccuracy: accuracyObjective }],
+    accuracyObjective,
+    brierObjective,
+    accuracyBlocks,
   };
 }
 
+// High accuracy: ~80% per event. Low accuracy: ~20% per event. The ~0.6 gap
+// is far larger than any plausible event-blocked bootstrap SE over 20 blocks
+// of this scale, so tests using these two are deterministic without pinning
+// an exact SE value.
+const HIGH_ACCURACY_COUNTS = [7, 8, 9, 8, 7, 9, 8, 7, 9, 8];
+const LOW_ACCURACY_COUNTS = [1, 2, 3, 2, 1, 3, 2, 1, 3, 2];
+// The SAME total correct count as HIGH (just the first two values swapped),
+// so `meanAccuracy` is EXACTLY identical to HIGH's — the accuracy delta is
+// exactly 0, which is trivially inside any positive noise band, without
+// pinning a specific bootstrap SE value. The swap still makes the two
+// candidates' per-event blocks genuinely DIFFERENT (not literally identical
+// arrays), so the band is a real, nonzero, resampled quantity rather than the
+// degenerate all-zero-difference case.
+const NEAR_HIGH_ACCURACY_COUNTS = [8, 7, 9, 8, 7, 9, 8, 7, 9, 8];
+
+describe("compareCandidates (the noise-band lexicographic comparator, OBJ-RANK)", () => {
+  it("accuracy is PRIMARY: a clearly higher accuracy wins even with worse (higher) Brier", () => {
+    const moreAccurateWorseBrier = fakeCandidate("a", HIGH_ACCURACY_COUNTS, 0.5);
+    const lessAccurateBetterBrier = fakeCandidate("b", LOW_ACCURACY_COUNTS, 0.1);
+    const comparison = compareCandidates(moreAccurateWorseBrier as any, lessAccurateBetterBrier as any);
+    expect(comparison.decidedBy).toBe("accuracy");
+    expect(comparison.winner).toBe("a");
+  });
+
+  it("within the noise band, accuracy is a TIE and the LOWER Brier decides", () => {
+    const a = fakeCandidate("a", HIGH_ACCURACY_COUNTS, 0.2);
+    const b = fakeCandidate("b", NEAR_HIGH_ACCURACY_COUNTS, 0.1);
+    // Sanity: the accuracy delta really is inside the band this scenario is
+    // meant to exercise, not merely assumed.
+    const band = accuracyDeltaStandardError(a.accuracyBlocks, b.accuracyBlocks);
+    expect(band).toBeGreaterThan(0);
+    expect(Math.abs(a.accuracyObjective - b.accuracyObjective)).toBeLessThan(band);
+
+    const comparison = compareCandidates(a as any, b as any);
+    expect(comparison.decidedBy).toBe("brier");
+    expect(comparison.winner).toBe("b");
+  });
+
+  it("the sign is right in both directions: swapping the two candidates swaps the answer", () => {
+    const a = fakeCandidate("a", HIGH_ACCURACY_COUNTS, 0.5);
+    const b = fakeCandidate("b", LOW_ACCURACY_COUNTS, 0.1);
+    const ab = compareCandidates(a as any, b as any);
+    const ba = compareCandidates(b as any, a as any);
+    expect(ab.winner).toBe("a");
+    expect(ba.winner).toBe("b");
+    expect(ab.decidedBy).toBe(ba.decidedBy);
+    expect(ab.band).toBeCloseTo(ba.band, 12);
+    expect(ab.accuracyDelta).toBeCloseTo(-ba.accuracyDelta, 12);
+  });
+
+  it("identical accuracy AND identical Brier is an EXACT tie", () => {
+    const a = fakeCandidate("a", HIGH_ACCURACY_COUNTS, 0.15);
+    const b = fakeCandidate("b", HIGH_ACCURACY_COUNTS, 0.15);
+    const comparison = compareCandidates(a as any, b as any);
+    expect(comparison.decidedBy).toBe("exact-tie");
+    expect(comparison.winner).toBe("tie");
+    expect(comparison.band).toBe(0);
+    expect(comparison.accuracyDelta).toBe(0);
+  });
+});
+
+describe("accuracyDeltaStandardError (the noise band IS the paired SE)", () => {
+  it("equals eventBlockedBootstrap's own paired standard error for the same statistic and seed — the band is not a rescaling", async () => {
+    const { eventBlockedBootstrap } = await import("./eventBootstrap.js");
+    const a = accuracyBlocksFromCounts(HIGH_ACCURACY_COUNTS);
+    const b = accuracyBlocksFromCounts(LOW_ACCURACY_COUNTS);
+    const paired = pairEventAccuracyBlocks(a, b);
+    const expected = eventBlockedBootstrap(paired, (sample) => {
+      const aAcc = sample.reduce((s, u) => s + u.aCorrect, 0) / sample.reduce((s, u) => s + u.aDenominator, 0);
+      const bAcc = sample.reduce((s, u) => s + u.bCorrect, 0) / sample.reduce((s, u) => s + u.bDenominator, 0);
+      return aAcc - bAcc;
+    });
+    expect(accuracyDeltaStandardError(a, b)).toBeCloseTo(expected.standardError, 12);
+  });
+
+  it("refuses to pair mismatched event sets by name", () => {
+    const a = accuracyBlocksFromCounts(HIGH_ACCURACY_COUNTS);
+    const shorter = a.slice(0, 5);
+    expect(() => pairEventAccuracyBlocks(a, shorter)).toThrow(/IDENTICAL event set/);
+  });
+});
+
+describe("buildEventAccuracyBlocks (the anti-drift property, OBJ-RANK)", () => {
+  const CANDIDATE_ID = "cand";
+
+  function replayedPrediction(overrides: {
+    matchKey: string;
+    eventKey: string;
+    pRedWin: number;
+    actualWinner: "red" | "blue" | "tie" | null;
+  }) {
+    return {
+      matchKey: overrides.matchKey,
+      season: 2022,
+      actualRedScore: 0,
+      actualBlueScore: 0,
+      eventKey: overrides.eventKey,
+      compLevel: "qm",
+      algorithmId: CANDIDATE_ID,
+      pRedWin: overrides.pRedWin,
+      predictedRedScore: 0,
+      predictedBlueScore: 0,
+      actualWinner: overrides.actualWinner,
+      isOffseason: false,
+      isSurrogateAffected: false,
+    };
+  }
+
+  it("accuracy summed from the blocks equals scoreSet's winnerAccuracy on the SAME fixture, including a tie and a 0.5 no-call", () => {
+    const predictions = [
+      replayedPrediction({ matchKey: "m1", eventKey: "e1", pRedWin: 0.8, actualWinner: "red" }),
+      replayedPrediction({ matchKey: "m2", eventKey: "e1", pRedWin: 0.3, actualWinner: "blue" }),
+      replayedPrediction({ matchKey: "m3", eventKey: "e2", pRedWin: 0.6, actualWinner: "blue" }), // wrong call
+      replayedPrediction({ matchKey: "m4", eventKey: "e2", pRedWin: 0.5, actualWinner: "red" }), // no-call, counted wrong
+      replayedPrediction({ matchKey: "m5", eventKey: "e2", pRedWin: 0.7, actualWinner: "tie" }), // excluded entirely
+    ];
+    const blocks = buildEventAccuracyBlocks(predictions as any, CANDIDATE_ID);
+    const blockCorrect = blocks.reduce((sum, b) => sum + b.correct, 0);
+    const blockDenominator = blocks.reduce((sum, b) => sum + b.denominator, 0);
+
+    const published = scoreSet(
+      predictions.map((p) => ({ pRedWin: p.pRedWin, actualWinner: p.actualWinner as "red" | "blue" | "tie" }))
+    );
+    expect(blockDenominator).toBe(published.count - published.tieCount);
+    expect(blockCorrect / blockDenominator).toBeCloseTo(published.winnerAccuracy!, 12);
+  });
+
+  it("an event whose every prediction is a tie never becomes a block at all", () => {
+    const predictions = [replayedPrediction({ matchKey: "m1", eventKey: "e1", pRedWin: 0.5, actualWinner: "tie" })];
+    const blocks = buildEventAccuracyBlocks(predictions as any, CANDIDATE_ID);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("applies isScorablePrediction's exclusions (offseason, surrogate-affected, null result, invalid pRedWin)", () => {
+    const predictions = [
+      { ...replayedPrediction({ matchKey: "m1", eventKey: "e1", pRedWin: 0.8, actualWinner: "red" }), isOffseason: true },
+      { ...replayedPrediction({ matchKey: "m2", eventKey: "e1", pRedWin: 0.8, actualWinner: "red" }), isSurrogateAffected: true },
+      replayedPrediction({ matchKey: "m3", eventKey: "e1", pRedWin: 0.8, actualWinner: null }),
+      { ...replayedPrediction({ matchKey: "m4", eventKey: "e1", pRedWin: Number.NaN, actualWinner: "red" }) },
+    ];
+    expect(isScorablePrediction(predictions[0] as any)).toBe(false);
+    expect(isScorablePrediction(predictions[1] as any)).toBe(false);
+    expect(isScorablePrediction(predictions[2] as any)).toBe(false);
+    expect(isScorablePrediction(predictions[3] as any)).toBe(false);
+    const blocks = buildEventAccuracyBlocks(predictions as any, CANDIDATE_ID);
+    expect(blocks).toHaveLength(0);
+  });
+});
+
 describe("determineWinner", () => {
-  it("selects the strictly lowest-objective candidate", () => {
-    const results = [fakeCandidate("a", 0.2), fakeCandidate("b", 0.1), fakeCandidate("c", 0.15)];
+  it("selects the candidate the comparator strictly favors (accuracy-primary)", () => {
+    const results = [
+      fakeCandidate("a", LOW_ACCURACY_COUNTS, 0.2),
+      fakeCandidate("b", HIGH_ACCURACY_COUNTS, 0.1),
+      fakeCandidate("c", LOW_ACCURACY_COUNTS, 0.15),
+    ];
     const { winnerIndex, ties } = determineWinner(results as any);
     expect(winnerIndex).toBe(1);
     expect(ties).toHaveLength(0);
   });
 
-  it("breaks an exact tie by keeping the earlier-generated candidate, and records the tie", () => {
-    const results = [fakeCandidate("a", 0.1), fakeCandidate("b", 0.1), fakeCandidate("c", 0.2)];
+  it("breaks an exact tie by keeping the earlier-generated candidate, and records the tie with both objectives", () => {
+    const results = [
+      fakeCandidate("a", HIGH_ACCURACY_COUNTS, 0.1),
+      fakeCandidate("b", HIGH_ACCURACY_COUNTS, 0.1),
+      fakeCandidate("c", LOW_ACCURACY_COUNTS, 0.2),
+    ];
     const { winnerIndex, ties } = determineWinner(results as any);
     expect(winnerIndex).toBe(0);
     expect(ties).toHaveLength(1);
     expect(ties[0]!.winnerIndex).toBe(0);
     expect(ties[0]!.tiedIndex).toBe(1);
-    expect(ties[0]!.objective).toBe(0.1);
+    expect(ties[0]!.brierObjective).toBe(0.1);
+    expect(ties[0]!.accuracyObjective).toBeCloseTo(results[0]!.accuracyObjective, 12);
     // Full parameter sets recorded for both sides of the tie.
     expect(ties[0]!.winnerParams).toEqual({ marker: 0.1 });
     expect(ties[0]!.tiedParams).toEqual({ marker: 0.1 });
   });
 
-  it("is deterministic: re-running the same input selects the same winner every time", () => {
-    const results = [fakeCandidate("a", 0.3), fakeCandidate("b", 0.1), fakeCandidate("c", 0.1), fakeCandidate("d", 0.05)];
+  it("is deterministic: re-running the same input array selects the same winner, ties, and noise-band-resolved count every time", () => {
+    const results = [
+      fakeCandidate("a", LOW_ACCURACY_COUNTS, 0.3),
+      fakeCandidate("b", HIGH_ACCURACY_COUNTS, 0.1),
+      fakeCandidate("c", NEAR_HIGH_ACCURACY_COUNTS, 0.05),
+      fakeCandidate("d", LOW_ACCURACY_COUNTS, 0.2),
+    ];
     const first = determineWinner(results as any);
     const second = determineWinner(results as any);
     expect(second.winnerIndex).toBe(first.winnerIndex);
     expect(second.ties).toEqual(first.ties);
-    expect(first.winnerIndex).toBe(3);
+    expect(second.noiseBandResolvedCount).toBe(first.noiseBandResolvedCount);
+    // b and c are within the noise band of each other (brier decides, c wins on lower brier).
+    expect(first.winnerIndex).toBe(2);
   });
 
   it("candidate 0 wins outright when every other candidate is strictly worse", () => {
-    const results = [fakeCandidate("default", 0.1), fakeCandidate("worse-1", 0.2), fakeCandidate("worse-2", 0.15)];
+    const results = [
+      fakeCandidate("default", HIGH_ACCURACY_COUNTS, 0.1),
+      fakeCandidate("worse-1", LOW_ACCURACY_COUNTS, 0.2),
+      fakeCandidate("worse-2", LOW_ACCURACY_COUNTS, 0.15),
+    ];
     const { winnerIndex } = determineWinner(results as any);
     expect(winnerIndex).toBe(0);
+  });
+
+  it("reports how many comparisons were resolved by Brier inside the noise band — VISIBLE, not invisible", () => {
+    // b and c are accuracy-tied (NEAR_HIGH vs HIGH); a is clearly less
+    // accurate than both. Exactly one of the two comparisons against the
+    // running winner is brier-resolved.
+    const results = [
+      fakeCandidate("a", LOW_ACCURACY_COUNTS, 0.3),
+      fakeCandidate("b", HIGH_ACCURACY_COUNTS, 0.2),
+      fakeCandidate("c", NEAR_HIGH_ACCURACY_COUNTS, 0.1),
+    ];
+    const { noiseBandResolvedCount } = determineWinner(results as any);
+    expect(noiseBandResolvedCount).toBe(1);
   });
 });
 
@@ -109,30 +328,46 @@ function fakeSlice(algorithmId: string, season: number, brierScore: number, winn
   };
 }
 
-describe("D-01: the objective ignores winner accuracy", () => {
+describe("objectiveForCandidate (OBJ-RANK: accuracy is now READ, not ignored)", () => {
   /**
-   * Two synthetic slice sets with IDENTICAL brierScore and DRASTICALLY
-   * DIFFERENT winnerAccuracy must produce the IDENTICAL objective under
-   * `tune.ts`'s own `objectiveForCandidate` (mean brierScore, combined
-   * view) — accuracy is recorded in `perSeason` alongside but never enters
-   * `objective` (D-01's own must-have truth). This drives the exact
-   * function `evaluateCandidateBatch` calls, not a re-derivation of it.
+   * D-01's retired contract asserted the objective IGNORES winner accuracy.
+   * Quick task 260904-oiu flips that: `accuracyObjective` is the mean
+   * per-season `winnerAccuracy`, and two candidates with IDENTICAL Brier but
+   * DIFFERENT accuracy must now report DIFFERENT `accuracyObjective` values
+   * (the opposite of the retired test this replaces).
    */
-  it("ranks two candidates with equal Brier and wildly different accuracy as equal", () => {
+  it("two candidates with equal Brier and different accuracy report the SAME brierObjective but DIFFERENT accuracyObjective", () => {
     const slices: ScoreSlice[] = [
       fakeSlice("same-brier-high-accuracy", 2022, 0.17, 0.95),
       fakeSlice("same-brier-low-accuracy", 2022, 0.17, 0.05),
     ];
     const a = objectiveForCandidate(slices, "same-brier-high-accuracy");
     const b = objectiveForCandidate(slices, "same-brier-low-accuracy");
-    expect(a.objective).toBe(b.objective);
-    expect(a.objective).toBe(0.17);
-    // The accuracy values themselves are still recorded in perSeason (never
-    // discarded) -- only excluded from `objective`.
+    expect(a.brierObjective).toBe(b.brierObjective);
+    expect(a.brierObjective).toBe(0.17);
+    expect(a.accuracyObjective).toBe(0.95);
+    expect(b.accuracyObjective).toBe(0.05);
+    expect(a.accuracyObjective).not.toBe(b.accuracyObjective);
+    // Still recorded in perSeason too, unchanged.
     expect(a.perSeason[0]!.winnerAccuracy).toBe(0.95);
     expect(b.perSeason[0]!.winnerAccuracy).toBe(0.05);
   });
 
+  it("accuracyObjective is the MEAN per-season winnerAccuracy across multiple seasons", () => {
+    const slices: ScoreSlice[] = [
+      fakeSlice("cand", 2022, 0.17, 0.6),
+      fakeSlice("cand", 2023, 0.15, 0.8),
+    ];
+    const result = objectiveForCandidate(slices, "cand");
+    expect(result.accuracyObjective).toBeCloseTo(0.7, 12);
+    expect(result.brierObjective).toBeCloseTo(0.16, 12);
+  });
+
+  it("accuracyObjective is NEGATIVE_INFINITY and brierObjective is POSITIVE_INFINITY when no season scored (the empty edge)", () => {
+    const result = objectiveForCandidate([], "cand");
+    expect(result.accuracyObjective).toBe(Number.NEGATIVE_INFINITY);
+    expect(result.brierObjective).toBe(Number.POSITIVE_INFINITY);
+  });
 });
 
 /**
@@ -301,8 +536,11 @@ describe("buildJointArtifact (D-T5's recorded discipline)", () => {
     rejectedCandidates: 0,
     ties: [],
     winnerIndex: 0,
+    noiseBandResolvedCount: 0,
     atBound: { linkC: false },
-    results: [{ id: "cand-0", params: DEFAULT_SIGMA1_PARAMS, perSeason: [], objective: 0.17 }],
+    results: [
+      { id: "cand-0", params: DEFAULT_SIGMA1_PARAMS, perSeason: [], accuracyObjective: 0.6, brierObjective: 0.17, accuracyBlocks: [] },
+    ],
   };
 
   it("records origin, selectionSeasons and overfittingGuard", () => {
@@ -357,7 +595,14 @@ describe("evaluationCountForBar (D-T7's N)", () => {
 });
 
 describe("buildPairedOriginUnits (the paired comparison's precondition)", () => {
-  const row = (matchKey: string, eventKey: string, brier: number, absoluteError: number) => ({ matchKey, eventKey, brier, absoluteError });
+  const row = (
+    matchKey: string,
+    eventKey: string,
+    brier: number,
+    absoluteError: number,
+    accuracyDenominator: 0 | 1 = 1,
+    correct: boolean | null = true
+  ) => ({ matchKey, eventKey, brier, absoluteError, accuracyDenominator, correct });
 
   it("pairs by matchKey, not by array position", () => {
     const candidate = [row("m1", "e1", 0.1, 5), row("m2", "e1", 0.2, 6)];
@@ -370,6 +615,15 @@ describe("buildPairedOriginUnits (the paired comparison's precondition)", () => 
     expect(units[0]!.candidateBrier).toBe(0.1);
     expect(units[0]!.incumbentBrier).toBe(0.3);
     expect(units[1]!.incumbentAbsoluteError).toBe(9);
+  });
+
+  it("carries the shared accuracy denominator and both models' correct-call flags", () => {
+    const candidate = [row("m1", "e1", 0.1, 5, 1, true)];
+    const incumbent = [row("m1", "e1", 0.3, 8, 1, false)];
+    const units = buildPairedOriginUnits(candidate as never, incumbent as never);
+    expect(units[0]!.accuracyDenominator).toBe(1);
+    expect(units[0]!.candidateCorrect).toBe(true);
+    expect(units[0]!.incumbentCorrect).toBe(false);
   });
 
   it("throws when the two lists differ in LENGTH", () => {
@@ -386,21 +640,45 @@ describe("buildPairedOriginUnits (the paired comparison's precondition)", () => 
     const incumbent = [row("m1", "e1", 0.3, 8), row("m3", "e1", 0.4, 9)];
     expect(() => buildPairedOriginUnits(candidate as never, incumbent as never)).toThrow(/"m2" was scored for the candidate but not for/);
   });
+
+  it("throws when the two rows' accuracyDenominator disagree for the same match — a fact about the match, not the model", () => {
+    const candidate = [row("m1", "e1", 0.1, 5, 1, true)];
+    const incumbent = [row("m1", "e1", 0.3, 8, 0, null)];
+    expect(() => buildPairedOriginUnits(candidate as never, incumbent as never)).toThrow(/DIFFERENT accuracy denominators/);
+  });
 });
 
-describe("buildAcceptanceReport (D-T7's three outcomes, as the artifact records them)", () => {
+describe("buildAcceptanceReport (D-T7's FOUR outcomes since OBJ-BAR, as the artifact records them)", () => {
   /**
-   * Synthetic paired units with an exactly-known mean difference, so the
-   * report's arithmetic is checkable without a corpus. Two events, so the
-   * event-blocked bootstrap in the real path would have something to resample;
-   * here the SEs are injected directly, which is the point — this test is
-   * about the wiring, not about the resampler.
+   * Synthetic paired units built to an EXACT known accuracy/Brier/MAE mean,
+   * so the report's arithmetic is checkable without a corpus. A large N
+   * (10,000) lets `candidateAccuracy`/`incumbentAccuracy` land on any
+   * requested fraction exactly; every unit's SE is injected directly via
+   * `BASE`, which is the point — this test is about the WIRING, not about
+   * the resampler (already covered by `eventBootstrap.test.ts`).
    */
-  function units(candidateBrier: number, incumbentBrier: number, candidateMae: number, incumbentMae: number) {
-    return [
-      { eventKey: "e1", matchKey: "m1", candidateBrier, incumbentBrier, candidateAbsoluteError: candidateMae, incumbentAbsoluteError: incumbentMae },
-      { eventKey: "e2", matchKey: "m2", candidateBrier, incumbentBrier, candidateAbsoluteError: candidateMae, incumbentAbsoluteError: incumbentMae },
-    ];
+  const UNIT_COUNT = 10_000;
+  function units(
+    candidateAccuracy: number,
+    incumbentAccuracy: number,
+    candidateBrier: number,
+    incumbentBrier: number,
+    candidateMae: number,
+    incumbentMae: number
+  ) {
+    const candidateCorrectCount = Math.round(candidateAccuracy * UNIT_COUNT);
+    const incumbentCorrectCount = Math.round(incumbentAccuracy * UNIT_COUNT);
+    return Array.from({ length: UNIT_COUNT }, (_, i) => ({
+      eventKey: `e${i % 20}`,
+      matchKey: `m${i}`,
+      candidateBrier,
+      incumbentBrier,
+      candidateAbsoluteError: candidateMae,
+      incumbentAbsoluteError: incumbentMae,
+      accuracyDenominator: 1 as const,
+      candidateCorrect: i < candidateCorrectCount,
+      incumbentCorrect: i < incumbentCorrectCount,
+    }));
   }
 
   const BASE = {
@@ -408,24 +686,25 @@ describe("buildAcceptanceReport (D-T7's three outcomes, as the artifact records 
     selectionSeasons: [2022, 2023, 2024],
     incumbentVersionPath: "data/algorithm-versions/vpr@4.0.0+tuned-2026-08.json",
     incumbentVersion: "4.0.0+tuned-2026-08",
-    eventCount: 2,
-    brierDeltaStandardError: 0.0005,
+    eventCount: 20,
+    accuracyDeltaStandardError: 0.0005,
+    brierDeltaStandardError: 0.0008,
     brierLevelStandardError: 0.00122,
     maeDeltaStandardError: 0.02,
     evaluationCount: 58,
   };
 
-  it("accept: a comfortable margin with unchanged MAE", () => {
-    // Bar at N=58, SE 0.0005 is sqrt(2 ln 58) * 0.0005 ~ 0.00143. Margin 0.01.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 20, 20) });
+  it("accept: a comfortable accuracy margin, Brier and MAE unchanged", () => {
+    // Bar at N=58, accuracy SE 0.0005 is sqrt(2 ln 58) * 0.0005 ~ 0.00349. Margin 0.01.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 20, 20) });
     expect(report.outcome.decision).toBe("accept");
     expect(report.verdict).toMatch(/ACCEPTED/);
-    expect(report.candidateBrier).toBeCloseTo(0.15, 12);
-    expect(report.incumbentBrier).toBeCloseTo(0.16, 12);
+    expect(report.candidateAccuracy).toBeCloseTo(0.61, 3);
+    expect(report.incumbentAccuracy).toBeCloseTo(0.6, 3);
   });
 
-  it("keep-incumbent / below-threshold: a positive but sub-bar margin, reported as a completed search", () => {
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.1599, 0.16, 20, 20) });
+  it("keep-incumbent / below-threshold: a positive but sub-bar accuracy margin, reported as a completed search", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.6002, 0.6, 0.16, 0.16, 20, 20) });
     expect(report.outcome.decision).toBe("keep-incumbent");
     expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
     expect(report.verdict).toMatch(/INCUMBENT STANDS/);
@@ -434,48 +713,59 @@ describe("buildAcceptanceReport (D-T7's three outcomes, as the artifact records 
     expect(report.verdict).toMatch(/completed search, not a failed one/);
   });
 
-  it("keep-incumbent / mae-veto: bar cleared, guardrail tripped, and the reported reason names the VETO", () => {
-    // +8% MAE (20 -> 21.6) against a small SE: both halves of the guardrail's
-    // AND are satisfied, the shape of the regression that motivated it.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 21.6, 20) });
+  it("keep-incumbent / mae-veto: accuracy bar cleared, MAE guardrail tripped, and the reported reason names the VETO", () => {
+    // Accuracy clears the bar; Brier unchanged; +8% MAE (20 -> 21.6) against
+    // a small SE: both halves of the MAE guardrail's AND are satisfied.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 21.6, 20) });
     expect(report.outcome.decision).toBe("keep-incumbent");
     expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("mae-veto");
     expect(report.verdict).toMatch(/VETOED/);
     // The report must say the candidate was vetoed on MAE, not the far less
-    // useful "nothing was accepted" -- the Brier bar WAS cleared.
+    // useful "nothing was accepted" -- the accuracy bar WAS cleared.
     expect(report.verdict).toMatch(/and was cleared/);
   });
 
+  it("keep-incumbent / brier-veto: accuracy bar cleared, MAE unchanged, Brier guardrail tripped — the whole point of OBJ-BAR", () => {
+    // Accuracy clears the bar; MAE unchanged; Brier worsens by 0.008 (5% of
+    // 0.16), well past both the relative bound (0.0016) and the noise bound
+    // (2 * 0.0008 = 0.0016) at BASE's brierDeltaStandardError.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.168, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("brier-veto");
+    expect(report.verdict).toMatch(/VETOED/);
+    expect(report.verdict).toMatch(/and was cleared/);
+    expect(report.verdict).toMatch(/more accurate/);
+  });
+
   /**
-   * The negative-margin path — a candidate genuinely WORSE than the incumbent
-   * — was uncovered until this case, and that gap is exactly why a report
-   * describing a losing candidate as a winner shipped. `outcome.margin` is
-   * SIGNED (`incumbentBrier - candidateBrier`), so the prefix's old
-   * directional verb rendered "its winner beat the incumbent by -0.010000":
-   * a claim that asserts the opposite of the number beside it. All three
-   * cases above feed a POSITIVE margin, so none of them could ever see it.
+   * The negative-margin path — a candidate genuinely LESS ACCURATE than the
+   * incumbent — was uncovered until this case (260904-4ik), and that gap is
+   * exactly why a report describing a losing candidate as a winner shipped.
+   * `outcome.accuracyMargin` is SIGNED (`candidateAccuracy - incumbentAccuracy`),
+   * so it is negative here. A directional verb in the shared prefix would
+   * assert the OPPOSITE of the number beside it on this outcome.
    */
-  it("keep-incumbent / below-threshold with a NEGATIVE margin: the verdict claims no win", () => {
-    // Candidate 0.17 vs incumbent 0.16 => margin -0.01, genuinely worse.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.17, 0.16, 20, 20) });
+  it("keep-incumbent / below-threshold with a NEGATIVE accuracy margin: the verdict claims no win", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.59, 0.6, 0.16, 0.16, 20, 20) });
     expect(report.outcome.decision).toBe("keep-incumbent");
     expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
-    expect(report.outcome.margin).toBeCloseTo(-0.01, 12);
+    expect(report.outcome.accuracyMargin).toBeCloseTo(-0.01, 3);
     expect(report.verdict).toMatch(/INCUMBENT STANDS/);
     // The point of the case: the shared prefix must report the signed number
     // without claiming a side, or every keep-incumbent report reads as a win.
     expect(report.verdict).not.toMatch(/beat the incumbent/);
   });
 
-  it("records evaluationCount, the threshold, and BOTH SEs under distinct, unconfusable names", () => {
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 20, 20) });
+  it("records evaluationCount, the threshold, and ALL THREE SEs under distinct, unconfusable names", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 20, 20) });
     expect(report.outcome.evaluationCount).toBe(58);
     expect(report.outcome.threshold).toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.0005, 12);
-    expect(report.brierDeltaStandardError).toBe(0.0005);
+    expect(report.accuracyDeltaStandardError).toBe(0.0005);
+    expect(report.brierDeltaStandardError).toBe(0.0008);
     expect(report.brierLevelStandardError).toBe(0.00122);
-    // The paired SE is the one the bar was built from; the level SE is
-    // reported only. Confusing them is the mistake the distinct names exist to
-    // prevent, so assert the bar used the paired one.
+    // The bar is built on the ACCURACY paired SE — confusing it with either
+    // Brier SE is the mistake the distinct names exist to prevent.
+    expect(report.outcome.threshold).not.toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.0008, 12);
     expect(report.outcome.threshold).not.toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.00122, 12);
     expect(report.verdict).toMatch(/N = 58/);
   });
