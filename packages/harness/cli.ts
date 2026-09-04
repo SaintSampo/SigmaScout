@@ -17,10 +17,12 @@
  *
  * D-16/D-19 (plan 02-03): `--seasons` threads each algorithm's state
  * across every season boundary in the range via `algorithm.carrySeason`,
- * rather than starting every season fresh — see `runSeasons` below.
- * `--cold-start-season` overrides which season is treated as having
- * nothing to carry from (defaults to `COLD_START_SEASON`), so extending
- * the corpus back to 2016 is a flag, not an edit.
+ * rather than starting every season fresh — see `runSeasons` below. The
+ * first season in the range is the cold start by construction (D-1,
+ * quick task 260904-cs1) — no state exists to carry into it, whatever
+ * season that happens to be. `--cold-start-season` survives only as a
+ * diagnostic override, forcing a season that is NOT first in the range to
+ * start cold anyway.
  *
  * `--measure-update-cost` (plan 02-06 Task 2): wraps every algorithm's
  * `update` with a sampled high-resolution timer before the run starts and
@@ -50,7 +52,6 @@ import {
   makeSigma1,
   DEFAULT_SIGMA1_PARAMS,
 } from "../core/algorithms/sigma1/index.js";
-import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
   openCorpus,
   openCorpusReadOnly,
@@ -595,8 +596,9 @@ async function runSeason(
  * predictions be informed by 2022-2025 rather than starting every season
  * from a fresh cold start.
  *
- * At each season after `coldStartSeason`, every algorithm that implements
- * `carrySeason` is carried forward from its live state via
+ * At every season after the first one in `seasons` (the positional cold
+ * start, D-1), every algorithm that implements `carrySeason` is carried
+ * forward from its live state via
  * `algorithm.carrySeason(state, boundary)`; the carried states become that
  * season's `initialStates` for `runSeason`/`WalkForwardSimulator.runAll`.
  * An algorithm with no `carrySeason` (OPR) is deliberately left OUT of
@@ -639,7 +641,7 @@ export async function runSeasons(
   seasons: readonly number[],
   algorithms: readonly AlgorithmModule<any>[],
   includeOffseason: boolean,
-  coldStartSeason: number,
+  coldStartSeason?: number,
   sidecarConfig?: RunSeasonsSidecarConfig
 ): Promise<HarnessPredictionInput[]> {
   const all: HarnessPredictionInput[] = [];
@@ -657,7 +659,11 @@ export async function runSeasons(
 
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (boundary.isColdStart) {
-      console.log(`Season ${season}: cold-start season (--cold-start-season=${coldStartSeason}) — every algorithm starts fresh.`);
+      const reason =
+        coldStartSeason === undefined
+          ? "first season in this run"
+          : `--cold-start-season=${coldStartSeason} override`;
+      console.log(`Season ${season}: cold-start season (${reason}) — every algorithm starts fresh.`);
     } else {
       const carried = new Map<string, unknown>();
       for (const algorithm of algorithms) {
@@ -709,7 +715,7 @@ async function runSeasonsMode(
   algorithms: readonly AlgorithmModule<any>[],
   outDir: string,
   includeOffseason: boolean,
-  coldStartSeason: number,
+  coldStartSeason: number | undefined,
   predictionsOutDir: string,
   writeMetricHistory: boolean
 ): Promise<void> {
@@ -867,9 +873,17 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
   }
 }
 
-/** `--cold-start-season <year>` (D-19): parses to a 4-digit year, defaulting to `COLD_START_SEASON` when omitted. */
-function parseColdStartSeason(spec: string | undefined): number {
-  if (spec === undefined) return COLD_START_SEASON;
+/**
+ * `--cold-start-season <year>` (D-19, narrowed by D-1/D-4, quick task
+ * 260904-cs1): parses to a 4-digit year, or `undefined` when omitted — the
+ * positional default (the first season in `--seasons` cold-starts by
+ * construction) then applies with no flag needed. Supplying this flag is a
+ * deliberate diagnostic override that forces some OTHER season to start
+ * cold, discarding its carried state; it is not how the corpus's replay
+ * range is extended.
+ */
+function parseColdStartSeason(spec: string | undefined): number | undefined {
+  if (spec === undefined) return undefined;
   const season = Number.parseInt(spec, 10);
   if (!Number.isInteger(season)) {
     throw new Error(`--cold-start-season must be a 4-digit year, got "${spec}"`);

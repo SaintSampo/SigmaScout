@@ -201,7 +201,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
-import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import {
@@ -419,7 +418,13 @@ async function runBoundedSeasons(
     // element of `seasons`, not `season - 1` — see `seasonBoundary.ts`'s doc
     // comment for why a hardcoded label became a live behavioural input the
     // moment `carrySeason` started reading `fromSeason` to compute a gap.
-    const boundary = seasonBoundaryFor(seasons, seasonIdx, COLD_START_SEASON);
+    // Quick task 260904-cs1 (D-1): the cold start is positional, not a
+    // module constant this replay range has to agree with — the first
+    // season in `seasons` (whatever it is) has no predecessor to carry
+    // from, so it cold-starts by construction. A `[2019, 2020, 2022]`
+    // origin-2022 replay now cold-starts 2019 and carries two seasons of
+    // state into 2022, instead of discarding them at 2022.
+    const boundary = seasonBoundaryFor(seasons, seasonIdx);
 
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (!boundary.isColdStart) {

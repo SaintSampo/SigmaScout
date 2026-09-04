@@ -12,7 +12,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
@@ -302,7 +301,7 @@ function replayTwoSeasonsWithCarry(
   const all: PredictionRecord[] = [];
   let state: unknown;
   for (const [seasonIdx, season] of seasons.entries()) {
-    const boundary = seasonBoundaryFor(seasons, seasonIdx, COLD_START_SEASON);
+    const boundary = seasonBoundaryFor(seasons, seasonIdx);
     const stream = streamsBySeason.get(season)!;
     const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 

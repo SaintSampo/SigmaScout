@@ -157,8 +157,8 @@ describe("runSeasons — T-02-08: no future season leaks backward into an earlie
   it("EPA: a 2022-only run's 2022 predictions are byte-identical to the 2022 portion of a 2022-2023 run's predictions", async () => {
     seedTwoSeasonCorpus();
 
-    const combinedRun = await runSeasons(db, [2022, 2023], [epa], false, 2022);
-    const soloRun = await runSeasons(db, [2022], [epa], false, 2022);
+    const combinedRun = await runSeasons(db, [2022, 2023], [epa], false);
+    const soloRun = await runSeasons(db, [2022], [epa], false);
 
     const combined2022 = sortByMatchKeyAndAlgorithm(combinedRun.filter((p) => p.season === 2022));
     const solo2022 = sortByMatchKeyAndAlgorithm(soloRun);
@@ -172,8 +172,8 @@ describe("runSeasons — T-02-08: no future season leaks backward into an earlie
   it("OPR (no carrySeason): a 2022-only run's 2022 predictions are byte-identical to the 2022 portion of a 2022-2023 run's predictions", async () => {
     seedTwoSeasonCorpus();
 
-    const combinedRun = await runSeasons(db, [2022, 2023], [opr], false, 2022);
-    const soloRun = await runSeasons(db, [2022], [opr], false, 2022);
+    const combinedRun = await runSeasons(db, [2022, 2023], [opr], false);
+    const soloRun = await runSeasons(db, [2022], [opr], false);
 
     const combined2022 = sortByMatchKeyAndAlgorithm(combinedRun.filter((p) => p.season === 2022));
     const solo2022 = sortByMatchKeyAndAlgorithm(soloRun);
@@ -185,8 +185,8 @@ describe("runSeasons — T-02-08: no future season leaks backward into an earlie
   it("EPA's 2023 predictions in the combined run differ from a from-scratch 2023-only run (carry is doing something, not silently no-opping)", async () => {
     seedTwoSeasonCorpus();
 
-    const combinedRun = await runSeasons(db, [2022, 2023], [epa], false, 2022);
-    const noCarryRun = await runSeasons(db, [2023], [epa], false, 2022);
+    const combinedRun = await runSeasons(db, [2022, 2023], [epa], false);
+    const noCarryRun = await runSeasons(db, [2023], [epa], false);
 
     const combined2023 = sortByMatchKeyAndAlgorithm(combinedRun.filter((p) => p.season === 2023));
     const noCarry2023 = sortByMatchKeyAndAlgorithm(noCarryRun);

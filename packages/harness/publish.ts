@@ -55,7 +55,6 @@ import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
-import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
 import { applyPromotedOverrides } from "./cli.js";
@@ -1318,6 +1317,14 @@ export interface PublishSeasonsOptions {
    * disappearing.
    */
   readonly includeOffseason?: boolean;
+  /**
+   * Quick task 260904-cs1 (D-1/D-4): the cold start is positional by
+   * construction — the first season of `options.seasons` (sorted) has no
+   * predecessor to carry from, so it cold-starts with no flag needed. This
+   * field survives only as a deliberate diagnostic override: set it to
+   * force some OTHER season to start cold, discarding its carried state.
+   * Leave it unset for an ordinary publish run.
+   */
   readonly coldStartSeason?: number;
   readonly generation?: string;
   readonly computedAt?: string;
@@ -1505,7 +1512,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const dryRun = options.dryRun ?? false;
   const includeOffseason = options.includeOffseason ?? false;
-  const coldStartSeason = options.coldStartSeason ?? COLD_START_SEASON;
+  const coldStartSeason = options.coldStartSeason;
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
 
@@ -1605,7 +1612,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const boundary = seasonBoundaryFor(seasonsSorted, seasonIdx, coldStartSeason);
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (boundary.isColdStart) {
-      console.log(`publish: season ${season} is the cold-start season (${coldStartSeason}) — every algorithm starts fresh.`);
+      const reason = coldStartSeason === undefined ? "first season in this run" : `coldStartSeason=${coldStartSeason} override`;
+      console.log(`publish: season ${season} is the cold-start season (${reason}) — every algorithm starts fresh.`);
     } else {
       const carried = new Map<string, unknown>();
       for (const algorithm of options.algorithms) {
