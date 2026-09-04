@@ -8,6 +8,32 @@ priority: medium
 
 # A never-seen team publishes `0 ± 0`
 
+> **CLOSED 2026-09-04 (quick task 260904-n9n) — the defect does not exist; the missing
+> test now does.** This file's own first instruction ("do not assume it, locate it") was
+> followed and the answer is that no defaulting site exists: all three algorithms OMIT a
+> never-seen team from `teamMetrics` (sigma1 `index.ts:1553`, `epa.ts:797`,
+> `opr.ts:467-469`), publish and the Worker default the missing entry to `metrics: {}`
+> (never zeros), the client renders a blank cell for a missing metric while a real zero
+> renders `0.00` (`MetricValue.tsx` + its test), missing totals rank last with a
+> deterministic tie-break, and a zero-match win rate is `null`, "never a coerced zero"
+> (`rowModel.ts`). The percentile pools likewise exclude valueless teams (260904-586,
+> "never counted as a zero").
+>
+> **The representation decision this file asked for is option (b), already in force** —
+> decided piecewise by the 2026-09-01 blank-cell user request, 260904-586's pool
+> exclusion, and rowModel's missing-sorts-last contract. Recorded here per item 3 so it
+> is not re-litigated.
+>
+> **What was actually missing** was a pin on the omission contract itself: nothing
+> asserted `teamMetrics` returns an ABSENT entry (rather than zeros) for an unknown team,
+> so a refactor of `continue` into a zero-fill would have shipped `0 ± 0` with a green
+> suite. 260904-n9n added that test to all three algorithm suites (items 4 and 5).
+> Item 6 (sort order) was already pinned by `rowModel.test.ts`.
+>
+> Related but separately decided, not this file's case: a team IN state via carry with no
+> folded matches publishes a bare value with NO spread — the D-Y1 contract, pinned with
+> rationale in `sigma1.test.ts`.
+
 ## What changed
 
 Nothing — and that is the point. Quick task 260901-is2 fixed the ± for teams that **have**
