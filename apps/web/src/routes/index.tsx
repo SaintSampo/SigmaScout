@@ -82,7 +82,13 @@ export function Podium() {
   // throw catches exactly the condition the contract names and nothing else.
   let podium: PodiumEntry[];
   try {
-    podium = pooledAccuracyPodium(results.map((r) => r.data!));
+    // WR-03 (260902-post-phase08-ungoverned-ui/REVIEW.md): `useQueries`
+    // preserves input order, so `PODIUM_SEASONS[index]` is exactly the year
+    // that query fetched — pairing them here (rather than re-deriving a year
+    // from the fetched data, which the artifact does not carry) is what lets
+    // `pooledAccuracyPodium` assert each slice against the season its own
+    // caller asked for.
+    podium = pooledAccuracyPodium(results.map((r, index) => ({ season: PODIUM_SEASONS[index]!, artifact: r.data! })));
   } catch {
     return null;
   }
@@ -98,7 +104,23 @@ export function Podium() {
     { entry: podium[0]!, place: 0 },
     { entry: podium[2]!, place: 2 },
   ];
-  const totalScored = podium[0]!.scoredCount;
+  // WR-03 (260902-post-phase08-ungoverned-ui/REVIEW.md): the caption used to
+  // read the LEADER's scored count alone and caption ALL THREE entries with
+  // it, claiming "each" regardless of whether the other two actually shared
+  // that count. They are NOT guaranteed to: `pooledAccuracyPodium` accumulates
+  // each algorithm's scored count independently (a season with a null
+  // `winnerAccuracy` for one algorithm is skipped for THAT algorithm alone,
+  // per `homePodium.ts`), so "each" is not a safe claim in general even
+  // though — verified at plan time — it happens to be true of every
+  // currently published artifact. Collect the distinct counts and only claim
+  // "each" when there really is exactly one; otherwise render the honest
+  // min-max range.
+  const scoredCounts = podium.map((entry) => entry.scoredCount);
+  const uniqueScoredCounts = Array.from(new Set(scoredCounts));
+  const scoredCaption =
+    uniqueScoredCounts.length === 1
+      ? `${uniqueScoredCounts[0]!.toLocaleString("en-US")} matches each`
+      : `${Math.min(...scoredCounts).toLocaleString("en-US")}–${Math.max(...scoredCounts).toLocaleString("en-US")} matches`;
 
   return (
     <div data-testid={HOME_PODIUM_TESTID} className="flex flex-col items-center gap-[var(--spacing-sm)]">
@@ -108,7 +130,7 @@ export function Podium() {
         ))}
       </div>
       <p className="text-role-label text-[var(--color-text-muted)]">
-        {`Winner accuracy, ${PODIUM_SEASONS[0]}–${PODIUM_SEASONS[PODIUM_SEASONS.length - 1]} pooled · ${totalScored.toLocaleString("en-US")} matches each, scored walk-forward`}
+        {`Winner accuracy, ${PODIUM_SEASONS[0]}–${PODIUM_SEASONS[PODIUM_SEASONS.length - 1]} pooled · ${scoredCaption}, scored walk-forward`}
       </p>
     </div>
   );

@@ -87,6 +87,43 @@ describe("row anatomy", () => {
   });
 });
 
+/**
+ * WR-05 (260902-post-phase08-ungoverned-ui/REVIEW.md): before this fix
+ * `data-selected` was hardcoded `"true"` and the accent border/background
+ * always rendered, so the slider's index-0 preview (rendered with nothing
+ * selected) looked chosen while the hint above still said "Pick a match".
+ */
+describe("selection treatment (WR-05)", () => {
+  it("carries data-selected=false and no accent border colour when nothing is selected", () => {
+    const rows = [row()];
+    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
+    expect(el.getAttribute("data-selected")).toBe("false");
+    expect(el.className).not.toContain("border-l-[var(--color-accent)]");
+    expect(el.className).toContain("border-l-transparent");
+  });
+
+  it("carries data-selected=true and the accent border colour once a match is genuinely selected", () => {
+    const rows = [row()];
+    render(<StartMatchPicker rows={rows} selectedMatchKey={rows[0]!.matchKey} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
+    expect(el.getAttribute("data-selected")).toBe("true");
+    expect(el.className).toContain("border-l-[var(--color-accent)]");
+    expect(el.className).not.toContain("border-l-transparent");
+  });
+
+  it("keeps the border WIDTH unconditional across both states — only the colour toggles, so the row never shifts horizontally", () => {
+    const rows = [row()];
+    const { rerender } = render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    const unselected = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
+    expect(unselected.className).toContain("border-l-[3px]");
+
+    rerender(<StartMatchPicker rows={rows} selectedMatchKey={rows[0]!.matchKey} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    const selected = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
+    expect(selected.className).toContain("border-l-[3px]");
+  });
+});
+
 describe("status labels", () => {
   it("a played row renders START_MATCH_STATUS_PLAYED", () => {
     const rows = [row({ played: true })];

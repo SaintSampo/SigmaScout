@@ -39,14 +39,32 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "name", label: "Event" },
-  // "Type" (2026-09-01 redesign, decision E1): the officialness chip column.
-  // Still SORTS by week — the chip is a presentation of the same axis.
-  { key: "week", label: "Type", numeric: true },
+  // WR-04 (260902-post-phase08-ungoverned-ui/REVIEW.md): this column's label
+  // used to read "Type" over a `week` sort key, with a comment claiming "the
+  // chip is a presentation of the same axis" — it is not. The `TypeChip` cell
+  // it heads encodes OFFICIALNESS (offseason/champs/week-0/week-N), while the
+  // sort key orders by raw week with nulls last; those are related but
+  // distinct axes, and a reader clicking a header labelled "Type" reasonably
+  // expects clicking to group by type, not order by week number. Relabelled
+  // for the axis the key actually sorts. This also matches TBA's own
+  // convention of listing events by week with championships at the end, so
+  // the honest label is also the familiar one. The chip cell itself is
+  // unchanged and still does NOT participate in the sort.
+  { key: "week", label: "Week", numeric: true },
   { key: "startDate", label: "Date" },
   { key: null, label: "Location" },
   { key: null, label: "District" },
   { key: "teamCount", label: "Teams", numeric: true },
-  { key: "matchCount", label: "Matches", numeric: true },
+  // WR-04: this column's cell renders `playedMatchCount/matchCount` (the
+  // played-over-total form below), but the sort key used to be bare
+  // `matchCount` — the TOTAL, not the LEADING number a reader actually sees
+  // first in that cell. Switched to `playedMatchCount` so the sort follows
+  // the number the cell leads with. Verified at plan time before this edit:
+  // `playedMatchCount` is already a member of `EventSortKey`
+  // (`filterModel.ts:197`) and of `EVENT_SORT_KEYS` (`searchParams.ts:161`),
+  // and `compareSortValues` compares it numerically like any other numeric
+  // key — no URL-contract or schema widening was needed for this change.
+  { key: "playedMatchCount", label: "Matches", numeric: true },
 ];
 
 /** `null` renders as a blank cell (2026-09-01 user request: no em-dash placeholders anywhere), never the literal text of a null value. */

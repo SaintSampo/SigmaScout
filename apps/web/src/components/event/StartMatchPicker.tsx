@@ -108,13 +108,28 @@ export interface StartMatchPickerProps {
  * its played/upcoming status and its scheduled time — the same four facts
  * the old per-match rows carried, now shown once for the one match the
  * slider is pointing at.
+ *
+ * WR-05 (260902-post-phase08-ungoverned-ui/REVIEW.md): `selected` (a REQUIRED
+ * prop, not derived here) drives `data-selected` and the accent selection
+ * treatment. Before this fix `data-selected` was a hardcoded `"true"` and the
+ * accent border/background always rendered — so with NOTHING selected
+ * (`selectedMatchKey === null`), the slider's fallback-to-row-0 preview
+ * rendered as if row 0 were chosen, directly contradicting the "Pick a
+ * match" hint sitting above it. The left border's WIDTH stays unconditional
+ * (only its COLOUR toggles to transparent when unselected) so the row never
+ * shifts horizontally by three pixels the moment a reader actually picks a
+ * match — reserving the space is `chart-craft.md`'s discipline for exactly
+ * this kind of state toggle.
  */
-function StartMatchSummary({ row }: { row: EventMatchRow }) {
+function StartMatchSummary({ row, selected }: { row: EventMatchRow; selected: boolean }) {
   return (
     <div
       data-testid={`${START_MATCH_ROW_TESTID_PREFIX}${row.matchKey}`}
-      data-selected="true"
-      className="flex items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] border-l-[var(--color-accent)] bg-[var(--sim-picker-selected-bg)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+      data-selected={selected}
+      className={cn(
+        "flex items-center justify-between gap-[var(--spacing-sm)] border-l-[3px] px-[var(--spacing-sm)] py-[var(--spacing-xs)]",
+        selected ? "border-l-[var(--color-accent)] bg-[var(--sim-picker-selected-bg)]" : "border-l-transparent",
+      )}
     >
       <span className="flex min-w-0 flex-col gap-[1px]">
         <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(row)}</span>
@@ -170,7 +185,14 @@ export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, sta
   const [draft, setDraft] = useState<string | null>(null);
 
   const selectedIndex = rows.findIndex((row) => row.matchKey === selectedMatchKey);
-  const activeIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  // WR-05: two separate facts kept apart. The slider must park SOMEWHERE
+  // even with no selection (hence the fallback to index 0 below, unchanged),
+  // but nothing downstream runs until `SimulationTab`'s own `selectedMatchKey`
+  // is genuinely non-null — so a row rendered under the "Pick a match" hint
+  // is a PREVIEW of where the slider sits, not a choice the reader made.
+  // `hasSelection` is what lets the summary distinguish the two.
+  const hasSelection = selectedIndex >= 0;
+  const activeIndex = hasSelection ? selectedIndex : 0;
   const activeRow = rows[activeIndex];
 
   // PD-09's guard lives in the HANDLERS, not only on the controls. `inert`
@@ -235,7 +257,7 @@ export function StartMatchPicker({ rows, selectedMatchKey, onSelect, inputs, sta
                 />
               </label>
             </div>
-            <StartMatchSummary row={activeRow} />
+            <StartMatchSummary row={activeRow} selected={hasSelection} />
           </>
         )}
       </div>

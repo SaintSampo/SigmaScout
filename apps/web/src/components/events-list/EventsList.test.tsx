@@ -202,7 +202,9 @@ describe("EventsList", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Event")).toBeDefined());
-    expect(screen.getByText("Type")).toBeDefined();
+    // WR-04 (260902-post-phase08-ungoverned-ui/REVIEW.md): the column's label
+    // now names the axis it sorts (week), not the Type chip cell it heads.
+    expect(screen.getByText("Week")).toBeDefined();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 
@@ -242,7 +244,10 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    const weekHeader = await screen.findByRole("button", { name: /Type/ });
+    // WR-04: the header's label changed to "Week"; the sort key it reports
+    // stays "week" — this test's onSortChange expectation was already
+    // correct and does not change.
+    const weekHeader = await screen.findByRole("button", { name: /Week/ });
     fireEvent.click(weekHeader);
     expect(onSortChange).toHaveBeenCalledWith("week");
   });
@@ -266,14 +271,15 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    const typeHeader = (await screen.findByRole("columnheader", { name: /Type/ })) as HTMLElement;
+    // WR-04: this header's accessible name changed from "Type" to "Week".
+    const typeHeader = (await screen.findByRole("columnheader", { name: /Week/ })) as HTMLElement;
     const buttonsInCell = within(typeHeader).getAllByRole("button", { hidden: true });
     // Exactly two <button> elements exist in the DOM (visible + overlay)...
     expect(buttonsInCell).toHaveLength(2);
     // ...but only ONE is exposed to the accessibility tree/tab order.
     const accessibleButtons = within(typeHeader).getAllByRole("button");
     expect(accessibleButtons).toHaveLength(1);
-    expect(accessibleButtons[0]!.textContent).toBe("Type");
+    expect(accessibleButtons[0]!.textContent).toBe("Week");
 
     const overlay = buttonsInCell.find((button) => button !== accessibleButtons[0]);
     expect(overlay).toBeDefined();

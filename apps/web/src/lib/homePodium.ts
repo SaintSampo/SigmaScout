@@ -14,6 +14,20 @@
  * Every number the podium renders is derived HERE from fetched artifacts at
  * run time — no hand-typed percentage anywhere (the same D-10 discipline the
  * Compare page's parity proof enforces).
+ *
+ * WR-03 (260902-post-phase08-ungoverned-ui/REVIEW.md): the slice lookup is
+ * SEASON-asserted, not just algorithm+compLevelView, so a mis-keyed or
+ * multi-season artifact list cannot silently pool the same season twice (or
+ * pool a season the caller never asked for). This could NOT be written the
+ * way the review's own text proposed (`s.season === artifact.season`) —
+ * verified at plan time, `CompareArtifact` (`CompareArtifactSchema` =
+ * `PagePreambleSchema` + `algorithms` + `slices`) carries no top-level
+ * `season` field at all; `season` lives on each SLICE, one level down. The
+ * artifact therefore cannot assert its own season — only the CALLER, who
+ * fetched it for a specific year, knows which one to assert. That is why the
+ * assert lives in the signature (a list of season/artifact pairs) rather
+ * than inside this function reading `artifact.season` off input that does
+ * not have it.
  */
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
@@ -29,19 +43,27 @@ export interface PodiumEntry {
   readonly scoredCount: number;
 }
 
+/** One artifact paired with the season the caller fetched it for — the pairing WR-03's season assert needs, since the artifact cannot name its own season. */
+export interface SeasonedCompareArtifact {
+  readonly season: number;
+  readonly artifact: CompareArtifact;
+}
+
 /**
- * Pools each algorithm's combined-view accuracy across the given artifacts
- * and returns entries sorted best-first (the podium order). Throws if any
- * artifact is missing an algorithm's combined slice — a malformed input
- * must fail loudly, not render a silently wrong podium.
+ * Pools each algorithm's combined-view accuracy across the given
+ * season/artifact pairs and returns entries sorted best-first (the podium
+ * order). Throws — naming the season — if any pair is missing an algorithm's
+ * combined slice FOR THE SEASON IT WAS FETCHED FOR, or if a slice's own
+ * `season` does not match the caller's claimed season for that artifact. A
+ * malformed input must fail loudly, not render a silently wrong podium.
  */
-export function pooledAccuracyPodium(artifacts: readonly CompareArtifact[]): PodiumEntry[] {
+export function pooledAccuracyPodium(seasonedArtifacts: readonly SeasonedCompareArtifact[]): PodiumEntry[] {
   const entries = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
     let correct = 0;
     let scored = 0;
-    for (const artifact of artifacts) {
-      const slice = artifact.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === "combined");
-      if (slice === undefined) throw new Error(`pooledAccuracyPodium: no combined slice for ${algorithmId}`);
+    for (const { season, artifact } of seasonedArtifacts) {
+      const slice = artifact.slices.find((s) => s.algorithmId === algorithmId && s.compLevelView === "combined" && s.season === season);
+      if (slice === undefined) throw new Error(`pooledAccuracyPodium: no combined ${season} slice for ${algorithmId}`);
       if (slice.winnerAccuracy === null) continue;
       correct += slice.winnerAccuracy * slice.scoredCount;
       scored += slice.scoredCount;
