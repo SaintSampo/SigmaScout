@@ -37,6 +37,27 @@
  * component decomposition) — 0.84 is the expected resting point of those
  * choices, NOT an unfinished job.
  *
+ * **Provenance (quick task 260904-4aa, SC-2).** The D-Q1 figures immediately
+ * above were produced by a one-off script that was never committed — an
+ * un-re-runnable result, exactly the failure log's "docs must track the
+ * shipped model" pitfall. That gap is closed: `scripts/epaVsStatbotics.ts`
+ * (statistics in `packages/harness/epaStatboticsCompare.ts`) is the
+ * committed, tested, re-runnable replacement, `npx tsx
+ * scripts/epaVsStatbotics.ts --check` gates it against
+ * `data/baselines/epa-vs-statbotics-2026-09.json`, and
+ * `docs/models/epa-vs-statbotics.md` records the full current verdict
+ * across all five seasons (not just 2025). A fresh 2026-09-04 measurement
+ * lands close to but not identical to the D-Q1 figures above (2025
+ * all-teams: slope 0.865 vs. 0.841, Pearson 0.907 vs. 0.900, joined 3,687
+ * vs. 3,690 teams) — the corpus has grown since 260901-is2's one-off run,
+ * and that document also measures an offseason-EXCLUDED comparability arm
+ * this comment never did (2025: slope 1.012, Pearson 0.991), a materially
+ * closer match. Treat the fresh, committed measurement as authoritative;
+ * this comment's own D-Q1 figures are the historical record of what
+ * changed when the error-split fix landed, not a maintained claim. A
+ * future reader should regenerate current numbers from the script rather
+ * than trust either quoted figure as a standing claim.
+ *
  * The one thing that is still ours rather than Statbotics': TBA's
  * `score_breakdown` per-season maps this phase built (D-02) are alliance-level
  * only (Assumption A1 excludes unverified per-robot fields), so `n` is the

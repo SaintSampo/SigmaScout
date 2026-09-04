@@ -4,6 +4,8 @@ D-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md`): "Faithf
 
 Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics` during this phase's research (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`, fetched 2026-08-13): `backend/src/models/epa/{math,main,init,constants,breakdown}.py`, `backend/src/breakdown.py`.
 
+**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points` — that document is the committed, re-runnable per-team comparison (SC-2), and its measured slope (0.80-0.94, offseason-inclusive; 0.95-1.01, offseason-excluded) is the resting point these divergences, plus a newly-measured offseason-population effect, together produce.
+
 ## 1. Elimination matches — full weight and counted, not discounted (D-08)
 
 **Statbotics:** `update_team` applies `ELIM_WEIGHT = 1/3` to every elimination-match observation's outer EWMA blend, and does **not** increment the team's match counter for elim matches — so an elim match both moves a team's rating less than a qual match and never advances the decaying learning-rate schedule (`percent_func`).

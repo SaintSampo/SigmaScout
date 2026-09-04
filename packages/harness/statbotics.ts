@@ -5,13 +5,28 @@
  *
  * Plan 01's recon (docs/data/tba-field-recon.md) found `api.statbotics.io/v3/year/{year}`
  * reproducibly returns HTTP 500 across three URL shapes; re-confirmed live
- * during this plan's execution (2026-08-13, same day). `statboticsReference`
- * still always attempts a live fetch first — a future Statbotics fix is
- * picked up automatically with no code change — but never lets a fetch
- * failure fail the run (T-01-12): any network error, non-2xx status, or
- * schema-validation failure falls back to `STATBOTICS_REFERENCE_FALLBACK`,
- * a dated manual constant. The returned object always records which path
- * produced the value (`fetched: true | false`).
+ * during plan 01's execution (2026-08-13) and again on 2026-08-14 (Phase 2's
+ * D-14). `statboticsReference` still always attempts a live fetch first — a
+ * future Statbotics fix is picked up automatically with no code change —
+ * but never lets a fetch failure fail the run (T-01-12): any network error,
+ * non-2xx status, or schema-validation failure falls back to
+ * `STATBOTICS_REFERENCE_FALLBACK`, a dated manual constant. The returned
+ * object always records which path produced the value (`fetched: true | false`).
+ *
+ * **Quick task 260904-4aa correction.** The endpoint itself was never the
+ * only problem: `StatboticsYearResponseSchema` parsed `{ epa_acc: number }`,
+ * a shape live `/v3/year/{season}` has never returned in its current v3
+ * form (verified live 2026-09-04) — winner-prediction accuracy lives at
+ * `metrics.win_prob.season.acc`, with Statbotics' own Brier score
+ * (directly comparable to ours) alongside it at
+ * `metrics.win_prob.season.mse`. That meant every call to
+ * `statboticsReference` was catching its OWN parse failure and returning
+ * the fallback unconditionally — the API coming back up on its own changed
+ * nothing, because the parse failed before the fallback was ever reached.
+ * Fixed below by repointing the schema at the live shape; `mse` is
+ * additionally now surfaced on `StatboticsReference`, and every fallback
+ * constant is replaced with a live-fetched, individually-verified value
+ * (see `STATBOTICS_REFERENCE_FALLBACK`'s own doc comment).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -21,6 +36,8 @@ export interface StatboticsReference {
   season: number;
   /** Winner-prediction accuracy in [0, 1] — directly comparable to our own `winnerAccuracy`. */
   value: number;
+  /** Statbotics' own winner-prediction Brier score (`metrics.win_prob.season.mse`) — directly comparable to our own `brierScore`. Optional: absent on a fallback row for a season the live shape has never been captured for (unreachable today — every 2022-2026 fallback below carries one). */
+  mse?: number;
   sourceLabel: string;
   matchPopulation: string;
   /** ISO date (YYYY-MM-DD) this value was captured or fetched. */
@@ -30,61 +47,74 @@ export interface StatboticsReference {
 }
 
 const StatboticsYearResponseSchema = z.object({
-  epa_acc: z.number(),
+  metrics: z.object({
+    win_prob: z.object({
+      season: z.object({
+        acc: z.number(),
+        mse: z.number(),
+      }),
+    }),
+  }),
 });
 
 /**
- * Dated manual constant (captured 2026-08-13, the date docs/data/tba-field-recon.md
- * recorded the endpoint's failure and this module's implementation re-confirmed it
- * live). KNOWN STUB: these per-season values are best-available estimates of
- * Statbotics' publicly-stated EPA winner-prediction accuracy (commonly cited in
- * the ~0.70-0.72 range) — they have NOT been individually verified against
- * Statbotics' own published blog/site figures for each season, because that
- * page renders its numbers client-side from the same broken API and this
- * pipeline has no browser-rendering capability. `sourceLabel` says so
- * explicitly and `fetched: false` marks every artifact that uses these
- * values. See "Known Stubs" in 01-05-SUMMARY.md — replace with verified,
- * individually-sourced numbers before treating any of these as a claim.
+ * Quick task 260904-4aa: replaces the prior 0.70/0.71 dated-manual-constant
+ * ESTIMATES (never individually verified — see git history for the retired
+ * "KNOWN STUB" comment this replaces) with values fetched live from
+ * `/v3/year/{season}` and verified 2026-09-04 against
+ * `metrics.win_prob.season.{acc,mse}` for every one of 2022-2026. Every
+ * value here is 6-9 winner-accuracy points HIGHER than the estimate it
+ * replaces (e.g. 2022: 0.70 -> 0.7815), which makes the target SigmaScout
+ * is measured against materially harder — that is the correction, not a
+ * problem with it. `sourceLabel` says "fetched and verified" rather than
+ * "unverified estimate", and `fetched: false` still marks every artifact
+ * that falls back to one of these (a live fetch is always attempted first;
+ * this is the fallback path only, per this module's own contract).
  */
 export const STATBOTICS_REFERENCE_FALLBACK: Readonly<Record<number, StatboticsReference>> = {
   2022: {
     season: 2022,
-    value: 0.7,
-    sourceLabel: "Statbotics (dated manual constant, unverified estimate — see Known Stubs)",
+    value: 0.7815,
+    mse: 0.1502,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-04 — dated manual constant, not a live call)",
     matchPopulation: "all 2022 qualification + elimination matches (Statbotics EPA model)",
-    capturedAt: "2026-08-13",
+    capturedAt: "2026-09-04",
     fetched: false,
   },
   2023: {
     season: 2023,
-    value: 0.7,
-    sourceLabel: "Statbotics (dated manual constant, unverified estimate — see Known Stubs)",
+    value: 0.7647,
+    mse: 0.1608,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-04 — dated manual constant, not a live call)",
     matchPopulation: "all 2023 qualification + elimination matches (Statbotics EPA model)",
-    capturedAt: "2026-08-13",
+    capturedAt: "2026-09-04",
     fetched: false,
   },
   2024: {
     season: 2024,
-    value: 0.71,
-    sourceLabel: "Statbotics (dated manual constant, unverified estimate — see Known Stubs)",
+    value: 0.7627,
+    mse: 0.162,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-04 — dated manual constant, not a live call)",
     matchPopulation: "all 2024 qualification + elimination matches (Statbotics EPA model)",
-    capturedAt: "2026-08-13",
+    capturedAt: "2026-09-04",
     fetched: false,
   },
   2025: {
     season: 2025,
-    value: 0.71,
-    sourceLabel: "Statbotics (dated manual constant, unverified estimate — see Known Stubs)",
+    value: 0.7839,
+    mse: 0.1537,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-04 — dated manual constant, not a live call)",
     matchPopulation: "all 2025 qualification + elimination matches (Statbotics EPA model)",
-    capturedAt: "2026-08-13",
+    capturedAt: "2026-09-04",
     fetched: false,
   },
   2026: {
     season: 2026,
-    value: 0.71,
-    sourceLabel: "Statbotics (dated manual constant, unverified estimate — see Known Stubs)",
+    value: 0.7978,
+    mse: 0.1483,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-04 — dated manual constant, not a live call)",
     matchPopulation: "all 2026 qualification + elimination matches (Statbotics EPA model)",
-    capturedAt: "2026-08-13",
+    capturedAt: "2026-09-04",
     fetched: false,
   },
 };
@@ -98,7 +128,8 @@ async function fetchStatboticsYear(season: number, fetchImpl: typeof fetch): Pro
   const parsed = StatboticsYearResponseSchema.parse(body);
   return {
     season,
-    value: parsed.epa_acc,
+    value: parsed.metrics.win_prob.season.acc,
+    mse: parsed.metrics.win_prob.season.mse,
     sourceLabel: "Statbotics API (v3/year, live fetch)",
     matchPopulation: `all ${season} qualification + elimination matches (Statbotics EPA model)`,
     capturedAt: new Date().toISOString().slice(0, 10),

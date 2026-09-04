@@ -205,8 +205,12 @@ describe("buildArtifact / HarnessArtifactSchema", () => {
 
 describe("statboticsReference", () => {
   it("carries value, season, source label, match population, and capture date on a successful fetch", async () => {
+    // Quick task 260904-4aa: the live shape reads accuracy from
+    // metrics.win_prob.season.acc, not a top-level epa_acc field.
     const mockFetch: typeof fetch = (async () =>
-      new Response(JSON.stringify({ epa_acc: 0.734 }), { status: 200 })) as unknown as typeof fetch;
+      new Response(JSON.stringify({ metrics: { win_prob: { season: { acc: 0.734, mse: 0.15 } } } }), {
+        status: 200,
+      })) as unknown as typeof fetch;
     const ref = await statboticsReference(2024, { fetchImpl: mockFetch });
     expect(ref.season).toBe(2024);
     expect(ref.value).toBe(0.734);
@@ -248,7 +252,10 @@ describe("statboticsReference", () => {
     let callCount = 0;
     const countingFetch: typeof fetch = (async () => {
       callCount += 1;
-      return new Response(JSON.stringify({ epa_acc: 0.71 }), { status: 200 });
+      // Quick task 260904-4aa: live shape, not the retired top-level epa_acc field.
+      return new Response(JSON.stringify({ metrics: { win_prob: { season: { acc: 0.71, mse: 0.16 } } } }), {
+        status: 200,
+      });
     }) as unknown as typeof fetch;
 
     const first = await statboticsReference(2024, { fetchImpl: countingFetch, cachePath });

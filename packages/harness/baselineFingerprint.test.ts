@@ -175,9 +175,25 @@ const OFFSEASON_INCLUSIVE_FINGERPRINT_FILE = "sc3-offseason-inclusive-2026-08.js
  */
 const ROLLING_ORIGIN_FINGERPRINT_FILE = "sc3-rolling-origin-2026-09.json";
 
+/**
+ * Quick task 260904-4aa (SC-2): NOT a `BaselineFingerprintSchema` fingerprint
+ * at all — a different baseline family entirely, sharing this directory
+ * because `data/baselines/` is this repo's general home for "a committed,
+ * re-runnable measurement's tolerance record," not because every file here
+ * is an algorithm-version Brier/accuracy fingerprint. This file records
+ * per-team tolerance bands (`ordinaryLeastSquaresSlope`/`pearson`/etc. per
+ * season) for `scripts/epaVsStatbotics.ts --check`, a per-team Statbotics
+ * comparison with no `algorithms`/`seasons`/`provenance` shape to parse
+ * against `BaselineFingerprintSchema`. Excluded by name from every test
+ * below that assumes the directory's contents are uniformly fingerprints.
+ */
+const EPA_VS_STATBOTICS_BASELINE_FILE = "epa-vs-statbotics-2026-09.json";
+
 describe("committed baseline fingerprints", () => {
   it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
-    const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
+    const files = readdirSync(BASELINES_DIR).filter(
+      (name) => name.endsWith(".json") && name !== EPA_VS_STATBOTICS_BASELINE_FILE
+    );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
       const raw: unknown = JSON.parse(readFileSync(join(BASELINES_DIR, file), "utf8"));
@@ -206,7 +222,8 @@ describe("committed baseline fingerprints", () => {
         name.endsWith(".json") &&
         name !== EVENT_SCOPED_FINGERPRINT_FILE &&
         name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE &&
-        name !== ROLLING_ORIGIN_FINGERPRINT_FILE
+        name !== ROLLING_ORIGIN_FINGERPRINT_FILE &&
+        name !== EPA_VS_STATBOTICS_BASELINE_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -265,15 +282,19 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 5 committed fingerprints: two retired-implementation runs, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, and the rolling-origin SC-3 re-measurement", () => {
-    // This count only ever goes UP. Each fingerprint records what one completed
-    // run measured under the versions of its day, so a later re-measurement is
-    // added alongside its predecessor, never in place of it.
+  it("data/baselines/ contains exactly 6 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, the rolling-origin SC-3 re-measurement, and the SC-2 EPA-vs-Statbotics tolerance baseline", () => {
+    // The fingerprint count only ever goes UP. Each fingerprint records what
+    // one completed run measured under the versions of its day, so a later
+    // re-measurement is added alongside its predecessor, never in place of
+    // it. `EPA_VS_STATBOTICS_BASELINE_FILE` is not a fingerprint (see its own
+    // doc comment) but lives in this same directory and is counted here too,
+    // since this is the one test asserting the directory's exact contents.
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(5);
+    expect(files).toHaveLength(6);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
     expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
     expect(files).toContain(ROLLING_ORIGIN_FINGERPRINT_FILE);
+    expect(files).toContain(EPA_VS_STATBOTICS_BASELINE_FILE);
   });
 
   /**
