@@ -23,6 +23,10 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
   `#0EA5E9` / purple `#9333EA` / amber `#F59E0B` — **sky, never true blue**, for the CVD reason
   below. This supersedes 002 entirely and largely answers D-05: the palette is neither Statbotics
   blue nor the shipped indigo.
+  **AMENDED 2026-09-04 (008-C): Common is no longer bare text — it gets an outline-only box**
+  (hairline `#CBD5E1` inset ring, no fill, text unchanged). The three coloured tiers are untouched.
+  Chosen over grey fills precisely to preserve 004-B's "half the field stays quiet" property while
+  still giving Common the box anatomy of a tier.
 
 **Constraints carried in from Phase 5:**
 - `05-UI-SPEC.md` locked 60/30/10: slate-50 / slate-100 / indigo-600, accent for interactive-or-active
@@ -52,7 +56,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 005 | rank-distribution | How should a team's simulated rank distribution be drawn, given what real data actually looks like? | **B — interpolated band edges** | simulation, rank-distribution, uncertainty, phase-8 |
 | 006 | calibration-curve | How do you draw a calibration curve an FRC student understands in one read? | **C — plain-language first** | compare, calibration, uncertainty, accessibility, phase-8 |
 | 007 | compare-table | How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits? | **A — season rows, algorithm columns** | compare, accuracy, table, density, phase-8 |
-| 008 | common-tier-treatment | How should Common (0–50) be treated so it reads as a tier, not an absence? (revisits 004-B "Common unboxed" at the user's request) | *pending* | palette, percentile, rarity, accessibility |
+| 008 | common-tier-treatment | How should Common (0–50) be treated so it reads as a tier, not an absence? (revisits 004-B "Common unboxed" at the user's request) | **C — outline only** | palette, percentile, rarity, accessibility |
 
 ## Findings so far
 

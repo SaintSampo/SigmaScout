@@ -2,7 +2,7 @@
 sketch: 008
 name: common-tier-treatment
 question: "How should Common (0–50) be treated so it reads as a tier, not an absence?"
-winner: null
+winner: "C"
 tags: [palette, percentile, rarity, accessibility]
 ---
 
