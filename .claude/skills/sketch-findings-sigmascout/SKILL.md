@@ -24,10 +24,12 @@ Sketch sessions wrapped: 2026-08-25, 2026-08-30
 
 **Palette (revised 2026-08-31, ui-polish-pass).** The chrome is now GREEN-tinted (user-picked, anchored on #4CAF50): surface `#E8F5E9`, border `#C8E6C9`, accent `#2E7D32` (green-800 — the seed fails WCAG as ink and is not a token); page ground stays neutral `#F8FAFC`. Accent still means interactive/active ONLY. Tier palette below is unchanged and still authoritative.
 
-**Tiers.** Metric values carry a percentile **tier**, shown as a tinted box: Common (0–50) plain,
-Rare (50–75) sky, Epic (75–95) purple, Legendary (95–100) amber. Discrete tiers rather than a
-gradient, because a tier gives the reader a *name* and a gradient only invites comparison. Continuous
-sequential shading was explored across four hues and rejected outright.
+**Tiers.** Metric values carry a percentile **tier**, shown as a tinted box: Common (0–50)
+outline-only (hairline `--tier-common-edge` inset ring, no fill, text unchanged — sketch 008-C,
+2026-09-04, superseding 004-B's bare cell), Rare (50–75) sky, Epic (75–95) purple, Legendary
+(95–100) amber. Discrete tiers rather than a gradient, because a tier gives the reader a *name* and
+a gradient only invites comparison. Continuous sequential shading was explored across four hues and
+rejected outright.
 
 **Uncertainty.** The `X ± Y` display is the product's point, so the ± gets drawn, not just printed.
 Totals render as intervals where there is room; match predictions render as two alliance bands on a
@@ -55,7 +57,7 @@ blue; FRC alliance red/blue is validated and safe as-is.
 
 | Area | Reference | Key Decision |
 |------|-----------|--------------|
-| Colour & rarity tiers | `references/colour-and-tiers.md` | Percentile tiers with Common unboxed; blue must stay sky for CVD |
+| Colour & rarity tiers | `references/colour-and-tiers.md` | Percentile tiers; Common outline-only (008-C); blue must stay sky for CVD |
 | Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; one ± quantity, everywhere (D-01, Phase 7) |
 | Chart craft | `references/chart-craft.md` | Derive coupled geometry; grouping is proximity; mock against the real distribution |
 | Simulation & Compare | `references/simulation-and-compare.md` | Interpolated (continuous) rank-band edges; plain-language-first calibration; near-ties render as ties |
@@ -103,7 +105,8 @@ running against real published data.
 
 - 001-teams-table-polish — *partial*: findings kept, visual direction superseded
 - 003-alliance-axes — winner: variant C (event table, one shared scale)
-- 004-rarity-tiers — winner: variant B (Common unboxed)
+- 004-rarity-tiers — winner: variant B (Common unboxed; Common treatment superseded by 008)
+- 008-common-tier-treatment — winner: variant C (outline-only Common; shipped in quick 260904-7rt)
 - 005-rank-distribution — winner: variant B (shared 1..N axis, interpolated band edges); variant C rejected outright
 - 006-calibration-curve — winner: variant C (plain-language first)
 - 007-compare-table — winner: variant A (season rows, algorithm columns)
