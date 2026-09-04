@@ -57,7 +57,6 @@ import {
   openCorpus,
   openCorpusReadOnly,
   readEtag,
-  selectCorpusSeasons,
   selectMatchesChronological,
   upsertEvent,
   upsertMatch,
@@ -85,7 +84,7 @@ import { PromotedVersionSchema, TuneSearchOutputMinimalSchema, type PromotedVers
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
-import { selectedOnSeasonsFor } from "./selectionProvenance.js";
+import { aggregateScoresForRun } from "./selectionProvenance.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
@@ -765,18 +764,20 @@ async function runSeasonsMode(
     });
     // D-2 (quick task 260903-krp): this function's own `seasons` parameter
     // used to be treated as the run's declared season set.
-    // D-4 (quick task 260903-n2o): corrected to `selectCorpusSeasons(db)` —
-    // the declared corpus is what the corpus HOLDS, not what this
-    // invocation asked to replay. `db` (opened above) is already in scope,
-    // so this is a single extra query, not a second corpus handle.
-    // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
-    // `selectionProvenance.ts`'s single explicit registry, over exactly the
-    // algorithm ids this run scores — never a second, independently-derived
-    // resolution.
-    const slices = aggregateScores(predictions, {
-      corpusSeasons: selectCorpusSeasons(db),
-      selectedOnSeasons: selectedOnSeasonsFor(algorithms.map((a) => a.id)),
-    });
+    // D-4 (quick task 260903-n2o): corrected to the corpus's own declared
+    // season set — the declared corpus is what the corpus HOLDS, not what
+    // this invocation asked to replay.
+    // F-1 (quick task 260903-tk6): `cli.ts` and `publish.ts` used to
+    // independently rebuild this exact `{corpusSeasons, selectedOnSeasons}`
+    // pair, which is why fixing one call site's eligibility bug left the
+    // other exposed. `aggregateScoresForRun` (`selectionProvenance.ts`) is
+    // now the ONLY derivation — this call site passes no eligibility
+    // argument of its own to get wrong.
+    const slices = aggregateScoresForRun(
+      db,
+      predictions,
+      algorithms.map((a) => a.id)
+    );
 
     const statboticsReferences: StatboticsReference[] = [];
     for (const season of seasons) {

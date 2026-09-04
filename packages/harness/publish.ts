@@ -61,7 +61,6 @@ import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/si
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
-  selectCorpusSeasons,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
   selectScheduledMatches,
@@ -99,8 +98,8 @@ import {
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
-import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
-import { selectedOnSeasonsFor } from "./selectionProvenance.js";
+import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
+import { aggregateScoresForRun } from "./selectionProvenance.js";
 import type { MetricHistoryRow } from "./metricHistory.js";
 import { putObject } from "./r2Client.js";
 
@@ -1510,12 +1509,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
 
-  // D-4 (quick task 260903-n2o): read once, up front, rather than once per
-  // season inside the loop below — this is the corpus-sourced season set
-  // headline eligibility is measured against (see the compare-artifact
-  // call site's own comment for why this must never be `seasonsSorted`).
-  const corpusSeasons = selectCorpusSeasons(db);
-
   const uploader = new BoundedUploader(options.bucket, concurrency, dryRun);
   const teamInfo = lookupAllTeamInfo(db);
   const seedFiles: string[] = [];
@@ -1983,22 +1976,26 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // `harnessPredictions` above is built from a single season, so passing
     // `[season]` here would make every published slice's `headlineEligible`
     // come back false, silently, with every test still green (Finding 1).
-    // D-4 (quick task 260903-n2o): `corpusSeasons` (hoisted above the season
-    // loop, read once from `selectCorpusSeasons(db)`) is the CORRECT value —
-    // NOT `seasonsSorted`, this run's `--seasons` range. Eligibility is a
-    // property of the data available, not of what a given run chose to
-    // publish: passing `seasonsSorted` made the declared corpus a property
-    // of the CLI invocation, so a single-season republish (`--seasons 2026`
-    // alone) would silently flip a live key's eligibility — the exact D-4
-    // defect this call site used to carry.
-    // D-2 (quick task 260903-n2o): the selected-on argument is sourced from
-    // `selectionProvenance.ts`'s single explicit registry, over exactly the
-    // algorithm ids this run publishes — never a second, independently-derived
-    // resolution.
-    const slices = aggregateScores(harnessPredictions, {
-      corpusSeasons,
-      selectedOnSeasons: selectedOnSeasonsFor(options.algorithms.map((a) => a.id)),
-    });
+    // F-1 (quick task 260903-tk6): this call site used to independently
+    // rebuild the exact same `{corpusSeasons, selectedOnSeasons}` pair
+    // `cli.ts`'s `runSeasonsMode` built — that duplication is exactly why
+    // fixing this call site's D-4 eligibility bug left `cli.ts`'s identical
+    // bug (F-1) exposed. `aggregateScoresForRun` (`selectionProvenance.ts`)
+    // is now the ONLY derivation of the pair: it reads `selectCorpusSeasons(db)`
+    // itself (the corpus-held season set, never `seasonsSorted` — see the
+    // D-4 history above for why a range-derived value is wrong) and
+    // `selectedOnSeasonsFor(...)` itself (this module's single explicit
+    // registry, never a second independently-derived resolution). This
+    // moves the corpus-season query and the small version-file read from
+    // once-per-run (the old hoisted `corpusSeasons` above the season loop)
+    // to once-per-published-season — negligible against a run that replays
+    // every match of every season, and worth it for removing the
+    // hand-buildable options literal that made F-1 possible.
+    const slices = aggregateScoresForRun(
+      db,
+      harnessPredictions,
+      options.algorithms.map((a) => a.id)
+    );
     const compareArtifact = buildCompareArtifact({
       algorithms: options.algorithms.map((a) => ({ id: a.id, version: a.version })),
       slices,

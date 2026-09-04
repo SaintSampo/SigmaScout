@@ -29,7 +29,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
+import { selectCorpusSeasons, type Corpus } from "../corpus/db.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
@@ -139,4 +141,38 @@ export function selectedOnSeasonsFor(algorithmIds: readonly string[]): Record<st
     result[id] = source();
   }
   return result;
+}
+
+/**
+ * F-1 (quick task 260903-tk6): the SINGLE derivation of `aggregateScores`'
+ * eligibility pair, wrapping `aggregateScores` itself rather than returning
+ * the pair for a caller to spread — `cli.ts:777` and `publish.ts:1517/1998`
+ * used to independently build the identical
+ * `{corpusSeasons: selectCorpusSeasons(db), selectedOnSeasons: selectedOnSeasonsFor(ids)}`
+ * literal, which is exactly why fixing one flag-bearing call site's eligibility
+ * bug left the other exposed with the whole suite still green. A helper that
+ * merely returns the pair would still leave a spreadable options literal at
+ * each call site — the same regression shape stays representable. This
+ * wrapper leaves NO eligibility argument at either call site at all.
+ *
+ * `corpusSeasons` is sourced from `selectCorpusSeasons(db)` — the seasons the
+ * CORPUS holds, never a range or loop variable a given invocation asked to
+ * replay. A range-derived value would let a single-season republish
+ * (`--seasons 2026` alone) silently flip a live key's eligibility, since
+ * headline eligibility is a property of the data available, not of what a
+ * given run chose to score.
+ *
+ * `selectedOnSeasons` is sourced from `selectedOnSeasonsFor(algorithmIds)` —
+ * this module's own single explicit registry — never a second,
+ * independently-derived resolution built at the call site.
+ */
+export function aggregateScoresForRun(
+  db: Corpus,
+  predictions: readonly HarnessPredictionInput[],
+  algorithmIds: readonly string[]
+): ScoreSlice[] {
+  return aggregateScores(predictions, {
+    corpusSeasons: selectCorpusSeasons(db),
+    selectedOnSeasons: selectedOnSeasonsFor(algorithmIds),
+  });
 }
