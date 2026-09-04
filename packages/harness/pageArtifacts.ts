@@ -781,10 +781,15 @@ const TeamSeasonMatchSchema = z
  *     key set the declared metric list allows is a per-algorithm union, not
  *     a guarantee every row carries every key) — never confused with a
  *     metric that IS present but carries no `spread`.
- *   - `[value]` — present, no `spread`, no `tier`. OPR and EPA rows are
- *     length-1 for every metric they publish (D-07: neither models an
- *     alliance/team-level own variance, so "no spread" is normal, not an
- *     error).
+ *   - `[value]` — present, no `spread`, no `tier`. Every OPR row, and most
+ *     EPA rows, are length-1 (D-07: neither models an alliance/team-level
+ *     own variance, so "no spread" is normal, not an error). As of quick
+ *     task 260904-7id (D-1) this is no longer true for EPA's THREE group
+ *     metrics (`phaseAuto`/`phaseTeleop`/`phaseEndgame`): those carry a
+ *     season-wide percentile/tier from the publish pipeline exactly like any
+ *     other tiered metric, so they occupy the three-element form below
+ *     instead — EPA's raw components and `total` are unaffected and stay
+ *     length-1.
  *   - `[value, spread]` — present with a real `spread` (including a
  *     genuine `0`, which is a real measured spread and never coerced from
  *     "absent"), no `tier` (Common, which renders unboxed — see

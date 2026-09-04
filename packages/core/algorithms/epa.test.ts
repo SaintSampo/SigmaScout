@@ -15,7 +15,12 @@ import {
 } from "./epa.js";
 import { opr } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
-import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
+import {
+  ADJUST_COMPONENT,
+  FOULS_COMMITTED_COMPONENT,
+  COMPONENT_GROUP_METRIC_KEYS,
+  componentsInGroup,
+} from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
@@ -542,6 +547,96 @@ describe("epa — contract shape", () => {
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["total"]).toEqual({ value: 15 });
     expect(metrics["frc1"]!["foulsCommitted"]).toBeUndefined();
+  });
+});
+
+/**
+ * D-1 (quick task 260904-7id): EPA's teamMetrics() publishes
+ * phaseAuto/phaseTeleop/phaseEndgame — the three season-declared component
+ * groups (breakdown/groups.ts) — as first-class, value-only metrics, so the
+ * existing publish-pipeline percentile/tier pass (generic over metric NAMES)
+ * can attach a season-wide tier to them with zero harness changes. Every
+ * assertion below is checked against `componentsInGroup`, never a
+ * hand-typed number — that is what makes "identical by construction" to the
+ * client's `withDerivedGroupMetrics` a checkable property rather than an
+ * assertion of intent.
+ */
+describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups published as first-class metrics", () => {
+  /** One value per 2024-registered component (all three groups plus both ungrouped components), so every group has something present. */
+  const FULL_2024_COMPONENTS: Readonly<Record<string, number>> = {
+    autoLeave: 3,
+    autoAmpNote: 4,
+    autoSpeakerNote: 5,
+    teleopAmpNote: 6,
+    teleopSpeakerNote: 7,
+    teleopSpeakerNoteAmplified: 8,
+    endGameOnStage: 1,
+    endGamePark: 2,
+    endGameHarmony: 3,
+    endGameNoteInTrap: 4,
+    endGameSpotLightBonus: 5,
+    adjust: 0,
+    foulsCommitted: 9,
+  };
+
+  function stateWithComponents(components: Readonly<Record<string, number>>, season: number | null = 2024): EpaState {
+    return {
+      season,
+      teamComponents: new Map([["frc1", components]]),
+      teamMatchCounts: new Map([["frc1", 1]]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+  }
+
+  it("each group's published value equals the sum of componentsInGroup entries PRESENT in the team's component record — compared against a value computed from componentsInGroup, never a hand-typed number", () => {
+    const state = stateWithComponents(FULL_2024_COMPONENTS);
+    const metrics = epa.teamMetrics(state)["frc1"]!;
+    for (const group of ["auto", "teleop", "endgame"] as const) {
+      const expected = componentsInGroup(2024, group).reduce((sum, name) => sum + (FULL_2024_COMPONENTS[name] ?? 0), 0);
+      const key = COMPONENT_GROUP_METRIC_KEYS[group];
+      expect(metrics[key], `${key} must be published`).toBeDefined();
+      expect(metrics[key]!.value).toBeCloseTo(expected, 10);
+    }
+  });
+
+  it("each group entry carries a value and nothing else — no spread key at all (EPA carries a mean only, everywhere)", () => {
+    const state = stateWithComponents(FULL_2024_COMPONENTS);
+    const metrics = epa.teamMetrics(state)["frc1"]!;
+    for (const key of ["phaseAuto", "phaseTeleop", "phaseEndgame"]) {
+      expect(Object.keys(metrics[key]!)).toEqual(["value"]);
+    }
+  });
+
+  it("a group whose components are all absent from the team's record publishes NO entry — never a fabricated zero", () => {
+    const { endGameOnStage: _a, endGamePark: _b, endGameHarmony: _c, endGameNoteInTrap: _d, endGameSpotLightBonus: _e, ...withoutEndgame } =
+      FULL_2024_COMPONENTS;
+    const state = stateWithComponents(withoutEndgame);
+    const metrics = epa.teamMetrics(state)["frc1"]!;
+    expect(metrics["phaseAuto"]).toBeDefined();
+    expect(metrics["phaseTeleop"]).toBeDefined();
+    expect(metrics["phaseEndgame"]).toBeUndefined();
+  });
+
+  it("a state whose season is null publishes the components and total but no group entries, and does not throw", () => {
+    const state = stateWithComponents(FULL_2024_COMPONENTS, null);
+    expect(() => epa.teamMetrics(state)).not.toThrow();
+    const metrics = epa.teamMetrics(state)["frc1"]!;
+    expect(metrics["autoLeave"]).toEqual({ value: 3 });
+    expect(metrics["total"]).toBeDefined();
+    expect(metrics["phaseAuto"]).toBeUndefined();
+    expect(metrics["phaseTeleop"]).toBeUndefined();
+    expect(metrics["phaseEndgame"]).toBeUndefined();
+  });
+
+  it("reconciliation: phaseAuto + phaseTeleop + phaseEndgame + adjust equals total exactly — EPA-specific (total already excludes foulsCommitted, D-01; adjust is pinned at 0, D-5/D-6), NOT a general property of the grouping", () => {
+    const state = stateWithComponents(FULL_2024_COMPONENTS);
+    const metrics = epa.teamMetrics(state)["frc1"]!;
+    const groupSum = metrics["phaseAuto"]!.value + metrics["phaseTeleop"]!.value + metrics["phaseEndgame"]!.value;
+    const adjustValue = metrics["adjust"]?.value ?? 0;
+    expect(groupSum + adjustValue).toBeCloseTo(metrics["total"]!.value, 10);
   });
 });
 
