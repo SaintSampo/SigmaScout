@@ -65,8 +65,10 @@ priority: high
 > or little carried history, so a warm start should move them — 2022's accepted delta above was
 > only +0.00125 Brier (adaptation on), a modest edge measured precisely rather than a large one.
 > A genuinely warmer 2022 origin is a plausible source of a bigger, more convincing win than the
-> one that just cleared. See `.planning/todos/pending/cold-start-season-discards-backfill-carry.md`
-> for what was and was not done.
+> one that just cleared. See `.planning/todos/completed/cold-start-season-discards-backfill-carry.md`
+> for what was and was not done. *(That prediction was then tested by the 2026-09-04 re-run at the
+> bottom of this file: the warm-start 2022 win was +0.000897 — same modest-but-precise character,
+> not the bigger win speculated here.)*
 
 > **UNBLOCKED 2026-09-03 (later the same day).** The corpus extension ran, all seven seasons have
 > registered breakdown and RP modules, and `score.ts`'s 2022-2026 guard — which made every scoring
