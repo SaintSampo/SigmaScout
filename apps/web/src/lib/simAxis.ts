@@ -116,11 +116,18 @@ export function x(rank: number, teamCount: number, plotW: number = PLOT_W): numb
 }
 
 /**
- * The histogram slot width. The denominator here is deliberately the team
- * count itself, while `x()`'s denominator is one less — the sketch's own
- * pitch-versus-slot distinction (rank PITCH is `PLOT_W / (N - 1)`, the
- * histogram SLOT is `PLOT_W / N`) — so the two are not mistaken for a typo
- * and silently unified by a later reader.
+ * The histogram slot width. IN-04 (260902-post-phase08-ungoverned-ui/REVIEW.md):
+ * this comment used to claim the denominator here is "deliberately the team
+ * count itself, while `x()`'s denominator is one less" — a PRE-fix
+ * description. The 2026-09-01 slot-centred fix documented on `x()` above
+ * changed `x()` to divide by the team count too, so today BOTH denominators
+ * are the team count, `PLOT_W / N` — they are not two different values that
+ * happen to look alike, they are the SAME mapping. What still legitimately
+ * differs is the half-slot offset `x()` applies (`rank - 0.5`, not `rank`):
+ * that offset is what centres a rank WITHIN its slot rather than at the
+ * slot's leading edge, which is why `x()` and `rankSlotWidth` read as two
+ * functions instead of one even though they share a denominator. See `x()`'s
+ * own comment above for the fix and its measured before/after evidence.
  */
 export function rankSlotWidth(teamCount: number, plotW: number = PLOT_W): number {
   if (!(teamCount >= 1)) return plotW;

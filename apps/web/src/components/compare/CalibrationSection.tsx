@@ -8,7 +8,8 @@
  * chart as supporting evidence — plain inline SVG, no Recharts, no lazy
  * chunk. What 08-10 shipped (one sentence over a demoted three-series
  * reliability diagram with a clickable legend) was a different reading of
- * "C" and is replaced wholesale; `CalibrationChart.tsx` is deleted with it.
+ * "C" and is replaced wholesale; that reliability-diagram component was
+ * deleted with it (WR-07, 260902-post-phase08-ungoverned-ui/REVIEW.md).
  *
  * Still true from the original section contract:
  *  - a LOCAL year `Select` (the Compare page's documented NAV-02 exception),
@@ -25,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { COMPARE_SEASONS, type CompareCompLevelView } from "../../lib/api/compare.js";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { buildCalibrationCard, cardHeadlineSentence, fmtPct, niceCeil, SPARSE_N, type CalibrationCardModel } from "./calibrationCards.js";
+import { NO_USABLE_BINS_SENTENCE } from "./calibrationSeries.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
@@ -71,7 +73,14 @@ function MiniDeviationChart({ card, algorithmId, d }: { card: CalibrationCardMod
   const x1 = MINI_W - MINI_MARGIN.right;
   const yZero = MINI_H / 2;
   const yScale = (MINI_H / 2 - MINI_MARGIN.top) / d;
-  const slotW = (x1 - x0) / 10;
+  // IN-02 (260902-post-phase08-ungoverned-ui/REVIEW.md): the divisor used to
+  // be a hardcoded `10` while the render below iterates `card.rows`, whose
+  // length comes from the PUBLISHED bin count — a mismatch could overflow
+  // the SVG on one side. Derived from the row count actually being rendered
+  // instead, guarded against zero so the division can never produce a
+  // non-finite width. All five published artifacts carry ten bins today, so
+  // this is a latent-not-live fix — nothing currently renders differently.
+  const slotW = (x1 - x0) / Math.max(card.rows.length, 1);
   const barW = slotW * 0.62;
 
   return (
@@ -127,7 +136,14 @@ function CalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlgor
       </div>
       <p data-testid={calibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
         {card.headline === null ? (
-          "No usable bins in this view."
+          // WR-07 step 3 (260902-post-phase08-ungoverned-ui/REVIEW.md): this
+          // used to be a second string inlined here, DIFFERENT from
+          // `calibrationSeries.ts`'s own `NO_USABLE_BINS_SENTENCE` — the
+          // exact drift this finding is about. Rendering the shared constant
+          // is a DELIBERATE, user-visible copy change (recorded in this
+          // task's SUMMARY): the plain-language sentence replaces the
+          // jargon one, and now has exactly one home.
+          NO_USABLE_BINS_SENTENCE
         ) : (
           <>
             {cardHeadlineSentence(label, card.headline)}

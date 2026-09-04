@@ -170,7 +170,13 @@ export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined
   // PROHIBITION: never default an absent published value to 0 here or
   // anywhere else in this file. A missing term defaulted to zero would make
   // an alliance with a missing pick render as catastrophically weak rather
-  // than unknown — the opposite of the em-dash this function returns above.
+  // than unknown. IN-05 (260902-post-phase08-ungoverned-ui/REVIEW.md):
+  // corrects this comment's own prior claim that it is "the opposite of the
+  // em-dash this function returns above" — this function returns
+  // `undefined` above, not an em-dash (the em-dash, where one appears, is
+  // rendered by a CALLER formatting an absent value, not by this function).
+  // The argument stands unchanged under the correction: defaulting to zero
+  // would silently replace an honest "unknown" with a false "weak".
   const value = resolved.reduce((sum, total) => sum + total.value, 0);
   const allSpreadsPresent = resolved.every((total) => total.spread !== undefined);
   if (!allSpreadsPresent) {
@@ -286,9 +292,14 @@ export function alliancesIncompleteNotice(incomplete: number, total: number, alg
  * `formatEventRecord` (restated, not imported, following that function's
  * own established precedent of copying across the event/ module boundary
  * rather than reaching into a sibling tab file) — G-8's alliance-level
- * counterpart. `undefined` renders a single em-dash: an event with no
- * playoff bracket yet, or a `status` shape `parseAllianceRecord` does not
- * recognise, are both honest absences, never a fabricated `0-0-0`.
+ * counterpart. IN-05 (260902-post-phase08-ungoverned-ui/REVIEW.md): corrects
+ * this comment's own prior claim that `undefined` renders "a single
+ * em-dash" — it does not; it returns the EMPTY STRING below. The argument
+ * this comment exists to preserve still holds under the correction: an
+ * event with no playoff bracket yet, or a `status` shape
+ * `parseAllianceRecord` does not recognise, are both honest absences, and an
+ * empty string is that absence rendered honestly — never a fabricated
+ * `0-0-0`.
  */
 export function formatAllianceRecord(record: { wins: number; losses: number; ties: number } | undefined): string {
   if (record === undefined) return "";

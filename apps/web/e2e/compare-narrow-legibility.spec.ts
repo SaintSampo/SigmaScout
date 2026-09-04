@@ -4,8 +4,8 @@ import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows } from "
 
 /**
  * C1's 390px pan-and-re-render evidence for the accuracy table and C3's
- * 390px legend, axis-label and sparse-bin-radius evidence for the
- * calibration section (08-15-PLAN.md Task 3).
+ * 390px card-legibility evidence (headline sentence, bin range labels, mini
+ * deviation-chart bars) for the calibration section (08-15-PLAN.md Task 3).
  *
  * Runs against the LOCAL origin only (`local-phone-390`'s `testMatch`,
  * `playwright.config.ts`) — this is unshipped Phase 8 code, so only a
@@ -16,9 +16,14 @@ import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows } from "
  * Every literal here is read out of shipped source: `AccuracyTable.tsx`'s
  * `COMPARE_ACCURACY_SCROLL_TESTID`, `CompLevelSwitcher.tsx`'s
  * `COMP_LEVEL_SWITCHER_TESTID`/`compLevelSegmentTestId`, and
- * `CalibrationSection.tsx`'s/`CalibrationChart.tsx`'s own exported testid
- * constants — kept in sync by hand, matching this app's established
- * e2e-does-not-import-app-source convention (`simulation-run.spec.ts`).
+ * `CalibrationSection.tsx`'s own exported testid constants — kept in sync by
+ * hand, matching this app's established e2e-does-not-import-app-source
+ * convention (`simulation-run.spec.ts`). WR-07
+ * (260902-post-phase08-ungoverned-ui/REVIEW.md): this file used to also cite
+ * a since-deleted three-series reliability-diagram component the user's
+ * 2026-09-01 checkpoint replaced with `CalibrationSection.tsx`'s
+ * per-algorithm plain-language cards (`calibrationCards.ts`) — that
+ * component no longer exists, and nothing in this spec ever imported it.
  */
 
 const COMPARE_URL = "/compare";
@@ -107,7 +112,15 @@ test.describe("C1 — the Compare accuracy table at 390px: pans inside its own r
 /** `\.\d*9{4,}\d*$|\.\d*0{4,}\d+$` — the identical float-noise pattern `metric-history-axis-legibility.spec.ts` established as this test class's first instance. */
 const FLOAT_NOISE_PATTERN = /\.\d*9{4,}\d*$|\.\d*0{4,}\d+$/;
 
-test.describe("C3 — the Compare calibration section at 390px: three cards, sentences, bin rows and mini charts all stay legible", () => {
+// WR-07 (260902-post-phase08-ungoverned-ui/REVIEW.md): this describe block's
+// title used to promise "legend, axis-label and sparse-bin-radius evidence"
+// — the vocabulary of the deleted three-series reliability-diagram
+// component (legend, shared axis, per-point radius). The plain-SVG per-
+// algorithm card rebuild below never draws any of those three things; the
+// test bodies were already correctly rewritten to card assertions (headline
+// sentence, bin range labels, mini deviation-chart bars) — only this title
+// was still describing evidence nothing here produces.
+test.describe("C3 — the Compare calibration section at 390px: each card's headline sentence, bin range labels and mini deviation-chart bars stay legible", () => {
   test("each algorithm card renders a non-empty headline sentence inside the viewport, its bin rows carry range labels, and its mini deviation chart draws real bars", async ({ page }) => {
     await openComparePage(page);
 

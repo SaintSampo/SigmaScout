@@ -14,6 +14,7 @@ import { CompareArtifactSchema, type CompareArtifact } from "../../../../../pack
 import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { buildCalibrationCard, cardHeadlineSentence, fmtPct, niceCeil, SPARSE_N } from "./calibrationCards.js";
+import { NO_USABLE_BINS_SENTENCE } from "./calibrationSeries.js";
 import {
   CALIBRATION_EMPTY_RANGE_TEXT,
   CALIBRATION_SPARSE_TAG,
@@ -114,6 +115,22 @@ describe("CalibrationSection — sketch 006-C cards", () => {
     expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).toContain(
       cardHeadlineSentence(algorithmDisplayLabel("vpr"), card.headline!),
     );
+    cleanup();
+  });
+
+  /**
+   * WR-07 step 3 (260902-post-phase08-ungoverned-ui/REVIEW.md): the
+   * empty-state sentence used to be a second string inlined in
+   * `CalibrationSection.tsx`, different from `calibrationSeries.ts`'s own
+   * `NO_USABLE_BINS_SENTENCE`. Asserted by IMPORTING the shared constant,
+   * never by restating its literal text — restating it would recreate the
+   * exact drift this finding is about.
+   */
+  it("renders the shared NO_USABLE_BINS_SENTENCE, not a second inlined string, when the selected year has no artifact", () => {
+    render(<CalibrationSection artifactsByYear={new Map([[2022, ARTIFACT_2022]])} compLevelView="combined" />);
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      expect(screen.getByTestId(calibrationCardSentenceTestId(algorithmId)).textContent).toBe(NO_USABLE_BINS_SENTENCE);
+    }
     cleanup();
   });
 
