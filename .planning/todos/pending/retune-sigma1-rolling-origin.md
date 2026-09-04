@@ -8,7 +8,16 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
-> **BLOCKED 2026-09-03: run `extend-corpus-2019-2020` FIRST.** The user decided to add 2019
+> **UNBLOCKED 2026-09-03 (later the same day).** The corpus extension ran, all seven seasons have
+> registered breakdown and RP modules, and `score.ts`'s 2022-2026 guard — which made every scoring
+> path throw on 2019/2020 — is gone. This job is runnable.
+>
+> **The origin list GREW, twice.** It is now **2022, 2023, 2024, 2025, 2026 and 2027** — six, not
+> the three every cost table below assumes. 2022 and 2023 became origins when 2019/2020 backfilled
+> in; 2027 is D-3's live-season origin. Re-derive the cost before running: the numbers below are
+> correct per-origin but cover half the job.
+>
+> **Superseded note (kept for the record) — 2026-09-03 earlier:** The user decided to add 2019
 > and 2020 to the corpus before this job, so tuning happens once on the final corpus rather
 > than now and again afterwards. That changes the selection seasons for EVERY origin below and
 > adds 2022 and 2023 as new origins. Do not run this until that job lands.

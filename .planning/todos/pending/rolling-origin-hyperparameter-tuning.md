@@ -311,3 +311,40 @@ re-tune's republish rather than shipping standalone. The
 leakage test this section used to describe as pending (acceptance criterion 1: a test
 proving a search cannot read a season at or after its evaluation target) already shipped in
 `260901-trz`.
+
+
+---
+
+## PROGRESS 2026-09-03 (later the same day) — D-4 SUPERSEDED, D-5 partially landed
+
+### D-4's verdict on 2023 is superseded by the corpus backfill
+
+D-4 ruled 2023 ineligible on a one-season prior. That was correct **against a 2022-2026 corpus**.
+`extend-corpus-2019-2020` changed the inputs, not the rule: 2023 now has 2019, 2020 and 2022 before
+it. The thin-prior rule is preserved and simply no longer excludes it.
+
+### D-5 partially landed, in three quick tasks
+
+- `260903-krp` — deleted `SeasonLabel`/`TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit` and replaced
+  them with a corpus-relative rule. This was what blocked every scoring path on 2019/2020.
+- `260903-n2o` — made eligibility **provenance-aware** after an adversarial review found the
+  ordering-only rule asserts a property of the OPTIMIZER while reading only a list of years.
+- `260903-tk6` — closed the four review findings that survived refutation.
+
+### The honest eligible set TODAY
+
+| algorithm | selected on | headline-eligible |
+|---|---|---|
+| `vpr` | 2022, 2023, 2024 (from `provenance.tuneSeasons`) | **2025, 2026** |
+| `epa`, `opr`, `vpr-adapt` | nothing (never tuned) | 2022-2026 |
+
+**VPR is unchanged from what live artifacts already carry.** The 2 -> 5 expansion this todo
+anticipates is real but arrives **with the re-tune**, not before it — and it will arrive by itself,
+because the rule reads `provenance.tuneSeasons` and a promotion rewrites that field. There is no
+season list left for anyone to remember to edit.
+
+### Still open here
+
+`seasonLabel` remains OPTIONAL rather than deleted in `CompareSliceSchema`, so the client tolerates
+both today's 5.0.0 artifacts and the post-republish shape. Deleting it outright still rides the
+republish, per D-1.
