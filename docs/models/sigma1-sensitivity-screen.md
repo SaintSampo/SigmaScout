@@ -12,7 +12,8 @@ from `reports/sensitivity-screen.json`, produced by `packages/harness/tune.ts --
 
 - **Seasons:** 2022, 2023 (both TUNE seasons — see plan's default; 2024 is intentionally left
   out of the screen, reserved for the joint search's own three-tune-season budget, and 2025/2026
-  are HOLDOUT and structurally unreachable by `tune.ts`, see below).
+  were HOLDOUT and structurally unreachable by `tune.ts` at the time this screen ran — see below
+  for what is still true today and what governs eligibility now).
 - **Grid:** every one of `SEARCHABLE_PARAM_KEYS`' 20 parameters swept ONE AT A TIME over 5 values
   each (`--values 5`, `screenGridFor`'s geometric spacing for `log`-scaled parameters, arithmetic
   for `linear`), inclusive of both declared bounds and always including the parameter's own
@@ -30,10 +31,17 @@ from `reports/sensitivity-screen.json`, produced by `packages/harness/tune.ts --
   table) — small enough to keep anything that plausibly reflects a real effect, large enough to
   exclude pure replay noise. Stated as a starting point, not a once-and-for-all calibrated
   constant.
-- **Holdout blindness:** structural, not conventional — `tune.ts` refuses any requested season in
-  `HOLDOUT_SEASONS` before any corpus read, independently re-checks every requested season via
-  `seasonSplit`, and re-checks every produced score slice for `seasonLabel`/`headlineEligible`
-  after scoring. This screen never touched 2025/2026.
+- **Holdout blindness (historical — F-4, quick task 260903-tk6):** at the time this screen ran,
+  the guard was structural, not conventional — `tune.ts` refused any requested season in
+  `HOLDOUT_SEASONS` before any corpus read, independently re-checked every requested season via
+  `seasonSplit`, and re-checked every produced score slice for `seasonLabel`/`headlineEligible`
+  after scoring. `HOLDOUT_SEASONS`, `seasonSplit`, and `seasonLabel` have since been retired —
+  none of the three runs anymore. What remains true and still checkable from this screen's own
+  reported seasons: it swept 2022 and 2023 only and never touched 2025 or 2026. Headline
+  eligibility today is governed instead by `score.ts`'s two-clause corpus-relative
+  `isHeadlineEligible` — at least `MIN_PRIOR_SEASONS_FOR_HEADLINE` distinct prior seasons in the
+  declared corpus, AND the season absent from the scoring algorithm's own selected-on set —
+  sourced from `selectionProvenance.ts`'s registry.
 
 ## Screen Results
 
