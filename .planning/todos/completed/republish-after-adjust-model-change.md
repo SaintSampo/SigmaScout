@@ -142,3 +142,21 @@ multiply republish runs.
 - `.planning/todos/pending/retune-sigma1-rolling-origin.md` (Item 4's ordering constraint)
 - `packages/harness/baselineFingerprint.test.ts` (Item 1's frozen-history convention)
 - `docs/publish-budget.md` (Item 3's manual-transcription requirement)
+
+---
+
+# COMPLETED 2026-09-04 (retune/republish session)
+
+All four items closed, in Item 4's prescribed order — the re-tune ran FIRST (promoting
+`vpr@8.0.0+rolling-2026-09b`, see the completed `retune-sigma1-rolling-origin` todo), then ONE
+republish covered everything:
+
+- **Item 1:** `data/baselines/sc3-rolling-origin-2026-09b.json` + a sixth fingerprint block in
+  `baselineFingerprint.test.ts`, measured under `epa@5.0.0+baseline` / `vpr@8.0.0+rolling-2026-09b`,
+  same match population as both prior SC-3 fingerprints (directly comparable).
+- **Item 2:** was already resolved (260904-5px).
+- **Item 3:** `publish:seasons` (generation `15135c51-...`, 56,774 objects, 2.342 GB) then
+  `manifest:algorithms` (read-back verified, 3 entries). Budget block transcribed into
+  `docs/publish-budget.md`; `payloadBudget.test.ts` green; no ceiling moved, `team` maxBytes
+  back under its ceiling (376,373 < 400,000).
+- **Item 4:** honored — promotion landed before the single republish; nothing published twice.

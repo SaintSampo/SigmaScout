@@ -318,3 +318,77 @@ per-season map. That is exactly the "biggest single cost" `rolling-origin-hyperp
 D-2 named and answered in principle — one version carrying `paramSetsBySeason` plus a single
 prediction-stream digest over the full replay — but the code does not exist yet. Promotion cannot
 proceed until it does.
+
+*(Superseded 2026-09-04: quick task 260904-100 built `paramSetsBySeason`, and the 2026-09-03
+verdicts above were promoted as `rolling-2026-09`. The section below is the NEXT run.)*
+
+---
+
+# RESULTS — the re-tune RAN AGAIN, 2026-09-04, under the NEW model. Ten fresh verdicts.
+
+This is the run every note above said would be needed: `SIGMA1_CODE_VERSION 8.0.0` (adjust
+pinned at 0, `isAdjustZeroedAlliance`), positional cold start, `SELECTION_WINDOW_SEASONS = 3`
+capped windows. NOT comparable to the ten 2026-09-03 verdicts above, exactly as those notes
+say — different model, different windows, different incumbent.
+
+## Run shape
+
+- **Screen:** ONCE on 2019, 2020 (`reports/sensitivity-screen-2026-09-04.json`), `--values 5
+  --batch 4`. **9/15 survive.** `carryPriorYearShare` measured range exactly `0.000e+0` —
+  UNREACHABLE again (the window's one boundary has no prior-prior season, so the two-season
+  blend never executes) — and was operator-FORCED into the survivor set, recorded in the
+  file's own `manualOverrides` block. `carryMeanReversion` survived on its own this time
+  (range 5.091e-3). **Survivors: 10.**
+- **Joint:** 5 origins x 2 arms = 10 runs, `--evals 40 --batch 4` (60 candidates each after
+  coordinate descent), two waves (2022/2023/2024 then 2025/2026).
+- **Incumbent: the LIVE `vpr@8.0.0+rolling-2026-09` per-season set, via the new `--incumbent`
+  flag** (commit c1202451, added for this run). D-T7's "beats what SHIPS" is literal this
+  time: for 2022 and 2026 the bar is the set that already beat `tuned-2026-08` last run.
+  The frozen `INCUMBENT_VERSION_PATH` constant was not touched.
+- 2027 deliberately not run (no matches, no D-T7 verdict possible) — same reasoning as the
+  2026-09-03 run; the ungated preseason `--seasons` job remains separate.
+
+## The ten verdicts (all against LIVE incumbent `8.0.0+rolling-2026-09`, N = 60)
+
+| origin | arm | verdict | delta Brier | bar | delta SE | delta/SE |
+|---|---|---|---|---|---|---|
+| 2022 | off | **ACCEPTED** | +0.000897 | 0.000544 | 0.000190 | **+4.7** |
+| 2022 | on  | **ACCEPTED** | +0.000628 | 0.000484 | 0.000169 | **+3.7** |
+| 2023 | off | keep-incumbent | -0.005297 | 0.002222 | 0.000777 | -6.8 |
+| 2023 | on  | keep-incumbent | -0.005076 | 0.002212 | 0.000773 | -6.6 |
+| 2024 | off | keep-incumbent | -0.005948 | 0.001458 | 0.000510 | -11.7 |
+| 2024 | on  | keep-incumbent | -0.004866 | 0.001306 | 0.000456 | -10.7 |
+| 2025 | off | keep-incumbent | -0.003218 | 0.001392 | 0.000487 | -6.6 |
+| 2025 | on  | keep-incumbent | -0.003269 | 0.001381 | 0.000482 | -6.8 |
+| 2026 | off | keep-incumbent | -0.008616 | 0.001634 | 0.000571 | -15.1 |
+| 2026 | on  | keep-incumbent | -0.005695 | 0.001396 | 0.000488 | -11.7 |
+
+**One promotable result: origin 2022, both arms accepted; the off arm's larger delta wins
+(+0.000897 > +0.000628), so 2022 promotes adaptation OFF.** Every other origin keeps its
+live set — an expected and healthy outcome: the incumbent this time was the strongest set
+ever shipped (2023-2025 carry the hardened tuned-2026-08 values; 2026 carries last run's
+adaptation-ON winner), not a stale one.
+
+Notes in the same spirit as the first run's honesty notes:
+- 2024 misses again, hardest relative to its SE (-11.7) — the structural 2024 diagnosis
+  above stands under the new model.
+- 2026-off vs 2026-on differ by +0.0029 in on's favor on identical searches — adaptation's
+  out-of-sample value on 2026 re-observed under the new model, though neither arm clears
+  the live 2026 incumbent (which IS last run's adaptation-on winner).
+- The 2022 win is again a small edge measured precisely (delta SE 0.000190, the tightest of
+  all ten), clearing a 4.7 SE bar — same character as last run's 2022 result.
+
+## Promotion — DONE, same day
+
+`data/algorithm-versions/vpr@8.0.0+rolling-2026-09b.json` (digest `cf54fc21ef18d8f7...`,
+slice season 2022 / 3 events / 265 matches):
+`--per-season "2022=search:reports/tune-joint-off-origin2022.json"` +
+`--per-season "2019,2020,2023-2026=version:.../vpr@8.0.0+rolling-2026-09.json"`.
+`promotedVersionPath.ts` re-pinned `rolling-2026-09` -> `rolling-2026-09b`; the CI digest
+slice fixture was refreshed; `selectionProvenance.test.ts`'s independent literal and
+`baselineFingerprint.test.ts`'s exact-set census (3 -> 4 files) updated. Harness suite
+878/878 green at promotion time.
+
+This closes the job: verdicts recorded, the one accepted result promoted, everything else
+keep-incumbent by a pre-committed bar. The republish rides
+`republish-after-adjust-model-change` (Item 4's batching rule), same session.
