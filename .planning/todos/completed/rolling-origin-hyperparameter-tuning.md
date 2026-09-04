@@ -8,6 +8,33 @@ priority: high
 
 # Rolling-origin hyperparameter tuning — remove the tune/holdout split at its source
 
+> **CLOSED 2026-09-04 (gsd-fast).** All five acceptance criteria are met:
+>
+> 1. **Leakage-proof selection** — shipped in `260901-trz` (`tune.ts` gates + tests), as
+>    already recorded below.
+> 2. **Headline-eligible seasons ≥ 3** — under the live `vpr@8.0.0+rolling-2026-09b`
+>    per-season map, provenance-derived eligibility yields **2022, 2025 and 2026** (2022's
+>    set was selected on 2019/2020; 2023–2025 keep sets whose `tuneSeasons` include them or
+>    leave too few priors; 2026's set was selected on 2023–2025). The schema reflects the
+>    scheme: `headlineEligible` is provenance-derived (`260903-n2o`) and `seasonLabel` is now
+>    **deleted outright** (commit `e212c6e1`) — the one item "Still open here" below named.
+>    Deletion rode the republish exactly as D-1 required: the 2026-09-04 republish removed
+>    the last producer of the key, and archived 5.0.0-era artifacts still parse via
+>    non-strict key stripping, pinned by the rewritten `compare.compat.test.ts`.
+> 3. **Digest CI gate** — passes under D-2's `paramSetsBySeason` representation
+>    (`260904-100` built it; promotion `567ec4cc`, harness suite green at promotion time).
+> 4. **SC-3 re-measured** — `sc3-rolling-origin-2026-09b` fingerprint (`fd0987ea`), dated
+>    docs in `docs/models/` and the publish-budget transcription (`bf6cc389`).
+> 5. **`docs/models/sigma1-tuning-results.md`** — now opens with a dated scheme-retirement
+>    banner describing the shipped rolling-origin scheme and pointing at the durable verdict
+>    record (`retune-sigma1-rolling-origin`, completed); its measured tables are preserved
+>    unedited as history (same commit as the schema deletion).
+>
+> D-5's display question was ultimately resolved by the provenance-aware eligibility rule
+> rather than by removing seasons from the page: Compare shows all corpus seasons uniformly
+> (D-08) and the headline claim reads `headlineEligible`, which the re-tune's promotion
+> rewrites automatically. Nothing in this file remains open.
+
 > **Status: all four gating decisions ANSWERED** (see "Decisions — ANSWERED 2026-09-03" at
 > the end of this file). Per D-1, this work is sequenced onto `retune-sigma1-rolling-origin`
 > and rides its promotion and republish — it is not to be run standalone.
