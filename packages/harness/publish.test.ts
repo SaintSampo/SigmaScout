@@ -2203,6 +2203,61 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
     //      `aggregateScores` throws naming it (D-2's missing-entry guard)
     //      and this `await publishSeasons(...)` call itself rejects.
   });
+
+  /**
+   * F-3 (quick task 260903-tk6): the prior version of this describe block
+   * only ever published `algorithms: [opr]`, and `opr`'s registry entry is
+   * a hardcoded `() => []` — so `selectedOnSeasonsFor(["opr"])` and a
+   * hand-built `{opr: []}` are byte-identical on that path, and deleting
+   * `selectionProvenance.ts`'s entire contribution kept the old test green.
+   * `vpr` is the first algorithm in this file whose registry entry is a
+   * REAL provenance read (the committed version file's
+   * `provenance.tuneSeasons`), so this is the first assertion anywhere in
+   * the repo that a published `compare/{year}.json`'s `vpr` eligibility
+   * matches the real matrix on BOTH sides of the selected-on boundary.
+   *
+   * This expectation is PINNED to the committed version file's
+   * `provenance.tuneSeasons` ([2022, 2023, 2024] on this checkout, per
+   * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+tuned-2026-08.json`).
+   * A future re-tune that promotes a different selected-on set is SUPPOSED
+   * to redden this test — a headline-eligibility matrix change must be a
+   * deliberate, visible edit, never a silent side effect of a re-promotion.
+   */
+  it("2024 (inside vpr's selected-on set) is NOT headline-eligible; 2025 (outside it) IS — both against a corpus that supplies enough priors either way", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2022prior", year: 2022 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2022prior_qm1", eventKey: "2022prior" }));
+
+    upsertEvent(db, seasonEvent({ eventKey: "2023prior", year: 2023 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2023prior_qm1", eventKey: "2023prior" }));
+
+    upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2024casj_qm1", eventKey: "2024casj" }));
+
+    upsertEvent(db, seasonEvent({ eventKey: "2025casj", year: 2025 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2025casj_qm1", eventKey: "2025casj" }));
+
+    await publishSeasons(db, { seasons: [2024, 2025], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact2024 = findCompareArtifact(2024);
+    const vprCombined2024 = artifact2024.slices.find(
+      (s) => s.algorithmId === vpr.id && s.season === 2024 && s.compLevelView === "combined"
+    );
+    expect(vprCombined2024).toBeDefined();
+    expect(vprCombined2024?.headlineEligible).toBe(false);
+
+    const artifact2025 = findCompareArtifact(2025);
+    const vprCombined2025 = artifact2025.slices.find(
+      (s) => s.algorithmId === vpr.id && s.season === 2025 && s.compLevelView === "combined"
+    );
+    expect(vprCombined2025).toBeDefined();
+    expect(vprCombined2025?.headlineEligible).toBe(true);
+
+    // Mutation this test is standing guard over (confirmed to redden it —
+    // recorded in the SUMMARY): replacing the registry call inside
+    // `aggregateScoresForRun` (`selectionProvenance.ts`) with a map of
+    // every requested id to an empty array flips 2024 to eligible, since
+    // `vpr` would then read as never selected on anything.
+  });
 });
 
 /**
