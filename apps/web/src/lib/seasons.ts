@@ -8,11 +8,14 @@
  * resolves through `componentMapForSeason` without throwing, catching a
  * `CURRENT_SEASON` bump that outran the registry (or vice versa).
  *
- * `FIRST_SEASON` matches the algorithms' own cold-start season
- * (`packages/core/algorithms/breakdown/constants.ts`'s `COLD_START_SEASON`,
- * 2022) — not re-imported from there directly, since that constant describes
- * the corpus's cold-start boundary for algorithm state, a related but
- * distinct fact from "the oldest season the year dropdown offers."
+ * `FIRST_SEASON` happens to be 2022, the same year the algorithms' replay
+ * range currently starts (and therefore currently cold-starts, positionally
+ * — see `packages/harness/seasonBoundary.ts`, quick task 260904-cs1). It is
+ * not derived from that fact and never imports from `packages/core/`: this
+ * value is a UI fact — the oldest season this phase's pages can render — and
+ * is kept independent of the algorithms' replay range on purpose. The two
+ * could diverge (e.g. the algorithms' corpus extending back further than
+ * the pages are ready to render) without this file needing to change.
  */
 
 /** The oldest season this phase's pages can render — the corpus's modern-era boundary (PROJECT.md). */

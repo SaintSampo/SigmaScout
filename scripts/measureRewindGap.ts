@@ -46,7 +46,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import type { MatchResult, Prediction, SeasonBoundary } from "../packages/core/algorithms/types.js";
+import type { MatchResult, Prediction } from "../packages/core/algorithms/types.js";
 import type { PredictionRecord } from "../packages/harness/replay.js";
 import {
   simulateRanks,
@@ -60,7 +60,7 @@ import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../
 import { WalkForwardSimulator, toLeakProofUpcoming, buildSeasonStream } from "../packages/harness/replay.js";
 import { applyPromotedOverrides } from "../packages/harness/cli.js";
 import { vpr } from "../packages/core/algorithms/sigma1/index.js";
-import { COLD_START_SEASON } from "../packages/core/algorithms/breakdown/index.js";
+import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { PROMOTED_VPR_VERSION_PATH } from "../packages/harness/promotedVersionPath.js";
 
 // ---------------------------------------------------------------------------
@@ -419,6 +419,17 @@ export const CORPUS_PATH = join("data", "corpus.sqlite");
 // leaf (no corpus, no schema, no sibling harness module), so importing it
 // crosses no such boundary.
 
+/**
+ * This script's OWN choice of where its threaded replay starts, not a
+ * global fact about the corpus (quick task 260904-cs1, D-1). The published
+ * predictions this control compares against were produced from a
+ * 2022-start replay, so this script's replay must start there too, or it
+ * would be comparing against a differently-warmed state. Changing it would
+ * change what this script measures and is out of scope for a mechanical
+ * cleanup.
+ */
+const DEFAULT_REPLAY_START_SEASON = 2022;
+
 /** The stream-position sentinel for a job whose start index is 0 — there is no preceding match in that event, so the job's "frozen state" is the season's own initial state (cold-start `initState`, or this season's carried-in state) rather than any `onMatchComplete` snapshot. */
 const SEASON_START_SENTINEL = "__SEASON_START__";
 
@@ -476,7 +487,7 @@ function assertPreconditions(): void {
 
 /**
  * Runs the full D-02 control measurement over `targetEvents`: one threaded,
- * offseason-inclusive season replay per season from `COLD_START_SEASON`
+ * offseason-inclusive season replay per season from `DEFAULT_REPLAY_START_SEASON`
  * through the newest target season, boundary snapshots captured inside
  * `onMatchComplete` with no fold-in ever called on a frozen state, three
  * start points per event, and a paired frozen-vs-stored-vs-noise-control
@@ -507,14 +518,14 @@ export async function runMeasurement(targetEvents: readonly TargetEvent[], draws
 
     const maxTargetSeason = Math.max(...targetEvents.map((t) => t.season));
     const seasons: number[] = [];
-    for (let season = COLD_START_SEASON; season <= maxTargetSeason; season++) seasons.push(season);
+    for (let season = DEFAULT_REPLAY_START_SEASON; season <= maxTargetSeason; season++) seasons.push(season);
 
     const frozenRecordsByJobKey = new Map<string, PredictionRecord[]>();
     const storedRecordsByEventKey = new Map<string, Map<string, PredictionRecord>>();
     let priorSeasonFinalStates = new Map<string, unknown>();
     let corpusMatchCount = 0;
 
-    for (const season of seasons) {
+    for (const [seasonIdx, season] of seasons.entries()) {
       // Offseason-inclusive, matching `publish:seasons`' own stream
       // composition exactly (`includeOffseason: true`) — the published
       // predictions this control compares against were produced from an
@@ -543,10 +554,15 @@ export async function runMeasurement(targetEvents: readonly TargetEvent[], draws
       corpusMatchCount += stream.length;
       const teams = uniqueTeamKeysInOrder(stream);
 
-      const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === COLD_START_SEASON };
+      // Quick task 260904-cs1: routed through the shared `seasonBoundaryFor`
+      // instead of a local `fromSeason: season - 1` literal. `seasons` is
+      // built contiguously above (DEFAULT_REPLAY_START_SEASON..
+      // maxTargetSeason), so this is a no-op in behaviour — the cold start
+      // is positional (D-1) and index 0 is still DEFAULT_REPLAY_START_SEASON.
+      const boundary = seasonBoundaryFor(seasons, seasonIdx);
       let initialStates: ReadonlyMap<string, unknown> | undefined;
       if (boundary.isColdStart) {
-        console.log(`measureRewindGap: season ${season} — cold-start (COLD_START_SEASON=${COLD_START_SEASON}), stream length ${stream.length}`);
+        console.log(`measureRewindGap: season ${season} — cold-start (replay start season ${DEFAULT_REPLAY_START_SEASON}), stream length ${stream.length}`);
       } else {
         const carried = new Map<string, unknown>();
         const prior = priorSeasonFinalStates.get(algorithm.id);

@@ -63,26 +63,6 @@ export const FOULS_COMMITTED_COMPONENT = "foulsCommitted";
 export const ADJUST_COMPONENT = "adjust";
 
 /**
- * PROJECT INTENT (D-19): once the models are proven, the corpus is
- * recomputed starting from 2016 and 2016 becomes the cold-start season
- * instead of 2022. This constant is the one place that parameter lives —
- * no other module under `packages/core/algorithms` may hardcode 2022 as a
- * cold-start sentinel.
- */
-export const COLD_START_SEASON = 2022;
-
-/**
- * D-19: the one comparison point for "is this season the corpus's
- * cold-start season" — every other module (carryover, the harness season
- * loop) calls this rather than re-deriving `season === COLD_START_SEASON`
- * itself, so extending the corpus back to 2016 (PROJECT INTENT above) is a
- * one-constant edit, never a grep-and-replace across call sites.
- */
-export function isColdStartSeason(season: number): boolean {
-  return season === COLD_START_SEASON;
-}
-
-/**
  * WR-01 (code review, phase 02): throws loudly rather than letting a
  * non-finite component value silently reach a Kalman/EWMA update. The
  * per-season Zod parse boundary (each season's `parse()`) is the FIRST

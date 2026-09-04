@@ -17,7 +17,6 @@ import {
 } from "./carryover.js";
 import { epa, type EpaState } from "./epa.js";
 import { emptyExpandingStats } from "../scoring/expandingStats.js";
-import { COLD_START_SEASON, isColdStartSeason } from "./breakdown/index.js";
 import type { SeasonBoundary } from "./types.js";
 
 describe("EPA_ROOKIE_BASELINE", () => {
@@ -111,13 +110,6 @@ describe("epa.carrySeason — isColdStart short-circuit", () => {
 
     const result = epa.carrySeason!(state, boundary({ fromSeason: 2021, toSeason: 2022, isColdStart: true }));
     expect(result).toBe(state);
-  });
-});
-
-describe("isColdStartSeason — derived from COLD_START_SEASON, not a hardcoded 2022", () => {
-  it("is true for COLD_START_SEASON and false for the season after it", () => {
-    expect(isColdStartSeason(COLD_START_SEASON)).toBe(true);
-    expect(isColdStartSeason(COLD_START_SEASON + 1)).toBe(false);
   });
 });
 

@@ -37,7 +37,7 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * ## Cold start is positional, not a remembered value (D-1)
  *
  * `isColdStart` used to be `season === coldStartSeason`, matched against a
- * module constant (`COLD_START_SEASON = 2022`) that every caller had to pass
+ * module constant (a hardcoded year, 2022) that every caller had to pass
  * unchanged. That made the corpus's first season a fact someone had to
  * *remember*, and it went stale silently the moment `extend-corpus-2019-2020`
  * moved the corpus start to 2019: a `[2019, 2020, 2022]` tuning replay kept

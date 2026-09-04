@@ -1,25 +1,24 @@
 /**
  * Season -> component-map dispatch table (D-02, D-19). Adding a new season
  * is a new entry in `SEASON_COMPONENT_MAPS` below and a new `{year}.ts`
- * file — never a branch here. `COLD_START_SEASON` is the one place the
- * corpus's cold-start season is named; no other module may hardcode it
- * (D-19: it becomes 2016 once the corpus is extended back that far).
+ * file — never a branch here. The corpus's cold start is positional, not a
+ * named season (D-1, quick task 260904-cs1) — see
+ * `packages/harness/seasonBoundary.ts`'s `seasonBoundaryFor`, which every
+ * replay loop uses instead of hardcoding a comparison here.
  *
  * Shared types/constants (`ParsedComponents`, `SeasonComponentMap`,
- * `FOULS_COMMITTED_COMPONENT`, `ADJUST_COMPONENT`, `COLD_START_SEASON`,
- * `isColdStartSeason`) live in `./constants.js`, a dependency-free leaf
- * module, and are re-exported here for every existing import site. This
- * module (the dispatch table) imports every season file, and every season
- * file imports the shared constants from `constants.js` — never from this
- * file — so the dependency graph stays acyclic (see `constants.ts`'s file
- * header for the circular-import bug this split fixes).
+ * `FOULS_COMMITTED_COMPONENT`, `ADJUST_COMPONENT`) live in `./constants.js`,
+ * a dependency-free leaf module, and are re-exported here for every existing
+ * import site. This module (the dispatch table) imports every season file,
+ * and every season file imports the shared constants from `constants.js` —
+ * never from this file — so the dependency graph stays acyclic (see
+ * `constants.ts`'s file header for the circular-import bug this split
+ * fixes).
  */
 export {
   ADJUST_COMPONENT,
   assertFiniteComponents,
-  COLD_START_SEASON,
   FOULS_COMMITTED_COMPONENT,
-  isColdStartSeason,
   type ParsedComponents,
   type SeasonComponentMap,
 } from "./constants.js";

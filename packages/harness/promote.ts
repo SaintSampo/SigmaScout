@@ -100,7 +100,6 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import {
   DEFAULT_SIGMA1_PARAMS,
@@ -127,6 +126,18 @@ import { makeSeasonalSigma1, ParamSetsBySeasonSchema, resolveParamSets, type Sea
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
+
+/**
+ * `--slice-season`'s default when the flag is omitted. This is this
+ * command's own choice of "the default bounded validation slice starts
+ * here" — it is NOT the corpus's cold start (which is positional by
+ * construction, D-1, quick task 260904-cs1) and is not derived from it;
+ * the two facts coincided at 2022 only because 2022 happened to be the
+ * corpus's first season when this default was chosen. Changing this value
+ * would change what a default `promote` run validates against — that is a
+ * re-measurement and out of scope for a mechanical cleanup.
+ */
+const DEFAULT_VALIDATION_SLICE_SEASON = 2022;
 
 const HeadlineMetricSchema = z.object({
   season: z.number().int(),
@@ -1207,7 +1218,7 @@ async function main(): Promise<void> {
   // file the current registry/publisher/manifest chain actually resolves.
   const id = values.id ?? "vpr";
   const codeVersion = values["code-version"] ?? SIGMA1_CODE_VERSION;
-  const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : COLD_START_SEASON;
+  const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : DEFAULT_VALIDATION_SLICE_SEASON;
   const sliceEvents = values["slice-events"] !== undefined ? parseSliceEvents(values["slice-events"]) : 3;
 
   const mode = resolvePromotionMode(values.from, values["from-version"], adaptationSpec, perSeasonSpecs);

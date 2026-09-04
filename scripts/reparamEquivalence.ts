@@ -46,15 +46,15 @@ import { statSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import type { AlgorithmModule, MatchResult, SeasonBoundary } from "../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { openCorpusReadOnly, type Corpus } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
+import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../packages/core/scoring/expandingStats.js";
 import { SIGMA1_FALLBACK_SCORE_SD } from "../packages/core/algorithms/sigma1/params.js";
 import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
 import { isFullyDemoAlliance } from "../packages/core/algorithms/demoTeams.js";
 import { ratingEligibleTeams } from "../packages/core/algorithms/opr.js";
-import { COLD_START_SEASON } from "../packages/core/algorithms/breakdown/index.js";
 import { outcomeTarget, scoreSet, type MatchOutcome } from "../packages/core/scoring/brier.js";
 import { isValidPRedWin } from "../packages/core/scoring/predictionValidity.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "../packages/harness/score.js";
@@ -246,8 +246,14 @@ function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: strin
   const harnessPredictions: HarnessPredictionInput[] = [];
   let liveState: unknown;
 
-  for (const season of seasons) {
-    const boundary: SeasonBoundary = { fromSeason: season - 1, toSeason: season, isColdStart: season === COLD_START_SEASON };
+  for (const [index, season] of seasons.entries()) {
+    // Quick task 260904-cs1: routed through the shared `seasonBoundaryFor`
+    // instead of a local `fromSeason: season - 1` literal — this script's
+    // `seasons` argument was never guaranteed contiguous, and the inline
+    // copy silently reported a one-year gap even across a discontinuity.
+    // The cold start is positional (D-1): the first season in `seasons`
+    // has no predecessor, whatever season that is.
+    const boundary = seasonBoundaryFor(seasons, index);
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (!boundary.isColdStart && liveState !== undefined && algorithm.carrySeason) {
       initialStates = new Map([[algorithm.id, algorithm.carrySeason(liveState, boundary)]]);
