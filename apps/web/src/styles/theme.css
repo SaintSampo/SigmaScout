@@ -112,13 +112,26 @@
   --loser-ink: #94A3B8;
 
   /*
-   * Rarity-tier tokens (D-04/D-17, Phase 6 plan 06-07) — the
+   * Rarity-tier tokens (D-04/D-17, Phase 6 plan 06-07; Common outline added
+   * quick task 260904-7rt, sketch 008 winner C) — the
    * sketch-findings-sigmascout skill's `colour-and-tiers.md` decided
    * palette for `MetricValue.tsx`'s boxed metric cells (`tiers.ts`'s
-   * `tierForPercentile`). Common (0-50th percentile) deliberately has NO
-   * matching token pair here — it renders as a plain, untreated cell so
-   * colour appears only where it carries information and roughly half the
-   * field stays quiet.
+   * `tierForPercentile`). Common (0-50th percentile) used to have no token
+   * pair at all and rendered as a plain, untreated cell — sketch 008 found
+   * that made Common read as an *absence* rather than a tier, and superseded
+   * that with variant C: an EDGE-only token, `--tier-common-edge` below. It
+   * has no matching fill or foreground token, because C changes only the
+   * boundary of the box and leaves the text inheriting — Common is still the
+   * absence of the three coloured fills below, just no longer the absence of
+   * a box.
+   *
+   * The edge is deliberately quiet: it sits around 1.4:1 against the white
+   * surface, well under WCAG 1.4.11's 3:1 non-text floor. That is acceptable
+   * here ONLY because the ring is redundant — a reader who cannot resolve it
+   * sees exactly the plain cell that shipped before this change and loses no
+   * information, since Common is still the absence of the three coloured
+   * fills rather than a claim carried by the ring alone. This reasoning does
+   * NOT transfer to any future tier whose ring would be its only signal.
    *
    * THE RARE PAIR'S IDENTITY HUE IS SKY (`#0EA5E9` for legends/chips; the
    * tinted `--tier-rare-bg` below is its light-fill counterpart) — this is
@@ -131,6 +144,7 @@
    * either value must be re-validated with the dataviz skill's palette
    * validator before shipping.
    */
+  --tier-common-edge: #CBD5E1;
   --tier-rare-bg: #E0F2FE;
   --tier-rare-fg: #0369A1;
   --tier-epic-bg: #F3E8FF;
@@ -643,7 +657,21 @@ body {
   background: var(--tier-legendary-bg);
   color: var(--tier-legendary-fg);
 }
-/* .metric-tier--common intentionally has no rule — plain, untreated cell. */
+/*
+ * Common's ring (sketch 008 winner C, quick task 260904-7rt): a hairline
+ * inset ring, no fill, no foreground colour — the text keeps inheriting.
+ * `box-shadow: inset` is LOAD-BEARING here, not a stylistic pick: `.metric-tier`'s
+ * `min-width: 58px` and its column alignment against the filled tiers above
+ * are computed from the current box, and a `border` would add 2px of width
+ * and 2px of height to Common cells ONLY, shifting every column that mixes
+ * tiers out of alignment with Rare/Epic/Legendary. An inset shadow paints
+ * inside the existing box and contributes nothing to layout, so a Common
+ * cell's bounding box stays byte-identical to a Rare cell's in the same
+ * column. Do not swap this for `border` under any circumstance.
+ */
+.metric-tier--common {
+  box-shadow: inset 0 0 0 1px var(--tier-common-edge);
+}
 
 /*
  * The ± glyph and spread number (07-UAT.md G-10) — the developer's own

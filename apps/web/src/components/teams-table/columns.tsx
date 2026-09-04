@@ -354,7 +354,20 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       // links to. Read from the artifact's own `tier` field rather than
       // derived from a percentile: the teams artifact deliberately carries
       // the compact tier instead (see pageArtifacts.ts's `tier` doc).
-      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier} />,
+      //
+      // `?? "common"` (quick task 260904-7rt Task 1, option-a, developer
+      // decision 2026-09-04): the wire field is OMITTED for both Common and
+      // "no rank at all", and the client cannot tell those two apart. On any
+      // fully-published season the coalesce is exactly correct — publish
+      // ranks every metric that has a value, so the only cells with no label
+      // ARE the Common ones. The gap is a live event: the Worker that
+      // updates rows mid-event computes no percentiles at all, so a row can
+      // briefly wear a Common ring instead of the (possibly much higher)
+      // ring it deserves, until the next full publish corrects it. Accepted
+      // tradeoff — a small, temporary, wrong claim beats the Teams table
+      // showing Common bare while every other tiered surface on the site
+      // shows it outlined.
+      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />,
     }),
   );
 

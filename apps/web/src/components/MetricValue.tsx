@@ -26,12 +26,19 @@ export interface DisplayMetric {
  * here would make the site's number disagree with the harness's, which is
  * the exact class of drift this project's failure log names.
  *
- * `tier` (D-17, 06-07-PLAN.md Task 1) is an optional presentation-only prop:
- * `undefined` or `"common"` render EXACTLY as before this prop existed — no
- * `.metric-tier` wrapper, no digit change. Any other tier wraps the same
- * value/spread output in the `.metric-tier`/`.metric-tier--{tier}` box
- * (`theme.css`) via `cn()`, changing only background/foreground/padding —
- * never the type scale, never a re-round of either number.
+ * `tier` (D-17, 06-07-PLAN.md Task 1; widened quick task 260904-7rt, sketch
+ * 008 winner C) is an optional presentation-only prop. The surviving
+ * contract, post-260904-7rt: `undefined` means no percentile was published
+ * for this metric, and the cell renders with NO wrapper class at all — that
+ * promise (render exactly as before this prop existed) now belongs to
+ * `undefined` alone. `"common"` means a percentile WAS published and landed
+ * below the 50th, and the cell renders the `.metric-tier--common` hairline
+ * ring (no fill, no foreground change) — it no longer renders identically to
+ * `undefined`. Any tier wraps the same value/spread output in the
+ * `.metric-tier`/`.metric-tier--{tier}` box (`theme.css`) via `cn()`,
+ * changing only background/foreground/box-shadow/padding — never the type
+ * scale, never a re-round of either number. The prop stays
+ * presentation-only in every case — it may never change a digit.
  *
  * The ± glyph and spread number render through `.metric-spread-superscript`
  * (07-UAT.md G-10, the developer's own design direction) — smaller, grey,
@@ -56,7 +63,7 @@ export function MetricValue({ metric, tier, className }: { metric?: DisplayMetri
 
   const valueText = metric.value.toFixed(2);
   const hasSpread = metric.spread !== undefined;
-  const boxed = tier !== undefined && tier !== "common";
+  const boxed = tier !== undefined;
 
   return (
     <span className={cn("numeric-cell whitespace-nowrap", boxed && "metric-tier", boxed && `metric-tier--${tier}`, className)}>

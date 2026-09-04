@@ -466,18 +466,23 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
 }
 
 /**
- * The Combined Total cell (G-8): the published `√(Σσ²)` value/spread through
- * `MetricValue`, tiered by the 3x heuristic's APPROXIMATE percentile when
- * one is available, plus a small, quiet marker disclosing the
- * approximation — never a loud banner, matching the sketch-findings skill's
- * "serious tool, more alive" direction. The disclosure attaches only when a
- * tier BOX is actually drawn (Common renders no box at all, so there is
- * nothing to qualify); it carries `role="group"` plus `title` and
- * `aria-label` so it reaches a mouse-hover reader and a screen-reader user
- * alike (mirrors `BonusRpDots.tsx`'s own role+title+aria-label trio).
+ * The Combined Total cell (G-8; widened quick task 260904-7rt, sketch 008
+ * winner C): the published `√(Σσ²)` value/spread through `MetricValue`,
+ * tiered by the 3x heuristic's APPROXIMATE percentile when one is
+ * available, plus a small, quiet marker disclosing the approximation —
+ * never a loud banner, matching the sketch-findings skill's "serious tool,
+ * more alive" direction. The disclosure attaches whenever a tier BOX is
+ * actually drawn. Before 260904-7rt, Common drew no box at all, so there
+ * was nothing to qualify there; post-260904-7rt a Common combined total now
+ * draws the hairline ring too, and its tier is just as approximate as any
+ * other, so it is disclosed on the same terms — the rule ("disclose
+ * whenever a box is drawn") did not change, only which tiers draw one. It
+ * carries `role="group"` plus `title` and `aria-label` so it reaches a
+ * mouse-hover reader and a screen-reader user alike (mirrors
+ * `BonusRpDots.tsx`'s own role+title+aria-label trio).
  */
 function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined }) {
-  const boxed = approx !== undefined && approx.tier !== "common";
+  const boxed = approx !== undefined;
   // 2026-09-01 (user request): the visible "≈" glyph is gone. The tier is
   // still a 3x-heuristic APPROXIMATION (see `@/lib/allianceTierApproximation`),
   // so the disclosure survives invisibly — hover/assistive tech reach it via
