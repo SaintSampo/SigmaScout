@@ -19,12 +19,11 @@
  * `buildAlgorithmsManifest`) live; only the pure schema half moved.
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { resolveParamSets } from "./seasonParamSets.js";
 import type { Corpus } from "../corpus/db.js";
 import {
@@ -206,23 +205,17 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // D-03: the algorithms manifest (offline builder only — schema in manifestSchemas.ts)
 // ---------------------------------------------------------------------------
 
-/**
- * `packages/harness/cli.ts`'s `PROMOTED_VPR_VERSION_PATH`/
- * `ALGORITHM_VERSIONS_DIR` are module-private (not exported) — reimplemented
- * here rather than imported, the same small, deliberate duplication
- * `cli.ts`'s own `ALGORITHM_VERSIONS_DIR` comment already documents for
- * mirroring `promote.ts`'s private `ALGORITHM_VERSIONS_DIR`. Keeping the
- * literal path identical to `cli.ts`'s is what keeps this manifest and
- * `applyPromotedOverrides` naming the SAME promoted version (T-04-16) —
- * `warnIfNewerPromotedVpr`, imported from `cli.ts` unchanged, is called
- * before reading it, exactly as `applyPromotedOverrides` does, so a newer
- * committed version file is exactly as loud here as it is in a harness run.
- */
-// `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`
-// (2026-08-30): kept identical to `cli.ts`'s own re-pin — see that
-// constant's comment.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
-const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
+// Quick task 260904-2i9: `PROMOTED_VPR_VERSION_PATH`/`ALGORITHM_VERSIONS_DIR`
+// now IMPORTED from `./promotedVersionPath.js` rather than reimplemented.
+// The old comment here justified duplication on the grounds that `cli.ts`'s
+// copies were module-private (not exported) — that premise no longer holds:
+// both constants now live in a shared leaf module neither `cli.ts` nor this
+// file owns. Keeping this import identical to every other call site's is
+// what keeps this manifest and `applyPromotedOverrides` naming the SAME
+// promoted version (T-04-16) — `warnIfNewerPromotedVpr`, imported from
+// `cli.ts` unchanged, is called before reading it, exactly as
+// `applyPromotedOverrides` does, so a newer committed version file is
+// exactly as loud here as it is in a harness run.
 
 export interface BuildAlgorithmsManifestOptions {
   /** D-04: a short opaque string identifying the publish run that produced this manifest. */
