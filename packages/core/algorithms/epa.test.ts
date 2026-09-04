@@ -10,7 +10,7 @@ import { breakdown2024 } from "./breakdown/2024.js";
 import { FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
-import type { MatchResult, UpcomingMatch } from "./types.js";
+import type { MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
 /** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
@@ -452,7 +452,7 @@ describe("epa — contract shape", () => {
   it("teamMetrics reports one entry per learned component plus TOTAL_METRIC_KEY, with no spread", () => {
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5 }]]),
+      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5, foulsCommitted: 7 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -462,7 +462,66 @@ describe("epa — contract shape", () => {
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["autoLeave"]).toEqual({ value: 10 });
     expect(metrics["frc1"]!["autoAmpNote"]).toEqual({ value: 5 });
+    // D-01 (quick task 260904-5px): `total` is the OFFENSIVE sum alone (10 +
+    // 5), excluding `foulsCommitted` — matching Statbotics' no-foul
+    // `epa.total_points`.
     expect(metrics["frc1"]!["total"]).toEqual({ value: 15 });
+    // `foulsCommitted` is still published as its own entry, with its own
+    // value, unchanged — only its membership in `total` moved.
+    expect(metrics["frc1"]!["foulsCommitted"]).toEqual({ value: 7 });
+  });
+
+  it("teamMetrics: a team with no foulsCommitted entry at all is unaffected — total is still the plain component sum", () => {
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5 }]]),
+      teamMatchCounts: new Map([["frc1", 1]]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+    const metrics = epa.teamMetrics(state);
+    expect(metrics["frc1"]!["total"]).toEqual({ value: 15 });
+    expect(metrics["frc1"]!["foulsCommitted"]).toBeUndefined();
+  });
+});
+
+describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, deliberately different from the published total (quick task 260904-5px)", () => {
+  it("a team with a nonzero foulsCommitted carries a LARGER point total than a teammate with an identical offensive component but zero foulsCommitted", () => {
+    // frc1 and frc2 share the identical offensive component (autoLeave: 30)
+    // — under the PUBLISHED (fouls-excluded) total they would be
+    // indistinguishable. carrySeason sums teamComponents directly, without
+    // routing through teamMetrics' D-01 exclusion, so frc1's fromSeason
+    // total (30 + 20 = 50) is genuinely larger than frc2's (30 + 0 = 30),
+    // and that gap must survive into the carried rating. If a future edit
+    // "aligned" carrySeason with the published total, this test would start
+    // failing the moment it made frc1 and frc2 carry identically.
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map([
+        ["frc1", { autoLeave: 30, foulsCommitted: 20 }],
+        ["frc2", { autoLeave: 30, foulsCommitted: 0 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["frc1", 10],
+        ["frc2", 10],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+
+    const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
+    const next = epa.carrySeason!(state, boundary);
+
+    function carriedTotal(team: string): number {
+      const components = next.teamComponents.get(team) ?? {};
+      return Object.values(components).reduce((sum, value) => sum + value, 0);
+    }
+
+    expect(carriedTotal("frc1")).toBeGreaterThan(carriedTotal("frc2"));
   });
 });
 

@@ -64,6 +64,17 @@
  * rating-eligible teammate count and the error is shared equally among them.
  * The ERROR is shared; the LEVEL is not.
  *
+ * D-01 (quick task 260904-5px) NARROWS D-04, it does not reverse it:
+ * `teamMetrics()`'s published `total` now excludes `FOULS_COMMITTED_COMPONENT`
+ * too (see that function's own doc comment for the full rationale), so the
+ * published metric and `carrySeason()`'s carryover input are now two
+ * DIFFERENT quantities on purpose — `predict()` is untouched (an alliance's
+ * predicted score is still its own offensive total plus the opponent's
+ * `foulsCommitted` mean, the cross-attribution below), and `carrySeason()`'s
+ * carryover input is untouched (still the fouls-INCLUSIVE per-team sum,
+ * pinned by a dedicated test in `epa.test.ts` so a future reader does not
+ * "align" it and silently move every carried rating).
+ *
  * Deliberate divergences from Statbotics (every one documented at its use
  * site below, per D-13's "every deliberate divergence must be documented"
  * requirement):
@@ -630,7 +641,22 @@ function update(state: EpaState, result: MatchResult): EpaState {
   };
 }
 
-/** D-27: per team, one entry per learned component plus `TOTAL_METRIC_KEY` (the component sum). No `spread` — EPA carries a mean only, exactly as Statbotics' `EPARating`. */
+/**
+ * D-27: per team, one entry per learned component plus `TOTAL_METRIC_KEY`.
+ * No `spread` — EPA carries a mean only, exactly as Statbotics' `EPARating`.
+ *
+ * D-01 (quick task 260904-5px): `total` is the sum of every component
+ * EXCEPT `FOULS_COMMITTED_COMPONENT` — this is the no-foul quantity
+ * Statbotics itself publishes as `epa.total_points` (verified live:
+ * `frc254`/2024's `total_points` 51.71 reconciles against auto + teleop +
+ * endgame alone, with no foul term). `foulsCommitted` is still published as
+ * its OWN entry below, exactly as before — it is informative on its own
+ * (Statbotics publishes foul figures separately too) — only its membership
+ * in `total` changes. And a team's own fouls were never that team's own
+ * scoring output in the first place: they are points its fouls cost the
+ * OPPONENT (D-04, `predict()`'s cross-attribution, untouched by this
+ * change).
+ */
 function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
   const requestedTeams = teams ?? [...state.teamComponents.keys()];
   const result: TeamMetrics = {};
@@ -641,7 +667,7 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
     let total = 0;
     for (const [name, value] of Object.entries(components)) {
       perTeam[name] = { value };
-      total += value;
+      if (name !== FOULS_COMMITTED_COMPONENT) total += value;
     }
     perTeam[TOTAL_METRIC_KEY] = { value: total };
     result[team] = perTeam;
@@ -747,7 +773,19 @@ export const epa: AlgorithmModule<EpaState> = {
   // produced moves. Measured: rating SD 12.5 -> 17.4, OLS slope vs
   // Statbotics 0.489 -> 0.841, 2025 quals Brier 0.1950 -> 0.1589 (see the
   // file header for the full table).
-  version: "2.0.0+baseline",
+  //
+  // Bumped 2.0.0 -> 3.0.0 (D-01, quick task 260904-5px, this commit):
+  // `teamMetrics()`'s observable output changed for every team that has ever
+  // committed a foul — the published `total` now excludes
+  // `FOULS_COMMITTED_COMPONENT`, matching Statbotics' `epa.total_points`.
+  // Same D-13 invariant as every bump above: no version string may stand for
+  // two structurally different algorithms. A SECOND change lands under this
+  // SAME version string in the next commit — D-05's elimination-match
+  // discount (quick task 260904-5px) — which is honest, not a violation of
+  // that invariant, because nothing is published, fingerprinted, or written
+  // into a committed measurement record between the two commits;
+  // `3.0.0+baseline` names the combined result of both.
+  version: "3.0.0+baseline",
   initState,
   predict,
   update,

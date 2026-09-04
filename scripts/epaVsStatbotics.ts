@@ -14,12 +14,14 @@
  * pure, network-free, corpus-free module this script calls into rather than
  * duplicating.
  *
- * Our comparable value, per team, is `total` MINUS `foulsCommitted`:
- * Statbotics' `epa.total_points` is a NO-FOUL figure (verified live
- * 2026-09-04: `frc254`/2024 total_points 51.71 == auto 15.94 + teleop
- * 29.48 + endgame 6.28), while our own `total` includes `foulsCommitted`
- * (D-04's cross-attributed component). Comparing our raw `total` would
- * compare two different quantities and quietly inflate every residual.
+ * Our comparable value, per team, is `total` — no subtraction here anymore.
+ * As of `epa@3.0.0+baseline` (D-01, quick task 260904-5px), EPA's own
+ * published `total` (`epa.ts`'s `teamMetrics()`) already excludes
+ * `foulsCommitted`, exactly the no-foul figure Statbotics publishes as
+ * `epa.total_points` (verified live 2026-09-04: `frc254`/2024 total_points
+ * 51.71 == auto 15.94 + teleop 29.48 + endgame 6.28). The exclusion used to
+ * live HERE, subtracting `foulsCommitted` from `total` after the fact; it
+ * now lives in the metric itself, so this script reads `total` directly.
  * Demo team keys (raw `frc9970`-`frc9999` and the shared pseudo key) never
  * enter the join, on either side (`epaStatboticsCompare.ts`'s `joinTeams`).
  *
@@ -44,7 +46,6 @@ import { epa, type EpaState } from "../packages/core/algorithms/epa.js";
 import { fetchStatboticsTeamYears, type StatboticsTeamYearRow } from "../packages/harness/statbotics.js";
 import { isDemoTeamKey, DEMO_PSEUDO_TEAM_KEY } from "../packages/core/algorithms/demoTeams.js";
 import { TOTAL_METRIC_KEY, type MatchResult } from "../packages/core/algorithms/types.js";
-import { FOULS_COMMITTED_COMPONENT } from "../packages/core/algorithms/breakdown/constants.js";
 import {
   compareSeason,
   checkAgainstTolerance,
@@ -169,15 +170,14 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
   return finalStatesBySeason;
 }
 
-/** Our comparable value per team: `total` MINUS `foulsCommitted` (see file header). Demo keys are excluded here too, defensively — `joinTeams` also excludes them, but a caller inspecting `ours` directly should not see them either. */
+/** Our comparable value per team: `total`, straight from `teamMetrics()` (see file header — EPA's own `total` is now the no-foul figure as of D-01). Demo keys are excluded here too, defensively — `joinTeams` also excludes them, but a caller inspecting `ours` directly should not see them either. */
 function ourTeamValuesFromState(state: EpaState): OurTeamValue[] {
   const metrics = epa.teamMetrics(state);
   const values: OurTeamValue[] = [];
   for (const [teamKey, perTeam] of Object.entries(metrics)) {
     if (isDemoTeamKey(teamKey) || teamKey === DEMO_PSEUDO_TEAM_KEY) continue;
     const total = perTeam[TOTAL_METRIC_KEY]?.value ?? 0;
-    const foulsCommitted = perTeam[FOULS_COMMITTED_COMPONENT]?.value ?? 0;
-    values.push({ teamKey, value: total - foulsCommitted });
+    values.push({ teamKey, value: total });
   }
   return values;
 }

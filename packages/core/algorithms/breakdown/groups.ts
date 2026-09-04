@@ -31,10 +31,15 @@ export const COMPONENT_GROUP_IDS: readonly ComponentGroupId[] = ["auto", "teleop
  * as part of a phase.
  *
  * `adjust` is TBA's own `adjustPoints` — a manual scorekeeper correction
- * that belongs to no scoring phase and is almost always zero.
- * `foulsCommitted` is points conceded to the opponent, not points this
- * alliance scored. Both still contribute to `total`, which is computed from
- * every component regardless of grouping.
+ * that belongs to no scoring phase and is almost always zero. `foulsCommitted`
+ * is points conceded to the opponent, not points this alliance scored.
+ * Grouping is unrelated to summing, so whether these two still contribute to
+ * `total` is now ALGORITHM-DEPENDENT (D-01, quick task 260904-5px): VPR's
+ * `total` still spans every component, `adjust` and `foulsCommitted`
+ * included — but EPA's published `total` (`epa.ts`'s `teamMetrics()`)
+ * excludes `FOULS_COMMITTED_COMPONENT` specifically, to match Statbotics'
+ * no-foul `epa.total_points`. `adjust` still contributes to EPA's `total`
+ * too; only `foulsCommitted` is carved out, and only for EPA.
  */
 export const UNGROUPED_COMPONENTS: readonly string[] = [ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT];
 
