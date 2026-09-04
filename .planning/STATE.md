@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-6a1: stop modeling adjust component per team"
-last_updated: "2026-09-04T20:27:20.139Z"
+last_updated: "2026-09-04T20:34:23.615Z"
 last_activity: 2026-09-04
 last_activity_desc: "Completed quick task 260904-7id: EPA phase-group tiers published-side complete, republish HELD (nothing live)"
 progress:
@@ -391,6 +391,7 @@ None yet.
 | 35 | Cap rolling-origin selection windows at 3 most recent prior seasons (SELECTION_WINDOW_SEASONS) | 2026-09-04 | e2c2903a | — |
 | 37 | Retune and republish: ten fresh D-T7 verdicts under vpr 8.0.0, promoted rolling-2026-09b (2022 off-arm winner), republished all R2 artifacts under epa 5.0.0 and the new vpr set, manifest verified, new SC-3 fingerprint added | 2026-09-04 | bf6cc389 | — |
 | 38 | Closed todos extend-corpus-2019-2020 and cold-start-season-discards-backfill-carry: both fully satisfied by the 2026-09-04 re-tune (warm origin-2022 run, rolling-2026-09b promotion, republish, SC-3 re-measure). Closure notes added, stale pending-path cross-references fixed, files moved to completed | 2026-09-04 | c312232c | — |
+| 39 | Closed rolling-origin-hyperparameter-tuning: deleted the retired seasonLabel field from CompareSliceSchema now that the republish removed its last producer (archived-artifact tolerance re-pinned in compare.compat.test.ts), added the scheme-retirement banner to sigma1-tuning-results.md, verified all five acceptance criteria (eligible seasons 2022/2025/2026), moved the todo to completed | 2026-09-04 | 7c267a77 | — |
 
 ### Roadmap Evolution
 
