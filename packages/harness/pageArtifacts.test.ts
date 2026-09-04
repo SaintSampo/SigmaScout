@@ -217,7 +217,6 @@ function validCompareFixture() {
       {
         algorithmId: "opr",
         season: 2025,
-        seasonLabel: "holdout" as const,
         headlineEligible: true,
         compLevelView: "combined" as const,
         brierScore: 0.18,

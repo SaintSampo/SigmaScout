@@ -35,7 +35,6 @@ function makeSlice(overrides: SliceOverrides) {
   return {
     algorithmId: overrides.algorithmId,
     season: overrides.season,
-    seasonLabel: "holdout" as const,
     headlineEligible: true,
     compLevelView: overrides.compLevelView ?? "combined",
     brierScore: "brierScore" in overrides ? (overrides.brierScore ?? null) : 0.15,
@@ -459,7 +458,7 @@ describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (0
     expect(emphasis.winnerAccuracyLeaders).toEqual([]);
   });
 
-  it("neither the string tune nor holdout appears anywhere in the rendered output, and no element carries a class/data attribute derived from seasonLabel or headlineEligible, even when both fields are present on every slice", () => {
+  it("neither the string tune nor holdout appears anywhere in the rendered output, and no element carries a class/data attribute derived from headlineEligible, even though the field is present on every slice (seasonLabel itself is deleted from the schema)", () => {
     const artifactsByYear = fullArtifactsByYear();
     const { container } = render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const html = container.innerHTML;

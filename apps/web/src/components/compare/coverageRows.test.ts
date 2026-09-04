@@ -26,7 +26,6 @@ type Slice = CompareArtifact["slices"][number];
 /** Fills every field `CompareSliceSchema` requires but this module never reads, so each test only names what it actually cares about. */
 function makeSlice(overrides: Partial<Slice> & Pick<Slice, "algorithmId" | "season" | "compLevelView">): Slice {
   return {
-    seasonLabel: "tune",
     headlineEligible: false,
     brierScore: 0.2,
     winnerAccuracy: 0.7,

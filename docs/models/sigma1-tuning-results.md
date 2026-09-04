@@ -1,5 +1,19 @@
 # Sigma1 tuning results, holdout head-to-head, and phase verdicts
 
+**Scheme retirement (2026-09-04): everything below was measured under the now-RETIRED fixed
+tune/holdout split.** The shipped scheme is rolling-origin selection (D-T5, quick task
+`260901-trz`): hyperparameters for a scored season are selected only on seasons strictly before
+it, the promoted version carries per-season parameter sets
+(`data/algorithm-versions/vpr@8.0.0+rolling-2026-09b.json` as of this note), and headline
+eligibility is derived from each set's own `selectedOnSeasons` provenance rather than a season
+list (`packages/harness/score.ts`) — currently 2022, 2025 and 2026 are headline-eligible, and the
+live season joins each year once it completes and its preseason-committed set scores it. The
+`seasonLabel` tune/holdout vocabulary this document uses is deleted from the code and the
+published artifacts. The durable record of the rolling-origin searches and their D-T7 acceptance
+verdicts (two runs, 2026-09-03 and 2026-09-04) is
+`.planning/todos/completed/retune-sigma1-rolling-origin.md`. Nothing below has been edited — these
+are the figures as measured at the time, under the scheme then in force.
+
 **Baseline change (Phase 3.2, 2026-08-21):** OPR now means an event-scoped, qualification-matches-
 only fit (matching TBA's own computation), not the season-pooled ridge regression this document
 originally measured against. Every OPR figure below has been re-issued against the new baseline.

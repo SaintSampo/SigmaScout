@@ -1222,28 +1222,17 @@ const CompareSliceSchema = z.object({
   algorithmId: z.string().min(1),
   season: z.number().int(),
   /**
-   * D-4 (quick task 260903-krp): a vestige of the retired fixed tune/holdout
-   * split (score.ts's now-deleted `SeasonLabel`). Every 5.0.0-and-earlier
-   * artifact in production carries this key; every artifact published after
-   * this change omits it, since `aggregateScores` no longer produces it.
-   * Nothing reads this field — `MethodologyNote.tsx`, the only client module
-   * that ever did, was rewritten in the same task to read
-   * `headlineEligible` instead.
-   *
-   * Made OPTIONAL rather than deleted: `PAGE_ARTIFACT_SCHEMA_VERSION` is
-   * deliberately NOT bumped for the same reason `:50-68` above gives for the
-   * `redComponents` removal — required-to-optional is safety-compatible in
-   * BOTH directions (a pre-change artifact still HAS the key and parses
-   * fine, since Zod strips unlisted keys rather than rejecting them and this
-   * schema is not `.strict()`; a post-change artifact simply omits a key
-   * nothing requires anymore), and unlike that precedent there is now no
-   * reader left to mislead. Deleting the field outright would ALSO keep both
-   * shapes parsing, but would silently strip the key from a live 5.0.0
-   * artifact's parsed object rather than reading it through — optional is
-   * the tolerant read D-4 asks for, not merely a parse that happens to
-   * survive.
+   * The retired tune/holdout `seasonLabel` sat here as an OPTIONAL vestige
+   * (D-4, quick task 260903-krp) while live 5.0.0 artifacts still carried
+   * the key. The 2026-09-04 republish (epa@5.0.0 / vpr@8.0.0+rolling-2026-09b)
+   * replaced every producer of that key, so the field is now DELETED, not
+   * optional — the D-1 sequencing rule in
+   * `rolling-origin-hyperparameter-tuning` said the deletion rides the
+   * republish, and this is that deletion. Archived 5.0.0-era artifacts still
+   * parse (this schema is not `.strict()`, so Zod strips the unknown key);
+   * they just no longer read the retired key through.
+   * `apps/web/src/lib/api/compare.compat.test.ts` pins exactly that.
    */
-  seasonLabel: z.enum(["tune", "holdout"]).optional(),
   headlineEligible: z.boolean(),
   compLevelView: z.enum(["qualification", "elimination", "combined"]),
   brierScore: z.number().nullable(),

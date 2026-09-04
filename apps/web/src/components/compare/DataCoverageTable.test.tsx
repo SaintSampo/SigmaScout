@@ -29,7 +29,6 @@ type Slice = CompareArtifact["slices"][number];
 
 function makeSlice(overrides: Partial<Slice> & Pick<Slice, "algorithmId" | "season" | "compLevelView">): Slice {
   return {
-    seasonLabel: "tune",
     headlineEligible: false,
     brierScore: 0.2,
     winnerAccuracy: 0.7,
@@ -215,13 +214,8 @@ describe("DataCoverageTable — structure, order and emphasis", () => {
     expect(scrollRegion.innerHTML).not.toMatch(/font-semibold|font-\[600\]|opacity-|text-muted-foreground/);
   });
 
-  it("never reads or renders the tune/holdout split — neither the string 'tune' nor 'holdout' appears", () => {
-    const artifactsByYear = fullYearArtifact({
-      opr: { seasonLabel: "tune" },
-      epa: { seasonLabel: "holdout" },
-      vpr: { seasonLabel: "tune" },
-    });
-    render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
+  it("renders no retired tune/holdout vocabulary — the split's seasonLabel field is deleted from the schema and its words must not reappear", () => {
+    render(<DataCoverageTable artifactsByYear={fullYearArtifact()} compLevelView="combined" />);
     const table = screen.getByRole("table");
     expect(table.textContent?.toLowerCase()).not.toContain("tune");
     expect(table.textContent?.toLowerCase()).not.toContain("holdout");
