@@ -8,6 +8,28 @@ priority: high
 
 # `COLD_START_SEASON = 2022` throws away the 2019/2020 backfill's carry
 
+> **RESOLVED, PARTIALLY — 2026-09-04 (quick task 260904-cs1).** Of this file's own three-step "why
+> fixing it is not a one-line change" list below, **step 1 is done; steps 2 and 3 remain
+> outstanding.**
+>
+> - **Step 1 (done):** the fix landed as **positional-by-construction**, not as a corrected
+>   literal, per this file's own "prefer making it positional" recommendation.
+>   `seasonBoundaryFor`'s cold start is now `index === 0` of the replay range; `COLD_START_SEASON`
+>   and `isColdStartSeason` are deleted from the repo entirely (verified: `grep -rn
+>   'COLD_START_SEASON|isColdStartSeason' packages/ apps/ scripts/ --include='*.ts'
+>   --include='*.tsx'` returns nothing). `--cold-start-season` / `PublishSeasonsOptions.coldStartSeason`
+>   survive as a narrowed, diagnostic-only override (D-4) for forcing a non-index-0 season cold.
+> - **Steps 2-3 (outstanding):** re-run the screen and all ten joint searches under the now-warmer
+>   origin-2022 trajectory; re-promote, re-publish, re-measure. This work lives in
+>   `.planning/todos/pending/retune-sigma1-rolling-origin.md`, which now carries the corresponding
+>   non-comparability note for the ten already-recorded verdicts.
+>
+> **No re-measurement was performed by this task.** D-2's safety argument — that the in-flight
+> `publish --seasons 2022-2026` / `harness --seasons 2022-2026` replay is byte-identical under the
+> positional default because 2022 is index 0 either way — is pinned by a non-vacuous equivalence
+> test in `packages/harness/seasonBoundary.test.ts`, not merely asserted. Only future TUNING
+> replays that do not start at 2022 (e.g. `[2019, 2020, 2022]`) actually change behavior.
+
 ## The defect
 
 `packages/core/algorithms/breakdown/constants.ts:72` still reads:

@@ -8,6 +8,31 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
+> **Cold start made positional 2026-09-04 (quick task 260904-cs1) — the ten verdicts below are
+> NOT invalidated, but they are NON-COMPARABLE to any future re-tune run under this change.**
+> `seasonBoundaryFor` no longer decides cold start by matching a module constant
+> (`COLD_START_SEASON`, deleted) — it is now `index === 0` of the replay range, by construction.
+>
+> The ten verdicts recorded below remain internally consistent on their own terms: they were
+> measured under cold-start-at-2022, the promoted `rolling-2026-09` parameters still match their
+> own validation, and the published 2022-2026 figures are byte-identical under the positional
+> default (D-2, pinned by `packages/harness/seasonBoundary.test.ts`'s equivalence test as of this
+> task). Nothing shipped is wrong and nothing here needs re-running on the fix's account.
+>
+> But they ARE non-comparable to any future re-tune run under positional cold start. Such a run
+> replays a genuinely different, warmer trajectory — origin 2022 now carries state from 2019 and
+> 2020 (backfilled by `extend-corpus-2019-2020`) instead of starting from the rookie baseline — so
+> its Brier scores and accepted deltas measure a different thing than the ten below. **Do not diff
+> the two sets as though they were one series, and do not carry an old incumbent number forward
+> into a new comparison table.**
+>
+> Expected direction, so a future reader is not surprised: 2022 and 2023 currently predict with no
+> or little carried history, so a warm start should move them — 2022's accepted delta above was
+> only +0.00125 Brier (adaptation on), a modest edge measured precisely rather than a large one.
+> A genuinely warmer 2022 origin is a plausible source of a bigger, more convincing win than the
+> one that just cleared. See `.planning/todos/pending/cold-start-season-discards-backfill-carry.md`
+> for what was and was not done.
+
 > **UNBLOCKED 2026-09-03 (later the same day).** The corpus extension ran, all seven seasons have
 > registered breakdown and RP modules, and `score.ts`'s 2022-2026 guard — which made every scoring
 > path throw on 2019/2020 — is gone. This job is runnable.
