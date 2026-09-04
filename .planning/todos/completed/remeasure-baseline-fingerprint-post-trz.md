@@ -72,3 +72,41 @@ one in `data/baselines/`, with its own test block asserting its own versions. Th
 Wait for `.planning/todos/pending/retune-sigma1-rolling-origin.md`. Measuring a fingerprint
 against a Sigma1 parameter set that is about to be replaced would need doing twice, for the
 same reason the republish waits.
+
+---
+
+## CLOSED — 2026-09-04, quick task `260904-4ik` Task 3
+
+`data/baselines/sc3-rolling-origin-2026-09.json` is committed, with its own
+version-assertion block in `packages/harness/baselineFingerprint.test.ts` and the
+`data/baselines/` count assertion moved from 4 to 5. The existing
+`sc3-offseason-inclusive-2026-08.json` and its three pinned version assertions are
+byte-unchanged, exactly as "The rule this job must not break" requires — the new
+fingerprint was added ALONGSIDE it, never over it.
+
+**Read post-hoc, not re-run.** The expensive half was already done: `reports/rolling-2026-09`
+is a complete offseason-inclusive 2022-2026 run (`runTimestamp 2026-09-04T06:20:54.823Z`)
+under exactly the three versions this todo asks for. `baselineFingerprint.ts` is a post-hoc
+reader by design, so the measurement was read out of that run's `artifact.json` and its five
+`predictions-{season}.jsonl` sidecars rather than spending a fresh multi-hour replay.
+
+**The ordering condition was satisfied.** "Wait for `retune-sigma1-rolling-origin`" is met:
+the rolling-origin re-tune has already promoted `vpr@7.0.0+rolling-2026-09`, and the
+`260904-2i9` arc moved the live pin onto it. So this fingerprint records a version that is
+not about to be replaced — the exact failure ("spend the measurement twice") that ordering
+existed to prevent.
+
+**Discrepancy, recorded rather than quietly resolved.** The table above predicted the new
+`vpr` would be `4.0.0+*`. It is `7.0.0+rolling-2026-09`. Further code-version bumps landed
+between this todo being written (2026-09-01) and the measurement (2026-09-04); the `opr` and
+`epa` predictions (`4.0.0+baseline`, `2.0.0+baseline`) were exactly right.
+
+**Comparability.** The new fingerprint's per-season `scoredCount`s match the offseason-inclusive
+one exactly on all five seasons (2022:14603, 2023:16290, 2024:16958, 2025:17815, 2026:18337),
+so the two score the identical match population and any difference between them is
+attributable to the version bumps and D-Q3's denominator change, not to a different set of
+matches. The new file's `sourceNote` records the run dir, the three versions, the harness
+command LABELLED AS RECONSTRUCTED (no planning artifact records the original invocation), and
+the three instruments used to verify that quick task `260904-cs1` — which landed ~25 minutes
+after the run — did not move its predictions, including the fact that the digest-replay
+instrument's committed slice is 2022-only and therefore proves the cold-start season alone.

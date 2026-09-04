@@ -154,6 +154,27 @@ const EVENT_SCOPED_FINGERPRINT_FILE = "opr-event-scoped-2026-08.json";
  */
 const OFFSEASON_INCLUSIVE_FINGERPRINT_FILE = "sc3-offseason-inclusive-2026-08.json";
 
+/**
+ * `.planning/todos/completed/remeasure-baseline-fingerprint-post-trz.md`
+ * (closed 2026-09-04 by quick task 260904-4ik): the SC-3 re-measurement under
+ * the CURRENT promoted versions — `opr@4.0.0+baseline`,
+ * `epa@2.0.0+baseline`, `vpr@7.0.0+rolling-2026-09` — read post-hoc from the
+ * completed `reports/rolling-2026-09` run. It scores the identical match
+ * population as `OFFSEASON_INCLUSIVE_FINGERPRINT_FILE` (per-season
+ * `scoredCount`s match on all five seasons), which is what makes the two
+ * directly comparable.
+ *
+ * It SUPERSEDES NOTHING. It is added ALONGSIDE the offseason-inclusive
+ * fingerprint, which stays exactly as committed — that file's digests were
+ * produced by code that no longer exists, so rewriting it to today's versions
+ * would falsify a measurement record rather than update one. Both are
+ * permanent.
+ *
+ * Excluded by name from the "retired-implementation" loop below (its `opr`
+ * entry is `4.0.0+baseline`, not the retired `2.0.0+baseline`).
+ */
+const ROLLING_ORIGIN_FINGERPRINT_FILE = "sc3-rolling-origin-2026-09.json";
+
 describe("committed baseline fingerprints", () => {
   it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
@@ -184,7 +205,8 @@ describe("committed baseline fingerprints", () => {
       (name) =>
         name.endsWith(".json") &&
         name !== EVENT_SCOPED_FINGERPRINT_FILE &&
-        name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE
+        name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE &&
+        name !== ROLLING_ORIGIN_FINGERPRINT_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -243,11 +265,15 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 4 committed fingerprints: two retired-implementation runs, the event-scoped re-run, and the offseason-inclusive SC-3 re-measurement", () => {
+  it("data/baselines/ contains exactly 5 committed fingerprints: two retired-implementation runs, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, and the rolling-origin SC-3 re-measurement", () => {
+    // This count only ever goes UP. Each fingerprint records what one completed
+    // run measured under the versions of its day, so a later re-measurement is
+    // added alongside its predecessor, never in place of it.
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(4);
+    expect(files).toHaveLength(5);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
     expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
+    expect(files).toContain(ROLLING_ORIGIN_FINGERPRINT_FILE);
   });
 
   /**
@@ -290,5 +316,41 @@ describe("committed baseline fingerprints", () => {
     expect(byId.get("opr")).toBe("3.1.0+baseline");
     expect(byId.get("epa")).toBe("1.1.0+baseline");
     expect(byId.get("vpr")).toBe("2.1.0+tuned-2026-08");
+  });
+
+  /**
+   * `.planning/todos/completed/remeasure-baseline-fingerprint-post-trz.md`,
+   * closed by quick task 260904-4ik: the re-measurement the block above asks
+   * for, added ALONGSIDE it rather than over it.
+   *
+   * The three versions below are the versions this fingerprint was MEASURED
+   * under — a historical record, not a claim about what the code ships today.
+   * They are what produced its committed `predictionStreamSha256` digests,
+   * read post-hoc from `reports/rolling-2026-09` (runTimestamp
+   * 2026-09-04T06:20:54.823Z, verified to predate quick task 260904-cs1 —
+   * see the file's own `sourceNote` for the three instruments).
+   *
+   * THE SAME DO-NOT-REWRITE RULE APPLIES TO THIS BLOCK the moment the code
+   * moves past these versions, for exactly the reason spelled out above: a
+   * version string edited to match today's code attaches a real digest to code
+   * that never produced it. When these go stale, add a SIXTH fingerprint and a
+   * sixth block; do not touch these three lines.
+   *
+   * Note also that the todo predicted `vpr@4.0.0+*`. The version actually
+   * promoted by the rolling-origin re-tune is `7.0.0+rolling-2026-09`,
+   * because further bumps landed between the todo being written (2026-09-01)
+   * and this measurement (2026-09-04). The discrepancy is recorded here rather
+   * than quietly resolved.
+   */
+  it("the rolling-origin fingerprint carries exactly opr/epa/vpr, at the current promoted versions it was measured under", () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(join(BASELINES_DIR, ROLLING_ORIGIN_FINGERPRINT_FILE), "utf8")
+    );
+    const parsed = BaselineFingerprintSchema.parse(raw);
+    const byId = new Map(parsed.algorithms.map((a) => [a.id, a.version]));
+    expect(Array.from(byId.keys()).sort()).toEqual(["epa", "opr", "vpr"]);
+    expect(byId.get("opr")).toBe("4.0.0+baseline");
+    expect(byId.get("epa")).toBe("2.0.0+baseline");
+    expect(byId.get("vpr")).toBe("7.0.0+rolling-2026-09");
   });
 });
