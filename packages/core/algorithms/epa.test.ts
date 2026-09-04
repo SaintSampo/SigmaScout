@@ -4,7 +4,15 @@
  * fixture, drive `epa` through it, and assert against hand-computed values.
  */
 import { describe, expect, it } from "vitest";
-import { epa, epaPercentFunc, EPA_K, EPA_FALLBACK_SCORE_SD, EPA_INIT_COMPONENT_TOTAL, type EpaState } from "./epa.js";
+import {
+  epa,
+  epaPercentFunc,
+  EPA_K,
+  EPA_FALLBACK_SCORE_SD,
+  EPA_INIT_COMPONENT_TOTAL,
+  EPA_ELIM_WEIGHT,
+  type EpaState,
+} from "./epa.js";
 import { opr } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
 import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
@@ -93,7 +101,7 @@ describe("epaPercentFunc — decaying, clamped learning rate", () => {
 });
 
 describe("epa.update — two-stage EWMA reproduces a hand-computed value", () => {
-  it("starting mean 10, observation 40, percent 1/3 (match count 0), weight 1 (D-08: always full weight) gives 20", () => {
+  it("starting mean 10, observation 40, percent 1/3 (match count 0), weight 1 (a QUALIFICATION match — D-05's elim discount does not apply) gives 20", () => {
     // Only frc1 is rating-eligible on red (its two teammates are surrogates),
     // so the alliance's whole autoLeavePoints observation attributes to it
     // alone (observedShare === allianceValue, no /3 split to reason about).
@@ -119,7 +127,9 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
 
     const next = epa.update(state, result);
     expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
-    // D-08: the match counter increments on every match, including this one.
+    // D-05: this is a qualification match (the default `compLevel: "qm"`),
+    // so the counter increments — an elimination match with the identical
+    // observation would leave it at 0 instead (see the D-05 describe below).
     expect(next.teamMatchCounts.get("frc1")).toBe(1);
   });
 });
@@ -179,8 +189,9 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     expect(next.teamComponents.get("frc2")!["autoLeave"]).toBeCloseTo(10, 10);
     expect(next.teamComponents.get("frc3")!["autoLeave"]).toBeCloseTo(10, 10);
 
-    // D-08: the counters still increment — the match WAS played and observed;
-    // it simply carried no information about how to re-rank these three.
+    // This is a qualification match (D-05), so the counters still increment
+    // — the match WAS played and observed; it simply carried no information
+    // about how to re-rank these three.
     expect(next.teamMatchCounts.get("frc1")).toBe(1);
     expect(next.teamMatchCounts.get("frc2")).toBe(1);
     expect(next.teamMatchCounts.get("frc3")).toBe(1);
@@ -238,9 +249,9 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
   });
 });
 
-describe("epa.update — D-08 elimination divergence", () => {
-  it("an elimination match moves a team's component mean by the same amount as a qualification match with the same observation, and increments the match counter identically", () => {
-    const baseState: EpaState = {
+describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick task 260904-5px)", () => {
+  function baseStateForElimTests(): EpaState {
+    return {
       season: 2024,
       teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
@@ -249,34 +260,80 @@ describe("epa.update — D-08 elimination divergence", () => {
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
     };
+  }
 
-    const qualResult = matchResult({
-      compLevel: "qm",
+  function matchAt(compLevel: MatchResult["compLevel"], matchKey: string): MatchResult {
+    return matchResult({
+      matchKey,
+      compLevel,
       redTeams: ["frc1", "surr1", "surr2"],
       redSurrogates: ["surr1", "surr2"],
       blueTeams: ["s1", "s2", "s3"],
       blueSurrogates: ["s1", "s2", "s3"],
       scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 40 }),
     });
-    const elimResult = matchResult({
-      matchKey: "2024test_sf1",
-      compLevel: "sf",
-      redTeams: ["frc1", "surr1", "surr2"],
-      redSurrogates: ["surr1", "surr2"],
-      blueTeams: ["s1", "s2", "s3"],
-      blueSurrogates: ["s1", "s2", "s3"],
-      scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 40 }),
-    });
+  }
 
-    const afterQual = epa.update(baseState, qualResult);
+  it("an elimination match moves the component mean to exactly 40/3 where the identical observation in a qualification match moves it to exactly 20, and leaves the match counter at 0 while the qualification match advances it to 1", () => {
+    const baseState = baseStateForElimTests();
+    const afterQual = epa.update(baseState, matchAt("qm", "2024test_qm1"));
+    const afterElim = epa.update(baseState, matchAt("sf", "2024test_sf1"));
+
+    // Qualification: twoStageEwma(10, 40, 1/3, weight=1) = 20 — unchanged
+    // from the pre-D-05 behavior; a qualification match is never discounted.
+    expect(afterQual.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
+    expect(afterQual.teamMatchCounts.get("frc1")).toBe(1);
+
+    // Elimination: the SAME inner blend (10 -> 20) is then blended AGAIN, at
+    // EPA_ELIM_WEIGHT (1/3), against the ORIGINAL mean (10):
+    // (1/3)*20 + (2/3)*10 = 40/3.
+    expect(afterElim.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40 / 3, 10);
+    // The counter is left exactly where it started — an elimination match
+    // never advances epaPercentFunc's decaying-learning-rate schedule.
+    expect(afterElim.teamMatchCounts.get("frc1")).toBe(0);
+  });
+
+  it("two consecutive elimination matches both learn at epaPercentFunc(0), since the schedule never advances", () => {
+    const baseState = baseStateForElimTests();
+    const afterFirstElim = epa.update(baseState, matchAt("sf", "2024test_sf1"));
+    expect(afterFirstElim.teamMatchCounts.get("frc1")).toBe(0);
+
+    const afterSecondElim = epa.update(afterFirstElim, matchAt("sf", "2024test_sf2"));
+    expect(afterSecondElim.teamMatchCounts.get("frc1")).toBe(0);
+
+    // Hand-computed at percent = epaPercentFunc(0) for BOTH updates (the
+    // schedule never advanced past match count 0), starting from the first
+    // elim's own result (40/3) and observing 40 again.
+    const percent = epaPercentFunc(0);
+    const startingMean = 40 / 3;
+    const observation = 40;
+    const innerMean = (1 - percent) * startingMean + percent * observation;
+    const expected = EPA_ELIM_WEIGHT * innerMean + (1 - EPA_ELIM_WEIGHT) * startingMean;
+    expect(afterSecondElim.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(expected, 10);
+  });
+
+  it("ef/qf/sf/f are all treated as eliminations identically; only qm is a qualification match", () => {
+    const baseState = baseStateForElimTests();
+    const afterSf = epa.update(baseState, matchAt("sf", "2024test_sf1"));
+    for (const compLevel of ["ef", "qf", "f"] as const) {
+      const afterOther = epa.update(baseState, matchAt(compLevel, `2024test_${compLevel}1`));
+      expect(afterOther.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(
+        afterSf.teamComponents.get("frc1")!["autoLeave"]!,
+        10
+      );
+      expect(afterOther.teamMatchCounts.get("frc1")).toBe(afterSf.teamMatchCounts.get("frc1"));
+    }
+  });
+
+  it("both alliance scores still fold into allianceScoreStats for an elimination match — the win-probability scale is unaffected by D-05", () => {
+    const baseState = baseStateForElimTests();
+    const elimResult = matchAt("sf", "2024test_sf1");
     const afterElim = epa.update(baseState, elimResult);
 
-    expect(afterElim.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(
-      afterQual.teamComponents.get("frc1")!["autoLeave"]!,
-      10
-    );
-    expect(afterElim.teamMatchCounts.get("frc1")).toBe(afterQual.teamMatchCounts.get("frc1"));
-    expect(afterElim.teamMatchCounts.get("frc1")).toBe(1);
+    let expectedStats = emptyExpandingStats();
+    expectedStats = foldObservation(expectedStats, elimResult.redScore);
+    expectedStats = foldObservation(expectedStats, elimResult.blueScore);
+    expect(afterElim.allianceScoreStats).toEqual(expectedStats);
   });
 });
 

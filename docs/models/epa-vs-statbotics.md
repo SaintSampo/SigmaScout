@@ -37,17 +37,24 @@ committed).
 
 ### The comparability boundary
 
-Two adjustments are required before "our EPA" and "Statbotics' EPA" mean the same quantity — both
+One property and one adjustment make "our EPA" and "Statbotics' EPA" mean the same quantity — both
 enforced structurally in `epaStatboticsCompare.ts`'s `joinTeams`/the script's own
 `ourTeamValuesFromState`, never left as an unstated assumption:
 
-1. **Fouls are excluded on our side.** Statbotics' `epa.total_points` is a NO-FOUL figure —
-   verified live 2026-09-04: `frc254`/2024's `total_points` is `51.71`, and
-   `auto_points 15.94 + teleop_points 29.48 + endgame_points 6.28 = 51.70`. Our own `total` metric
-   includes `foulsCommitted` (D-04's cross-attributed component: the points an alliance's own
-   fouls cost the OPPONENT). The comparable value on our side is `total` MINUS `foulsCommitted`,
-   never raw `total` — comparing raw `total` would compare two different quantities and quietly
-   inflate every residual.
+1. **Fouls are excluded from our own published `total` — no longer an adjustment this comparison
+   makes, a property of the metric itself as of `epa@3.0.0+baseline` (D-01, quick task 260904-5px).**
+   Statbotics' `epa.total_points` is a NO-FOUL figure — verified live 2026-09-04: `frc254`/2024's
+   `total_points` is `51.71`, and `auto_points 15.94 + teleop_points 29.48 + endgame_points 6.28 =
+   51.70`. `epa.ts`'s `teamMetrics()` now excludes `foulsCommitted` (D-04's cross-attributed
+   component: the points an alliance's own fouls cost the OPPONENT) from `total` directly, so this
+   script's `ourTeamValuesFromState` reads `total` straight off `teamMetrics()` with no subtraction
+   of its own — the exclusion moved from this comparison into the metric. The per-team tables below
+   were measured on the IDENTICAL quantity either way (the subtraction and the metric-level
+   exclusion compute the same number); the `Ours` columns formerly labelled as `total -
+   foulsCommitted` are now simply `total`. Those per-team figures HAVE since been re-measured under
+   D-05's elimination discount (see "Tolerance and the committed baseline" below for the current,
+   refreshed bands — the tables in "Spot-checked teams" below are the historical `epa@2.0.0+baseline`
+   measurement and were not individually regenerated).
 2. **Demo team keys never enter the join, on either side.** Raw `frc9970`-`frc9999` and the shared
    pseudo key `demo-pseudo-unregistered` (`packages/core/algorithms/demoTeams.ts`) are dropped by
    `joinTeams` before the join runs.
@@ -331,17 +338,53 @@ min-matches(12) arm (the less-noisy of the two arms, per the discussion above). 
 on the measured value: slope/Pearson at ±0.05, mean absolute difference at ±1.0 points, and both
 standard deviations at ±max(1.5, 10% of the measured value) so a season with a much larger point
 scale (2026: our SD ≈ 51) is not gated by a band sized for a smaller-scale season (2022: our SD ≈
-10). The corpus and EPA's computation are deterministic — re-running `scripts/epaVsStatbotics.ts`
-unchanged reproduces these figures exactly — so the bands exist to catch a REAL regression in
-EPA's attribution arithmetic or component extraction, not day-to-day measurement noise.
+10).
+
+**Re-measured 2026-09-04 (quick task 260904-5px).** The bands above were originally measured under
+the retired `epa@2.0.0+baseline`. D-01's fouls-exclusion change (moving the subtraction from this
+script into `epa.teamMetrics()`) was verified FIRST as an arithmetic identity against those
+untouched 2.0.0 bands — `--check` passed with the baseline file byte-identical, proving nothing
+double-subtracts. The bands were then RE-MEASURED (this commit) — not because the corpus stopped
+being deterministic, but because two genuine model changes landed since: quick task 260904-6a1's
+adjust-pinning/adjust-zeroed-alliance correction (`epa@3.0.0+baseline -> 4.0.0+baseline`) and D-05's
+elimination-match discount adopted by this task (`epa@4.0.0+baseline -> 5.0.0+baseline`). Both are
+folded into the current bands together — the movement from the 2.0.0-measured bands to the current
+ones is NOT attributable to the elimination discount alone. The half-width formula itself is
+UNCHANGED; only the centres moved, recentred on freshly measured `epa@5.0.0+baseline` values. The
+determinism claim still holds going forward: re-running `scripts/epaVsStatbotics.ts` unchanged
+against the current code reproduces these figures exactly, so the bands exist to catch a REAL
+regression in EPA's attribution arithmetic or component extraction, not day-to-day measurement
+noise.
 
 ```
 npx tsx scripts/epaVsStatbotics.ts --check
 ```
 
-**Measured result: PASSED.** Every one of the 25 gated statistics (5 seasons × 5 statistics) falls
-inside its committed band, verified directly by running the command above against the baseline
-committed alongside this document.
+**Measured result: PASSED**, both times — once against the byte-identical 2.0.0 bands (the fouls
+change alone, proving the arithmetic identity) and once against the re-measured 5.0.0 bands (the
+elimination discount plus 6a1's adjust change, which genuinely move the statistics). Every one of
+the 25 gated statistics (5 seasons × 5 statistics) falls inside its current committed band.
+
+**Did agreement with Statbotics get tighter or closer to 1.0?** Comparing each season's re-measured
+min-matches-arm OLS slope against the centre the OLD (2.0.0) bands implied:
+
+| Season | Old slope (epa@2.0.0, band centre) | New slope (epa@5.0.0, measured) | Direction |
+|--------|------------------------------------:|-----------------------------------:|-----------|
+| 2022 | 0.875 | 0.886 | tighter (+0.011) |
+| 2023 | 0.845 | 0.842 | looser (-0.003) |
+| 2024 | 0.818 | 0.818 | essentially flat (+0.0004) |
+| 2025 | 0.861 | 0.853 | looser (-0.009) |
+| 2026 | 0.941 | 0.961 | tighter (+0.021) |
+
+**Mixed, not a clean win in one direction — flagged as a genuine surprise, not smoothed over.**
+Three seasons (2022, 2024, 2026) moved tighter or held flat; two (2023, 2025) moved slightly
+looser. §1's own prediction (adopting Statbotics' elimination discount should move the slope closer
+to 1.0) is only partially borne out, and the movements are small in every season (≤0.02) — small
+enough that they are plausibly within the noise the corpus's continued growth introduces between
+measurements, rather than a clean signal that the elimination discount (plus 6a1's adjust change)
+dominates the residual. This is not investigated further here (matching this document's own
+"measure and document, not tune" mandate) and is not reverted over — the adoption is the developer's
+locked decision regardless of which way the numbers moved.
 
 The 2026 row is a named, deliberate exception to "the corpus is deterministic": 2026 is still in
 progress, so its baseline band will need re-measuring (and likely widening or replacing) as more
@@ -350,26 +393,38 @@ of that season is played — see the baseline's own `rationale` field.
 ## SigmaScout's EPA vs. Statbotics' own win-probability model
 
 Now that `metrics.win_prob.season.{acc,mse}` parses correctly (see "The schema fix" below), a
-direct comparison is possible for the first time. Our figures are `epa@2.0.0+baseline`'s
-offseason-inclusive, qual+elim-combined slice
-(`npx tsx packages/harness/cli.ts --seasons 2022-2026 --algorithm epa --include-offseason`, no
-`--env-file` needed for a corpus-only replay).
+direct comparison is possible. Figures below are both offseason-inclusive, qual+elim-combined
+slices from `npx tsx packages/harness/cli.ts --seasons 2022-2026 --algorithm epa --include-offseason`
+(no `--env-file` needed for a corpus-only replay) — BEFORE under `epa@2.0.0+baseline` (measured
+2026-09-04, before this quick task's changes) and AFTER under `epa@5.0.0+baseline` (measured
+2026-09-04, this task's own run, `reports/epa-brier-5px-5.0.0/artifact.json`), so the fouls
+exclusion, 6a1's adjust-pinning/adjust-zeroed-alliance change, AND D-05's elimination discount are
+ALL reflected together in the AFTER column — this table cannot and does not isolate the elimination
+discount's own contribution.
 
-| Season | Statbotics accuracy | Our EPA accuracy | Statbotics Brier (mse) | Our EPA Brier |
-|--------|---------------------:|-------------------:|-------------------------:|----------------:|
-| 2022 | 0.7815 | 0.7581 | 0.1502 | 0.1615 |
-| 2023 | 0.7647 | 0.7612 | 0.1608 | 0.1641 |
-| 2024 | 0.7627 | 0.7356 | 0.1620 | 0.1870 |
-| 2025 | 0.7839 | 0.7739 | 0.1537 | 0.1593 |
-| 2026 | 0.7978 | 0.7953 | 0.1483 | 0.1430 |
+| Season | Statbotics accuracy | EPA accuracy (BEFORE, `2.0.0`) | EPA accuracy (AFTER, `5.0.0`) | Statbotics Brier (mse) | EPA Brier (BEFORE, `2.0.0`) | EPA Brier (AFTER, `5.0.0`) |
+|--------|---------------------:|----------------------------------:|----------------------------------:|-------------------------:|-------------------------------:|-------------------------------:|
+| 2022 | 0.7815 | 0.7581 | 0.7602 | 0.1502 | 0.1615 | 0.1609 |
+| 2023 | 0.7647 | 0.7612 | 0.7608 | 0.1608 | 0.1641 | 0.1643 |
+| 2024 | 0.7627 | 0.7356 | 0.7338 | 0.1620 | 0.1870 | 0.1874 |
+| 2025 | 0.7839 | 0.7739 | 0.7742 | 0.1537 | 0.1593 | 0.1599 |
+| 2026 | 0.7978 | 0.7953 | 0.7942 | 0.1483 | 0.1430 | 0.1434 |
 
-Reported in both directions, as measured: **Statbotics' own win-probability model beats our EPA
-reimplementation on both accuracy and Brier in four of five seasons** (2022-2025); **our EPA wins
-on Brier in 2026** (0.1430 vs. 0.1483) while still trailing very slightly on accuracy (0.7953 vs.
+**Reported plainly, as measured: the movement is small and mixed, not a clean improvement or a
+clean degradation.** Accuracy improved in 2022 and 2025 (by ~0.02-0.03 points), and degraded
+slightly in 2023, 2024, and 2026 (by ~0.01-0.18 points, all under 0.002 in relative terms — 2024's
+is the largest single movement at -0.18 accuracy points). Brier improved (got lower, better) only in
+2022 (-0.0006); it got very slightly worse (higher) in 2023, 2024, 2025, and 2026 (+0.0002 to
++0.0004 each). None of these movements are large enough to change this document's standing verdict:
+**Statbotics' own win-probability model still beats our EPA reimplementation on both accuracy and
+Brier in four of five seasons** (2022-2025, both before and after); **our EPA still wins on Brier in
+2026** (0.1434 vs. Statbotics' 0.1483, AFTER) while still trailing slightly on accuracy (0.7942 vs.
 0.7978). This is not a regression to fix — `epa.ts`'s own file header states plainly that EPA is
 "the honest, faithful, variance-free baseline," never the algorithm this project is built to prove
 out; Sigma1 (the variance-carrying alternative, D-01/D-03/D-10) is. This table is EPA's honest
-standing against the system it reimplements, nothing more.
+standing against the system it reimplements, nothing more — the adoption of Statbotics' elimination
+discount is reported here regardless of the small size of its effect, not selectively reported only
+if it had moved the numbers by more.
 
 This comparison mixes an offseason-inclusive slice (ours) against a Statbotics season figure whose
 own offseason inclusion is unconfirmed (same caveat as the per-team comparison above) — flagged

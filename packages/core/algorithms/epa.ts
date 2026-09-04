@@ -31,11 +31,16 @@
  *   - rating SD 12.5 -> 17.4 (Statbotics: 18.7); mean abs difference
  *     11.2 -> 5.9 points
  *   - 2025 quals Brier 0.1950 -> 0.1589; 2026 quals 0.1771 -> 0.1427
- * The slope lands at 0.84 rather than 1.00 because of the deliberate
- * divergences listed below (full-weight elims vs `ELIM_WEIGHT = 1/3`, the
- * counter incrementing on elims, no per-season post-processing, a different
- * component decomposition) — 0.84 is the expected resting point of those
- * choices, NOT an unfinished job.
+ * The slope quoted here (0.84) is HISTORICAL — measured before D-05 (quick
+ * task 260904-5px) adopted Statbotics' elimination-match discount (closing
+ * what the D-08 bullet below used to name as a reason the slope sat below
+ * 1.00) and before quick task 260904-6a1's adjust-pinning change. The
+ * remaining deliberate divergences (no per-season post-processing, a
+ * different component decomposition, Pitfall EPA-1's expanding-window SD)
+ * still keep the slope below 1.00 — see `docs/models/epa-vs-statbotics.md`
+ * for the current, re-measured figure under `epa@5.0.0+baseline`; treat that
+ * document as authoritative rather than this comment's own retained
+ * historical numbers.
  *
  * **Provenance (quick task 260904-4aa, SC-2).** The D-Q1 figures immediately
  * above were produced by a one-off script that was never committed — an
@@ -84,9 +89,16 @@
  *     `sigma1/index.ts`'s `allianceOffensiveTotal`/`predict` handling of the
  *     same component (see that file's D-04 comment). WINDOWS.md entry 3
  *     tracked this as a bug before this fix; see the use site below.
- *   - D-08: elimination matches are learned from normally — full weight
- *     (Statbotics: `ELIM_WEIGHT = 1/3`), and the per-team match counter
- *     increments on every match including elims (Statbotics: does not).
+ *   - D-08 CLOSED as of `5.0.0+baseline` (D-05, quick task 260904-5px):
+ *     elimination matches used to be learned from normally — full weight,
+ *     and the per-team match counter incrementing on every match including
+ *     elims — a deliberate divergence from Statbotics'
+ *     `ELIM_WEIGHT = 1/3`/non-incrementing counter. Both halves of that
+ *     divergence are now ADOPTED (`EPA_ELIM_WEIGHT`, `applyComponentUpdate`,
+ *     `docs/models/epa-divergences.md` §1, retired there with a dated
+ *     closure note) rather than reversed piecemeal — Statbotics couples the
+ *     weight and the counter as one decision, and this project now matches
+ *     both.
  *   - D-13: no per-season post-processing — Statbotics' 2018 switch/scale
  *     sigmoid and its per-year clamps have no equivalent here, and this
  *     module runs no `post_process_breakdown` equivalent. Narrowed by D-Q1:
@@ -119,6 +131,9 @@ import {
   assertFiniteComponents,
   FOULS_COMMITTED_COMPONENT,
   tryParseBreakdownPair,
+  COMPONENT_GROUP_IDS,
+  COMPONENT_GROUP_METRIC_KEYS,
+  componentGroupsForSeason,
   type ParsedComponents,
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
@@ -179,6 +194,21 @@ export const EPA_K = -5 / 8;
 export const EPA_FALLBACK_SCORE_SD = 25;
 
 /**
+ * D-05 (quick task 260904-5px) — Statbotics' own `ELIM_WEIGHT`
+ * (`backend/src/models/epa/constants.py`), adopted here. This project used
+ * to pass a full weight (`1`) for every elimination-match observation as a
+ * deliberate divergence (see `docs/models/epa-divergences.md` §1, closed as
+ * of this version) — the developer has decided EPA should track the real
+ * Statbotics, so an elimination-match observation now blends into a team's
+ * component mean at this DISCOUNTED outer EWMA weight instead of full
+ * weight, and (see `applyComponentUpdate`'s use of this constant, and the
+ * per-team counter it leaves untouched for an elimination match)
+ * `epaPercentFunc`'s decaying learning-rate schedule advances on
+ * qualification matches only.
+ */
+export const EPA_ELIM_WEIGHT = 1 / 3;
+
+/**
  * A flat, documented placeholder for "a rookie team's typical total
  * contribution to an alliance's score," in point units (Phase 3
  * hyperparameter, default unverified) — used only to give
@@ -219,7 +249,13 @@ export function epaPercentFunc(matchCount: number): number {
   return (2 / 3) * prevYearShape;
 }
 
-/** The two-stage EWMA from Statbotics' `EPARating.add_obs` (D-08: `weight` is always 1 in this project, see file header). */
+/**
+ * The two-stage EWMA from Statbotics' `EPARating.add_obs`. `weight` is `1`
+ * for a qualification-match observation and `EPA_ELIM_WEIGHT` (1/3) for an
+ * elimination-match observation (D-05, quick task 260904-5px — see
+ * `applyComponentUpdate`'s call site for the derivation) — no longer always
+ * `1` as this comment used to claim before that adoption.
+ */
 function twoStageEwma(mean: number, observation: number, percent: number, weight: number): number {
   const newMean = (1 - percent) * mean + percent * observation;
   return weight * newMean + (1 - weight) * mean;
@@ -231,7 +267,9 @@ function componentColdStartValue(componentCount: number): number {
 
 /**
  * Per-team state: a component-mean record per team, a per-team match
- * counter (increments on EVERY match — D-08), an expanding-window alliance
+ * counter (increments on a QUALIFICATION match; an elimination match leaves
+ * it untouched — D-05, quick task 260904-5px, closing what used to be D-08's
+ * "increments on every match" divergence), an expanding-window alliance
  * score SD (Pitfall EPA-1), the season this state belongs to (derived
  * lazily from the first match's `eventKey`, since `initState` receives no
  * season parameter), and `fallbackSkipped` — a permanently-zero invariant
@@ -458,9 +496,12 @@ function predict(state: EpaState, match: UpcomingMatch): Prediction {
  * Attributes one alliance's observed component vector across its
  * rating-eligible teams by ERROR SPLIT — each teammate is credited
  * `currentMean + (allianceValue - predictedAllianceTotal) / n` (D-Q1; see the
- * file header's component-attribution bullet) — applying the two-stage EWMA
- * with D-08's full weight and unconditional counter increment. Returns new
- * maps; never mutates its inputs.
+ * file header's component-attribution bullet) — applying the two-stage EWMA.
+ * `isElimination` (D-05, quick task 260904-5px) changes exactly two things
+ * below: the outer EWMA weight becomes `EPA_ELIM_WEIGHT` instead of full
+ * weight, and the per-team counter is left untouched instead of
+ * incrementing — nothing else in this function moves. Returns new maps;
+ * never mutates its inputs.
  *
  * The predicted total is computed ONCE per component, BEFORE the per-team
  * loop, from `teamComponents` — the pre-update snapshot. That ordering is
@@ -476,7 +517,8 @@ function applyComponentUpdate(
   teamMatchCounts: ReadonlyMap<string, number>,
   teams: readonly string[],
   observed: ParsedComponents,
-  componentCount: number
+  componentCount: number,
+  isElimination: boolean
 ): {
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>;
   teamMatchCounts: ReadonlyMap<string, number>;
@@ -545,14 +587,21 @@ function applyComponentUpdate(
       // robot down and lifted its weakest. Here that match is a genuine no-op,
       // because `twoStageEwma(mean, mean, percent, 1) === mean`.
       const attributed = currentMean + (allianceValue - predictedAllianceTotals[component]!) / teams.length;
-      // D-08: weight is always 1 (no ELIM_WEIGHT discount), and the
-      // counter below increments on every match including eliminations —
-      // both deliberate divergences from Statbotics' `update_team`.
-      updatedComponents[component] = twoStageEwma(currentMean, attributed, percent, 1);
+      // D-05 (quick task 260904-5px): adopts Statbotics' `update_team` outer
+      // EWMA weight — full weight (1) for a qualification match,
+      // `EPA_ELIM_WEIGHT` (1/3) for an elimination match. Closes what used to
+      // be D-08's "always full weight" divergence.
+      updatedComponents[component] = twoStageEwma(currentMean, attributed, percent, isElimination ? EPA_ELIM_WEIGHT : 1);
     }
 
     nextComponents.set(team, updatedComponents);
-    nextCounts.set(team, matchCount + 1);
+    // D-05 (quick task 260904-5px): `percent` above was already computed
+    // from this UN-incremented `matchCount`, so an elimination match learns
+    // at the schedule position it arrived at and leaves the schedule exactly
+    // where it found it — the counter only advances for a qualification
+    // match. Closes what used to be D-08's "increments on every match"
+    // divergence.
+    nextCounts.set(team, isElimination ? matchCount : matchCount + 1);
   }
 
   return { teamComponents: nextComponents, teamMatchCounts: nextCounts };
@@ -563,8 +612,9 @@ function update(state: EpaState, result: MatchResult): EpaState {
   // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
   // MATCH is skipped, both alliances, never just the demo side's own share.
   // Checked against the RAW (pre-remap) team lists. Unlike OPR, EPA folds
-  // every comp level (D-08), so this is NOT a defensive no-op here — it is
-  // load-bearing for both the 36 real-event playoff matches and the 195
+  // every comp level (at a discount for eliminations as of D-05, quick task
+  // 260904-5px — never skipped), so this is NOT a defensive no-op here — it
+  // is load-bearing for both the 36 real-event playoff matches and the 195
   // offseason `qm` rows this corpus carries with a fully-demo alliance.
   if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
 
@@ -572,6 +622,14 @@ function update(state: EpaState, result: MatchResult): EpaState {
 
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
+
+  // D-05 (quick task 260904-5px): the same "is this an elimination match"
+  // test `opr.ts`'s own `update` already uses — `ef`/`qf`/`sf`/`f` are all
+  // eliminations, `qm` alone is a qualification match. Threaded into both
+  // `applyComponentUpdate` calls below, changing exactly the outer EWMA
+  // weight and the per-team counter increment there — nothing else in this
+  // function reads it.
+  const isElimination = result.compLevel !== "qm";
 
   const seasonMap = componentMapForSeason(season);
   // D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is excluded from the
@@ -651,14 +709,16 @@ function update(state: EpaState, result: MatchResult): EpaState {
     state.teamMatchCounts,
     redIsRulingZero ? [] : redTeams,
     redObserved,
-    componentCount
+    componentCount,
+    isElimination
   );
   const afterBlue = applyComponentUpdate(
     afterRed.teamComponents,
     afterRed.teamMatchCounts,
     blueIsRulingZero ? [] : blueTeams,
     blueObserved,
-    componentCount
+    componentCount,
+    isElimination
   );
 
   // Fold each alliance's observed total into the expanding-window SD — the
@@ -701,6 +761,33 @@ function update(state: EpaState, result: MatchResult): EpaState {
  * scoring output in the first place: they are points its fouls cost the
  * OPPONENT (D-04, `predict()`'s cross-attribution, untouched by this
  * change).
+ *
+ * D-1 (quick task 260904-7id): also publishes `phaseAuto`/`phaseTeleop`/
+ * `phaseEndgame` — the three season-declared component groups
+ * (`breakdown/groups.ts`) — as first-class, value-only metrics, an explicit
+ * reversal of quick task 260904-5zg's T-5zg-03 "derived groups carry no
+ * tier" decision. Publishing them here is what lets the existing
+ * percentile/tier pass (`publish.ts`'s `withPercentiles`/`withPublishedTiers`
+ * over `teamsThisSeason`, generic over metric NAMES) attach a season-wide
+ * tier to them with zero harness changes — a client-side ranking would
+ * render in the identical colour while meaning something else, which a
+ * reader could never detect, so the tier must come from here. EPA's version
+ * string is DELIBERATELY NOT bumped for this: `06f468ad` set the precedent
+ * for Sigma1's own identical addition ("team metrics do not feed the
+ * prediction-stream digest, so adding these keys leaves every committed
+ * digest bitwise unchanged"), and `epa@4.0.0+baseline`/`5.0.0+baseline` have
+ * never been published to R2 at all, so widening the published metric set
+ * before a version's first publish cannot make one version string stand for
+ * two different published shapes (D-13's invariant, still honored).
+ *
+ * Reconciliation, EPA-specific and worth stating because it is NOT a general
+ * property of the grouping: `phaseAuto + phaseTeleop + phaseEndgame +
+ * adjust` now equals `total` exactly, because `adjust` is pinned at exactly
+ * `0` for every team (D-5/D-6, quick task 260904-6a1) and `total` already
+ * excludes `foulsCommitted` (D-01 above) — the group values plus the one
+ * remaining ungrouped, always-zero component partition `total` completely.
+ * VPR's `total` still spans every component including fouls, so this same
+ * identity does NOT hold there.
  */
 function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
   const requestedTeams = teams ?? [...state.teamComponents.keys()];
@@ -715,6 +802,37 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
       if (name !== FOULS_COMMITTED_COMPONENT) total += value;
     }
     perTeam[TOTAL_METRIC_KEY] = { value: total };
+
+    // Phase groups (Auto/Teleop/Endgame), published as first-class metrics
+    // (D-1, quick task 260904-7id — see this function's own doc comment
+    // above). Mirrors sigma1/index.ts's own group block (`teamMetrics`,
+    // ~:1587-1614) in structure, skipping only its spread lookup: EPA
+    // publishes a MEAN ONLY everywhere, so there is nothing to attach here.
+    // Reads the SAME single grouping source (`componentGroupsForSeason`)
+    // `apps/web/src/lib/metricGroups.ts` already reads client-side for its
+    // own stale-artifact derived fallback — that shared source is what makes
+    // a published group value and the client's derived fallback value
+    // identical BY CONSTRUCTION, not by two lists kept in step.
+    const groups = state.season === undefined || state.season === null ? undefined : componentGroupsForSeason(state.season);
+    if (groups !== undefined) {
+      for (const groupId of COMPONENT_GROUP_IDS) {
+        let groupValue = 0;
+        let present = false;
+        for (const name of groups[groupId]) {
+          const value = components[name];
+          if (value === undefined) continue;
+          groupValue += value;
+          present = true;
+        }
+        // A group whose components are all absent from this team's record
+        // publishes nothing at all — never a fabricated zero, tracked with a
+        // presence flag rather than inferred from a zero sum. Matches
+        // Sigma1's own rule and the client's `withDerivedGroupMetrics`.
+        if (!present) continue;
+        perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue };
+      }
+    }
+
     result[team] = perTeam;
   }
   return result;
@@ -828,17 +946,25 @@ export const epa: AlgorithmModule<EpaState> = {
   // Statbotics 0.489 -> 0.841, 2025 quals Brier 0.1950 -> 0.1589 (see the
   // file header for the full table).
   //
-  // Bumped 2.0.0 -> 3.0.0 (D-01, quick task 260904-5px, this commit):
+  // Bumped 2.0.0 -> 3.0.0 (D-01, quick task 260904-5px):
   // `teamMetrics()`'s observable output changed for every team that has ever
   // committed a foul — the published `total` now excludes
   // `FOULS_COMMITTED_COMPONENT`, matching Statbotics' `epa.total_points`.
   // Same D-13 invariant as every bump above: no version string may stand for
-  // two structurally different algorithms. A SECOND change lands under this
-  // SAME version string in the next commit — D-05's elimination-match
-  // discount (quick task 260904-5px) — which is honest, not a violation of
-  // that invariant, because nothing is published, fingerprinted, or written
-  // into a committed measurement record between the two commits;
-  // `3.0.0+baseline` names the combined result of both.
+  // two structurally different algorithms.
+  //
+  // CORRECTION (D-05, quick task 260904-5px, added when this comment block's
+  // own next entry was written): the bump comment originally written here
+  // said a second change — D-05's elimination-match discount — would land
+  // under this SAME `3.0.0+baseline` string. That did not happen: quick task
+  // 260904-6a1's independent 4.0.0 bump landed in between, so D-05's
+  // elimination discount instead ships under `5.0.0+baseline` below, not
+  // `3.0.0+baseline`. `3.0.0+baseline` stands for the fouls-exclusion change
+  // ALONE — nothing else was published, fingerprinted, or written into a
+  // committed measurement record naming it, so the D-13 invariant still
+  // holds; this correction exists so a future reader does not trust the
+  // superseded plan stated in the original wording (this project's own
+  // named failure mode: a comment describing a model that never shipped).
   //
   // Bumped 3.0.0 -> 4.0.0 (D-7, quick task 260904-6a1, 2026-09-04):
   // `update()`'s observable output changed for a SECOND, unrelated reason
@@ -867,7 +993,33 @@ export const epa: AlgorithmModule<EpaState> = {
   // folded like any other component), not merely an edge case. Same D-13
   // invariant as every bump above: no version string may stand for two
   // structurally different algorithms.
-  version: "4.0.0+baseline",
+  //
+  // Bumped 4.0.0 -> 5.0.0 (D-05, quick task 260904-5px, this commit):
+  // `update()`'s observable output changed for a THIRD reason — Statbotics'
+  // elimination-match discount, both halves at once (D-08, closed above; see
+  // `docs/models/epa-divergences.md` §1, retired there): `EPA_ELIM_WEIGHT`
+  // (1/3) replaces full weight for the outer EWMA blend of an
+  // elimination-match observation, and the per-team match counter no longer
+  // advances on an elimination match, so `epaPercentFunc`'s decaying
+  // learning-rate schedule is driven by qualification matches alone. This is
+  // the change the 2.0.0 -> 3.0.0 bump comment's original wording (corrected
+  // above) had expected to ship under `3.0.0+baseline`; it ships here instead
+  // because 6a1's 4.0.0 bump landed in between. Same D-13 invariant as every
+  // bump above: no version string may stand for two structurally different
+  // algorithms — nothing was published, fingerprinted, or written into a
+  // committed measurement record naming `4.0.0+baseline` between that bump
+  // landing and this one superseding it.
+  //
+  // MAJOR, not minor, and deliberately so: every elimination-match update in
+  // this module's whole history moves. Re-measured baseline figures are in
+  // `data/baselines/epa-vs-statbotics-2026-09.json` and
+  // `docs/models/epa-vs-statbotics.md` (before: `epa@2.0.0+baseline` as
+  // measured 2026-09-04; after: `epa@5.0.0+baseline`, combining the fouls
+  // exclusion, 6a1's adjust-pinning/adjust-zeroed-alliance changes, AND this
+  // elimination discount — the doc's before/after table attributes the
+  // movement to all three causes together, not to the elimination discount
+  // alone).
+  version: "5.0.0+baseline",
   initState,
   predict,
   update,
