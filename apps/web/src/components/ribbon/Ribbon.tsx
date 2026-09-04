@@ -173,8 +173,13 @@ export function Ribbon() {
         {wordmark}
         <NavLinks />
         <GlobalSelects />
-        <GitHubLink />
-        <SearchBox tone="ribbon" />
+        {/* Grouped so `justify-between` can't spread the GitHub icon toward
+            the ribbon's center — it must hug the search box (user request,
+            2026-09-04), matching the mobile branch's grouping above. */}
+        <div className="flex items-center gap-[var(--spacing-md)]">
+          <GitHubLink />
+          <SearchBox tone="ribbon" />
+        </div>
       </div>
     </header>
   );
