@@ -402,6 +402,32 @@ describe("teamMetrics — D-27 contract shape", () => {
     const metrics = vpr.teamMetrics(state);
     expect(Object.keys(metrics).sort()).toEqual(["T1", "T2", "T3", "T4", "T5", "T6"].sort());
   });
+
+  it("OMITS a never-seen team from the result entirely — never present-with-zeros", () => {
+    // Todo sigma1-cold-start-zero-plus-minus: every downstream layer (publish's
+    // `?? {}` defaults, MetricValue's blank cell, rowModel's missing-sorts-last)
+    // renders "no data" honestly ONLY because absence propagates from here. If
+    // this ever returned `{ total: { value: 0, spread: 0 } }` for an unknown
+    // team, the whole chain would faithfully publish a confident `0 ± 0` for
+    // the team the model knows least about, and no other test would catch it.
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["frc254", "T2", "T3"],
+        blueTeams: ["T4", "T5", "T6"],
+        redScore: UNIFORM_TOTAL,
+        blueScore: UNIFORM_TOTAL,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+
+    const metrics = vpr.teamMetrics(state, ["frc254", "NEVERSEEN"]);
+    expect(Object.keys(metrics)).toEqual(["frc254"]);
+    expect("NEVERSEEN" in metrics).toBe(false);
+  });
 });
 
 /**

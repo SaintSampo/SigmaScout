@@ -548,6 +548,24 @@ describe("epa — contract shape", () => {
     expect(metrics["frc1"]!["total"]).toEqual({ value: 15 });
     expect(metrics["frc1"]!["foulsCommitted"]).toBeUndefined();
   });
+
+  it("teamMetrics OMITS a never-seen team from the result entirely — never present-with-zeros", () => {
+    // Todo sigma1-cold-start-zero-plus-minus, applied to EPA per its item 5:
+    // absence (not zeros) is what lets publish's `?? {}` defaults and the
+    // client's blank-cell/sorts-last handling represent "no data" honestly.
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5 }]]),
+      teamMatchCounts: new Map([["frc1", 1]]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+    const metrics = epa.teamMetrics(state, ["frc1", "NEVERSEEN"]);
+    expect(Object.keys(metrics)).toEqual(["frc1"]);
+    expect("NEVERSEEN" in metrics).toBe(false);
+  });
 });
 
 /**

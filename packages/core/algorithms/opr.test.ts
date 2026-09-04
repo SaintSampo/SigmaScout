@@ -528,6 +528,20 @@ describe("opr.teamMetrics — most recent event headlines (D-04)", () => {
     expect(metrics["SHARED"]![TOTAL_METRIC_KEY]!.value).toBe(expectedRating);
   });
 
+  it("OMITS a never-seen team from the result entirely — never present-with-zeros", () => {
+    // Todo sigma1-cold-start-zero-plus-minus, applied to OPR per its item 5:
+    // absence (not zeros) is what lets publish's `?? {}` defaults and the
+    // client's blank-cell/sorts-last handling represent "no data" honestly.
+    let state: OprState = opr.initState([]);
+    state = opr.update(
+      state,
+      match({ matchKey: "2024eventa_qm1", eventKey: "2024eventa", redTeams: ["SHARED", "A1", "A2"], blueTeams: ["A3", "A4", "A5"], redScore: 35, blueScore: 20 })
+    );
+    const metrics = opr.teamMetrics(state, ["SHARED", "NEVERSEEN"]);
+    expect(Object.keys(metrics)).toEqual(["SHARED"]);
+    expect("NEVERSEEN" in metrics).toBe(false);
+  });
+
   it("never registers a team in lastEventByTeam from a playoff-only appearance at an event (D-05: update() never touches lastEventByTeam for a non-qm match)", () => {
     let state: OprState = opr.initState([]);
     state = opr.update(
