@@ -164,13 +164,19 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ still contains exactly the 2 pre-existing Sigma1 promoted versions (RESEARCH.md Pitfall 1)", () => {
+  it("data/algorithm-versions/ contains exactly the 3 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+    // Quick task 260904-100 (Task 6) added the third: `vpr@7.0.0+rolling-2026-09.json`,
+    // the rolling-origin per-season promotion — a real, deliberate committed
+    // version, not a stray file. This test's job is to catch the OTHER kind
+    // of drift (a baseline fingerprint dropped in the wrong directory), so it
+    // asserts the exact expected SET, not merely a count that would pass just
+    // as well for three wrong files as for three right ones.
     const files = readdirSync(ALGORITHM_VERSIONS_DIR).filter((name) => name.endsWith(".json"));
     expect(
-      files,
+      [...files].sort(),
       `data/algorithm-versions/ is glob-scanned and Sigma1-schema-parsed by digest.test.ts — baseline fingerprints ` +
         `belong in ${BASELINES_DIR}, never in ${ALGORITHM_VERSIONS_DIR}. Found: ${JSON.stringify(files)}`
-    ).toHaveLength(2);
+    ).toEqual(["vpr@7.0.0+rolling-2026-09.json", "vpr@7.0.0+tracer-check.json", "vpr@7.0.0+tuned-2026-08.json"]);
   });
 
   it("both retired-implementation fingerprints record OPR's own pre-rewrite id/version, not anything later", () => {
