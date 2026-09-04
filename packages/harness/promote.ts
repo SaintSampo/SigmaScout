@@ -218,18 +218,25 @@ export type PromotedVersion = z.infer<typeof PromotedVersionSchema>;
 
 /**
  * 03-REVIEW IN-01: the minimal load-bearing shape of a `tune.ts` search
- * artifact, validated at the read boundary in BOTH this file and `cli.ts`'s
- * `loadSearchWinnerVpr` — a truncated or hand-edited artifact fails with a
- * named ZodError instead of a raw `TypeError` on `.find`. Deliberately
- * narrow and `.passthrough()`-tolerant (matching `baselineFingerprint.ts`'s
- * read-schema idiom): provenance-only fields stay unvalidated; the winning
- * candidate's `params` are separately parsed through `Sigma1ParamsSchema`
- * at each call site, exactly as before.
+ * artifact, validated at the read boundary in BOTH this file and
+ * `searchWinner.ts`'s `resolveOnSearchWinner` — a truncated or hand-edited
+ * artifact fails with a named ZodError instead of a raw `TypeError` on
+ * `.find`. Deliberately narrow and `.passthrough()`-tolerant (matching
+ * `baselineFingerprint.ts`'s read-schema idiom): provenance-only fields stay
+ * unvalidated; the winning candidate's `params` are separately parsed
+ * through `Sigma1ParamsSchema` at each call site, exactly as before.
+ *
+ * `seasons` (F-2, quick task 260903-tk6) is OPTIONAL: it is the artifact's
+ * own top-level provenance field that `resolveOnSearchWinner` reads to
+ * answer "what seasons was this winner selected on," but the pre-existing
+ * `loadSearchWinnerVpr` fixtures (`promotedOverrides.test.ts`) never
+ * recorded one, and those fixtures must stay green.
  */
 export const TuneSearchOutputMinimalSchema = z
   .object({
     winnerIndex: z.number().int(),
     candidates: z.array(z.object({ index: z.number().int(), params: z.unknown() }).passthrough()),
+    seasons: z.array(z.number().int()).optional(),
   })
   .passthrough();
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
+import { ALGORITHMS, applyPromotedOverrides } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 import type { HarnessPredictionInput } from "./score.js";
@@ -50,6 +51,31 @@ describe("selectedOnSeasonsFor", () => {
     const vprModule = resolved.find((m) => m.id === "vpr");
     expect(vprModule).toBeDefined();
     expect(vprModule!.version).toBe(committed.version);
+  });
+
+  /**
+   * F-2 (quick task 260903-tk6): the `vpr-adapt` case that has never
+   * existed. Written so it holds BOTH on a developer machine with a stale
+   * `reports/tune-joint-on.json` (this checkout, 2026-09-03: the file
+   * exists but its winner's params fail this code version's schema) AND in
+   * CI where `reports/` is empty — it asserts the STRUCTURAL equivalence
+   * `resolveOnSearchWinner`'s sharing guarantees, never a gitignored file's
+   * presence.
+   */
+  it("vpr-adapt's selected-on set is non-empty IF AND ONLY IF applyPromotedOverrides actually resolves the search winner, not the untuned base", () => {
+    const base = ALGORITHMS["vpr-adapt"];
+    expect(base).toBeDefined();
+    const [resolved] = applyPromotedOverrides([base!]);
+
+    // The search-winner branch always builds with paramSetName
+    // "tune-joint-on-winner" (`cli.ts`'s `applyPromotedOverrides`); the
+    // untuned fallback keeps the base module's own "defaults-adapt" version
+    // untouched. This is the one observable that distinguishes "the search
+    // winner actually runs" from "vpr-adapt degraded to defaults."
+    const isSearchWinnerRunning = resolved?.version === `${SIGMA1_CODE_VERSION}+tune-joint-on-winner`;
+
+    const selectedOn = selectedOnSeasonsFor(["vpr-adapt"])["vpr-adapt"];
+    expect((selectedOn?.length ?? 0) > 0).toBe(isSearchWinnerRunning);
   });
 });
 

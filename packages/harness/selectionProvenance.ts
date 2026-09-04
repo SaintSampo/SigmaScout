@@ -11,27 +11,34 @@
  * file for the first time anywhere in this repo (D-2: no second record of
  * the same fact is introduced — the version file IS the record).
  *
- * The version-file and search-artifact paths below are DERIVED from
- * `SIGMA1_CODE_VERSION`, the same way `cli.ts`'s `PROMOTED_VPR_VERSION_PATH`
- * and `tune.ts`'s `INCUMBENT_VERSION_PATH` already are — so the next
- * `SIGMA1_CODE_VERSION` bump moves this module's read target by
- * construction. This module does NOT import those constants from `cli.ts`:
- * `cli.ts` will come to depend on this module (to source the eligibility
- * argument at its own `aggregateScores` call site), and importing back from
- * `cli.ts` would create an import cycle. `selectionProvenance.test.ts`
- * instead asserts, independently, that this module's own resolution agrees
- * with `resolvePublishAlgorithms(undefined)`'s — that agreement is what
- * actually protects against the two-independently-derived-resolutions
- * failure `cli.ts`'s own `applyPromotedOverrides` comment names, not a
- * shared import.
+ * `vpr`'s version-file path below is DERIVED from `SIGMA1_CODE_VERSION`, the
+ * same way `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` and `tune.ts`'s
+ * `INCUMBENT_VERSION_PATH` already are — so the next `SIGMA1_CODE_VERSION`
+ * bump moves this module's read target by construction. This path is a
+ * DELIBERATE MIRROR of `cli.ts`'s own constant, not a shared import:
+ * `cli.ts` depends on this module (`aggregateScoresForRun`, F-1), and
+ * importing `PROMOTED_VPR_VERSION_PATH` back from `cli.ts` would create an
+ * import cycle. `selectionProvenance.test.ts` pins their agreement
+ * independently — asserting that this module's own resolution for `vpr`
+ * agrees with `resolvePublishAlgorithms(undefined)`'s — which is what
+ * actually protects against the mirror drifting, not the import itself.
+ *
+ * `vpr-adapt`'s provenance (F-2, quick task 260903-tk6) is NOT a mirror: it
+ * DELEGATES to `searchWinner.ts`'s `resolveOnSearchWinner`, the exact same
+ * leaf-module resolution `cli.ts`'s `loadSearchWinnerVpr` wraps to decide
+ * what actually RUNS for `vpr-adapt`. Sharing one resolver — rather than
+ * pinning agreement between two independently-derived condition lists —
+ * makes disagreement between "what runs" and "what the flag claims"
+ * structurally impossible, closing the gap `vpr`'s mirror above still
+ * carries (deliberately, per the cycle constraint) one level down.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { selectCorpusSeasons, type Corpus } from "../corpus/db.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
 
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
@@ -39,23 +46,10 @@ const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
  * Mirrors `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` construction exactly (same
  * directory, same filename pattern) so the next `SIGMA1_CODE_VERSION` bump
  * moves both by construction rather than requiring two hand-edits to stay
- * in sync.
+ * in sync. See this file's header comment for why this stays a deliberate
+ * mirror rather than a shared import.
  */
 const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
-
-/** Mirrors `cli.ts`'s `ON_SEARCH_ARTIFACT_PATH` — the adaptation-ON joint search's own gitignored winner artifact. */
-const ON_SEARCH_ARTIFACT_PATH = join("reports", "tune-joint-on.json");
-
-/**
- * The narrow, `.passthrough()`-tolerant read of a `tune.ts --stage joint`
- * search artifact this module needs — just the `seasons` field
- * `buildJointArtifact` (`tune.ts`) records at the top level. Follows the
- * same narrow-artifact-read idiom as `promote.ts`'s
- * `TuneSearchOutputMinimalSchema` / `eventScopeDiagnostic.ts`'s
- * `ArtifactSliceSchema`: a truncated or hand-edited artifact fails a
- * `safeParse` rather than a raw property-access `TypeError`.
- */
-const JointArtifactSelectionSchema = z.object({ seasons: z.array(z.number().int()) }).passthrough();
 
 /**
  * `vpr`'s selected-on seasons: `provenance.tuneSeasons` from the committed,
@@ -73,28 +67,35 @@ function vprSelectedOnSeasons(): readonly number[] {
 }
 
 /**
- * `vpr-adapt`'s selected-on seasons: `applyPromotedOverrides` (`cli.ts`)
- * swaps this id for the adaptation-ON joint search's own winner
- * (`reports/tune-joint-on.json`) when present, falling back to the plain
- * `vprAdaptive` (defaults + `adaptationEnabled: true`) module — which has no
- * fitted parameters at all — when absent. `reports/` is gitignored, so
- * absence is the normal case; degrading to `[]` there matches
- * `loadSearchWinnerVpr`'s own degrade-to-untuned behavior exactly. A
- * present-but-unparseable artifact degrades the same way, never throws —
- * this function answers a provenance question, it does not gate a harness
- * run.
+ * `vpr-adapt`'s selected-on seasons (F-2, quick task 260903-tk6): DELEGATES
+ * to `searchWinner.ts`'s `resolveOnSearchWinner` against the SAME
+ * `ON_SEARCH_ARTIFACT_PATH` constant `cli.ts`'s `loadSearchWinnerVpr` reads
+ * — the same resolution, not a second one, so "what runs" and "what this
+ * flag claims" cannot disagree. `undefined` (absent file, unparseable JSON,
+ * no matching `winnerIndex`, or a param shape this code version cannot
+ * read) means `[]`: the same untuned-fallback condition `loadSearchWinnerVpr`
+ * degrades to, never a second, independently-decided one.
+ *
+ * A winner that DOES resolve but whose artifact records no top-level
+ * `seasons` field THROWS, naming the artifact path — unlike the absent-file
+ * case, this is a module that IS about to run with fitted parameters, and a
+ * silent `[]` here would let it read as "never fitted" on the headline
+ * eligibility flag while it actually scores with real, selected-on
+ * parameters. That silent mismatch is exactly the failure F-2 exists to
+ * close, not a case to degrade through the same fallback as absence.
  */
 function vprAdaptSelectedOnSeasons(): readonly number[] {
-  if (!existsSync(ON_SEARCH_ARTIFACT_PATH)) return [];
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(ON_SEARCH_ARTIFACT_PATH, "utf8"));
-  } catch {
-    return [];
+  const resolved = resolveOnSearchWinner(ON_SEARCH_ARTIFACT_PATH);
+  if (!resolved) return [];
+  if (resolved.seasons === undefined) {
+    throw new Error(
+      `vprAdaptSelectedOnSeasons: ${ON_SEARCH_ARTIFACT_PATH} resolved a search winner that RUNS, but the artifact ` +
+        `records no top-level "seasons" field — a fitted module whose provenance silently reads as "never fitted" ` +
+        `is exactly the F-2 failure this must not hide. Re-run the search with a tune.ts that records "seasons", ` +
+        `or correct the artifact.`
+    );
   }
-  const parsed = JointArtifactSelectionSchema.safeParse(raw);
-  if (!parsed.success) return [];
-  return parsed.data.seasons;
+  return resolved.seasons;
 }
 
 /**

@@ -24,6 +24,7 @@ import { ALGORITHMS, applyPromotedOverrides, loadPromotedVpr, loadSearchWinnerVp
 import { makeSigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
+import { resolveOnSearchWinner } from "./searchWinner.js";
 
 /**
  * The committed promoted version `applyPromotedOverrides` resolves for the
@@ -316,6 +317,61 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
     expect(restoredPrediction.redRpPmf?.length ?? 0).toBeGreaterThan(0);
     expect(controlPrediction.redRpPmf?.length ?? 0).toBe(0);
     expect(DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * F-2 (quick task 260903-tk6): direct coverage of `searchWinner.ts`'s
+ * `resolveOnSearchWinner` — the leaf-module resolution `loadSearchWinnerVpr`
+ * above now wraps and `selectionProvenance.ts`'s `vprAdaptSelectedOnSeasons`
+ * delegates to, so the two can never disagree about `vpr-adapt`.
+ */
+describe("resolveOnSearchWinner (F-2, quick task 260903-tk6)", () => {
+  /** Same shape as `loadSearchWinnerVpr`'s own `searchArtifact` fixture above, with an optional top-level `seasons`. */
+  function searchArtifactWithSeasons(winnerIndex: number, seasons: readonly number[] | undefined): string {
+    return JSON.stringify({
+      winnerIndex,
+      candidates: [
+        { index: 0, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 } },
+        { index: 1, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0, processNoiseWithinEventRel: 5e-4 } },
+      ],
+      ...(seasons !== undefined ? { seasons } : {}),
+    });
+  }
+
+  it("an artifact carrying a top-level seasons field returns it verbatim", () => {
+    const dir = makeTempDir("search-winner-seasons-");
+    const artifactPath = join(dir, "search.json");
+    writeFileSync(artifactPath, searchArtifactWithSeasons(1, [2022, 2023, 2024]));
+
+    const resolved = resolveOnSearchWinner(artifactPath);
+    expect(resolved).toBeDefined();
+    expect(resolved?.seasons).toEqual([2022, 2023, 2024]);
+  });
+
+  it("an artifact omitting seasons returns a winner with seasons undefined, not a silent []", () => {
+    const dir = makeTempDir("search-winner-no-seasons-");
+    const artifactPath = join(dir, "search.json");
+    writeFileSync(artifactPath, searchArtifactWithSeasons(1, undefined));
+
+    const resolved = resolveOnSearchWinner(artifactPath);
+    expect(resolved).toBeDefined();
+    expect(resolved?.seasons).toBeUndefined();
+  });
+
+  it("a winner whose params fail this code version's schema returns undefined, exactly like an absent artifact", () => {
+    const dir = makeTempDir("search-winner-stale-");
+    const artifactPath = join(dir, "search.json");
+    writeFileSync(
+      artifactPath,
+      JSON.stringify({
+        winnerIndex: 0,
+        candidates: [{ index: 0, params: { someRetiredFieldName: 1.5 } }],
+        seasons: [2022, 2023, 2024],
+      })
+    );
+
+    expect(resolveOnSearchWinner(artifactPath)).toBeUndefined();
   });
 });
 

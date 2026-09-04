@@ -50,7 +50,6 @@ import {
   makeSigma1,
   DEFAULT_SIGMA1_PARAMS,
   SIGMA1_CODE_VERSION,
-  Sigma1ParamsSchema,
 } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
@@ -80,11 +79,12 @@ import {
   writePredictionLine,
   type PredictionsWriterHandle,
 } from "./predictions.js";
-import { PromotedVersionSchema, TuneSearchOutputMinimalSchema, type PromotedVersion } from "./promote.js";
+import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
+import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
 
 // `any` here: this registry maps CLI strings to modules with different
@@ -152,17 +152,6 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
 const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
-/**
- * D-06/D-08/ALGO-05 (plan 03-06): the adaptation-ON joint search's own
- * winning candidate — "each search's own best configuration," not a bare
- * defaults-plus-flag module. `reports/` is gitignored (D-14: a search
- * evaluation is an experiment, not a version), so this file is NOT always
- * present — `applyPromotedOverrides` falls back to the existing
- * `vprAdaptive` (defaults + `adaptationEnabled: true`) when it is
- * absent, exactly the pre-existing behavior for every invocation that
- * predates this override.
- */
-const ON_SEARCH_ARTIFACT_PATH = join("reports", "tune-joint-on.json");
 
 // 03-REVIEW IN-01: the former `TuneSearchOutputForOverride` cast interfaces
 // are replaced by `TuneSearchOutputMinimalSchema` (promote.ts) — validation
@@ -180,43 +169,24 @@ export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModul
  * Builds a VPR module from a `tune.ts --stage joint` search artifact's own
  * winning candidate — restoring `rpMonteCarloDraws` to the versioned default
  * the same way `promote.ts` does for a promoted winner (the search fixes it
- * to 0 for speed). `undefined` if the artifact does not exist.
+ * to 0 for speed). `undefined` if the artifact does not exist, if
+ * `winnerIndex` names no candidate, or if the winner's params fail this code
+ * version's schema (with a loud warning) — see `searchWinner.ts`'s
+ * `resolveOnSearchWinner`'s own doc comment for the full five-gate list.
  *
- * ALSO `undefined`, with a loud warning, when the artifact exists but records
- * a parameter SHAPE this code version cannot read (quick task 260901-trz,
- * F2). `SIGMA1_CODE_VERSION` 4.0.0 renamed five fields and `Sigma1ParamsSchema`
- * is `z.strictObject`, so every search artifact written before that bump now
- * fails to parse. `reports/` is gitignored, so those stale artifacts sit on
- * developer machines and in no CI run — which is exactly the shape of failure
- * that must not hard-crash `pnpm harness` for one developer while passing
- * everywhere else. A stale artifact is not a corrupt one; it is an experiment
- * from a retired parameterization, and "this experiment predates the current
- * model, so it is not being used" is the honest outcome. It degrades to the
- * SAME fallback an absent artifact takes, and says so on stderr rather than
- * silently.
- *
- * Note what is NOT relaxed: a malformed artifact still throws through
- * `TuneSearchOutputMinimalSchema`, and a committed VERSION file (`loadPromotedVpr`
- * above) still throws on any parse failure whatsoever — a version file is a
- * committed claim about what ships, and there is no such thing as an
- * acceptably-stale one.
+ * F-2 (quick task 260903-tk6): this is now a THIN WRAPPER over
+ * `resolveOnSearchWinner` — the same resolution
+ * `selectionProvenance.ts`'s `vprAdaptSelectedOnSeasons` reads for its
+ * provenance answer, so "what runs" and "what the flag claims" can never
+ * disagree. `ON_SEARCH_ARTIFACT_PATH` is imported from `searchWinner.ts`
+ * rather than declared here, for the same reason. This function's exported
+ * signature and behavior are unchanged — `promotedOverrides.test.ts` passes
+ * with no edit to its existing cases.
  */
 export function loadSearchWinnerVpr(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
-  if (!existsSync(searchArtifactPath)) return undefined;
-  const raw: unknown = JSON.parse(readFileSync(searchArtifactPath, "utf8"));
-  const output = TuneSearchOutputMinimalSchema.parse(raw);
-  const winner = output.candidates.find((c) => c.index === output.winnerIndex);
-  if (!winner) return undefined;
-  const parsed = Sigma1ParamsSchema.safeParse(winner.params);
-  if (!parsed.success) {
-    console.warn(
-      `WARNING [loadSearchWinnerVpr]: ${searchArtifactPath} records a parameter set this code version cannot read ` +
-        `(SIGMA1_CODE_VERSION is now ${SIGMA1_CODE_VERSION}; D-T1/D-T2 renamed five fields and removed two). ` +
-        `Ignoring it and falling back, exactly as for an absent artifact. Re-run the search to produce a current-shape artifact.`
-    );
-    return undefined;
-  }
-  const params = { ...parsed.data, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
+  const resolved = resolveOnSearchWinner(searchArtifactPath);
+  if (!resolved) return undefined;
+  const params = { ...resolved.params, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
   return makeSigma1({ id, linkMode: "predictive-variance", params, paramSetName });
 }
 
