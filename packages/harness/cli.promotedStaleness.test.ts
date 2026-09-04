@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
+import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 
 let tempDir: string | undefined;
 
@@ -151,6 +152,35 @@ describe("warnIfNewerPromotedVpr (D-12 / 03-REVIEW WR-03)", () => {
 
     try {
       expect(() => warnIfNewerPromotedVpr(dir, pinnedPath)).not.toThrow();
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  /**
+   * The staleness canary (quick task 260904-2i9): unlike every case above,
+   * this one runs against the REAL committed `data/algorithm-versions`
+   * directory and the REAL live pin (`PROMOTED_VPR_VERSION_PATH`, imported
+   * from `promotedVersionPath.ts` — never redeclared here), not a synthetic
+   * temp directory. It exists to make "a promotion landed and nothing moved"
+   * — the exact duplicated-fact defect this whole quick task closes — a
+   * named CI failure instead of a console line nobody reads.
+   *
+   * ESCAPE HATCH: `warnIfNewerPromotedVpr` deliberately WARNS rather than
+   * throws, because pinning an OLDER version to compare it against a newer
+   * one is legitimate work that must stay possible (see this file's header
+   * and D-12). If a future re-pin ever deliberately targets a version that
+   * is NOT the newest committed file, this case is expected to go red — at
+   * that point, update it with a comment explaining why the pin is
+   * deliberately not-newest. This is a speed bump on an UNNOTICED re-pin,
+   * never a prohibition on a deliberate one.
+   */
+  it("emits no warning against the REAL committed versions directory and the REAL live pin — a promotion landing without a re-pin must fail loudly here", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
       expect(logSpy).not.toHaveBeenCalled();
     } finally {
       logSpy.mockRestore();
