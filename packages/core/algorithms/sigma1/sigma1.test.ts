@@ -75,7 +75,16 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
  * letting tests isolate one variable (e.g. measurement-noise inflation)
  * without the real-vs-fallback paths also differing in their innovation.
  */
-function rawBreakdown2024Uniform(perComponentValue: number): string {
+/**
+ * `overrides.red`/`overrides.blue` (quick task 260904-6a1) let a caller move
+ * ONE field — e.g. `adjustPoints` — away from the uniform value on just one
+ * side, without hand-writing a second raw JSON payload in the test body.
+ * Every other field stays at `perComponentValue`.
+ */
+function rawBreakdown2024Uniform(
+  perComponentValue: number,
+  overrides: { red?: Record<string, number>; blue?: Record<string, number> } = {}
+): string {
   const side = {
     autoLeavePoints: perComponentValue,
     autoAmpNotePoints: perComponentValue,
@@ -118,7 +127,7 @@ function rawBreakdown2024Uniform(perComponentValue: number): string {
     ensembleBonusStagePointsThreshold: 0,
     ensembleBonusOnStageRobotsThreshold: 0,
   };
-  return JSON.stringify({ red: side, blue: side });
+  return JSON.stringify({ red: { ...side, ...overrides.red }, blue: { ...side, ...overrides.blue } });
 }
 
 const SIGMA1_2024_COMPONENT_COUNT = 13; // 12 OWN_FIELD_COMPONENT_MAP keys + foulsCommitted
@@ -923,6 +932,89 @@ describe("vpr — whole-alliance DQ zero-score exclusion (.planning/todos/pendin
       expect(withNonZeroDq.teams.get(team)).toEqual(noDq.teams.get(team));
     }
     expect(withNonZeroDq.allianceScoreStats).toEqual(noDq.allianceScoreStats);
+  });
+});
+
+describe("vpr — adjust-zeroed alliance exclusion (quick task 260904-6a1, .planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md's sibling)", () => {
+  it("an alliance zeroed by a negative parsed adjustPoints with EMPTY dq lists is a genuine no-op — no team state created for the zeroed alliance, while the opposing alliance updates normally", () => {
+    const state = vpr.initState([]);
+    const result: MatchResult = match({
+      matchKey: "2024test_qm1",
+      redTeams: ["frc190", "frc3467", "frc237"],
+      blueTeams: ["B1", "B2", "B3"],
+      redDqs: [],
+      blueDqs: [],
+      redScore: 0,
+      blueScore: UNIFORM_TOTAL,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT, { red: { adjustPoints: -456 } }),
+    });
+
+    expect(() => vpr.update(state, result)).not.toThrow();
+    const nextState = vpr.update(state, result);
+    expect(nextState.teams.has("frc190")).toBe(false);
+    expect(nextState.teams.has("frc3467")).toBe(false);
+    expect(nextState.teams.has("frc237")).toBe(false);
+    expect(nextState.teams.has("B1")).toBe(true);
+    // The ruling never touched the expanding-window season-score SD either —
+    // a ruling's 0 is not a real alliance-score observation.
+    expect(nextState.allianceScoreStats.count).toBe(1);
+  });
+
+  it("a non-zero recorded score with a large negative adjust is still counted normally, exactly like an ordinary observation", () => {
+    const withNegativeAdjust = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 68,
+        blueScore: 40,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT, { red: { adjustPoints: -30 } }),
+      })
+    );
+    const withoutNegativeAdjust = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 68,
+        blueScore: 40,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    for (const team of ["R1", "R2", "R3"]) {
+      expect(withNegativeAdjust.teams.has(team)).toBe(true);
+    }
+    expect(withNegativeAdjust.allianceScoreStats.count).toBe(withoutNegativeAdjust.allianceScoreStats.count);
+  });
+
+  it("a breakdown-less match with score 0 and empty dq lists still updates normally — adjust is unknown, not negative", () => {
+    const withFallback = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 0,
+        blueScore: 40,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+    for (const team of ["R1", "R2", "R3", "B1", "B2", "B3"]) {
+      expect(withFallback.teams.has(team)).toBe(true);
+    }
+    expect(withFallback.allianceScoreStats.count).toBe(2);
   });
 });
 

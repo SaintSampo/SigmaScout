@@ -112,8 +112,9 @@
  */
 import { ratingEligibleTeams } from "./opr.js";
 import { isFullyDemoAlliance } from "./demoTeams.js";
-import { isFullyDqZeroScoreAlliance } from "./dq.js";
+import { isAdjustZeroedAlliance, isFullyDqZeroScoreAlliance } from "./dq.js";
 import {
+  ADJUST_COMPONENT,
   componentMapForSeason,
   assertFiniteComponents,
   FOULS_COMMITTED_COMPONENT,
@@ -591,28 +592,39 @@ function update(state: EpaState, result: MatchResult): EpaState {
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
-  // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: an
-  // alliance whose every rating-eligible team is disqualified AND whose RAW
-  // recorded score is exactly 0 gets NO component update at all — fed `[]`
-  // to `applyComponentUpdate`, the same no-op input that function already
-  // handles for an all-surrogate alliance (see its own doc comment). Checked
-  // per-alliance, NOT per-match like `isFullyDemoAlliance` above: the
-  // opposing alliance's own score is still a genuine observation of real
-  // robots and its own component update proceeds unaffected.
+  // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md` +
+  // quick task 260904-6a1's sibling: an alliance whose recorded score is
+  // exactly 0 gets NO component update at all when a scorekeeper's ruling —
+  // not real play — is what produced that 0, however it was encoded. Two
+  // encodings, checked separately (`dq.ts`'s own header): every
+  // rating-eligible team disqualified (`isFullyDqZeroScoreAlliance`), OR the
+  // PARSED breakdown's own `adjust` value is negative with no DQ flags at
+  // all (`isAdjustZeroedAlliance` — the `2026bc2_sf14m1` shape: a genuine
+  // ~456-point alliance zeroed by `adjustPoints: -456`, no DQ). Combined into
+  // one per-alliance ruling-zero boolean and fed `[]` to
+  // `applyComponentUpdate`, the same no-op input that function already
+  // handles for an all-surrogate alliance. Checked per-alliance, NOT
+  // per-match like `isFullyDemoAlliance` above: the opposing alliance's own
+  // score is still a genuine observation of real robots and its own
+  // component update proceeds unaffected.
   const redIsDqZero = isFullyDqZeroScoreAlliance(redTeams, result.redDqs, result.redScore);
   const blueIsDqZero = isFullyDqZeroScoreAlliance(blueTeams, result.blueDqs, result.blueScore);
+  const redIsAdjustZero = isAdjustZeroedAlliance(redTeams, result.redScore, redParsed?.[ADJUST_COMPONENT]);
+  const blueIsAdjustZero = isAdjustZeroedAlliance(blueTeams, result.blueScore, blueParsed?.[ADJUST_COMPONENT]);
+  const redIsRulingZero = redIsDqZero || redIsAdjustZero;
+  const blueIsRulingZero = blueIsDqZero || blueIsAdjustZero;
 
   const afterRed = applyComponentUpdate(
     state.teamComponents,
     state.teamMatchCounts,
-    redIsDqZero ? [] : redTeams,
+    redIsRulingZero ? [] : redTeams,
     redObserved,
     componentCount
   );
   const afterBlue = applyComponentUpdate(
     afterRed.teamComponents,
     afterRed.teamMatchCounts,
-    blueIsDqZero ? [] : blueTeams,
+    blueIsRulingZero ? [] : blueTeams,
     blueObserved,
     componentCount
   );
@@ -620,11 +632,12 @@ function update(state: EpaState, result: MatchResult): EpaState {
   // Fold each alliance's observed total into the expanding-window SD — the
   // score itself is always known, even when its breakdown is not (Pitfall
   // EPA-1: this must only ever incorporate matches already replayed) — EXCEPT
-  // a whole-alliance-DQ zero, which is a ruling, not an observed score, and
-  // would otherwise pull this season SD toward zero for no real reason.
+  // a ruling-zero (either encoding above), which is a scorekeeper's ruling,
+  // not an observed score, and would otherwise pull this season SD toward
+  // zero for no real reason.
   let allianceScoreStats = state.allianceScoreStats;
-  if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
-  if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
+  if (!redIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
+  if (!blueIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
   return {
     season,

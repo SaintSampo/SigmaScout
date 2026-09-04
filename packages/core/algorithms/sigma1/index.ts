@@ -36,8 +36,9 @@
  */
 import { ratingEligibleTeams } from "../opr.js";
 import { isFullyDemoAlliance } from "../demoTeams.js";
-import { isFullyDqZeroScoreAlliance } from "../dq.js";
+import { isAdjustZeroedAlliance, isFullyDqZeroScoreAlliance } from "../dq.js";
 import {
+  ADJUST_COMPONENT,
   COMPONENT_GROUP_IDS,
   COMPONENT_GROUP_METRIC_KEYS,
   FOULS_COMMITTED_COMPONENT,
@@ -1127,23 +1128,40 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
 
   // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: an
   // alliance whose every rating-eligible team is disqualified AND whose RAW
-  // recorded score is exactly 0 gets NO update at all this match — fed `[]`
-  // to `applyAllianceUpdate`/`foldRpObservation` below, the same no-op input
-  // both functions already handle for an all-surrogate alliance. Checked
-  // per-alliance, NOT per-match like `isFullyDemoAlliance` above: the
-  // opposing alliance's own score (and RP threshold variables) is still a
-  // genuine observation of real robots and proceeds unaffected. `redTeams`/
-  // `blueTeams` themselves stay UNCHANGED below — `predictedComponentTotals`/
-  // `fallbackObserved` read the OPPONENT's already-existing belief state,
-  // which this override has no bearing on.
+  // recorded score is exactly 0 gets NO update at all this match. Computed
+  // here (does not need the parse below); COMBINED with the sibling
+  // adjust-zeroed predicate below, once the parse result is available (D-4,
+  // quick task 260904-6a1) — see that predicate's own comment for why the
+  // combination must wait for the parse.
   const redIsDqZero = isFullyDqZeroScoreAlliance(redTeams, result.redDqs, result.redScore);
   const blueIsDqZero = isFullyDqZeroScoreAlliance(blueTeams, result.blueDqs, result.blueScore);
-  const redUpdateTeams = redIsDqZero ? [] : redTeams;
-  const blueUpdateTeams = blueIsDqZero ? [] : blueTeams;
 
   const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
   const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
   const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
+
+  // Quick task 260904-6a1's sibling to the whole-alliance-DQ exclusion above:
+  // a scorekeeper's ruling can also zero an alliance's score via a negative
+  // `adjustPoints` with NO DQ flags at all (`2026bc2_sf14m1`: a genuine
+  // ~456-point alliance zeroed by `adjustPoints: -456`, no DQ) — `dq.ts`'s
+  // own header explains why this is a sibling predicate rather than a
+  // widened DQ check. It reads the PARSED breakdown ONLY (`redParsed`/
+  // `blueParsed`, never a D-05 fallback-imputed vector), which is exactly
+  // why this combination could not happen above the parse block (D-4): the
+  // whole-alliance-DQ check needs no parse result, but this one does. Every
+  // consumer below reads the COMBINED `redIsRulingZero`/`blueIsRulingZero`
+  // boolean, never the two individual predicates separately, so a ruling-zero
+  // is dropped identically regardless of which encoding produced it.
+  // `redTeams`/`blueTeams` themselves stay UNCHANGED below —
+  // `predictedComponentTotals`/`fallbackObserved` read the OPPONENT's
+  // already-existing belief state, which this override has no bearing on.
+  const redIsAdjustZero = isAdjustZeroedAlliance(redTeams, result.redScore, redParsed?.[ADJUST_COMPONENT]);
+  const blueIsAdjustZero = isAdjustZeroedAlliance(blueTeams, result.blueScore, blueParsed?.[ADJUST_COMPONENT]);
+  const redIsRulingZero = redIsDqZero || redIsAdjustZero;
+  const blueIsRulingZero = blueIsDqZero || blueIsAdjustZero;
+  const redUpdateTeams = redIsRulingZero ? [] : redTeams;
+  const blueUpdateTeams = blueIsRulingZero ? [] : blueTeams;
+
   // D-05: a match with no score_breakdown ("absent") OR a score_breakdown
   // that IS present but fails its season Zod schema ("malformed" — T-03-18b,
   // self-reported offseason data; `tryParseBreakdownPair`,
@@ -1252,12 +1270,12 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
 
   // Pitfall EPA-1's fix, reused here: fold each alliance's observed total
   // into the expanding-window SD — the score itself is always known, even
-  // when its breakdown is not — EXCEPT a whole-alliance-DQ zero, which is a
-  // ruling, not an observed score, and would otherwise pull this season SD
-  // toward zero for no real reason.
+  // when its breakdown is not — EXCEPT a ruling-zero (either encoding above),
+  // which is a scorekeeper's ruling, not an observed score, and would
+  // otherwise pull this season SD toward zero for no real reason.
   let allianceScoreStats = state.allianceScoreStats;
-  if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
-  if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
+  if (!redIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
+  if (!blueIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
   // D-09: the RP threshold-variable fold, kept SEPARATE from the score-side
   // fold above — never touches `afterBlue.teams`' score fields, never

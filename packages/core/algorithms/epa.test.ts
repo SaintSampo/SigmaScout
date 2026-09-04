@@ -838,3 +838,105 @@ describe("epa — whole-alliance DQ zero-score exclusion (.planning/todos/pendin
     }
   });
 });
+
+describe("epa — adjust-zeroed alliance exclusion (quick task 260904-6a1, .planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md's sibling)", () => {
+  it("an alliance zeroed by a negative parsed adjustPoints with EMPTY dq lists gets NO component update — the 2026bc2_sf14m1 shape (real ~456-point alliance, adjustPoints: -456, no DQ)", () => {
+    const initial = epa.initState(["frc190", "frc3467", "frc237", "frc1", "frc2", "frc3"]);
+    const afterAdjustZero = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc190", "frc3467", "frc237"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 0,
+        blueScore: 90,
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 456, adjustPoints: -456 }),
+      })
+    );
+
+    // The zeroed alliance never received any component update — still
+    // exactly the cold-start record initState seeded, match count still 0.
+    for (const team of ["frc190", "frc3467", "frc237"]) {
+      expect(afterAdjustZero.teamComponents.get(team)).toEqual(initial.teamComponents.get(team));
+      expect(afterAdjustZero.teamMatchCounts.get(team)).toBe(0);
+    }
+    // The opposing alliance's real observation is a genuine, ordinary fold —
+    // the ruling on the OTHER alliance never touches it.
+    for (const team of ["frc1", "frc2", "frc3"]) {
+      expect(afterAdjustZero.teamComponents.get(team)).not.toEqual(initial.teamComponents.get(team));
+      expect(afterAdjustZero.teamMatchCounts.get(team)).toBe(1);
+    }
+  });
+
+  it("the adjust-zeroed alliance's 0 is not folded into allianceScoreStats — the season SD is not dragged toward zero", () => {
+    const initial = epa.initState(["frc190", "frc3467", "frc237", "frc1", "frc2", "frc3"]);
+    const afterAdjustZero = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc190", "frc3467", "frc237"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 0,
+        blueScore: 90,
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 456, adjustPoints: -456 }),
+      })
+    );
+    // Only blue's 90 is folded — red's ruling-zero is excluded.
+    expect(afterAdjustZero.allianceScoreStats.count).toBe(1);
+  });
+
+  it("a non-zero recorded score with a large negative adjust is still counted normally — the 95 offseason nonzero-score rows this predicate must not touch", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const withNegativeAdjust = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 68,
+        blueScore: 40,
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 68, adjustPoints: -30 }),
+      })
+    );
+    const withoutNegativeAdjust = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 68,
+        blueScore: 40,
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 68, adjustPoints: 0 }),
+      })
+    );
+    for (const team of ["frc1", "frc2", "frc3"]) {
+      expect(withNegativeAdjust.teamMatchCounts.get(team)).toBe(1);
+    }
+    expect(withNegativeAdjust.allianceScoreStats.count).toBe(withoutNegativeAdjust.allianceScoreStats.count);
+  });
+
+  it("a breakdown-less match with score 0 and empty dq lists still updates normally — adjust is unknown, not negative", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const afterFallback = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redDqs: [],
+        blueDqs: [],
+        redScore: 0,
+        blueScore: 40,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+    for (const team of ["frc1", "frc2", "frc3"]) {
+      expect(afterFallback.teamMatchCounts.get(team)).toBe(1);
+    }
+    expect(afterFallback.allianceScoreStats.count).toBe(2);
+  });
+});
