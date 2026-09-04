@@ -120,10 +120,10 @@ import {
   SIGMA1_4_TO_5_MIGRATION_TAG,
   SIGMA1_6_TO_7_MIGRATION_TAG,
 } from "./legacyParams.js";
-import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
+import { openCorpusReadOnly, selectCorpusSeasons, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
-import { ParamSetsBySeasonSchema } from "./seasonParamSets.js";
+import { makeSeasonalSigma1, ParamSetsBySeasonSchema, resolveParamSets, type SeasonParamSet } from "./seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
@@ -535,6 +535,252 @@ export function resolvePromotionSourcePath(
   );
 }
 
+/**
+ * D-1/D-2 (quick task 260904-100, Task 5): the THIRD promotion source mode,
+ * `--per-season`, sitting BESIDE `resolvePromotionSourcePath` above rather
+ * than folded into it — that function's own exactly-one-of-two contract and
+ * its existing tests stay untouched; this is a sibling guard adding the
+ * third, mutually-exclusive alternative on top.
+ */
+export type PromotionMode =
+  | { readonly kind: "search-artifact"; readonly path: string }
+  | { readonly kind: "version-file"; readonly path: string }
+  | { readonly kind: "per-season"; readonly specs: readonly string[] };
+
+export function resolvePromotionMode(
+  from: string | undefined,
+  fromVersion: string | undefined,
+  adaptationSpec: string | undefined,
+  perSeasonSpecs: readonly string[]
+): PromotionMode {
+  if (perSeasonSpecs.length > 0 && (from !== undefined || fromVersion !== undefined || adaptationSpec !== undefined)) {
+    throw new Error(
+      "--per-season is mutually exclusive with --from/--adaptation and --from-version: pass exactly one source mode."
+    );
+  }
+  if (perSeasonSpecs.length > 0) return { kind: "per-season", specs: perSeasonSpecs };
+  return resolvePromotionSourcePath(from, fromVersion, adaptationSpec);
+}
+
+/**
+ * One `--per-season` spec, `<seasonList>=<kind>:<path>` — e.g.
+ * `2019,2023-2025=version:data/algorithm-versions/vpr@7.0.0+tuned-2026-08.json`
+ * or `2022=search:reports/tune-joint-on-origin2022.json`. The `<kind>` prefix
+ * is REQUIRED (never inferred from the path) — a committed file's lineage
+ * must not depend on which directory a path happens to point at.
+ */
+export interface PerSeasonSpec {
+  readonly seasons: readonly number[];
+  readonly kind: "search" | "version";
+  readonly path: string;
+}
+
+/** `<seasonList>`: comma-separated years and `YYYY-YYYY` ranges, e.g. `"2019,2023-2025"` -> `[2019, 2023, 2024, 2025]`. Pure, exported for testing. */
+export function parsePerSeasonSeasonList(spec: string): number[] {
+  const seasons: number[] = [];
+  const parts = spec
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (parts.length === 0) {
+    throw new Error(`--per-season: no seasons named in "${spec}"`);
+  }
+  for (const part of parts) {
+    const rangeMatch = /^(\d{4})-(\d{4})$/.exec(part);
+    if (rangeMatch) {
+      const start = Number.parseInt(rangeMatch[1]!, 10);
+      const end = Number.parseInt(rangeMatch[2]!, 10);
+      if (end < start) {
+        throw new Error(`--per-season: range end (${end}) must be >= start (${start}) in "${part}"`);
+      }
+      for (let year = start; year <= end; year++) seasons.push(year);
+      continue;
+    }
+    const singleMatch = /^(\d{4})$/.exec(part);
+    if (!singleMatch) {
+      throw new Error(`--per-season: invalid season token "${part}" in "${spec}" (expected YYYY or YYYY-YYYY)`);
+    }
+    seasons.push(Number.parseInt(singleMatch[1]!, 10));
+  }
+  return seasons;
+}
+
+/** Parses one full `--per-season` spec. Pure, exported for testing. */
+export function parsePerSeasonSpec(spec: string): PerSeasonSpec {
+  const eqIndex = spec.indexOf("=");
+  if (eqIndex <= 0) {
+    throw new Error(`--per-season expects "<seasons>=<kind>:<path>", got "${spec}"`);
+  }
+  const seasonListPart = spec.slice(0, eqIndex);
+  const rest = spec.slice(eqIndex + 1);
+  const colonIndex = rest.indexOf(":");
+  if (colonIndex <= 0) {
+    throw new Error(
+      `--per-season expects "<seasons>=<kind>:<path>" (a "search:" or "version:" kind prefix is required — never inferred from the path), got "${spec}"`
+    );
+  }
+  const kind = rest.slice(0, colonIndex);
+  const path = rest.slice(colonIndex + 1);
+  if (kind !== "search" && kind !== "version") {
+    throw new Error(`--per-season: kind must be "search" or "version", got "${kind}" in "${spec}"`);
+  }
+  if (path.length === 0) {
+    throw new Error(`--per-season: empty path in "${spec}"`);
+  }
+  return { seasons: parsePerSeasonSeasonList(seasonListPart), kind, path };
+}
+
+/**
+ * Builds ONE `SeasonParamSet` from a `search:` source — a `tune.ts --stage
+ * joint` search artifact's own winning candidate. Mirrors
+ * `loadFromSearchArtifact`'s params/rpMonteCarloDraws/sha256 handling exactly
+ * (the same restoration, the same hash), but returns the narrower
+ * `SeasonParamSet` shape rather than a full `PromotionSource`.
+ *
+ * `selectedOnSeasons` comes from the artifact's own top-level `seasons` field,
+ * throwing by name if absent — the same F-2 rule `vprAdaptSelectedOnSeasons`
+ * states: a set that RUNS with fitted parameters must not be able to read as
+ * "never fitted" on the eligibility flag.
+ */
+function buildSearchWinnerSeasonParamSet(path: string): SeasonParamSet {
+  const searchArtifactRaw = readFileSync(path, "utf8");
+  const sourceArtifactSha256 = createHash("sha256").update(searchArtifactRaw).digest("hex");
+  const searchOutput = TuneSearchOutputMinimalSchema.parse(JSON.parse(searchArtifactRaw)) as unknown as TuneSearchOutput;
+  const winnerCandidate = searchOutput.candidates.find((c) => c.index === searchOutput.winnerIndex);
+  if (!winnerCandidate) {
+    throw new Error(`--per-season: ${path} has no candidate at winnerIndex ${searchOutput.winnerIndex}`);
+  }
+  if (searchOutput.seasons === undefined) {
+    throw new Error(
+      `--per-season: ${path} records no top-level "seasons" field — a set that RUNS with fitted parameters must not be able ` +
+        `to read as "never fitted" on the headline eligibility flag (F-2). Re-run the search with a tune.ts that records ` +
+        `"seasons", or correct the artifact.`
+    );
+  }
+  // Task 3 (quick task 260901-is2)'s rule, restated here: the search fixes
+  // `rpMonteCarloDraws: 0` for speed, but a SHIPPED set must never claim 0
+  // draws — restored to the versioned default, exactly as `main`'s
+  // single-set path already does.
+  const searchedParams = Sigma1ParamsSchema.parse(winnerCandidate.params);
+  const params: Sigma1Params = { ...searchedParams, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
+
+  return {
+    params,
+    selectedOnSeasons: [...searchOutput.seasons],
+    sourceKind: "search-winner",
+    sourceArtifact: path,
+    sourceArtifactSha256,
+    objective: winnerCandidate.objective,
+    objectiveAppliesToPromotedParams: true,
+    adaptationMode: searchOutput.adaptation,
+  };
+}
+
+/**
+ * Builds one `SeasonParamSet` PER requested season from a `version:` source
+ * — a committed version file, legacy single-`params` or already
+ * `paramSetsBySeason`.
+ *
+ * Tries `PromotedVersionSchema` FIRST (a CURRENT-shape file, either shape)
+ * and, when that succeeds, resolves EACH season through `resolveParamSets` —
+ * this is what makes a chained `--per-season version:<a per-season file>`
+ * source resolve each season to ITS OWN governing entry rather than one flat
+ * answer for all of them. Only when that parse fails (an OLDER `codeVersion`
+ * needing a shape migration) does this fall back to
+ * `migrateSourceParams` — the SAME chain `--from-version` uses, so there is
+ * one migration path rather than two that could drift. A `paramSetsBySeason`
+ * file can never need that fallback: the shape did not exist before 7.0.0,
+ * so every file carrying it is already current-shape.
+ */
+function buildCarriedVersionSeasonParamSets(path: string, seasons: readonly number[]): Map<number, SeasonParamSet> {
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const result = new Map<number, SeasonParamSet>();
+
+  const asCurrentShape = PromotedVersionSchema.safeParse(raw);
+  if (asCurrentShape.success) {
+    const resolved = resolveParamSets(asCurrentShape.data);
+    for (const season of seasons) {
+      const source = resolved.forSeason(season);
+      result.set(season, {
+        params: source.params,
+        selectedOnSeasons: [...source.selectedOnSeasons],
+        sourceKind: "carried-version",
+        sourceArtifact: source.sourceArtifact,
+        sourceArtifactSha256: source.sourceArtifactSha256,
+        objective: source.objective,
+        // UNCONDITIONAL, exactly like `--from-version`: the recorded
+        // objective (if any) was computed by a DIFFERENT promotion; it does
+        // not describe THIS promotion's carried-forward set.
+        objectiveAppliesToPromotedParams: false,
+        adaptationMode: source.adaptationMode,
+        paramOverrides: source.paramOverrides,
+        note: source.note,
+        derivedFromVersion: asCurrentShape.data.version,
+      });
+    }
+    return result;
+  }
+
+  const sourceVersion = SourceVersionSchema.parse(raw);
+  const { params } = migrateSourceParams(sourceVersion, path);
+  for (const season of seasons) {
+    result.set(season, {
+      params,
+      selectedOnSeasons: sourceVersion.provenance.tuneSeasons ? [...sourceVersion.provenance.tuneSeasons] : [],
+      sourceKind: "carried-version",
+      sourceArtifact: sourceVersion.provenance.searchArtifact ?? path,
+      sourceArtifactSha256: sourceVersion.provenance.searchArtifactSha256,
+      objective: sourceVersion.provenance.objective,
+      objectiveAppliesToPromotedParams: false,
+      adaptationMode: sourceVersion.provenance.adaptationMode,
+      paramOverrides: sourceVersion.provenance.paramOverrides,
+      note: sourceVersion.provenance.note,
+      derivedFromVersion: sourceVersion.version,
+    });
+  }
+  return result;
+}
+
+/**
+ * Builds the full `paramSetsBySeason` map from every `--per-season` spec.
+ * Pure apart from reading the named files. Refuses two specs that claim the
+ * same season (an ambiguous promotion, no stated precedence) rather than
+ * silently letting the later spec win.
+ *
+ * Every entry is a FULL, independent copy of its parameter set — never a
+ * shared reference across seasons — so a hand-read of the written file is
+ * unambiguous (Claude's Discretion, `<decisions>`).
+ */
+export function buildParamSetsBySeason(specs: readonly string[]): Record<string, SeasonParamSet> {
+  const result: Record<string, SeasonParamSet> = {};
+  const claimedSeasons = new Set<number>();
+
+  for (const spec of specs) {
+    const parsed = parsePerSeasonSpec(spec);
+    for (const season of parsed.seasons) {
+      if (claimedSeasons.has(season)) {
+        throw new Error(`--per-season: season ${season} is named by more than one --per-season spec`);
+      }
+      claimedSeasons.add(season);
+    }
+
+    if (parsed.kind === "search") {
+      const entry = buildSearchWinnerSeasonParamSet(parsed.path);
+      for (const season of parsed.seasons) {
+        result[String(season)] = { ...entry, params: { ...entry.params } };
+      }
+    } else {
+      const entriesBySeason = buildCarriedVersionSeasonParamSets(parsed.path, parsed.seasons);
+      for (const season of parsed.seasons) {
+        const entry = entriesBySeason.get(season)!;
+        result[String(season)] = { ...entry, params: { ...entry.params } };
+      }
+    }
+  }
+
+  return result;
+}
+
 /** The pre-existing `--from` path, unchanged in behaviour and lifted out of `main` so the two sources sit side by side. */
 function loadFromSearchArtifact(fromPath: string): PromotionSource {
   const searchArtifactRaw = readFileSync(fromPath, "utf8");
@@ -605,14 +851,22 @@ function loadFromSearchArtifact(fromPath: string): PromotionSource {
  * search — `derivedFromVersion`, `paramShapeMigration`, and an unconditional
  * `objectiveAppliesToPromotedParams: false`.
  */
-export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
-  const raw: unknown = JSON.parse(readFileSync(fromVersionPath, "utf8"));
-  const sourceVersion = SourceVersionSchema.parse(raw);
-
-  let params: Sigma1Params;
-  let paramShapeMigration: string | undefined;
+/**
+ * Extracted from `loadFromVersionFile`'s own codeVersion-dispatch chain
+ * (quick task 260904-100, Task 5): the ONE map from a retired `codeVersion`'s
+ * frozen shape to the CURRENT one, shared by BOTH `--from-version` and
+ * `--per-season version:` so there is one chain rather than two that could
+ * drift apart. Returns the migrated params plus the `paramShapeMigration` tag
+ * (`undefined` for a source ALREADY at the current shape — naming a no-op
+ * migration would be a false provenance entry). Throws by name, naming
+ * `sourcePath`, for a codeVersion this code has no map for.
+ */
+export function migrateSourceParams(
+  sourceVersion: { readonly codeVersion: string; readonly params: unknown },
+  sourcePath: string
+): { readonly params: Sigma1Params; readonly paramShapeMigration: string | undefined } {
   if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
-    params = Sigma1ParamsSchema.parse(sourceVersion.params);
+    return { params: Sigma1ParamsSchema.parse(sourceVersion.params), paramShapeMigration: undefined };
   } else if (sourceVersion.codeVersion.startsWith("6.") || sourceVersion.codeVersion.startsWith("5.")) {
     // D-Y1/D-Y3 (quick task 260903-750): 6.0.0 -> 7.0.0 DROPS
     // `varianceOprRidge` and ADDS `swingHalfLifeMatches`/`swingScale`, because
@@ -633,8 +887,10 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
     // every promoted file's provenance. This hop genuinely drops a field and
     // adds two, so a tag is the honest statement rather than a decorative one —
     // the rule was never "prefer no tag", it was "the tag must be true".
-    params = migrate6to7(Legacy6Sigma1ParamsSchema.parse(sourceVersion.params));
-    paramShapeMigration = SIGMA1_6_TO_7_MIGRATION_TAG;
+    return {
+      params: migrate6to7(Legacy6Sigma1ParamsSchema.parse(sourceVersion.params)),
+      paramShapeMigration: SIGMA1_6_TO_7_MIGRATION_TAG,
+    };
   } else if (sourceVersion.codeVersion.startsWith("4.")) {
     // D-V4 (quick task 260902-varopr): 4.0.0 -> 5.0.0. Its own frozen schema,
     // BESIDE the 3.x one rather than replacing it — see `legacyParams.ts`.
@@ -645,8 +901,10 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
     // only the first would understate what happened to the file — the same
     // "the tag must be true" rule the 6.x branch above states and the 3.x
     // branch below has followed since 5.0.0.
-    params = migrate4to5(Legacy4Sigma1ParamsSchema.parse(sourceVersion.params));
-    paramShapeMigration = `${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`;
+    return {
+      params: migrate4to5(Legacy4Sigma1ParamsSchema.parse(sourceVersion.params)),
+      paramShapeMigration: `${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`,
+    };
   } else if (sourceVersion.codeVersion.startsWith("3.")) {
     // CHAINED, one hop per map: 3.0.0 -> 4.0.0 -> 5.0.0 -> 7.0.0. Each
     // migration knows only about the shape immediately after its own, so adding
@@ -655,14 +913,22 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
     // editing this line at all, because the new hop composed inside
     // `migrate4to5`. `legacyParams.ts`'s header records why this chaining was
     // unavoidable rather than optional.
-    params = migrate4to5(migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params)));
-    paramShapeMigration = `${SIGMA1_3_TO_4_MIGRATION_TAG}+${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`;
+    return {
+      params: migrate4to5(migrateAbsoluteToScaleRelative(LegacyAbsoluteSigma1ParamsSchema.parse(sourceVersion.params))),
+      paramShapeMigration: `${SIGMA1_3_TO_4_MIGRATION_TAG}+${SIGMA1_4_TO_5_MIGRATION_TAG}+${SIGMA1_6_TO_7_MIGRATION_TAG}`,
+    };
   } else {
     throw new Error(
-      `promote --from-version: ${fromVersionPath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
+      `promote: ${sourcePath} records codeVersion "${sourceVersion.codeVersion}", for which this code has no ` +
         `parameter-shape map (current is "${SIGMA1_CODE_VERSION}"; 6.x and 5.x share one retired shape, and 4.x/3.x are the other two migratable shapes). Refusing to guess at a shape it has never seen.`
     );
   }
+}
+
+export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
+  const raw: unknown = JSON.parse(readFileSync(fromVersionPath, "utf8"));
+  const sourceVersion = SourceVersionSchema.parse(raw);
+  const { params, paramShapeMigration } = migrateSourceParams(sourceVersion, fromVersionPath);
 
   return {
     params,
@@ -710,11 +976,177 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
   };
 }
 
+/**
+ * The `--per-season` promotion path (quick task 260904-100, Task 5): builds
+ * D-2's `paramSetsBySeason` map, replays the SAME bounded single-season slice
+ * `sliceSeason`/`sliceEvents` the single-set path always has, and writes ONE
+ * `predictionStreamSha256` over the whole stream (D-5 — never one digest per
+ * season). Kept as its own function (rather than folded into `main`) so the
+ * two promotion shapes read as two clearly separate paths, matching this
+ * file's existing `loadFromSearchArtifact`/`loadFromVersionFile` split.
+ */
+async function runPerSeasonPromotion(
+  perSeasonSpecs: readonly string[],
+  options: {
+    readonly id: string;
+    readonly codeVersion: string;
+    readonly paramSetName: string;
+    readonly sliceSeason: number;
+    readonly sliceEvents: number;
+    readonly note: string | undefined;
+  }
+): Promise<void> {
+  const { id, codeVersion, paramSetName, sliceSeason, sliceEvents, note } = options;
+  const paramSetsBySeason = buildParamSetsBySeason(perSeasonSpecs);
+
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  let sliceEventKeys: string[];
+  let records: PredictionRecord[];
+  try {
+    // A map that leaves a corpus season uncovered would throw at a season
+    // boundary the first time any replay driver actually reached it —
+    // refused HERE, loudly, before anything is written, naming exactly which
+    // seasons are missing.
+    const corpusSeasons = selectCorpusSeasons(db);
+    const coveredSeasons = new Set(Object.keys(paramSetsBySeason).map((key) => Number.parseInt(key, 10)));
+    const missingSeasons = corpusSeasons.filter((season) => !coveredSeasons.has(season));
+    if (missingSeasons.length > 0) {
+      throw new Error(
+        `--per-season: the map does not cover corpus season(s) ${missingSeasons.join(", ")} — a replay of an ` +
+          `uncovered season would throw at a season boundary (resolveParamSets' own uncovered-season rule). Add a ` +
+          `--per-season spec covering them before promoting.`
+      );
+    }
+
+    sliceEventKeys = resolveSliceEventKeys(db, sliceSeason, sliceEvents);
+    if (sliceEventKeys.length === 0) {
+      throw new Error(
+        `promote: no events in season ${sliceSeason} meet the bounded-slice criteria (>= 60 played qm matches with a score breakdown)`
+      );
+    }
+
+    const stream = selectMatchesChronological(db, { year: sliceSeason, excludeOffseason: true }).filter((match) =>
+      sliceEventKeys.includes(match.eventKey)
+    );
+
+    // A minimal, type-satisfying `PromotedVersion` for the facade — this
+    // branch reads only `paramSetsBySeason`/`paramSetName` from it, never
+    // `provenance`/`digest` (those are filled with their REAL values, below,
+    // only once the replay — and therefore the real digest — exists).
+    const preliminary: PromotedVersion = {
+      id,
+      codeVersion,
+      paramSetName,
+      version: `${codeVersion}+${paramSetName}`,
+      paramSetsBySeason,
+      provenance: { corpusIdentity: CORPUS_PATH, promotedAt: new Date().toISOString() },
+      digest: {
+        sliceSeason,
+        sliceEventKeys: [],
+        sliceMatchCount: 0,
+        predictionStreamSha256: "0".repeat(64),
+        headlineMetrics: [],
+      },
+    };
+    const algorithm = makeSeasonalSigma1(preliminary, { id, linkMode: "predictive-variance" });
+    const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const simulator = new WalkForwardSimulator(stream);
+    records = simulator.run(algorithm, teams);
+  } finally {
+    db.close();
+  }
+
+  const predictionStreamSha256 = computePredictionStreamDigest(records);
+
+  const predictions: HarnessPredictionInput[] = records.map((r) => ({
+    matchKey: r.match.matchKey,
+    season: sliceSeason,
+    eventKey: r.match.eventKey,
+    compLevel: r.match.compLevel,
+    algorithmId: id,
+    pRedWin: r.prediction.pRedWin,
+    predictedRedScore: r.prediction.redScore,
+    predictedBlueScore: r.prediction.blueScore,
+    actualWinner: r.match.winner,
+    isOffseason: false,
+    isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+  }));
+  // D-2 (quick task 260903-n2o): the sentinel — this bounded digest slice
+  // claims no eligibility at all, exactly as the single-set path does.
+  const slices = aggregateScores(predictions, {
+    corpusSeasons: [sliceSeason],
+    selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+  });
+  const combinedSlice = slices.find((s) => s.compLevelView === "combined" && s.season === sliceSeason);
+  const headlineMetrics = combinedSlice
+    ? [{ season: sliceSeason, brierScore: combinedSlice.brierScore, winnerAccuracy: combinedSlice.winnerAccuracy }]
+    : [];
+
+  const version = `${codeVersion}+${paramSetName}`;
+
+  const candidate: PromotedVersion = {
+    id,
+    codeVersion,
+    paramSetName,
+    version,
+    paramSetsBySeason,
+    provenance: {
+      corpusIdentity: CORPUS_PATH,
+      promotedAt: new Date().toISOString(),
+      // Allowed at the top level (Task 3's forbidding rule names
+      // searchArtifact/objective/tuneSeasons/adaptationMode/
+      // objectiveAppliesToPromotedParams — never objectiveDefinition, which
+      // is a general statement about what "objective" means, not a claim
+      // about any one search).
+      objectiveDefinition:
+        "each season's own paramSetsBySeason entry minimizes mean selection-season brierScore (combined " +
+        "compLevelView) — see that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search (D-01)",
+      ...(note !== undefined ? { note } : {}),
+    },
+    digest: {
+      sliceSeason,
+      sliceEventKeys,
+      sliceMatchCount: records.length,
+      predictionStreamSha256,
+      headlineMetrics,
+    },
+  };
+
+  // Validate-then-write, exactly as the single-set path does.
+  const validated = PromotedVersionSchema.parse(candidate);
+  const serialized = JSON.stringify(validated, null, 2);
+
+  const apiKey = process.env["TBA_API_KEY"];
+  if (apiKey && serialized.includes(apiKey)) {
+    throw new Error("Refusing to write promoted version: serialized output contains a secret value.");
+  }
+
+  mkdirSync(ALGORITHM_VERSIONS_DIR, { recursive: true });
+  const outPath = join(ALGORITHM_VERSIONS_DIR, `${id}@${version}.json`);
+  writeFileSync(outPath, serialized, "utf8");
+  console.log(`Wrote ${outPath}`);
+  console.log(`  digest: ${predictionStreamSha256}`);
+  console.log(`  slice: season ${sliceSeason}, ${sliceEventKeys.length} events, ${records.length} matches`);
+  // A promotion that silently carried the wrong set into a season must be
+  // impossible to miss in the terminal.
+  console.log(`  paramSetsBySeason covers ${Object.keys(paramSetsBySeason).length} season(s):`);
+  for (const seasonKey of Object.keys(paramSetsBySeason).sort()) {
+    const entry = paramSetsBySeason[seasonKey]!;
+    console.log(
+      `    ${seasonKey}: sourceKind=${entry.sourceKind}, sourceArtifact=${entry.sourceArtifact}, ` +
+        `selectedOnSeasons=[${entry.selectedOnSeasons.join(", ")}]`
+    );
+  }
+  console.log(`  If this version's slice is new or changed, refresh the CI fixture:`);
+  console.log(`    pnpm tsx packages/harness/fixtures/extract-digest-slice.ts --version ${outPath}`);
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       from: { type: "string" },
       "from-version": { type: "string" },
+      "per-season": { type: "string", multiple: true },
       name: { type: "string" },
       id: { type: "string" },
       "slice-season": { type: "string" },
@@ -726,11 +1158,20 @@ async function main(): Promise<void> {
     },
   });
 
+  const perSeasonSpecs = values["per-season"] ?? [];
+
   // Task 4 (quick task 260901-is2): the two flags are a PAIR. An override
   // with no explanation is the thing this mechanism must not enable, and a
   // note with no override would be silently dropped from the written file
   // (the three provenance fields are populated only when overrides exist) —
   // so refuse both halves of the mismatch rather than half-honouring either.
+  //
+  // Task 5 (quick task 260904-100) widens the "or" half: `--provenance-note`
+  // is ALSO meaningfully recorded alongside `--per-season` (the top-level
+  // human sentence explaining the per-season promotion as a whole), not only
+  // alongside `--set-param` — `--set-param` itself is not supported with
+  // `--per-season` at all (guarded below), so the two conditions never both
+  // fire for one promotion.
   const setParamSpecs = values["set-param"] ?? [];
   const provenanceNote = values["provenance-note"]?.trim();
   if (setParamSpecs.length > 0 && (provenanceNote === undefined || provenanceNote === "")) {
@@ -738,8 +1179,16 @@ async function main(): Promise<void> {
       "--set-param requires --provenance-note: a promoted parameter set that diverges from its search winner must say why, in the committed file"
     );
   }
-  if (setParamSpecs.length === 0 && provenanceNote !== undefined && provenanceNote !== "") {
-    throw new Error("--provenance-note is only recorded alongside --set-param (there is no divergence for it to explain)");
+  if (setParamSpecs.length === 0 && perSeasonSpecs.length === 0 && provenanceNote !== undefined && provenanceNote !== "") {
+    throw new Error(
+      "--provenance-note is only recorded alongside --set-param or --per-season (there is no divergence/lineage for it to explain)"
+    );
+  }
+  if (perSeasonSpecs.length > 0 && setParamSpecs.length > 0) {
+    throw new Error(
+      "--set-param is not supported with --per-season: each season's own set already carries its own paramOverrides " +
+        "(via a --per-season version: source) or is a fresh search winner — there is no single set for --set-param to override."
+    );
   }
 
   // D-14 (plan 03-05 Task 3): `--adaptation on|off` names WHICH of the two
@@ -751,7 +1200,6 @@ async function main(): Promise<void> {
   if (adaptationSpec !== undefined && adaptationSpec !== "on" && adaptationSpec !== "off") {
     throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
   }
-  const sourceSpec = resolvePromotionSourcePath(values.from, values["from-version"], adaptationSpec);
   const paramSetName = values.name;
   if (!paramSetName) throw new Error("--name is required (the paramSetName half of D-13's {codeVersion}+{paramSetName} identity)");
   // D-04/D-05 (plan 07-16): a future promotion's default id is the renamed
@@ -762,8 +1210,20 @@ async function main(): Promise<void> {
   const sliceSeason = values["slice-season"] !== undefined ? parseSliceSeason(values["slice-season"]) : COLD_START_SEASON;
   const sliceEvents = values["slice-events"] !== undefined ? parseSliceEvents(values["slice-events"]) : 3;
 
-  const source: PromotionSource =
-    sourceSpec.kind === "version-file" ? loadFromVersionFile(sourceSpec.path) : loadFromSearchArtifact(sourceSpec.path);
+  const mode = resolvePromotionMode(values.from, values["from-version"], adaptationSpec, perSeasonSpecs);
+  if (mode.kind === "per-season") {
+    await runPerSeasonPromotion(mode.specs, {
+      id,
+      codeVersion,
+      paramSetName,
+      sliceSeason,
+      sliceEvents,
+      note: provenanceNote !== undefined && provenanceNote !== "" ? provenanceNote : undefined,
+    });
+    return;
+  }
+
+  const source: PromotionSource = mode.kind === "version-file" ? loadFromVersionFile(mode.path) : loadFromSearchArtifact(mode.path);
   const searchedParams = source.params;
   // Task 4 (quick task 260901-is2): `--set-param` is applied to the VALIDATED
   // source set, so an override is always a delta against a set that was

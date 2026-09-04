@@ -17,7 +17,8 @@
  * machine-readable form.
  */
 import { afterAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,9 +31,13 @@ import {
 } from "../core/algorithms/sigma1/params.js";
 import {
   applyParamOverrides,
+  buildParamSetsBySeason,
   loadFromVersionFile,
   parseParamOverrides,
+  parsePerSeasonSeasonList,
+  parsePerSeasonSpec,
   PromotedVersionSchema,
+  resolvePromotionMode,
   resolvePromotionSourcePath,
   type PromotedVersion,
 } from "./promote.js";
@@ -442,5 +447,186 @@ describe("loadFromVersionFile — provenance for a migrated promotion", () => {
   it("REFUSES a codeVersion it has no map for, rather than guessing at a shape it has never seen", () => {
     const future = { ...legacyVersionFile(), codeVersion: "99.0.0", version: "99.0.0+x" };
     expect(() => loadFromVersionFile(writeVersion(future))).toThrow(/parameter-shape map/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// `--per-season` (quick task 260904-100, Task 5): the spec parser, the two
+// entry builders, the mutual-exclusion guard, and the missing-`seasons`
+// throw. Pure — no corpus, nothing written to `data/` — matching this
+// file's own header convention.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("parsePerSeasonSeasonList", () => {
+  it("parses comma-separated years and YYYY-YYYY ranges together", () => {
+    expect(parsePerSeasonSeasonList("2019,2023-2025")).toEqual([2019, 2023, 2024, 2025]);
+  });
+
+  it("parses a single year", () => {
+    expect(parsePerSeasonSeasonList("2022")).toEqual([2022]);
+  });
+
+  it("throws on an empty spec", () => {
+    expect(() => parsePerSeasonSeasonList("")).toThrow(/no seasons named/);
+  });
+
+  it("throws on a range whose end precedes its start", () => {
+    expect(() => parsePerSeasonSeasonList("2025-2022")).toThrow(/range end/);
+  });
+
+  it("throws on an invalid token", () => {
+    expect(() => parsePerSeasonSeasonList("abcd")).toThrow(/invalid season token/);
+  });
+});
+
+describe("parsePerSeasonSpec", () => {
+  it("parses a full spec with the required kind prefix", () => {
+    expect(parsePerSeasonSpec("2022=search:reports/tune-joint-on-origin2022.json")).toEqual({
+      seasons: [2022],
+      kind: "search",
+      path: "reports/tune-joint-on-origin2022.json",
+    });
+  });
+
+  it("parses a version: spec covering a season list", () => {
+    expect(parsePerSeasonSpec("2019,2023-2025=version:data/algorithm-versions/vpr@7.0.0+tuned-2026-08.json")).toEqual({
+      seasons: [2019, 2023, 2024, 2025],
+      kind: "version",
+      path: "data/algorithm-versions/vpr@7.0.0+tuned-2026-08.json",
+    });
+  });
+
+  it("throws with no `=`", () => {
+    expect(() => parsePerSeasonSpec("2022search:x.json")).toThrow(/<seasons>=<kind>:<path>/);
+  });
+
+  it("throws with no kind prefix (never inferred from the path)", () => {
+    expect(() => parsePerSeasonSpec("2022=reports/x.json")).toThrow(/kind prefix is required/);
+  });
+
+  it("throws on an unrecognized kind", () => {
+    expect(() => parsePerSeasonSpec("2022=artifact:reports/x.json")).toThrow(/kind must be "search" or "version"/);
+  });
+
+  it("throws on an empty path", () => {
+    expect(() => parsePerSeasonSpec("2022=search:")).toThrow(/empty path/);
+  });
+});
+
+describe("resolvePromotionMode — --per-season is the third, mutually exclusive source", () => {
+  it("resolves --per-season alone to the per-season mode", () => {
+    const mode = resolvePromotionMode(undefined, undefined, undefined, ["2022=search:x.json"]);
+    expect(mode).toEqual({ kind: "per-season", specs: ["2022=search:x.json"] });
+  });
+
+  it("still resolves the pre-existing two-source contract when --per-season is absent", () => {
+    expect(resolvePromotionMode("reports/tune-tracer.json", undefined, undefined, [])).toEqual({
+      kind: "search-artifact",
+      path: "reports/tune-tracer.json",
+    });
+  });
+
+  it("THROWS when --per-season is combined with --from", () => {
+    expect(() => resolvePromotionMode("reports/x.json", undefined, undefined, ["2022=search:y.json"])).toThrow(
+      /--per-season is mutually exclusive/
+    );
+  });
+
+  it("THROWS when --per-season is combined with --from-version", () => {
+    expect(() =>
+      resolvePromotionMode(undefined, "data/algorithm-versions/x.json", undefined, ["2022=search:y.json"])
+    ).toThrow(/--per-season is mutually exclusive/);
+  });
+
+  it("THROWS when --per-season is combined with --adaptation", () => {
+    expect(() => resolvePromotionMode(undefined, undefined, "on", ["2022=search:y.json"])).toThrow(
+      /--per-season is mutually exclusive/
+    );
+  });
+});
+
+describe("buildParamSetsBySeason", () => {
+  const tempDirs: string[] = [];
+  function writeJsonFile(body: unknown): string {
+    const dir = mkdtempSync(join(tmpdir(), "promote-per-season-"));
+    tempDirs.push(dir);
+    const path = join(dir, "file.json");
+    writeFileSync(path, JSON.stringify(body), "utf8");
+    return path;
+  }
+  afterAll(() => {
+    for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function searchArtifactFixture(overrides: Record<string, unknown> = {}): unknown {
+    return {
+      winnerIndex: 0,
+      candidates: [{ index: 0, params: DEFAULT_SIGMA1_PARAMS, objective: 0.155 }],
+      seasons: [2019, 2020],
+      adaptation: "on",
+      ...overrides,
+    };
+  }
+
+  it("a search: spec produces an entry whose selectedOnSeasons is the artifact's own top-level seasons, and whose sourceArtifactSha256 is the artifact's content hash", () => {
+    const raw = JSON.stringify(searchArtifactFixture());
+    const path = writeJsonFile(searchArtifactFixture());
+    const expectedSha256 = createHash("sha256").update(readFileSync(path, "utf8")).digest("hex");
+    expect(readFileSync(path, "utf8")).toBe(raw);
+
+    const map = buildParamSetsBySeason([`2022=search:${path}`]);
+    expect(Object.keys(map)).toEqual(["2022"]);
+    expect(map["2022"]!.selectedOnSeasons).toEqual([2019, 2020]);
+    expect(map["2022"]!.sourceKind).toBe("search-winner");
+    expect(map["2022"]!.sourceArtifactSha256).toBe(expectedSha256);
+    expect(map["2022"]!.objectiveAppliesToPromotedParams).toBe(true);
+  });
+
+  it("every promoted set from a search: spec has rpMonteCarloDraws restored to DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws", () => {
+    const path = writeJsonFile(
+      searchArtifactFixture({ candidates: [{ index: 0, params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 }, objective: 0.15 }] })
+    );
+    const map = buildParamSetsBySeason([`2022=search:${path}`]);
+    expect(map["2022"]!.params.rpMonteCarloDraws).toBe(DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws);
+  });
+
+  it("a search artifact with no top-level seasons field throws by name", () => {
+    const fixture = searchArtifactFixture();
+    delete (fixture as Record<string, unknown>).seasons;
+    const path = writeJsonFile(fixture);
+    expect(() => buildParamSetsBySeason([`2022=search:${path}`])).toThrow(/no top-level "seasons" field/);
+  });
+
+  it("a version: spec naming a season list produces one FULL copy per season, each carrying the source's paramOverrides/note forward", () => {
+    const incumbentPath = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
+    const incumbent = PromotedVersionSchema.parse(JSON.parse(readFileSync(incumbentPath, "utf8")));
+
+    const map = buildParamSetsBySeason([`2019,2023-2025=version:${incumbentPath}`]);
+    expect(Object.keys(map).sort()).toEqual(["2019", "2023", "2024", "2025"]);
+    for (const seasonKey of Object.keys(map)) {
+      expect(map[seasonKey]!.sourceKind).toBe("carried-version");
+      expect(map[seasonKey]!.params).toEqual(incumbent.params);
+      expect(map[seasonKey]!.paramOverrides).toEqual(incumbent.provenance.paramOverrides);
+      expect(map[seasonKey]!.note).toBe(incumbent.provenance.note);
+      expect(map[seasonKey]!.objectiveAppliesToPromotedParams).toBe(false);
+      expect(map[seasonKey]!.derivedFromVersion).toBe(incumbent.version);
+    }
+    // FULL copies, never a shared reference: mutating one season's params
+    // object must not affect another's.
+    (map["2019"]!.params as { linkC: number }).linkC = -999;
+    expect(map["2023"]!.params.linkC).not.toBe(-999);
+  });
+
+  it("--per-season combined with --from or --from-version throws (via resolvePromotionMode, exercised end to end here)", () => {
+    expect(() => resolvePromotionMode("reports/x.json", undefined, undefined, ["2022=search:y.json"])).toThrow(
+      /mutually exclusive/
+    );
+  });
+
+  it("refuses two specs that claim the same season", () => {
+    const path = writeJsonFile(searchArtifactFixture());
+    expect(() => buildParamSetsBySeason([`2022=search:${path}`, `2022-2023=search:${path}`])).toThrow(
+      /named by more than one/
+    );
   });
 });
