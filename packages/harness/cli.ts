@@ -49,7 +49,6 @@ import {
   vprSeasonSd,
   makeSigma1,
   DEFAULT_SIGMA1_PARAMS,
-  SIGMA1_CODE_VERSION,
 } from "../core/algorithms/sigma1/index.js";
 import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
 import {
@@ -87,6 +86,7 @@ import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput }
 import { aggregateScoresForRun } from "./selectionProvenance.js";
 import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
+import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 
 // `any` here: this registry maps CLI strings to modules with different
 // (incompatible) state types S; each entry is internally type-safe. D-12's
@@ -127,32 +127,11 @@ const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
  * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
  * imports this file only for `runSeasons` and never invokes `main()`.
  */
-// Re-pinned three times, each time alongside a `SIGMA1_CODE_VERSION` bump
-// (see that constant's own doc comment, `sigma1/params.ts`): from
-// `vpr@2.0.0+tuned-2026-08.json` to `2.1.0` (whole-alliance-DQ exclusion,
-// 2026-08-30), then to `3.0.0` (D-Q2's innovation-based R estimator, quick
-// task 260901-is2, 2026-09-01). The 3.0.0 re-promotion also carried ONE
-// parameter override, `linkC = 0.5`, recorded in that file's
-// `provenance.paramOverrides` — the R estimator changing made the tuned
-// link constant stale, and it was re-selected on the tune seasons only.
-//
-// Re-pinned again to `4.0.0` (D-T1/D-T2's scale-relative reparameterization,
-// quick task 260901-trz, 2026-09-01). Unlike the earlier re-promotions this
-// one went through `pnpm promote --from-version`, reading the retired 3.0.0
-// FILE rather than a search artifact — which is what carried the `linkC`
-// correction above forward. The search artifact's own winner still records
-// the stale 1.2398..., so re-promoting from it would have silently dropped
-// a correction that is live on the site (see `promote.ts`'s header).
-// DERIVED, not re-pinned (260902-varopr): this constant had been hand-edited at
-// every `SIGMA1_CODE_VERSION` bump, and the 5.0.0 bump found it — plus its three
-// siblings — still pointing at a deleted 4.0.0 file, which is what a re-pin
-// invites. `tune.ts`'s `INCUMBENT_VERSION_PATH` already derived its own path this
-// way; the remaining hardcoded copies now match it, so the next bump moves them
-// all by construction and a stale path is unrepresentable rather than merely
-// caught by a test.
-const PROMOTED_VPR_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
-/** The committed version-file directory `warnIfNewerPromotedVpr` scans, mirroring `promote.ts`'s own `ALGORITHM_VERSIONS_DIR` — reimplemented here rather than imported, since that constant is `promote.ts`-internal (not exported) and this is a small enough value to duplicate rather than couple the two modules over. */
-const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
+// Quick task 260904-2i9: `PROMOTED_VPR_VERSION_PATH`/`ALGORITHM_VERSIONS_DIR`
+// moved to `./promotedVersionPath.js` — that module is now the SINGLE place
+// a promoted-version re-pin is edited (its own header carries the full
+// re-pin history moved from here, plus why the collapse is safe). Import
+// them rather than redeclaring.
 
 // 03-REVIEW IN-01: the former `TuneSearchOutputForOverride` cast interfaces
 // are replaced by `TuneSearchOutputMinimalSchema` (promote.ts) — validation
@@ -271,7 +250,7 @@ export function warnIfNewerPromotedVpr(versionsDir: string, pinnedPath: string):
       `pinned=${pinnedFileName} (promoted ${pinned.provenance.promotedAt}), newest=${newestFileName} ` +
       `(promoted ${new Date(newestTime).toISOString()}). The pin is deliberate (D-12: Phase 3's D-13 makes ` +
       `version identity load-bearing for Phase 4's artifacts, the Phase 5 dropdown, and the Phase 8 Compare ` +
-      `page) — to score the newer version, edit PROMOTED_VPR_VERSION_PATH in packages/harness/cli.ts.`
+      `page) — to score the newer version, edit PROMOTED_VPR_VERSION_PATH in packages/harness/promotedVersionPath.ts.`
   );
 }
 

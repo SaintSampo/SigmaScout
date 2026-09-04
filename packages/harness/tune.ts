@@ -1337,6 +1337,18 @@ export function buildJointArtifact(input: {
  * nowhere else. A run that silently fell back to the defaults would compare
  * the candidate against a model no user has ever seen and report the result
  * as though it were a shipping decision.
+ *
+ * DO NOT MOVE this off `tuned-2026-08` (quick task 260904-2i9). Every other
+ * promoted-version path in the repo collapsed into
+ * `packages/harness/promotedVersionPath.ts` and now follows the live pin
+ * (currently `rolling-2026-09`) — this constant is the ONE deliberate
+ * exception. It stays on `tuned-2026-08` because it is the D-T7 acceptance
+ * BASELINE against which TEN verdicts are already recorded (`tune.test.ts`
+ * and the search history reference it by that identity). Repointing it to
+ * follow a future re-pin would silently redefine what "the incumbent" meant
+ * in results already written down — it is not an oversight left behind by
+ * the pin move, and it must never be "fixed" into agreement with
+ * `promotedVersionPath.ts`.
  */
 const INCUMBENT_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 

@@ -16,7 +16,7 @@
  * REGISTRY exposes `vpr-adapt` and `vpr-defaults` as genuinely distinct
  * modules, which is what the ALGO-05 holdout comparison actually runs through.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,27 +25,34 @@ import { makeSigma1, type Sigma1State } from "../core/algorithms/sigma1/index.js
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import { resolveOnSearchWinner } from "./searchWinner.js";
+import { PromotedVersionSchema } from "./promote.js";
+import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 
 /**
  * The committed promoted version `applyPromotedOverrides` resolves for the
  * `vpr` id. This file IS committed (`.gitignore`'s `data/*` + negation), so
  * unlike `reports/tune-joint-on.json` it is always present, in CI included.
  *
- * DERIVED from `SIGMA1_CODE_VERSION`, not re-typed (quick task 260903-5dp).
- * These three were hardcoded `5.0.0+...` literals and the 6.0.0 bump broke all
- * three, which is the same hand-edited-at-every-bump failure `cli.ts`'s
- * `PROMOTED_VPR_VERSION_PATH` already retired for exactly this reason ("the
- * next bump moves them all by construction and a stale path is unrepresentable
- * rather than merely caught by a test").
+ * READ from the pinned file's own `version` field (quick task 260904-2i9),
+ * not derived or re-typed. This used to be DERIVED from `SIGMA1_CODE_VERSION`
+ * plus a hardcoded `+tuned-2026-08` suffix (quick task 260903-5dp) — but the
+ * pin's collapse to `promotedVersionPath.ts` moved the live param-set name to
+ * `rolling-2026-09`, which made that hand-typed suffix wrong the same way a
+ * hardcoded `5.0.0+...` literal was wrong before it. Reading the value the
+ * pinned file itself declares means a future re-pin can never desync this
+ * constant from what `applyPromotedOverrides` actually resolves — there is no
+ * second copy of the identity left to go stale.
  *
  * What this test actually defends is UNWEAKENED by the change: the assertions
  * below are about the `+{paramSetName}` half — that `vpr-defaults` and
  * `vpr-adapt` resolve to DISTINCT identities and neither collides with the
- * promoted one — and those suffixes are still literal here. The code-version
+ * promoted one — and those suffixes are still literal here. The promoted
  * half was never the thing under test; `digest.test.ts` is what pins a
  * committed version file's identity to the code that produced it.
  */
-const PROMOTED_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+tuned-2026-08`;
+const PROMOTED_VERSION_IDENTITY = PromotedVersionSchema.parse(
+  JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8"))
+).version;
 const DEFAULTS_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+defaults`;
 const ADAPT_VERSION_IDENTITY = `${SIGMA1_CODE_VERSION}+defaults-adapt`;
 

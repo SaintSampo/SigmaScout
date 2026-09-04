@@ -24,6 +24,10 @@ import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { makeSeasonalSigma1, resolveParamSets, type SeasonParamSet } from "./seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
+// Mirrors `tune.ts`'s `INCUMBENT_VERSION_PATH` for the same reason (quick
+// task 260904-2i9): this is the D-T7 acceptance baseline, not the live pin,
+// so it deliberately does NOT follow `promotedVersionPath.ts`'s re-pin to
+// `rolling-2026-09`.
 const INCUMBENT_VERSION_PATH = join("data", "algorithm-versions", `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 
