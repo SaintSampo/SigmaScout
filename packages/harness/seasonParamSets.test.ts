@@ -12,12 +12,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { COLD_START_SEASON } from "../core/algorithms/breakdown/index.js";
+import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
-import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
-import type { MatchResult } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
+import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import type { DigestSliceFixture } from "./fixtures/extract-digest-slice.js";
 import { computePredictionStreamDigest, PromotedVersionSchema, type PromotedVersion } from "./promote.js";
-import { WalkForwardSimulator } from "./replay.js";
+import { toLeakProofUpcoming, WalkForwardSimulator, type PredictionRecord } from "./replay.js";
+import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { makeSeasonalSigma1, resolveParamSets, type SeasonParamSet } from "./seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -225,5 +228,110 @@ describe("D-4 equivalence gate, Leg A: a uniform paramSetsBySeason reproduces th
     const simulator = new WalkForwardSimulator(matches);
     const records = simulator.run(algorithm, teams);
     expect(computePredictionStreamDigest(records)).toBe(COMMITTED_DIGEST);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// D-4 Leg B (Task 2): the season-boundary differential. Leg A above never
+// crosses a season boundary (it replays a single-season slice), so it
+// cannot exercise `carrySeason` dispatch or D-3's incoming-season fork. This
+// is EVIDENCE for the boundary path, and is NOT a substitute for Leg A's
+// committed-digest bar — Leg A is the bar (D-4). This loop deliberately
+// lives ONLY in this test file: production code's three independent season
+// loops (`cli.ts`, `tune.ts`, `publish.ts`) are never edited by this quick
+// task (see `<findings>` item 1) — the facade under test is what makes that
+// safe.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** `tune.ts`'s `boundedSeasonStream` shape, reproduced here rather than imported (it is module-private): the season's own full chronological order, subset-filtered to its first `eventsLimit` event keys — never a re-derivation of chronological order. */
+function boundedTwoEventStream(db: Corpus, season: number): MatchResult[] {
+  const eventRows = db
+    .prepare(`SELECT event_key FROM events WHERE year = ? AND is_offseason = 0 ORDER BY event_key ASC LIMIT 2`)
+    .all(season) as { event_key: string }[];
+  const allowedEvents = new Set(eventRows.map((row) => row.event_key));
+  return selectMatchesChronological(db, { year: season, excludeOffseason: true }).filter((match) => allowedEvents.has(match.eventKey));
+}
+
+/**
+ * The IDENTICAL boundary-threading shape `runSeasons`/`runBoundedSeasons` use
+ * in production (`seasonBoundaryFor`, then `carrySeason` into the next
+ * season's initial state) — confined to this test, per this block's own
+ * header. Single-algorithm, since Leg B compares two SEPARATE single-module
+ * replays rather than one shared-stream multi-algorithm run.
+ */
+function replayTwoSeasonsWithCarry(
+  algorithm: AlgorithmModule<any>,
+  seasons: readonly number[],
+  streamsBySeason: ReadonlyMap<number, readonly MatchResult[]>
+): PredictionRecord[] {
+  const all: PredictionRecord[] = [];
+  let state: unknown;
+  for (const [seasonIdx, season] of seasons.entries()) {
+    const boundary = seasonBoundaryFor(seasons, seasonIdx, COLD_START_SEASON);
+    const stream = streamsBySeason.get(season)!;
+    const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+
+    if (boundary.isColdStart) {
+      state = algorithm.initState(teams);
+    } else {
+      if (!algorithm.carrySeason) {
+        throw new Error(`replayTwoSeasonsWithCarry: algorithm "${algorithm.id}" has no carrySeason implementation`);
+      }
+      state = algorithm.carrySeason(state, boundary);
+    }
+
+    for (const match of stream) {
+      const prediction = algorithm.predict(state, toLeakProofUpcoming(match));
+      all.push({ match, prediction });
+      state = algorithm.update(state, match);
+    }
+  }
+  return all;
+}
+
+describe("D-4 equivalence gate, Leg B (evidence, not the bar): the season-boundary differential", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — Leg B needs the real corpus to cross a real season boundary`, () => {});
+    return;
+  }
+  if (!INCUMBENT_AVAILABLE) {
+    it.skip(`skipped: ${INCUMBENT_VERSION_PATH} not found`, () => {});
+    return;
+  }
+
+  it("replaying 2022 then 2023 (first 2 events each) through a plain makeSigma1 module and through the facade over a uniform map produces byte-identical prediction streams", () => {
+    const incumbent = loadIncumbentFile();
+    if (incumbent.params === undefined) throw new Error("test fixture: incumbent has no params");
+
+    const seasons = [2022, 2023];
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    let streamsBySeason: Map<number, MatchResult[]>;
+    try {
+      streamsBySeason = new Map(seasons.map((season) => [season, boundedTwoEventStream(db, season)]));
+    } finally {
+      db.close();
+    }
+    for (const season of seasons) {
+      expect(streamsBySeason.get(season)!.length).toBeGreaterThan(0);
+    }
+
+    const plainModule = makeSigma1({
+      id: "leg-b-plain",
+      linkMode: "predictive-variance",
+      params: incumbent.params,
+      paramSetName: incumbent.paramSetName,
+    });
+    const plainRecords = replayTwoSeasonsWithCarry(plainModule, seasons, streamsBySeason);
+    const plainDigest = computePredictionStreamDigest(plainRecords);
+
+    const uniform = synthesizeUniformPromotedVersion(incumbent, seasons);
+    const facadeModule = makeSeasonalSigma1(uniform, { id: "leg-b-facade", linkMode: "predictive-variance" });
+    const facadeRecords = replayTwoSeasonsWithCarry(facadeModule, seasons, streamsBySeason);
+    const facadeDigest = computePredictionStreamDigest(facadeRecords);
+
+    // Leg B is EVIDENCE for the boundary path — see this block's own header.
+    // Leg A (above) is the acceptance bar (D-4); this assertion must never be
+    // read as a substitute for it.
+    expect(facadeDigest).toBe(plainDigest);
   });
 });
