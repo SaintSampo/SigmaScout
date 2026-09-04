@@ -304,7 +304,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
   });
 
   it("opr/2024: also exactly nine headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
@@ -348,7 +348,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
   });
 });
 
@@ -635,6 +635,69 @@ describe("InsightsTab — partial phase-metric data", () => {
   });
 });
 
+describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg)", () => {
+  it("an EPA event fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame renders real derived sums, where before every cell in those columns was blank", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "epa",
+      algorithmVersion: "1.0.0+baseline",
+      eventKey: "2026casf",
+      season: 2026,
+      matches: [],
+      upcoming: [],
+      teams: [
+        {
+          teamKey: "frc254",
+          teamNumber: 254,
+          nickname: "The Cheesy Poofs",
+          rank: 1,
+          metrics: {
+            [TOTAL_KEY]: { value: 27 },
+            autoTower: { value: 4 },
+            hubAuto: { value: 6 },
+            hubTransition: { value: 5 },
+            hubShift1: { value: 2 },
+            hubShift2: { value: 2 },
+            hubShift3: { value: 2 },
+            hubShift4: { value: 2 },
+            endGameTower: { value: 3 },
+            hubEndgame: { value: 1 },
+          },
+        },
+      ],
+    });
+    renderInsights(artifact, "epa", 2026);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    expect(screen.getByTestId("insights-cell-phaseAuto").textContent).toContain("10");
+    expect(screen.getByTestId("insights-cell-phaseTeleop").textContent).toContain("13");
+    expect(screen.getByTestId("insights-cell-phaseEndgame").textContent).toContain("4");
+  });
+
+  it("a VPR fixture's published group values/spreads/tiers are unchanged by this derivation", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics({ phaseAuto: { value: 22.5, spread: 1.1, percentile: 96 } }) }],
+    });
+    renderInsights(artifact, "vpr", 2024);
+
+    const cell = await screen.findByTestId("insights-cell-phaseAuto");
+    expect(cell.textContent).toContain("22.50");
+    expect(cell.textContent).toContain("±");
+    expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+});
+
 describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
   it("teams: [] renders EmptyState naming the event and no table element", async () => {
     const artifact = EventArtifactSchema.parse({
@@ -788,7 +851,7 @@ describe("InsightsTabSkeleton", () => {
     render(<InsightsTabSkeleton algorithmId="vpr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Auto", "Teleop", "Endgame", "Total"]);
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });

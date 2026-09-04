@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
-import { METRIC_GROUPS } from "@/lib/metricGroups";
+import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -61,7 +61,14 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // metric carries its own published percentile (the D-06.1-A discipline —
   // an as-of-then value tiered against the season-final pool), so the tier
   // boxes stay honest either way.
-  const metrics = metricsOverride ?? artifact.seasonStats.metrics;
+  // Widened with any derivable group entries this algorithm/season supports
+  // (D-3, 260904-5zg) BEFORE the tiles read it, so EPA's Auto/Teleop/Endgame
+  // tiles carry real numbers exactly like VPR's published ones do. Both
+  // as-of instants (the last-official-match snapshot and season-final) go
+  // through this identical call, so the snapshot caption above stays
+  // truthful for derived tiles too. See lib/metricGroups.ts's header for the
+  // full honesty argument.
+  const metrics = withDerivedGroupMetrics(metricsOverride ?? artifact.seasonStats.metrics, season);
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
   // renders a BLANK cell and the cell never disappears (D-17/E2 empty).
@@ -74,9 +81,14 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // it shows the single Total tile rather than three tiles that could never
   // be anything but blank.
   const publishesComponents = metricKeys.length > 1;
-  // Each phase group is a published metric in its own right, carrying its
-  // own value, spread and percentile — read straight from the artifact, never
-  // summed here (see lib/metricGroups.ts).
+  // Each phase group tile reads `metrics[group.metricKey]` — for VPR that is
+  // a PUBLISHED metric (own value/spread/percentile, read straight from the
+  // artifact, never summed here); for EPA (and any other algorithm with
+  // components but no published group metric) it is now a DERIVED entry
+  // from `withDerivedGroupMetrics` above, carrying a value alone.
+  // `tierForPercentile(undefined)` below yields no tier for a derived tile —
+  // the honest outcome, never worked around by inventing a percentile from
+  // the single team in view.
   const groupTiles = publishesComponents
     ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];

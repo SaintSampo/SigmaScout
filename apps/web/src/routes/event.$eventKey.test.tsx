@@ -361,10 +361,10 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
       "Team Name",
       "Record",
       "RP",
+      "Total",
       "Auto",
       "Teleop",
       "Endgame",
-      "Total",
     ]);
   });
 

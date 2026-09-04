@@ -191,6 +191,65 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(cells.map((cell) => cell.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
   });
 
+  it("D-3 (260904-5zg): an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame renders real derived sums, where before the three tiles were blank", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      autoTower: { value: 4 },
+      hubAuto: { value: 6 },
+      hubTransition: { value: 5 },
+      hubShift1: { value: 2 },
+      hubShift2: { value: 2 },
+      hubShift3: { value: 2 },
+      hubShift4: { value: 2 },
+      endGameTower: { value: 3 },
+      hubEndgame: { value: 1 },
+      total: { value: 27 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    expect(cells).toHaveLength(4);
+    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
+    const [autoCell, teleopCell, endgameCell] = cells;
+    expect(autoCell?.textContent).toContain("10"); // 4 + 6
+    expect(teleopCell?.textContent).toContain("13"); // 5 + 2 + 2 + 2 + 2
+    expect(endgameCell?.textContent).toContain("4"); // 3 + 1
+  });
+
+  it("D-3: a VPR fixture with published phase metrics carrying spreads still renders its published spread/tier — derivation is invisible on VPR", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
+      phaseTeleop: { value: 30, spread: 2, percentile: 40 },
+      phaseEndgame: { value: 18.16, spread: 1.1, percentile: 60 },
+      total: { value: 60.5, spread: 2.5, percentile: 96 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [autoCell] = cells;
+    expect(autoCell?.textContent).toContain("±");
+    expect(autoCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("D-3: an EPA phase tile renders NO plus-minus glyph and NO metric-tier class — a derived entry carries a value alone", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      autoTower: { value: 4 },
+      hubAuto: { value: 6 },
+      total: { value: 10 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [autoCell] = cells;
+    expect(autoCell?.textContent?.includes("±")).toBe(false);
+    expect(autoCell?.querySelector('[class*="metric-tier"]')).toBeNull();
+  });
+
   it("renders one bare-value cell with no plus-minus character for an OPR fixture", () => {
     const artifact = baseArtifact({ seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 42.1 } } } });
 

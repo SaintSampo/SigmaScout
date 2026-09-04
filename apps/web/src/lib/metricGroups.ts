@@ -73,12 +73,20 @@ export function groupMetricKey(group: ComponentGroupId): string {
 
 /**
  * A derived group entry — value only, deliberately not the full published
- * metric shape (no `spread`, no `percentile`, no `tier`). See this module's
- * header for why: EPA publishes no spread anywhere, so there is nothing
- * honest to attach beyond the exact summed value.
+ * metric shape. See this module's header for why: EPA publishes no spread
+ * anywhere, so there is nothing honest to attach beyond the exact summed
+ * value. `spread`/`percentile`/`tier` are typed here (never present at
+ * runtime — a real `withDerivedGroupMetrics` return value never sets them)
+ * purely so a caller reading `entry.percentile` / `entry.spread` / `entry.tier`
+ * off a `M | DerivedGroupMetric` union type-checks to `undefined` rather
+ * than a compile error, matching every published metric shape's own optional
+ * fields.
  */
 export interface DerivedGroupMetric {
   readonly value: number;
+  readonly spread?: undefined;
+  readonly percentile?: undefined;
+  readonly tier?: undefined;
 }
 
 /**
