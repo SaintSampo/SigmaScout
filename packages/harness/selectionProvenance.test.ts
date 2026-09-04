@@ -7,6 +7,7 @@ import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { ALGORITHMS, applyPromotedOverrides } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 import type { HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPath } from "./selectionProvenance.js";
@@ -15,13 +16,25 @@ import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPa
  * Read independently of `selectionProvenance.ts`'s own path construction —
  * this is what actually proves the module reads the SAME committed file
  * `cli.ts`/`publish.ts` load for `vpr`, rather than merely asserting a value
- * this test also computed the same (wrong) way.
+ * this test also computed the same (wrong) way. This is the ONE place in the
+ * repo that keeps a hand-typed literal after the pin's collapse to
+ * `promotedVersionPath.ts` (quick task 260904-2i9) — importing the shared
+ * constant here instead would make the agreement assertion below tautological
+ * and delete the only independent witness that the pin actually moved.
  */
 const INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH = join(
   "data",
   "algorithm-versions",
-  `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`
+  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09.json`
 );
+
+// The single agreement pin (quick task 260904-2i9): if `promotedVersionPath.ts`
+// is ever re-pinned without this file's independent literal following it,
+// this goes red naming both values — the collapse's whole protection depends
+// on this witness staying independent AND checked.
+it("the independently-typed literal above agrees with the shared PROMOTED_VPR_VERSION_PATH constant", () => {
+  expect(INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH).toBe(PROMOTED_VPR_VERSION_PATH);
+});
 
 function readCommittedVprProvenance() {
   const raw: unknown = JSON.parse(readFileSync(INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH, "utf8"));
@@ -29,11 +42,25 @@ function readCommittedVprProvenance() {
 }
 
 describe("selectedOnSeasonsFor", () => {
-  it("vpr's selected-on seasons deep-equal the committed version file's own provenance.tuneSeasons, for EVERY season asked (today's legacy params file)", () => {
+  it("vpr's selected-on seasons are read PER SEASON from the committed file's own paramSetsBySeason map, and differ across seasons", () => {
     const committed = readCommittedVprProvenance();
+    const bySeason = committed.paramSetsBySeason;
+    if (!bySeason) throw new Error("expected the committed rolling-2026-09 file to carry paramSetsBySeason");
+
     const result = selectedOnSeasonsFor(["vpr"]);
-    expect(result.vpr!(2019)).toEqual(committed.provenance.tuneSeasons);
-    expect(result.vpr!(2026)).toEqual(committed.provenance.tuneSeasons);
+    const season2019Expected = bySeason["2019"]?.selectedOnSeasons;
+    const season2026Expected = bySeason["2026"]?.selectedOnSeasons;
+    if (!season2019Expected || !season2026Expected) {
+      throw new Error("expected the committed file's paramSetsBySeason map to cover both 2019 and 2026");
+    }
+
+    expect(result.vpr!(2019)).toEqual(season2019Expected);
+    expect(result.vpr!(2026)).toEqual(season2026Expected);
+    // A per-season file's whole point is that one flat list can no longer
+    // stand in for every season — only a differing pair proves
+    // `selectedOnSeasonsFor` is resolving per season rather than returning
+    // one set for all of them.
+    expect(season2019Expected).not.toEqual(season2026Expected);
   });
 
   it("opr, epa, and vpr-defaults — never-tuned baselines — come back with an explicit empty array each, not an omission", () => {

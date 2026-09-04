@@ -11,17 +11,21 @@
  * file for the first time anywhere in this repo (D-2: no second record of
  * the same fact is introduced — the version file IS the record).
  *
- * `vpr`'s version-file path below is DERIVED from `SIGMA1_CODE_VERSION`, the
- * same way `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` and `tune.ts`'s
- * `INCUMBENT_VERSION_PATH` already are — so the next `SIGMA1_CODE_VERSION`
- * bump moves this module's read target by construction. This path is a
- * DELIBERATE MIRROR of `cli.ts`'s own constant, not a shared import:
- * `cli.ts` depends on this module (`aggregateScoresForRun`, F-1), and
- * importing `PROMOTED_VPR_VERSION_PATH` back from `cli.ts` would create an
- * import cycle. `selectionProvenance.test.ts` pins their agreement
- * independently — asserting that this module's own resolution for `vpr`
- * agrees with `resolvePublishAlgorithms(undefined)`'s — which is what
- * actually protects against the mirror drifting, not the import itself.
+ * `vpr`'s version-file path below is now IMPORTED from
+ * `./promotedVersionPath.js` (quick task 260904-2i9), not a mirror. The
+ * mirror existed because `cli.ts` depends on this module
+ * (`aggregateScoresForRun`, F-1), and importing `PROMOTED_VPR_VERSION_PATH`
+ * back from `cli.ts` really would close a cycle — that reasoning was
+ * correct and is exactly why the shared constant now lives in a THIRD leaf
+ * module neither `cli.ts` nor this file owns: `promotedVersionPath.ts`
+ * imports only `node:path` and `SIGMA1_CODE_VERSION`, so both `cli.ts` and
+ * this module can import it with no cycle in either direction. This closes
+ * the gap the old mirror carried: `selectionProvenance.test.ts`'s
+ * `INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH` remains as the one deliberate,
+ * hand-typed witness that this module reads the same committed file the
+ * harness loads — the same structural-sharing argument this file already
+ * makes one paragraph below for `vpr-adapt` delegating to
+ * `resolveOnSearchWinner`, now extended to `vpr`.
  *
  * `vpr-adapt`'s provenance (F-2, quick task 260903-tk6) is NOT a mirror: it
  * DELEGATES to `searchWinner.ts`'s `resolveOnSearchWinner`, the exact same
@@ -29,28 +33,16 @@
  * what actually RUNS for `vpr-adapt`. Sharing one resolver — rather than
  * pinning agreement between two independently-derived condition lists —
  * makes disagreement between "what runs" and "what the flag claims"
- * structurally impossible, closing the gap `vpr`'s mirror above still
- * carries (deliberately, per the cycle constraint) one level down.
+ * structurally impossible, the same guarantee `vpr`'s shared import above
+ * now provides one level up.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { selectCorpusSeasons, type Corpus } from "../corpus/db.js";
 import { PromotedVersionSchema } from "./promote.js";
+import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { resolveParamSets } from "./seasonParamSets.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
-
-const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
-
-/**
- * Mirrors `cli.ts`'s `PROMOTED_VPR_VERSION_PATH` construction exactly (same
- * directory, same filename pattern) so the next `SIGMA1_CODE_VERSION` bump
- * moves both by construction rather than requiring two hand-edits to stay
- * in sync. See this file's header comment for why this stays a deliberate
- * mirror rather than a shared import.
- */
-const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+tuned-2026-08.json`);
 
 /**
  * `vpr`'s selected-on seasons for `season`: the selected-on set of the

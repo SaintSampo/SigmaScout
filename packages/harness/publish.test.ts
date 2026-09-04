@@ -2216,12 +2216,16 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
    * the repo that a published `compare/{year}.json`'s `vpr` eligibility
    * matches the real matrix on BOTH sides of the selected-on boundary.
    *
-   * This expectation is PINNED to the committed version file's
-   * `provenance.tuneSeasons` ([2022, 2023, 2024] on this checkout, per
-   * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+tuned-2026-08.json`).
-   * A future re-tune that promotes a different selected-on set is SUPPOSED
-   * to redden this test — a headline-eligibility matrix change must be a
-   * deliberate, visible edit, never a silent side effect of a re-promotion.
+   * This expectation is PINNED to the committed version file's PER-SEASON
+   * `paramSetsBySeason` map (quick task 260904-2i9; the flat
+   * `provenance.tuneSeasons` read this comment used to describe no longer
+   * exists on the live pin) — both 2024's and 2025's governing param sets in
+   * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+rolling-2026-09.json`
+   * record `selectedOnSeasons` of `[2022, 2023, 2024]`, so "2024 NOT
+   * headline-eligible, 2025 IS" still holds. A future re-tune that promotes
+   * a different selected-on set for either season is SUPPOSED to redden this
+   * test — a headline-eligibility matrix change must be a deliberate,
+   * visible edit, never a silent side effect of a re-promotion.
    */
   it("2024 (inside vpr's selected-on set) is NOT headline-eligible; 2025 (outside it) IS — both against a corpus that supplies enough priors either way", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2022prior", year: 2022 }));
