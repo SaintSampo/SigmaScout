@@ -8,6 +8,14 @@ priority: high
 
 # Run the rolling-origin Sigma1 re-tune
 
+> **Selection windows CAPPED 2026-09-04 (user decision, gsd-fast).** `deriveSelectionSeasons`
+> now keeps at most the **3 most recent** available prior seasons (`SELECTION_WINDOW_SEASONS`
+> in `packages/harness/tune.ts`) — a max, not a minimum. Every "selection seasons" column in
+> this file describes the old uncapped derivation; a future re-tune's windows are e.g.
+> 2026 → 2023–2025 and 2027 → 2024–2026. Rationale (recency first, bounded cost second) is in
+> the constant's doc comment. Like the two model-change notes below, this makes future runs
+> NON-COMPARABLE to the ten verdicts — which were already non-comparable for those reasons.
+
 > **Sigma1's MODEL changed 2026-09-04 (quick task 260904-6a1) — the ten verdicts below are
 > NOT invalidated, but they are NON-COMPARABLE to any future re-tune run under this change.**
 > Two model-correctness changes landed, both discovered investigating `2026bc2_sf14m1` (a genuine

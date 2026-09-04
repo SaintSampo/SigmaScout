@@ -29,12 +29,16 @@
  * been looked at a few times they no longer measure what they claim to.
  *
  * Rolling origin replaces it. For each scored season S — the ORIGIN —
- * hyperparameters are selected using ONLY seasons strictly before S:
+ * hyperparameters are selected using ONLY seasons strictly before S, capped
+ * at the `SELECTION_WINDOW_SEASONS` (3) most recent available (see that
+ * constant's doc comment for the recency + bounded-cost rationale). On the
+ * backfilled 2019–2027 corpus:
  *
  *     scored (origin) | selected on
- *     2024            | 2022-2023
+ *     2024            | 2020, 2022-2023
  *     2025            | 2022-2024
- *     2026            | 2022-2025
+ *     2026            | 2023-2025
+ *     2027            | 2024-2026
  *
  * This lifts the project's match-level predict-before-update discipline
  * (`replay.ts`'s `toLeakProofUpcoming`) up one level, to the HYPERPARAMETER
@@ -146,7 +150,10 @@
  *
  * One candidate's replay is ~1 ms/match with `rpMonteCarloDraws: 0` (this
  * file's own runtime assumption); batching amortizes the stream build but not
- * the per-candidate compute:
+ * the per-candidate compute. (Measured on the PRE-CAP, pre-backfill windows —
+ * still the right order of magnitude, and `SELECTION_WINDOW_SEASONS` now pins
+ * every mature origin near the middle row's cost instead of letting the last
+ * row grow by a season every year.)
  *
  *     origin | selection seasons | matches | one candidate
  *     2024   | 2022-2023         | 31,030  | ~31 s
@@ -272,12 +279,40 @@ function parsePositiveInt(name: string, spec: string): number {
 }
 
 /**
+ * The selection window CAP (quick task 260904, user decision): an origin
+ * selects on at most the N most recent available prior seasons, not on every
+ * prior season the corpus carries. A max, never a minimum — an origin with
+ * fewer prior seasons keeps them all (2022 keeps its two-season 2019–2020
+ * window).
+ *
+ * Two reasons, cost second:
+ *
+ *   1. **Recency.** The 2024 origin verdict (retune-sigma1-rolling-origin
+ *      todo) established that a season under a different game mechanic is
+ *      STRUCTURALLY different — a tightly-measured systematic miss, not
+ *      noise. Seasons four-plus years back were played under different rules
+ *      and score regimes; letting them vote on hyperparameters biases
+ *      selection toward stale dynamics. And `carryMeanReversion` decays
+ *      carried state geometrically at each boundary, so the warm-up a capped
+ *      window truncates was already nearly fully decayed.
+ *   2. **Bounded cost.** Uncapped, every origin's window grows by one season
+ *      per year forever (origin 2027 was already ~115k matches per
+ *      candidate); capped, every mature origin settles at ~45–50k matches.
+ *
+ * The cap weakens NO D-T5 discipline: a capped window is still strictly
+ * before the origin, so all four gates hold unchanged, and the one-screen
+ * argument (earliest window strictly prior to every origin) holds too.
+ */
+export const SELECTION_WINDOW_SEASONS = 3;
+
+/**
  * D-T5 GATE 1 — the derivation itself, run before any MATCH is read.
  *
- * Keeps only the seasons STRICTLY BEFORE `originSeason`, and throws if the
- * result would be empty. `availableSeasons` is whatever the corpus actually
- * carries (a metadata query, not a replay), so this stays pure and
- * `tune.test.ts` drives it directly.
+ * Keeps only the `SELECTION_WINDOW_SEASONS` most recent seasons STRICTLY
+ * BEFORE `originSeason`, and throws if the result would be empty.
+ * `availableSeasons` is whatever the corpus actually carries (a metadata
+ * query, not a replay), so this stays pure and `tune.test.ts` drives it
+ * directly.
  *
  * Note the wording shift from the retired gates' "before any corpus read":
  * enumerating which seasons EXIST is unavoidably a corpus read. What matters,
@@ -291,7 +326,12 @@ function parsePositiveInt(name: string, spec: string): number {
  * correct behaviour is to refuse.
  */
 export function deriveSelectionSeasons(availableSeasons: readonly number[], originSeason: number): number[] {
-  const selection = [...new Set(availableSeasons)].filter((season) => season < originSeason).sort((a, b) => a - b);
+  const selection = [...new Set(availableSeasons)]
+    .filter((season) => season < originSeason)
+    .sort((a, b) => a - b)
+    // The window cap — the MOST RECENT prior seasons, so the slice comes
+    // after the ascending sort. See SELECTION_WINDOW_SEASONS's doc comment.
+    .slice(-SELECTION_WINDOW_SEASONS);
   if (selection.length === 0) {
     throw new Error(
       `tune: origin ${originSeason} has an EMPTY selection window — the corpus carries no season strictly before it ` +

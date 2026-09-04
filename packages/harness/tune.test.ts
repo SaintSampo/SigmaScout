@@ -180,7 +180,23 @@ describe("deriveSelectionSeasons (D-T5 gate 1)", () => {
   it("derives strictly-prior seasons for each of the three origins", () => {
     expect(deriveSelectionSeasons(CORPUS, 2024)).toEqual([2022, 2023]);
     expect(deriveSelectionSeasons(CORPUS, 2025)).toEqual([2022, 2023, 2024]);
-    expect(deriveSelectionSeasons(CORPUS, 2026)).toEqual([2022, 2023, 2024, 2025]);
+    // 2026 has four prior seasons available; the window cap keeps the three
+    // most recent — 2022 falls out.
+    expect(deriveSelectionSeasons(CORPUS, 2026)).toEqual([2023, 2024, 2025]);
+  });
+
+  it("caps the window at the SELECTION_WINDOW_SEASONS most recent prior seasons", () => {
+    // The backfilled corpus: origin 2027 has six prior seasons, keeps three.
+    const BACKFILLED = [2019, 2020, 2022, 2023, 2024, 2025, 2026, 2027];
+    expect(deriveSelectionSeasons(BACKFILLED, 2027)).toEqual([2024, 2025, 2026]);
+    // The cap slices the MOST RECENT end: origin 2024's window spans the
+    // missing-2021 gap rather than reaching back to 2019.
+    expect(deriveSelectionSeasons(BACKFILLED, 2024)).toEqual([2020, 2022, 2023]);
+  });
+
+  it("the cap is a maximum, not a minimum — a short history keeps every prior season", () => {
+    expect(deriveSelectionSeasons([2019, 2020, 2022], 2022)).toEqual([2019, 2020]);
+    expect(deriveSelectionSeasons([2022, 2023], 2023)).toEqual([2022]);
   });
 
   it("never includes the origin season itself", () => {
