@@ -55,6 +55,7 @@ import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
+import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
 import { applyPromotedOverrides } from "./cli.js";
@@ -204,6 +205,44 @@ export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], sorted
     }
     return { ...row, metrics: newMetrics };
   });
+}
+
+/**
+ * Quick task 260904-586: the Teams-list metric snapshot, scoped to official
+ * play. `metricHistoryByTeam` carries one row per match a team played, IN
+ * CHRONOLOGICAL STREAM ORDER (D-28) — this walks each team's row array in
+ * that order and keeps the LAST row whose `eventKey` is in `officialEventKeys`,
+ * exactly the reading `apps/web/src/lib/officialSnapshot.ts`'s
+ * `officialSnapshotMetrics` already established for the team page header, so
+ * no sort and no `matchIndex` comparison is needed here either.
+ *
+ * A team with no official row at all (an offseason-only team) is OMITTED
+ * from the returned record entirely — never present with an empty object.
+ * That absence is what makes the single `?? {}` fallback at this function's
+ * one call site the one place an empty-metrics row gets built, so an
+ * offseason-only team still gets a Teams-list row (name, record, counts)
+ * with no metric values.
+ *
+ * Returns the SAME metrics object reference the source row carried — no
+ * rounding, no percentile widening, no mutation of `metricHistoryByTeam` or
+ * any row inside it. Both of those happen downstream, exactly as they
+ * already do for the season-final snapshot this widens.
+ *
+ * Exported (like `withHistoryPercentiles` above it) for direct unit testing.
+ */
+export function lastOfficialMetricsByTeam(
+  metricHistoryByTeam: ReadonlyMap<string, MetricHistoryRow[]>,
+  officialEventKeys: ReadonlySet<string>
+): TeamMetrics {
+  const result: TeamMetrics = {};
+  for (const [teamKey, rows] of metricHistoryByTeam) {
+    let lastOfficial: MetricHistoryRow | undefined;
+    for (const row of rows) {
+      if (officialEventKeys.has(row.eventKey)) lastOfficial = row;
+    }
+    if (lastOfficial !== undefined) result[teamKey] = lastOfficial.metrics;
+  }
+  return result;
 }
 
 /**
@@ -1571,6 +1610,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     ).filter((teamKey) => !isDemoTeamKey(teamKey));
     const eventMeta = selectEventMeta(db, season);
     const offseasonEventKeys = new Set(eventMeta.filter((e) => e.is_offseason === 1).map((e) => e.event_key));
+    // Quick task 260904-586: the Teams-list metric snapshot must be scoped
+    // to official play. Built once per season, outside the per-algorithm
+    // loop, from the same `eventMeta` rows `offseasonEventKeys` above reads
+    // — the shared `isOfficialEventType` predicate (also read by
+    // `apps/worker/src/scheduled.ts` and `apps/web/src/lib/
+    // officialSnapshot.ts`) is what keeps this set from drifting from
+    // either of those.
+    const officialEventKeys = new Set(eventMeta.filter((e) => isOfficialEventType(e.event_type)).map((e) => e.event_key));
     // D-08 (Phase 6): match_key -> sort_time for every match this season,
     // played or not — feeds both TeamSeasonMatchSchema.sortTime and the
     // per-event match ordering below (sortTeamSeasonMatches).
@@ -1762,6 +1809,20 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
+      // Quick task 260904-586: the Teams-list metric snapshot, scoped to
+      // official play — the team's metrics as of its LAST OFFICIAL match,
+      // rather than the season-final `metricsByTeam` above (which keeps
+      // learning through offseason/preseason play). Widened by the SAME
+      // `withPercentiles` helper against the UNCHANGED `teamsThisSeason`
+      // pool — `withPercentiles` narrows the ranking pool on its own by
+      // skipping any team with no value, so an offseason-only team (absent
+      // from `officialMetricsByTeam` entirely) is simply excluded from every
+      // metric's ranking, never counted as a zero. `metricsByTeamWithPercentiles`
+      // above and `sortedPools` below are untouched by this — the per-team
+      // artifact's `seasonStats`/`metricHistory` sections stay season-final,
+      // exactly as before.
+      const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
+      const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason);
 
       // D-08 (Phase 6): scheduled-match predictions for THIS algorithm,
       // computed once per event key here and shared by both the event
@@ -1800,11 +1861,20 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           teamNumber: info.teamNumber,
           nickname: info.nickname,
           record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-          // Carries the D-17 rarity TIER, not the raw percentile (was the
-          // unwidened `metricsByTeam`, scoped out in Phase 6 as
-          // 06-RESEARCH.md Open Question 2). The Teams table now applies the
-          // same tiers the team page does, so a number does not change
-          // meaning between the table and the page it links to.
+          // Quick task 260904-586: the team's metrics as of its LAST
+          // OFFICIAL match, not the season-final snapshot — ranked (via
+          // `officialMetricsByTeamWithPercentiles` above) against the field
+          // of teams that have official play, so an offseason result can
+          // never move a team's position on this list. `record`/
+          // `eventCount`/`matchCount` below stay season-wide (unchanged):
+          // the team page applies this identical split — an official-scoped
+          // header over a season-scoped record — and matching that
+          // precedent keeps the two pages coherent (see `officialSnapshot.ts`).
+          //
+          // Carries the D-17 rarity TIER, not the raw percentile. The Teams
+          // table now applies the same tiers the team page does, so a
+          // number does not change meaning between the table and the page
+          // it links to.
           //
           // Measured on 2024/sigma1, the largest teams artifact [pre-rename]: publishing
           // `percentile` costs +42% gzipped (369KB -> 525KB); publishing
@@ -1812,7 +1882,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // identical rendered result. Page-load speed is the top stated UX
           // priority, so the table gets the cheap representation and the
           // small per-team artifact keeps the full percentile.
-          metrics: withPublishedTiers(metricsByTeamWithPercentiles[teamKey] ?? {}),
+          metrics: withPublishedTiers(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
           eventCount: stats?.eventKeys.size ?? 0,
           matchCount: stats?.matchCount ?? 0,
         };

@@ -42,6 +42,7 @@ import {
   buildTeamsArtifact,
   buildTeamSeasonArtifact,
   computeSizeStats,
+  lastOfficialMetricsByTeam,
   OUTCOME_KEYS,
   publishSeasons,
   resolvePublishAlgorithms,
@@ -52,7 +53,7 @@ import {
   type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
-import { artifactKey, decodeTeamsRowMetrics } from "./pageArtifacts.js";
+import { artifactKey, decodeTeamsRowMetrics, TeamsArtifactSchema } from "./pageArtifacts.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
@@ -2368,6 +2369,200 @@ describe("publishSeasons — off-season demo team exclusion from every published
     for (const demoKey of ["frc9970", "frc9971", "frc9972"]) {
       expect(teamsArtifact.teams.some((row) => row.teamKey === demoKey)).toBe(false);
     }
+  });
+});
+
+/**
+ * Quick task 260904-586: direct unit coverage of `lastOfficialMetricsByTeam`
+ * — the exported Teams-list official-play snapshot, tested in isolation
+ * before the end-to-end `publishSeasons` describe block below wires it in.
+ */
+describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
+  function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow {
+    return {
+      matchKey: "2026casj_qm1",
+      season: 2026,
+      eventKey: "2026casj",
+      algorithmId: "opr",
+      teamKey: "frc1",
+      matchIndex: 0,
+      metrics: { total: { value: 10 } },
+      ...overrides,
+    };
+  }
+
+  it("for rows official-A, official-A, offseason-B, returns the SECOND row's metrics, not the third's", () => {
+    const rows = [
+      historyRow({ eventKey: "2026a", matchIndex: 0, metrics: { total: { value: 10 } } }),
+      historyRow({ eventKey: "2026a", matchIndex: 1, metrics: { total: { value: 20 } } }),
+      historyRow({ eventKey: "2026b", matchIndex: 2, metrics: { total: { value: 999 } } }),
+    ];
+    const byTeam = new Map([["frc1", rows]]);
+    const result = lastOfficialMetricsByTeam(byTeam, new Set(["2026a"]));
+    expect(result.frc1?.total?.value).toBe(20);
+  });
+
+  it("for rows official-A, offseason-B, official-C, returns the THIRD row's metrics — last official wins regardless of what sits between", () => {
+    const rows = [
+      historyRow({ eventKey: "2026a", matchIndex: 0, metrics: { total: { value: 10 } } }),
+      historyRow({ eventKey: "2026b", matchIndex: 1, metrics: { total: { value: 999 } } }),
+      historyRow({ eventKey: "2026c", matchIndex: 2, metrics: { total: { value: 30 } } }),
+    ];
+    const byTeam = new Map([["frc1", rows]]);
+    const result = lastOfficialMetricsByTeam(byTeam, new Set(["2026a", "2026c"]));
+    expect(result.frc1?.total?.value).toBe(30);
+  });
+
+  it("a team with only offseason rows is ABSENT from the returned record — not present with an empty object", () => {
+    const rows = [historyRow({ eventKey: "2026b", metrics: { total: { value: 999 } } })];
+    const byTeam = new Map([["frc1", rows]]);
+    const result = lastOfficialMetricsByTeam(byTeam, new Set(["2026a"]));
+    expect(result).not.toHaveProperty("frc1");
+    expect(Object.keys(result)).toEqual([]);
+  });
+
+  it("returns the SAME metrics object reference the source row carried — no rounding, no percentile, no mutation", () => {
+    const sourceMetrics = { total: { value: 12.3456789 } };
+    const rows = [historyRow({ eventKey: "2026a", metrics: sourceMetrics })];
+    const byTeam = new Map([["frc1", rows]]);
+    const result = lastOfficialMetricsByTeam(byTeam, new Set(["2026a"]));
+    expect(result.frc1).toBe(sourceMetrics);
+  });
+});
+
+/**
+ * Quick task 260904-586: end-to-end proof, through the real `publishSeasons`
+ * path against a synthetic temp-dir corpus, that the Teams-list snapshot is
+ * scoped to official play while team/event artifacts stay untouched.
+ */
+describe("publishSeasons — Teams-list official-play scoping (quick task 260904-586)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-official-scoping-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findTeamsArtifactRaw(year: number): unknown {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string);
+  }
+
+  it("a team's teams/{year} row equals its official-event value, not its season-final value — while the team artifact still carries the offseason event and its metric-history rows", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026casj_qm1",
+        eventKey: "2026casj",
+        sortTime: 1_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 100,
+        blueScore: 50,
+      })
+    );
+
+    upsertEvent(db, seasonEvent({ eventKey: "2026off", name: "Offseason Event", eventType: 99, isOffseason: true }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026off_qm1",
+        eventKey: "2026off",
+        sortTime: 2_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 250,
+        blueScore: 10,
+      })
+    );
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+    const row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+    expect(row).toBeDefined();
+
+    const teamArtifact = findTeamArtifact("frc1", 2026);
+    const officialRow = teamArtifact.metricHistory.filter((r) => r.eventKey === "2026casj").at(-1);
+    const offseasonRow = teamArtifact.metricHistory.filter((r) => r.eventKey === "2026off").at(-1);
+    expect(officialRow).toBeDefined();
+    expect(offseasonRow).toBeDefined();
+
+    // The published teams-row metric equals the official-event snapshot...
+    expect(row?.metrics.total?.value).toBe(roundTo(officialRow!.metrics.total!.value, ROUNDING_RULE.metric));
+    // ...and NOT the offseason (season-final) snapshot, which is a
+    // different number by construction of this fixture (a 250-10 offseason
+    // blowout that would otherwise swamp the 100-50 official result).
+    expect(row?.metrics.total?.value).not.toBe(roundTo(offseasonRow!.metrics.total!.value, ROUNDING_RULE.metric));
+
+    // The team artifact itself is untouched — the offseason event and its
+    // matches are still fully present.
+    const offseasonSection = teamArtifact.events.find((e) => e.eventKey === "2026off");
+    expect(offseasonSection).toBeDefined();
+    expect(offseasonSection?.matches).toHaveLength(1);
+  });
+
+  it("a team appearing ONLY at an offseason event still has a teams/{year} row (teamKey, teamNumber, nickname, record present) with an empty metrics record", async () => {
+    // An official event elsewhere in the season, involving different teams —
+    // present only so the season has at least one non-offseason match
+    // (`selectCorpusSeasons` requires that for `compare/{year}.json`'s
+    // aggregation to declare 2026 in scope; unrelated to what this test is
+    // actually asserting, which is about frc1's own row).
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026casj_qm1",
+        eventKey: "2026casj",
+        sortTime: 500,
+        redTeams: ["frc10", "frc11", "frc12"],
+        blueTeams: ["frc13", "frc14", "frc15"],
+      })
+    );
+
+    upsertEvent(db, seasonEvent({ eventKey: "2026off", name: "Offseason Event", eventType: 99, isOffseason: true }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026off_qm1",
+        eventKey: "2026off",
+        sortTime: 1_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+      })
+    );
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+    const row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+    expect(row).toBeDefined();
+    expect(row?.teamNumber).toBe(1);
+    expect(row?.record).toEqual({ wins: 1, losses: 0, ties: 0 });
+    expect(row?.metrics).toEqual({});
   });
 });
 

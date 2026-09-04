@@ -17,13 +17,22 @@
  * rather than rendering an empty header.
  */
 import type { EventsArtifact, TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import { isOfficialEventType } from "../../../../packages/core/algorithms/eventTypes.js";
 
 type MetricHistoryRows = TeamSeasonArtifact["metricHistory"];
 type EventRows = EventsArtifact["events"];
 
-/** True for an event that is part of the official season: not offseason (99 rides `isOffseason`) and not preseason week-0 (100). Championship divisions/Einstein are official. */
+/**
+ * True for an event that is part of the official season. Delegates to the
+ * shared `isOfficialEventType` predicate (quick task 260904-586) for the
+ * `eventType` check, but KEEPS the pre-existing `!row.isOffseason` conjunct
+ * alongside it — a published events artifact whose two fields ever disagree
+ * (e.g. `isOffseason: true` with an `eventType` outside 99/100) still
+ * resolves the conservative way, so this file's current behaviour is
+ * preserved bit-for-bit. Championship divisions/Einstein are official.
+ */
 function isOfficialEvent(row: EventRows[number]): boolean {
-  return !row.isOffseason && row.eventType !== 100;
+  return !row.isOffseason && isOfficialEventType(row.eventType);
 }
 
 export function officialSnapshotMetrics(
