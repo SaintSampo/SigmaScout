@@ -30,15 +30,36 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * corpus (`[2019, 2020, 2022, ...]`) correctly reports a two-year gap at the
  * `2020 -> 2022` boundary instead of silently reporting one. Index 0 has no
  * predecessor to read: `season - 1` is kept there as a nominal label, which
- * is safe precisely because `isColdStart` will be `true` for that season and
- * `carrySeason` returns before ever computing a gap from a cold-start
- * boundary.
+ * is safe by construction — `isColdStart` is `true` at index 0, always, not
+ * as a coincidence that depends on a caller passing the right value. (See
+ * the cold-start rationale below.)
+ *
+ * ## Cold start is positional, not a remembered value (D-1)
+ *
+ * `isColdStart` used to be `season === coldStartSeason`, matched against a
+ * module constant (`COLD_START_SEASON = 2022`) that every caller had to pass
+ * unchanged. That made the corpus's first season a fact someone had to
+ * *remember*, and it went stale silently the moment `extend-corpus-2019-2020`
+ * moved the corpus start to 2019: a `[2019, 2020, 2022]` tuning replay kept
+ * marking **2022** cold, discarding the state carried from the two prior
+ * seasons, while 2019 — the season that actually has no predecessor —
+ * reported `isColdStart: false`. The first element of a replay range has no
+ * predecessor to carry from, which is the actual definition of a cold start,
+ * so matching a remembered value was never the right test. `index === 0` is
+ * that definition made literal, and it cannot go stale the way a constant
+ * can, because there is no second fact for it to disagree with.
+ *
+ * `coldStartSeason` survives as an optional third argument, but its purpose
+ * is now narrow and deliberate (D-4): it forces a season that is NOT at
+ * index 0 to start cold, discarding carry, as a diagnostic override. It is
+ * NOT the mechanism for extending the corpus backward — the positional
+ * default handles that with no flag at all.
  */
-export function seasonBoundaryFor(seasons: readonly number[], index: number, coldStartSeason: number): SeasonBoundary {
+export function seasonBoundaryFor(seasons: readonly number[], index: number, coldStartSeason?: number): SeasonBoundary {
   const season = seasons[index]!;
   return {
     fromSeason: index > 0 ? seasons[index - 1]! : season - 1,
     toSeason: season,
-    isColdStart: season === coldStartSeason,
+    isColdStart: coldStartSeason === undefined ? index === 0 : season === coldStartSeason,
   };
 }
