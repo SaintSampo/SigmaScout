@@ -192,7 +192,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(cells.map((cell) => cell.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
   });
 
-  it("D-3 (260904-5zg): an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame renders real derived sums, where before the three tiles were blank", () => {
+  it("D-3 (260904-5zg; stale-artifact fallback as of 260904-7id): an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a browser's cached pre-republish artifact — renders real derived sums, where before the three tiles were blank", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       autoTower: { value: 4 },
       hubAuto: { value: 6 },
@@ -235,7 +235,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(autoCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
-  it("D-3: an EPA phase tile renders NO plus-minus glyph and NO metric-tier class — a derived entry carries a value alone", () => {
+  it("stale-artifact fallback: an EPA phase tile with NO published group entry renders NO plus-minus glyph and NO metric-tier class — a derived entry carries a value alone", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       autoTower: { value: 4 },
       hubAuto: { value: 6 },
@@ -249,6 +249,30 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     const [autoCell] = cells;
     expect(autoCell?.textContent?.includes("±")).toBe(false);
     expect(autoCell?.querySelector('[class*="metric-tier"]')).toBeNull();
+  });
+
+  it("D-3 (260904-7id): an EPA season whose phaseTeleop carries a PUBLISHED percentile renders a tiered Teleop tile — EPA carries no spread, ever, but the tier is real", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      phaseAuto: { value: 12.34, percentile: 40 },
+      phaseTeleop: { value: 30, percentile: 96 },
+      phaseEndgame: { value: 18.16, percentile: 60 },
+      total: { value: 60.5, percentile: 80 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [autoCell, teleopCell] = cells;
+    // EPA carries no spread anywhere, published or derived — the ± glyph
+    // never appears, even on a metric that DOES now carry a real tier.
+    expect(teleopCell?.textContent?.includes("±")).toBe(false);
+    expect(teleopCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
+    // 40th percentile is Common, which (since 260904-7rt) still draws the
+    // hairline outline ring rather than staying unboxed — proving this
+    // tier came from a real published percentile, not a fabricated "no
+    // tier at all" derived value.
+    expect(autoCell?.querySelector(".metric-tier--common")).not.toBeNull();
   });
 
   it("renders one bare-value cell with no plus-minus character for an OPR fixture", () => {

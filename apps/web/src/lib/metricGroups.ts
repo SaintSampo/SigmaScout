@@ -16,30 +16,43 @@ import {
  * exists because a group's honest SPREAD is the quadratic form of VPR's
  * per-team component covariance restricted to the group's indices — the
  * off-diagonal Cov(auto_i, auto_j) terms are not published, so a client sum
- * cannot reproduce it — and an honest PERCENTILE cannot be derived either,
- * since a sum's rank is not a function of its parts' ranks. Both are
- * computed where the covariance actually lives (`sigma1/index.ts`'s
- * `teamMetrics`, via `covariance.ts`'s `subsetVariance`).
+ * cannot reproduce it. Both are computed where the covariance actually
+ * lives (`sigma1/index.ts`'s `teamMetrics`, via `covariance.ts`'s
+ * `subsetVariance`).
  *
- * EPA publishes no spread at all, for any metric (`packages/core/algorithms
- * /epa.ts`'s `teamMetrics`: "EPA carries a mean only, exactly as Statbotics'
- * `EPARating`"). The covariance argument above is about spread and
- * percentile specifically — it says nothing about the VALUE, which is
- * exact linear arithmetic over published component values regardless of
- * algorithm. So for an algorithm that has no spread to get wrong,
- * `withDerivedGroupMetrics` below sums the group's PRESENT component
- * values client-side and returns a value-only entry: no spread, no
- * percentile, no tier, fabricating nothing beyond exact addition of numbers
- * the artifact already published. It NEVER overwrites a published group
- * entry (VPR's honest, covariance-derived spread/percentile/tier survive
- * untouched) — published entries always win.
+ * As of quick task 260904-7id (D-1/D-3), EPA's pipeline ALSO publishes the
+ * three groups as first-class metrics — value-only (EPA carries no spread
+ * anywhere), but WITH a season-wide `percentile`/`tier` from the same
+ * publish-time percentile pass every other published metric goes through
+ * (`packages/harness/percentiles.ts`, generic over metric names). That tier
+ * MEANS the same thing on an EPA group cell as it does anywhere else on the
+ * site — a season-wide, pipeline-computed rank over the full team pool —
+ * because it comes from the same place every other tier does.
  *
- * The three groups do NOT sum to `total`: `UNGROUPED_COMPONENTS` (`adjust`,
- * `foulsCommitted`) sit outside all three groups by design (see
- * `groups.ts`) but still contribute to `total`. VPR's own PUBLISHED phase
- * metrics have this identical property — it is not an artifact of the
- * derivation here. No surface may present Auto+Teleop+Endgame as a
- * reconciliation against Total.
+ * `withDerivedGroupMetrics` below still exists, but its job narrowed: it is
+ * now the STALE-ARTIFACT fallback, not EPA's steady-state path. A browser
+ * holding a cached pre-260904-7id EPA artifact has published components but
+ * no published group entry yet — for exactly that case, this function sums
+ * the group's PRESENT component values client-side and returns a value-only
+ * entry: no spread, no percentile, no tier. A CLIENT-DERIVED tier is
+ * deliberately never invented here, even though the arithmetic is exact:
+ * the client has no season-wide pool of every OTHER team's value to rank
+ * against, so any tier it assigned would be a guess rendered in the exact
+ * same box a real, pipeline-computed tier uses — indistinguishable to a
+ * reader, and therefore dishonest. It NEVER overwrites a published group
+ * entry (a published entry — VPR's covariance-derived one, or a
+ * post-260904-7id EPA one — always wins over a derived one).
+ *
+ * Whether the three groups sum to `total` is now ALGORITHM-DEPENDENT
+ * (`breakdown/groups.ts`'s own header, D-01/D-1): VPR's `total` still spans
+ * every component including `UNGROUPED_COMPONENTS` (`adjust`,
+ * `foulsCommitted`), so its three groups do NOT sum to `total` there. EPA's
+ * groups DO now reconcile with `total` exactly (`total` already excludes
+ * `foulsCommitted`, and `adjust` is pinned at exactly 0) — but that is an
+ * EPA-specific fact about EPA's OWN published numbers, not a property this
+ * module's derivation creates or any surface may rely on generally. No
+ * surface may present Auto+Teleop+Endgame as a reconciliation against Total
+ * for every algorithm — only note it where it is actually true.
  *
  * The grouping itself is single-sourced in
  * `packages/core/algorithms/breakdown/groups.ts` — never duplicated here,
@@ -93,8 +106,10 @@ export interface DerivedGroupMetric {
  * `withDerivedGroupMetrics(metrics, season)`: returns a new metrics record
  * carrying a value-only `phaseAuto`/`phaseTeleop`/`phaseEndgame` entry for
  * each group whose components are present in `metrics`, merged UNDER the
- * input — a published entry (VPR) always wins over a derived one, spread
- * last in the returned object.
+ * input — a published entry (VPR's own, or EPA's as of 260904-7id) always
+ * wins over a derived one, spread last in the returned object. For EPA this
+ * is now the stale-artifact fallback (see this module's header) rather than
+ * the steady-state path.
  *
  * For each group, sums the `value` of every `componentsInGroup(season,
  * group)` key that is PRESENT in `metrics` — plain arithmetic, no rounding,

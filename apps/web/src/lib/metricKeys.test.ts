@@ -37,10 +37,10 @@ describe("metricKeysFor", () => {
   });
 });
 
-describe("publishesGroupMetrics / hasGroupedTeamsView (D-2, 260904-5zg)", () => {
-  it("publishesGroupMetrics is true for vpr only", () => {
+describe("publishesGroupMetrics / hasGroupedTeamsView (D-2, 260904-5zg; publishesGroupMetrics widened to epa by D-3, 260904-7id)", () => {
+  it("publishesGroupMetrics is true for vpr AND epa (pipeline now publishes EPA's phase groups too), false for opr", () => {
     expect(publishesGroupMetrics("vpr")).toBe(true);
-    expect(publishesGroupMetrics("epa")).toBe(false);
+    expect(publishesGroupMetrics("epa")).toBe(true);
     expect(publishesGroupMetrics("opr")).toBe(false);
   });
 

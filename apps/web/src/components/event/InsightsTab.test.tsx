@@ -635,8 +635,8 @@ describe("InsightsTab — partial phase-metric data", () => {
   });
 });
 
-describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg)", () => {
-  it("an EPA event fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame renders real derived sums, where before every cell in those columns was blank", async () => {
+describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-artifact fallback as of 260904-7id)", () => {
+  it("stale-artifact fallback: an EPA event fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a cached pre-republish artifact — renders real derived sums, where before every cell in those columns was blank", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -694,6 +694,35 @@ describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg)", () => {
     const cell = await screen.findByTestId("insights-cell-phaseAuto");
     expect(cell.textContent).toContain("22.50");
     expect(cell.textContent).toContain("±");
+    expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("D-3 (260904-7id): an EPA event fixture whose team standing carries a PUBLISHED phaseEndgame: { value, percentile } (not derived) renders a tiered Endgame cell, with no plus-minus glyph (EPA carries no spread, ever)", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "epa",
+      algorithmVersion: "5.0.0+baseline",
+      eventKey: "2026casf",
+      season: 2026,
+      matches: [],
+      upcoming: [],
+      teams: [
+        {
+          teamKey: "frc254",
+          teamNumber: 254,
+          nickname: "The Cheesy Poofs",
+          rank: 1,
+          metrics: fullInsightsMetrics({ phaseEndgame: { value: 4.5, percentile: 96 } }),
+        },
+      ],
+    });
+    renderInsights(artifact, "epa", 2026);
+
+    const cell = await screen.findByTestId("insights-cell-phaseEndgame");
+    expect(cell.textContent).toContain("4.50");
+    expect(cell.textContent?.includes("±")).toBe(false);
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 });
