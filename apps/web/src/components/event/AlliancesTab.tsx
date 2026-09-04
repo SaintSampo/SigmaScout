@@ -29,6 +29,7 @@ import { MetricValue, type DisplayMetric } from "@/components/MetricValue";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { algorithmPublishesSpread } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
@@ -317,6 +318,76 @@ export function formatAllianceRecord(record: { wins: number; losses: number; tie
 const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "Pick 3", "Combined Total", "Record"] as const;
 
 /**
+ * D-7 pick-column widths (2026-09-04, quick task 260904-5zg), measured live
+ * against the deployed 2026mrcmp EPA/VPR rosters plus a full-corpus sweep of
+ * every 2026 alliance's real published totals (a throwaway measurement
+ * script, deleted before this task's commit). A pick cell's content is
+ * `teamNumber` + the widened `--spacing-sm` gap (8px, see `PickCell`'s own
+ * comment) + the pick's tiered total.
+ *
+ * `PICK_COLUMN_WIDTH_PX` (190, spread-carrying — VPR): the real worst case
+ * across the full 2026 corpus is a 5-digit team number ("10428", 51.88px)
+ * plus VPR's own widest published `value ± spread` string ("295.08 ±
+ * 105.31", 107.44px boxed — both figures real, drawn from the actual
+ * deployed artifact, not invented). 51.88 + 8 (gap) + 107.44 = 167.32px
+ * content + 16px `TableCell` `p-2` padding + 6px cross-browser font-hinting
+ * buffer = 189.32, rounded up to 190 — this is UNCHANGED from the
+ * pre-existing value: the measurement decided VPR's column genuinely cannot
+ * shrink further without either clipping a real outlier value or reverting
+ * the gap widening.
+ *
+ * `PICK_COLUMN_WIDTH_SPREADLESS_PX` (150, spread-less — EPA/OPR): the same
+ * 5-digit team-number worst case, but EPA/OPR never publish a spread
+ * (`columns.tsx`'s `algorithmPublishesSpread`), so the metric is a bare
+ * boxed value at 65.16px (the same measured width `METRIC_COLUMN_WIDTH_SPREADLESS_PX`
+ * derives from). 51.88 + 8 + 65.16 = 125.04px content + 16px padding + 6px
+ * buffer = 147.04, rounded up to 150 — a real, measured reduction from 190,
+ * not a cosmetic relabeling.
+ */
+export const PICK_COLUMN_WIDTH_PX = 190;
+export const PICK_COLUMN_WIDTH_SPREADLESS_PX = 150;
+
+function pickColumnWidth(algorithmId: string): number {
+  return algorithmPublishesSpread(algorithmId) ? PICK_COLUMN_WIDTH_PX : PICK_COLUMN_WIDTH_SPREADLESS_PX;
+}
+
+/**
+ * D-7 Combined Total column widths, same measurement pass as the pick
+ * columns above. `CombinedCell` carries no team-number span — it is a
+ * single `MetricValue`, so its content is exactly one metric's rendered
+ * width, no gap to add.
+ *
+ * `COMBINED_COLUMN_WIDTH_PX` (130, spread-carrying — VPR): the real
+ * worst-case combined value across a full sweep of every 2026 event's
+ * published alliances (248 events carrying alliance data) — "852.23 ±
+ * 276.88" — measures identically to a single pick's widest string (107.44px
+ * boxed; tabular-nums makes width a function of character count, and both
+ * strings are the same 6-digit-value/6-digit-spread shape). 107.44 + 16
+ * padding + 6 buffer = 129.44, rounded up to 130 — down from the
+ * pre-existing 160. The "COMBINED TOTAL" header itself needs only 123.53px
+ * (measured against the real `.th-cell-label` uppercase treatment,
+ * including its own padding), so the VALUE is still the binding constraint
+ * here.
+ *
+ * `COMBINED_COLUMN_WIDTH_SPREADLESS_PX` (128, spread-less — EPA/OPR): here
+ * the HEADER is the binding constraint, not the value — the real worst-case
+ * EPA combined value ("847.90", no spread) needs only
+ * `METRIC_COLUMN_WIDTH_SPREADLESS_PX`'s own 65.16px boxed-6-character
+ * content (87.16px with padding+buffer), but the live-measured "COMBINED
+ * TOTAL" header text needs 123.53px including its own padding — a real
+ * regression caught by re-rendering the "after" screenshot this task's own
+ * process requires (D-1's reduced value width does not, by itself,
+ * guarantee the header still fits). 123.53 rounded up with a small margin
+ * = 128.
+ */
+export const COMBINED_COLUMN_WIDTH_PX = 130;
+export const COMBINED_COLUMN_WIDTH_SPREADLESS_PX = 128;
+
+function combinedColumnWidth(algorithmId: string): number {
+  return algorithmPublishesSpread(algorithmId) ? COMBINED_COLUMN_WIDTH_PX : COMBINED_COLUMN_WIDTH_SPREADLESS_PX;
+}
+
+/**
  * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
  * every sibling tab's own header comment): pinning offsets require
  * `columnSizingFeature` registered alongside `columnPinningFeature`, or
@@ -333,7 +404,17 @@ const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "
 const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, AllianceRow>();
 
-/** One pick's team number plus its own tiered total metric — G-8 drops the nickname this cell used to render alongside the number. */
+/**
+ * One pick's team number plus its own tiered total metric — G-8 drops the
+ * nickname this cell used to render alongside the number.
+ *
+ * `gap-[var(--spacing-sm)]` (D-7, 260904-5zg, up from `--spacing-xs`): the
+ * user's own complaint — "EPA is too close to team number" — was a real,
+ * measured 4px gap; live-measured against the deployed 2026mrcmp EPA/VPR
+ * rosters, doubling it to 8px gives the number and its metric deliberate
+ * separation without threatening `PICK_COLUMN_WIDTH_PX`'s own measured
+ * budget (that constant's own doc comment accounts for this exact gap).
+ */
 function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined; season: number; algorithm: PublishedAlgorithmId }) {
   if (pick === undefined) {
     return <span className="numeric-cell"></span>;
@@ -343,7 +424,7 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
       to="/team/$teamNumber"
       params={{ teamNumber: String(pick.teamNumber) }}
       search={{ year: season, algorithm, tab: "overview" }}
-      className="flex items-center gap-[var(--spacing-xs)]"
+      className="flex items-center gap-[var(--spacing-sm)]"
     >
       <span className="numeric-cell">{pick.teamNumber}</span>
       <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
@@ -372,7 +453,8 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
           to="/team/$teamNumber"
           params={{ teamNumber: String(pick.teamNumber) }}
           search={{ year: season, algorithm, tab: "overview" }}
-          className="flex items-center gap-[var(--spacing-xs)]"
+          // Same D-7 gap widening as PickCell's identical inner Link.
+          className="flex items-center gap-[var(--spacing-sm)]"
         >
           <span className="numeric-cell">{pick.teamNumber}</span>
           <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
@@ -459,19 +541,22 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor((row) => row.picks[0], {
       id: "pick0",
       header: ALLIANCES_COLUMN_HEADERS[1],
-      size: 190,
+      // D-1's `metricColumnWidth` predicate, reused here (`pickColumnWidth`,
+      // 260904-5zg) — see that constant's own doc comment for the measured
+      // derivation.
+      size: pickColumnWidth(algorithmId),
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks[1], {
       id: "pick1",
       header: ALLIANCES_COLUMN_HEADERS[2],
-      size: 190,
+      size: pickColumnWidth(algorithmId),
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks[2], {
       id: "pick2",
       header: ALLIANCES_COLUMN_HEADERS[3],
-      size: 190,
+      size: pickColumnWidth(algorithmId),
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     // Task 2 (260902-ixg): included only when `hasAnyBackupPick` found one —
@@ -490,7 +575,9 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor("combined", {
       id: "combined",
       header: ALLIANCES_COLUMN_HEADERS[5],
-      size: 160,
+      // D-7 (260904-5zg): down from the pre-existing 160 — `combinedColumnWidth`'s
+      // own doc comment has the full-corpus measured derivation.
+      size: combinedColumnWidth(algorithmId),
       cell: (info) => <CombinedCell metric={info.getValue()} approx={info.row.original.combinedApproxTier} />,
     }),
     columnHelper.accessor("record", {
@@ -498,7 +585,10 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
       header: ALLIANCES_COLUMN_HEADERS[6],
       // 72 (Task 3, 260902-ixg), not 100: header "RECORD" needs 66px,
       // widest content ("4-3-0" etc.) needs 62px — 72 covers both with cell
-      // padding to spare.
+      // padding to spare. Re-measured for D-7 (260904-5zg) against a
+      // full-corpus sweep of every 2026 alliance record: the real worst case
+      // is still single-digit-per-field ("6-4-1", 5 characters) — 72 already
+      // covers it, unchanged.
       size: 72,
       cell: (info) => <span className="numeric-cell">{formatAllianceRecord(info.getValue())}</span>,
     }),

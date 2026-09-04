@@ -14,6 +14,9 @@ import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TeamsTable } from "./TeamsTable";
 import {
   buildColumns,
+  METRIC_COLUMN_WIDTH_PX,
+  METRIC_COLUMN_WIDTH_SPREADLESS_PX,
+  metricColumnWidth,
   MOBILE_PINNED_COLUMN_IDS,
   PINNED_COLUMN_IDS,
   rankColumnAccessibleLabel,
@@ -204,5 +207,35 @@ describe("buildColumns — 260902-rax's narrow-mode rank header text", () => {
     // Distinct algorithms still produce distinct accessible names — D-20's
     // provenance guarantee survives the narrow-mode split.
     expect(rankColumnAccessibleLabel("vpr")).not.toBe(rankColumnAccessibleLabel("opr"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-1 (260904-5zg) — metric column width varies by algorithm at/above the
+// breakpoint, so a later edit cannot silently collapse it back to one number.
+// ---------------------------------------------------------------------------
+describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
+  it("VPR (spread-carrying) keeps the original, measured-safe 120px width", () => {
+    expect(metricColumnWidth("vpr")).toBe(METRIC_COLUMN_WIDTH_PX);
+    expect(metricColumnWidth("vpr")).toBe(120);
+  });
+
+  it("EPA and OPR (spread-less) get the smaller, measured width — strictly less than VPR's", () => {
+    expect(metricColumnWidth("epa")).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
+    expect(metricColumnWidth("opr")).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
+    expect(metricColumnWidth("epa")).toBeLessThan(metricColumnWidth("vpr"));
+  });
+
+  it("buildColumns applies metricColumnWidth at/above the breakpoint, and the pre-existing literal 120 unchanged below it (G-2/G-11)", () => {
+    const wideEpa = buildColumns("epa", 2026, false) as { id?: string; size: number }[];
+    const wideVpr = buildColumns("vpr", 2026, false) as { id?: string; size: number }[];
+    const epaTotal = wideEpa.find((c) => c.id === "total")!;
+    const vprTotal = wideVpr.find((c) => c.id === "total")!;
+    expect(epaTotal.size).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
+    expect(vprTotal.size).toBe(METRIC_COLUMN_WIDTH_PX);
+
+    const narrowEpa = buildColumns("epa", 2026, true) as { id?: string; size: number }[];
+    const narrowTotal = narrowEpa.find((c) => c.id === "total")!;
+    expect(narrowTotal.size).toBe(120);
   });
 });

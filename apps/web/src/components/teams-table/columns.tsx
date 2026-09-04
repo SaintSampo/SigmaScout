@@ -199,6 +199,64 @@ const columnHelper = createColumnHelper<typeof features, TeamRow>();
 export type TeamsTableView = "grouped" | "components";
 
 /**
+ * The WIDE-viewport (at/above `MOBILE_BREAKPOINT_PX`) per-metric-column
+ * width for a spread-carrying algorithm (VPR) — UNCHANGED at 120, the value
+ * this file has always used. Below the breakpoint every algorithm still
+ * uses the literal `120` directly at `buildColumns`'s own call site
+ * (G-2/G-11's own arithmetic — `128 (pinned) + 90 (nickname) + 120
+ * (metric) = 338px` — depends on that literal and needs no
+ * re-derivation); this constant and `METRIC_COLUMN_WIDTH_SPREADLESS_PX`
+ * below are for the at/above-breakpoint case only.
+ */
+export const METRIC_COLUMN_WIDTH_PX = 120;
+
+/**
+ * The WIDE-viewport per-metric-column width for a SPREAD-LESS algorithm
+ * (D-1, 2026-09-04, quick task 260904-5zg — confirming, not assuming, the
+ * plan's own leading hypothesis that 120 was sized for VPR's `value ±
+ * spread` string and left every EPA column carrying a fixed surplus).
+ *
+ * Measured live against the deployed 2026 EPA/OPR artifacts (a throwaway
+ * measurement script, deleted before this task's commit, drove a real
+ * rendered page): EPA/OPR never publish a spread on any metric
+ * (`packages/core/algorithms/epa.ts`'s/`opr.ts`'s own `teamMetrics` — a
+ * mean only), so every cell is a bare `value.toFixed(2)` string, tier-boxed
+ * or not. `.numeric-cell`'s `font-feature-settings: "tnum"` makes rendered
+ * width a pure function of CHARACTER COUNT, not the specific digits —
+ * confirmed by measuring "415.98" (OPR's real 2026 worst-case Total,
+ * boxed) and "-22.50" (an equal-length negative) at the identical 65.16px.
+ * That is the real worst case across both cell shapes this width covers: a
+ * boxed Total ("415.98"/OPR's real "-38.48", both 6 chars) and a bare
+ * derived group value ("241.96", 2026 EPA's own real Teleop worst case, 6
+ * chars, 49.16px — smaller, so the boxed case is binding). 65.16px content
+ * + 16px `TableCell` `p-2` padding + a 6px cross-browser font-hinting
+ * buffer (the same small numeric-column margin
+ * `RANK_COLUMN_WIDTH_NARROW_PX` uses) = 87.16, rounded up to 88.
+ */
+export const METRIC_COLUMN_WIDTH_SPREADLESS_PX = 88;
+
+/**
+ * Whether `algorithmId` ever publishes a spread on a metric — VPR is the
+ * only one that does (`sigma1/index.ts`'s `teamMetrics`); EPA and OPR carry
+ * a mean only (see their own `teamMetrics` doc comments). Exported so
+ * `event/AlliancesTab.tsx`'s own D-7 pick/combined column widths (Task 3,
+ * same plan) derive from this identical predicate rather than a second,
+ * independently-typed `=== "vpr"` check.
+ */
+export function algorithmPublishesSpread(algorithmId: string): boolean {
+  return algorithmId === "vpr";
+}
+
+/**
+ * The metric column's WIDE-viewport width for `algorithmId` (D-1) — the one
+ * derivation `buildColumns` below reads, so a later width change to either
+ * constant above needs no second call-site edit.
+ */
+export function metricColumnWidth(algorithmId: string): number {
+  return algorithmPublishesSpread(algorithmId) ? METRIC_COLUMN_WIDTH_PX : METRIC_COLUMN_WIDTH_SPREADLESS_PX;
+}
+
+/**
  * The metric column KEY SET a given (algorithm, season, view) triple
  * actually displays — the one derivation both `buildColumns` and
  * `sortableColumnIds` share. Total leads in BOTH the grouped branch and
@@ -283,7 +341,13 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       // Friendly labels ONLY (2026-09-01 redesign): "Hub Shift 2", "Auto",
       // "Fouls Committed" — never a raw artifact key like `hubShift2`.
       header: metricDisplayLabel(key),
-      size: 120,
+      // D-1 (2026-09-04, 260904-5zg): below the breakpoint this stays the
+      // literal 120 UNCHANGED (G-2/G-11's own measured narrow arithmetic
+      // depends on it); at/above it, `metricColumnWidth` sizes from
+      // MEASURED rendered content instead of a width reserved for VPR's
+      // `value ± spread` string — see that function's own doc comment for
+      // the measured derivation.
+      size: isNarrow ? 120 : metricColumnWidth(algorithmId),
       // D-17's rarity tiers, the same ones the team page's metric grid
       // applies and the same `.metric-tier--*` tokens — so a number does
       // not change meaning between the Teams table and the team page it

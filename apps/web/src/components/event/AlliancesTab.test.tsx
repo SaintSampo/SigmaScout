@@ -217,22 +217,31 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     ]);
   });
 
-  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg): the two columns Task 3 tightens, measured against the running app — the three pick columns and Combined Total stay at their content-bound 190/160 and are OUT of this task's scope", async () => {
+  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg) — for a spread-carrying (VPR) fixture the pick columns stay at their content-bound 190px (D-7, 260904-5zg re-measured this and found VPR genuinely cannot shrink further) while Combined Total is now 130px (down from 160, same D-7 pass)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const allianceHeader = await screen.findByTestId("alliances-header-allianceNumber");
     const recordHeader = await screen.findByTestId("alliances-header-record");
     expect(allianceHeader.style.width).toBe("88px");
     expect(recordHeader.style.width).toBe("72px");
-    // Spot-check the untouched columns did not move.
+    // Spot-check the untouched/D-7-updated columns landed where expected.
     expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("190px");
-    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("160px");
+    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("130px");
   });
 
-  it("the table itself is pinned to the sum of its own column sizes (890px on this no-backup fixture), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
+  it("D-7 (260904-5zg): for a spread-less (EPA) fixture the pick columns shrink to 150px and Combined Total to 128px (header-bound, not value-bound — see COMBINED_COLUMN_WIDTH_SPREADLESS_PX's own doc comment) — the measured, algorithm-dependent reduction VPR's own worst case does not allow", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance()], { algorithmId: "epa", algorithmVersion: "2.0.0+baseline" });
+    renderAlliances(artifact, "epa", 2024);
+    expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("150px");
+    expect((await screen.findByTestId("alliances-header-pick1")).style.width).toBe("150px");
+    expect((await screen.findByTestId("alliances-header-pick2")).style.width).toBe("150px");
+    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("128px");
+  });
+
+  it("the table itself is pinned to the sum of its own column sizes (860px on this no-backup fixture, down from 890 pre-D-7), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const table = scrollRegion.querySelector("table");
-    expect(table?.style.width).toBe("890px");
+    expect(table?.style.width).toBe("860px");
   });
 
   it("a fourth pick renders in the Backup cell with a (backup) suffix, and its total is excluded from the combined value", async () => {
