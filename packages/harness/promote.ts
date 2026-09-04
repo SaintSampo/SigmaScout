@@ -123,6 +123,7 @@ import {
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
+import { ParamSetsBySeasonSchema } from "./seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
@@ -202,17 +203,45 @@ const DigestSchema = z.object({
   headlineMetrics: z.array(HeadlineMetricSchema),
 });
 
-/** D-13's committed version-file shape: a code version paired with a named, committed parameter set, plus the provenance and digest that make it SC-5-reproducible. */
-export const PromotedVersionSchema = z.object({
-  id: z.string().min(1),
-  codeVersion: z.string().min(1),
-  paramSetName: z.string().min(1),
-  /** `{codeVersion}+{paramSetName}` — D-13's version identity. */
-  version: z.string().min(1),
-  params: Sigma1ParamsSchema,
-  provenance: ProvenanceSchema,
-  digest: DigestSchema,
-});
+/**
+ * D-13's committed version-file shape: a code version paired with a named,
+ * committed parameter set, plus the provenance and digest that make it
+ * SC-5-reproducible.
+ *
+ * D-1/D-2 (quick task 260904-100): `params` (one set for every season) and
+ * `paramSetsBySeason` (`seasonParamSets.ts`'s per-season map) are mutually
+ * exclusive alternatives, enforced by the `.check()` below — EXACTLY one
+ * must be present, never both (two different parameter sets with no stated
+ * precedence) and never neither (no parameter set at all).
+ */
+export const PromotedVersionSchema = z
+  .object({
+    id: z.string().min(1),
+    codeVersion: z.string().min(1),
+    paramSetName: z.string().min(1),
+    /** `{codeVersion}+{paramSetName}` — D-13's version identity. */
+    version: z.string().min(1),
+    params: Sigma1ParamsSchema.optional(),
+    /** D-1/D-2: the per-season alternative to `params` above. */
+    paramSetsBySeason: ParamSetsBySeasonSchema.optional(),
+    provenance: ProvenanceSchema,
+    digest: DigestSchema,
+  })
+  .check((ctx) => {
+    const hasParams = ctx.value.params !== undefined;
+    const hasParamSetsBySeason = ctx.value.paramSetsBySeason !== undefined;
+    if (hasParams === hasParamSetsBySeason) {
+      ctx.issues.push({
+        code: "custom",
+        message:
+          `PromotedVersionSchema: exactly one of "params" (one parameter set for every season) or ` +
+          `"paramSetsBySeason" (D-2's per-season map) must be present — never both (two parameter sets with no ` +
+          `stated precedence) and never neither (no parameter set at all).`,
+        path: [],
+        input: ctx.value,
+      });
+    }
+  });
 
 export type PromotedVersion = z.infer<typeof PromotedVersionSchema>;
 

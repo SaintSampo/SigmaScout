@@ -28,13 +28,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { makeSigma1 } from "../core/algorithms/sigma1/index.js";
 import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
 import type { MatchResult } from "../core/algorithms/types.js";
 import type { DigestSliceFixture } from "./fixtures/extract-digest-slice.js";
 import { computePredictionStreamDigest, PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { WalkForwardSimulator } from "./replay.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
+import { makeSeasonalSigma1 } from "./seasonParamSets.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
@@ -135,12 +135,12 @@ describe("promoted algorithm version reproducibility (D-15/SC-5)", () => {
       }
 
       it("re-runs on its own recorded slice and reproduces its committed digest bitwise", () => {
-        const algorithm = makeSigma1({
-          id: promoted.id,
-          linkMode: "predictive-variance",
-          params: promoted.params,
-          paramSetName: promoted.paramSetName,
-        });
+        // D-2 (quick task 260904-100): routed through the per-season facade
+        // rather than a bare `makeSigma1` call, so EVERY committed version
+        // file's reproduction gate — legacy `params` or `paramSetsBySeason`
+        // alike — runs through the same machinery the D-4 equivalence gate
+        // exercises.
+        const algorithm = makeSeasonalSigma1(promoted, { id: promoted.id, linkMode: "predictive-variance" });
         const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
         const simulator = new WalkForwardSimulator(stream);
         const records = simulator.run(algorithm, teams);
