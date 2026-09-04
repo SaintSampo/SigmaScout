@@ -8,6 +8,12 @@ priority: medium
 
 # `PROJECT.md`'s Success Metrics table still records SC-2 as blocked
 
+> **CLOSED 2026-09-04 (gsd-fast, user-approved).** The row now reads "✓ Held (Phase 2, closed
+> by quick task 260904-4aa)" with the suggested pointer to `docs/models/epa-vs-statbotics.md`
+> and the offseason-comparability caveat, exactly as the "Suggested correction" below asked.
+> `02-VERIFICATION.md`'s matching stale line was deliberately left untouched — it is a dated
+> verification snapshot, accurate for the day it records, per this file's own note.
+
 `.planning/PROJECT.md`, Success Metrics table, the "EPA reimplemented, not pulled from Statbotics
 API" row currently reads:
 
