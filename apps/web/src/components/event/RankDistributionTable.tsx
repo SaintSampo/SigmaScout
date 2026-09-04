@@ -43,7 +43,7 @@ export const RANK_MOBILE_PINNED_COLUMN_IDS = RANK_PINNED_COLUMN_IDS.filter((id) 
  * structural gate that forbids a probability-of-top-8 or captain column
  * being added back without failing a test.
  */
-export const RANK_TABLE_HEADERS = ["Team #", "Nickname", "Median", "Distribution"] as const;
+export const RANK_TABLE_HEADERS = ["Team #", "Team Name", "Median", "Distribution"] as const;
 
 /**
  * The shared 1..N rank axis, drawn EXACTLY ONCE inside the Distribution

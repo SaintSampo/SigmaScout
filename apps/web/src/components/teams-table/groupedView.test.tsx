@@ -8,17 +8,21 @@ import { displayedMetricKeys, sortableColumnIds } from "./columns";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { GROUP_METRIC_KEYS, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 
-describe("displayedMetricKeys (decision T1)", () => {
-  it("VPR grouped view shows exactly Auto/Teleop/Endgame then Total", () => {
-    expect(displayedMetricKeys("vpr", 2026, "grouped")).toEqual([...GROUP_METRIC_KEYS, TOTAL_KEY]);
+describe("displayedMetricKeys (decision T1, D-5 Total-leads order per 260904-5zg)", () => {
+  it("VPR grouped view shows exactly Total then Auto/Teleop/Endgame", () => {
+    expect(displayedMetricKeys("vpr", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
   });
 
   it("VPR components view shows the full declared component set", () => {
     expect(displayedMetricKeys("vpr", 2026, "components")).toEqual(metricKeysFor("vpr", 2026));
   });
 
-  it("EPA has no phase metrics in its teams artifact, so BOTH views resolve to components", () => {
-    expect(displayedMetricKeys("epa", 2026, "grouped")).toEqual(metricKeysFor("epa", 2026));
+  it("EPA now has a real grouped view too (D-2, 260904-5zg): Total then Auto/Teleop/Endgame, derived from published components", () => {
+    expect(displayedMetricKeys("epa", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
+  });
+
+  it("EPA components view is unchanged — the full declared component set, Total leading (D-5)", () => {
+    expect(displayedMetricKeys("epa", 2026, "components")).toEqual(metricKeysFor("epa", 2026));
   });
 
   it("OPR stays Total-only on both views", () => {
@@ -29,6 +33,10 @@ describe("displayedMetricKeys (decision T1)", () => {
   it("sortable ids track the DISPLAYED view, so a grouped sort key is never offered while components are shown", () => {
     expect(sortableColumnIds("vpr", 2026, "grouped")).toContain("phaseAuto");
     expect(sortableColumnIds("vpr", 2026, "components")).not.toContain("phaseAuto");
+  });
+
+  it("EPA's grouped sortable ids also contain phaseAuto now that EPA has a grouped view", () => {
+    expect(sortableColumnIds("epa", 2026, "grouped")).toContain("phaseAuto");
   });
 });
 

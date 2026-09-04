@@ -37,13 +37,21 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
  * returning a default — that throw propagates here unguarded: an unmapped
  * season has no defensible column set, matching `seasons.ts`'s `SEASONS`
  * registration guarantee (every listed season resolves without throwing).
+ *
+ * Order (D-5, 2026-09-04 quick task 260904-5zg): TOTAL_KEY leads, followed
+ * by the season's components in their own declared order — deliberately,
+ * not incidentally. This one array is the column order for the Teams
+ * table's components view, the event Breakdown tab and Breakdown's
+ * skeleton (all three consume this array's order directly), so leading
+ * with Total here lands the "Total sits immediately right of the
+ * team-name column" requirement in all three places from one change.
  */
 export function metricKeysFor(algorithmId: string, season: number): readonly string[] {
   if (algorithmId === "opr") {
     return [TOTAL_KEY];
   }
   const { components } = componentMapForSeason(season);
-  return [...components, TOTAL_KEY];
+  return [TOTAL_KEY, ...components];
 }
 
 /**
@@ -54,16 +62,43 @@ export function metricKeysFor(algorithmId: string, season: number): readonly str
 export const GROUP_METRIC_KEYS: readonly string[] = COMPONENT_GROUP_IDS.map((id) => COMPONENT_GROUP_METRIC_KEYS[id]);
 
 /**
- * Whether the TEAMS-LIST artifact for this algorithm carries the phase-group
- * metrics, i.e. whether the grouped Teams-table view can render real values.
- * Verified against the live 2026 artifacts (2026-09-01): VPR publishes all
- * three groups per row; EPA publishes components only (it has no spreads, so
- * honest group spreads are pipeline work, not client work); OPR publishes
- * only Total. Derived from the algorithm id, never from inspecting fetched
- * rows — the same column-set discipline `metricKeysFor` states above.
+ * Whether the TEAMS-LIST artifact for this algorithm PUBLISHES the
+ * phase-group metrics as first-class entries (their own spread and
+ * percentile, not just a value). Verified against the live 2026 artifacts
+ * (2026-09-01): VPR publishes all three groups per row; EPA and OPR do not.
+ * Derived from the algorithm id, never from inspecting fetched rows — the
+ * same column-set discipline `metricKeysFor` states above.
+ *
+ * Split from `hasGroupedTeamsView` (2026-09-04, quick task 260904-5zg,
+ * D-2): this predicate answers "does the pipeline publish the group", which
+ * is a narrower question than "can the grouped view show real values" now
+ * that `lib/metricGroups.ts`'s `withDerivedGroupMetrics` can derive an
+ * honest, value-only group entry for an algorithm that publishes
+ * components but not groups (EPA). Surfaces that need to know whether a
+ * cell is PUBLISHED (and therefore may carry a spread/tier) rather than
+ * DERIVED (value only) read this function; surfaces that only need to know
+ * whether the grouped view has anything real to show read
+ * `hasGroupedTeamsView` below.
+ */
+export function publishesGroupMetrics(algorithmId: string): boolean {
+  return algorithmId === "vpr";
+}
+
+/**
+ * Whether the grouped Teams-table view can render REAL values (published or
+ * exactly derived) for this algorithm — true for every algorithm that has
+ * components to group, false only for OPR, which publishes Total alone and
+ * has nothing to group.
+ *
+ * Widened (2026-09-04, quick task 260904-5zg, D-2) from "publishes the
+ * group metrics" (VPR only) to this broader question, now that
+ * `lib/metricGroups.ts`'s `withDerivedGroupMetrics` can produce an honest,
+ * value-only group entry for EPA from its published components. See
+ * `publishesGroupMetrics` above for the narrower "did the pipeline publish
+ * this" question this function no longer answers.
  */
 export function hasGroupedTeamsView(algorithmId: string): boolean {
-  return algorithmId === "vpr";
+  return algorithmId !== "opr";
 }
 
 /**

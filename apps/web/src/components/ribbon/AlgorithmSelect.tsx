@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { algorithmsManifestQueryOptions } from "@/lib/api/manifests";
-import { metricKeysFor } from "@/lib/metricKeys";
+import { teamsSortKeyUniverse } from "@/lib/metricKeys";
 import { resolveSortKey } from "@/lib/resolveSortKey";
 import type { YearChangeableSearch } from "@/lib/searchParams";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -112,7 +112,12 @@ export function AlgorithmSelect() {
     // NAV-02 adjacency edge: reselecting the already-selected value is a
     // no-op — no navigation, no refetch, no duplicate history entry.
     if (newAlgorithm === search.algorithm) return;
-    const nextSort = search.sort === undefined ? undefined : resolveSortKey(search.sort, metricKeysFor(newAlgorithm, search.year));
+    // `teamsSortKeyUniverse`, not `metricKeysFor` (2026-09-04, 260904-5zg):
+    // now that EPA also has a grouped view (D-2), a grouped sort key like
+    // `phaseAuto` must survive an algorithm switch too — the same key
+    // universe `searchParams.ts`'s `applyYearChange` already uses for the
+    // year-change path, so both triggers share one resolution rule.
+    const nextSort = search.sort === undefined ? undefined : resolveSortKey(search.sort, teamsSortKeyUniverse(newAlgorithm, search.year));
     navigate({
       search: (prev) => ({ ...prev, algorithm: newAlgorithm, sort: nextSort }),
     });

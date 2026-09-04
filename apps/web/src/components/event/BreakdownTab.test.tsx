@@ -113,34 +113,35 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "vpr", season = 
 }
 
 describe("BreakdownTab — column set (EVNT-03)", () => {
-  it("vpr/2024: exactly Team #, Nickname, thirteen component keys, and Total, in metricKeysFor order — no Rank column", async () => {
+  it("vpr/2024: exactly Team #, Team Name, Total, then twelve remaining component keys, in metricKeysFor order (D-5: Total leads) — no Rank column", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
     renderBreakdown(artifact, "vpr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expected = ["Team #", "Nickname", ...metricKeysFor("vpr", 2024)];
+    const expected = ["Team #", "Team Name", ...metricKeysFor("vpr", 2024)];
     // 07-UAT.md G-7: `metricLabel` humanizes every non-Total header into
     // space-separated Title Case (e.g. "autoLeave" -> "Auto Leave") so a
     // wrapped header has real word-break points. `metricLabel("Team #")`/
-    // `metricLabel("Nickname")` are no-ops (no camelCase/digit boundary to
+    // `metricLabel("Team Name")` are no-ops (no camelCase/digit boundary to
     // split), so mapping the whole array through it uniformly is safe and
     // avoids a special-cased branch here that could drift from the real
     // implementation.
     const expectedLabels = expected.map((key) => metricLabel(key));
     expect(headers).toEqual(expectedLabels);
     expect(headers).toHaveLength(16);
+    expect(headers[2]).toBe("Total");
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
   });
 
-  it("opr/2024: exactly Team #, Nickname, Total — a legitimately narrow table, not a broken wide one", async () => {
+  it("opr/2024: exactly Team #, Team Name, Total — a legitimately narrow table, not a broken wide one", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 20 } } })], { algorithmId: "opr" });
     renderBreakdown(artifact, "opr", 2024);
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Team #", "Nickname", "Total"]);
+    expect(headers).toEqual(["Team #", "Team Name", "Total"]);
     expect(headers).toHaveLength(3);
   });
 
@@ -155,7 +156,7 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expectedLabels = ["Team #", "Nickname", ...orderedKeys.map((key) => metricLabel(key))];
+    const expectedLabels = ["Team #", "Team Name", ...orderedKeys.map((key) => metricLabel(key))];
     expect(headers).toEqual(expectedLabels);
   });
 });
@@ -289,7 +290,7 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
 });
 
 describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () => {
-  it("Team # and Nickname header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
+  it("Team # and Team Name header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
     renderBreakdown(artifact, "vpr", 2024);
 

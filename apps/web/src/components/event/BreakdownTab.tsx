@@ -225,7 +225,9 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
       ),
     }),
     columnHelper.accessor("nickname", {
-      header: "Nickname",
+      // D-6 (2026-09-04, 260904-5zg): visible label only — the column id
+      // stays "nickname" (pinning/data-testid/e2e selectors key off it).
+      header: "Team Name",
       // 07-UAT.md G-2 part 2: 220 at/above the breakpoint (unchanged),
       // `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it — the same real-geometry-
       // derived constant `TeamsTable`/`InsightsTab` share (`teams-table/columns.tsx`'s
@@ -289,7 +291,7 @@ const BREAKDOWN_SKELETON_ROW_COUNT = 8;
  * table that is loading, never a spinner.
  */
 export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  const headers = ["Team #", "Nickname", ...metricKeysFor(algorithmId, season).map(metricLabel)];
+  const headers = ["Team #", "Team Name", ...metricKeysFor(algorithmId, season).map(metricLabel)];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">

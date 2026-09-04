@@ -358,7 +358,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Rank",
       "Team #",
-      "Nickname",
+      "Team Name",
       "Record",
       "RP",
       "Auto",

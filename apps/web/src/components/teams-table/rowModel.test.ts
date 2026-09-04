@@ -118,6 +118,34 @@ describe("buildTeamRows", () => {
   });
 });
 
+describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => {
+  it("an EPA row's metrics carry a derived phaseAuto, summed from that row's own published components", () => {
+    const rows = buildTeamRows(
+      artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, autoTower: { value: 3 }, hubAuto: { value: 5 } } })]),
+      "epa",
+    );
+    expect(rows[0]?.metrics.phaseAuto).toEqual({ value: 8 });
+  });
+
+  it("a derived phaseAuto is SORTABLE — sortTeamRows orders by it exactly like a published metric key", () => {
+    const rows = buildTeamRows(
+      artifact([
+        team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 }, autoTower: { value: 1 }, hubAuto: { value: 1 } } }),
+        team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 10 }, autoTower: { value: 9 }, hubAuto: { value: 9 } } }),
+      ]),
+      "epa",
+    );
+    const sorted = sortTeamRows(rows, "phaseAuto", "desc").map((row) => row.teamKey);
+    expect(sorted).toEqual(["frc2", "frc1"]);
+  });
+
+  it("a VPR row's already-published phaseAuto (with spread/percentile) survives byte-identical", () => {
+    const publishedPhaseAuto = { value: 30, spread: 1.2, percentile: 90 };
+    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, phaseAuto: publishedPhaseAuto } })]), "vpr");
+    expect(rows[0]?.metrics.phaseAuto).toBe(publishedPhaseAuto);
+  });
+});
+
 describe("sortTeamRows", () => {
   it("orders by the given key descending and breaks ties by ascending team number", () => {
     const rows = buildTeamRows(

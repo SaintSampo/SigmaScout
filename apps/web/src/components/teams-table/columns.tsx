@@ -7,11 +7,12 @@
  * `createColumnHelper`, logical `'start'`/`'end'` pinning. Do NOT copy
  * 05-RESEARCH.md's Pattern 2 example; it targets v8.
  *
- * The metric columns come from `metricKeysFor(algorithmId, season)` and
- * NOTHING else — never from inspecting a fetched row (TEAM-01's own
- * prohibition). A row missing a declared component renders a BLANK cell
- * (`MetricValue`'s own absent-metric case) and the column itself never
- * disappears.
+ * The metric columns come from `metricKeysFor(algorithmId, season)` (the
+ * components view) or `displayedMetricKeys`'s own grouped-view key set
+ * (`[TOTAL_KEY, ...GROUP_METRIC_KEYS]`, D-5) and NOTHING else — never from
+ * inspecting a fetched row (TEAM-01's own prohibition). A row missing a
+ * declared component renders a BLANK cell (`MetricValue`'s own
+ * absent-metric case) and the column itself never disappears.
  */
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
@@ -197,10 +198,17 @@ const columnHelper = createColumnHelper<typeof features, TeamRow>();
  */
 export type TeamsTableView = "grouped" | "components";
 
-/** The metric column KEY SET a given (algorithm, season, view) triple actually displays — the one derivation both `buildColumns` and `sortableColumnIds` share. */
+/**
+ * The metric column KEY SET a given (algorithm, season, view) triple
+ * actually displays — the one derivation both `buildColumns` and
+ * `sortableColumnIds` share. Total leads in BOTH the grouped branch and
+ * `metricKeysFor`'s own components-view order (D-5, 2026-09-04) — see
+ * `metricKeysFor`'s own doc comment for why that single change lands D-5
+ * everywhere it applies.
+ */
 export function displayedMetricKeys(algorithmId: string, season: number, view: TeamsTableView): readonly string[] {
   if (view === "grouped" && hasGroupedTeamsView(algorithmId)) {
-    return [...GROUP_METRIC_KEYS, TOTAL_KEY];
+    return [TOTAL_KEY, ...GROUP_METRIC_KEYS];
   }
   return metricKeysFor(algorithmId, season);
 }
@@ -286,13 +294,13 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     }),
   );
 
-  // The narrow-viewport LEADING metric (F3): in the grouped view the
-  // headline is Total — the axis the whole table ranks by — so it takes the
-  // first-screenful slot; the components view keeps its original
-  // first-declared-component lead (the shipped F3 behavior). Same 120px
-  // declared width either way, so G-2/G-11's measured arithmetic is
-  // untouched.
-  const leadMetricIndex = view === "grouped" && hasGroupedTeamsView(algorithmId) ? metricKeys.indexOf(TOTAL_KEY) : 0;
+  // The narrow-viewport LEADING metric (F3): Total leads `metricKeys` in
+  // EVERY view now (D-5, 2026-09-04) — `metricKeysFor`'s components-view
+  // order and `displayedMetricKeys`'s grouped-view order both put
+  // `TOTAL_KEY` first — so the narrow lead is always index 0 by
+  // construction, not a view-specific branch. Same 120px declared width
+  // either way, so G-2/G-11's measured narrow arithmetic is unaffected.
+  const leadMetricIndex = 0;
   const leadMetricColumns = [metricColumns[leadMetricIndex]!];
   const restMetricColumns = metricColumns.filter((_, index) => index !== leadMetricIndex);
 
@@ -367,7 +375,10 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       ),
     }),
     columnHelper.accessor("nickname", {
-      header: "Nickname",
+      // D-6 (2026-09-04, 260904-5zg): visible label only — the column id
+      // stays "nickname" everywhere (pinning, sticky offsets, data-testid,
+      // e2e selectors all key off it).
+      header: "Team Name",
       // 07-UAT.md G-2 part 2: 220 at/above the breakpoint (unchanged),
       // `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
       // doc comment for the real-geometry derivation (this table's own

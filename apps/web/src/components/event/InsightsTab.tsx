@@ -2,7 +2,7 @@
  * The Insights tab (EVNT-02, D-07…D-10, 07-11-PLAN.md): the event's teams in
  * TBA's official event-rank order — or, per D-08, the selected algorithm's
  * own Total order with a stated notice when no official ranking exists.
- * Nine columns: Rank, Team #, Nickname, Record, RP, Total, Auto, Teleop, Endgame.
+ * Nine columns: Rank, Team #, Team Name, Record, RP, Total, Auto, Teleop, Endgame.
  *
  * The first section below (Task 1) is the pure data layer — no React, no
  * TanStack anything. `buildInsightsRows` is the ONE function that returns
@@ -319,7 +319,9 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       ),
     }),
     columnHelper.accessor("nickname", {
-      header: "Nickname",
+      // D-6 (2026-09-04, 260904-5zg): visible label only — the column id
+      // stays "nickname" (pinning/data-testid/e2e selectors key off it).
+      header: "Team Name",
       // 07-UAT.md G-2 part 2 ("first-paint half"): 220 at/above the
       // breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it —
       // see that constant's own doc comment in `teams-table/columns.tsx` for
@@ -384,7 +386,7 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
 export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void algorithmId; // the skeleton's header set does not vary by algorithm — see the doc comment above for why orderSource is fixed to "official" here
   void season;
-  const headers = ["Rank", "Team #", "Nickname", "Record", "RP", ...METRIC_GROUPS.map((group) => group.label), "Total"];
+  const headers = ["Rank", "Team #", "Team Name", "Record", "RP", ...METRIC_GROUPS.map((group) => group.label), "Total"];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">

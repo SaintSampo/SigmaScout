@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { metricKeysFor, TOTAL_KEY } from "./metricKeys.js";
+import { hasGroupedTeamsView, metricKeysFor, publishesGroupMetrics, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
 import { CURRENT_SEASON, FIRST_SEASON, SEASONS } from "./seasons.js";
 import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
 
@@ -18,7 +18,7 @@ describe("metricKeysFor", () => {
     expect(keys2026.length).toBeGreaterThan(keys2022.length);
   });
 
-  it("every returned array ends with the total key and contains it exactly once", () => {
+  it("every returned array LEADS with the total key (D-5) and contains it exactly once", () => {
     for (const [algorithmId, season] of [
       ["opr", 2024],
       ["epa", 2022],
@@ -26,7 +26,7 @@ describe("metricKeysFor", () => {
       ["vpr", 2024],
     ] as const) {
       const keys = metricKeysFor(algorithmId, season);
-      expect(keys.at(-1)).toBe(TOTAL_KEY);
+      expect(keys[0]).toBe(TOTAL_KEY);
       expect(keys.filter((key) => key === TOTAL_KEY)).toHaveLength(1);
     }
   });
@@ -34,6 +34,24 @@ describe("metricKeysFor", () => {
   it("surfaces the underlying named error for a season with no registered component map, rather than returning an empty array", () => {
     expect(() => metricKeysFor("epa", 2021)).toThrow();
     expect(() => metricKeysFor("epa", 2021)).toThrow(/no component map registered/);
+  });
+});
+
+describe("publishesGroupMetrics / hasGroupedTeamsView (D-2, 260904-5zg)", () => {
+  it("publishesGroupMetrics is true for vpr only", () => {
+    expect(publishesGroupMetrics("vpr")).toBe(true);
+    expect(publishesGroupMetrics("epa")).toBe(false);
+    expect(publishesGroupMetrics("opr")).toBe(false);
+  });
+
+  it("hasGroupedTeamsView is true for vpr AND epa, false for opr", () => {
+    expect(hasGroupedTeamsView("vpr")).toBe(true);
+    expect(hasGroupedTeamsView("epa")).toBe(true);
+    expect(hasGroupedTeamsView("opr")).toBe(false);
+  });
+
+  it("teamsSortKeyUniverse('epa', 2026) contains phaseAuto now that EPA has a grouped view", () => {
+    expect(teamsSortKeyUniverse("epa", 2026)).toContain("phaseAuto");
   });
 });
 

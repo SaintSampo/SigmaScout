@@ -16,12 +16,22 @@
  * below is that decoded shape — nothing in this file changed for the
  * positional encoding to exist.
  *
- * Nothing here derives a statistic the artifact does not carry (NAV-06).
- * `winRate` is arithmetic over three published integers, which NAV-06 permits
- * as presentation; the metrics record is rendered exactly as published, never
- * recomputed or defaulted.
+ * Nothing here derives a statistic the artifact does not carry beyond
+ * NAV-06's own permitted class of presentation arithmetic. `winRate` is
+ * arithmetic over three published integers; as of 2026-09-04 (quick task
+ * 260904-5zg, D-2/D-3/D-4), `row.metrics` is ALSO no longer purely "exactly
+ * as published" — `withDerivedGroupMetrics` (lib/metricGroups.ts) adds a
+ * value-only `phaseAuto`/`phaseTeleop`/`phaseEndgame` entry, summed from
+ * PUBLISHED component values, for any algorithm that has components but no
+ * published group metric (EPA today). It is the same class of arithmetic
+ * `winRate` already performs here — exact, never defaulting, rounding or
+ * rescaling an input — and it NEVER overwrites a published group entry
+ * (VPR's honest, covariance-derived spread/percentile survive untouched).
+ * Ranking still keys off `TOTAL_KEY`, which no derivation ever touches, so
+ * ranking itself is unaffected.
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { withDerivedGroupMetrics } from "../../lib/metricGroups.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
 import { isRealTeamKey } from "../../lib/teamKey.js";
 
@@ -108,7 +118,12 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     nickname: team.nickname,
     record: team.record,
     winRate: winRate(team.record),
-    metrics: team.metrics,
+    // Published metrics widened with any derivable group entries this
+    // algorithm/season combination supports (D-2/D-3/D-4) — see this
+    // module's own header comment. `sortValueFor` reads `row.metrics[key]`
+    // directly, so a derived `phaseAuto` is sortable exactly like a
+    // published one.
+    metrics: withDerivedGroupMetrics(team.metrics, artifact.season),
   }));
 
   const ranked = [...unranked].sort((a, b) => {
