@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasGroupedTeamsView, metricKeysFor, publishesGroupMetrics, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
-import { CURRENT_SEASON, FIRST_SEASON, SEASONS } from "./seasons.js";
+import { CURRENT_SEASON, EXCLUDED_SEASONS, FIRST_SEASON, SEASONS } from "./seasons.js";
 import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
 
 describe("metricKeysFor", () => {
@@ -59,15 +59,34 @@ describe("SEASONS", () => {
   it("is in descending order, starts at the current season, and ends at the first season", () => {
     expect(SEASONS[0]).toBe(CURRENT_SEASON);
     expect(SEASONS.at(-1)).toBe(FIRST_SEASON);
+  });
+
+  it("every consecutive descending pair differs by exactly 1, or by more with every skipped year present in EXCLUDED_SEASONS (the gapped seven-season corpus)", () => {
     const pairs = SEASONS.slice(1).map((season, index) => [SEASONS[index], season] as const);
     for (const [prev, curr] of pairs) {
-      expect(curr).toBe((prev as number) - 1);
+      const gap = (prev as number) - curr;
+      expect(gap).toBeGreaterThanOrEqual(1);
+      for (let skipped = curr + 1; skipped < (prev as number); skipped++) {
+        expect(EXCLUDED_SEASONS).toContain(skipped);
+      }
     }
+  });
+
+  it("contains 2019 and 2020; never contains 2021", () => {
+    expect(SEASONS).toContain(2019);
+    expect(SEASONS).toContain(2020);
+    expect(SEASONS).not.toContain(2021);
   });
 
   it("every element has a registered component map — the year dropdown and the algorithms' own season registry cannot silently disagree", () => {
     for (const season of SEASONS) {
       expect(() => componentMapForSeason(season)).not.toThrow();
+    }
+  });
+
+  it("every EXCLUDED_SEASONS member THROWS through componentMapForSeason — the exclusion tracks the algorithms' own registry, not an arbitrary hole. The day a 2021 component map is registered, this assertion goes red and forces the exclusion to be revisited deliberately.", () => {
+    for (const season of EXCLUDED_SEASONS) {
+      expect(() => componentMapForSeason(season)).toThrow();
     }
   });
 });

@@ -8,6 +8,14 @@ reconstructed from source comments and a summary file — the gap `03-VERIFICATI
 `packages/core/algorithms/sigma1/rp/reconciliation.test.ts`'s own console output — nothing here is
 estimated.
 
+**2019 and 2020 are not covered by SC-4's manual-verification claim above, and that claim is not
+being restated or re-scoped here.** The corpus was extended to include those two seasons on
+2026-09-03/04 (quick tasks 260903-4fs, 260904-nt4), but their RP thresholds were DERIVED FROM
+CORPUS DATA — swept and fit against observed TBA flags — rather than read from an official game
+manual, because no live threshold-variable signal for either season's flagged bonuses existed to
+verify against the manual text directly. See `docs/data/tba-rp-thresholds-2019-2020.md` for the
+derivation and its measured agreement rates.
+
 ## Verification Method
 
 D-12's two-way discharge: the official FRC Game Manual is the AUTHORING source for a threshold

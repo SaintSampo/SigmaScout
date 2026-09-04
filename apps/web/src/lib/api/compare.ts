@@ -39,14 +39,33 @@ export interface FetchCompareArtifactParams {
 export type CompareCompLevelView = CompareArtifact["slices"][number]["compLevelView"];
 
 /**
- * The five seasons this page fetches, ASCENDING (`Year` column order,
- * top-to-bottom 2022-2026). `SEASONS` (`lib/seasons.ts`) is DESCENDING by
- * design — the year dropdown's default selection is first — so this is a
- * derivation of that one constant, sorted, never a second hand-typed year
- * array. There is therefore exactly one source of "which seasons exist" in
- * this codebase; a `CURRENT_SEASON` bump automatically reaches this page.
+ * `SEASONS` (`lib/seasons.ts`) is STILL the one source of "which seasons
+ * exist" in this codebase — this is a documented NARROWING of it, never a
+ * second hand-typed year array. Since quick task 260904-nt4, `SEASONS` also
+ * carries 2019 and 2020 (the gapped seven-season corpus), and neither may
+ * enter Compare.
+ *
+ * The floor exists because a Compare row must be able to become
+ * headline-eligible, which under the provenance-aware rule
+ * (`packages/harness/score.ts`, quick task 260903-n2o) requires at least two
+ * prior corpus seasons AND absence from the algorithm's own selected-on set.
+ * 2019 has zero prior corpus seasons and 2020 has only a thin 2019 prior, so
+ * both are selection-only seasons FOREVER (D-4/D-5) — no future republish
+ * changes this, because their prior-season count can only grow if the corpus
+ * is extended even further backward, and there is no earlier season to add.
+ * `v1/compare/2019.json` and `v1/compare/2020.json` ARE published by
+ * `publishSeasons` (one slice per season in the run) and simply never
+ * fetched — this floor is what stops the page rendering a
+ * permanently-ineligible empty row, not a gap in what gets published.
+ *
+ * `COMPARE_SEASONS` is `SEASONS` filtered to `>= COMPARE_FIRST_SEASON` and
+ * sorted ASCENDING (`Year` column order, top-to-bottom 2022-2026); `SEASONS`
+ * itself is DESCENDING by design (the year dropdown's default selection is
+ * first).
  */
-export const COMPARE_SEASONS: readonly number[] = [...SEASONS].sort((a, b) => a - b);
+export const COMPARE_FIRST_SEASON = 2022;
+
+export const COMPARE_SEASONS: readonly number[] = [...SEASONS].filter((season) => season >= COMPARE_FIRST_SEASON).sort((a, b) => a - b);
 
 export async function fetchCompareArtifact({ year }: FetchCompareArtifactParams): Promise<CompareArtifact> {
   const key = artifactKey({ page: "compare", year });

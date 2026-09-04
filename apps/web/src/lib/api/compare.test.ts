@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMPARE_SEASONS, fetchCompareArtifact, type FetchCompareArtifactParams } from "./compare.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../../packages/harness/pageArtifacts.js";
+import { SEASONS } from "../seasons.js";
 
 function validCompareBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -78,8 +79,15 @@ describe("FetchCompareArtifactParams — compile-time shape assertion", () => {
 });
 
 describe("COMPARE_SEASONS", () => {
-  it("is the five seasons in ascending order, derived from the descending SEASONS constant", () => {
+  it("is exactly 2022-2026 in ascending order, a documented narrowing of SEASONS (which now also carries 2019 and 2020)", () => {
     expect(COMPARE_SEASONS).toEqual([2022, 2023, 2024, 2025, 2026]);
     expect(COMPARE_SEASONS[0]).toBeLessThan(COMPARE_SEASONS[COMPARE_SEASONS.length - 1]!);
+  });
+
+  it("SEASONS contains 2019 and 2020 while COMPARE_SEASONS contains neither — the narrowing is deliberate and visible, not a bug", () => {
+    expect(SEASONS).toContain(2019);
+    expect(SEASONS).toContain(2020);
+    expect(COMPARE_SEASONS).not.toContain(2019);
+    expect(COMPARE_SEASONS).not.toContain(2020);
   });
 });
