@@ -22,6 +22,90 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
+**Latest run — 2026-09-04, quick task 260904-586's Teams-list official-play-scoping republish
+(`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
+generation `4ba99e89-b196-4f88-90c7-3bc1ffae3de9`.** 56,774 page objects plus 2 manifests (56,776
+total `PUT`s) — object count IDENTICAL to the run below, confirming this run changed what values
+existing rows carry, never which artifacts get built. 2,258,714,595 bytes of page-object payload,
+18 min 20 sec wall clock (`08:07:20.010Z`-`08:25:39.576Z`, 2026-09-04), backgrounded from the first
+invocation (`run_in_background: true`, never a foreground call and never a retry). Zero concurrent
+publish processes: an untruncated command-line-filtered `Get-CimInstance` query returned zero real
+`publish.ts` processes both immediately before and immediately after the run (only the query's own
+command line self-matched the filter string, excluded by an additional
+`-notlike '*Get-CimInstance*'` clause). A pre-publish baseline generation was recorded on one
+`teams/{year}` key (`79a0a71a-c2a7-4c00-84c2-2585a0141042`, `computedAt`
+`2026-09-04T06:22:35.411Z`) before starting — every post-run read returned the NEW generation
+(`4ba99e89-...`), never the baseline, so nothing below is a stale read. Exactly ONE distinct
+`generation` value (`4ba99e89-b196-4f88-90c7-3bc1ffae3de9`) was observed across every key
+`pnpm verify:subset` sampled (35 entries, 0 failing) — the concurrent-writer detector — and it
+equals the run's own summary line.
+
+**Execution note, recorded honestly.** This run's background process was killed partway through
+(after replaying season 2025, before season 2026's replay had logged) by an interruption outside
+this plan's own logic — not a code defect, not a second invocation, not a retry. Rather than
+restarting from scratch or attempting to patch only the missing season (which would have
+incorrectly cold-started 2025's carried algorithm state, since `publishSeasons` bridges
+season-to-season state only within one call), the SAME already-running process was left alone and
+observed directly: process-list and live-artifact-generation checks (`Get-CimInstance`, and reading
+`teams/{year}` generations for 2022-2026 directly from the public origin) confirmed it was still
+executing and had NOT been killed after all — the interruption affected only this executor's own
+tracking of the background task, not the underlying `node`/`tsx` process tree, which ran to genuine
+completion on its own. The run's `computedAt`/`generation` pair is identical across every one of the
+five seasons and every page kind sampled, confirming it is one single, complete, internally
+consistent publish — not a partial or resumed one.
+
+**What changed in this run:** the Teams-list metric snapshot (`teams/{year}`'s `metrics` field,
+`packages/harness/publish.ts`'s new `lastOfficialMetricsByTeam`) now reflects each team's state as
+of its LAST OFFICIAL match, not its season-final state — an offseason or preseason Week-0 result can
+no longer move a team's position on the season leaderboard. Verified directly against the shipped
+bytes: `frc5002`/2024 (last event `2024aroz`, offseason) publishes a teams-row `total` of `17.04` —
+its metric-history value as of its last OFFICIAL event (`2024cur`) — not `6.45`, its season-final
+value (as of `2024aroz`). The team artifact (`team/frc5002/2024/vpr@...json`) still lists all four
+of the team's 2024 events including `2024aroz`, proving team pages were not scoped by this change.
+An offseason-only team keeps its `teams/{year}` row (name/record/counts) with an empty `metrics`
+object rather than being dropped — verified structurally via `TeamsArtifactSchema`'s decode.
+
+**Every page kind moved some amount this run, not just `teams/{year}` — and the causes are
+separable, stated honestly rather than conflated.** The comparison baseline below is this
+document's own LAST WRITTEN entry (2026-09-03, `vpr@5.0.0+tuned-2026-08`) — several undocumented
+`vpr` promotions landed between that entry and the generation live immediately before this run
+(`79a0a71a-...`, already `vpr@7.0.0+rolling-2026-09` before this run started; `opr`/`epa` versions
+are unchanged, `4.0.0+baseline`/`2.0.0+baseline`, matching the 2026-09-03 entry). This run's own
+code diff touches ONLY `teams/{year}`'s `metrics` field (see `git diff` for this quick task); the
+`events`/`event`/`team`/`compare` movement below is attributable to those undocumented intervening
+`vpr` promotions, not to this run's own change — not further isolated, since doing so would require
+an out-of-scope intermediate run this quick task does not authorize (matching this document's own
+established precedent for an unisolated multi-cause delta, e.g. the 2026-08-27 entry's "Team-page
+delta" section).
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key | Change vs. 2026-09-03 (last documented) run |
+|---|---:|---:|---:|---:|---|---|
+| `teams/{year}` | 15 | 957,582 | 1,483,414 | 1,483,414 | `v1/teams/2026/vpr@7.0.0+rolling-2026-09.json` | -7,646 median (-0.79%), +48,043 p95/max (+3.35%), **largest-holding season moved from 2024 to 2026** — this run's own change (empty `metrics` for offseason-only teams shrinks some rows, consistent with the small median drop); the p95/max growth and season-of-max shift are attributed to the undocumented `vpr` version bumps noted above, not measured further |
+| `team/{teamKey}/{year}` | 52,596 | 31,467 | 93,648 | 380,020 | `v1/team/frc3538/2024/vpr@7.0.0+rolling-2026-09.json` | +218 median (+0.70%), +2,154 p95 (+2.35%), +13,710 max (+3.74%), same largest key — untouched by this run's own code change (team pages are deliberately unscoped); attributed to the intervening `vpr` promotions |
+| `events/{year}` | 15 | 75,225 | 84,115 | 84,115 | `v1/events/2025/vpr@7.0.0+rolling-2026-09.json` | +2 bytes p95/max (noise), median unchanged |
+| `event/{eventKey}` | 4,143 | 47,997 | 97,910 | 164,876 | `v1/event/2024gal/vpr@7.0.0+rolling-2026-09.json` | +262 median (+0.55%), +2,430 p95 (+2.55%), +4,805 max (+3.00%), same largest key |
+| `compare/{year}` | 5 | 13,926 | 14,025 | 14,025 | `v1/compare/2026.json` | -203 median (-1.44%), -200 p95/max (-1.41%), same largest key |
+
+**One committed ceiling is newly crossed, measured and reported rather than absorbed.**
+`teams/{year}`'s new max (1,483,414) stays well under its committed `budgetMaxBytes` (3,500,000).
+`team/{teamKey}/{year}`'s new max (**380,020**) now exceeds its committed `budgetMaxBytes`
+(375,000) by **5,020 bytes (1.34%)** — a small, genuinely new, un-actioned finding — while staying
+comfortably under the separate absolute structural ceiling (`TEAM_PAGE_ABSOLUTE_MAX_BYTES`,
+600,000: 220,000 bytes / 36.7% of headroom remains, so the artifact is not structurally dangerous,
+only over its committed budget). `event/{eventKey}`'s new max (164,876) stays well under both its
+committed `budgetMaxBytes` (350,000) and `EVENT_PAGE_ABSOLUTE_MAX_BYTES`. Against this run's own
+machine-readable block below, `payloadBudget.test.ts` is **10/11** — every test passes except the
+internal-consistency assertion's `team` iteration (`maxBytes (380020) should be <= budgetMaxBytes
+(375000)`), which is exactly this overage, measured directly rather than asserted. The committed
+`budgetMaxBytes` figures are left unchanged per this document's own standing prohibition against
+raising a budget to fit a measurement — this is a finding for a future developer to act on (shrink
+the artifact, or deliberately raise the ceiling with its own review), not something this quick task
+is authorized to resolve.
+
+**Post-run health check.** `pnpm verify:subset` (equivalently `tsx scripts/verifySubsetPublish.ts`):
+35 entries checked, 0 failing, generation uniformity 1 distinct value
+(`4ba99e89-b196-4f88-90c7-3bc1ffae3de9`) across every non-retired-prefix entry sampled.
+
 **Latest run — 2026-08-31, plan 08-05's D-03/D-12 republish
 (`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
 generation `e2d220d9-e97b-480a-bcf1-82d3e2076b42`.** 56,774 page objects plus 2 manifests (56,776
@@ -1140,46 +1224,46 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-03T05:05:23Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation aebc5638-7892-41e3-b918-121a74c9a778, 56,774 objects, 2,226,644,593 bytes total (down from 3,310,309,807, -32.7%). First publish under the is2/trz/varopr model work (vpr 2.1.0 -> 5.0.0, epa 1.1.0 -> 2.0.0, opr 3.1.0 -> 4.0.0) AND the two payload shrinks: quick task 260902-pbc dropped redComponents/blueComponents from the team and event artifacts (published but read by no page), and 260902-pbe encoded the teams artifact's metrics positionally with the key list in the preamble. NO CEILING WAS MOVED: every budgetMaxBytes below is unchanged from the previous block, and every page kind now passes on merit. teams 3,704,776 -> 1,435,371 (-61.3%, was 204,776 OVER its 3,500,000 budget, now 2,064,629 under). team 675,956 -> 366,310 (-45.8%, was 300,956 over its 375,000 budget and 75,956 over the 600,000 absolute ceiling, now 8,690 under budget). event 342,405 -> 160,071 (-53.2%) as a side effect of the same component removal.",
+  "measuredAt": "2026-09-04T08:25:39.576Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 4ba99e89-b196-4f88-90c7-3bc1ffae3de9, 56,774 objects, 2,258,714,595 bytes total (up from 2,226,644,593, +1.44%). Quick task 260904-586: teams/{year}'s metrics field now reflects each team's LAST OFFICIAL match, not season-final -- verified against frc5002/2024 (teams row total 17.04 == its 2024cur/official metric-history value, != 6.45, its 2024aroz/offseason season-final value; team artifact still lists 2024aroz). events/event/team/compare movement is attributed to undocumented vpr 5.0.0->7.0.0 promotions that landed between the last documented block and this run's own pre-run baseline (79a0a71a-..., already vpr@7.0.0 before this run started), not to this run's own code change -- not further isolated. NO CEILING RAISED: every budgetMaxBytes below is unchanged from the previous block. team's maxBytes (380,020) now exceeds its committed budgetMaxBytes (375,000) by 5,020 bytes (1.34%) -- a genuine, newly measured, un-actioned finding, left open per this document's standing prohibition against raising a budget to fit a measurement; it stays well under the separate absolute ceiling (600,000). Every other page kind stays under its own committed budgetMaxBytes.",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 965228,
-      "p95Bytes": 1435371,
-      "maxBytes": 1435371,
+      "medianBytes": 957582,
+      "p95Bytes": 1483414,
+      "maxBytes": 1483414,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2024/vpr@5.0.0+tuned-2026-08.json"
+      "largestKey": "v1/teams/2026/vpr@7.0.0+rolling-2026-09.json"
     },
     "team": {
       "count": 52596,
-      "medianBytes": 31249,
-      "p95Bytes": 91494,
-      "maxBytes": 366310,
+      "medianBytes": 31467,
+      "p95Bytes": 93648,
+      "maxBytes": 380020,
       "budgetMaxBytes": 375000,
-      "largestKey": "v1/team/frc3538/2024/vpr@5.0.0+tuned-2026-08.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@7.0.0+rolling-2026-09.json"
     },
     "events": {
       "count": 15,
       "medianBytes": 75225,
-      "p95Bytes": 84113,
-      "maxBytes": 84113,
+      "p95Bytes": 84115,
+      "maxBytes": 84115,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@5.0.0+tuned-2026-08.json"
+      "largestKey": "v1/events/2025/vpr@7.0.0+rolling-2026-09.json"
     },
     "event": {
       "count": 4143,
-      "medianBytes": 47735,
-      "p95Bytes": 95480,
-      "maxBytes": 160071,
+      "medianBytes": 47997,
+      "p95Bytes": 97910,
+      "maxBytes": 164876,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024arc/vpr@5.0.0+tuned-2026-08.json"
+      "largestKey": "v1/event/2024gal/vpr@7.0.0+rolling-2026-09.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 14129,
-      "p95Bytes": 14225,
-      "maxBytes": 14225,
+      "medianBytes": 13926,
+      "p95Bytes": 14025,
+      "maxBytes": 14025,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
