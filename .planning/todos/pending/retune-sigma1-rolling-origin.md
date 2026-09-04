@@ -161,3 +161,100 @@ optional:
   `rolling-origin-hyperparameter-tuning`), `CompareSliceSchema.seasonLabel`'s
   `z.enum(["tune","holdout"])` is a published-contract change that must land in the same
   republish.
+
+---
+
+# RESULTS — the re-tune RAN, 2026-09-03/04. All ten verdicts below.
+
+`reports/` is gitignored, so this section is the ONLY durable record of a multi-hour job. The
+acceptance JSONs on disk can be deleted or overwritten; these numbers cannot be regenerated without
+re-running everything.
+
+## Run shape actually used (differs from the plan above — that text predates the corpus backfill)
+
+- **Screen:** ONCE, on **2019, 2020** (not 2022, 2023). The earliest origin is now 2022, so its
+  window is 2019–2020, which is strictly prior to every origin including 2027 — the one-screen
+  leak-free argument holds unchanged and got cheaper (18,749 quals vs 31,030).
+  Wrote `reports/sensitivity-screen-origin-earliest.json`, **9/15 survive**.
+- **Operator override, recorded in that file's own `manualOverrides` block:** `carryPriorYearShare`
+  and `carryMeanReversion` were FORCED into the survivor set. The screen window contains exactly one
+  season boundary (2019 to 2020) and it has no year-before, so `sigma1CarryNormalizedRating` takes
+  its single-season branch and the two-season blend NEVER executes — `carryPriorYearShare` measured
+  a range of exactly `0.000e+0`, meaning UNREACHABLE, not unimportant. The origins these serve
+  (2024–2026) carry four to six priors. Survivors: **10**.
+  *(The same blindness existed in the original `--seasons 2022,2023` plan, where 2022 was that
+  corpus's cold start. It was simply never visible.)*
+- **Joint:** 5 origins x 2 adaptation arms = **10 runs**, `--evals 40 --batch 4`, in two waves
+  grouped by window size (memory: ~1.6 GB/process at 2 seasons, ~2.6 GB at 6).
+- **2027 deliberately NOT run as an origin.** `evaluateOriginSeason` replays selection-plus-origin
+  and compares candidate vs incumbent ON the origin season; 2027 has no matches, so D-T7 would
+  decide on zero evaluations. That is D-3's ungated preseason case, and `--seasons` mode already
+  does exactly that job. It remains a separate run.
+
+## The ten verdicts (all against incumbent `7.0.0+tuned-2026-08`)
+
+| origin | arm | verdict | delta Brier | bar | delta SE | delta/SE |
+|---|---|---|---|---|---|---|
+| 2022 | off | **ACCEPTED** | +0.000969 | 0.000676 | 0.000236 | **+4.1** |
+| 2022 | on | **ACCEPTED** | +0.001247 | 0.000684 | 0.000239 | **+5.2** |
+| 2023 | off | keep-incumbent | -0.009361 | 0.002891 | 0.001010 | -9.3 |
+| 2023 | on | keep-incumbent | -0.005697 | 0.002351 | 0.000821 | -6.9 |
+| 2024 | off | keep-incumbent | -0.016634 | 0.002862 | 0.001000 | -16.6 |
+| 2024 | on | keep-incumbent | -0.018291 | 0.002926 | 0.001025 | -17.8 |
+| 2025 | off | keep-incumbent | -0.002660 | 0.001724 | 0.000602 | -4.4 |
+| 2025 | on | keep-incumbent | -0.002553 | 0.001661 | 0.000581 | -4.4 |
+| 2026 | off | keep-incumbent | -0.003862 | 0.001638 | 0.000572 | -6.7 |
+| 2026 | on | **ACCEPTED** | +0.002218 | 0.001549 | 0.000542 | **+4.1** |
+
+**Three acceptances: 2022 (both arms) and 2026 (adaptation ON only).**
+
+## D-T4 — adaptation RE-EARNED its place, out-of-sample
+
+2026's arms differ by **0.0061 Brier** on an identical search: off misses at -6.7 SE, on clears at
++4.1 SE. D-T4 pre-committed that adaptation ships only if ITS arm clears out-of-sample. It did, on
+the most recent complete season — the one whose set would serve live play. The prior -0.0015 figure
+was an upper bound (its sub-parameters were picked by looking at holdout); this is the honest
+re-earning.
+
+On-minus-off across all five origins: `2022 +0.00028, 2023 +0.00366, 2024 -0.00166, 2025 +0.00011,
+2026 +0.00608` — better in **4 of 5**.
+
+## 2024 is a structurally different season, not a noisy one
+
+Diagnosis raised by the user (2024's amplification mechanic made outcomes coordination-dependent
+rather than strength-dependent) and supported by the numbers:
+
+- Its miss is the largest (-16.6/-17.8 SE) but its delta SE (0.0010) is IDENTICAL to 2023's, and its
+  *level* SE is the LOWEST of all origins. A large, tightly-measured miss is systematic BIAS, not
+  variance — a noisy season would give a wide error bar, not a narrow one.
+- Its incumbent Brier (0.1702) is the worst of any origin **despite 2024 being inside the
+  incumbent's own tune set** (`provenance.tuneSeasons = [2022,2023,2024]`). Training on it does not
+  rescue it — that is irreducible difficulty in the season.
+- Both arms miss symmetrically, so it is not an adaptation artifact. The one arm where adaptation
+  LOSES is 2024 — expected if outcomes are coordination-driven, since adaptation fits per-team
+  innovation statistics.
+
+This argues FOR per-season sets rather than against them: a season unlike its predecessors genuinely
+wants different parameters, and the scheme correctly refuses to force one vector across a rule change.
+
+## Honesty note on the 2022 win
+
+It cleared on an unusually TIGHT error bar (delta SE 0.000236, four times tighter than any other
+origin), not on a large improvement. +0.00097 / +0.00125 Brier is modest in absolute terms. It is a
+genuine 4-5 SE result against a pre-committed bar — a small edge measured precisely, not a big one.
+
+## The promotable map, per D-2's `paramSetsBySeason`
+
+| season | set |
+|---|---|
+| 2022 | NEW — adaptation ON (better of the two accepted arms) |
+| 2023, 2024, 2025 | incumbent (nothing cleared) |
+| 2026 | NEW — adaptation ON |
+
+## NEXT — and it is blocked on unbuilt work
+
+`promote.ts` writes ONE parameter set per version file. This result needs **two** new sets in a
+per-season map. That is exactly the "biggest single cost" `rolling-origin-hyperparameter-tuning`'s
+D-2 named and answered in principle — one version carrying `paramSetsBySeason` plus a single
+prediction-stream digest over the full replay — but the code does not exist yet. Promotion cannot
+proceed until it does.
