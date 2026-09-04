@@ -165,3 +165,165 @@ export async function statboticsReference(
     return fallback;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Quick task 260904-4aa (SC-2): per-team Statbotics EPA, for a direct
+// per-team comparison against our own `epa.teamMetrics()` output. This is a
+// DIFFERENT endpoint and a DIFFERENT contract from `statboticsReference`
+// above: that function's whole point is "never let a Statbotics outage fail
+// a report run", so it swallows every failure into a dated fallback. There
+// is no honest fallback for a per-team reference series — an empty result
+// would silently read as "perfect agreement over zero teams" — so this
+// function throws on any fetch or validation failure instead.
+// ---------------------------------------------------------------------------
+
+/**
+ * One Statbotics team-year row, narrowed to exactly the fields
+ * `scripts/epaVsStatbotics.ts` consumes. `totalPoints` is Statbotics'
+ * `epa.total_points` — a NO-FOUL figure (verified live 2026-09-04:
+ * `frc254`/2024 total_points 51.71 == auto 15.94 + teleop 29.48 + endgame
+ * 6.28) — comparable to our own `total` metric only after our side's
+ * `foulsCommitted` component is subtracted out (see `epaStatboticsCompare.ts`).
+ */
+export interface StatboticsTeamYearRow {
+  readonly team: number;
+  readonly totalPoints: number;
+  readonly autoPoints: number;
+  readonly teleopPoints: number;
+  readonly endgamePoints: number;
+  /** Statbotics `record.count` — this team's played-match count for the season, used for a minimum-match filter. */
+  readonly matchCount: number;
+}
+
+const StatboticsTeamYearRawSchema = z.object({
+  team: z.number(),
+  epa: z.object({
+    total_points: z.number(),
+    breakdown: z.object({
+      auto_points: z.number(),
+      teleop_points: z.number(),
+      endgame_points: z.number(),
+    }),
+  }),
+  record: z.object({
+    count: z.number(),
+  }),
+});
+
+const StatboticsTeamYearsPageSchema = z.array(StatboticsTeamYearRawSchema);
+
+const TEAM_YEARS_DEFAULT_PAGE_SIZE = 1000;
+
+/**
+ * Rule 3 (blocking-issue) fix, found running this comparison for real:
+ * `/v3/team_years` returned one transient HTTP 503 mid-page (season 2025,
+ * offset 3000) that a re-request 5 seconds later resolved cleanly — a
+ * genuine transient hiccup, not a real outage (the endpoint's live status is
+ * this function's own `<precondition>`, checked once before any paging
+ * starts). A multi-season, multi-arm comparison run (Task 2) makes a single
+ * flaky page costly to lose an entire long replay over, so a page-level
+ * retry with a short fixed backoff is applied to non-2xx responses only —
+ * a schema-validation failure is never retried, since retrying cannot fix a
+ * shape mismatch.
+ */
+const TEAM_YEARS_MAX_FETCH_ATTEMPTS = 3;
+const TEAM_YEARS_RETRY_DELAY_MS = 2000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface FetchStatboticsTeamYearsOptions {
+  /** Injectable for tests; defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+  /**
+   * When provided, a season's full row set is cached to this path (keyed by
+   * season) and read back on later calls instead of re-paging the API.
+   * Caching is opt-in — omit to run with no disk side effects.
+   */
+  cachePath?: string;
+  /** Page size for `/v3/team_years`; defaults to 1000 (the API's own max). */
+  pageSize?: number;
+}
+
+function readTeamYearsCache(cachePath: string): Record<number, StatboticsTeamYearRow[]> {
+  if (!existsSync(cachePath)) return {};
+  try {
+    return JSON.parse(readFileSync(cachePath, "utf8")) as Record<number, StatboticsTeamYearRow[]>;
+  } catch {
+    return {};
+  }
+}
+
+function writeTeamYearsCache(cachePath: string, cache: Record<number, StatboticsTeamYearRow[]>): void {
+  mkdirSync(dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
+}
+
+/**
+ * Fetches every Statbotics team-year row for `season`, paging
+ * `/v3/team_years?year={season}&limit={pageSize}&offset={n}` until a page
+ * returns fewer rows than `pageSize`. Every row is Zod-validated at the
+ * fetch boundary (T-4aa-01), picking only the fields this comparison
+ * consumes and stripping everything else — matching this file's existing
+ * boundary discipline. Throws on a non-2xx status or a schema-validation
+ * failure; there is no honest partial-series fallback (see file header).
+ */
+export async function fetchStatboticsTeamYears(
+  season: number,
+  options: FetchStatboticsTeamYearsOptions = {}
+): Promise<StatboticsTeamYearRow[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const pageSize = options.pageSize ?? TEAM_YEARS_DEFAULT_PAGE_SIZE;
+  const cache = options.cachePath ? readTeamYearsCache(options.cachePath) : {};
+
+  const cached = cache[season];
+  if (cached) return cached;
+
+  const rows: StatboticsTeamYearRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const url = `https://api.statbotics.io/v3/team_years?year=${season}&limit=${pageSize}&offset=${offset}`;
+
+    let response: Response | undefined;
+    let lastStatus = 0;
+    for (let attempt = 1; attempt <= TEAM_YEARS_MAX_FETCH_ATTEMPTS; attempt++) {
+      const candidate = await fetchImpl(url);
+      if (candidate.ok) {
+        response = candidate;
+        break;
+      }
+      lastStatus = candidate.status;
+      if (attempt < TEAM_YEARS_MAX_FETCH_ATTEMPTS) {
+        await delay(TEAM_YEARS_RETRY_DELAY_MS);
+      }
+    }
+    if (!response) {
+      throw new Error(
+        `fetchStatboticsTeamYears: ${url} returned HTTP ${lastStatus} after ${TEAM_YEARS_MAX_FETCH_ATTEMPTS} attempts`
+      );
+    }
+
+    const body: unknown = await response.json();
+    const page = StatboticsTeamYearsPageSchema.parse(body);
+    for (const raw of page) {
+      rows.push({
+        team: raw.team,
+        totalPoints: raw.epa.total_points,
+        autoPoints: raw.epa.breakdown.auto_points,
+        teleopPoints: raw.epa.breakdown.teleop_points,
+        endgamePoints: raw.epa.breakdown.endgame_points,
+        matchCount: raw.record.count,
+      });
+    }
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  if (options.cachePath) {
+    cache[season] = rows;
+    writeTeamYearsCache(options.cachePath, cache);
+  }
+
+  return rows;
+}
