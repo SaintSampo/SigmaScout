@@ -53,7 +53,14 @@ export const TIER_BANDS: readonly TierBand[] = [
   * pipeline uses to stamp `tier` onto the teams artifact — so a tier derived
   * here from a percentile and a tier published there can never disagree.
   * The only difference is this one names Common explicitly, where the
-  * published field omits it (Common renders unboxed either way).
+  * published field omits it for payload-size reasons alone (see
+  * `pageArtifacts.ts`'s `TeamMetricSchema.tier` doc) — that omission is a
+  * wire-format fact, not a rendering one. Since quick task 260904-7rt
+  * (sketch 008 winner C), Common is NOT rendered unboxed: `MetricValue`
+  * draws the `.metric-tier--common` hairline ring for any defined tier,
+  * Common included, so `tierForPercentile`'s explicit `"common"` here (never
+  * `undefined`) is exactly what makes that ring appear for every caller that
+  * derives a tier from a percentile.
   */
 export function tierForPercentile(percentile: number | undefined): Tier | undefined {
   if (percentile === undefined) return undefined;

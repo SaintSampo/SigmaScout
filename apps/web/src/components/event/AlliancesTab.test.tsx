@@ -324,17 +324,20 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(cell.querySelector("[aria-label]")).toBeNull();
   });
 
-  it("the Combined Total cell renders NO tier box and no marker when the interpolated percentile lands in Common, even though a percentile WAS interpolated (07-UAT.md G-8)", async () => {
+  it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the interpolated percentile lands in Common (260904-7rt, sketch 008 winner C — supersedes 07-UAT.md G-8's no-box behaviour)", async () => {
     // Every event team at value 10, percentile 10 (Common): combined 30 / 3 = 10 matches
-    // exactly, interpolated percentile 10 -> Common -> no box, per MetricValue's own contract.
+    // exactly, interpolated percentile 10 -> Common -> the hairline ring, per
+    // MetricValue's post-260904-7rt contract. The disclosure tracks "a box is
+    // drawn", and Common now draws one, so it is exposed here too.
     const commonPercentileTeams = FOUR_TEAMS.map((t) => ({
       ...t,
       metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 10 } },
     }));
     renderAlliances(makeArtifact(commonPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
-    expect(cell.querySelector(".metric-tier")).toBeNull();
-    expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
+    expect(cell.querySelector(".metric-tier--common")).not.toBeNull();
+    const disclosed = within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE });
+    expect(disclosed.getAttribute("title")).toBe(ALLIANCE_APPROX_TIER_DISCLOSURE);
   });
 
   it("does not render TierKeyRow — there is no tier box on this tab to explain", async () => {

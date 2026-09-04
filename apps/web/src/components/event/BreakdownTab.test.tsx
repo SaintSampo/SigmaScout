@@ -216,8 +216,8 @@ describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
     expect((await renderWithPercentile(50)).className).toContain("metric-tier--rare");
   });
 
-  it("percentile 49.9 renders no metric-tier class at all", async () => {
-    expect((await renderWithPercentile(49.9)).className).not.toContain("metric-tier");
+  it("percentile 49.9 renders the common tier ring (260904-7rt, sketch 008 winner C)", async () => {
+    expect((await renderWithPercentile(49.9)).className).toContain("metric-tier--common");
   });
 
   it("percentile 100 renders the legendary tier class", async () => {

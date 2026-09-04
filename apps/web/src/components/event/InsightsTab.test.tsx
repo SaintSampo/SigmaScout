@@ -541,8 +541,8 @@ describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
   it("percentile 50 yields rare", async () => {
     expect((await renderWithAutoPercentile(50)).className).toContain("metric-tier--rare");
   });
-  it("percentile 49.9 yields no metric-tier class", async () => {
-    expect((await renderWithAutoPercentile(49.9)).className).not.toContain("metric-tier");
+  it("percentile 49.9 yields the common tier ring (260904-7rt, sketch 008 winner C)", async () => {
+    expect((await renderWithAutoPercentile(49.9)).className).toContain("metric-tier--common");
   });
 
   it("three consecutive rows all at percentile 96 render three legendary boxes — no de-duplication", async () => {

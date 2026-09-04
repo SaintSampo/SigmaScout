@@ -236,7 +236,7 @@ describe("EventSection", () => {
       expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
     });
 
-    it("renders no tier box class for a snapshot metric with a percentile in the Common band", () => {
+    it("renders the common tier ring for a snapshot metric with a percentile in the Common band (260904-7rt, sketch 008 winner C)", () => {
       renderWithRouter(
         <EventSection
           event={makeEvent()}
@@ -248,10 +248,10 @@ describe("EventSection", () => {
         />,
       );
       const snapshot = screen.getByTestId("event-snapshot-2024casj");
-      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+      expect(snapshot.querySelector(".metric-tier--common")).not.toBeNull();
     });
 
-    it("renders a (Common, unboxed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (06.1-REVIEW IN-02)", () => {
+    it("renders a (Common, ringed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (06.1-REVIEW IN-02; ringed since 260904-7rt, sketch 008 winner C)", () => {
       renderWithRouter(
         <EventSection
           event={makeEvent()}
@@ -263,7 +263,7 @@ describe("EventSection", () => {
         />,
       );
       const snapshot = screen.getByTestId("event-snapshot-2024casj");
-      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+      expect(snapshot.querySelector(".metric-tier--common")).not.toBeNull();
       expect(snapshot.textContent).toContain("61.40");
     });
 

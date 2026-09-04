@@ -7,17 +7,37 @@ boxes EPA values by percentile — but with card-game rarity vocabulary instead 
 scale. Chosen over continuous sequential shading for one reason: **a gradient makes you compare, a
 tier gives you a name.** "That's a gold team" is something a student can say out loud across a pit.
 
-**Common (0–50) renders as a plain cell — no box.** This is sketch 004 variant B, selected over
-boxing every tier. Mirrors the Statbotics reference, whose middle band is white. Colour then appears
-only where it carries information, and roughly half the field stays quiet so the eye goes straight to
-Rare and above.
+**Common (0–50) renders an outline-only box — a hairline ring, no fill.** This is sketch 008
+variant C (developer-selected 2026-09-04, quick task 260904-7rt), superseding sketch 004 variant
+B's original "Common renders as a plain cell — no box" call. 004-B mirrored the Statbotics
+reference, whose middle band is white, on the theory that colour should appear only where it
+carries information and roughly half the field should stay quiet. In practice that made Common
+read as an *absence* rather than a tier — a blank cell looks like missing data, not like "this
+team is unremarkable on this metric." Sketch 008 tested five treatments against an event-shaped
+slice; C was chosen as the quietest option that still *names* the band, spending the least of
+004's "half the field stays quiet" budget rather than abandoning it outright — Common still
+carries no fill and no foreground colour, so the eye still goes to Rare/Epic/Legendary first, but
+every metric cell now visibly belongs to a tier.
 
-| Tier | Percentile | Box fill | Text |
-|---|---|---|---|
-| Common | 0–50 | *(none — plain cell)* | inherit |
-| Rare | 50–75 | `#E0F2FE` | `#0369A1` |
-| Epic | 75–95 | `#F3E8FF` | `#7E22CE` |
-| Legendary | 95–100 | `#FEF3C7` | `#B45309` |
+The ring is drawn `box-shadow: inset`, never `border` — a border would add 2px to every Common
+cell's box and break column alignment against the filled tiers, since `.metric-tier`'s
+`min-width` and column geometry are computed from the current (unbordered) box. An inset shadow
+paints inside the existing box and contributes nothing to layout.
+
+The edge colour is deliberately low-contrast — around 1.4:1 against the white surface, well under
+WCAG 1.4.11's 3:1 non-text floor. That is acceptable ONLY because the ring is redundant: a reader
+who cannot resolve it sees exactly the plain cell 004-B shipped, and loses no information, since
+Common is still the absence of the three coloured fills below rather than a claim carried by the
+ring alone. This reasoning does not transfer to any future tier whose ring would be its only
+signal — do not cite this precedent to justify a low-contrast treatment for Rare, Epic, or
+Legendary.
+
+| Tier | Percentile | Box fill | Box edge | Text |
+|---|---|---|---|---|
+| Common | 0–50 | *(none)* | `#CBD5E1` (inset ring, 1px) | inherit |
+| Rare | 50–75 | `#E0F2FE` | *(none)* | `#0369A1` |
+| Epic | 75–95 | `#F3E8FF` | *(none)* | `#7E22CE` |
+| Legendary | 95–100 | `#FEF3C7` | *(none)* | `#B45309` |
 
 Identity hues (for legends, chips, and anywhere the tier needs a solid colour):
 sky `#0EA5E9` · purple `#9333EA` · amber `#F59E0B`.
@@ -65,10 +85,10 @@ pages, Team pages, Compare, search results).
 ```css
 /* Tier tokens — define once, never as literals in components (D-06). */
 :root {
+  --tier-common-edge:  #CBD5E1;  /* sketch 008 winner C: ring only, no fill/fg */
   --tier-rare-bg:      #E0F2FE;  --tier-rare-fg:      #0369A1;
   --tier-epic-bg:      #F3E8FF;  --tier-epic-fg:      #7E22CE;
   --tier-legendary-bg: #FEF3C7;  --tier-legendary-fg: #B45309;
-  /* Common has no tokens on purpose — it renders as an untreated cell. */
 }
 
 /* The box. min-width keeps a column of boxes aligned despite varying digit counts. */
@@ -80,26 +100,33 @@ pages, Team pages, Compare, search results).
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Common: inset ring only — box-shadow, NEVER border (a border adds 2px and
+   breaks column alignment against the filled tiers below, which are sized
+   off the unbordered box). */
+.metric-tier--common    { box-shadow: inset 0 0 0 1px var(--tier-common-edge); }
 .metric-tier--rare      { background: var(--tier-rare-bg);      color: var(--tier-rare-fg); }
 .metric-tier--epic      { background: var(--tier-epic-bg);      color: var(--tier-epic-fg); }
 .metric-tier--legendary { background: var(--tier-legendary-bg); color: var(--tier-legendary-fg); }
-/* .metric-tier--common intentionally has no rule. */
 ```
 
 ## HTML Structures
 
 ```html
-<!-- Common: plain, no wrapper class beyond the layout box -->
-<td class="num"><span class="metric-tier">58.90 <span class="spread">± 3.99</span></span></td>
+<!-- Common: the outline-only ring, no fill, text colour inherits -->
+<td class="num"><span class="metric-tier metric-tier--common">58.90 <span class="spread">± 3.99</span></span></td>
 
 <!-- Rare and above: the tier modifier carries the colour -->
 <td class="num"><span class="metric-tier metric-tier--epic">76.23 <span class="spread">± 2.85</span></span></td>
+
+<!-- No resolvable tier at all (no percentile published, or out of [0,100]):
+     completely plain — no metric-tier class at all, not even unmodified -->
+<td class="num"><span>58.90 <span class="spread">± 3.99</span></span></td>
 ```
 
-A key row belongs above the table, showing the bands with Common marked as unboxed:
+A key row belongs above the table, showing all four bands boxed:
 
 ```
-Key (percentile)  [0–50 · no box]  [50–75]  [75–95]  [95–100]   Common · Rare · Epic · Legendary
+Key (percentile)  [0–50]  [50–75]  [75–95]  [95–100]   Common · Rare · Epic · Legendary
 ```
 
 ## What to Avoid
@@ -124,7 +151,14 @@ before building on this. See `.planning/todos/pending/` for the related pipeline
 
 ## Origin
 
-Synthesized from sketch: 004 (winner: variant B).
+Synthesized from sketches: 004 (winner: variant B — the tier palette, the CVD-safe hue swap, and
+the "gradient makes you compare, a tier gives you a name" rationale, all still authoritative) and
+008 (winner: variant C — supersedes 004-B's Common treatment only; quick task 260904-7rt,
+developer-selected 2026-09-04). 008 tested five treatments for Common specifically against an
+event-shaped slice, after 004-B's plain-cell version shipped and was found to read as an absence
+rather than a tier.
 Sketch 002 was explicitly excluded — all its palettes were rejected — but its rejection is recorded
 above because it is part of why 004 looks the way it does.
-Source files: `sources/004-rarity-tiers/`
+Source files: `sources/004-rarity-tiers/`. Sketch 008's own source lives at
+`.planning/sketches/008-common-tier-treatment/` (not yet mirrored into this skill's `sources/`,
+which currently only carries 004 through 007).

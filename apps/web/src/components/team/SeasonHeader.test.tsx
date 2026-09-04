@@ -173,8 +173,9 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(autoCell.textContent).toContain("±");
     expect(autoCell.querySelector(".metric-tier--legendary")).not.toBeNull();
     expect(totalCell.querySelector(".metric-tier--legendary")).not.toBeNull();
-    // 20th percentile is Common, which is deliberately unboxed.
-    expect(teleopCell.querySelector('[class*="metric-tier"]')).toBeNull();
+    // 20th percentile is Common, which since 260904-7rt (sketch 008 winner
+    // C) draws the hairline outline ring rather than staying unboxed.
+    expect(teleopCell.querySelector(".metric-tier--common")).not.toBeNull();
   });
 
   it("renders four label-only tiles, each with a BLANK value, when metrics is empty", () => {
