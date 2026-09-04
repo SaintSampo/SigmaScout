@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-6a1: stop modeling adjust component per team"
-last_updated: "2026-09-04T20:50:05.127Z"
+last_updated: "2026-09-04T21:04:12.497Z"
 last_activity: 2026-09-04
 last_activity_desc: "Completed quick task 260904-7id: EPA phase-group tiers published-side complete, republish HELD (nothing live)"
 progress:
@@ -394,6 +394,7 @@ None yet.
 | 39 | Closed rolling-origin-hyperparameter-tuning: deleted the retired seasonLabel field from CompareSliceSchema now that the republish removed its last producer (archived-artifact tolerance re-pinned in compare.compat.test.ts), added the scheme-retirement banner to sigma1-tuning-results.md, verified all five acceptance criteria (eligible seasons 2022/2025/2026), moved the todo to completed | 2026-09-04 | 7c267a77 | — |
 | 40 | Closed update-project-md-sc2-blocked-claim: PROJECT.md SC-2 row flipped from Partially-held/blocked to Held per 260904-4aa, pointing at docs/models/epa-vs-statbotics.md and the committed tolerance baseline; 02-VERIFICATION.md left as a dated snapshot | 2026-09-04 | dbd6c19f | — |
 | 41 | Investigated the cold-start zero-plus-minus todo (260904-n9n): the 0 plus-minus 0 defect does not exist — absence propagates end to end (teamMetrics omission in all three algorithms, publish and Worker default to empty metrics, client renders blank and sorts missing last, real zero renders 0.00 distinctly). Option (b) no-data representation confirmed already in force; added the missing omission-contract test to sigma1, epa and opr suites; closed the todo | 2026-09-04 | de7489e8 | — |
+| 42 | Move the desktop ribbon GitHub icon next to the search box instead of center-spread | 2026-09-04 | 1658cb4d | — |
 
 ### Roadmap Evolution
 
