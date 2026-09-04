@@ -4,10 +4,10 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 08
 status: completed
-stopped_at: Completed 08-15-PLAN.md -- Phase 08 (simulation-compare) execution complete, real-device sign-off deferred to /gsd-verify-work
-last_updated: "2026-09-02T18:30:00.000Z"
-last_activity: 2026-09-03
-last_activity_desc: Quick task 260904-cs1 — cold start is positional; the re-tune is now the user's to run
+stopped_at: "Completed quick task 260904-6k1: ribbon-sigma favicon added and linked"
+last_updated: "2026-09-04T08:57:33.826Z"
+last_activity: 2026-09-04
+last_activity_desc: "Completed quick task 260904-586: Teams list now shows latest official-play metrics (offseason/preseason excluded; 2022-2026 republished)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -326,6 +326,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08 P14]: No locked rank-distribution row occurred at either sampled event (2023nhgrs, 2023cur) under the plan's fixed full-event-rewind mock methodology -- reported explicitly per the plan's own allowance; the bar/band/tick centre-agreement identity remains separately proven at the unit level against 08-04's real recomputed numbers
 - [Phase ?]: Phase 08 sealed: all 6 backstop markers (S0,S1,S2,S3,C1,C3) have named runnable evidence (6==6); real-device sign-off deliberately deferred to /gsd-verify-work by explicit user decision (human_verify_mode: end-of-phase), not performed/not waived
 - [Phase ?]: 08-14's RankDistributionTable.tsx typecheck regression (algorithm search param) routed and fixed (da26713f) -- durable lesson: repo-root pnpm typecheck does NOT cover apps/web, use pnpm --filter web typecheck
+- [Phase ?]: [Quick 260904-6k1] Ribbon-derived favicon.svg added (font-free stroked-polyline sigma, #14532d tile / #81c784 stroke) with a color-drift test tying it to theme.css's --ribbon-bg/--ribbon-accent tokens
 
 ### Pending Todos
 
@@ -396,9 +397,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-02T03:45:23.498Z
-Stopped at: Completed quick task 260901-trz (tasks 4-7) -- reparameterization measured and gated, rolling-origin selection and the acceptance rule wired in. Re-tune NOT run (filed as retune-sigma1-rolling-origin.md)
+Last session: 2026-09-04T08:57:33.790Z
+Stopped at: Completed quick task 260904-6k1: ribbon-sigma favicon added and linked
 Resume file: None
 
 ## Decisions
+
 - 2026-09-01: UI reviews for phases 05/06/08 permanently WAIVED by user decision ("never going to run") — do not propose /gsd-ui-review for them. 07-UI-REVIEW fixes 1+2 shipped; fix 3 resolved via ui-polish F3.
