@@ -4,10 +4,11 @@
  * fixture, drive `epa` through it, and assert against hand-computed values.
  */
 import { describe, expect, it } from "vitest";
-import { epa, epaPercentFunc, EPA_K, EPA_FALLBACK_SCORE_SD, type EpaState } from "./epa.js";
+import { epa, epaPercentFunc, EPA_K, EPA_FALLBACK_SCORE_SD, EPA_INIT_COMPONENT_TOTAL, type EpaState } from "./epa.js";
 import { opr } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
-import { FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
+import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./breakdown/index.js";
+import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
@@ -938,5 +939,144 @@ describe("epa — adjust-zeroed alliance exclusion (quick task 260904-6a1, .plan
       expect(afterFallback.teamMatchCounts.get(team)).toBe(1);
     }
     expect(afterFallback.allianceScoreStats.count).toBe(2);
+  });
+});
+
+describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)", () => {
+  it("after N updates against breakdowns carrying nonzero adjustPoints, every team's adjust entry is exactly 0", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    for (let i = 0; i < 5; i++) {
+      state = epa.update(
+        state,
+        matchResult({
+          matchKey: `2024test_qm${i + 1}`,
+          matchNumber: i + 1,
+          redTeams: ["frc1", "frc2", "frc3"],
+          blueTeams: ["frc4", "frc5", "frc6"],
+          redScore: 100 + i,
+          blueScore: 80 + i,
+          scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 100 + i, adjustPoints: -20 }, { autoLeavePoints: 80 + i, adjustPoints: 15 }),
+        })
+      );
+    }
+    for (const team of ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]) {
+      expect(state.teamComponents.get(team)![ADJUST_COMPONENT]).toBe(0);
+    }
+  });
+
+  it("after carrySeason across a season boundary, every carried team's adjust entry is still exactly 0", () => {
+    const state: EpaState = {
+      season: 2024,
+      teamComponents: new Map([
+        ["frc1", { autoLeave: 30, [ADJUST_COMPONENT]: 0 }],
+        ["frc2", { autoLeave: 20, [ADJUST_COMPONENT]: 0 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["frc1", 10],
+        ["frc2", 10],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+    };
+    const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
+    const next = epa.carrySeason!(state, boundary);
+    for (const team of ["frc1", "frc2"]) {
+      expect(next.teamComponents.get(team)![ADJUST_COMPONENT]).toBe(0);
+    }
+  });
+
+  it("a cold-start team's summed component means equal EPA_INIT_COMPONENT_TOTAL — unchanged by excluding adjust from the divisor (D-6)", () => {
+    // One team per alliance (n=1): with every raw breakdown field set to
+    // EXACTLY the modeled cold-start value, `predictedAllianceTotal` for
+    // each component equals `coldStart` too (n=1), so `attributed` reduces
+    // to `coldStart` and `twoStageEwma(coldStart, coldStart, percent, 1)`
+    // is a genuine no-op — the observation matches the prior exactly. The
+    // resulting per-team sum is therefore exactly the cold-start seed,
+    // `componentCount * coldStart`, which is `EPA_INIT_COMPONENT_TOTAL` BY
+    // CONSTRUCTION only if `componentCount` (D-6) excludes `adjust` —
+    // otherwise the sum would fall short by exactly one `coldStart` share.
+    const modeledComponentCount = breakdown2024.components.filter((name) => name !== ADJUST_COMPONENT).length;
+    const coldStart = EPA_INIT_COMPONENT_TOTAL / modeledComponentCount;
+    const uniformFields = {
+      autoLeavePoints: coldStart,
+      autoAmpNotePoints: coldStart,
+      autoSpeakerNotePoints: coldStart,
+      teleopAmpNotePoints: coldStart,
+      teleopSpeakerNotePoints: coldStart,
+      teleopSpeakerNoteAmplifiedPoints: coldStart,
+      endGameOnStagePoints: coldStart,
+      endGameParkPoints: coldStart,
+      endGameHarmonyPoints: coldStart,
+      endGameNoteInTrapPoints: coldStart,
+      endGameSpotLightBonusPoints: coldStart,
+      adjustPoints: coldStart, // irrelevant — pinned at 0 regardless (D-5)
+      foulPoints: coldStart,
+    };
+
+    const initial = epa.initState(["frc1", "frc4"]);
+    const next = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc1"],
+        redSurrogates: [],
+        blueTeams: ["frc4"],
+        blueSurrogates: [],
+        redScore: coldStart * (modeledComponentCount - 1),
+        blueScore: coldStart * (modeledComponentCount - 1),
+        scoreBreakdownRaw: breakdown2024Json(uniformFields, uniformFields),
+      })
+    );
+    for (const team of ["frc1", "frc4"]) {
+      const components = next.teamComponents.get(team)!;
+      const total = Object.values(components).reduce((sum, value) => sum + value, 0);
+      expect(total).toBeCloseTo(EPA_INIT_COMPONENT_TOTAL, 9);
+    }
+  });
+
+  it("predicted alliance score is identical whether a team's adjust entry is consulted or not — adjust contributes 0", () => {
+    const state = epa.update(
+      epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]),
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 80,
+        scoreBreakdownRaw: breakdown2024Json({ autoLeavePoints: 120, adjustPoints: -999 }, { autoLeavePoints: 80 }),
+      })
+    );
+    const prediction = epa.predict(state, upcoming({ redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] }));
+    expect(prediction.redComponents![ADJUST_COMPONENT]!.mean).toBe(0);
+  });
+
+  it("distributeResidual, fed EPA's modeled (non-fouls, non-adjust) component list, still sums to the observed total — the fallback split covers every modeled component and ADJUST_COMPONENT never receives a share", () => {
+    const modeledComponents = breakdown2024.components.filter(
+      (name) => name !== FOULS_COMMITTED_COMPONENT && name !== ADJUST_COMPONENT
+    );
+    expect(modeledComponents).not.toContain(ADJUST_COMPONENT);
+    const result = distributeResidual(140, {}, modeledComponents);
+    const sum = Object.values(result).reduce((s, v) => s + v, 0);
+    expect(sum).toBeCloseTo(140, 9);
+    expect(result[ADJUST_COMPONENT]).toBeUndefined();
+  });
+
+  it("a D-05 fallback match (null scoreBreakdownRaw) still updates every rating-eligible team, and adjust stays pinned at 0 throughout", () => {
+    const initial = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const afterFallback = epa.update(
+      initial,
+      matchResult({
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 140,
+        blueScore: 90,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+    for (const team of ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]) {
+      expect(afterFallback.teamComponents.get(team)![ADJUST_COMPONENT]).toBe(0);
+      expect(afterFallback.teamMatchCounts.get(team)).toBe(1);
+    }
   });
 });

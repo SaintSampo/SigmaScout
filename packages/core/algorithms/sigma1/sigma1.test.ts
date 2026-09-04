@@ -22,8 +22,8 @@ import {
 } from "./index.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { resolveSigma1Params } from "./scale.js";
-import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
-import { COMPONENT_GROUP_METRIC_KEYS, FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
+import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
+import { ADJUST_COMPONENT, COMPONENT_GROUP_METRIC_KEYS, FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../types.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 import { emptyInnovationStats } from "./adaptation.js";
@@ -355,7 +355,14 @@ describe("teamMetrics — D-27 contract shape", () => {
     // One entry per component, plus total, plus the three phase groups
     // (phaseAuto/phaseTeleop/phaseEndgame) — see breakdown/groups.ts.
     expect(Object.keys(frc254).length).toBe(SIGMA1_2024_COMPONENT_COUNT + 1 + 3);
-    for (const metric of Object.values(frc254)) {
+    for (const [name, metric] of Object.entries(frc254)) {
+      // `adjust` is the ONE key with no spread at all (quick task 260904-6a1,
+      // D-5/D-6): it is pinned at 0 and never folded into swing — a
+      // scorekeeper's ruling carries no per-team uncertainty to publish.
+      if (name === ADJUST_COMPONENT) {
+        expect(metric.spread).toBeUndefined();
+        continue;
+      }
       expect(metric.spread).toBeDefined();
       expect(Number.isFinite(metric.spread)).toBe(true);
     }
@@ -714,8 +721,15 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
       expect(metrics["T1"]![key]!.spread, key).toBe(swingSpread(swing, key, DEFAULT_SIGMA1_PARAMS.swingScale));
     }
     // D-Y2 non-vacuity: a played team publishes a `±` on EVERY key it shows —
-    // the never-blank guarantee, at the wiring level rather than the unit one.
+    // the never-blank guarantee, at the wiring level rather than the unit one
+    // — EXCEPT `adjust` (quick task 260904-6a1, D-5/D-6): pinned at 0 and
+    // never folded into swing, so it is the one key that is always blank,
+    // by design, for every team regardless of match count.
     for (const [key, metric] of Object.entries(metrics["T1"]!)) {
+      if (key === ADJUST_COMPONENT) {
+        expect(metric.spread, `${key} is never published`).toBeUndefined();
+        continue;
+      }
       expect(metric.spread, `${key} is never blank for a played team`).toBeDefined();
     }
 
@@ -1373,9 +1387,14 @@ describe("carrySeason — D-16/D-17", () => {
     expect(t1After!.matchCount).toBe(0);
 
     // Mean carries via an even split of the carried total across the new
-    // season's components — every component's carried mean is identical
-    // (the same "share" division epa.ts's own carrySeason performs).
-    const carriedMeans = new Set(carried.componentOrder.map((name) => t1After!.beliefs[name]!.mean));
+    // season's MODELED components — every non-adjust component's carried
+    // mean is identical (the same "share" division epa.ts's own carrySeason
+    // performs). `adjust` is pinned at exactly 0 instead (quick task
+    // 260904-6a1, D-5/D-6), excluded from the divisor and from this
+    // "identical share" check — it never gets a share at all.
+    expect(t1After!.beliefs[ADJUST_COMPONENT]!.mean).toBe(0);
+    const nonAdjustComponents = carried.componentOrder.filter((name) => name !== ADJUST_COMPONENT);
+    const carriedMeans = new Set(nonAdjustComponents.map((name) => t1After!.beliefs[name]!.mean));
     expect(carriedMeans.size).toBe(1);
     expect([...carriedMeans][0]).toBeGreaterThan(0);
 
@@ -1387,9 +1406,14 @@ describe("carrySeason — D-16/D-17", () => {
     expect(afterConsistency).toBeCloseTo(beforeConsistency * SIGMA1_CONSISTENCY_CARRY_DECAY, 9);
 
     // Posterior variance is re-inflated to a finite, non-negative value for
-    // every carried component (D-07's reasoning applied one level up —
-    // never an implausible near-zero P off a year of layoff).
+    // every carried MODELED component (D-07's reasoning applied one level
+    // up — never an implausible near-zero P off a year of layoff). `adjust`
+    // is the one exception (quick task 260904-6a1, D-5/D-6): its carried
+    // belief is pinned at exactly `{ mean: 0, variance: 0 }`, never
+    // re-inflated, since it is never folded and has no gain to protect.
+    expect(t1After!.beliefs[ADJUST_COMPONENT]!.variance).toBe(0);
     for (const name of carried.componentOrder) {
+      if (name === ADJUST_COMPONENT) continue;
       expect(Number.isFinite(t1After!.beliefs[name]!.variance)).toBe(true);
       expect(t1After!.beliefs[name]!.variance).toBeGreaterThan(0);
     }
@@ -1772,15 +1796,21 @@ describe("swing folding into state (D-Y1/D-Y3)", () => {
     );
     const componentCount = state.componentOrder.length;
     expect(componentCount).toBe(SIGMA1_2024_COMPONENT_COUNT);
+    // `adjust` (quick task 260904-6a1, D-5/D-6) is pinned at 0 and never
+    // folds an innovation, so it contributes nothing to TOTAL's summed
+    // innovation — the ratio below is over the MODELED (non-adjust)
+    // component count, one less than the structural `componentCount` above.
+    const modeledComponentCount = state.componentOrder.filter((name) => name !== ADJUST_COMPONENT).length;
+    expect(modeledComponentCount).toBe(componentCount - 1);
 
     const metrics = vpr.teamMetrics(state, ["R1"])["R1"]!;
     const perComponent = metrics[state.componentOrder[0]!]!.spread!;
     const total = metrics[TOTAL_METRIC_KEY]!.spread!;
     expect(perComponent).toBeGreaterThan(0);
-    expect(total / perComponent).toBeCloseTo(componentCount, 6);
-    // Non-vacuity: the sum-of-squares alternative would give sqrt(C) ~ 3.6,
-    // which this fixture keeps a wide margin away from the asserted 13.
-    expect(total / perComponent).not.toBeCloseTo(Math.sqrt(componentCount), 6);
+    expect(total / perComponent).toBeCloseTo(modeledComponentCount, 6);
+    // Non-vacuity: the sum-of-squares alternative would give sqrt(C) ~ 3.5,
+    // which this fixture keeps a wide margin away from the asserted 12.
+    expect(total / perComponent).not.toBeCloseTo(Math.sqrt(modeledComponentCount), 6);
   });
 
   it("every teammate receives the SAME deviation for a match — per-team differentiation comes from ACROSS matches, never from within one", () => {
@@ -1827,5 +1857,135 @@ describe("swing folding into state (D-Y1/D-Y3)", () => {
     const accumulator = state.teams.get("R1")!.swing[TOTAL_METRIC_KEY]!;
     expect(accumulator.weight).toBe(1);
     expect(r1).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * Math.sqrt(accumulator.weightedSquares));
+  });
+});
+
+describe("vpr — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)", () => {
+  it("every team's adjust belief mean and variance are exactly 0 after any number of updates, and after carrySeason", () => {
+    let state = vpr.initState([]);
+    for (let i = 0; i < 5; i++) {
+      state = vpr.update(
+        state,
+        match({
+          matchKey: `2024test_qm${i + 1}`,
+          redTeams: ["R1", "R2", "R3"],
+          blueTeams: ["B1", "B2", "B3"],
+          // Nonzero recorded scores on BOTH sides so neither alliance is a
+          // ruling-zero (Task 1's isAdjustZeroedAlliance requires score 0) —
+          // this test is about the pinning, not the ruling-zero exclusion.
+          redScore: UNIFORM_TOTAL - 30,
+          blueScore: UNIFORM_TOTAL + 40,
+          hasScoreBreakdown: true,
+          scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT, {
+            red: { adjustPoints: -30 },
+            blue: { adjustPoints: 40 },
+          }),
+        })
+      );
+    }
+    for (const team of ["R1", "R2", "R3", "B1", "B2", "B3"]) {
+      const belief = state.teams.get(team)!.beliefs[ADJUST_COMPONENT]!;
+      expect(belief.mean).toBe(0);
+      expect(belief.variance).toBe(0);
+    }
+
+    const carried = vpr.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+    for (const team of ["R1", "R2", "R3", "B1", "B2", "B3"]) {
+      const belief = carried.teams.get(team)!.beliefs[ADJUST_COMPONENT]!;
+      expect(belief.mean).toBe(0);
+      expect(belief.variance).toBe(0);
+    }
+  });
+
+  it("adjust's belief variance does not grow across an event boundary — process noise is skipped for it (a real component's variance moves, proving the exclusion is a genuine divergence)", () => {
+    let state = vpr.initState([]);
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024eventa_qm1",
+        eventKey: "2024eventa",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    // A DIFFERENT event for the same teams — applyTeamProcessNoise takes the
+    // larger event-boundary branch for every OTHER component.
+    state = vpr.update(
+      state,
+      match({
+        matchKey: "2024eventb_qm1",
+        eventKey: "2024eventb",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(UNIFORM_PER_COMPONENT),
+      })
+    );
+    for (const team of ["R1", "R2", "R3", "B1", "B2", "B3"]) {
+      expect(state.teams.get(team)!.beliefs[ADJUST_COMPONENT]!.variance).toBe(0);
+    }
+    const ordinaryComponent = state.componentOrder.find(
+      (name) => name !== ADJUST_COMPONENT && name !== FOULS_COMMITTED_COMPONENT
+    )!;
+    expect(state.teams.get("R1")!.beliefs[ordinaryComponent]!.variance).toBeGreaterThan(0);
+  });
+
+  it("a cold-start team's summed belief means equal params.coldStartTeamTotal — unchanged by excluding adjust from the divisor (D-6)", () => {
+    // Single team per alliance (n=1): with every raw breakdown field set to
+    // EXACTLY the modeled cold-start value, the alliance-level observation
+    // matches the predicted sum exactly (n=1, fresh cold start), so the
+    // Kalman update is a genuine no-op — the mean stays at the cold-start
+    // seed. The resulting per-team sum is therefore exactly
+    // `coldStartTeamTotal` BY CONSTRUCTION only if the divisor (D-6)
+    // excludes `adjust` — otherwise the sum would fall short by one share.
+    const resolved = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+    const modeledComponentCount = SIGMA1_2024_COMPONENT_COUNT - 1; // exclude adjust
+    const coldStartMean = resolved.coldStartTeamTotal / modeledComponentCount;
+
+    const state = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1"],
+        blueTeams: ["B1"],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: rawBreakdown2024Uniform(coldStartMean),
+      })
+    );
+    for (const team of ["R1", "B1"]) {
+      const beliefs = state.teams.get(team)!.beliefs;
+      const total = Object.values(beliefs).reduce((sum, b) => sum + b.mean, 0);
+      expect(total).toBeCloseTo(resolved.coldStartTeamTotal, 6);
+    }
+  });
+
+  it("distributeResidual, fed Sigma1's modeled (non-fouls, non-adjust) component list, still sums to the observed total — ADJUST_COMPONENT never receives a share", () => {
+    const modeledComponents = ["autoLeave", "autoAmpNote", "teleopSpeakerNote"]; // any subset excluding fouls/adjust
+    const result = distributeResidual(90, {}, modeledComponents);
+    const sum = Object.values(result).reduce((s, v) => s + v, 0);
+    expect(sum).toBeCloseTo(90, 9);
+    expect(result[ADJUST_COMPONENT]).toBeUndefined();
+  });
+
+  it("a D-05 fallback match (null scoreBreakdownRaw) still updates every rating-eligible team, and adjust stays pinned at 0 throughout", () => {
+    const state = vpr.update(
+      vpr.initState([]),
+      match({
+        matchKey: "2024test_qm1",
+        redTeams: ["R1", "R2", "R3"],
+        blueTeams: ["B1", "B2", "B3"],
+        redScore: 140,
+        blueScore: 90,
+        hasScoreBreakdown: false,
+        scoreBreakdownRaw: null,
+      })
+    );
+    for (const team of ["R1", "R2", "R3", "B1", "B2", "B3"]) {
+      expect(state.teams.has(team)).toBe(true);
+      expect(state.teams.get(team)!.beliefs[ADJUST_COMPONENT]!.mean).toBe(0);
+      expect(state.teams.get(team)!.beliefs[ADJUST_COMPONENT]!.variance).toBe(0);
+    }
   });
 });

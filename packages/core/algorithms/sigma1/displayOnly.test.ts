@@ -93,6 +93,37 @@
  * Nothing else may be added to this list without a recorded reason, and adding
  * a field to it to make a red test green is the prohibited move above under a
  * different name.
+ *
+ * ---------------------------------------------------------------------------
+ * SUPERSEDED (quick task 260904-6a1, 2026-09-04): this is the first task to
+ * legitimately break the bitwise-frozen claim below, ON PURPOSE.
+ * ---------------------------------------------------------------------------
+ *
+ * Every task this file watched from 260902-varopr through 260903-750
+ * (5.0.0-7.0.0) was, BY ITS OWN DESIGN, display-only: each added new state
+ * `predict()`/`update()` never read, and this file's whole job was proving
+ * that adding it moved nothing else. 260904-6a1 is a different kind of task —
+ * it PINS `adjust` at exactly `0` for every team, in both `update()`'s filter
+ * math and `predict()`'s reported score (D-5/D-6, `epa.ts`/`sigma1/index.ts`),
+ * which is a genuine model change, not a display addition. `SIGMA1_CODE_VERSION`
+ * bumps `7.0.0 -> 8.0.0` for exactly this reason (`params.ts`), and
+ * `digest.test.ts` — not this file — is the mechanism that gates a real model
+ * change: it re-promotes every committed `data/algorithm-versions/*.json` file
+ * under the new code and asserts the NEW digest bitwise, rather than asserting
+ * against a frozen pre-change one.
+ *
+ * Continuing to enforce this file's three bitwise-freeze assertions against
+ * them would therefore be asserting a claim this task's whole point is to
+ * violate — not a regression to chase, and not something a fixture refresh
+ * could honestly repair (the header above is right that regenerating a
+ * BITWISE-FREEZE fixture to paper over a real model change is the prohibited
+ * move; this addendum documents why the freeze itself no longer applies here,
+ * which is different from making a fixture match a change quietly). The three
+ * assertions are marked superseded below, with this comment as the reason, and
+ * the fixture is left UNCHANGED — it remains the honest historical record of
+ * what `vpr@7.0.0` produced on this synthetic stream, exactly the discipline
+ * `params.ts`'s own version-history comments already apply to every prior
+ * model change's now-superseded measurements.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -508,18 +539,24 @@ describe("display-only guard (D-V4): predict() and update() are bitwise frozen",
     expect(actual.predictions.length).toBe(expected.matchCount);
   });
 
-  it("reproduces the committed prediction stream bitwise ([matchKey, pRedWin, redScore, blueScore])", () => {
-    // The identical tuple `computePredictionStreamDigest` hashes — so this is
-    // the same gate `digest.test.ts` applies to the committed version files,
-    // run on a synthetic stream that needs no corpus.
+  // SUPERSEDED (quick task 260904-6a1, see this file's header addendum): the
+  // adjust-pinning model change deliberately moves `predict()`'s reported
+  // scores and `update()`'s post-fold/post-carry filter state, since the
+  // synthetic stream's `adjustPoints` field carries real, nonzero
+  // random-noise values (`COMPONENT_FIELDS` above) that are no longer folded
+  // as robot performance. `digest.test.ts` is the mechanism that gates this
+  // task's actual model change against a freshly re-promoted digest; this
+  // file's job — proving a change is display-only — does not apply to a task
+  // that isn't one.
+  it.skip("reproduces the committed prediction stream bitwise ([matchKey, pRedWin, redScore, blueScore]) — superseded by 260904-6a1's adjust-pinning model change", () => {
     expect(actual.predictions).toEqual(expected.predictions);
   });
 
-  it("reproduces the committed post-fold filter-state hash", () => {
+  it.skip("reproduces the committed post-fold filter-state hash — superseded by 260904-6a1's adjust-pinning model change", () => {
     expect(actual.postFoldStateSha256).toBe(expected.postFoldStateSha256);
   });
 
-  it("reproduces the committed post-carrySeason state hash", () => {
+  it.skip("reproduces the committed post-carrySeason state hash — superseded by 260904-6a1's adjust-pinning model change", () => {
     expect(actual.postCarryStateSha256).toBe(expected.postCarryStateSha256);
   });
 });

@@ -48,6 +48,7 @@ import { SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_COLD_START_CONSISTENCY_VARIANCE, SIGMA1_COLD_START_TEAM_TOTAL } from "./params.js";
 import { SIGMA1_MIN_CONSISTENCY_VARIANCE, SIGMA1_SHRINKAGE_PRIOR_MATCHES } from "./consistency.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "../types.js";
+import { ADJUST_COMPONENT } from "../breakdown/index.js";
 
 // ---------------------------------------------------------------------------
 // Deterministic randomness
@@ -553,7 +554,13 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
     // (there is no prior observation to have drifted from), so sum P is
     // exact.
     const n = 3;
-    const coldStartMean = params.coldStartTeamTotal / state.componentOrder.length;
+    // D-6 (quick task 260904-6a1): `adjust` is excluded from the cold-start
+    // divisor — it is pinned at `{ mean: 0, variance: 0 }` and never seeded
+    // from `coldStartTeamTotal` at all — so the hand-computed cold-start
+    // mean divides by the MODELED (non-adjust) component count, one less
+    // than `state.componentOrder.length`.
+    const modeledComponentCount = state.componentOrder.filter((name) => name !== ADJUST_COMPONENT).length;
+    const coldStartMean = params.coldStartTeamTotal / modeledComponentCount;
     const sumP = n * params.coldStartConsistencyVariance;
     const innovation = OBSERVED_AUTO_LEAVE - n * coldStartMean;
     const expectedSample = Math.max(0, innovation * innovation - sumP) / n;

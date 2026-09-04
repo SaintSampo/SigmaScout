@@ -205,7 +205,7 @@ const EPA_INIT_TYPICAL_TEAM_SHARE = 20;
  * a team, and is corrected within roughly a dozen matches by
  * `epaPercentFunc`'s fast initial learning rate (1/3 at match count 0).
  */
-const EPA_INIT_COMPONENT_TOTAL =
+export const EPA_INIT_COMPONENT_TOTAL =
   EPA_INIT_TYPICAL_TEAM_SHARE * (1 - (EPA_INIT_PENALTY * EPA_NORM_SD) / EPA_NORM_MEAN);
 
 /**
@@ -501,6 +501,12 @@ function applyComponentUpdate(
   // never part of.
   const predictedAllianceTotals: Record<string, number> = {};
   for (const component of Object.keys(observed)) {
+    // D-5/D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is a scorekeeper's
+    // ruling applied to an alliance total, not a quantity any robot
+    // produces — there is no per-team share of it to learn, so no predicted
+    // total is computed for it either. Its per-team value is written
+    // directly as `0` in the loop below, never derived from this total.
+    if (component === ADJUST_COMPONENT) continue;
     let total = 0;
     for (const team of teams) {
       total += teamComponents.get(team)?.[component] ?? coldStart;
@@ -513,8 +519,22 @@ function applyComponentUpdate(
     const percent = epaPercentFunc(matchCount);
     const currentComponents = nextComponents.get(team) ?? {};
     const updatedComponents: Record<string, number> = { ...currentComponents };
+    // D-5/D-6 (quick task 260904-6a1): `adjust` is pinned at exactly `0` for
+    // every team on every update, UNCONDITIONALLY — not merely "when this
+    // match's `observed` vector happens to carry an `adjust` key". A D-05
+    // fallback match's residual split (`nonFoulsComponents`, above)
+    // deliberately excludes `ADJUST_COMPONENT` entirely (D-5 seam 3), so
+    // `observed` carries no `adjust` key at all on that path; without this
+    // unconditional pin a cold-start team would leave `adjust` undefined
+    // rather than the documented `0`. Never EWMA'd toward a manufactured
+    // value: a nonzero per-team adjust estimate would be the model fitting a
+    // scorekeeper's ruling.
+    updatedComponents[ADJUST_COMPONENT] = 0;
 
     for (const [component, allianceValue] of Object.entries(observed)) {
+      // Already pinned above — see the `predictedAllianceTotals` skip for
+      // why no predicted total exists for it to attribute against.
+      if (component === ADJUST_COMPONENT) continue;
       const currentMean = currentComponents[component] ?? coldStart;
       // D-Q1: credit the alliance's ERROR, shared equally, on top of this
       // team's own level — Statbotics' `post_process_attrib`
@@ -554,7 +574,13 @@ function update(state: EpaState, result: MatchResult): EpaState {
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
 
   const seasonMap = componentMapForSeason(season);
-  const componentCount = seasonMap.components.length;
+  // D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is excluded from the
+  // cold-start divisor here and at the carrySeason boundary below — it is
+  // never seeded (pinned at 0, D-5), so counting it in the divisor would
+  // silently shrink every rookie's seeded total below
+  // `EPA_INIT_COMPONENT_TOTAL`. A change of VALUE only — every existing
+  // `componentCount` parameter/consumer is unchanged in shape.
+  const componentCount = seasonMap.components.filter((name) => name !== ADJUST_COMPONENT).length;
 
   const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
   const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
@@ -572,7 +598,13 @@ function update(state: EpaState, result: MatchResult): EpaState {
   // this fallback used to feed distributeResidual pre-fix. Never a silent
   // drop, never a coerced zero (RESEARCH.md Anti-Patterns).
   const breakdownParseFailureCount = state.breakdownParseFailureCount + (breakdownOutcome.kind === "malformed" ? 1 : 0);
-  const nonFoulsComponents = seasonMap.components.filter((name) => name !== FOULS_COMMITTED_COMPONENT);
+  // D-5 EPA seam 3 (quick task 260904-6a1): the fallback split must also
+  // exclude `ADJUST_COMPONENT` — an imputed observation routed to a pinned
+  // component would simply vanish and the imputed total would no longer
+  // reconcile.
+  const nonFoulsComponents = seasonMap.components.filter(
+    (name) => name !== FOULS_COMMITTED_COMPONENT && name !== ADJUST_COMPONENT
+  );
   const blueFoulsMean = predictedComponentTotals(state.teamComponents, blueTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
   const redFoulsMean = predictedComponentTotals(state.teamComponents, redTeams)[FOULS_COMMITTED_COMPONENT] ?? 0;
 
@@ -719,13 +751,22 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
   const carryResult = epaCarryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings });
 
   const toSeasonComponents = componentMapForSeason(boundary.toSeason).components;
+  // D-5/D-6 EPA seam 4 (quick task 260904-6a1): `ADJUST_COMPONENT` is
+  // excluded from the carried-share divisor, exactly like the cold-start
+  // divisor above — without this, every team's `adjust` estimate would
+  // become nonzero again at every season boundary.
+  const modeledToSeasonComponents = toSeasonComponents.filter((name) => name !== ADJUST_COMPONENT);
   const teamComponents = new Map<string, Readonly<Record<string, number>>>();
   const teamMatchCounts = new Map<string, number>();
 
   for (const [team, carriedTotal] of carryResult.teamPointTotals) {
-    const share = toSeasonComponents.length > 0 ? carriedTotal / toSeasonComponents.length : 0;
+    const share = modeledToSeasonComponents.length > 0 ? carriedTotal / modeledToSeasonComponents.length : 0;
     const record: Record<string, number> = {};
-    for (const name of toSeasonComponents) record[name] = share;
+    for (const name of toSeasonComponents) {
+      // `adjust`'s carried entry is pinned at exactly 0 (D-5) — never a
+      // share of the carried total.
+      record[name] = name === ADJUST_COMPONENT ? 0 : share;
+    }
     teamComponents.set(team, record);
     // A new season resets each team's match counter — the percent_func's
     // fast early learning rate applies fresh, exactly as it does for any

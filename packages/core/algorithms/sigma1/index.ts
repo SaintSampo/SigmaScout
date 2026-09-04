@@ -160,6 +160,21 @@ function componentColdStartTotal(componentCount: number, params: Sigma1ResolvedP
 }
 
 /**
+ * D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is excluded from every
+ * cold-start/carried-share divisor in this module — it is never seeded
+ * (pinned at `{ mean: 0, variance: 0 }`, D-5), so counting it in the
+ * divisor would silently shrink a cold-start team's summed belief below
+ * `params.coldStartTeamTotal`. This is the SAME `componentOrder` array used
+ * to size every structural (indexed-by-position) array in this module —
+ * those keep reading `componentOrder.length` unchanged, since `adjust`
+ * still occupies a real slot there; only the DIVISOR consumers below call
+ * this helper.
+ */
+function modeledComponentCount(componentOrder: readonly string[]): number {
+  return componentOrder.filter((name) => name !== ADJUST_COMPONENT).length;
+}
+
+/**
  * One team's full Sigma1 state: Kalman beliefs, cross-component covariance,
  * and the D-09/D-11 consistency estimate, per component. Extends
  * `rp/state.ts`'s `RpTeamState` (adds `rpBeliefs`/`rpCovariance`/
@@ -347,10 +362,21 @@ function coldStartTeamState(
   params: Sigma1ResolvedParams,
   rpVariableCount: number
 ): Sigma1TeamState {
-  const coldStartMean = componentColdStartTotal(componentOrder.length, params);
+  const coldStartMean = componentColdStartTotal(modeledComponentCount(componentOrder), params);
   const beliefs: Record<string, TeamComponentBelief> = {};
   const consistency: Record<string, number> = {};
   for (const name of componentOrder) {
+    // D-5 Sigma1 seam 3 (quick task 260904-6a1): `adjust` is seeded at
+    // exactly `{ mean: 0, variance: 0 }`, bypassing `leagueMeanFor` and
+    // `seedConsistencyFor` entirely — it is a scorekeeper's ruling, not a
+    // quantity any robot produces, so there is no league prior to seed it
+    // from and no Kalman gain to protect with a variance floor (a component
+    // that is never folded has no gain at all).
+    if (name === ADJUST_COMPONENT) {
+      beliefs[name] = { mean: 0, variance: 0 };
+      consistency[name] = 0;
+      continue;
+    }
     const mean = leagueMeanFor(league, name, coldStartMean);
     // D-Q2: floored — see `seedConsistencyFor`. An unfloored 0 here gives a
     // brand-new team P = R = 0 and therefore a zero Kalman gain on its very
@@ -405,7 +431,12 @@ function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, par
   const scaledQ = q * adaptationFactor(teamState.innovationStats, params);
   const beliefs: Record<string, TeamComponentBelief> = {};
   for (const [name, belief] of Object.entries(teamState.beliefs)) {
-    beliefs[name] = applyProcessNoise(belief, scaledQ);
+    // D-5 Sigma1 seam 4 (quick task 260904-6a1): `adjust`'s mean never
+    // moves (it is pinned at 0), so growing its variance every match would
+    // inflate `allianceComponentVarianceSum` — and through that,
+    // `predict()`'s reported variance and the published `±` — for a
+    // quantity that carries no uncertainty at all.
+    beliefs[name] = name === ADJUST_COMPONENT ? belief : applyProcessNoise(belief, scaledQ);
   }
   return { ...teamState, beliefs };
 }
@@ -500,7 +531,7 @@ function foulsCommittedCarryForward(
   componentOrder: readonly string[],
   params: Sigma1ResolvedParams
 ): number {
-  const coldStartMean = componentColdStartTotal(componentOrder.length, params);
+  const coldStartMean = componentColdStartTotal(modeledComponentCount(componentOrder), params);
   let total = 0;
   for (const team of teams) {
     const existingMean = state.teams.get(team)?.beliefs[FOULS_COMMITTED_COMPONENT]?.mean;
@@ -658,6 +689,16 @@ function applyAllianceUpdate(
   const innovationByComponent = new Array<number>(componentOrder.length).fill(0);
 
   componentOrder.forEach((name, componentIndex) => {
+    // D-5 Sigma1 seam 1 (quick task 260904-6a1): `adjust` is a scorekeeper's
+    // ruling applied to an alliance total, not a quantity any robot
+    // produces — there is no per-team share of it to learn, so this
+    // component is skipped ENTIRELY here, leaving its belief (already seeded
+    // at `{ mean: 0, variance: 0 }` by `coldStartTeamState`, D-5 seam 3, and
+    // never perturbed by process noise, D-5 seam 4) exactly as it was in
+    // `workingTeams`/`nextBeliefsByTeam`, and leaving its residual/innovation/
+    // variance-sample slots at the `0` they were initialized to above,
+    // untouched.
+    if (name === ADJUST_COMPONENT) return;
     const teammateBeliefs = allianceTeams.map((team) => workingTeams.get(team)!.beliefs[name] ?? { mean: 0, variance: 0 });
     const observedSum = observed[name] ?? 0;
     // R for this alliance-component observation: the SUM of each
@@ -803,6 +844,14 @@ function applyAllianceUpdate(
   // throw away every cross-component covariance the total actually carries.
   const squaredResidualByKey: Record<string, number> = {};
   componentOrder.forEach((name, i) => {
+    // D-5 Sigma1 seam 2 (quick task 260904-6a1): `adjust`'s per-component
+    // key is skipped entirely here, not merely left at its already-zero
+    // innovation — passing it through would fold a manufactured `0`
+    // deviation into `foldSwingObservation` below on EVERY match, moving
+    // `swingSpread("adjust", ...)` from "never observed" (`undefined`) to a
+    // permanently-published `0 ±`. `adjust` is display-omitted, not
+    // display-zero.
+    if (name === ADJUST_COMPONENT) return;
     const innovation = innovationByComponent[i]!;
     squaredResidualByKey[name] = innovation * innovation;
   });
@@ -840,6 +889,10 @@ function applyAllianceUpdate(
     const working = workingTeams.get(team)!;
     const nextConsistency: Record<string, number> = { ...working.consistency };
     componentOrder.forEach((name, i) => {
+      // D-5 Sigma1 seam 2: `adjust`'s consistency stays EXACTLY as seeded
+      // (`{ mean: 0, variance: 0 }`'s consistency half, D-5 seam 3) — never
+      // EWMA'd toward a manufactured zero sample.
+      if (name === ADJUST_COMPONENT) return;
       nextConsistency[name] = foldConsistencyVariance(
         nextConsistency[name] ?? params.coldStartConsistencyVariance,
         varianceSampleByComponent[i]!,
@@ -1186,7 +1239,13 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   // OPPONENT's currently-predicted foul contribution — mirroring
   // predict()'s own cross-alliance attribution, rather than the flat,
   // uncorrected sum this fallback used to feed distributeResidual pre-fix.
-  const nonFoulsComponents = componentOrder.filter((name) => name !== FOULS_COMMITTED_COMPONENT);
+  // D-5 Sigma1 seam 5 (quick task 260904-6a1): the fallback split must also
+  // exclude `ADJUST_COMPONENT` — an imputed observation routed to a pinned
+  // component would simply vanish and the imputed total would no longer
+  // reconcile.
+  const nonFoulsComponents = componentOrder.filter(
+    (name) => name !== FOULS_COMMITTED_COMPONENT && name !== ADJUST_COMPONENT
+  );
   const blueFoulsMean = predictedComponentTotals(state, blueTeams, componentOrder)[FOULS_COMMITTED_COMPONENT] ?? 0;
   const redFoulsMean = predictedComponentTotals(state, redTeams, componentOrder)[FOULS_COMMITTED_COMPONENT] ?? 0;
 
@@ -1630,12 +1689,28 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
   const toRpVariableCount = rpRuleModuleForSeason(boundary.toSeason).thresholdVariables.length;
   const nextTeams = new Map<string, Sigma1TeamState>();
 
+  // D-5/D-6 Sigma1 seam 6 (quick task 260904-6a1): `ADJUST_COMPONENT` is
+  // excluded from the carried-share divisor, exactly like the cold-start
+  // divisor `modeledComponentCount` computes elsewhere — without this,
+  // every team's `adjust` belief would become nonzero again at every
+  // season boundary.
+  const modeledToComponentCount = modeledComponentCount(toComponentOrder);
+
   for (const [team, carriedTotal] of carryResult.teamPointTotals) {
-    const share = toComponentOrder.length > 0 ? carriedTotal / toComponentOrder.length : 0;
+    const share = modeledToComponentCount > 0 ? carriedTotal / modeledToComponentCount : 0;
     const oldTeamState = state.teams.get(team);
     const beliefs: Record<string, TeamComponentBelief> = {};
     const consistency: Record<string, number> = {};
     for (const name of toComponentOrder) {
+      // D-5 seam 6: `adjust`'s carried belief is pinned at exactly
+      // `{ mean: 0, variance: 0 }` with consistency `0` — never a share of
+      // the carried total, and never re-inflated toward the cold-start
+      // consistency prior.
+      if (name === ADJUST_COMPONENT) {
+        beliefs[name] = { mean: 0, variance: 0 };
+        consistency[name] = 0;
+        continue;
+      }
       // D-Q2: floored — see `seedConsistencyFor`. This is the re-inflated
       // posterior a year of layoff justifies; seeding it at an unfloored 0
       // would be the opposite claim (perfect certainty after a layoff) and

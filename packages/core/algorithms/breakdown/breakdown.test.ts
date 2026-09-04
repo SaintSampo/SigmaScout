@@ -15,7 +15,7 @@ import { z, ZodError } from "zod";
 import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "./fallback.js";
 import { epa } from "../epa.js";
 import { breakdown2024 } from "./2024.js";
-import { FOULS_COMMITTED_COMPONENT, isRecoverableBreakdownParseError, tryParseBreakdownPair } from "./index.js";
+import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT, isRecoverableBreakdownParseError, tryParseBreakdownPair } from "./index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 
 describe("distributeResidual (D-05)", () => {
@@ -259,8 +259,13 @@ describe("epa.update — D-05 fallback fixture replay", () => {
     // field, equally absent) — must never move it via a share of red's own
     // score. See the dedicated "CR-01" describe block below for the
     // regression fixture that pins this.
+    //
+    // ADJUST_COMPONENT is ALSO deliberately excluded (D-5/D-6, quick task
+    // 260904-6a1): it is pinned at exactly 0 for every team on every
+    // update, real breakdown or fallback alike — see epa.ts's
+    // applyComponentUpdate doc comment.
     for (const componentName of breakdown2024.components) {
-      if (componentName === FOULS_COMMITTED_COMPONENT) continue;
+      if (componentName === FOULS_COMMITTED_COMPONENT || componentName === ADJUST_COMPONENT) continue;
       const before = afterReal.teamComponents.get("frc1")![componentName]!;
       const after = afterFallback.teamComponents.get("frc1")![componentName]!;
       expect(after, `component "${componentName}" did not move after the fallback match`).not.toBeCloseTo(before, 10);
@@ -271,6 +276,9 @@ describe("epa.update — D-05 fallback fixture replay", () => {
       afterReal.teamComponents.get("frc1")![FOULS_COMMITTED_COMPONENT]!,
       10
     );
+    // adjust is pinned at exactly 0 in both states — D-5/D-6.
+    expect(afterFallback.teamComponents.get("frc1")![ADJUST_COMPONENT]).toBe(0);
+    expect(afterReal.teamComponents.get("frc1")![ADJUST_COMPONENT]).toBe(0);
     expect(afterFallback.teamMatchCounts.get("frc1")).toBe(2);
   });
 

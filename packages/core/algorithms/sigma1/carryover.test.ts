@@ -24,6 +24,7 @@ import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { EPA_ROOKIE_BASELINE, reversionOverGap, sigma1Carryover } from "./carryover.js";
+import { ADJUST_COMPONENT } from "../breakdown/index.js";
 
 /**
  * D-T1 (4.0.0): `sigma1Carryover` takes RESOLVED params, because `carrySeason`
@@ -209,6 +210,11 @@ describe("a longer gap reverts and decays strictly further than a shorter one (D
     for (const [team, teamStateOneYear] of stateOneYear.teams) {
       const teamStateTwoYear = stateTwoYear.teams.get(team)!;
       for (const name of Object.keys(teamStateOneYear.consistency)) {
+        // `adjust` (quick task 260904-6a1, D-5/D-6) is pinned at exactly `0`
+        // consistency regardless of gap — it is never folded and never
+        // decayed, so the strict-monotonicity claim below does not apply to
+        // it (0 is not strictly less than 0).
+        if (name === ADJUST_COMPONENT) continue;
         expect(
           teamStateTwoYear.consistency[name]!,
           `${team}/${name}: a two-year gap must decay consistency strictly further than a one-year gap`
