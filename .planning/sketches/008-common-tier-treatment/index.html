@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Common tier treatment</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; } .variant.active { display:block; }
+  .page { max-width:1200px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; }
+  .caption { max-width:1200px; margin:var(--space-md) auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:13px; line-height:1.65; }
+  .caption b { color:var(--color-text); }
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:var(--text-body); }
+  th { text-align:left; font-size:var(--text-label); font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:7px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  .team-no { font-variant-numeric:tabular-nums; font-weight:600; }
+  .spread { font-size:var(--text-label); opacity:.72; }
+  .muted { color:var(--color-text-muted); }
+  .box { display:inline-block; padding:3px 8px; border-radius:5px; font-variant-numeric:tabular-nums; min-width:80px; text-align:right; }
+  .key { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; margin:0 0 14px; }
+  .key .k { padding:3px 10px; border-radius:5px; font-size:12px; font-weight:600; }
+  .slice { margin-bottom:26px; }
+  .slice h2 { font-size:14px; font-weight:600; margin:0 0 2px; }
+  .slice p.sub { margin:0 0 8px; font-size:12px; color:var(--color-text-muted); }
+  .warn { border:1px solid #FCD34D; background:#FFFBEB; color:#78350F; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin:0 0 14px; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('a', this)">A: Slate box</button>
+  <button class="variant-tab" onclick="show('b', this)">B: Stone box (warm)</button>
+  <button class="variant-tab" onclick="show('c', this)">C: Outline only</button>
+  <button class="variant-tab" onclick="show('d', this)">D: Ghost fill</button>
+  <button class="variant-tab" onclick="show('e', this)">E: Bordered family</button>
+  <span class="spacer"></span>
+  <span class="note">Percentiles against all 3,709 teams &middot; not the visible rows</span>
+</div>
+
+<div id="wrap"></div>
+
+<script src="data.js"></script>
+<script>
+/*
+ * Refinement of sketch 004 (winner: B, Common unboxed). The user now wants Common
+ * (0-50) to LOOK LIKE A TIER rather than an absence. Five treatments, all keeping
+ * Rare/Epic/Legendary exactly as shipped (theme.css --tier-* tokens) except E,
+ * which restyles the whole family so Common fits in naturally.
+ *
+ * Grey is deliberate: card-game Common IS grey, and an achromatic grey can never
+ * collide with sky/purple/amber under any colour-vision deficiency. Both grey text
+ * pairs clear WCAG AA on their fills (#475569 on #F1F5F9 = 7.0:1, #57534E on
+ * #F5F5F4 = 6.6:1). Run the dataviz validate_palette.js before promoting any of
+ * these to shipped tokens.
+ *
+ * The cost every variant pays: 004-B's whole argument was that HALF THE FIELD
+ * stays quiet so the eye goes straight to Rare and above. Judge each option on
+ * the event-shaped slice, where 5 of 10 rows are Common.
+ */
+var TIERS = [
+  { name:'Common',    pct:'0–50'    },
+  { name:'Rare',      pct:'50–75',  bg:'#E0F2FE', fg:'#0369A1', edge:'#BAE6FD' },
+  { name:'Epic',      pct:'75–95',  bg:'#F3E8FF', fg:'#7E22CE', edge:'#E9D5FF' },
+  { name:'Legendary', pct:'95–100', bg:'#FEF3C7', fg:'#B45309', edge:'#FDE68A' }
+];
+
+/* The five Common treatments. `inset box-shadow` is used instead of border so the
+ * box geometry (and column alignment) never shifts by the border width. */
+var COMMON = {
+  slate:   { style:'background:#F1F5F9;color:#475569', label:'#F1F5F9 fill · #475569 text' },
+  stone:   { style:'background:#F5F5F4;color:#57534E', label:'#F5F5F4 fill · #57534E text' },
+  outline: { style:'box-shadow:inset 0 0 0 1px #CBD5E1', label:'1px #CBD5E1 outline · no fill' },
+  ghost:   { style:'background:#EEF2F6', label:'#EEF2F6 fill · text unchanged' },
+  family:  { style:'background:#F1F5F9;color:#475569;box-shadow:inset 0 0 0 1px #CBD5E1', label:'slate + hairline, like the others' }
+};
+
+function tierFor(p) { return p >= 95 ? 3 : p >= 75 ? 2 : p >= 50 ? 1 : 0; }
+var fmt = function (n) { return n.toFixed(2); };
+
+/* Percentile against the FULL field. */
+function pctOf(v, col) {
+  var a = DIST[col], lo = 0, hi = a.length;
+  while (lo < hi) { var m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; }
+  return (lo / (a.length - 1)) * 100;
+}
+
+function boxStyle(ti, mode) {
+  if (ti === 0) return COMMON[mode].style;
+  var t = TIERS[ti];
+  var s = 'background:' + t.bg + ';color:' + t.fg;
+  if (mode === 'family') s += ';box-shadow:inset 0 0 0 1px ' + t.edge;
+  return s;
+}
+
+function keyRow(mode) {
+  return '<div class="key"><span class="muted" style="font-weight:600">Key (percentile)</span>' +
+    TIERS.map(function (t, i) { return '<span class="k" style="' + boxStyle(i, mode) + '">' + t.pct + '</span>'; }).join('') +
+    '<span class="muted" style="font-size:12px">' + TIERS.map(function (t) { return t.name; }).join(' · ') +
+    ' · Common here: ' + COMMON[mode].label + '</span></div>';
+}
+
+function cell(v, spread, col, mode) {
+  var ti = tierFor(pctOf(v, col));
+  return '<td class="num"><span class="box" style="' + boxStyle(ti, mode) + '">' +
+    fmt(v) + '<span class="spread"> ± ' + fmt(spread) + '</span></span></td>';
+}
+
+function tableFor(rows, mode) {
+  return '<div class="tablewrap"><table><thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Nickname</th>' +
+    '<th class="num">Total</th><th class="num">Hub Auto</th><th class="num">Hub Endgame</th><th class="num">Record</th></tr></thead><tbody>' +
+    rows.map(function (t) {
+      return '<tr><td class="num muted">' + t.rank + '</td><td class="num team-no">' + t.n + '</td><td>' + t.nick + '</td>' +
+        cell(t.total, t.spread, 'total', mode) + cell(t.hubAuto, t.hubAutoS, 'hubAuto', mode) +
+        cell(t.hubEndgame, t.hubEndgameS, 'hubEndgame', mode) +
+        '<td class="num muted">' + t.w + '-' + t.l + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+var SLICE_META = [
+  ['top',   'Teams page, sorted by Total — ranks 1–10',
+            'Every one of these is p99.6+, so every box is Legendary. Common never appears here.'],
+  ['mid',   'Teams page, scrolled deep — ranks 1,201–1,210',
+            'Adjacent rows in the middle of the field. Total is uniformly Rare; the component columns mix.'],
+  ['event', 'An event-shaped set — 10 teams spread across the field',
+            'Ranks 4 / 181 / 521 / 901 / 1,501 / 2,101 / 2,601 / 3,101 / 3,401 / 3,651. THE slice to judge: half of it is Common, exactly like a real event. This is where "half the field stays quiet" either survives or dies.']
+];
+
+/* Current Pine chrome (theme.css --ribbon-* block), so the proposal is judged
+ * against the ribbon it would really sit under — not 004's stale slate header. */
+function build(id, mode, caption) {
+  return '<div id="v-' + id + '" class="variant">' +
+    '<header style="background:#14532d;padding:12px 16px;">' +
+      '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+        '<span style="font-size:var(--text-display);font-weight:600;letter-spacing:-.02em;color:#fff;"><span style="color:#81c784">Σ</span>igmaScout</span>' +
+        '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;">' +
+          '<span style="border-bottom:2px solid #81c784;color:#fff;padding-bottom:2px;">Teams</span>' +
+          '<span style="color:rgba(255,255,255,.72)">Events</span><span style="color:rgba(255,255,255,.72)">Compare</span></nav>' +
+        '<span style="flex:1"></span><span style="font-size:13px;color:rgba(255,255,255,.72)">2026 · VPR 7.0.0</span>' +
+      '</div></header>' +
+    '<div class="page" style="padding-top:16px;">' +
+      '<h1 style="font-size:var(--text-heading);font-weight:600;margin:0 0 2px;">Teams — 2026</h1>' +
+      '<p class="muted" style="margin:0 0 12px;font-size:13px;">3,709 teams · band cuts on Total: p50 = 39.2 · p75 = 74.4 · p95 = 167.8</p>' +
+      keyRow(mode) +
+      '<div class="warn"><b>Judge on the event-shaped slice.</b> 004-B chose "Common unboxed" so half the field stays ' +
+        'quiet and the eye goes straight to Rare and above. Every option here reintroduces a treatment on ~50% of all ' +
+        'cells — the question is which one names the tier at the lowest cost in noise. Percentiles are against the ' +
+        'whole 3,709-team field, as always.</div>' +
+      SLICE_META.map(function (s) {
+        return '<div class="slice"><h2>' + s[1] + '</h2><p class="sub">' + s[2] + '</p>' + tableFor(SLICES[s[0]], mode) + '</div>';
+      }).join('') +
+    '</div><p class="caption">' + caption + '</p></div>';
+}
+
+document.getElementById('wrap').innerHTML =
+  build('a', 'slate', '<b>A — Slate box: full parity with the other tiers.</b> Fill + tinted text, exactly the anatomy Rare/Epic/Legendary have; this is 004-A’s Common brought back. Card-game convention agrees: Common IS grey. Risk: cool slate is also the chrome/muted-text hue, so a Common cell can read as a disabled control rather than a tier.') +
+  build('b', 'stone', '<b>B — Stone box: Common gets its own (warm) hue.</b> Same anatomy as A but warm stone grey instead of chrome slate, so Common is a colour in the family rather than a repeat of the UI’s neutrals. The difference from A is deliberately subtle — flip between the two tabs on the event slice.') +
+  build('c', 'outline', '<b>C — Outline only: shape without fill.</b> A hairline box names the tier while adding zero colour mass, so the "eye goes to Rare and above" property survives almost intact. Quietest option. Risk: an empty outline conventionally reads as a placeholder or an input, not a value.') +
+  build('d', 'ghost', '<b>D — Ghost fill: presence without a colour claim.</b> A barely-there neutral fill, text completely unchanged. Common becomes a member of the family without asserting a hue of its own — the box says "this is tiered", the quietness says "and it’s the bottom band". The least nameable of the five.') +
+  build('e', 'family', '<b>E — Bordered family: fix the inconsistency from the other side.</b> Every tier gains a hairline edge in its own hue, so all four boxes share identical anatomy and Common (slate fill + slate edge) is no longer the odd one out. Most consistent option — and the busiest: the whole table gains an edge, not just Common.');
+document.getElementById('v-a').classList.add('active');
+
+function show(id, el) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('v-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+</script>
+</body>
+</html>

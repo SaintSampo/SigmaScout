@@ -52,6 +52,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 005 | rank-distribution | How should a team's simulated rank distribution be drawn, given what real data actually looks like? | **B — interpolated band edges** | simulation, rank-distribution, uncertainty, phase-8 |
 | 006 | calibration-curve | How do you draw a calibration curve an FRC student understands in one read? | **C — plain-language first** | compare, calibration, uncertainty, accessibility, phase-8 |
 | 007 | compare-table | How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits? | **A — season rows, algorithm columns** | compare, accuracy, table, density, phase-8 |
+| 008 | common-tier-treatment | How should Common (0–50) be treated so it reads as a tier, not an absence? (revisits 004-B "Common unboxed" at the user's request) | *pending* | palette, percentile, rarity, accessibility |
 
 ## Findings so far
 
