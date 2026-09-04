@@ -852,6 +852,53 @@ Every future algorithm code-version bump orphans the prior generation exactly th
 6. D1 needs no action for a version-only bump (see above) — only a full algorithm retirement
    (`enumerateRetiredKeys`, no `--supersedes-live`) touches D1's rows.
 
+## Delete pass — 2026-09-04, superseded epa/vpr generation removed (version-retirement mode)
+
+Same kind of retirement as the 2026-08-30 section above, run after the 2026-09-04
+retune/republish (generation `15135c51-...`, see the Payload budget block): the republish under
+`epa@5.0.0+baseline` + `vpr@8.0.0+rolling-2026-09b` left the prior generation (`4ba99e89-...`)
+orphaned under `epa@2.0.0+baseline` and `vpr@7.0.0+rolling-2026-09`. `opr@4.0.0+baseline`
+needed NO pass this time — its version did not move, so the republish overwrote its keys in
+place rather than orphaning them. Census-first then `--execute`, once per algorithm:
+
+```bash
+pnpm cleanup:retired-objects -- --retired-id epa --version 2.0.0+baseline         --supersedes-live --execute --concurrency 1
+pnpm cleanup:retired-objects -- --retired-id vpr --version 7.0.0+rolling-2026-09  --supersedes-live --execute --concurrency 1
+```
+
+**Rate-limit finding, recorded for the next operator: the default `--concurrency 16` is too hot
+for a sustained delete pass.** The epa pass aborted twice on R2 `429 Too Many Requests` — at
+~5,000/19,261 keys under concurrency 16 and again at ~9,000 under concurrency 4 — and completed
+only at `--concurrency 1`. Progress accumulates across attempts (DELETE is idempotent; a 404
+counts as success), so the retries cost cheap no-ops rather than wrong results, but start at
+`--concurrency 1` next time. (The vpr pass was run at concurrency 1 from the start, by the user
+directly, after the fourth same-session invocation was blocked by the session's permission
+classifier — noted here only so the log of who-ran-what stays honest.)
+
+**Guard behavior, confirmed rather than assumed:** each invocation fetched
+`v1/manifest/algorithms.json` from the live public origin and confirmed the target was not the
+named live version (the manifest read back `epa@5.0.0+baseline` / `vpr@8.0.0+rolling-2026-09b`
+at run time). The pre-delete censuses read the superseded generation stamp `4ba99e89-...` back
+off the targeted objects themselves (55/60 sampled present, both algorithms — the same 55/60
+shape both prior passes measured, with the absence concentrated in the over-enumerated `event`
+kind).
+
+**Per-algorithm figures (same corpus, same enumeration as 2026-08-30):**
+
+| Figure | epa | vpr | Source |
+|---|---:|---:|---|
+| Keys ENUMERATED | 19,261 | 19,261 | `enumerateSupersededVersionKeys` — 5 `teams` + 5 `events` + 1,581 `event` + 17,670 `team` |
+| DELETE calls ISSUED (final completing attempt) | 19,261 | 19,261 | each run's own DONE tally |
+| Present BEFORE (stratified sample, n=60) | 55/60 | 55/60 | pre-delete census, generation `4ba99e89-...` read back |
+| Present AFTER, same sample | 0/60 | 0/60 | post-delete census (`reports/publish/07-19-census-manual.json`, overwritten per invocation) |
+
+**Recovered storage:** the `4ba99e89` generation's documented total is 2,258,714,595 bytes
+across 56,774 objects; the two enumerated algorithms' page objects (≈2/3 of it, ≈1.5 GB)
+are what this pass reclaimed — the opr third was overwritten in place by the republish, not
+duplicated, and the 5 `compare/{year}` objects are overwritten in place by every publish
+(D-02's exception, unchanged). Post-pass, R2 holds ONE live generation (`15135c51-...`,
+2,342,103,312 bytes) plus opr's in-place keys — comfortably inside the 10 GB free tier.
+
 ## Re-baseline cadence (the D-12/D-24 resolution)
 
 The re-baseline that overwrites live state is a **manual, human-triggered operation**, run before
