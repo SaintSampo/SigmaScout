@@ -200,6 +200,66 @@ describe("PromotedVersionSchema provenance shape", () => {
   });
 });
 
+/** A structurally valid `paramSetsBySeason` fixture — the per-season alternative to `promotedVersionFixture` above. */
+function perSeasonPromotedVersionFixture(topLevelProvenanceExtras: Record<string, unknown> = {}): unknown {
+  return {
+    id: "vpr",
+    codeVersion: "9.9.9",
+    paramSetName: "fixture",
+    version: "9.9.9+fixture",
+    paramSetsBySeason: {
+      "2022": {
+        params: DEFAULT_SIGMA1_PARAMS,
+        selectedOnSeasons: [2019, 2020],
+        sourceKind: "search-winner",
+        sourceArtifact: "reports/tune-fixture-2022.json",
+      },
+    },
+    provenance: {
+      corpusIdentity: "data/corpus.sqlite",
+      promotedAt: "2026-09-04T00:00:00.000Z",
+      ...topLevelProvenanceExtras,
+    },
+    digest: {
+      sliceSeason: 2022,
+      sliceEventKeys: ["2022alhu"],
+      sliceMatchCount: 1,
+      predictionStreamSha256: "d".repeat(64),
+      headlineMetrics: [],
+    },
+  };
+}
+
+describe("PromotedVersionSchema — provenance shape by file kind (Task 3, quick task 260904-100)", () => {
+  it("a paramSetsBySeason file with a MINIMAL top-level provenance (no searchArtifact/objective/tuneSeasons) parses", () => {
+    expect(() => PromotedVersionSchema.parse(perSeasonPromotedVersionFixture())).not.toThrow();
+  });
+
+  it("REJECTS a paramSetsBySeason file that also carries top-level provenance.tuneSeasons", () => {
+    expect(() => PromotedVersionSchema.parse(perSeasonPromotedVersionFixture({ tuneSeasons: [2022, 2023, 2024] }))).toThrow(
+      /paramSetsBySeason.*must not carry/s
+    );
+  });
+
+  it("REJECTS a paramSetsBySeason file that also carries top-level provenance.searchArtifact", () => {
+    expect(() => PromotedVersionSchema.parse(perSeasonPromotedVersionFixture({ searchArtifact: "reports/x.json" }))).toThrow(
+      /paramSetsBySeason.*must not carry/s
+    );
+  });
+
+  it("REJECTS a paramSetsBySeason file that also carries top-level provenance.objective", () => {
+    expect(() => PromotedVersionSchema.parse(perSeasonPromotedVersionFixture({ objective: 0.17 }))).toThrow(
+      /paramSetsBySeason.*must not carry/s
+    );
+  });
+
+  it("REQUIRES a params file to still carry searchArtifact/objective/tuneSeasons at the top level", () => {
+    const missingTuneSeasons = promotedVersionFixture();
+    delete (missingTuneSeasons as { provenance: Record<string, unknown> }).provenance.tuneSeasons;
+    expect(() => PromotedVersionSchema.parse(missingTuneSeasons)).toThrow(/requires provenance/);
+  });
+});
+
 /**
  * `--from-version` (quick task 260901-trz). Both halves tested PURELY — the
  * source-flag rule and the version-file reader take no corpus and run no

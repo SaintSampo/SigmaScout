@@ -30,9 +30,14 @@ export const MIN_PRIOR_SEASONS_FOR_HEADLINE = 2;
 /**
  * D-1 (quick task 260903-n2o): whether `season` is headline-eligible,
  * given the full set of seasons the run has in play (`corpusSeasons`) AND
- * the scoring algorithm's own selected-on set (`selectedOnSeasons`) — the
- * seasons that algorithm's hyperparameters were fitted on, if any. BOTH
- * clauses below must hold; neither alone is sufficient:
+ * the selected-on set of the PARAMETER SET GOVERNING `season` — the
+ * seasons that governing set's hyperparameters were fitted on, if any (not a
+ * property of the algorithm as a whole: under D-2's `paramSetsBySeason`, two
+ * different seasons scored by the same algorithm id can be governed by two
+ * different parameter sets with two different selected-on answers).
+ * `selectedOnSeasons` is the CALLER's job to resolve for this one season
+ * before calling this function. BOTH clauses below must hold; neither alone
+ * is sufficient:
  *
  *   1. At least `MIN_PRIOR_SEASONS_FOR_HEADLINE` DISTINCT seasons in
  *      `corpusSeasons` strictly less than `season` — a duplicated prior
@@ -91,8 +96,21 @@ export const ELIGIBILITY_NOT_CLAIMED = "eligibility-not-claimed" as const;
  * per-algorithm map is the explicit `ELIGIBILITY_NOT_CLAIMED` sentinel; an
  * algorithm genuinely never tuned (a baseline) must declare `[]` explicitly
  * rather than being left out of the map.
+ *
+ * Quick task 260904-100 (D-2's `paramSetsBySeason`): each per-algorithm
+ * value is a SEASON-TAKING FUNCTION, not a flat list — a uniform function
+ * type for every id, with no union and no branch, so the "flat list" shape
+ * this replaced cannot drift back in. A parameter set's selected-on seasons
+ * are a property of whichever set GOVERNS the season being scored, which
+ * can differ season to season under a per-season map (`seasonParamSets.ts`)
+ * — a single flat list would be wrong for at least one season the moment an
+ * algorithm's promoted file carries more than one governing set. A
+ * never-tuned baseline still states its fact explicitly, just as a function
+ * that ignores its argument: `() => []`.
  */
-export type SelectedOnSeasons = Readonly<Record<string, readonly number[]>> | typeof ELIGIBILITY_NOT_CLAIMED;
+export type SelectedOnSeasons =
+  | Readonly<Record<string, (season: number) => readonly number[]>>
+  | typeof ELIGIBILITY_NOT_CLAIMED;
 
 /** D-11: every season is reported three ways. */
 export type CompLevelView = "qualification" | "elimination" | "combined";
@@ -312,7 +330,7 @@ export function aggregateScores(
     // produces without consulting the rule at all — a caller passing it has
     // no provenance to support any eligibility claim. Otherwise the record
     // is guaranteed (by the check above) to carry this algorithm's entry.
-    const algorithmSelectedOnSeasons =
+    const algorithmSelectedOnSeasonsFn =
       selectedOnSeasons === ELIGIBILITY_NOT_CLAIMED ? undefined : selectedOnSeasons[algorithmId]!;
 
     for (const season of seasons) {
@@ -365,9 +383,9 @@ export function aggregateScores(
           algorithmId,
           season,
           headlineEligible:
-            algorithmSelectedOnSeasons === undefined
+            algorithmSelectedOnSeasonsFn === undefined
               ? false
-              : isHeadlineEligible(season, corpusSeasons, algorithmSelectedOnSeasons),
+              : isHeadlineEligible(season, corpusSeasons, algorithmSelectedOnSeasonsFn(season)),
           compLevelView: view,
           brierScore: result.brierScore,
           winnerAccuracy: result.winnerAccuracy,

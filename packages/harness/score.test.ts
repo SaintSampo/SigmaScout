@@ -45,7 +45,7 @@ describe("aggregateScores — 2019/2020 unblocked (D-1/D-2 tracer)", () => {
 
     let slices: ReturnType<typeof aggregateScores> = [];
     expect(() => {
-      slices = aggregateScores(predictions, { corpusSeasons, selectedOnSeasons: { opr: [] } });
+      slices = aggregateScores(predictions, { corpusSeasons, selectedOnSeasons: { opr: () => [] } });
     }).not.toThrow();
 
     const combined = slices.filter((s) => s.compLevelView === "combined");
@@ -122,7 +122,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
     const predictions = SEVEN_SEASON_CORPUS.map(predictionFor);
     let slices: ReturnType<typeof aggregateScores> = [];
     expect(() => {
-      slices = aggregateScores(predictions, { corpusSeasons: SEVEN_SEASON_CORPUS, selectedOnSeasons: { opr: [] } });
+      slices = aggregateScores(predictions, { corpusSeasons: SEVEN_SEASON_CORPUS, selectedOnSeasons: { opr: () => [] } });
     }).not.toThrow();
 
     const combined = slices.filter((s) => s.compLevelView === "combined");
@@ -145,7 +145,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
 
   it("a two-season set leaves its later season ineligible (D-2's two-prior threshold, not one)", () => {
     const predictions = [predictionFor(2025), predictionFor(2026)];
-    const slices = aggregateScores(predictions, { corpusSeasons: [2025, 2026], selectedOnSeasons: { opr: [] } });
+    const slices = aggregateScores(predictions, { corpusSeasons: [2025, 2026], selectedOnSeasons: { opr: () => [] } });
     const combined = slices.filter((s) => s.compLevelView === "combined");
     expect(combined.find((s) => s.season === 2026)?.headlineEligible).toBe(false);
   });
@@ -155,7 +155,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
     // just {2022, 2023} — two, not three.
     const corpusSeasons = [2022, 2022, 2022, 2023, 2024];
     const predictions = [predictionFor(2022), predictionFor(2023), predictionFor(2024)];
-    const slices = aggregateScores(predictions, { corpusSeasons, selectedOnSeasons: { opr: [] } });
+    const slices = aggregateScores(predictions, { corpusSeasons, selectedOnSeasons: { opr: () => [] } });
     const combined = slices.filter((s) => s.compLevelView === "combined");
     expect(combined.find((s) => s.season === 2024)?.headlineEligible).toBe(true); // 2 distinct priors: 2022, 2023
     expect(combined.find((s) => s.season === 2023)?.headlineEligible).toBe(false); // 1 distinct prior: 2022
@@ -163,7 +163,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
 
   it("throws when predictions carry a season absent from the declared corpusSeasons, naming the undeclared season", () => {
     const predictions = [predictionFor(2024), predictionFor(2025)];
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).toThrow(/2025/);
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).toThrow(/2025/);
   });
 });
 
@@ -266,7 +266,7 @@ describe("aggregateScores", () => {
     },
   ];
 
-  const slices = aggregateScores(predictions, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: [] } });
+  const slices = aggregateScores(predictions, { corpusSeasons: [2024, 2025], selectedOnSeasons: { opr: () => [] } });
 
   it("produces one slice per season per competition-level view (qualification, elimination, combined)", () => {
     // 2 seasons x 3 views = 6 slices.
@@ -373,7 +373,7 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
   }
 
   it("produces one slice per (algorithmId, season, compLevelView) — N algorithms x M seasons x 3 views", () => {
-    const multiSlices = aggregateScores(multiAlgorithmPredictions(), { corpusSeasons: SEASONS, selectedOnSeasons: { opr: [], epa: [] } });
+    const multiSlices = aggregateScores(multiAlgorithmPredictions(), { corpusSeasons: SEASONS, selectedOnSeasons: { opr: () => [], epa: () => [] } });
     expect(multiSlices).toHaveLength(ALGORITHM_IDS.length * SEASONS.length * 3);
 
     for (const algorithmId of ALGORITHM_IDS) {
@@ -388,7 +388,7 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
   });
 
   it("keeps each algorithm's metrics independent — one algorithm's slice is never influenced by another's predictions for the same match", () => {
-    const multiSlices = aggregateScores(multiAlgorithmPredictions(), { corpusSeasons: SEASONS, selectedOnSeasons: { opr: [], epa: [] } });
+    const multiSlices = aggregateScores(multiAlgorithmPredictions(), { corpusSeasons: SEASONS, selectedOnSeasons: { opr: () => [], epa: () => [] } });
     const oprSlice = multiSlices.find((s) => s.algorithmId === "opr" && s.season === 2024 && s.compLevelView === "combined")!;
     const epaSlice = multiSlices.find((s) => s.algorithmId === "epa" && s.season === 2024 && s.compLevelView === "combined")!;
 
@@ -432,7 +432,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
       prediction({ matchKey: "2024test_qm2", pRedWin: 0.3, actualWinner: "blue" }),
       prediction({ matchKey: "2024test_qm3", pRedWin: NaN, actualWinner: "red" }),
     ];
-    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } });
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
     const combined = slices.find((s) => s.compLevelView === "combined")!;
     expect(combined.brierScore).not.toBeNull();
     expect(Number.isNaN(combined.brierScore)).toBe(false);
@@ -447,7 +447,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
       prediction({ matchKey: "2024test_qm2", pRedWin: -0.2, actualWinner: "blue" }),
       prediction({ matchKey: "2024test_qm3", pRedWin: 1.4, actualWinner: "red" }),
     ];
-    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } });
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
     const combined = slices.find((s) => s.compLevelView === "combined")!;
     expect(combined.exclusionCounts.quarantined).toBe(2);
     expect(combined.scoredCount).toBe(1);
@@ -460,7 +460,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
       prediction({ matchKey: "2024off_qm1", pRedWin: NaN, actualWinner: "red", isOffseason: true }),
       prediction({ matchKey: "2024test_qm2", pRedWin: Infinity, actualWinner: "blue" }),
     ];
-    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } });
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
     const combined = slices.find((s) => s.compLevelView === "combined")!;
     // The offseason-flagged NaN candidate is counted under offseason (an
     // earlier branch in the filter loop), never as a quarantine.
@@ -484,8 +484,8 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
     // 25 candidates total, well under QUARANTINE_SHARE_MIN_POPULATION.
     expect(predictions.length).toBeLessThan(QUARANTINE_SHARE_MIN_POPULATION);
 
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).not.toThrow();
-    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } });
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).not.toThrow();
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
     const combined = slices.find((s) => s.compLevelView === "combined")!;
     expect(combined.exclusionCounts.quarantined).toBe(24);
   });
@@ -495,8 +495,8 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
     for (let i = 0; i < QUARANTINE_ABSOLUTE_LIMIT; i++) {
       predictions.push(prediction({ matchKey: `2024bad_qm${i}`, pRedWin: NaN }));
     }
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).toThrow(/2024/);
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).toThrow(/QUARANTINE_ABSOLUTE_LIMIT/);
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).toThrow(/2024/);
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).toThrow(/QUARANTINE_ABSOLUTE_LIMIT/);
   });
 
   it("throws when the quarantined share exceeds QUARANTINE_SHARE_LIMIT with a population at or above the floor, even below the absolute limit", () => {
@@ -511,7 +511,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
     expect(predictions.length).toBe(QUARANTINE_SHARE_MIN_POPULATION);
     expect(2 / QUARANTINE_SHARE_MIN_POPULATION).toBeGreaterThan(QUARANTINE_SHARE_LIMIT);
 
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).toThrow(/QUARANTINE_SHARE_LIMIT/);
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).toThrow(/QUARANTINE_SHARE_LIMIT/);
   });
 
   it("does not apply the share bound below the population floor, even when the share would exceed it", () => {
@@ -525,7 +525,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
     expect(predictions.length).toBeLessThan(QUARANTINE_SHARE_MIN_POPULATION);
     expect(1 / predictions.length).toBeGreaterThan(QUARANTINE_SHARE_LIMIT);
 
-    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })).not.toThrow();
+    expect(() => aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })).not.toThrow();
   });
 });
 
@@ -554,7 +554,7 @@ describe("aggregateScores — D-2 selectedOnSeasons contract", () => {
   it("throws when a per-algorithm record omits an entry for a scored algorithmId, naming the missing id", () => {
     const predictions = [prediction("opr", 2024, "2024test_qm1"), prediction("epa", 2024, "2024test_qm2")];
     expect(() =>
-      aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: [] } })
+      aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } })
     ).toThrow(/epa/);
   });
 
@@ -612,11 +612,11 @@ describe("aggregateScores — selectedOnSeasons feeds only headlineEligible (no-
 
     const notSelectedOn = aggregateScores(predictionsFixture(), {
       corpusSeasons,
-      selectedOnSeasons: { vpr: [] },
+      selectedOnSeasons: { vpr: () => [] },
     });
     const selectedOn = aggregateScores(predictionsFixture(), {
       corpusSeasons,
-      selectedOnSeasons: { vpr: [2024, 2025] },
+      selectedOnSeasons: { vpr: () => [2024, 2025] },
     });
 
     expect(notSelectedOn.length).toBeGreaterThan(0);
@@ -668,7 +668,7 @@ describe("aggregateScores — D-3 pin: vpr's eligible set is exactly {2025, 2026
     const predictions = [...predictionsFor("vpr"), ...predictionsFor("epa"), ...predictionsFor("opr")];
     const slices = aggregateScores(predictions, {
       corpusSeasons: SEVEN_SEASON_CORPUS,
-      selectedOnSeasons: { vpr: [2022, 2023, 2024], epa: [], opr: [] },
+      selectedOnSeasons: { vpr: () => [2022, 2023, 2024], epa: () => [], opr: () => [] },
     });
     const combined = slices.filter((s) => s.compLevelView === "combined");
 

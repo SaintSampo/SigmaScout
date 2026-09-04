@@ -72,32 +72,63 @@ function synthesizeUniformPromotedVersion(source: PromotedVersion, seasons: read
   if (source.params === undefined) throw new Error("test fixture: source has no params to synthesize from");
   const entry: SeasonParamSet = {
     params: source.params,
-    selectedOnSeasons: [...source.provenance.tuneSeasons],
+    selectedOnSeasons: [...(source.provenance.tuneSeasons ?? [])],
     sourceKind: "carried-version",
-    sourceArtifact: source.provenance.searchArtifact,
+    sourceArtifact: source.provenance.searchArtifact ?? "(unknown)",
   };
   const paramSetsBySeason: Record<string, SeasonParamSet> = {};
   for (const season of seasons) paramSetsBySeason[String(season)] = entry;
   const { params: _omit, ...rest } = source;
-  return PromotedVersionSchema.parse({ ...rest, paramSetsBySeason });
+  // Task 3 (quick task 260904-100): a "paramSetsBySeason" file FORBIDS
+  // top-level provenance.searchArtifact/objective/tuneSeasons/adaptationMode/
+  // objectiveAppliesToPromotedParams — strip them from the legacy source's
+  // provenance (they now live on `entry` above, per season) before writing
+  // the synthesized file's own minimal top-level provenance.
+  const {
+    searchArtifact: _searchArtifact,
+    objective: _objective,
+    tuneSeasons: _tuneSeasons,
+    adaptationMode: _adaptationMode,
+    objectiveAppliesToPromotedParams: _objectiveAppliesToPromotedParams,
+    ...minimalProvenance
+  } = rest.provenance;
+  return PromotedVersionSchema.parse({ ...rest, provenance: minimalProvenance, paramSetsBySeason });
 }
 
 const DUMMY_DIGEST_HASH = "b".repeat(64);
 
-/** A structurally valid `PromotedVersion` base, decoupled from any real committed file, for the pure schema/resolver behavior tests below. */
+/**
+ * A structurally valid `PromotedVersion` base, decoupled from any real
+ * committed file, for the pure schema/resolver behavior tests below.
+ *
+ * Task 3 (quick task 260904-100): a "params" file's top-level provenance
+ * REQUIRES `searchArtifact`/`objective`/`tuneSeasons`, while a
+ * "paramSetsBySeason" file FORBIDS them (they become ambiguous under a
+ * per-season map) — so which provenance shape this builds depends on which
+ * of `params`/`paramSetsBySeason` the caller asks for. A caller asking for
+ * NEITHER (the "rejects a file carrying NEITHER" test) gets the minimal
+ * shape, which is still correctly rejected by the exactly-one check.
+ */
 function baseFixture(overrides: { params?: unknown; paramSetsBySeason?: unknown } = {}): unknown {
+  const provenance =
+    "params" in overrides
+      ? {
+          searchArtifact: "reports/tune-fixture.json",
+          corpusIdentity: "data/corpus.sqlite",
+          promotedAt: "2026-09-04T00:00:00.000Z",
+          objective: 0.17,
+          tuneSeasons: [2022, 2023, 2024],
+        }
+      : {
+          corpusIdentity: "data/corpus.sqlite",
+          promotedAt: "2026-09-04T00:00:00.000Z",
+        };
   return {
     id: "vpr",
     codeVersion: "9.9.9",
     paramSetName: "fixture",
     version: "9.9.9+fixture",
-    provenance: {
-      searchArtifact: "reports/tune-fixture.json",
-      corpusIdentity: "data/corpus.sqlite",
-      promotedAt: "2026-09-04T00:00:00.000Z",
-      objective: 0.17,
-      tuneSeasons: [2022, 2023, 2024],
-    },
+    provenance,
     digest: {
       sliceSeason: 2022,
       sliceEventKeys: ["2022alhu"],

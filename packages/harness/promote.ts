@@ -135,12 +135,21 @@ const HeadlineMetricSchema = z.object({
 });
 
 const ProvenanceSchema = z.object({
-  /** Which search produced the promoted parameter set (D-14: provenance a version must carry). */
-  searchArtifact: z.string().min(1),
+  /**
+   * Which search produced the promoted parameter set (D-14: provenance a
+   * version must carry). Quick task 260904-100 (D-2): OPTIONAL at the
+   * schema level — `PromotedVersionSchema`'s own `.check()` makes it, along
+   * with `objective`/`tuneSeasons`, REQUIRED whenever `params` is present
+   * (every already-committed single-`params` file keeps validating
+   * byte-for-byte) and FORBIDDEN whenever `paramSetsBySeason` is present
+   * (these facts become ambiguous under a per-season map — they live on
+   * each season's own `SeasonParamSetSchema` entry instead).
+   */
+  searchArtifact: z.string().min(1).optional(),
   corpusIdentity: z.string().min(1),
   promotedAt: z.string().min(1),
-  objective: z.number(),
-  tuneSeasons: z.array(z.number().int()),
+  objective: z.number().optional(),
+  tuneSeasons: z.array(z.number().int()).optional(),
   /**
    * D-14 (plan 03-05 Task 3): the full provenance a JOINT-stage promotion
    * carries — "which search produced this, on which corpus, scoring what"
@@ -240,6 +249,53 @@ export const PromotedVersionSchema = z
         path: [],
         input: ctx.value,
       });
+    }
+
+    // Task 3 (quick task 260904-100): a "params" file's top-level provenance
+    // must still carry the three fields every already-committed file has —
+    // this rule is what keeps every such file validating byte-for-byte
+    // unchanged even though the fields are now schema-optional.
+    if (hasParams) {
+      const missing: string[] = [];
+      if (ctx.value.provenance.searchArtifact === undefined) missing.push("searchArtifact");
+      if (ctx.value.provenance.objective === undefined) missing.push("objective");
+      if (ctx.value.provenance.tuneSeasons === undefined) missing.push("tuneSeasons");
+      if (missing.length > 0) {
+        ctx.issues.push({
+          code: "custom",
+          message:
+            `PromotedVersionSchema: a "params" file requires provenance.${missing.join(", provenance.")} — ` +
+            `these describe the search/lineage of the ONE set this file ships.`,
+          path: ["provenance"],
+          input: ctx.value,
+        });
+      }
+    }
+
+    // A "paramSetsBySeason" file forbids the same three fields, PLUS
+    // `adaptationMode`/`objectiveAppliesToPromotedParams`, at the top level:
+    // under a per-season map they are ambiguous (which season do they
+    // describe?), so they are made structurally unreachable rather than
+    // merely discouraged — the per-season facts live on each season's own
+    // `SeasonParamSetSchema` entry (`seasonParamSets.ts`) instead.
+    if (hasParamSetsBySeason) {
+      const forbidden: string[] = [];
+      if (ctx.value.provenance.searchArtifact !== undefined) forbidden.push("searchArtifact");
+      if (ctx.value.provenance.objective !== undefined) forbidden.push("objective");
+      if (ctx.value.provenance.tuneSeasons !== undefined) forbidden.push("tuneSeasons");
+      if (ctx.value.provenance.adaptationMode !== undefined) forbidden.push("adaptationMode");
+      if (ctx.value.provenance.objectiveAppliesToPromotedParams !== undefined) forbidden.push("objectiveAppliesToPromotedParams");
+      if (forbidden.length > 0) {
+        ctx.issues.push({
+          code: "custom",
+          message:
+            `PromotedVersionSchema: a "paramSetsBySeason" file must not carry top-level provenance.` +
+            `${forbidden.join(" / provenance.")} — these become ambiguous under a per-season map (which season do ` +
+            `they describe?); record them on each season's own paramSetsBySeason entry instead.`,
+          path: ["provenance"],
+          input: ctx.value,
+        });
+      }
     }
   });
 
@@ -615,7 +671,12 @@ export function loadFromVersionFile(fromVersionPath: string): PromotionSource {
       // the source parameter set, and that lineage is still the honest one.
       searchArtifact: sourceVersion.provenance.searchArtifact,
       objective: sourceVersion.provenance.objective,
-      tuneSeasons: [...sourceVersion.provenance.tuneSeasons],
+      // `--from-version` only ever reads a legacy single-`params` source
+      // file (`SourceVersionSchema.params` is required, unconditionally),
+      // for which `tuneSeasons` is always present in practice — the
+      // fallback below exists only so this stays correct once
+      // `ProvenanceSchema`'s field is schema-optional (quick task 260904-100).
+      tuneSeasons: sourceVersion.provenance.tuneSeasons ? [...sourceVersion.provenance.tuneSeasons] : undefined,
       searchArtifactSha256: sourceVersion.provenance.searchArtifactSha256,
       objectiveDefinition: sourceVersion.provenance.objectiveDefinition,
       evaluationCount: sourceVersion.provenance.evaluationCount,

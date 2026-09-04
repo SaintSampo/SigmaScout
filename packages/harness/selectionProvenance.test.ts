@@ -1,15 +1,15 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { ALGORITHMS, applyPromotedOverrides } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 import type { HarnessPredictionInput } from "./score.js";
-import { aggregateScoresForRun, selectedOnSeasonsFor } from "./selectionProvenance.js";
+import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPath } from "./selectionProvenance.js";
 
 /**
  * Read independently of `selectionProvenance.ts`'s own path construction —
@@ -29,16 +29,18 @@ function readCommittedVprProvenance() {
 }
 
 describe("selectedOnSeasonsFor", () => {
-  it("vpr's selected-on seasons deep-equal the committed version file's own provenance.tuneSeasons", () => {
+  it("vpr's selected-on seasons deep-equal the committed version file's own provenance.tuneSeasons, for EVERY season asked (today's legacy params file)", () => {
     const committed = readCommittedVprProvenance();
     const result = selectedOnSeasonsFor(["vpr"]);
-    expect(result.vpr).toEqual(committed.provenance.tuneSeasons);
+    expect(result.vpr!(2019)).toEqual(committed.provenance.tuneSeasons);
+    expect(result.vpr!(2026)).toEqual(committed.provenance.tuneSeasons);
   });
 
-  it("opr and epa — never-tuned baselines — come back with an explicit empty array each, not an omission", () => {
-    const result = selectedOnSeasonsFor(["opr", "epa"]);
-    expect(result.opr).toEqual([]);
-    expect(result.epa).toEqual([]);
+  it("opr, epa, and vpr-defaults — never-tuned baselines — come back with an explicit empty array each, not an omission", () => {
+    const result = selectedOnSeasonsFor(["opr", "epa", "vpr-defaults"]);
+    expect(result.opr!(2024)).toEqual([]);
+    expect(result.epa!(2024)).toEqual([]);
+    expect(result["vpr-defaults"]!(2024)).toEqual([]);
   });
 
   it("an unregistered algorithm id throws, naming the id", () => {
@@ -74,8 +76,77 @@ describe("selectedOnSeasonsFor", () => {
     // winner actually runs" from "vpr-adapt degraded to defaults."
     const isSearchWinnerRunning = resolved?.version === `${SIGMA1_CODE_VERSION}+tune-joint-on-winner`;
 
-    const selectedOn = selectedOnSeasonsFor(["vpr-adapt"])["vpr-adapt"];
+    // `season` is arbitrary and ignored by `vprAdaptSelectedOnSeasons` — a
+    // search artifact is one set, selected on one window, not a per-season
+    // governance to resolve.
+    const selectedOnFn = selectedOnSeasonsFor(["vpr-adapt"])["vpr-adapt"];
+    const selectedOn = selectedOnFn ? selectedOnFn(2022) : undefined;
     expect((selectedOn?.length ?? 0) > 0).toBe(isSearchWinnerRunning);
+  });
+});
+
+describe("vprSelectedOnSeasonsFromPath — per-season provenance (D-1/D-2, quick task 260904-100)", () => {
+  const tempDirs: string[] = [];
+
+  function writeVersion(body: unknown): string {
+    const dir = mkdtempSync(join(tmpdir(), "selection-provenance-per-season-"));
+    tempDirs.push(dir);
+    const path = join(dir, "version.json");
+    writeFileSync(path, JSON.stringify(body), "utf8");
+    return path;
+  }
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function perSeasonFixture(): unknown {
+    return {
+      id: "vpr",
+      codeVersion: "9.9.9",
+      paramSetName: "fixture",
+      version: "9.9.9+fixture",
+      paramSetsBySeason: {
+        "2022": {
+          params: DEFAULT_SIGMA1_PARAMS,
+          selectedOnSeasons: [2019, 2020],
+          sourceKind: "search-winner",
+          sourceArtifact: "reports/tune-joint-on-origin2022.json",
+        },
+        "2023": {
+          params: DEFAULT_SIGMA1_PARAMS,
+          selectedOnSeasons: [2022, 2023, 2024],
+          sourceKind: "carried-version",
+          sourceArtifact: "reports/tune-joint-off.json",
+        },
+      },
+      provenance: {
+        corpusIdentity: "data/corpus.sqlite",
+        promotedAt: "2026-09-04T00:00:00.000Z",
+      },
+      digest: {
+        sliceSeason: 2022,
+        sliceEventKeys: ["2022alhu"],
+        sliceMatchCount: 1,
+        predictionStreamSha256: "c".repeat(64),
+        headlineMetrics: [],
+      },
+    };
+  }
+
+  it("resolves each covered season to its OWN selectedOnSeasons — never a single flat list for both", () => {
+    const path = writeVersion(perSeasonFixture());
+    expect(vprSelectedOnSeasonsFromPath(path, 2022)).toEqual([2019, 2020]);
+    expect(vprSelectedOnSeasonsFromPath(path, 2023)).toEqual([2022, 2023, 2024]);
+  });
+
+  it("throws, naming the season, for a season the per-season map does not cover — never []", () => {
+    const path = writeVersion(perSeasonFixture());
+    expect(() => vprSelectedOnSeasonsFromPath(path, 2026)).toThrow(/2026/);
+  });
+
+  it("returns [] for a missing file, mirroring applyPromotedOverrides' own fallback — the same condition, not a second one", () => {
+    expect(vprSelectedOnSeasonsFromPath(join(tmpdir(), "definitely-does-not-exist-260904-100.json"), 2022)).toEqual([]);
   });
 });
 
