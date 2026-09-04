@@ -201,7 +201,12 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 3 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 4 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+    // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
+    // against the live rolling-2026-09 set) added the fourth:
+    // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
+    // replacing 2022's set, every other season carried forward.
+    //
     // Quick task 260904-100 (Task 6) added the third: `vpr@7.0.0+rolling-2026-09.json`,
     // the rolling-origin per-season promotion — a real, deliberate committed
     // version, not a stray file. This test's job is to catch the OTHER kind
@@ -220,7 +225,12 @@ describe("committed baseline fingerprints", () => {
       [...files].sort(),
       `data/algorithm-versions/ is glob-scanned and Sigma1-schema-parsed by digest.test.ts — baseline fingerprints ` +
         `belong in ${BASELINES_DIR}, never in ${ALGORITHM_VERSIONS_DIR}. Found: ${JSON.stringify(files)}`
-    ).toEqual(["vpr@8.0.0+rolling-2026-09.json", "vpr@8.0.0+tracer-check.json", "vpr@8.0.0+tuned-2026-08.json"]);
+    ).toEqual([
+      "vpr@8.0.0+rolling-2026-09.json",
+      "vpr@8.0.0+rolling-2026-09b.json",
+      "vpr@8.0.0+tracer-check.json",
+      "vpr@8.0.0+tuned-2026-08.json",
+    ]);
   });
 
   it("both retired-implementation fingerprints record OPR's own pre-rewrite id/version, not anything later", () => {

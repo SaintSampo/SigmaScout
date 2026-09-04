@@ -64,6 +64,12 @@
  * `rolling-2026-09` (`260904-100`'s per-season promotion) in the same move —
  * the first re-pin this constant has ever undergone as a single edit rather
  * than five.
+ *
+ * Re-pinned to `rolling-2026-09b` (2026-09-04, full re-tune under code
+ * version 8.0.0 with `--incumbent`-gated acceptance against the live set):
+ * only origin 2022 cleared the D-T7 bar (off arm), so the new file replaces
+ * 2022's set and carries every other season's `rolling-2026-09` entry
+ * forward unchanged.
  */
 import { join } from "node:path";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
@@ -71,5 +77,5 @@ import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans. */
 export const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
-/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous value: `tuned-2026-08`. */
-export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09.json`);
+/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`. */
+export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09b.json`);
