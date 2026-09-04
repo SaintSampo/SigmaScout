@@ -1,0 +1,49 @@
+{
+  "label": "epa-vs-statbotics",
+  "createdAt": "2026-09-04T07:32:26.166Z",
+  "rationale": "SC-2 (quick task 260904-4aa): tolerance bands for scripts/epaVsStatbotics.ts --check, built from the offseason-inclusive, full-range (2022-2026) run's min-matches(>=12) arm — matching packages/harness/epaStatboticsCompare.ts's compareSeason output and production's own publish:seasons stream composition (includeOffseason: true). The min-matches arm (not the all-teams arm) is the gated one: low-match teams are noisy on both sides and would otherwise dominate meanAbsoluteDifference (see docs/models/epa-vs-statbotics.md). Bands are centred on the measured value: ordinaryLeastSquaresSlope/pearson at +/-0.05, meanAbsoluteDifference at +/-1.0 points, and both standard deviations at +/-max(1.5, 10% of the measured value) so a season with a much larger point scale (2026: ourSD ~51) is not gated by an absolute band sized for a smaller-scale season (2022: ourSD ~10). This corpus/EPA computation is deterministic (no randomness in the aggregate statistics), so re-running scripts/epaVsStatbotics.ts unchanged reproduces these figures exactly -- the bands exist to catch a REAL regression in EPA's attribution arithmetic or component extraction, not day-to-day measurement noise. The 2026 season is still in progress as of this baseline's creation date; its own row will need re-measuring (and likely widening or replacing) as more of that season is played and both our own EPA state and Statbotics' team-year figures shift with it -- this is a known, named limitation of gating a live season, not an oversight.",
+  "sourceReport": "reports/epa-vs-statbotics/epa-vs-statbotics.json",
+  "sourceReportMeasuredAt": "2026-09-04T07:32:26.166Z",
+  "corpusIdentity": "data/corpus.sqlite",
+  "algorithmVersion": "epa@2.0.0+baseline",
+  "includeOffseason": true,
+  "minMatches": 12,
+  "gatedArm": "minMatchesFiltered",
+  "seasons": {
+    "2022": {
+      "ordinaryLeastSquaresSlope": { "min": 0.825009, "max": 0.925009 },
+      "pearson": { "min": 0.874696, "max": 0.974696 },
+      "meanAbsoluteDifference": { "min": 1.541278, "max": 3.541278 },
+      "ourStandardDeviation": { "min": 8.842722, "max": 11.842722 },
+      "theirStandardDeviation": { "min": 9.430024, "max": 12.430024 }
+    },
+    "2023": {
+      "ordinaryLeastSquaresSlope": { "min": 0.79452, "max": 0.89452 },
+      "pearson": { "min": 0.861294, "max": 0.961294 },
+      "meanAbsoluteDifference": { "min": 2.471805, "max": 4.471805 },
+      "ourStandardDeviation": { "min": 11.566784, "max": 14.566784 },
+      "theirStandardDeviation": { "min": 12.599937, "max": 15.599937 }
+    },
+    "2024": {
+      "ordinaryLeastSquaresSlope": { "min": 0.767615, "max": 0.867615 },
+      "pearson": { "min": 0.854358, "max": 0.954358 },
+      "meanAbsoluteDifference": { "min": 2.085996, "max": 4.085996 },
+      "ourStandardDeviation": { "min": 7.390994, "max": 10.390994 },
+      "theirStandardDeviation": { "min": 8.334262, "max": 11.334262 }
+    },
+    "2025": {
+      "ordinaryLeastSquaresSlope": { "min": 0.81132, "max": 0.91132 },
+      "pearson": { "min": 0.847588, "max": 0.947588 },
+      "meanAbsoluteDifference": { "min": 4.868087, "max": 6.868087 },
+      "ourStandardDeviation": { "min": 16.370217, "max": 20.008042 },
+      "theirStandardDeviation": { "min": 17.059525, "max": 20.85053 }
+    },
+    "2026": {
+      "ordinaryLeastSquaresSlope": { "min": 0.890924, "max": 0.990924 },
+      "pearson": { "min": 0.917687, "max": 1.017687 },
+      "meanAbsoluteDifference": { "min": 5.669822, "max": 7.669822 },
+      "ourStandardDeviation": { "min": 46.027949, "max": 56.256383 },
+      "theirStandardDeviation": { "min": 47.337166, "max": 57.856536 }
+    }
+  }
+}
