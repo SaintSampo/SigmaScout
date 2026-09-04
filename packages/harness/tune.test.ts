@@ -430,6 +430,27 @@ describe("buildAcceptanceReport (D-T7's three outcomes, as the artifact records 
     expect(report.verdict).toMatch(/and was cleared/);
   });
 
+  /**
+   * The negative-margin path — a candidate genuinely WORSE than the incumbent
+   * — was uncovered until this case, and that gap is exactly why a report
+   * describing a losing candidate as a winner shipped. `outcome.margin` is
+   * SIGNED (`incumbentBrier - candidateBrier`), so the prefix's old
+   * directional verb rendered "its winner beat the incumbent by -0.010000":
+   * a claim that asserts the opposite of the number beside it. All three
+   * cases above feed a POSITIVE margin, so none of them could ever see it.
+   */
+  it("keep-incumbent / below-threshold with a NEGATIVE margin: the verdict claims no win", () => {
+    // Candidate 0.17 vs incumbent 0.16 => margin -0.01, genuinely worse.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.17, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
+    expect(report.outcome.margin).toBeCloseTo(-0.01, 12);
+    expect(report.verdict).toMatch(/INCUMBENT STANDS/);
+    // The point of the case: the shared prefix must report the signed number
+    // without claiming a side, or every keep-incumbent report reads as a win.
+    expect(report.verdict).not.toMatch(/beat the incumbent/);
+  });
+
   it("records evaluationCount, the threshold, and BOTH SEs under distinct, unconfusable names", () => {
     const report = buildAcceptanceReport({ ...BASE, units: units(0.15, 0.16, 20, 20) });
     expect(report.outcome.evaluationCount).toBe(58);

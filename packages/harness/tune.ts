@@ -1530,9 +1530,23 @@ export function buildAcceptanceReport(input: {
   // One plain sentence per case. `keep-incumbent` reads as a RESULT, not as a
   // failure — see `acceptance.ts`'s header; a report that phrases it as a
   // failure is how an operator gets talked into widening the bar.
+  //
+  // The shared prefix is SIGN-NEUTRAL, and must stay that way. `outcome.margin`
+  // is SIGNED (`incumbentBrier - candidateBrier`, acceptance.ts), so it is
+  // negative for every candidate that is genuinely worse. A directional verb in
+  // a prefix all three branches reuse therefore asserts the OPPOSITE of the
+  // number beside it on those outcomes — it once rendered "its winner beat the
+  // incumbent by -0.010000", making a loss read as a near-miss that only just
+  // failed the bar, which is the same hazard acceptance.ts's header names,
+  // pointing the other way. Report the number; claim no side.
+  //
+  // The prefix's TRAILING clause is load-bearing grammar: the mae-veto branch
+  // concatenates `${shared} and was cleared`, where "cleared" refers to *the
+  // bar* the tail names. Restructuring that tail breaks that branch's sentence
+  // while every assertion still passes.
   const shared =
     `Origin ${input.originSeason}: the search evaluated ${input.evaluationCount} candidates on ${input.selectionSeasons.join(", ")} ` +
-    `and its winner beat the incumbent (${input.incumbentVersion}) by ${outcome.margin.toFixed(6)} Brier out-of-sample ` +
+    `and its winner's out-of-sample Brier margin over the incumbent (${input.incumbentVersion}) was ${outcome.margin.toFixed(6)} ` +
     `over ${n} matches across ${input.eventCount} events; the bar at N = ${input.evaluationCount} was ${outcome.threshold.toFixed(6)}`;
   const verdict =
     outcome.decision === "accept"
