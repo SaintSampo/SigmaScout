@@ -247,6 +247,20 @@ describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () 
     expect(captions).toHaveLength(1);
     expect(captions[0]?.textContent).toContain("VPR");
   });
+
+  // 260904-7rt (sketch 008 winner C): the key row's own Common swatch must
+  // draw the same ring every Common cell in the table draws, or the key and
+  // the cells it explains could disagree.
+  it("TierKeyRow's Common swatch carries the common tier ring, same as every other band", async () => {
+    const artifact = makeArtifact([team()]);
+    renderBreakdown(artifact, "vpr", 2024);
+
+    const keyRow = await screen.findByTestId("tier-key-row");
+    expect(keyRow.querySelector(".metric-tier--common")).not.toBeNull();
+    expect(keyRow.querySelector(".metric-tier--rare")).not.toBeNull();
+    expect(keyRow.querySelector(".metric-tier--epic")).not.toBeNull();
+    expect(keyRow.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
 });
 
 describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
