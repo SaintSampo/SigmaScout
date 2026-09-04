@@ -324,7 +324,19 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       const eventKey = detailMatch[1]!;
       const record = events.get(eventKey);
       if (!record) return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
-      return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }) };
+      // Rule 1 fix (quick task 260904-586): `tbaEventSchema` requires `name`
+      // (EVNT-01) -- its absence here silently threw inside `processEvent`'s
+      // swallowed try/catch, degrading EVERY test in this file's `eventType`
+      // to the `-1` sentinel regardless of `record.eventType`, undetected
+      // until this task's `isOfficialEventType` gate started treating `-1`
+      // as official (matching production) and needed a genuine non-official
+      // `event_type` to reach the parse.
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => null },
+        json: async () => ({ key: eventKey, name: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }),
+      };
     }
 
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
@@ -832,5 +844,143 @@ describe("runTick — global rebuild (D-16)", () => {
     for (const teamKey of ALL_TEAMS) {
       expect(written.teams.some((t) => t.teamKey === teamKey)).toBe(true);
     }
+  });
+});
+
+describe("runTick — official-play scope on the global rebuild feed (quick task 260904-586)", () => {
+  it("event_type 99 (offseason): event + team artifacts are written, but no teams/{year} object is written at all", async () => {
+    const window: WindowFixture = { eventKey: "2026off", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 99,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026off_qm1", eventKey: "2026off", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026off", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.globalRebuildRan).toBe(true); // trigger fires (event-boundary), but runs as a legitimate no-op
+
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026off", algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
+    for (const teamKey of ALL_TEAMS) {
+      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
+      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
+    }
+
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
+  });
+
+  it("event_type 100 (preseason Week 0): same as offseason -- event + team artifacts written, no teams/{year} write", async () => {
+    const window: WindowFixture = { eventKey: "2026prez", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 100,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026prez_qm1", eventKey: "2026prez", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026prez", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.eventsAdvanced).toBe(1);
+
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026prez", algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
+    for (const teamKey of ALL_TEAMS) {
+      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
+      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
+    }
+
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
+  });
+
+  it("event_type 0 (official): still contributes and still produces the teams/{year} write, byte-equivalent to today's behaviour", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.globalRebuildRan).toBe(true);
+
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    const teamsPut = r2.puts.find((p) => p.key === teamsPutKey);
+    expect(teamsPut).toBeDefined();
+    const written = JSON.parse(teamsPut!.body) as { teams: { teamKey: string }[] };
+    for (const teamKey of ALL_TEAMS) {
+      expect(written.teams.some((t) => t.teamKey === teamKey)).toBe(true);
+    }
+  });
+
+  it("an unknown event type (-1, event-detail fetch failed) is treated as official -- the teams table is still updated, not silently frozen", async () => {
+    const window: WindowFixture = { eventKey: "2026unk", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const matches = [tbaMatch({ key: "2026unk_qm1", eventKey: "2026unk", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })];
+    // Custom fetch stub: the matches endpoint succeeds normally, but the
+    // event-detail endpoint (queried separately for `event_type`) always
+    // fails -- reproducing `eventType`'s documented `-1` degradation
+    // sentinel without a full TbaEventRecord map (which cannot express
+    // "matches succeed, detail fails" for the same event key).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+        const u = String(url);
+        if (/\/event\/[^/]+\/matches$/.test(u)) {
+          const ifNoneMatch = init?.headers?.["If-None-Match"];
+          if (ifNoneMatch) return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+          return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? "etag-1" : null) }, json: async () => matches };
+        }
+        if (/\/event\/[^/]+$/.test(u)) {
+          return { status: 500, ok: false, headers: { get: () => null }, json: async () => ({}) };
+        }
+        throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
+      })
+    );
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.eventsAdvanced).toBe(1);
+
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(true);
+  });
+
+  it("with an offseason event live, D1 state still advances and the event cursor still moves -- the same matches are not re-folded on the next tick", async () => {
+    const window: WindowFixture = { eventKey: "2026off", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 99,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026off_qm1", eventKey: "2026off", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026off", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.eventsAdvanced).toBe(1);
+
+    expect(d1.eventCursors.get("2026off")?.last_folded_match_key).toBe("2026off_qm1");
+    expect(d1.algorithmState.get("opr::team::frc1")).toBeDefined();
+    expect(d1.algorithmState.get("opr::event::2026off")).toBeDefined();
   });
 });

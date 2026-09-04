@@ -63,6 +63,17 @@
  * extends this mechanism or a manual republish runs. Documented as a Known
  * Stub in this plan's SUMMARY, not a silent gap.
  *
+ * OFFICIAL-PLAY SCOPE (quick task 260904-586): this incremental merge into
+ * `teams/{year}` now covers OFFICIAL play only, matching what `publish.ts`
+ * writes offline (`isOfficialEventType`, `packages/core/algorithms/
+ * eventTypes.ts`) -- a live offseason or preseason Week-0 event still folds
+ * its matches into per-event/per-team artifacts normally, but contributes
+ * nothing to `touchedTeamsByAlgorithm`, so it can never move the season
+ * leaderboard. An unknown event type (the `-1` "detail fetch failed"
+ * sentinel) is treated as official, so a failed TBA detail fetch degrades
+ * toward keeping the leaderboard updated rather than toward silently
+ * freezing it.
+ *
  * OFF-SEASON DEMO TEAM EXCLUSION (`.planning/todos/completed/
  * exclude-offseason-demo-teams-SUMMARY.md`, "gap 1"): `packages/core/
  * algorithms/demoTeams.ts`'s two predicates are already applied INSIDE every
@@ -88,6 +99,7 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
+import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
@@ -824,7 +836,7 @@ async function processEvent(
         perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics });
       }
 
-      return await runPhaseBAndReport(env, budget, window, eventKey, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
       // Revert the claim: state did not actually advance, so a future tick
       // (or another invocation) must be free to re-attempt folding these
@@ -856,14 +868,26 @@ async function processEvent(
  * row, matching `publish.ts`'s unfiltered `eventTeamKeys` (event pages are
  * deliberately untouched by the demo-team exclusion). `realTouchedTeams`
  * (demo keys stripped, see this module's header) is what actually drives
- * `team/{teamKey}/{year}` writes and the `touchedTeamsByAlgorithm` feed that
- * `runGlobalRebuild` folds into `teams/{year}` — a demo key must reach
- * neither. */
+ * `team/{teamKey}/{year}` writes.
+ *
+ * Quick task 260904-586: `eventType` (the TBA event-detail type `processEvent`
+ * already resolved, including its `-1` "detail fetch failed" degradation
+ * sentinel — passed through explicitly rather than re-derived from
+ * `newlyFoldedResults[0]`, which can be empty) gates ONLY the
+ * `touchedTeamsByAlgorithm` contribution below — the feed `runGlobalRebuild`
+ * folds into `teams/{year}`. `mergeEventArtifact`'s `event/{eventKey}` write
+ * and `mergeTeamSeasonArtifact`'s `team/{teamKey}/{year}` write both stay
+ * unconditional: an offseason or preseason event must still be fully visible
+ * on its own event page and on every participating team's page — it must
+ * only stop moving the season leaderboard. An unknown type (`-1`) is treated
+ * as official, matching `isOfficialEventType`'s own degrade-toward-updating
+ * contract. */
 async function runPhaseBAndReport(
   env: Env,
   budget: SubrequestBudget,
   window: LiveWindowEntry,
   eventKey: string,
+  eventType: number,
   newlyFoldedResults: readonly MatchResult[],
   stillUpcomingViews: readonly UpcomingMatch[],
   touchedTeams: readonly string[],
@@ -894,6 +918,12 @@ async function runPhaseBAndReport(
       });
       await writeArtifactObject(env, budget, "event", eventParams, mergedEvent);
 
+      // Quick task 260904-586: ONLY this contribution — the feed
+      // `runGlobalRebuild` folds into `teams/{year}` — is gated on
+      // officialness. `mergeTeamSeasonArtifact`'s `team/{teamKey}/{year}`
+      // write just below stays unconditional (see this function's own doc
+      // comment).
+      const isOfficial = isOfficialEventType(eventType);
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
       const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
 
@@ -916,14 +946,16 @@ async function runPhaseBAndReport(
         });
         await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);
 
-        const prior = seasonMap.get(teamKey);
-        seasonMap.set(teamKey, {
-          metrics: info.touchedMetrics[teamKey] ?? prior?.metrics ?? {},
-          matchDelta: (prior?.matchDelta ?? 0) + teamMatches.length,
-        });
+        if (isOfficial) {
+          const prior = seasonMap.get(teamKey);
+          seasonMap.set(teamKey, {
+            metrics: info.touchedMetrics[teamKey] ?? prior?.metrics ?? {},
+            matchDelta: (prior?.matchDelta ?? 0) + teamMatches.length,
+          });
+        }
       }
 
-      touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
+      if (isOfficial) touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
     }
   } catch {
     // Best-effort — state already advanced correctly; some artifacts may
