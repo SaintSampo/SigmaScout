@@ -4,10 +4,10 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 08
 status: completed
-stopped_at: "Completed quick task 260904-6a1: stop modeling adjust component per team"
-last_updated: "2026-09-04T21:04:12.497Z"
+stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
+last_updated: "2026-09-04T23:40:33.741Z"
 last_activity: 2026-09-04
-last_activity_desc: "Completed quick task 260904-7id: EPA phase-group tiers published-side complete, republish HELD (nothing live)"
+last_activity_desc: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective (noise-band lexicographic, D-T7 accuracy bar + Brier guardrail veto)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -22,7 +22,7 @@ current_phase_name: simulation-compare
 
 See: .planning/PROJECT.md (updated 2026-08-12)
 
-**Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward, Brier-scored backtests — delivered on pages that load fast.
+**Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
 **Current focus:** Phase 08 — simulation-compare
 
 ## Current Position
@@ -395,6 +395,7 @@ None yet.
 | 40 | Closed update-project-md-sc2-blocked-claim: PROJECT.md SC-2 row flipped from Partially-held/blocked to Held per 260904-4aa, pointing at docs/models/epa-vs-statbotics.md and the committed tolerance baseline; 02-VERIFICATION.md left as a dated snapshot | 2026-09-04 | dbd6c19f | — |
 | 41 | Investigated the cold-start zero-plus-minus todo (260904-n9n): the 0 plus-minus 0 defect does not exist — absence propagates end to end (teamMetrics omission in all three algorithms, publish and Worker default to empty metrics, client renders blank and sorts missing last, real zero renders 0.00 distinctly). Option (b) no-data representation confirmed already in force; added the missing omission-contract test to sigma1, epa and opr suites; closed the todo | 2026-09-04 | de7489e8 | — |
 | 42 | Move the desktop ribbon GitHub icon next to the search box instead of center-spread | 2026-09-04 | 1658cb4d | — |
+| 43 | Flip the VPR tuning objective to accuracy-primary: noise-band lexicographic comparator in the joint search (tune.ts), D-T7 ship bar gates on accuracy with a new two-half Brier guardrail veto alongside the existing MAE veto (acceptance.ts), objectiveDefinition.ts as the one objective-wording source; no tuning run, docs updated | 2026-09-04 | b97e3401 | [260904-oiu-make-maximum-prediction-accuracy-the-pri](./quick/260904-oiu-make-maximum-prediction-accuracy-the-pri/) |
 
 ### Roadmap Evolution
 
