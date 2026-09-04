@@ -1152,7 +1152,8 @@ async function runJointStage(
   batchSize: number,
   survivorsPath: string,
   adaptationSpec: string,
-  outPath: string
+  outPath: string,
+  incumbentPath?: string
 ): Promise<void> {
   if (adaptationSpec !== "on" && adaptationSpec !== "off") {
     throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
@@ -1295,6 +1296,7 @@ async function runJointStage(
       eventsLimit,
       winnerParams: winner.params,
       evaluationCount,
+      incumbentVersionPath: incumbentPath,
     });
 
     const acceptancePath = outPath.replace(/\.json$/, "-acceptance.json");
@@ -1676,6 +1678,8 @@ async function evaluateOriginSeason(
     eventsLimit: number | undefined;
     winnerParams: Sigma1Params;
     evaluationCount: number;
+    /** `--incumbent`: compare against this version file instead of the frozen `INCUMBENT_VERSION_PATH` default. */
+    incumbentVersionPath?: string;
   }
 ): Promise<OriginAcceptanceReport> {
   const CANDIDATE_ID = "acceptance-candidate";
@@ -1685,7 +1689,7 @@ async function evaluateOriginSeason(
   // `{ params, version }` pair rebuilt here with a bare `makeSigma1` call —
   // see `loadIncumbent`'s own doc comment for why that bare rebuild was the
   // one `tsc` could not have caught.
-  const incumbent = loadIncumbent(undefined, INCUMBENT_ID);
+  const incumbent = loadIncumbent(input.incumbentVersionPath, INCUMBENT_ID);
 
   const algorithms = [
     makeSigma1({ id: CANDIDATE_ID, linkMode: "predictive-variance", params: input.winnerParams }),
@@ -1725,7 +1729,7 @@ async function evaluateOriginSeason(
   return buildAcceptanceReport({
     originSeason: input.originSeason,
     selectionSeasons: input.selectionSeasons,
-    incumbentVersionPath: INCUMBENT_VERSION_PATH,
+    incumbentVersionPath: input.incumbentVersionPath ?? INCUMBENT_VERSION_PATH,
     incumbentVersion: incumbent.version,
     units,
     eventCount: brierDelta.eventCount,
@@ -1756,6 +1760,13 @@ async function main(): Promise<void> {
       seed: { type: "string" },
       survivors: { type: "string" },
       adaptation: { type: "string" },
+      // D-T7's bar is "beats what SHIPS". `INCUMBENT_VERSION_PATH` is frozen
+      // on `tuned-2026-08` (the baseline of the ten recorded verdicts — see
+      // its own comment), so when the live pin has moved past that identity
+      // the operator points the acceptance comparison at the currently
+      // shipping version file with this flag instead of repointing the
+      // constant. Joint stage only; the winner search never reads it.
+      incumbent: { type: "string" },
     },
   });
 
@@ -1784,7 +1795,7 @@ async function main(): Promise<void> {
     const outPath =
       values.out ??
       join("reports", values.origin !== undefined ? `tune-joint-${adaptationSpec}-origin${values.origin}.json` : `tune-joint-${adaptationSpec}.json`);
-    await runJointStage(values.origin, values.seasons, eventsLimit, evalsCount, seed, batchSize, survivorsPath, adaptationSpec, outPath);
+    await runJointStage(values.origin, values.seasons, eventsLimit, evalsCount, seed, batchSize, survivorsPath, adaptationSpec, outPath, values.incumbent);
   } else {
     throw new Error(`tune: unknown --stage "${stage}" (expected "tracer", "screen", or "joint")`);
   }
