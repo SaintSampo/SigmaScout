@@ -1227,48 +1227,48 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-04T08:25:39.576Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 4ba99e89-b196-4f88-90c7-3bc1ffae3de9, 56,774 objects, 2,258,714,595 bytes total (up from 2,226,644,593, +1.44%). Quick task 260904-586: teams/{year}'s metrics field now reflects each team's LAST OFFICIAL match, not season-final -- verified against frc5002/2024 (teams row total 17.04 == its 2024cur/official metric-history value, != 6.45, its 2024aroz/offseason season-final value; team artifact still lists 2024aroz). events/event/team/compare movement is attributed to undocumented vpr 5.0.0->7.0.0 promotions that landed between the last documented block and this run's own pre-run baseline (79a0a71a-..., already vpr@7.0.0 before this run started), not to this run's own code change -- not further isolated. ONE CEILING DELIBERATELY RAISED (same-day follow-up, 2026-09-04, explicit user authorization): team's maxBytes (380,020) exceeded the then-committed budgetMaxBytes (375,000) by 5,020 bytes (1.34%) -- at publish time this was recorded as an un-actioned finding per this document's standing prohibition against raising a budget to fit a measurement; the user then explicitly authorized raising the team ceiling 375,000 -> 400,000 (the sanctioned deliberate-raise path, not a silent absorption), which is the value below. It stays well under the separate absolute ceiling (600,000). Every other page kind's budgetMaxBytes is unchanged from the previous block and stays under its own committed budgetMaxBytes.",
+  "measuredAt": "2026-09-04T20:17:50.041Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 15135c51-54aa-4ac6-81b2-32bac23b0792, 56,774 objects, 2,342,103,312 bytes total (up from 2,258,714,595, +3.69%). The 2026-09-04 retune/republish session: every artifact rebuilt under epa@5.0.0+baseline (no-foul total, 1/3 elimination discount, adjust pinned at 0 -- closing republish-after-adjust-model-change Item 3, R2 previously served epa@2.0.0) and vpr@8.0.0+rolling-2026-09b (same-session re-tune under code version 8.0.0: origin 2022's off-arm winner replaces 2022's set, all other seasons carried from rolling-2026-09; ten verdicts recorded in the completed retune-sigma1-rolling-origin todo). Object count unchanged (56,774); the byte growth is the model-version churn across every per-team/per-event artifact, dominated by teams (median 957,582 -> 1,099,133). team's maxBytes moved 380,020 -> 376,373, back UNDER the 400,000 ceiling raised on 2026-09-04. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
   "pages": {
     "teams": {
       "count": 15,
-      "medianBytes": 957582,
-      "p95Bytes": 1483414,
-      "maxBytes": 1483414,
+      "medianBytes": 1099133,
+      "p95Bytes": 1487189,
+      "maxBytes": 1487189,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/vpr@7.0.0+rolling-2026-09.json"
+      "largestKey": "v1/teams/2026/vpr@8.0.0+rolling-2026-09b.json"
     },
     "team": {
       "count": 52596,
-      "medianBytes": 31467,
-      "p95Bytes": 93648,
-      "maxBytes": 380020,
+      "medianBytes": 33124,
+      "p95Bytes": 95787,
+      "maxBytes": 376373,
       "budgetMaxBytes": 400000,
-      "largestKey": "v1/team/frc3538/2024/vpr@7.0.0+rolling-2026-09.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@8.0.0+rolling-2026-09b.json"
     },
     "events": {
       "count": 15,
       "medianBytes": 75225,
-      "p95Bytes": 84115,
-      "maxBytes": 84115,
+      "p95Bytes": 84116,
+      "maxBytes": 84116,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@7.0.0+rolling-2026-09.json"
+      "largestKey": "v1/events/2025/vpr@8.0.0+rolling-2026-09b.json"
     },
     "event": {
       "count": 4143,
-      "medianBytes": 47997,
-      "p95Bytes": 97910,
-      "maxBytes": 164876,
+      "medianBytes": 50033,
+      "p95Bytes": 98422,
+      "maxBytes": 163562,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024gal/vpr@7.0.0+rolling-2026-09.json"
+      "largestKey": "v1/event/2024gal/vpr@8.0.0+rolling-2026-09b.json"
     },
     "compare": {
       "count": 5,
-      "medianBytes": 13926,
-      "p95Bytes": 14025,
-      "maxBytes": 14025,
+      "medianBytes": 13930,
+      "p95Bytes": 13974,
+      "maxBytes": 13974,
       "budgetMaxBytes": 20000,
-      "largestKey": "v1/compare/2026.json"
+      "largestKey": "v1/compare/2023.json"
     }
   }
 }
