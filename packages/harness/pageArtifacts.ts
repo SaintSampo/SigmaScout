@@ -1371,3 +1371,124 @@ export const CompareArtifactSchema = PagePreambleSchema.extend({
 });
 
 export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
+
+// ---------------------------------------------------------------------------
+// Districts artifacts — v1/districts/{year}.json, v1/district/{districtKey}.json
+// (quick task 260905-lic Task 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * `districtsIndexKey`/`districtDetailKey` are declared as their OWN exported
+ * functions and deliberately NOT added to `PageKind`/`ArtifactKeyParams`
+ * above. `PageKind` is the union `apps/worker/src/artifactWriter.ts`'s
+ * exhaustive `SCHEMA_BY_PAGE` record and `publish.ts`'s per-season size
+ * budget are both keyed on — district artifacts are neither live-written by
+ * the Worker (F-07/context: "District artifacts are refreshed only by an
+ * offline `pnpm ingest:districts` + `pnpm publish:districts`. The live
+ * Worker cron does not touch them.") nor part of a per-season replay.
+ * Widening `PageKind` here would force a Worker change that buys nothing.
+ * These two keys follow the `v1/manifest/*.json` precedent instead —
+ * published keys that live outside `PageKind` on purpose (see
+ * `scripts/publishAlgorithmsManifest.ts`'s `ALGORITHMS_MANIFEST_KEY`).
+ */
+export function districtsIndexKey(year: number): string {
+  return `v1/districts/${year}.json`;
+}
+
+/** `districtKey` is TBA's own year-prefixed key (e.g. `"2026fnc"`) — see `packages/corpus/schema.sql`'s `districts` table doc comment for the full distinction from `events.district_key`'s bare abbreviation. */
+export function districtDetailKey(districtKey: string): string {
+  return `v1/district/${districtKey}.json`;
+}
+
+/** The three-way district/champ lock verdict `packages/core/districts/locks.ts`'s `computeLocks` returns, plus the season's current cut-line point total — shared by every team's `districtLock`/`champLock` entry below. */
+const DistrictLockVerdictSchema = z.object({
+  status: z.enum(["locked", "eliminated", "contending", "unknown"]),
+  pointsToLock: z.number().int().nonnegative().nullable(),
+  threatCount: z.number().int().nonnegative(),
+  /** The point total currently sitting at the slot-th rank for this lock's capacity — `null` when capacity (`slots`) is not published, mirroring `pointsToLock`'s own null contract. */
+  cutLinePoints: z.number().nullable(),
+});
+
+/** One district's summary row on the districts index — `dcmpSlots`/`cmpSlots` are nullable, mirroring `packages/corpus/schema.sql`'s `districts` table: `null` is "TBA published no `official_advancement_counts`", never a guessed zero. */
+const DistrictsIndexRowSchema = z.object({
+  districtKey: z.string().min(1),
+  abbreviation: z.string().min(1),
+  displayName: z.string().min(1),
+  dcmpSlots: z.number().int().nonnegative().nullable(),
+  cmpSlots: z.number().int().nonnegative().nullable(),
+  teamCount: z.number().int().nonnegative(),
+  eventCount: z.number().int().nonnegative(),
+});
+
+/** `v1/districts/{year}.json` — the district picker's data source. Deliberately NOT algorithm-scoped (extends `PagePreambleSchema`, not `AlgorithmScopedPreambleSchema`) — district point data has no algorithm dependency at all, matching `CompareArtifactSchema`'s own reasoning for the identical choice. */
+export const DistrictsIndexArtifactSchema = PagePreambleSchema.extend({
+  year: z.number().int(),
+  districts: z.array(DistrictsIndexRowSchema),
+});
+
+export type DistrictsIndexArtifact = z.infer<typeof DistrictsIndexArtifactSchema>;
+
+/** One event's per-component district point breakdown for one team — TBA's own reported values, verbatim, never collapsed into an event total alone (must_haves: every source of district points stays individually readable). */
+const DistrictTeamEventPointsSchema = z.object({
+  eventKey: z.string().min(1),
+  eventName: z.string(),
+  week: z.number().int().nullable(),
+  tier: z.enum(["district", "dcmp"]),
+  qual: z.number(),
+  alliance: z.number(),
+  elim: z.number(),
+  award: z.number(),
+  total: z.number(),
+});
+
+/** One event still ahead of a team this season, and the max points still attainable there (`pointModel.ts`'s declared ceiling for that event's tier). */
+const DistrictTeamRemainingEventSchema = z.object({
+  eventKey: z.string().min(1),
+  eventName: z.string(),
+  week: z.number().int().nullable(),
+  tier: z.enum(["district", "dcmp"]),
+  maxPoints: z.number(),
+});
+
+/** One team's full district-points standing, breakdown and both lock verdicts. */
+const DistrictTeamSchema = z.object({
+  teamKey: z.string().min(1),
+  teamNumber: z.number().int().optional(),
+  nickname: z.string().optional(),
+  rank: z.number().int().positive(),
+  pointTotal: z.number(),
+  rookieBonus: z.number(),
+  adjustments: z.number(),
+  eventPoints: z.array(DistrictTeamEventPointsSchema),
+  remainingEvents: z.array(DistrictTeamRemainingEventSchema),
+  maxRemainingDistrict: z.number(),
+  maxRemainingChamp: z.number(),
+  districtLock: DistrictLockVerdictSchema,
+  champLock: DistrictLockVerdictSchema,
+});
+
+/** The Insights tab's lean summary (must_haves: "ships lean" — no charts, no algorithm-scoped join). */
+const DistrictInsightsSchema = z.object({
+  teamCount: z.number().int().nonnegative(),
+  eventCount: z.number().int().nonnegative(),
+  dcmpCutLinePoints: z.number().nullable(),
+  cmpCutLinePoints: z.number().nullable(),
+  districtLockedCount: z.number().int().nonnegative(),
+  districtEliminatedCount: z.number().int().nonnegative(),
+  champLockedCount: z.number().int().nonnegative(),
+  champEliminatedCount: z.number().int().nonnegative(),
+});
+
+/** `v1/district/{districtKey}.json` — one district's full Breakdown/District-Locks/Champ-Locks/Insights data. Deliberately NOT algorithm-scoped, matching `DistrictsIndexArtifactSchema`'s own reasoning above. */
+export const DistrictArtifactSchema = PagePreambleSchema.extend({
+  districtKey: z.string().min(1),
+  year: z.number().int(),
+  abbreviation: z.string().min(1),
+  displayName: z.string().min(1),
+  dcmpSlots: z.number().int().nonnegative().nullable(),
+  cmpSlots: z.number().int().nonnegative().nullable(),
+  teams: z.array(DistrictTeamSchema),
+  insights: DistrictInsightsSchema,
+});
+
+export type DistrictArtifact = z.infer<typeof DistrictArtifactSchema>;

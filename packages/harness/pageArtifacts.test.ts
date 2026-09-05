@@ -13,6 +13,10 @@ import {
   decodeTeamMetricEntry,
   decodeTeamsRowMetrics,
   deriveMetricKeyOrder,
+  DistrictArtifactSchema,
+  districtDetailKey,
+  DistrictsIndexArtifactSchema,
+  districtsIndexKey,
   encodeTeamMetricEntry,
   encodeTeamsRowMetrics,
   EventArtifactSchema,
@@ -1150,6 +1154,132 @@ describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 
         fixtureWithMatchRow({ ...row, redBonusRp: [0.1, 0.9], blueBonusRp: [0.2, 0.8], actualRedBonusRp: null, actualBlueBonusRp: null })
       )
     ).not.toThrow();
+  });
+});
+
+describe("districtsIndexKey/districtDetailKey (quick task 260905-lic Task 2)", () => {
+  it("districtsIndexKey produces the year-scoped index shape", () => {
+    expect(districtsIndexKey(2026)).toBe("v1/districts/2026.json");
+  });
+
+  it("districtDetailKey produces the year-prefixed district-key shape", () => {
+    expect(districtDetailKey("2026fnc")).toBe("v1/district/2026fnc.json");
+  });
+});
+
+function validDistrictsIndexFixture() {
+  return {
+    ...PREAMBLE,
+    year: 2026,
+    districts: [
+      {
+        districtKey: "2026fnc",
+        abbreviation: "fnc",
+        displayName: "FIRST North Carolina",
+        dcmpSlots: 54 as number | null,
+        cmpSlots: 19 as number | null,
+        teamCount: 90,
+        eventCount: 7,
+      },
+    ],
+  };
+}
+
+function validDistrictFixture() {
+  return {
+    ...PREAMBLE,
+    districtKey: "2026fnc",
+    year: 2026,
+    abbreviation: "fnc",
+    displayName: "FIRST North Carolina",
+    dcmpSlots: 54,
+    cmpSlots: 19,
+    teams: [
+      {
+        teamKey: "frc4561",
+        teamNumber: 4561,
+        nickname: "The Wolverines",
+        rank: 1,
+        pointTotal: 352,
+        rookieBonus: 0,
+        adjustments: 0,
+        eventPoints: [
+          { eventKey: "2026ncwak", eventName: "Wake County Event", week: 1, tier: "district" as const, qual: 21, alliance: 16, elim: 20, award: 5, total: 62 },
+          { eventKey: "2026nccmp", eventName: "NC District Championship", week: 6, tier: "dcmp" as const, qual: 60, alliance: 45, elim: 90, award: 30, total: 225 },
+        ],
+        remainingEvents: [],
+        maxRemainingDistrict: 0,
+        maxRemainingChamp: 0,
+        districtLock: {
+          status: "locked" as "locked" | "eliminated" | "contending" | "unknown",
+          pointsToLock: 0 as number | null,
+          threatCount: 0,
+          cutLinePoints: 300 as number | null,
+        },
+        champLock: {
+          status: "contending" as "locked" | "eliminated" | "contending" | "unknown",
+          pointsToLock: 12 as number | null,
+          threatCount: 5,
+          cutLinePoints: 340 as number | null,
+        },
+      },
+    ],
+    insights: {
+      teamCount: 90,
+      eventCount: 7,
+      dcmpCutLinePoints: 300,
+      cmpCutLinePoints: 340,
+      districtLockedCount: 40,
+      districtEliminatedCount: 10,
+      champLockedCount: 15,
+      champEliminatedCount: 30,
+    },
+  };
+}
+
+describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 260905-lic Task 2)", () => {
+  it("DistrictsIndexArtifactSchema parses a valid fixture", () => {
+    expect(() => DistrictsIndexArtifactSchema.parse(validDistrictsIndexFixture())).not.toThrow();
+  });
+
+  it("DistrictsIndexArtifactSchema requires generation (D-04 stamp)", () => {
+    const { generation, ...rest } = validDistrictsIndexFixture();
+    expect(() => DistrictsIndexArtifactSchema.parse(rest)).toThrow();
+  });
+
+  it("DistrictsIndexArtifactSchema accepts null dcmpSlots/cmpSlots — capacity not published, never a guessed zero", () => {
+    const fixture = validDistrictsIndexFixture();
+    fixture.districts[0]!.dcmpSlots = null;
+    fixture.districts[0]!.cmpSlots = null;
+    expect(() => DistrictsIndexArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("DistrictArtifactSchema parses a valid fixture", () => {
+    expect(() => DistrictArtifactSchema.parse(validDistrictFixture())).not.toThrow();
+  });
+
+  it("DistrictArtifactSchema requires generation (D-04 stamp)", () => {
+    const { generation, ...rest } = validDistrictFixture();
+    expect(() => DistrictArtifactSchema.parse(rest)).toThrow();
+  });
+
+  it("DistrictArtifactSchema's lock verdict accepts an unknown status with a null pointsToLock and null cutLinePoints", () => {
+    const fixture = validDistrictFixture();
+    fixture.teams[0]!.districtLock = { status: "unknown", pointsToLock: null, threatCount: 0, cutLinePoints: null };
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("DistrictArtifactSchema rejects an unknown lock status literal", () => {
+    const fixture = validDistrictFixture() as unknown as { teams: Array<{ districtLock: Record<string, unknown> }> };
+    fixture.teams[0]!.districtLock = { status: "not-a-real-status", pointsToLock: 0, threatCount: 0, cutLinePoints: 0 };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("DistrictArtifactSchema round-trips both eventPoints components and remainingEvents entries", () => {
+    const parsed = DistrictArtifactSchema.parse(validDistrictFixture());
+    expect(parsed.teams[0]!.eventPoints).toHaveLength(2);
+    expect(parsed.teams[0]!.eventPoints[0]!.tier).toBe("district");
+    expect(parsed.teams[0]!.eventPoints[1]!.tier).toBe("dcmp");
   });
 });
 

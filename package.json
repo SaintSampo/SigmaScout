@@ -26,6 +26,7 @@
     "lint:reviews": "tsx scripts/reviewFrontmatterLint.ts",
     "publish:artifacts": "tsx --env-file=.env packages/harness/publish.ts",
     "publish:seasons": "tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason",
+    "publish:districts": "tsx --env-file=.env scripts/publishDistricts.ts --years 2019,2020,2022-2026",
     "verify:subset": "tsx scripts/verifySubsetPublish.ts",
     "mock:rank-distribution": "tsx scripts/mockRankDistribution.ts",
     "manifest:algorithms": "tsx --env-file=.env scripts/publishAlgorithmsManifest.ts",
