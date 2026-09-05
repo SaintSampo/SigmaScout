@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-05T05:59:30.659Z"
+last_updated: "2026-09-05T06:18:26.672Z"
 last_activity: 2026-09-04
 last_activity_desc: "Completed quick task 260904-v9n: elim-R multiplier (searchable) and within-season elim score offset (default-off), both provably inert at defaults"
 progress:
@@ -400,6 +400,7 @@ None yet.
 | 45 | add the elim-R multiplier and a within-season elim offset | 2026-09-05 | 0a73bbad | — |
 | 46 | move elimObservationNoiseMultiplier to search exclusions after the negative re-tune result | 2026-09-05 | 89b2cf06 | — |
 | 47 | create the sigmascout-retune-republish skill (unattended retune-promote-republish runbook) | 2026-09-05 | d1dca968 | — |
+| 48 | remove the adjust column from all tables (client-side metricKeysFor filter) | 2026-09-05 | 96c59a77 | — |
 
 ### Roadmap Evolution
 
