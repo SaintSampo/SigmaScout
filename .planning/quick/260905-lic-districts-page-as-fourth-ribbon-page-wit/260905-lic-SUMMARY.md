@@ -7,6 +7,11 @@ commits:
   - 91af577a (Task 2 — point model, lock math, publish script)
   - e0f7dcdc (Task 2 fix — award ceiling raised to 15, official-model citation)
   - b67ec75a (Task 3 — /districts route, fourth ribbon link, four tabs)
+  - f103efa1 (R2a — awards ingest, qualification model, prequalified lists, slot arithmetic)
+  - 03046f93 (R2b — color-coded statuses, awards column, header stats, ribbon reorder)
+  - ece27eeb (R2 fix — DCMP division awards must not qualify anyone)
+  - 8c4d505c (R2b fix — per-team header semantics, point-model ceiling, rounding)
+  - 8ab8071b (R2 fix — registered-but-past events no longer inflate ceilings)
 ---
 
 # Quick Task 260905-lic: Districts page with Insights, Breakdown, District Locks, Champ Locks
@@ -83,6 +88,39 @@ commits:
 - Award-level detail (which award) is not ingested — TBA's `award_points` aggregate suffices.
 - District artifacts refresh only via offline `pnpm ingest:districts` + `pnpm publish:districts`;
   the live Worker cron does not touch them.
+
+## Revision R2 (user-requested after the base checkpoint)
+
+Plan: `260905-lic-PLAN-r2.md`. Research: `260905-lic-RESEARCH-awards.md` (per-season award
+advancement rules 2019-2026 read verbatim from each season's own manual; TBA award_type
+mapping and slot arithmetic read from TBA source).
+
+- **Awards ingest**: `event_awards` table (award types 0/1/9/10 only), `--awards-only` mode
+  (`pnpm ingest:awards`); 4,576 recipient rows ingested across all seven seasons
+  (886 Impact, 2,411 Winner, 750 EI, 529 Rookie All-Star).
+- **Qualification model** (verified constant across 2019-2026): district-event Impact = full
+  DCMP qualifier; EI/RAS = award-only invites (no play slot); DCMP Impact/EI/RAS/Winner all
+  advance to Champs and consume capacity. Prequalified (Hall of Fame etc.) sits outside
+  capacity — curated per-season lists in `prequalified.ts`, verbatim from research.
+  Slot arithmetic follows TBA: points slots = capacity - consuming award qualifiers.
+- **Lock statuses**: `lockedAward` (blue) and `prequalified` (purple) join
+  locked (green) / eliminated (red) / contending / unknown. "Sent by" awards column on both
+  Locks tabs; district tab annotates EI/RAS as award-only. 2025fsc renders
+  "special allocation — not modeled" (its five-invite exception).
+- **Headers**: District Locks — per-team pre-DCMP ceiling ("X / 166 per team", first-2-home-
+  events rule), per-event schedule strip, district-wide points pool (played actual, upcoming
+  ~estimated). Champ Locks — "Remaining district points: X / 166 pre-DCMP".
+- **Ribbon**: Teams, Events, Districts, Compare (Compare was concurrently renamed
+  Methodology by quick task 260905-phf; this task set only the order).
+- **Fixes found by verifying against live data**: DCMP *division* winners (event_type 5) were
+  champ-locking without winning the DCMP (ece27eeb); header stats used district-wide event
+  totals where the user approved per-team figures (8c4d505c); registered-but-never-played
+  events inflated ceilings forever (8ab8071b — past events leave remainingEvents, and the
+  hypothetical DCMP ceiling is granted only while a DCMP is still ahead, defaulting to
+  granted when none is listed, the conservative direction).
+- Republished after each data fix; final state verified by live-origin content checks and
+  screenshots (FiM: only real DCMP award winners blue, 503 purple prequalified,
+  header 0 / 166 on the finished season).
 
 ## Test evidence
 

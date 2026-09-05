@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-05 - Completed quick task 260905-phf: Compare tab renamed to Methodology; card hub plus moved Compare page and new Intro to VPR page (visual verification pending)
+Last activity: 2026-09-05 - Completed quick task 260905-lic revision R2: award-based district/champ qualification (color-coded locks, awards column, prequalified purple, richer headers; artifacts republished; user visual verification pending). Prior: 260905-phf Methodology rename (visual verification pending)
 
 Progress: [██████████] 100%
 
