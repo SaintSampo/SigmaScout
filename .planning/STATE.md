@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-05 - Completed quick task 260905-3nf: Select dropdowns open showing the full option list (popper positioning)
+Last activity: 2026-09-05 - Completed quick task 260905-3rq: Breakdown tab phase drill-down (sketch 009-A) with sortable columns
 
 Progress: [██████████] 100%
 
@@ -402,6 +402,7 @@ None yet.
 | 47 | create the sigmascout-retune-republish skill (unattended retune-promote-republish runbook) | 2026-09-05 | d1dca968 | — |
 | 48 | remove the adjust column from all tables (client-side metricKeysFor filter) | 2026-09-05 | 96c59a77 | — |
 | 260905-3nf | year dropdown (and every Select) opens showing the full option list - popper positioning | 2026-09-05 | f504fd5d | [260905-3nf-year-dropdown-shows-all-seasons-immediat](./quick/260905-3nf-year-dropdown-shows-all-seasons-immediat/) |
+| 260905-3rq | Breakdown tab phase drill-down (sketch 009-A) with sortable columns | 2026-09-05 | 32733ee1 | [260905-3rq-breakdown-tab-phase-drill-down-sketch-00](./quick/260905-3rq-breakdown-tab-phase-drill-down-sketch-00/) |
 
 ### Roadmap Evolution
 
