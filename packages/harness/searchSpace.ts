@@ -206,6 +206,35 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // search explores, recorded here rather than left to be inferred from an
   // absence (the same convention as `shrinkagePriorMatches`' removal note
   // above).
+
+  // D-1 (quick task 260905-kjb, CVR-SEARCH): a UNIFORM per-team multiplier
+  // on the cold-start belief-variance prior seeded for a RETURNING team at a
+  // season boundary (`carrySeason`). Both ends are set from quick task
+  // 260905-jyf's two Stage 1 results, and each fixes one end:
+  //
+  //   - `max: 1` is exactly today's full cold-start reset AND the default,
+  //     so the search can always decline the mechanism outright. A
+  //     keep-incumbent verdict here is a genuinely plausible outcome, not a
+  //     defect: R2 — a uniform per-team factor of this SAME shape, at a
+  //     derived value of ~0.069 — closed NEGATIVE at -10.46 pooled
+  //     SE-units, three seasons breaching the -2.0 SE floor, so the only
+  //     positive evidence for the mechanism at all is R1's win, which
+  //     reached only `foulsCommitted` and was worth a few hundredths of a
+  //     Brier point.
+  //   - `min: 0.05` sits deliberately just BELOW R2's derived ~0.069, so the
+  //     search can walk back into the region that already measured negative
+  //     rather than being fenced away from it — a search that reaches that
+  //     region and still prefers 1 is informative, not wasted.
+  //   - The TARGET this bound exposes is the moderate region roughly
+  //     0.2-0.8, which NOTHING has tested: R2 probed ~0.069 (too aggressive)
+  //     and today's code sits at 1 (no retention at all).
+  //
+  // `log`, not `linear`: the parameter is a multiplicative magnitude
+  // spanning a 20x range, and a 2x change down at 0.05-0.1 is as meaningful
+  // a change in retained uncertainty as 0.5 -> 1.0 is — a log grid encodes
+  // that and a linear one does not. Representable here because the schema's
+  // `.positive()` keeps 0 out of the domain.
+  carryVarianceFactor: { min: 0.05, max: 1, scale: "log" },
 };
 
 /**
@@ -224,16 +253,30 @@ export const SEARCHABLE_PARAM_KEYS: readonly SearchableParamKey[] = SIGMA1_PARAM
  * The one-at-a-time screen's sweep grid for one parameter: `valueCount`
  * points spanning `[min, max]` on the parameter's declared scale (geometric
  * spacing for `"log"`, arithmetic for `"linear"`), with the two ENDPOINTS
- * held exactly at `min`/`max` (never perturbed) and the interior grid point
- * closest to the parameter's own `DEFAULT_SIGMA1_PARAMS` value replaced
- * with that EXACT default — so a parameter that cannot beat its own
- * default says so honestly, rather than the screen never actually
- * evaluating the default in the first place.
+ * held exactly at `min`/`max` (never perturbed) and — for a parameter whose
+ * default sits strictly BETWEEN them — the interior grid point closest to
+ * the parameter's own `DEFAULT_SIGMA1_PARAMS` value replaced with that
+ * EXACT default, so a parameter that cannot beat its own default says so
+ * honestly, rather than the screen never actually evaluating the default in
+ * the first place.
  *
- * Requires `valueCount >= 3`: an endpoint-only grid of 2 cannot also
- * contain a distinct interior default for any parameter in
- * `SIGMA1_SEARCH_SPACE` (every one of them has an interior default —
- * verified by `searchSpace.test.ts`).
+ * D-1 (quick task 260905-kjb): `carryVarianceFactor` is the FIRST searchable
+ * parameter whose default sits AT a bound (`max`, exactly 1) rather than
+ * interior. Both endpoints already equal the declared bounds two lines
+ * below this comment, so the interior-slot overwrite would have nothing to
+ * buy and would instead write a DUPLICATE value into an interior slot,
+ * destroying the strict monotonicity `searchSpace.test.ts` asserts. When
+ * the default equals `min` OR `max`, this function returns the
+ * endpoint-pinned grid directly and skips the overwrite entirely. Written
+ * against BOTH endpoints, not just `max` — the reasoning is symmetric, and
+ * a future at-`min` default must not silently reintroduce the defect.
+ *
+ * Requires `valueCount >= 3`: an endpoint-only grid of 2 cannot also hold a
+ * distinct interior default for the parameters that HAVE one. Three points
+ * still hold both endpoints plus one interior slot, which is what the
+ * minimum is actually FOR — not, as this comment previously claimed, that
+ * every `SIGMA1_SEARCH_SPACE` parameter has an interior default (verified
+ * by `searchSpace.test.ts`).
  *
  * D-T3: refuses an excluded key at RUNTIME even though `SearchableParamKey`
  * already forbids it at compile time, and quotes that key's own
@@ -276,6 +319,19 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
   // than an assumption about floating-point behavior).
   grid[0] = min;
   grid[valueCount - 1] = max;
+
+  // D-1 (quick task 260905-kjb): the at-bound-default guard. When the
+  // default already EQUALS `min` or `max`, both endpoints above already
+  // pin the grid at exactly the declared bounds, so the default is already
+  // present and the interior-slot overwrite below has nothing to buy — it
+  // would instead write a DUPLICATE of the default into an interior slot,
+  // breaking strict monotonicity. Checked against BOTH endpoints
+  // symmetrically, not just `max` (the only case reached today,
+  // `carryVarianceFactor`) — a future at-`min` default must not silently
+  // reintroduce this defect.
+  if (defaultValue === min || defaultValue === max) {
+    return grid;
+  }
 
   // Replace whichever INTERIOR slot (never index 0 or valueCount-1) sits
   // closest to the default with the default's own exact value. Because the

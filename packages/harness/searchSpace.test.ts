@@ -112,9 +112,21 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     // searchable, field count unchanged at 29 — the searchable set returns to
     // exactly its pre-v9n membership. Its SEARCH_EXCLUSIONS entry carries the
     // measurement and the exact bound to restore if the question is reopened.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(15);
+    //
+    // The SAME day (quick task 260905-kjb, CVR-SEARCH) registers a genuinely
+    // NEW field: `carryVarianceFactor`, a uniform per-team multiplier on the
+    // cold-start belief-variance prior a returning team is seeded with at a
+    // season boundary. 29 -> 30 fields, 15 -> 16 searchable, exclusions
+    // unchanged at 14. It is searchable because it is a numeric knob the
+    // accuracy-primary objective can see directly: it scales a seeded belief
+    // variance, hence the predictive variance, hence `pRedWin`. It is also
+    // the FIRST searchable parameter whose default sits AT a bound (the
+    // `max` end, exactly 1) rather than interior — `screenGridFor` now
+    // handles that case explicitly (see its own doc comment) rather than
+    // assuming every searchable parameter has an interior default.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(16);
     expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(14);
-    expect(SIGMA1_PARAM_KEYS).toHaveLength(29);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(30);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });
 
