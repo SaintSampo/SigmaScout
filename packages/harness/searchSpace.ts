@@ -77,6 +77,8 @@ export const SEARCH_EXCLUSIONS = {
     "D-12 (quick task 260904-v9n, ELIM-OFF). A MODE, not a numeric knob — the same `adaptationEnabled` argument applies verbatim: a boolean has no bound, no scale and no meaningful neighbour, so a coordinate-descent step over it is undefined. INDEPENDENTLY excluded besides: this offset is added SYMMETRICALLY to both alliances' predicted scores, so it CANCELS in the margin and cannot move `pRedWin` at all — the accuracy-primary objective is structurally blind to whether it is on, exactly the argument `swingHalfLifeMatches`/`swingScale` carry for a display-only quantity.",
   elimScoreOffsetEwmaAlpha:
     "D-12 (quick task 260904-v9n, ELIM-OFF). The same objective-blindness argument as `swingHalfLifeMatches`/`swingScale`: D-01's objective is Brier over the predicted WIN PROBABILITY, and this field's own mechanism cancels analytically in the margin (D-13), so the objective cannot see it move at all. Searching a fold rate the objective is structurally blind to would spend budget optimising noise rather than signal, exactly the reason the two display-only swing constants above are excluded rather than searched.",
+  elimObservationNoiseMultiplier:
+    "MEASURED AND CLOSED NEGATIVE (2026-09-05, the night after quick task 260904-v9n registered it searchable at [0.25, 16] log). The 2019-2020 sensitivity screen let it SURVIVE (Brier range 9.9e-4, ~10x the threshold) but placed its one-at-a-time optimum EXACTLY at the default 1 — both discounting (0.25x) and inflating (2x-16x) elim observation noise hurt monotonically in isolation. Six joint re-tune runs against the live `vpr@8.0.0+rolling-2026-09b` incumbent (origins 2022-2024, both adaptation arms, `--evals 40`) returned six `keep-incumbent` verdicts, with winning candidates scattering the multiplier 0.78-1.62 in BOTH directions — noise-fitting around 1, not a signal. The 2025/2026-origin runs (the only selection windows containing both elim-gap seasons, 2023-2024) were stopped before running by operator decision, so the strongest-window test is INCOMPLETE rather than failed; reopening this question means re-adding the bound `{ min: 0.25, max: 16, scale: \"log\" }` AND running those two origins. Until then, searching it spends real budget scattering a dimension six verdicts could not distinguish from its default. Full record: `.planning/quick/260904-v9n-*/260904-v9n-SUMMARY.md` post-task addendum; artifacts `reports/*-v9n*`. It stays a VERSIONED parameter (D-16: 'unchanged means bitwise identical' requires it in the committed set), fixed at its provably-inert default of exactly 1.",
 } as const satisfies Partial<Record<keyof Sigma1Params, string>>;
 
 /** A `Sigma1Params` key that `SEARCH_EXCLUSIONS` names, with the reason attached. */
@@ -195,19 +197,15 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // disabled-equivalent factor of exactly 1 for essentially its whole
   // event.
   adaptationMinObservations: { min: 1, max: 12, scale: "linear" },
-  // D-4/D-12 (quick task 260904-v9n, ELIM-R): the elim observation-noise
-  // multiplier. The default 1 is interior and means no elim-specific
-  // treatment at all. Deliberately allowed BELOW 1: the motivating
-  // measurement (VPR's elim winner accuracy trailing its quals accuracy
-  // while OPR gains at elims every season) is consistent with two opposite
-  // readings — elim observations being noisier than quals ones, or the
-  // model under-using late-event information — and the bound must not
-  // pre-decide between them. 0.25 treats an elim observation as four times
-  // MORE informative than a qual; 16 leaves a gain small enough that elim
-  // observations barely move a belief at all — against
-  // `FALLBACK_NOISE_MULTIPLIER = 3` as the codebase's own reference point
-  // for what a meaningful noise inflation looks like.
-  elimObservationNoiseMultiplier: { min: 0.25, max: 16, scale: "log" },
+  // `elimObservationNoiseMultiplier`'s bound was REMOVED one day after it was
+  // added (quick task 260904-v9n registered it; the 2026-09-05 re-tune closed
+  // it negative) — see its `SEARCH_EXCLUSIONS` entry above for the six
+  // keep-incumbent verdicts, the incomplete-window caveat, and the exact
+  // bound to restore if the question is ever reopened. The search space is
+  // one dimension smaller as a result — a real, intended change in what a
+  // search explores, recorded here rather than left to be inferred from an
+  // absence (the same convention as `shrinkagePriorMatches`' removal note
+  // above).
 };
 
 /**
