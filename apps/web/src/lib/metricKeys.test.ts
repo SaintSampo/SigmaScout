@@ -31,6 +31,14 @@ describe("metricKeysFor", () => {
     }
   });
 
+  it("never returns the adjust component for any algorithm or season — it is a scorekeeper correction, not a column (2026-09-05)", () => {
+    for (const algorithmId of ["opr", "epa", "vpr"] as const) {
+      for (const season of SEASONS) {
+        expect(metricKeysFor(algorithmId, season)).not.toContain("adjust");
+      }
+    }
+  });
+
   it("surfaces the underlying named error for a season with no registered component map, rather than returning an empty array", () => {
     expect(() => metricKeysFor("epa", 2021)).toThrow();
     expect(() => metricKeysFor("epa", 2021)).toThrow(/no component map registered/);

@@ -18,7 +18,7 @@
  * same task), so importing it here does not drag a Node built-in into the
  * browser bundle.
  */
-import { componentMapForSeason, COMPONENT_GROUP_IDS, COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithms/breakdown/index.js";
+import { ADJUST_COMPONENT, componentMapForSeason, COMPONENT_GROUP_IDS, COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../../../../packages/core/algorithms/types.js";
 
 /** Re-exported, never re-declared as a literal — the one key every algorithm guarantees (`packages/core/algorithms/types.ts`'s `TOTAL_METRIC_KEY`). */
@@ -45,13 +45,19 @@ export const TOTAL_KEY = TOTAL_METRIC_KEY;
  * skeleton (all three consume this array's order directly), so leading
  * with Total here lands the "Total sits immediately right of the
  * team-name column" requirement in all three places from one change.
+ *
+ * `ADJUST_COMPONENT` is filtered out here (2026-09-05): it is TBA's manual
+ * scorekeeper correction, not a team-skill signal, so no table shows it as
+ * a column. This is a PRESENTATION filter only — the component stays in the
+ * season maps, the pipeline, and published artifacts (rows still carry an
+ * `adjust` entry; it simply has no column to land in).
  */
 export function metricKeysFor(algorithmId: string, season: number): readonly string[] {
   if (algorithmId === "opr") {
     return [TOTAL_KEY];
   }
   const { components } = componentMapForSeason(season);
-  return [TOTAL_KEY, ...components];
+  return [TOTAL_KEY, ...components.filter((key) => key !== ADJUST_COMPONENT)];
 }
 
 /**

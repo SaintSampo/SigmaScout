@@ -113,7 +113,7 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "vpr", season = 
 }
 
 describe("BreakdownTab — column set (EVNT-03)", () => {
-  it("vpr/2024: exactly Team #, Team Name, Total, then twelve remaining component keys, in metricKeysFor order (D-5: Total leads) — no Rank column", async () => {
+  it("vpr/2024: exactly Team #, Team Name, Total, then eleven remaining component keys (adjust filtered out, 2026-09-05), in metricKeysFor order (D-5: Total leads) — no Rank column", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
     renderBreakdown(artifact, "vpr", 2024);
 
@@ -130,7 +130,7 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
     // implementation.
     const expectedLabels = expected.map((key) => metricLabel(key));
     expect(headers).toEqual(expectedLabels);
-    expect(headers).toHaveLength(16);
+    expect(headers).toHaveLength(15);
     expect(headers[2]).toBe("Total");
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
   });
@@ -164,12 +164,12 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
 describe("BreakdownTab — partial data (EVNT-03)", () => {
   it("a team missing one declared component key renders an em-dash in that cell; the column header for that key stays present", async () => {
     const metrics = fullVPRMetrics2024();
-    delete metrics.adjust;
+    delete metrics.endGamePark;
     const artifact = makeArtifact([team({ metrics })]);
     renderBreakdown(artifact, "vpr", 2024);
 
-    await waitFor(() => expect(screen.getByTestId("breakdown-header-adjust")).toBeDefined());
-    expect(screen.getByTestId("breakdown-cell-adjust").textContent).toBe("");
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-endGamePark")).toBeDefined());
+    expect(screen.getByTestId("breakdown-cell-endGamePark").textContent).toBe("");
   });
 
   it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", async () => {
