@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Breakdown table usability</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  /*
+   * Decided tokens (sketch-findings-sigmascout, colour-and-tiers.md +
+   * 2026-09-01 green chrome) — the shared sketch theme predates both, so
+   * they are restated here rather than silently diverging from what shipped.
+   */
+  :root {
+    --tier-common-edge:  #CBD5E1;
+    --tier-rare-bg:      #E0F2FE;  --tier-rare-fg:      #0369A1;
+    --tier-epic-bg:      #F3E8FF;  --tier-epic-fg:      #7E22CE;
+    --tier-legendary-bg: #FEF3C7;  --tier-legendary-fg: #B45309;
+    --tier-rare-id:      #0EA5E9;  --tier-epic-id:      #9333EA;
+    --tier-legendary-id: #F59E0B;  --tier-common-id:    #94A3B8;
+    --green-accent: #2E7D32;       /* interactive/active ONLY */
+    --green-surface: #E8F5E9;
+    --green-border: #C8E6C9;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  #variant-nav .note { color:var(--color-text-muted); font-size:12px; }
+  .variant { display:none; } .variant.active { display:block; }
+  #viewport { max-width:none; margin:0 auto; transition:max-width .15s; }
+  .page { max-width:1280px; margin:0 auto; padding:0 var(--space-md) var(--space-lg); }
+  .lede { max-width:1280px; margin:var(--space-md) auto 10px; padding:0 var(--space-md); font-size:13px; color:var(--color-text-muted); line-height:1.6; }
+  .lede b { color:var(--color-text); }
+  .card { background:var(--color-surface); border:1px solid var(--color-border); border-radius:8px; overflow:hidden; }
+  .tablewrap { overflow-x:auto; overscroll-behavior-x:contain; }
+  table { border-collapse:separate; border-spacing:0; font-size:var(--text-body); }
+  th { text-align:left; font-size:var(--text-label); font-weight:600; color:var(--color-text-muted); padding:8px 10px;
+       border-bottom:1px solid var(--color-border); background:var(--color-surface); vertical-align:bottom; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:6px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; background:var(--color-surface); }
+  tr:last-child td { border-bottom:none; }
+  .team-no { font-variant-numeric:tabular-nums; font-weight:600; }
+  .team-no a, .nick a { color:var(--color-text); text-decoration:none; }
+  .nick { max-width:200px; overflow:hidden; text-overflow:ellipsis; }
+  .spread { font-size:11px; opacity:.72; }
+  .muted { color:var(--color-text-muted); }
+  .sticky-1 { position:sticky; left:0; z-index:2; }
+  .sticky-2 { position:sticky; left:76px; z-index:2; box-shadow:1px 0 0 var(--color-border); }
+  th.sticky-1, th.sticky-2 { z-index:3; }
+  .box { display:inline-block; padding:3px 8px; border-radius:5px; font-variant-numeric:tabular-nums; min-width:78px; text-align:right; position:relative; }
+  .t-common    { box-shadow:inset 0 0 0 1px var(--tier-common-edge); }
+  .t-rare      { background:var(--tier-rare-bg);      color:var(--tier-rare-fg); }
+  .t-epic      { background:var(--tier-epic-bg);      color:var(--tier-epic-fg); }
+  .t-legendary { background:var(--tier-legendary-bg); color:var(--tier-legendary-fg); }
+  .key { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; margin:0 0 12px; }
+  .key .k { padding:3px 10px; border-radius:5px; font-size:12px; font-weight:600; }
+  .caption { max-width:1280px; margin:10px auto 0; padding:0 var(--space-md); color:var(--color-text-muted); font-size:12.5px; line-height:1.6; }
+
+  /* --- Variant A: phase drill-down --- */
+  th.group { text-align:center; border-bottom:none; padding-bottom:2px; }
+  th.group button { font:inherit; font-weight:600; color:var(--green-accent); background:none; border:none; cursor:pointer; padding:2px 6px; border-radius:4px; }
+  th.group button:hover { background:var(--green-surface); }
+  th.group .count { font-weight:400; color:var(--color-text-muted); }
+  th.subhead { border-top:2px solid var(--green-border); }
+  th.subhead.first { border-top-left-radius:4px; }
+  th.subhead.last { border-top-right-radius:4px; }
+
+  /* --- Variant B: sortable columns --- */
+  th.sortable { cursor:pointer; user-select:none; }
+  th.sortable:hover { color:var(--color-text); }
+  th.sorted { color:var(--green-accent); }
+  th .arrow { font-size:10px; }
+  td.sorted-col, th.sorted { background:#F1F5F9; }
+  td.sorted-col .minirank { display:inline-block; min-width:22px; margin-right:6px; font-size:11px; color:var(--color-text-muted); text-align:right; }
+
+  /* --- Variant C: standouts + row detail --- */
+  .standout-flag { position:absolute; top:-4px; right:-4px; width:9px; height:9px; border-radius:50%; border:1.5px solid #fff; }
+  .standout-flag.f-rare { background:var(--tier-rare-id); }
+  .standout-flag.f-epic { background:var(--tier-epic-id); }
+  .standout-flag.f-legendary { background:var(--tier-legendary-id); }
+  tr.expandable td { cursor:pointer; }
+  tr.expandable:hover td { background:#FAFCFB; }
+  tr.detail > td { background:#FBFDFC; padding:14px 16px 16px; white-space:normal; cursor:default; }
+  .detail-title { font-size:13px; font-weight:600; margin:0 0 2px; }
+  .detail-sub { font-size:12px; color:var(--color-text-muted); margin:0 0 10px; }
+  /* Axis and bars share ONE row skeleton (lbl + track) so tick labels,
+     gridlines and bar lengths all derive from the same track geometry —
+     chart-craft: "derive coupled geometry; never hand-tune both ends". */
+  .bars { position:relative; max-width:720px; }
+  .axis-row { height:16px; align-items:flex-start; }
+  .axis-row .tick { position:absolute; top:0; font-size:10.5px; color:var(--color-text-muted); transform:translateX(-50%); }
+  .barrow { display:flex; align-items:center; height:22px; }
+  .barrow .lbl { width:130px; flex:none; font-size:12px; color:var(--color-text); text-align:right; padding-right:20px; white-space:nowrap; }
+  .barrow .track { position:relative; flex:1; height:100%; }
+  .barrow .gridline { position:absolute; top:0; bottom:0; width:1px; background:var(--color-border); }
+  .barrow .bar { position:absolute; height:10px; border-radius:0 4px 4px 0; }
+  .barrow .val { position:absolute; font-size:11.5px; color:var(--color-text); white-space:nowrap; }
+  .barrow .val .spread { font-size:10px; }
+  .legendline { font-size:11.5px; color:var(--color-text-muted); margin-top:10px; }
+  .chip { display:inline-block; width:9px; height:9px; border-radius:50%; vertical-align:-1px; margin-right:3px; }
+
+  #sketch-tools { position:fixed; bottom:12px; right:12px; z-index:9999; font-family:system-ui; font-size:12px;
+    background:rgba(0,0,0,0.72); color:#fff; padding:6px 10px; border-radius:8px; opacity:.35; transition:opacity .2s; display:flex; gap:6px; align-items:center; }
+  #sketch-tools:hover { opacity:1; }
+  #sketch-tools button { font:inherit; background:#fff2; color:#fff; border:1px solid #fff4; border-radius:4px; padding:2px 8px; cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('a', this)">A: Phase drill-down</button>
+  <button class="variant-tab" onclick="show('b', this)">B: Sort + focus</button>
+  <button class="variant-tab" onclick="show('c', this)">C: Standout signal</button>
+  <span class="spacer"></span>
+  <span class="note">2026 field &middot; percentiles vs all 3,709 teams, not the visible rows</span>
+</div>
+
+<div id="viewport">
+  <div id="variant-a" class="variant active"></div>
+  <div id="variant-b" class="variant"></div>
+  <div id="variant-c" class="variant"></div>
+</div>
+
+<div id="sketch-tools">
+  <span>viewport</span>
+  <button onclick="vw(375)">375</button>
+  <button onclick="vw(768)">768</button>
+  <button onclick="vw(1280)">1280</button>
+  <button onclick="vw(0)">full</button>
+</div>
+
+<script>
+/*
+ * Sketch 009 — three ideas for making the event Breakdown tab friendlier.
+ * Real 2026 column set (post adjust-removal, quick 260905): total, autoTower,
+ * endGameTower, hubAuto, hubTransition, hubShift1-4, hubEndgame, foulsCommitted.
+ * Phase grouping from packages/core/algorithms/breakdown/groups.ts (2026 row).
+ *
+ * Percentiles are computed against a piecewise-linear quantile curve anchored
+ * on the REAL 2026 Total cuts (p50=39.2, p75=74.4, p95=167.8 across 3,709
+ * teams) — never against the visible roster (chart-craft: "mock against the
+ * real distribution").
+ */
+function show(id, btn) {
+  document.querySelectorAll('.variant').forEach(function (v) { v.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('variant-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+function vw(w) { document.getElementById('viewport').style.maxWidth = w ? w + 'px' : 'none'; }
+
+/* ---------- data ---------- */
+var COMPONENTS = ['autoTower','endGameTower','hubAuto','hubTransition','hubShift1','hubShift2','hubShift3','hubShift4','hubEndgame','foulsCommitted'];
+var LABELS = { total:'Total', autoTower:'Auto Tower', endGameTower:'End Game Tower', hubAuto:'Hub Auto', hubTransition:'Hub Transition',
+  hubShift1:'Hub Shift 1', hubShift2:'Hub Shift 2', hubShift3:'Hub Shift 3', hubShift4:'Hub Shift 4', hubEndgame:'Hub Endgame', foulsCommitted:'Fouls Committed' };
+var GROUPS = [
+  { id:'auto',    label:'Auto',    keys:['autoTower','hubAuto'] },
+  { id:'teleop',  label:'Teleop',  keys:['hubTransition','hubShift1','hubShift2','hubShift3','hubShift4'] },
+  { id:'endgame', label:'Endgame', keys:['endGameTower','hubEndgame'] }
+];
+/* Baseline share of Total per component (sums to 1 across scoring components). */
+var SHARE = { autoTower:.08, hubAuto:.14, hubTransition:.10, hubShift1:.12, hubShift2:.13, hubShift3:.13, hubShift4:.12, hubEndgame:.13, endGameTower:.05 };
+
+/* Real 2026 Total quantile anchors. */
+var QP = [0, 50, 75, 95, 100], QV = [2, 39.2, 74.4, 167.8, 280];
+function qTotal(p) {
+  for (var i = 1; i < QP.length; i++) if (p <= QP[i]) {
+    return QV[i-1] + (QV[i] - QV[i-1]) * (p - QP[i-1]) / (QP[i] - QP[i-1]);
+  }
+  return QV[QV.length - 1];
+}
+function pctForTotalValue(v) {
+  for (var i = 1; i < QV.length; i++) if (v <= QV[i]) {
+    return QP[i-1] + (QP[i] - QP[i-1]) * (v - QV[i-1]) / (QV[i] - QV[i-1]);
+  }
+  return 100;
+}
+/* A component's field distribution is its share of the Total curve, so a
+ * component value's percentile inverts through the same curve, unscaled. */
+function pctForComponent(key, v) { return pctForTotalValue(v / SHARE[key]); }
+function tierFor(p) { return p >= 95 ? 'legendary' : p >= 75 ? 'epic' : p >= 50 ? 'rare' : 'common'; }
+var TIER_RANK = { common:0, rare:1, epic:2, legendary:3 };
+
+/* Deterministic PRNG so the sketch renders identically every open. */
+var seed = 42;
+function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+var fmt = function (n) { return n.toFixed(2); };
+
+/* Event-shaped roster: a couple elite, a mid mass, a tail (findings: an event
+ * slice is roughly 2 gold / 2 purple / 1 blue / 5 grey per 10 rows). */
+var ROSTER = [
+  [1678, 'Citrus Circuits', 99.3], [2056, 'OP Robotics', 97.6], [3310, 'Black Hawk Robotics', 93.5],
+  [4613, 'Barker Redbacks', 90.1], [1114, 'Simbotics', 87.2], [2481, 'Roboteers', 83.8],
+  [5406, 'Celt-X', 80.4], [3683, 'Team Dave', 76.9], [610, 'Crescent Coyotes', 73.5],
+  [4039, 'MakeShift Robotics', 69.8], [1241, 'Theory6', 66.0], [2609, 'BeaverworX', 62.1],
+  [746, 'OSCEola', 58.3], [4907, 'Thunderstamps', 54.4], [1285, 'Big Bang Robotics', 50.6],
+  [865, 'TechnoKats', 46.7], [2200, 'MMRambotics', 42.9], [5036, 'Pitt Pirates', 39.0],
+  [3571, 'Mustangs', 35.2], [4519, 'Baby Beavers', 31.3], [907, 'Night Hawks', 27.5],
+  [5834, 'Random Access', 23.6], [6140, 'Iron Llamas', 19.8], [7480, 'Machina', 15.9]
+];
+var TEAMS = ROSTER.map(function (r) {
+  var basePct = r[2], metrics = {}, totalVal = 0;
+  COMPONENTS.forEach(function (key) {
+    if (key === 'foulsCommitted') return;
+    /* jitter 0.62-1.38 gives most teams a mixed profile; wider on a few draws
+     * so real standouts (component tier above own Total tier) exist. */
+    var jitter = 0.62 + rnd() * 0.76;
+    if (rnd() < 0.10) jitter += 0.55 + rnd() * 0.5;   /* the occasional specialist */
+    var v = SHARE[key] * qTotal(basePct) * jitter;
+    metrics[key] = { value: v, spread: v * (0.06 + rnd() * 0.05) + 0.3, pct: pctForComponent(key, v) };
+    totalVal += v;
+  });
+  var fouls = rnd() * 7;
+  metrics.foulsCommitted = { value: fouls, spread: fouls * 0.15 + 0.2, pct: null }; /* fouls carry no tier here: high != good */
+  metrics.total = { value: totalVal, spread: totalVal * 0.045 + 1.2, pct: pctForTotalValue(totalVal) };
+  return { num: r[0], nick: r[1], metrics: metrics };
+});
+TEAMS.sort(function (a, b) { return b.metrics.total.value - a.metrics.total.value; });
+
+/* ---------- shared renderers ---------- */
+function tierBox(m, extraHtml) {
+  var inner = fmt(m.value) + '<span class="spread"> &plusmn; ' + fmt(m.spread) + '</span>' + (extraHtml || '');
+  if (m.pct === null) return '<span>' + inner + '</span>';
+  return '<span class="box t-' + tierFor(m.pct) + '">' + inner + '</span>';
+}
+function keyRow() {
+  return '<div class="key"><span class="muted" style="font-weight:600">Key (percentile)</span>' +
+    '<span class="k t-common">0&ndash;50</span><span class="k t-rare">50&ndash;75</span>' +
+    '<span class="k t-epic">75&ndash;95</span><span class="k t-legendary">95&ndash;100</span>' +
+    '<span class="muted">Common &middot; Rare &middot; Epic &middot; Legendary</span></div>';
+}
+function identityCells(t) {
+  return '<td class="num team-no sticky-1" style="min-width:76px"><a href="#">' + t.num + '</a></td>' +
+         '<td class="nick sticky-2"><a href="#">' + t.nick + '</a></td>';
+}
+var CAPTION = 'Estimated per-team components. TBA publishes score breakdowns per alliance, not per team; these are VPR’s modeled per-team contributions.';
+
+/* ---------- Variant A: phase drill-down ---------- */
+var expanded = { auto:false, teleop:false, endgame:false };
+function toggleGroup(id) { expanded[id] = !expanded[id]; renderA(); }
+function renderA() {
+  var h = '<div class="lede"><b>A &mdash; Phase drill-down.</b> Default view is Total plus the three published phase metrics ' +
+    '(each already carries its own spread and tier) &mdash; four metric columns, no horizontal scroll at desktop widths. ' +
+    'Click a phase header to expand it into its component columns; click again to collapse.</div>' +
+    '<div class="page">' + keyRow() + '<div class="card"><div class="tablewrap"><table>';
+
+  /* top header row: group bands */
+  h += '<thead><tr><th class="sticky-1"></th><th class="sticky-2"></th><th></th>';
+  GROUPS.forEach(function (g) {
+    var span = expanded[g.id] ? g.keys.length : 1;
+    h += '<th class="group" colspan="' + span + '"><button onclick="toggleGroup(\'' + g.id + '\')">' +
+      g.label + ' ' + (expanded[g.id] ? '&#9662;' : '&#9656;') +
+      (expanded[g.id] ? '' : ' <span class="count">(' + g.keys.length + ')</span>') + '</button></th>';
+  });
+  h += '<th></th></tr>';
+
+  /* second header row: column labels */
+  h += '<tr><th class="num sticky-1">Team #</th><th class="sticky-2">Team Name</th><th class="num">Total</th>';
+  GROUPS.forEach(function (g) {
+    if (expanded[g.id]) {
+      g.keys.forEach(function (k, i) {
+        h += '<th class="num subhead' + (i === 0 ? ' first' : '') + (i === g.keys.length - 1 ? ' last' : '') + '">' + LABELS[k] + '</th>';
+      });
+    } else {
+      h += '<th class="num">' + g.label + '</th>';
+    }
+  });
+  h += '<th class="num">Fouls Committed</th></tr></thead><tbody>';
+
+  TEAMS.forEach(function (t) {
+    h += '<tr>' + identityCells(t) + '<td class="num">' + tierBox(t.metrics.total) + '</td>';
+    GROUPS.forEach(function (g) {
+      if (expanded[g.id]) {
+        g.keys.forEach(function (k) { h += '<td class="num">' + tierBox(t.metrics[k]) + '</td>'; });
+      } else {
+        /* the published phase metric: sum of the group, own spread + tier */
+        var v = 0; g.keys.forEach(function (k) { v += t.metrics[k].value; });
+        var phase = { value: v, spread: v * 0.05 + 0.6, pct: pctForTotalValue(v / groupShare(g)) };
+        h += '<td class="num">' + tierBox(phase) + '</td>';
+      }
+    });
+    h += '<td class="num">' + tierBox(t.metrics.foulsCommitted) + '</td></tr>';
+  });
+  h += '</tbody></table></div></div></div><p class="caption">' + CAPTION + '</p>';
+  document.getElementById('variant-a').innerHTML = h;
+}
+function groupShare(g) { var s = 0; g.keys.forEach(function (k) { s += SHARE[k]; }); return s; }
+
+/* ---------- Variant B: sort + focus ---------- */
+var ALL_KEYS = ['total'].concat(COMPONENTS);
+var sortState = { key:'total', desc:true };
+function sortBy(key) {
+  if (sortState.key === key) sortState.desc = !sortState.desc;
+  else sortState = { key:key, desc:true };
+  renderB();
+}
+function renderB() {
+  var h = '<div class="lede"><b>B &mdash; Sort + focus.</b> Every column header sorts; click again to flip direction. ' +
+    'The sorted column highlights and carries a small per-event rank so &ldquo;who is the best ' +
+    '<i>' + LABELS[sortState.key] + '</i> team here?&rdquo; is answered by reading down. Team # and name stay pinned while the rest scrolls.</div>' +
+    '<div class="page">' + keyRow() + '<div class="card"><div class="tablewrap"><table>';
+
+  h += '<thead><tr><th class="num sticky-1">Team #</th><th class="sticky-2">Team Name</th>';
+  ALL_KEYS.forEach(function (k) {
+    var sorted = sortState.key === k;
+    h += '<th class="num sortable' + (sorted ? ' sorted' : '') + '" onclick="sortBy(\'' + k + '\')">' + LABELS[k] +
+      (sorted ? ' <span class="arrow">' + (sortState.desc ? '&#9660;' : '&#9650;') + '</span>' : '') + '</th>';
+  });
+  h += '</tr></thead><tbody>';
+
+  var rows = TEAMS.slice().sort(function (a, b) {
+    var d = a.metrics[sortState.key].value - b.metrics[sortState.key].value;
+    return (sortState.desc ? -d : d) || (a.num - b.num);
+  });
+  rows.forEach(function (t, i) {
+    h += '<tr>' + identityCells(t);
+    ALL_KEYS.forEach(function (k) {
+      var sorted = sortState.key === k;
+      h += '<td class="num' + (sorted ? ' sorted-col' : '') + '">' +
+        (sorted ? '<span class="minirank">' + (i + 1) + '</span>' : '') + tierBox(t.metrics[k]) + '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div></div></div><p class="caption">' + CAPTION +
+    ' Sorting is a view of the same numbers &mdash; tiers stay pinned to the season-wide percentile, not the sort order.</p>';
+  document.getElementById('variant-b').innerHTML = h;
+}
+
+/* ---------- Variant C: standout signal + row detail ---------- */
+var detailOpen = TEAMS[7].num; /* one row pre-expanded so the panel is visible on load */
+function toggleDetail(num) { detailOpen = (detailOpen === num ? null : num); renderC(); }
+function standouts(t) {
+  var base = TIER_RANK[tierFor(t.metrics.total.pct)], out = [];
+  COMPONENTS.forEach(function (k) {
+    var m = t.metrics[k];
+    if (m.pct !== null && TIER_RANK[tierFor(m.pct)] > base) out.push(k);
+  });
+  return out;
+}
+function detailPanel(t, colspan) {
+  var GRID = [0, 50, 75, 95]; /* no 100 tick — it collides with 95 at this width */
+  var h = '<tr class="detail"><td colspan="' + colspan + '">' +
+    '<p class="detail-title">' + t.num + ' &middot; ' + t.nick + ' &mdash; component percentiles</p>' +
+    '<p class="detail-sub">Bar length is the season-wide percentile (the same scale the tier boxes band); the value labels carry the points. Gridlines sit on the tier cuts 50 / 75 / 95.</p>';
+  h += '<div class="bars">';
+  /* axis row reuses the bar-row skeleton so ticks share the bars' track */
+  h += '<div class="barrow axis-row"><span class="lbl"></span><div class="track">';
+  GRID.forEach(function (p) { h += '<span class="tick" style="left:' + p + '%">' + p + '</span>'; });
+  h += '</div></div>';
+  COMPONENTS.forEach(function (k) {
+    var m = t.metrics[k];
+    if (m.pct === null) return;
+    var tier = tierFor(m.pct);
+    /* coupled geometry: bar, gridlines and label all derive from the same pct scale */
+    h += '<div class="barrow"><span class="lbl">' + LABELS[k] + '</span><div class="track">';
+    GRID.slice(1, 4).forEach(function (p) { h += '<span class="gridline" style="left:' + p + '%"></span>'; });
+    h += '<span class="bar" style="left:0;width:' + m.pct.toFixed(1) + '%;top:6px;background:var(--tier-' + tier + '-id)"></span>' +
+      '<span class="val" style="left:calc(' + m.pct.toFixed(1) + '% + 8px);top:3px">' + fmt(m.value) +
+      '<span class="spread"> &plusmn; ' + fmt(m.spread) + '</span></span></div></div>';
+  });
+  h += '</div><p class="legendline"><span class="chip" style="background:var(--tier-common-id)"></span>Common ' +
+    '<span class="chip" style="background:var(--tier-rare-id)"></span>Rare ' +
+    '<span class="chip" style="background:var(--tier-epic-id)"></span>Epic ' +
+    '<span class="chip" style="background:var(--tier-legendary-id)"></span>Legendary &mdash; bar colour is the component’s own tier. Fouls Committed is omitted: high is not good, so a long bar would lie.</p></td></tr>';
+  return h;
+}
+function renderC() {
+  var h = '<div class="lede"><b>C &mdash; Standout signal.</b> Same Total-sorted table as today, but a corner dot marks every cell where a team’s ' +
+    'component tier <i>beats its own overall tier</i> &mdash; &ldquo;unusually good at this for their level&rdquo;, the scouting signal a wall of numbers hides. ' +
+    'Click a row to expand its component profile on one shared percentile scale.</div>' +
+    '<div class="page">' + keyRow() + '<div class="card"><div class="tablewrap"><table>';
+  h += '<thead><tr><th class="num sticky-1">Team #</th><th class="sticky-2">Team Name</th>';
+  ALL_KEYS.forEach(function (k) { h += '<th class="num">' + LABELS[k] + '</th>'; });
+  h += '</tr></thead><tbody>';
+  var colspan = 2 + ALL_KEYS.length;
+  TEAMS.forEach(function (t) {
+    var base = TIER_RANK[tierFor(t.metrics.total.pct)];
+    h += '<tr class="expandable" onclick="toggleDetail(' + t.num + ')">' + identityCells(t);
+    ALL_KEYS.forEach(function (k) {
+      var m = t.metrics[k], flag = '';
+      if (k !== 'total' && m.pct !== null && TIER_RANK[tierFor(m.pct)] > base) {
+        flag = '<span class="standout-flag f-' + tierFor(m.pct) + '" title="' + LABELS[k] + ': ' + tierFor(m.pct) + ' — above this team’s overall tier"></span>';
+      }
+      h += '<td class="num">' + tierBox(m, flag) + '</td>';
+    });
+    h += '</tr>';
+    if (detailOpen === t.num) h += detailPanel(t, colspan);
+  });
+  h += '</tbody></table></div></div></div><p class="caption">' + CAPTION +
+    ' A dot means &ldquo;above this team’s own overall tier&rdquo;, in the colour of the tier reached &mdash; it never repeats what the box already says.</p>';
+  document.getElementById('variant-c').innerHTML = h;
+}
+
+renderA(); renderB(); renderC();
+</script>
+</body>
+</html>
