@@ -407,6 +407,56 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * `adaptationEnabled`'s own still-unpromoted on-arm would if it ever shipped
  * enabled. This task only REGISTERS the knobs; tuning and enabling either one
  * is explicitly out of scope (see this task's own `<objective>`).
+ *
+ * NOT BUMPED at CVR-PARAM/CVR-WIRE (D-1, quick task 260905-kjb, 2026-09-05),
+ * and that non-bump is RECORDED here — deliberately, following the
+ * ELIM-R/ELIM-OFF entry directly above rather than inventing a new
+ * structure. This task added one new `Sigma1Params` field,
+ * `carryVarianceFactor` (a uniform per-team multiplier on the cold-start
+ * belief-variance prior a returning team is seeded with in `carrySeason`),
+ * and NO new `Sigma1State` field. Applying this file's own two triggers, the
+ * ONLY two anything above has ever bumped on:
+ *
+ *   (a) the parameter SHAPE changed such that `z.strictObject` makes an old
+ *       file unparseable — does NOT fire here. The new field carries a Zod
+ *       `.default(1)` (CVR-PARAM), so every already-committed
+ *       `vpr@8.0.0+*.json` file — none of which carries this key — still
+ *       parses unchanged and resolves to the inert value
+ *       (`carryVarianceFactor: 1`), the same argument the ELIM-R/ELIM-OFF
+ *       entry above already carries for its own three fields.
+ *   (b) the observable OUTPUT changed — does NOT fire here either. The seed
+ *       path (`carrySeason`) takes an EXPLICIT `carryVarianceFactor === 1`
+ *       equality branch at the default and returns `coldStartVariance`
+ *       bitwise unchanged — not an algebraic form that merely happens to
+ *       evaluate to the same number. `params.test.ts`'s dedicated identity
+ *       test asserts a byte-identical prediction stream across a REAL
+ *       cross-season-boundary replay, the exact instrument every prior
+ *       "provably inert when off/at-default" claim in this file
+ *       (`adaptationEnabled`, `elimObservationNoiseMultiplier`,
+ *       `elimScoreOffsetEnabled`) has used.
+ *
+ * Neither trigger fires, so `8.0.0+{paramSetName}` still denotes EXACTLY ONE
+ * computation before and after this task. `digest.test.ts` reproducing all
+ * four committed `vpr@8.0.0+*.json` prediction-stream digests AND headline
+ * metrics BITWISE under this new code is the evidence, not an assertion —
+ * the same instrument every prior bump used to justify BUMPING, here used to
+ * justify NOT bumping.
+ *
+ * `STATE_SNAPSHOT_SHAPE_VERSION` deliberately STAYS AT 8. This task adds NO
+ * `Sigma1State` field — `carrySeason`'s seed only tests for the PRESENCE of
+ * a team's carried state that already exists (`state.teams.get(team)`,
+ * unchanged) — so there is no stale-row deserialization hazard
+ * `stateSnapshot.ts` could hit, and no live-Worker re-seed is owed.
+ *
+ * THE MOMENT A PROMOTED PARAMETER SET carries a `carryVarianceFactor` below
+ * `1` — the outcome of the joint re-tune this task's own `<objective>`
+ * explicitly defers to the main context — that promotion IS a real model
+ * change (trigger (b) fires: the observable output moves for every
+ * returning team) and earns its own `SIGMA1_CODE_VERSION` bump under this
+ * block's normal rules, exactly as `elimObservationNoiseMultiplier`'s own
+ * still-at-default arm would if a re-tune ever moved it off 1. This task
+ * only REGISTERS the knob; tuning and promoting it is explicitly out of
+ * scope.
  */
 export const SIGMA1_CODE_VERSION = "8.0.0";
 
