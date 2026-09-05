@@ -42,6 +42,19 @@
  * kind, so this guard is what catches a future Node-only import added
  * there before it reaches the web build.
  *
+ * Quick task 260905-ldu extends this with a SEVENTH entry point:
+ * `packages/harness/teamRanks.ts` — a different case from the previous
+ * three. This module does NOT live under `packages/core/algorithms/`; it
+ * lives here in `packages/harness/`, alongside `pageArtifacts.ts`. But its
+ * design deliberately imports `isOfficialEventType`/`TOTAL_METRIC_KEY` FROM
+ * `packages/core/algorithms/eventTypes.ts` and `types.ts` (both of which are
+ * themselves import-nothing leaves, per their own header comments), so
+ * checking it against the stricter "never reaches a file under
+ * packages/core/algorithms/" assertion (the one `pageArtifacts.ts` and
+ * `publishedAlgorithms.ts` are held to) would trivially fail on its own
+ * intended design. It is checked ONLY for Node built-in imports, exactly
+ * like the breakdown/rp-constants/rank-simulation entry points above.
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -55,6 +68,7 @@ const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishe
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
 const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "sigma1", "rp", "constants.ts");
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
+const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -173,6 +187,19 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/simulation/rankSimulation.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/harness/teamRanks.ts (checked for Node built-ins only — this module intentionally imports from packages/core/algorithms/eventTypes.ts and types.ts, quick task 260905-ldu)", () => {
+    const { nodeBuiltinViolations, visited } = scan([TEAM_RANKS_ENTRY_POINT]);
+    // Sanity check the scan is not vacuous: it must actually visit the two
+    // packages/core/algorithms/ leaf modules this module imports from.
+    expect(visited.has(TEAM_RANKS_ENTRY_POINT)).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "algorithms", "eventTypes.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "algorithms", "types.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/harness/teamRanks.ts: ${detail}`);
     }
   });
 });
