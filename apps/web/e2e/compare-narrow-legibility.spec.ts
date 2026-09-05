@@ -13,6 +13,10 @@ import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows } from "
  * published R2 bytes for all five Compare years through
  * `vite.config.ts`'s `preview.proxy['/v1']` (PD-04).
  *
+ * `COMPARE_URL` points at `/methodology/compare` directly (quick task
+ * 260905-phf: the page moved there, and `/compare` is now a redirect) —
+ * exercising the route directly instead of a redirect hop.
+ *
  * Every literal here is read out of shipped source: `AccuracyTable.tsx`'s
  * `COMPARE_ACCURACY_SCROLL_TESTID`, `CompLevelSwitcher.tsx`'s
  * `COMP_LEVEL_SWITCHER_TESTID`/`compLevelSegmentTestId`, and
@@ -26,7 +30,7 @@ import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows } from "
  * component no longer exists, and nothing in this spec ever imported it.
  */
 
-const COMPARE_URL = "/compare";
+const COMPARE_URL = "/methodology/compare";
 const ACCURACY_SCROLL_TESTID = "compare-accuracy-scroll";
 const SWITCHER_SEGMENT_TESTIDS = {
   combined: "compare-comp-level-switcher-segment-combined",
