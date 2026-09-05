@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-05T18:39:31.967Z"
+last_updated: "2026-09-05T19:25:56.767Z"
 last_activity: 2026-09-05
 last_activity_desc: "Completed quick task 260905-jj8: per-bonus RP arrays on event match rows + Quals-tab dot wiring (republish pending user signal)"
 progress:
@@ -405,6 +405,7 @@ None yet.
 | 260905-3rq | Breakdown tab phase drill-down (sketch 009-A) with sortable columns | 2026-09-05 | 32733ee1 | [260905-3rq-breakdown-tab-phase-drill-down-sketch-00](./quick/260905-3rq-breakdown-tab-phase-drill-down-sketch-00/) |
 | 260905-jj8 | per-bonus RP arrays on event match rows + Quals-tab dot wiring (republish pending user signal) | 2026-09-05 | aa40215f | [260905-jj8-publish-per-bonus-rp-arrays-on-event-mat](./quick/260905-jj8-publish-per-bonus-rp-arrays-on-event-mat/) |
 | 52 | Stage 1 carry-variance experiment - R1 carried-consistency seed wins small, R2 reversion-scaled seed closed negative (dir 260905-jyf) | 2026-09-05 | ae02d7e2 | — |
+| 53 | Stage 2 carryVarianceFactor knob - uniform per-team boundary variance factor, searchable 0.05-1 log, inert at default 1 (dir 260905-kjb) | 2026-09-05 | 0a2d6e15 | — |
 
 ### Roadmap Evolution
 
