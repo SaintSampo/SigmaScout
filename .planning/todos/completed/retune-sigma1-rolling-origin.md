@@ -514,3 +514,56 @@ Honesty notes:
 - Artifacts: `reports/tune-joint-*-260905s2*.json`, `reports/retune-log-*-260905s2.txt`,
   `reports/sensitivity-screen-260905-s2.json`, report `reports/retune-260905-s2-run-report.md`
   (untracked, like every prior run's).
+
+---
+
+# RESULTS — Stage 3 carryEvidenceRate tune, 2026-09-05. All ten keep-incumbent; the strongest challenger PROFILE yet.
+
+First search over the 17-knob space including `carryEvidenceRate` (quick task 260905-o48
+— evidence-weighted boundary variance retention, `coldStartVariance * exp(-rate * n)` over
+the team's outgoing-season match count, composing multiplicatively with Stage 2's
+`carryVarianceFactor`). Same runbook: fresh screen (11/17 survive + carryPriorYearShare
+force-in = 12), 5 origins x 2 arms, `--evals 40 --batch 4`, acceptance vs the LIVE
+`vpr@8.0.0+rolling-2026-09b`. Screen: `carryEvidenceRate` survived at range 9.006e-3
+(third-largest), OAT optimum at the default 0.
+
+## The ten verdicts (accuracy-primary, vs rolling-2026-09b)
+
+| origin | arm | verdict | delta accuracy | bar | delta Brier | winner rate | winner factor |
+|---|---|---|---|---|---|---|---|
+| 2022 | off | keep-incumbent | +0.002426 | 0.006824 | +0.005982 | 0.00250 | 0.930 |
+| 2022 | on  | keep-incumbent | +0.001594 | 0.006718 | +0.005951 | 0.00250 | 0.930 |
+| 2023 | off | keep-incumbent | -0.003469 | 0.005261 | -0.000832 (better) | 0.02885 | 0.085 |
+| 2023 | on  | keep-incumbent | -0.002292 | 0.004370 | -0.001206 (better) | 0.02885 | 0.085 |
+| 2024 | off | keep-incumbent | -0.005011 | 0.004975 | +0.006873 | 0.02585 | 0.179 |
+| 2024 | on  | keep-incumbent | -0.010857 | 0.005459 | +0.007462 | 0.02585 | 0.179 |
+| 2025 | off | keep-incumbent | **+0.003787** | 0.004225 | **-0.001489 (better)** | 0.02585 | 0.179 |
+| 2025 | on  | keep-incumbent | +0.003335 | 0.004127 | -0.001263 (better) | 0.02585 | 0.179 |
+| 2026 | off | keep-incumbent | +0.001804 | 0.003588 | +0.001298 | 0.02585 | 0.179 |
+| 2026 | on  | keep-incumbent | +0.002296 | 0.003551 | +0.000321 | 0.02585 | 0.179 |
+
+**No promotion, no SIGMA1_CODE_VERSION bump, no republish. (The shape-8 D1 re-seed landed
+separately the same day via the operational republish — see docs/publish-budget.md.)**
+
+Honesty notes:
+
+- **Seven of ten runs posted POSITIVE out-of-sample accuracy margins** — vs three in
+  Stage 2 and three in the 2026-09-05 accuracy-primary re-tune. Both 2025 arms were
+  positive WITH better Brier (2025/off reached 90% of its bar). This is the strongest
+  challenger profile of the three carry-variance formulations.
+- 2022 posted its first-ever positive pair (+0.24/+0.16pt) under the GENTLE shape
+  (rate 0.0025, factor 0.93 — a ~50-match veteran retaining ~82% confidence).
+- The negatives sit exactly where prior-trust should fail: 2024 (-0.50/-1.09pt, from an
+  aggressive shape the 2020/2022/2023 selection window overfit to) and 2023 (small,
+  with better Brier).
+- **Cumulative picture across the day's three tunes: 30 verdicts, 0 promotions** — but
+  the boundary-variance mechanism is consistently real and consistently positive on
+  2022/2025/2026. The remaining question is ACCEPTANCE POLICY (the ~2 SE bar), not
+  model formulation; the recorded next step, if the developer wants it, is a
+  retroactive analysis of what a relaxed bar would have shipped across every recorded
+  tune, so the noise-shipping risk is quantified before any policy change.
+- DISPOSITION: both `carryVarianceFactor` and `carryEvidenceRate` STAY SEARCHABLE
+  (consistent direction, repeated near-accepts — the opposite of elim-R's scatter).
+- Artifacts: `reports/tune-joint-*-260905s3*.json`, `reports/retune-log-*-260905s3.txt`,
+  `reports/sensitivity-screen-260905-s3.json`, `reports/retune-260905-s3-run-report.md`
+  (untracked, like every prior run's).
