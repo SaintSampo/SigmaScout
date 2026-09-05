@@ -223,6 +223,13 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 
 ## Project Skills
 
+- **Retune and republish, unattended** (rolling-origin re-tune → acceptance → promote → R2 republish, no operator input) → `Skill("sigmascout-retune-republish")`
+
+  Load this when asked to retune and/or republish. It carries the full pre-committed decision
+  rules (acceptance bar, arm tie-break, keep-incumbent-is-success), the load-bearing
+  artifacts-before-manifest publish ordering, and the non-interruption contract for running
+  the whole job while the user is away.
+
 - **Sketch findings for SigmaScout** (validated design decisions, palette tokens, CSS patterns, chart craft rules) → `Skill("sketch-findings-sigmascout")`
 
   Load this before building or changing any UI. It carries the decided rarity-tier palette and its
