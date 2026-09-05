@@ -457,6 +457,63 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * still-at-default arm would if a re-tune ever moved it off 1. This task
  * only REGISTERS the knob; tuning and promoting it is explicitly out of
  * scope.
+ *
+ * NOT BUMPED at CER-PARAM/CER-WIRE (D-1, quick task 260905-o48, 2026-09-05),
+ * and that non-bump is RECORDED here — deliberately, following the
+ * CVR-PARAM/CVR-WIRE entry directly above rather than inventing a new
+ * structure. This task added one new `Sigma1Params` field,
+ * `carryEvidenceRate` (an EVIDENCE-WEIGHTED per-team decay rate, applied to a
+ * returning team's outgoing `matchCount`, that COMPOSES multiplicatively with
+ * `carryVarianceFactor` in `carrySeason`'s belief-variance seed), and NO new
+ * `Sigma1State` field. Applying this file's own two triggers, the ONLY two
+ * anything above has ever bumped on:
+ *
+ *   (a) the parameter SHAPE changed such that `z.strictObject` makes an old
+ *       file unparseable — does NOT fire here. The new field carries a Zod
+ *       `.default(0)` (CER-PARAM), so every already-committed
+ *       `vpr@8.0.0+*.json` file — none of which carries this key — still
+ *       parses unchanged and resolves to the inert value
+ *       (`carryEvidenceRate: 0`), the same argument the CVR-PARAM entry
+ *       above already carries for its own field.
+ *   (b) the observable OUTPUT changed — does NOT fire here either. The seed
+ *       path (`carrySeason`) takes the SAME EXPLICIT equality branch it
+ *       takes today whenever the uniform factor is `1` AND the rate is `0` —
+ *       that guard is EXTENDED, not replaced — and returns `coldStartVariance`
+ *       bitwise unchanged. `params.test.ts`'s dedicated identity tests assert
+ *       a byte-identical prediction stream across a REAL cross-season-boundary
+ *       replay, the exact instrument every prior "provably inert when
+ *       off/at-default" claim in this file has used.
+ *
+ * The point specific to THIS task, absent from the CVR-PARAM/CVR-WIRE entry
+ * above: because the evidence factor is exactly `1` at rate `0` and
+ * multiplication by one is exact in IEEE-754, Stage 2's (`carryVarianceFactor`)
+ * behaviour is preserved BITWISE at EVERY uniform factor when the rate is 0,
+ * not only at the joint default — and Stage 2's own `carryVarianceFactor`
+ * test group passing UNMODIFIED under this new code is what demonstrates
+ * that, rather than merely asserting it.
+ *
+ * Neither trigger fires, so `8.0.0+{paramSetName}` still denotes EXACTLY ONE
+ * computation before and after this task. `digest.test.ts` reproducing all
+ * four committed `vpr@8.0.0+*.json` prediction-stream digests AND headline
+ * metrics BITWISE under this new code is the evidence, not an assertion — the
+ * same instrument every prior bump used to justify BUMPING, here used to
+ * justify NOT bumping.
+ *
+ * `STATE_SNAPSHOT_SHAPE_VERSION` deliberately STAYS AT 8. This task adds NO
+ * `Sigma1State` field — it only READS a `matchCount` that already exists in
+ * the carried state and is already serialized — so there is no stale-row
+ * deserialization hazard `stateSnapshot.ts` could hit, and no live-Worker
+ * re-seed is owed.
+ *
+ * THE MOMENT A PROMOTED PARAMETER SET carries a `carryEvidenceRate` above
+ * `0` — the outcome of the joint re-tune this task's own `<objective>`
+ * explicitly defers to the main context — that promotion IS a real model
+ * change (trigger (b) fires: the observable output moves for every
+ * returning team) and earns its own `SIGMA1_CODE_VERSION` bump under this
+ * block's normal rules, exactly as `carryVarianceFactor`'s own
+ * still-at-default arm would if a re-tune ever moved it off 1. This task
+ * only REGISTERS the knob; tuning and promoting it is explicitly out of
+ * scope.
  */
 export const SIGMA1_CODE_VERSION = "8.0.0";
 
