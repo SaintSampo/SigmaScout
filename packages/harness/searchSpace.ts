@@ -191,6 +191,19 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // disabled-equivalent factor of exactly 1 for essentially its whole
   // event.
   adaptationMinObservations: { min: 1, max: 12, scale: "linear" },
+  // D-4/D-12 (quick task 260904-v9n, ELIM-R): the elim observation-noise
+  // multiplier. The default 1 is interior and means no elim-specific
+  // treatment at all. Deliberately allowed BELOW 1: the motivating
+  // measurement (VPR's elim winner accuracy trailing its quals accuracy
+  // while OPR gains at elims every season) is consistent with two opposite
+  // readings — elim observations being noisier than quals ones, or the
+  // model under-using late-event information — and the bound must not
+  // pre-decide between them. 0.25 treats an elim observation as four times
+  // MORE informative than a qual; 16 leaves a gain small enough that elim
+  // observations barely move a belief at all — against
+  // `FALLBACK_NOISE_MULTIPLIER = 3` as the codebase's own reference point
+  // for what a meaningful noise inflation looks like.
+  elimObservationNoiseMultiplier: { min: 0.25, max: 16, scale: "log" },
 };
 
 /**

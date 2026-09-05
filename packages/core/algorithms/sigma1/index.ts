@@ -66,6 +66,7 @@ import {
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
+import { elimNoiseFactor, isElimination } from "./elim.js";
 // `subsetVariance` and `teamTotalVariance` are deliberately NOT imported here
 // since 5.0.0 (D-V4): they were the R term of the retired `sqrt(P + R)`
 // display construction, and nothing on this module's publish path reads a
@@ -154,6 +155,7 @@ export {
   applyProcessNoise,
   updateAllianceSum,
 } from "./kalman.js";
+export { isElimination, elimNoiseFactor } from "./elim.js";
 
 function componentColdStartTotal(componentCount: number, params: Sigma1ResolvedParams): number {
   return componentCount > 0 ? params.coldStartTeamTotal / componentCount : 0;
@@ -764,6 +766,12 @@ function applyAllianceUpdate(
     // uncertainty anywhere for an observation to correct) reports exactly
     // `0` here rather than a `0/0` division — never NaN/Infinity reaching
     // `foldInnovation`, which refuses non-finite input by throwing.
+    // D-6 (quick task 260904-v9n): the normalized innovation DOES see
+    // `elimNoiseFactor` here, via `measurementNoise`, and that is correct —
+    // `pooledVariance` is the filter's own consistency check against its OWN
+    // uncertainty claim, so a filter claiming more noise should expect
+    // proportionally smaller normalized innovations. Inert at the default
+    // `elimObservationNoiseMultiplier = 1`.
     const pooledVariance = sumP + measurementNoise;
     const normalizedInnovation = pooledVariance > 0 ? innovation / Math.sqrt(pooledVariance) : 0;
 
@@ -1230,7 +1238,25 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   // these are two separate, deliberately overlapping counters rather than
   // one merged field.
   const usedFallback = breakdownOutcome.kind !== "parsed";
-  const measurementNoiseMultiplier = usedFallback ? FALLBACK_NOISE_MULTIPLIER : 1;
+  // D-4 (`./elim.js`, quick task 260904-v9n, ELIM-R): the elim factor
+  // COMPOSES into this multiplier by multiplication rather than replacing
+  // it — a fallback elim match carries BOTH inflations. `elimNoiseFactor`
+  // returns exactly `1` for `compLevel === "qm"`, so this line is a bitwise
+  // no-op for every non-elim match regardless of `usedFallback`.
+  //
+  // D-5: the innovation-based estimators this multiplier does NOT reach —
+  // `applyAllianceUpdate`'s `varianceSample` and its `covarianceSample`
+  // twin — are deliberately left alone. `E[innovation^2] = sum P + R_true`
+  // is a statement about the OBSERVED data, not about what the filter
+  // chose to believe, so inflating `R` here does not change the
+  // innovation's distribution; the unbiased sample is already correct.
+  // `FALLBACK_NOISE_MULTIPLIER` already travels this identical seam and
+  // leaves those same estimators untouched — this is not a new rule. The
+  // failure rescaling them would cause is concrete: `measurementNoise` is
+  // the SUM of the teammates' own consistency estimates times this
+  // multiplier, so folding an inflated sample back into `consistency` would
+  // compound the multiplier geometrically across an elim bracket.
+  const measurementNoiseMultiplier = (usedFallback ? FALLBACK_NOISE_MULTIPLIER : 1) * elimNoiseFactor(result.compLevel, resolved);
   const breakdownParseFailureCount = state.breakdownParseFailureCount + (breakdownOutcome.kind === "malformed" ? 1 : 0);
 
   // CR-01 fix: the residual is distributed across this alliance's own

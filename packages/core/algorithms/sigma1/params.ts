@@ -701,6 +701,31 @@ export interface Sigma1Params {
   readonly adaptationMaxFactor: number;
   /** D-05 (plan 03-04): below this many folded observations, `./adaptation.js`'s `adaptationFactor` returns exactly 1 — a team's first match cannot tell you its regime is changing. Phase 3 hyperparameter, default unverified. */
   readonly adaptationMinObservations: number;
+  /**
+   * D-4 (`./elim.js`, quick task 260904-v9n, ELIM-R): a DIMENSIONLESS
+   * multiplier applied to the measurement noise `R` of an ELIMINATION
+   * observation (`compLevel !== "qm"`) — it multiplies a quantity already in
+   * points^2, so unlike the five `*Rel` fields above it passes through
+   * `resolveSigma1Params` completely unchanged (it is not one of the fields
+   * that `Omit` removes). Default exactly `1`: no elim-specific treatment at
+   * all, so `1.0 * base === base` bitwise for every finite `base`.
+   *
+   * COMPOSES with the pre-existing `FALLBACK_NOISE_MULTIPLIER`
+   * (`breakdown/fallback.ts`) rather than replacing it — an elim match with a
+   * missing/malformed breakdown carries both inflations, since a fallback
+   * observation's own noise inflation and an elim observation's noise
+   * treatment are two independent facts about that one observation.
+   *
+   * MOTIVATED by the shipped `reports/rolling-2026-09b` walk-forward
+   * backtest (offseason excluded): VPR's elim winner accuracy trails its
+   * quals accuracy in 2023 (73.1% vs 75.8%) and 2024 (71.2% vs 75.0%) at
+   * n~=2800/season, while OPR gains +5 to +11 points at elims every season.
+   * SEARCHABLE (`searchSpace.ts`) — this is the parameter the accuracy-primary
+   * tuner rules on to answer whether the model over-trusts elim observations
+   * (a multiplier above 1) or under-uses late-event information (a
+   * multiplier below 1); see `elim.ts`'s own header for the fuller argument.
+   */
+  readonly elimObservationNoiseMultiplier: number;
 }
 
 /**
@@ -754,6 +779,9 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   adaptationMinFactor: 0.25,
   adaptationMaxFactor: 4.0,
   adaptationMinObservations: 3,
+  // D-4 (quick task 260904-v9n, ELIM-R): exactly 1 — no elim-specific
+  // treatment at all until the re-tune (searchable) says otherwise.
+  elimObservationNoiseMultiplier: 1,
 };
 
 /**
@@ -830,6 +858,10 @@ export const Sigma1ParamsSchema = z
     adaptationMinFactor: z.number().finite(),
     adaptationMaxFactor: z.number().finite(),
     adaptationMinObservations: z.number().finite(),
+    // D-4/D-2 (quick task 260904-v9n, ELIM-R/ELIM-WIRE): `.default(1)` is
+    // what lets every already-committed `vpr@8.0.0+*.json` file — none of
+    // which carries this key — still parse and resolve to the inert value.
+    elimObservationNoiseMultiplier: z.number().finite().positive().default(1),
   })
   .check((ctx) => {
     const value = ctx.value;

@@ -26,6 +26,8 @@ import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
+import { resolveSigma1Params } from "./scale.js";
+import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
@@ -535,6 +537,132 @@ describe("adaptation-off is bitwise identical to the pre-adaptation module (D-08
     expect(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))).toBe(
       JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))
     );
+  });
+});
+
+describe("Sigma1ParamsSchema — elimObservationNoiseMultiplier (D-2, ELIM-WIRE)", () => {
+  it("parses an object omitting the field and defaults it to exactly 1 — the executable proof every committed vpr@8.0.0+*.json file still parses unchanged", () => {
+    const { elimObservationNoiseMultiplier: _omitted, ...withoutElim } = DEFAULT_SIGMA1_PARAMS;
+    const parsed = Sigma1ParamsSchema.parse(withoutElim);
+    expect(parsed.elimObservationNoiseMultiplier).toBe(1);
+  });
+});
+
+/**
+ * D-4's end-to-end proof (quick task 260904-v9n, ELIM-R): a sequence whose
+ * later matches are ELIMINATION `compLevel`s (`"ef"`/`"qf"`/`"sf"`/`"f"`),
+ * modelled on `swingingSequence` above but never mutating that fixture — the
+ * adaptation tests that depend on it must not move.
+ */
+function elimSequence(): MatchResult[] {
+  const qualValues = [10, 12, 9];
+  const quals = qualValues.map((value, i) =>
+    match({
+      matchKey: `2024eventa_qm${i + 1}`,
+      eventKey: "2024eventa",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 13 * value,
+      blueScore: 13 * value,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(value),
+    })
+  );
+  const elimCompLevels = ["ef", "qf", "sf", "f"] as const;
+  const elims = elimCompLevels.map((compLevel, i) =>
+    match({
+      matchKey: `2024eventa_${compLevel}1m${i + 1}`,
+      eventKey: "2024eventa",
+      compLevel,
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 13 * 20,
+      blueScore: 13 * 20,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Uniform(20),
+    })
+  );
+  return [...quals, ...elims];
+}
+
+function elimObservables(params: Sigma1Params): unknown {
+  const algorithm = makeSigma1({ id: "sigma1-elim-identity-test", linkMode: "predictive-variance", params });
+  let state: Sigma1State = algorithm.initState([]);
+  const predictions: unknown[] = [];
+  for (const m of elimSequence()) {
+    predictions.push(algorithm.predict(state, toUpcoming(m)));
+    state = algorithm.update(state, m);
+  }
+  return predictions;
+}
+
+describe("elimObservationNoiseMultiplier — inert at default, wired when moved, gated on comp level (D-4/D-6)", () => {
+  it("DEFAULT_SIGMA1_PARAMS and an explicit elimObservationNoiseMultiplier: 1 produce byte-identical prediction streams over an elim-bearing replay", () => {
+    const explicitParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimObservationNoiseMultiplier: 1 };
+    const defaultRun = elimObservables(DEFAULT_SIGMA1_PARAMS);
+    const explicitRun = elimObservables(explicitParams);
+    expect(JSON.stringify(explicitRun)).toBe(JSON.stringify(defaultRun));
+  });
+
+  it("elimObservationNoiseMultiplier: 8 produces a stream that DIFFERS from the default for at least one match — the mechanism is wired, not decorative", () => {
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimObservationNoiseMultiplier: 8 };
+    const movedRun = elimObservables(movedParams);
+    const defaultRun = elimObservables(DEFAULT_SIGMA1_PARAMS);
+    expect(JSON.stringify(movedRun)).not.toBe(JSON.stringify(defaultRun));
+  });
+
+  it("elimObservationNoiseMultiplier: 8 over a QUALS-ONLY replay (swingingSequence, all qm) is byte-identical to the default — proves the multiplier is gated on comp level rather than applied everywhere", () => {
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimObservationNoiseMultiplier: 8 };
+    expect(JSON.stringify(swingingObservables(movedParams))).toBe(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS)));
+  });
+});
+
+describe("elimObservationNoiseMultiplier composes with FALLBACK_NOISE_MULTIPLIER (D-4)", () => {
+  it("a fallback elim match's posterior variance matches the COMPOSED multiplier (FALLBACK_NOISE_MULTIPLIER x elimObservationNoiseMultiplier), not either alone", () => {
+    const elimMultiplier = 5;
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimObservationNoiseMultiplier: elimMultiplier };
+    const algorithm = makeSigma1({ id: "sigma1-elim-composition-test", linkMode: "predictive-variance", params });
+    // Resolved at the SAME (empty, cold-start) scale `initState()`'s
+    // `allianceScoreStats` resolves at — this is the ONLY call in the whole
+    // test, matching Pitfall EPA-1's leak-free placement.
+    const resolved = resolveSigma1Params(params, emptyExpandingStats());
+
+    const fallbackElimMatch = match({
+      matchKey: "2024test_ef1m1",
+      compLevel: "ef",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 150,
+      blueScore: 140,
+      hasScoreBreakdown: false,
+      scoreBreakdownRaw: null,
+    });
+
+    let state = algorithm.initState([]);
+    state = algorithm.update(state, fallbackElimMatch);
+
+    // At a genuine cold start every teammate's prior variance AND consistency
+    // for "autoLeave" is exactly `resolved.coldStartConsistencyVariance` (p0):
+    // `updateAllianceSum`'s posterior variance for one of 3 symmetric
+    // teammates is `p0 * (1 - p0 / (3*p0 + measurementNoise))`, and
+    // `measurementNoise = 3 * p0 * measurementNoiseMultiplier` — this does not
+    // depend on the observed value/innovation at all, only on the prior and
+    // the multiplier, so this fixture needs no particular score to prove it.
+    const p0 = resolved.coldStartConsistencyVariance;
+    function posteriorVarianceAt(multiplier: number): number {
+      const measurementNoise = 3 * p0 * multiplier;
+      const pooled = 3 * p0 + measurementNoise;
+      const gain = p0 / pooled;
+      return p0 * (1 - gain);
+    }
+
+    const actualVariance = state.teams.get("T1")!.beliefs["autoLeave"]!.variance;
+    const composedMultiplier = FALLBACK_NOISE_MULTIPLIER * elimMultiplier;
+    expect(actualVariance).toBeCloseTo(posteriorVarianceAt(composedMultiplier), 6);
+
+    // Not merely one inflation alone.
+    expect(actualVariance).not.toBeCloseTo(posteriorVarianceAt(FALLBACK_NOISE_MULTIPLIER), 3);
+    expect(actualVariance).not.toBeCloseTo(posteriorVarianceAt(elimMultiplier), 3);
   });
 });
 
