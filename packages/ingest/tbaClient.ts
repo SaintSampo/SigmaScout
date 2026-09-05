@@ -13,7 +13,9 @@
  * (paginated), team-detail, events-list, event-detail, event-teams,
  * event-matches, match-detail, team-media (plan 06-03, Phase 6),
  * event-rankings (plan 06.1-01, Phase 6.1), and event-alliances (plan
- * 07-03, Phase 7) — and none marked OPT-OUT.
+ * 07-03, Phase 7) — and none marked OPT-OUT. District data (quick task
+ * 260905-lic, Task 1) adds four more: districts-list, district-rankings,
+ * district-events-keys, event-teams-keys.
  */
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -221,6 +223,56 @@ export function fetchEventAlliances(
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
   return tbaFetch(`/event/${eventKey}/alliances`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/** `GET /districts/{year}` (quick task 260905-lic Task 1) -- every district active in a season, including each district's official_advancement_counts capacity, in one response. */
+export function fetchDistrictsList(
+  ctx: TbaClientContext,
+  year: number,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/districts/${year}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
+ * `GET /district/{districtKey}/rankings` (quick task 260905-lic Task 1) --
+ * every team's district point standing, in one response. `districtKey` is
+ * TBA's year-prefixed key (e.g. "2026fnc"), not the bare abbreviation
+ * `events.district_key` stores.
+ */
+export function fetchDistrictRankings(
+  ctx: TbaClientContext,
+  districtKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/district/${districtKey}/rankings`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
+ * `GET /district/{districtKey}/events/keys` (quick task 260905-lic Task 1) --
+ * the authoritative membership list of event keys belonging to a
+ * district-year, a bare array of strings.
+ */
+export function fetchDistrictEventKeys(
+  ctx: TbaClientContext,
+  districtKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/district/${districtKey}/events/keys`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
+ * `GET /event/{eventKey}/teams/keys` (quick task 260905-lic Task 1) -- an
+ * event's registered team keys, a bare array of strings. This is the only
+ * way to know a team has an event still ahead of it (`event_teams`'s whole
+ * purpose).
+ */
+export function fetchEventTeamKeys(
+  ctx: TbaClientContext,
+  eventKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/event/${eventKey}/teams/keys`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /**

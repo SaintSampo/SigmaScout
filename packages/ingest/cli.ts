@@ -30,6 +30,16 @@
  *     resolves each event's playoff alliance selection via
  *     /event/{key}/alliances, one request per event, and stores the result
  *     in event_alliances. Includes offseason events, matching PD-01.)
+ *   pnpm ingest:districts --years 2022-2026   (quick task 260905-lic Task 1:
+ *     resolves each season's district point data -- capacity, per-team
+ *     rankings and event registration -- via /districts/{year},
+ *     /district/{key}/rankings, /district/{key}/events/keys and
+ *     /event/{key}/teams/keys, and stores the result in
+ *     districts/district_rankings/event_teams. Same --force caching rule as
+ *     --rankings-only: an already-ingested season's cached ETags 304 with no
+ *     body, so a re-run needs --force to get real rows again. --years only
+ *     accepts one contiguous range; a gap season like 2021 requires a
+ *     separate invocation.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -45,11 +55,15 @@ import {
   openCorpus,
   readEtag,
   recordIngestRun,
+  selectDistrictsForYear,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
+  upsertDistrict,
+  upsertDistrictRanking,
   upsertEvent,
   upsertEventAlliance,
   upsertEventRanking,
+  upsertEventTeam,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -57,14 +71,18 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { normalizeEventAlliances } from "./alliances.js";
+import { normalizeDistricts, normalizeDistrictRankings } from "./districts.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
 import { normalizeEventRankings } from "./rankings.js";
 import {
   tbaAllianceResponseSchema,
+  tbaDistrictListSchema,
+  tbaDistrictRankingsResponseSchema,
   tbaEventListSchema,
   tbaEventRankingsResponseSchema,
   tbaEventSchema,
+  tbaKeysResponseSchema,
   tbaMatchListSchema,
   tbaMediaListSchema,
   tbaStatusSchema,
@@ -72,11 +90,15 @@ import {
 } from "./schemas.js";
 import {
   fetchAllTeams,
+  fetchDistrictEventKeys,
+  fetchDistrictRankings,
+  fetchDistrictsList,
   fetchEventAlliances,
   fetchEventDetail,
   fetchEventMatches,
   fetchEventRankings,
   fetchEventsList,
+  fetchEventTeamKeys,
   fetchStatus,
   fetchTeamMedia,
   TbaRequestCounter,
@@ -106,6 +128,8 @@ interface CliOptions {
   rankingsOnly: boolean;
   /** EVNT-05, D-18.7 (plan 07-03): resolve/refresh only event_alliances for the requested season range. */
   alliancesOnly: boolean;
+  /** quick task 260905-lic Task 1: resolve/refresh only districts/district_rankings/event_teams for the requested season range. */
+  districtsOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -132,12 +156,14 @@ function parseCliOptions(): CliOptions {
       "media-only": { type: "boolean", default: false },
       "rankings-only": { type: "boolean", default: false },
       "alliances-only": { type: "boolean", default: false },
+      "districts-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
   const mediaOnly = values["media-only"] ?? false;
   const rankingsOnly = values["rankings-only"] ?? false;
   const alliancesOnly = values["alliances-only"] ?? false;
+  const districtsOnly = values["districts-only"] ?? false;
 
   if (values.event) {
     return {
@@ -149,6 +175,7 @@ function parseCliOptions(): CliOptions {
       mediaOnly,
       rankingsOnly,
       alliancesOnly,
+      districtsOnly,
     };
   }
   if (values.years) {
@@ -162,6 +189,7 @@ function parseCliOptions(): CliOptions {
       mediaOnly,
       rankingsOnly,
       alliancesOnly,
+      districtsOnly,
     };
   }
   if (values.year) {
@@ -176,6 +204,7 @@ function parseCliOptions(): CliOptions {
       mediaOnly,
       rankingsOnly,
       alliancesOnly,
+      districtsOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -574,6 +603,137 @@ async function ingestSeasonAlliancesOnly(db: Corpus, ctx: TbaClientContext, year
   );
 }
 
+/**
+ * quick task 260905-lic Task 1: resolves a season's district point data --
+ * every active district's capacity/metadata, each team's district ranking,
+ * and event registration for every event in each district's authoritative
+ * membership list -- via TBA's `/districts/{year}`,
+ * `/district/{key}/rankings`, `/district/{key}/events/keys` and
+ * `/event/{key}/teams/keys`, storing the result in
+ * districts/district_rankings/event_teams.
+ *
+ * Carries forward `ingestSeasonRankingsOnly`'s caching rule verbatim: a
+ * re-run over an already-ingested season needs `--force`, because a
+ * cached-ETag 304 carries no body. On a 304 for the top-level districts
+ * list, the district-key list is re-derived from the corpus's own
+ * `districts` table (mirroring `ingestSeason`'s events-304 fallback, not
+ * `ingestSeasonRankingsOnly`'s per-event skip) since every subsequent step
+ * needs that list to iterate over; a 304 on a per-district rankings or
+ * events-keys call is simply skipped for that district, same as
+ * `ingestSeasonAlliancesOnly`'s per-event 304 branch.
+ *
+ * `event_teams.event_key REFERENCES events(event_key)` (schema.sql) -- a
+ * district event key TBA reports that this corpus has never ingested (an
+ * out-of-range or otherwise un-ingested event) cannot be inserted and is
+ * logged separately by name, never silently dropped, per this task's done
+ * criteria.
+ */
+async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const districtsUrl = `/districts/${year}`;
+  const districtsResult = await fetchDistrictsList(ctx, year, cachedEtagFor(db, districtsUrl, force));
+  let districtKeys: string[];
+  if (districtsResult.status === 304) {
+    console.log(`  ${districtsUrl}: 304 Not Modified`);
+    districtKeys = selectDistrictsForYear(db, year).map((d) => d.districtKey);
+  } else {
+    console.log(`  ${districtsUrl}: 200 OK`);
+    const rawDistricts = tbaDistrictListSchema.parse(districtsResult.body);
+    const fetchedAt = new Date().toISOString();
+    for (const normalized of normalizeDistricts(rawDistricts)) {
+      upsertDistrict(db, { ...normalized, fetchedAt });
+    }
+    if (districtsResult.etag) writeEtag(db, districtsUrl, districtsResult.etag);
+    districtKeys = (rawDistricts ?? []).map((d) => d.key);
+  }
+
+  const knownEventKeys = new Set(
+    (db.prepare(`SELECT event_key FROM events WHERE year = ?`).all(year) as { event_key: string }[]).map(
+      (r) => r.event_key
+    )
+  );
+
+  let rankingRowCount = 0;
+  let districtEventCount = 0;
+  let registrationRowCount = 0;
+  const missingEventKeys: string[] = [];
+
+  for (const districtKey of districtKeys) {
+    // Step 1: district rankings.
+    const rankingsUrl = `/district/${districtKey}/rankings`;
+    const rankingsResult = await fetchDistrictRankings(ctx, districtKey, cachedEtagFor(db, rankingsUrl, force));
+    if (rankingsResult.status === 304) {
+      console.log(`  ${rankingsUrl}: 304 Not Modified`);
+    } else {
+      console.log(`  ${rankingsUrl}: 200 OK`);
+      const parsedRankings = tbaDistrictRankingsResponseSchema.parse(rankingsResult.body);
+      const fetchedAt = new Date().toISOString();
+      for (const ranking of normalizeDistrictRankings(parsedRankings)) {
+        upsertDistrictRanking(db, { districtKey, ...ranking, fetchedAt });
+        rankingRowCount++;
+      }
+      if (rankingsResult.etag) writeEtag(db, rankingsUrl, rankingsResult.etag);
+    }
+
+    // Step 2: authoritative event membership for this district, then
+    // per-event registration.
+    const eventKeysUrl = `/district/${districtKey}/events/keys`;
+    const eventKeysResult = await fetchDistrictEventKeys(ctx, districtKey, cachedEtagFor(db, eventKeysUrl, force));
+    if (eventKeysResult.status === 304) {
+      console.log(`  ${eventKeysUrl}: 304 Not Modified`);
+      continue;
+    }
+    console.log(`  ${eventKeysUrl}: 200 OK`);
+    const districtEventKeys = tbaKeysResponseSchema.parse(eventKeysResult.body) ?? [];
+    districtEventCount += districtEventKeys.length;
+    if (eventKeysResult.etag) writeEtag(db, eventKeysUrl, eventKeysResult.etag);
+
+    for (const eventKey of districtEventKeys) {
+      if (!knownEventKeys.has(eventKey)) {
+        // event_teams.event_key REFERENCES events(event_key) -- cannot
+        // insert without a corpus events row. Log by name rather than
+        // silently dropping (this task's done criteria).
+        missingEventKeys.push(eventKey);
+        continue;
+      }
+
+      const teamsUrl = `/event/${eventKey}/teams/keys`;
+      let teamsResult: Awaited<ReturnType<typeof fetchEventTeamKeys>>;
+      try {
+        teamsResult = await fetchEventTeamKeys(ctx, eventKey, cachedEtagFor(db, teamsUrl, force));
+      } catch (err) {
+        // Mirrors ingestSeasonMediaOnly's/ingestSeasonAlliancesOnly's 404
+        // handling: a placeholder/unregistered event key 404ing is an
+        // honest "nothing to fetch" for this event, not TBA schema drift.
+        if (err instanceof Error && /HTTP 404/.test(err.message)) {
+          console.log(`  ${teamsUrl}: 404 Not Found, skipping`);
+          continue;
+        }
+        throw err;
+      }
+      if (teamsResult.status === 304) {
+        console.log(`  ${teamsUrl}: 304 Not Modified`);
+        continue;
+      }
+
+      const teamKeys = tbaKeysResponseSchema.parse(teamsResult.body) ?? [];
+      const fetchedAt = new Date().toISOString();
+      for (const teamKey of teamKeys) {
+        upsertEventTeam(db, { eventKey, teamKey, fetchedAt });
+        registrationRowCount++;
+      }
+      if (teamsResult.etag) writeEtag(db, teamsUrl, teamsResult.etag);
+    }
+  }
+
+  console.log(
+    `Season ${year}: ${districtKeys.length} districts, ${rankingRowCount} ranking rows, ` +
+      `${districtEventCount} district events, ${registrationRowCount} registration rows` +
+      (missingEventKeys.length > 0
+        ? `, ${missingEventKeys.length} district event key(s) absent from corpus events: ${missingEventKeys.join(", ")}`
+        : "")
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -675,6 +835,20 @@ async function main(): Promise<void> {
     } else if (options.alliancesOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonAlliancesOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.districtsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonDistrictsOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,

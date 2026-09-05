@@ -233,3 +233,73 @@ export type TbaAllianceEntry = z.infer<typeof tbaAllianceEntrySchema>;
  */
 export const tbaAllianceResponseSchema = z.array(tbaAllianceEntrySchema).nullable();
 export type TbaAllianceResponse = z.infer<typeof tbaAllianceResponseSchema>;
+
+/**
+ * `GET /districts/{year}` element (quick task 260905-lic Task 1). Live-probed
+ * 2026-09-05 against 2019, 2022 and 2026 -- `official_advancement_counts` was
+ * present for every year checked, but modelled `.nullish()` here per this
+ * task's honesty rule: an absent value is a real answer ("TBA published no
+ * capacity for this district-year"), never a guessed number.
+ */
+const tbaDistrictAdvancementCountsSchema = z.object({
+  cmp: z.number().int().nonnegative(),
+  dcmp: z.number().int().nonnegative(),
+});
+
+export const tbaDistrictListElementSchema = z.object({
+  abbreviation: z.string(),
+  display_name: z.string(),
+  key: z.string(),
+  year: z.number(),
+  official_advancement_counts: tbaDistrictAdvancementCountsSchema.nullish(),
+});
+export type TbaDistrictListElement = z.infer<typeof tbaDistrictListElementSchema>;
+
+/**
+ * `GET /districts/{year}` -- the whole response. Modelled `.nullable()`
+ * mirroring `tbaEventRankingsResponseSchema`'s / `tbaAllianceResponseSchema`'s
+ * precedent — a season with no active districts is a real, honest "nothing
+ * to report" answer this pipeline must not throw on.
+ */
+export const tbaDistrictListSchema = z.array(tbaDistrictListElementSchema).nullable();
+export type TbaDistrictListResponse = z.infer<typeof tbaDistrictListSchema>;
+
+/**
+ * `GET /district/{districtKey}/rankings` element (quick task 260905-lic Task
+ * 1). Field set confirmed live at 2026fnc. `event_points` is deliberately
+ * `z.unknown()` per D-05: store verbatim, normalize only the summary fields
+ * here. The per-component district point model changed across the seasons
+ * this corpus ingests (2019-2026) — Task 2's publish layer parses this
+ * array's shape with its own season-aware Zod schema rather than this
+ * ingest-boundary schema locking down component field names that could
+ * drift, and locking them down here would also risk Zod silently stripping
+ * an unmodelled field from what is supposed to be a byte-verbatim store.
+ */
+export const tbaDistrictRankingSchema = z.object({
+  team_key: z.string(),
+  rank: z.number().int(),
+  point_total: z.number(),
+  rookie_bonus: z.number(),
+  adjustments: z.number(),
+  event_points: z.array(z.unknown()),
+});
+export type TbaDistrictRanking = z.infer<typeof tbaDistrictRankingSchema>;
+
+/**
+ * `GET /district/{districtKey}/rankings` -- the whole response. TBA can
+ * return a bare `null` body for a district with no rankings computed yet
+ * (mirrors `tbaEventRankingsResponseSchema`'s precedent) -- the top-level
+ * `.nullable()` is load-bearing and non-negotiable for the same reason.
+ */
+export const tbaDistrictRankingsResponseSchema = z.array(tbaDistrictRankingSchema).nullable();
+export type TbaDistrictRankingsResponse = z.infer<typeof tbaDistrictRankingsResponseSchema>;
+
+/**
+ * `GET /district/{districtKey}/events/keys` and `GET /event/{eventKey}/teams/keys`
+ * (quick task 260905-lic Task 1) -- both are bare arrays of key strings.
+ * Shared schema since both responses have the identical shape: a possibly-null
+ * array of strings, mirroring every other TBA response this file models as
+ * nullable.
+ */
+export const tbaKeysResponseSchema = z.array(z.string()).nullable();
+export type TbaKeysResponse = z.infer<typeof tbaKeysResponseSchema>;

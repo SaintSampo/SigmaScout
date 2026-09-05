@@ -1175,6 +1175,199 @@ interface CorpusSeasonRow {
  * exists only as offseason exhibitions is not a genuine prior for headline
  * eligibility purposes.
  */
+export interface CorpusDistrict {
+  /** TBA's year-prefixed key, e.g. "2026fnc" -- see schema.sql's doc comment for why this is NOT the same thing as events.district_key. */
+  districtKey: string;
+  year: number;
+  abbreviation: string;
+  displayName: string;
+  /** NULL is the honest stored answer for "TBA published no official_advancement_counts for this district-year" (quick task 260905-lic Task 1) -- never a guessed 0. */
+  dcmpSlots: number | null;
+  cmpSlots: number | null;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts one district-year's capacity/metadata (quick task 260905-lic Task
+ * 1), sourced from TBA's `/districts/{year}`. Mirrors `upsertEventRanking`'s
+ * upsert-on-conflict shape: overwrites every non-key column on conflict, so a
+ * re-run refreshes the row in place rather than duplicating it.
+ */
+export function upsertDistrict(db: Corpus, district: CorpusDistrict): void {
+  db.prepare(
+    `INSERT INTO districts (district_key, year, abbreviation, display_name, dcmp_slots, cmp_slots, fetched_at)
+     VALUES (@districtKey, @year, @abbreviation, @displayName, @dcmpSlots, @cmpSlots, @fetchedAt)
+     ON CONFLICT(district_key) DO UPDATE SET
+       year = excluded.year,
+       abbreviation = excluded.abbreviation,
+       display_name = excluded.display_name,
+       dcmp_slots = excluded.dcmp_slots,
+       cmp_slots = excluded.cmp_slots,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    districtKey: district.districtKey,
+    year: district.year,
+    abbreviation: district.abbreviation,
+    displayName: district.displayName,
+    dcmpSlots: district.dcmpSlots,
+    cmpSlots: district.cmpSlots,
+    fetchedAt: district.fetchedAt,
+  });
+}
+
+interface DistrictRow {
+  district_key: string;
+  year: number;
+  abbreviation: string;
+  display_name: string;
+  dcmp_slots: number | null;
+  cmp_slots: number | null;
+  fetched_at: string;
+}
+
+/** Every stored district for a season (quick task 260905-lic Task 1) -- used both by Task 2's publish pass and by the ingest CLI's 304 fallback path (re-deriving the districtKey list already stored, when TBA's own list 304s). */
+export function selectDistrictsForYear(db: Corpus, year: number): CorpusDistrict[] {
+  const rows = db
+    .prepare(
+      `SELECT district_key, year, abbreviation, display_name, dcmp_slots, cmp_slots, fetched_at
+       FROM districts WHERE year = ?`
+    )
+    .all(year) as DistrictRow[];
+  return rows.map((row) => ({
+    districtKey: row.district_key,
+    year: row.year,
+    abbreviation: row.abbreviation,
+    displayName: row.display_name,
+    dcmpSlots: row.dcmp_slots,
+    cmpSlots: row.cmp_slots,
+    fetchedAt: row.fetched_at,
+  }));
+}
+
+export interface CorpusDistrictRanking {
+  districtKey: string;
+  teamKey: string;
+  rank: number;
+  pointTotal: number;
+  rookieBonus: number;
+  adjustments: number;
+  /**
+   * TBA's `event_points` array, stored VERBATIM as JSON (quick task
+   * 260905-lic Task 1) -- following `matches.score_breakdown_raw` /
+   * `event_alliances.status_raw`'s provenance precedent. Task 2's publish
+   * layer parses this with its own season-aware Zod schema rather than this
+   * accessor modelling the per-component point model.
+   */
+  eventPointsRaw: string;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts one team's district point ranking (quick task 260905-lic Task 1),
+ * sourced from TBA's `/district/{key}/rankings`. Mirrors `upsertDistrict`'s
+ * upsert-on-conflict shape.
+ */
+export function upsertDistrictRanking(db: Corpus, ranking: CorpusDistrictRanking): void {
+  db.prepare(
+    `INSERT INTO district_rankings (district_key, team_key, rank, point_total, rookie_bonus, adjustments, event_points_raw, fetched_at)
+     VALUES (@districtKey, @teamKey, @rank, @pointTotal, @rookieBonus, @adjustments, @eventPointsRaw, @fetchedAt)
+     ON CONFLICT(district_key, team_key) DO UPDATE SET
+       rank = excluded.rank,
+       point_total = excluded.point_total,
+       rookie_bonus = excluded.rookie_bonus,
+       adjustments = excluded.adjustments,
+       event_points_raw = excluded.event_points_raw,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    districtKey: ranking.districtKey,
+    teamKey: ranking.teamKey,
+    rank: ranking.rank,
+    pointTotal: ranking.pointTotal,
+    rookieBonus: ranking.rookieBonus,
+    adjustments: ranking.adjustments,
+    eventPointsRaw: ranking.eventPointsRaw,
+    fetchedAt: ranking.fetchedAt,
+  });
+}
+
+interface DistrictRankingRow {
+  district_key: string;
+  team_key: string;
+  rank: number;
+  point_total: number;
+  rookie_bonus: number;
+  adjustments: number;
+  event_points_raw: string;
+  fetched_at: string;
+}
+
+/** Every stored district ranking for a district, ordered ascending by rank (quick task 260905-lic Task 1) -- the shape Task 2's publish pass reads. */
+export function selectDistrictRankings(db: Corpus, districtKey: string): CorpusDistrictRanking[] {
+  const rows = db
+    .prepare(
+      `SELECT district_key, team_key, rank, point_total, rookie_bonus, adjustments, event_points_raw, fetched_at
+       FROM district_rankings WHERE district_key = ? ORDER BY rank ASC`
+    )
+    .all(districtKey) as DistrictRankingRow[];
+  return rows.map((row) => ({
+    districtKey: row.district_key,
+    teamKey: row.team_key,
+    rank: row.rank,
+    pointTotal: row.point_total,
+    rookieBonus: row.rookie_bonus,
+    adjustments: row.adjustments,
+    eventPointsRaw: row.event_points_raw,
+    fetchedAt: row.fetched_at,
+  }));
+}
+
+export interface CorpusEventTeam {
+  eventKey: string;
+  teamKey: string;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts one team's registration at one event (quick task 260905-lic Task
+ * 1), sourced from TBA's `/event/{key}/teams/keys` -- the only way to know a
+ * team has an event still ahead of it. Mirrors `upsertDistrict`'s
+ * upsert-on-conflict shape.
+ */
+export function upsertEventTeam(db: Corpus, eventTeam: CorpusEventTeam): void {
+  db.prepare(
+    `INSERT INTO event_teams (event_key, team_key, fetched_at)
+     VALUES (@eventKey, @teamKey, @fetchedAt)
+     ON CONFLICT(event_key, team_key) DO UPDATE SET
+       fetched_at = excluded.fetched_at`
+  ).run({ eventKey: eventTeam.eventKey, teamKey: eventTeam.teamKey, fetchedAt: eventTeam.fetchedAt });
+}
+
+interface EventTeamRow {
+  event_key: string;
+  team_key: string;
+}
+
+/**
+ * Every stored event-registration row for a set of event keys, keyed by
+ * event key (quick task 260905-lic Task 1) -- mirrors
+ * `selectEventAlliancesForSeason`'s absence discipline: an event with no
+ * upserted registrations is absent from the returned map entirely, no key,
+ * no zero-length placeholder entry.
+ */
+export function selectEventTeamsForEvents(db: Corpus, eventKeys: string[]): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  if (eventKeys.length === 0) return result;
+  const placeholders = eventKeys.map(() => "?").join(", ");
+  const rows = db
+    .prepare(`SELECT event_key, team_key FROM event_teams WHERE event_key IN (${placeholders})`)
+    .all(...eventKeys) as EventTeamRow[];
+  for (const row of rows) {
+    if (!result.has(row.event_key)) result.set(row.event_key, []);
+    result.get(row.event_key)!.push(row.team_key);
+  }
+  return result;
+}
+
 export function selectCorpusSeasons(db: Corpus): number[] {
   const rows = db
     .prepare(

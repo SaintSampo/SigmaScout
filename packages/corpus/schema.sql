@@ -173,3 +173,68 @@ CREATE TABLE IF NOT EXISTS event_alliances (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (event_key, alliance_number)
 );
+
+-- District point data ingest (quick task 260905-lic Task 1): three brand-new
+-- tables backing the Districts page's lock math. Additive CREATE TABLE IF
+-- NOT EXISTS, matching event_alliances' precedent exactly above -- no
+-- migration, no rebuild guard.
+--
+-- district_key here is TBA's YEAR-PREFIXED key (e.g. "2026fnc") -- NOT the
+-- bare abbreviation events.district_key already stores (e.g. "fnc"). The two
+-- columns share a name across two tables and mean DIFFERENT things: this
+-- table's district_key uniquely identifies one district for one year;
+-- events.district_key is the same district's abbreviation, shared across
+-- every year that district existed. Do not confuse them.
+CREATE TABLE IF NOT EXISTS districts (
+  district_key TEXT PRIMARY KEY,    -- TBA's year-prefixed key, e.g. "2026fnc"
+  year INTEGER NOT NULL,
+  abbreviation TEXT NOT NULL,        -- e.g. "fnc" -- see the district_key note above
+  display_name TEXT NOT NULL,
+  -- Nullable: NULL is the honest stored answer for "TBA published no
+  -- official_advancement_counts for this district-year" -- never a zero and
+  -- never a guessed number. The lock math (Task 2) must treat null slots as
+  -- "capacity unknown", not "zero capacity".
+  dcmp_slots INTEGER,
+  cmp_slots INTEGER,
+  fetched_at TEXT NOT NULL
+);
+
+-- One row per (district, team): a team's official district point standing,
+-- sourced from TBA's `/district/{key}/rankings`. Primary key
+-- (district_key, team_key) -- no REFERENCES teams(team_key) clause, mirroring
+-- event_alliances.picks' precedent: TBA's synthetic second-robot team keys
+-- (frc1165B and siblings) have no /team/{key} record and caused a live
+-- foreign-key failure in 06.1-01.
+CREATE TABLE IF NOT EXISTS district_rankings (
+  district_key TEXT NOT NULL REFERENCES districts(district_key),
+  team_key TEXT NOT NULL,
+  rank INTEGER NOT NULL,
+  point_total INTEGER NOT NULL,
+  rookie_bonus INTEGER NOT NULL,
+  adjustments INTEGER NOT NULL,
+  -- TBA's event_points array, stored VERBATIM as JSON, following
+  -- matches.score_breakdown_raw / event_alliances.status_raw's provenance
+  -- precedent -- the publish layer (Task 2) parses it with its own
+  -- season-aware Zod schema rather than this table modelling the
+  -- per-component point model column-by-column, since that model changed
+  -- across the seasons this corpus ingests.
+  event_points_raw TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (district_key, team_key)
+);
+
+-- Event registration: the only way to know a team has an event still ahead
+-- of it (Task 2's maxRemaining computation). One row per (event, team),
+-- sourced from TBA's `/event/{key}/teams/keys`. Carries NO
+-- REFERENCES teams(team_key) clause, for the same reason event_alliances.picks
+-- carries none -- see district_rankings' comment above. event_key DOES carry
+-- a REFERENCES events(event_key) clause: a registration row for an event this
+-- corpus has never ingested cannot exist, and the ingest layer must log
+-- (never silently drop) any district event key it cannot resolve against the
+-- corpus events table.
+CREATE TABLE IF NOT EXISTS event_teams (
+  event_key TEXT NOT NULL REFERENCES events(event_key),
+  team_key TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (event_key, team_key)
+);
