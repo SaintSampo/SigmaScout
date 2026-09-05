@@ -460,3 +460,57 @@ Honesty notes, same spirit as the prior runs:
 - STILL OUTSTANDING, not resolved by this run (no republish was warranted): the live
   Worker re-seed for `STATE_SNAPSHOT_SHAPE_VERSION` 7 -> 8 (260904-v9n) — needs a fresh
   publish run before the Worker loads state again.
+
+---
+
+# RESULTS — Stage 2 carryVarianceFactor tune, 2026-09-05. All ten keep-incumbent; 2025/on missed by 0.005pt.
+
+The first search over the 16-knob space including `carryVarianceFactor` (quick task
+260905-kjb — the one-parameter boundary-variance retention knob motivated by the EPA/VPR
+disagreement autopsy and the 260905-jyf Stage 1 experiment). Same runbook as the two
+prior accuracy-primary runs: fresh screen (10/16 survive + carryPriorYearShare force-in =
+11), 5 origins x 2 arms at `--evals 40 --batch 4`, acceptance vs the LIVE
+`vpr@8.0.0+rolling-2026-09b`.
+
+Screen note: `carryVarianceFactor` survived with the second-largest range of all 16
+knobs (1.038e-2), OAT optimum at the default 1 — reachable via the 2019->2020 boundary.
+
+## The ten verdicts (accuracy-primary, vs rolling-2026-09b)
+
+| origin | arm | verdict | delta accuracy | bar | delta Brier | winner carryVarianceFactor |
+|---|---|---|---|---|---|---|
+| 2022 | off | keep-incumbent | -0.002426 | 0.007780 | +0.000139 | 0.520 |
+| 2022 | on  | keep-incumbent | -0.006585 | 0.008101 | +0.002394 | 0.520 |
+| 2023 | off | keep-incumbent | -0.007371 | 0.007205 | +0.008495 | 0.520 |
+| 2023 | on  | keep-incumbent | -0.004522 | 0.006885 | +0.000468 | 0.520 |
+| 2024 | off | keep-incumbent | -0.005607 | 0.005383 | +0.004927 | 0.452 |
+| 2024 | on  | keep-incumbent | -0.005548 | 0.005101 | +0.004087 | 0.452 |
+| 2025 | off | keep-incumbent | -0.003391 | 0.003954 | +0.003034 | 0.332 |
+| 2025 | on  | keep-incumbent | **+0.004070** | 0.004124 | **-0.002078** | 0.845 |
+| 2026 | off | keep-incumbent | +0.000656 | 0.004147 | +0.000880 | 0.520 |
+| 2026 | on  | keep-incumbent | +0.001476 | 0.004038 | -0.000933 | **1.000** |
+
+**No promotion, no SIGMA1_CODE_VERSION bump (the 260905-kjb non-bump record stands), no
+republish. The Worker shape-8 re-seed remains pending.**
+
+Honesty notes:
+
+- **2025/on is the strongest challenger result ever posted against rolling-2026-09b
+  under the accuracy-primary objective**: +0.41pt out-of-sample accuracy WITH better
+  Brier at factor 0.845, missing the N=62 bar by 0.005pt — in exactly the season the
+  disagreement autopsy predicted (2025 = EPA's largest early-info edge). A miss is a
+  miss; nothing ships. But this is signal, not scatter.
+- 2026/on's search converged on factor exactly 1.0 unaided — the knob buys nothing there.
+- 2022-2024 lost out-of-sample at moderate factors (2024 worst, the prior-trust-hostile
+  season that also burns EPA), while nine of ten searches independently chose sub-1
+  factors in-sample: uniform prior-trust consistently overfits the selection window
+  everywhere except 2025.
+- DISPOSITION: `carryVarianceFactor` STAYS SEARCHABLE — unlike elim-R (excluded after
+  scattering directionless), this knob shows a consistent direction and a near-accept.
+  The Stage 2 question is nonetheless CLOSED AS MEASURED under the current protocol:
+  a uniform boundary variance factor does not clear the D-T7 bar on any origin. If the
+  early-season gap is reattacked, the next formulation should be sharper than uniform
+  (e.g. evidence-weighted per team), not a re-run of this one.
+- Artifacts: `reports/tune-joint-*-260905s2*.json`, `reports/retune-log-*-260905s2.txt`,
+  `reports/sensitivity-screen-260905-s2.json`, report `reports/retune-260905-s2-run-report.md`
+  (untracked, like every prior run's).
