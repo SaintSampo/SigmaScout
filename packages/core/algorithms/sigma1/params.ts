@@ -918,6 +918,64 @@ export interface Sigma1Params {
    * the dose itself to the search.
    */
   readonly carryVarianceFactor: number;
+  /**
+   * D-1 (`carrySeason`, quick task 260905-o48, CER-PARAM/CER-WIRE): a
+   * PER-MATCH decay RATE applied to a returning team's OUTGOING match count
+   * (`Sigma1TeamState.matchCount`) — the season-boundary belief-variance
+   * prior a returning team is seeded with is multiplied by
+   * `exp(-carryEvidenceRate * evidenceMatchCount)`, applied in `carrySeason`
+   * ONLY to a team that has carried state (`oldTeamState !== undefined`),
+   * and applied to EVERY modeled component of the incoming season without
+   * reference to that component's name — exactly the reach
+   * `carryVarianceFactor` above uses.
+   *
+   * Default `0` is exactly today's behaviour, via an EXPLICIT `=== 0`
+   * branch in `carrySeason` — no evidence weighting at all. A POSITIVE rate
+   * seeds a HIGH-EVIDENCE returning team (many outgoing matches) with
+   * proportionally MORE confidence than a LOW-EVIDENCE one — the
+   * differentiation `carryVarianceFactor`'s uniform per-team multiplier
+   * structurally cannot express, since it applies the identical discount to
+   * a 5-match rookie and a 60-match veteran alike.
+   *
+   * COMPOSES multiplicatively with `carryVarianceFactor` rather than
+   * replacing it — a search can select a uniform component, an
+   * evidence-weighted component, or both, and `carryVarianceFactor` stays
+   * searchable per its own disposition; nothing here narrows that.
+   *
+   * DIMENSIONLESS-PER-MATCH: the rate times a match COUNT is a unitless
+   * exponent — there is no score scale in its units — so, exactly like
+   * `carryVarianceFactor` and `elimObservationNoiseMultiplier` above, it
+   * passes through `resolveSigma1Params` completely unchanged rather than
+   * being one of the five `*Rel` fields the `Omit` removes.
+   *
+   * MOTIVATED by the Stage 2 (`carryVarianceFactor`) rolling-origin re-tune
+   * (2026-09-05, `.planning/todos/completed/retune-sigma1-rolling-origin.md`):
+   * ten keep-incumbent verdicts over five origins and two arms against the
+   * live `vpr@8.0.0+rolling-2026-09b` incumbent. 2025/on was the strongest
+   * challenger ever posted against that incumbent — +0.004070 out-of-sample
+   * accuracy against an N=62 bar of 0.004124 (missed by 0.005 percentage
+   * points) WITH better Brier (-0.002078), at factor 0.845. 2026/on converged
+   * on factor exactly 1.0 unaided. 2022-2024 lost out-of-sample at moderate
+   * factors (winners 0.452-0.520, 2024 worst) while NINE of ten searches
+   * independently chose sub-1 factors IN-SAMPLE — the signature of a knob
+   * whose in-sample gain (veterans, correctly trusted more) is paid for
+   * out-of-sample by its collateral damage (low-evidence teams, wrongly
+   * trusted more, since a uniform factor cannot tell them apart). The
+   * recorded disposition: "if the early-season gap is reattacked, the next
+   * formulation should be sharper than uniform (e.g. evidence-weighted per
+   * team), not a re-run of this one." This field is that formulation.
+   *
+   * The evidence input is `Sigma1TeamState.matchCount` — TEAM-level and
+   * reset to 0 at every season boundary (`carrySeason` itself) — and must
+   * NEVER be narrowed to a per-component carried quantity
+   * (`oldTeamState?.consistency[name]`) for the reason `carryVarianceFactor`'s
+   * own comment above already records: FRC component names are
+   * season-specific, and a per-component gate reaches only `foulsCommitted`
+   * at any real boundary.
+   *
+   * The VALUE is free and searchable (`searchSpace.ts`).
+   */
+  readonly carryEvidenceRate: number;
 }
 
 /**
@@ -981,6 +1039,9 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   // D-1 (quick task 260905-kjb, CVR-PARAM): exactly 1 — a full cold-start
   // reset, today's behaviour, until the re-tune says otherwise.
   carryVarianceFactor: 1,
+  // D-1/CER-PARAM (quick task 260905-o48): exactly 0 — no evidence
+  // weighting at all, today's behaviour, until the re-tune says otherwise.
+  carryEvidenceRate: 0,
 };
 
 /**
@@ -1076,6 +1137,20 @@ export const Sigma1ParamsSchema = z
     // the opposite of the hypothesis this stage tests and not a question
     // this knob is asking.
     carryVarianceFactor: z.number().finite().positive().max(1).default(1),
+    // D-1/CER-PARAM (quick task 260905-o48): `.default(0)` is what lets
+    // every already-committed `vpr@8.0.0+*.json` file — none of which
+    // carries this key — still parse and resolve inert, the same argument
+    // `carryVarianceFactor`'s default carries directly above. `.min(0)` is
+    // CLOSED rather than `carryVarianceFactor`'s open `.positive()`, because
+    // here ZERO IS the inert default — a NEGATIVE rate would INFLATE a
+    // returning team's seed above the cold-start prior, trusting a veteran
+    // LESS than a first-timer, the exact direction `carryVarianceFactor`'s
+    // own `.max(1)` already refuses. `.max(0.03)` matches the search bound
+    // Task 2 registers (`searchSpace.ts`) so a hand-edited version file
+    // cannot reach a region the search itself is fenced out of. No
+    // object-level `.check(...)` invariant is added: this field has no
+    // cross-parameter relationship, it only multiplies alongside one.
+    carryEvidenceRate: z.number().finite().min(0).max(0.03).default(0),
   })
   .check((ctx) => {
     const value = ctx.value;

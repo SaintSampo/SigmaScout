@@ -1827,6 +1827,37 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
   for (const [team, carriedTotal] of carryResult.teamPointTotals) {
     const share = modeledToComponentCount > 0 ? carriedTotal / modeledToComponentCount : 0;
     const oldTeamState = state.teams.get(team);
+    // D-1 (quick task 260905-o48, CER-WIRE): the evidence factor is a
+    // TEAM-level quantity, computed ONCE here rather than once per
+    // component below — recomputing an exponential for every component of
+    // every team would be waste that also obscures the semantics, since the
+    // factor does not depend on the component's name at all.
+    //
+    // Sanitised evidence count: zero for a team with no carried state
+    // (nothing to weight), and otherwise the carried `matchCount` forced to
+    // a finite non-negative number. This is a REAL guard, not ceremony, and
+    // it is a genuine NEW hazard relative to `carryVarianceFactor` above:
+    // that field's seed is PURELY MULTIPLICATIVE, so it cannot manufacture a
+    // non-finite value from a finite base and Stage 2 recorded the
+    // degenerate-input risk as an accepted comment rather than a guard.
+    // `Math.exp` CAN — a non-finite exponent would poison every belief
+    // variance for this team with `NaN`, and a negative one would silently
+    // INVERT the mechanism into variance INFLATION, the opposite of what
+    // this field exists to do. FOUND in `stateSnapshot.ts`'s
+    // `deserializeSigma1State`: a team row's JSON is
+    // `JSON.parse(row.stateJson) as SerializedSigma1TeamRow` — a raw
+    // TypeScript cast, never run through a Zod schema — so `matchCount` is
+    // NOT validated on the way back in, only cast. This guard is therefore
+    // the ONLY thing standing between a corrupted or hand-edited snapshot
+    // row and a poisoned season, not defence in depth for a check that
+    // happens elsewhere.
+    const rawEvidenceMatchCount = oldTeamState?.matchCount ?? 0;
+    const evidenceMatchCount = Number.isFinite(rawEvidenceMatchCount) && rawEvidenceMatchCount > 0 ? rawEvidenceMatchCount : 0;
+    // At rate exactly 0 the factor is 1 via an EXPLICIT equality branch —
+    // not an algebraic form that merely evaluates to 1 — the same
+    // "explicit branch is the whole inertness proof" reason
+    // `carryVarianceFactor`'s own `=== 1` branch below is written that way.
+    const evidenceFactor = resolved.carryEvidenceRate === 0 ? 1 : Math.exp(-resolved.carryEvidenceRate * evidenceMatchCount);
     const beliefs: Record<string, TeamComponentBelief> = {};
     const consistency: Record<string, number> = {};
     for (const name of toComponentOrder) {
@@ -1868,10 +1899,25 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       // self-neutralising, no guard needed. A future division-shaped
       // (geometric) reformulation must NOT assume the base is safe to divide
       // by; this is the fact that makes it unsafe there.
+      //
+      // EXTENDED (not rewritten) by D-1/CER-WIRE (quick task 260905-o48):
+      // the guard now ALSO requires the evidence rate to be exactly 0 for
+      // the untouched-today path -- carryVarianceFactor === 1 &&
+      // carryEvidenceRate === 0 -- so Stage 2's own behaviour stays
+      // preserved BITWISE at EVERY uniform factor when the rate is 0, not
+      // only at the joint default: multiplying by an evidence factor of
+      // exactly 1 is exact in IEEE-754. That is why Stage 2's entire
+      // carryVarianceFactor test group must pass with NO edits, and why
+      // that passing is this task's regression proof rather than a
+      // convenience. The active branch takes the maximum of the floor and
+      // the product of BOTH factors in ONE expression with ONE clamp --
+      // never two sequential clamps, since clamping twice would floor the
+      // intermediate result and then scale the floor, a different (and
+      // wrong) mechanism.
       const seededVariance =
-        resolved.carryVarianceFactor === 1 || oldTeamState === undefined
+        (resolved.carryVarianceFactor === 1 && resolved.carryEvidenceRate === 0) || oldTeamState === undefined
           ? coldStartVariance
-          : Math.max(resolved.minConsistencyVariance, coldStartVariance * resolved.carryVarianceFactor);
+          : Math.max(resolved.minConsistencyVariance, coldStartVariance * resolved.carryVarianceFactor * evidenceFactor);
       beliefs[name] = { mean: share, variance: seededVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
       consistency[name] = carriedObserved * consistencyDecayOverGap;

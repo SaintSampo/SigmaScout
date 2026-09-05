@@ -10,7 +10,7 @@
  * actually surfaces — see each group's own comment).
  */
 import { describe, expect, it } from "vitest";
-import { makeSigma1, type Sigma1State, type TeamComponentBelief } from "./index.js";
+import { makeSigma1, type Sigma1State, type Sigma1TeamState, type TeamComponentBelief } from "./index.js";
 import {
   DEFAULT_SIGMA1_PARAMS,
   SIGMA1_PARAM_KEYS,
@@ -1076,6 +1076,250 @@ describe("carrySeason's seeded variance, read directly off state (D-1, CVR-WIRE)
     const at1 = carriedStateAt(1).teams.get("T1")!.beliefs["autoMobility"]!.variance;
     expect(at025).toBeLessThan(at05);
     expect(at05).toBeLessThan(at1);
+  });
+});
+
+/**
+ * D-1's end-to-end proof for the EVIDENCE-WEIGHTED sibling (quick task
+ * 260905-o48, CER-WIRE): `carrySeason`'s belief-variance seed additionally
+ * scaled by `exp(-carryEvidenceRate * evidenceMatchCount)` — inert at rate
+ * 0, wired when moved, gated on the SEASON BOUNDARY, DIFFERENTIATING two
+ * returning teams by their outgoing match count, COMPOSING multiplicatively
+ * with `carryVarianceFactor`, and floored at `minConsistencyVariance` like
+ * every other seeded variance in this file. Stage 2's `carryVarianceFactor`
+ * group above is left byte-for-byte unmodified — its continuing to pass is
+ * this task's regression proof.
+ */
+
+describe("Sigma1ParamsSchema — carryEvidenceRate (D-1, CER-PARAM)", () => {
+  it("parses an object omitting the field and defaults it to exactly 0 — the executable proof every committed vpr@8.0.0+*.json file still parses unchanged", () => {
+    const { carryEvidenceRate: _omitted, ...withoutIt } = DEFAULT_SIGMA1_PARAMS;
+    const parsed = Sigma1ParamsSchema.parse(withoutIt);
+    expect(parsed.carryEvidenceRate).toBe(0);
+  });
+
+  it.each([-0.001, 0.031, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects %s (outside the CLOSED [0, 0.03] domain — unlike carryVarianceFactor's open (0, 1], zero IS the inert default here and must parse)",
+    (value) => {
+      expect(Sigma1ParamsSchema.safeParse({ ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate: value }).success).toBe(false);
+    }
+  );
+
+  it.each([0, 0.003, 0.02, 0.03])("accepts %s", (value) => {
+    expect(Sigma1ParamsSchema.safeParse({ ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate: value }).success).toBe(true);
+  });
+});
+
+describe("carryEvidenceRate — inert at 0, wired at 0.02, gated on the season boundary (D-1, CER-WIRE)", () => {
+  it("DEFAULT_SIGMA1_PARAMS and an explicit carryEvidenceRate: 0 produce byte-identical prediction streams across a real 2024 -> 2025 season boundary", () => {
+    // REUSES Stage 2's carryVarianceObservables unchanged -- it already
+    // takes an arbitrary Sigma1Params, so duplicating it here would be waste.
+    const explicitParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate: 0 };
+    const defaultRun = carryVarianceObservables(DEFAULT_SIGMA1_PARAMS);
+    const explicitRun = carryVarianceObservables(explicitParams);
+    expect(JSON.stringify(explicitRun)).toBe(JSON.stringify(defaultRun));
+  });
+
+  it("carryEvidenceRate: 0.02 across that same boundary produces a stream that DIFFERS from the default — the mechanism is wired, not decorative", () => {
+    // This still moves at the STREAM level even though all six fixture teams
+    // (carryVarianceBoundarySequence's T1-T6) share the SAME outgoing
+    // matchCount, so the evidence factor is IDENTICAL for every team: the
+    // seed shift is symmetric across the alliances, but the fixture is
+    // deliberately ASYMMETRIC IN SCORE (rawBreakdown2024Split), so the
+    // predicted margin is non-zero and a change in total predictive variance
+    // moves the win probability rather than cancelling -- the same fixture
+    // property Stage 2 recorded as its own requirement (a).
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate: 0.02 };
+    const movedRun = carryVarianceObservables(movedParams);
+    const defaultRun = carryVarianceObservables(DEFAULT_SIGMA1_PARAMS);
+    expect(JSON.stringify(movedRun)).not.toBe(JSON.stringify(defaultRun));
+  });
+
+  it("carryEvidenceRate: 0.02 over a SINGLE-SEASON, no-boundary replay (swingingSequence, all qm) is byte-identical to the default — proves the gate is carrySeason, not the parameter's mere presence", () => {
+    // REUSES Stage 2's swingingObservables unchanged.
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate: 0.02 };
+    expect(JSON.stringify(swingingObservables(movedParams))).toBe(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS)));
+  });
+});
+
+/**
+ * A hand-built FROM-season (2024) state with THREE returning teams at
+ * different outgoing `matchCount`s (5, 50, 150) plus one CARRY-WORTHY BUT
+ * NON-RETURNING team ("T99", present ONLY in `priorSeasonRatings.lastSeason`
+ * — the same D-16/D-17 route Stage 2's own probe proved is the only way into
+ * the carry result without being in `state.teams`). `league` is deliberately
+ * EMPTY exactly as Stage 2's probe is, so `seedConsistencyFor` resolves to
+ * the SAME `coldStartConsistencyVariance` for every component and every
+ * team — the ONLY thing that may differ between two teams in this fixture is
+ * their match count, which is what makes the differentiation assertion a
+ * proof rather than a coincidence.
+ *
+ * DUPLICATED rather than sharing a builder with Stage 2's
+ * `stateForCarryVarianceProbe`: the plan's own instruction is to extract a
+ * shared builder ONLY if Stage 2's probe returns an unchanged value
+ * afterward, and duplication is cheaper than that risk here.
+ *
+ * Three arithmetic facts this fixture's assertions depend on, VERIFIED
+ * against the constants rather than merely asserted (each would otherwise
+ * silently produce a false PASS if wrong):
+ * (a) at the DEFAULT parameter set, with an empty league and
+ *     `emptyExpandingStats()` (so `scoreSd` falls back to `fallbackScoreSd`,
+ *     25), `seedConsistencyFor` resolves `coldStartConsistencyVariance` to
+ *     `(25 / SIGMA1_REFERENCE_SCORE_VARIANCE) * 625 ~= 15.19` and
+ *     `minConsistencyVariance` to `(1 / SIGMA1_REFERENCE_SCORE_VARIANCE) *
+ *     625 ~= 0.607` — a ratio of EXACTLY 25, since both scale by the same
+ *     `scoreVariance`. The floor therefore binds once the composed factor
+ *     drops below 1/25 = 0.04. This ratio holds for the DEFAULT set only.
+ * (b) the differentiation and composition cases stay ABOVE that threshold:
+ *     at rate 0.02, `exp(-0.02 * 5) ~= 0.905` (T5) and `exp(-0.02 * 50) ~=
+ *     0.368` (T50); the composition case at uniform factor 0.5 retains
+ *     `0.5 * 0.368 ~= 0.184` — all comfortably above 0.04.
+ * (c) the floor case is driven decisively BELOW it: at rate 0.03,
+ *     `exp(-0.03 * 150) ~= 0.0111` (T150), roughly a quarter of the 0.04
+ *     threshold, so the clamp is unambiguous rather than marginal.
+ */
+function stateForCarryEvidenceProbe(): Sigma1State {
+  const componentOrder = [
+    "autoLeave",
+    "autoAmpNote",
+    "autoSpeakerNote",
+    "teleopAmpNote",
+    "teleopSpeakerNote",
+    "teleopSpeakerNoteAmplified",
+    "endGameOnStage",
+    "endGamePark",
+    "endGameHarmony",
+    "endGameNoteInTrap",
+    "endGameSpotLightBonus",
+    ADJUST_COMPONENT,
+    "foulsCommitted",
+  ];
+  function teamStateAt(matchCount: number): Sigma1TeamState {
+    const beliefs: Record<string, TeamComponentBelief> = {};
+    const consistency: Record<string, number> = {};
+    for (const name of componentOrder) {
+      beliefs[name] = { mean: 10, variance: 4 };
+      consistency[name] = 4;
+    }
+    return {
+      beliefs,
+      covariance: emptyCovariance(componentOrder.length),
+      consistency,
+      matchCount,
+      lastEventKey: "2024eventa",
+      innovationStats: emptyInnovationStats(),
+      rpBeliefs: {},
+      rpCovariance: [],
+      rpCrossCovariance: [],
+      swing: emptyTeamSwing(),
+    };
+  }
+  return {
+    season: 2024,
+    componentOrder,
+    teams: new Map([
+      ["T5", teamStateAt(5)],
+      ["T50", teamStateAt(50)],
+      ["T150", teamStateAt(150)],
+    ]),
+    league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
+    allianceScoreStats: emptyExpandingStats(),
+    priorSeasonRatings: { lastSeason: new Map([["T99", 0]]), yearBefore: new Map() },
+    rpSkippedMatchCount: 0,
+    breakdownParseFailureCount: 0,
+    elimScoreOffset: emptyElimScoreOffset(),
+  };
+}
+
+function carriedEvidenceStateAt(carryEvidenceRate: number, carryVarianceFactor = 1): Sigma1State {
+  const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryEvidenceRate, carryVarianceFactor };
+  const algorithm = makeSigma1({ id: "sigma1-carry-evidence-probe", linkMode: "predictive-variance", params });
+  return algorithm.carrySeason!(stateForCarryEvidenceProbe(), { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+}
+
+describe("carrySeason's seeded variance, read directly off state (D-1, CER-WIRE)", () => {
+  it("EVIDENCE DIFFERENTIATION: at rate 0.02 the 50-match team is seeded strictly LOWER than the 5-match team for every modeled component, and exactly EQUAL at rate 0", () => {
+    const at002 = carriedEvidenceStateAt(0.02);
+    const at0 = carriedEvidenceStateAt(0);
+    const t5At002 = at002.teams.get("T5")!;
+    const t50At002 = at002.teams.get("T50")!;
+    const t5At0 = at0.teams.get("T5")!;
+    const t50At0 = at0.teams.get("T50")!;
+    for (const name of at002.componentOrder) {
+      if (name === ADJUST_COMPONENT) continue;
+      expect(t50At002.beliefs[name]!.variance).toBeLessThan(t5At002.beliefs[name]!.variance);
+      expect(t50At0.beliefs[name]!.variance).toBe(t5At0.beliefs[name]!.variance);
+    }
+  });
+
+  it("exact value: at rate 0.02 each returning team's seed equals max(minConsistencyVariance, itsColdStartVariance * exp(-0.02 * itsMatchCount)), read against the rate-0 run's own seed as the exact coldStartVariance", () => {
+    const at0 = carriedEvidenceStateAt(0);
+    const at002 = carriedEvidenceStateAt(0.02);
+    const resolved = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+    const cases: readonly [string, number][] = [
+      ["T5", 5],
+      ["T50", 50],
+    ];
+    for (const [team, matchCount] of cases) {
+      const coldStartRun = at0.teams.get(team)!;
+      const carriedRun = at002.teams.get(team)!;
+      for (const name of at0.componentOrder) {
+        if (name === ADJUST_COMPONENT) continue;
+        const coldStartVariance = coldStartRun.beliefs[name]!.variance;
+        const expected = Math.max(resolved.minConsistencyVariance, coldStartVariance * Math.exp(-0.02 * matchCount));
+        expect(carriedRun.beliefs[name]!.variance).toBeCloseTo(expected, 9);
+      }
+    }
+  });
+
+  it("composition: rate 0.02 together with carryVarianceFactor 0.5 on the 50-match team seeds STRICTLY LOWER than either knob alone, and matches coldStartVariance * 0.5 * exp(-1.0) — above the floor", () => {
+    const coldStartRun = carriedEvidenceStateAt(0, 1);
+    const evidenceOnlyRun = carriedEvidenceStateAt(0.02, 1);
+    const varianceOnlyRun = carriedEvidenceStateAt(0, 0.5);
+    const bothRun = carriedEvidenceStateAt(0.02, 0.5);
+    const coldStart = coldStartRun.teams.get("T50")!;
+    const evidenceOnly = evidenceOnlyRun.teams.get("T50")!;
+    const varianceOnly = varianceOnlyRun.teams.get("T50")!;
+    const both = bothRun.teams.get("T50")!;
+    for (const name of coldStartRun.componentOrder) {
+      if (name === ADJUST_COMPONENT) continue;
+      const coldStartVariance = coldStart.beliefs[name]!.variance;
+      const expected = coldStartVariance * 0.5 * Math.exp(-1.0);
+      expect(both.beliefs[name]!.variance).toBeCloseTo(expected, 9);
+      expect(both.beliefs[name]!.variance).toBeLessThan(evidenceOnly.beliefs[name]!.variance);
+      expect(both.beliefs[name]!.variance).toBeLessThan(varianceOnly.beliefs[name]!.variance);
+    }
+  });
+
+  it("no-carried-state branch: T99 (carry-worthy via priorSeasonRatings, absent from state.teams) has EVERY seeded belief variance bitwise equal at carryEvidenceRate 0.03 and 0", () => {
+    const at0 = carriedEvidenceStateAt(0);
+    const at003 = carriedEvidenceStateAt(0.03);
+    const t99At0 = at0.teams.get("T99");
+    const t99At003 = at003.teams.get("T99");
+    expect(t99At0).toBeDefined();
+    expect(t99At003).toBeDefined();
+    for (const name of at0.componentOrder) {
+      expect(t99At003!.beliefs[name]!.variance).toBe(t99At0!.beliefs[name]!.variance);
+    }
+  });
+
+  it("floor: the 150-match team at rate 0.03 clamps EXACTLY to resolved.minConsistencyVariance for every modeled component", () => {
+    const resolved = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+    const carried = carriedEvidenceStateAt(0.03);
+    const t150 = carried.teams.get("T150")!;
+    for (const name of carried.componentOrder) {
+      if (name === ADJUST_COMPONENT) continue;
+      expect(t150.beliefs[name]!.variance).toBe(resolved.minConsistencyVariance);
+    }
+  });
+
+  it("pinned branch: 'adjust' remains exactly { mean: 0, variance: 0 } at every carryEvidenceRate value tested", () => {
+    for (const rate of [0, 0.02, 0.03]) {
+      const carried = carriedEvidenceStateAt(rate);
+      for (const team of ["T5", "T50", "T150"]) {
+        expect(carried.teams.get(team)!.beliefs[ADJUST_COMPONENT]).toEqual({ mean: 0, variance: 0 });
+      }
+    }
   });
 });
 
