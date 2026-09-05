@@ -394,3 +394,69 @@ slice fixture was refreshed; `selectionProvenance.test.ts`'s independent literal
 This closes the job: verdicts recorded, the one accepted result promoted, everything else
 keep-incumbent by a pre-committed bar. The republish rides
 `republish-after-adjust-model-change` (Item 4's batching rule), same session.
+
+---
+
+# RESULTS — the re-tune RAN A THIRD TIME, 2026-09-05, ACCURACY-PRIMARY. All ten keep-incumbent.
+
+First full re-tune scored under the accuracy-primary objective (260904-oiu: winner
+accuracy is the gate, Brier a guardrail veto) — the incumbent `rolling-2026-09b` was
+promoted 2026-09-04 under the old objective, ~4 hours before the flip landed, so this run
+answers whether that promotion survives the new scoring. It does, everywhere.
+
+## Run shape
+
+- **Screen:** ONCE on 2019, 2020 (`reports/sensitivity-screen-260905.json`), `--values 5
+  --batch 4`. **9/15 survive** — same nine as the 2026-09-04 run. `carryPriorYearShare`
+  measured range exactly `0.000e+0` (unreachable on this window — known, expected) and was
+  operator-FORCED into the survivor set, recorded in the artifact's `operatorOverride`
+  field. **Survivors: 10.** First screen over the post-exclusion 15-knob space
+  (`elimObservationNoiseMultiplier` excluded since 89b2cf06, 2026-09-05 negative result).
+- **Joint:** 5 origins x 2 arms = 10 runs, `--evals 40 --batch 4` (59-60 candidates each),
+  two waves (2022/2023/2024 then 2025/2026), all backgrounded, unattended
+  (`sigmascout-retune-republish` skill, pre-committed decisions throughout).
+- **Incumbent: the LIVE `vpr@8.0.0+rolling-2026-09b` per-season set via `--incumbent`.**
+- 2027 deliberately not run (no matches, no D-T7 verdict possible), same as prior runs.
+- Artifacts: `reports/tune-joint-{off,on}-origin{2022..2026}-260905{,-acceptance}.json`,
+  logs `reports/retune-log-*-260905.txt`, report `reports/retune-260905-run-report.md`
+  (all untracked, like every prior run's).
+
+## The ten verdicts (all against LIVE incumbent `8.0.0+rolling-2026-09b`)
+
+Columns differ from the prior tables by design: the acceptance gate is now the winner's
+out-of-sample ACCURACY margin vs the noise bar at N evaluations (260904-oiu); Brier delta
+is reported as the guardrail. Cross-era comparison to the older Brier-gated tables is
+invalid (different objective AND different incumbent) — the only valid comparison is the
+one `--incumbent` already made.
+
+| origin | arm | verdict | delta accuracy | bar (N) | delta acc SE | delta Brier (guardrail) |
+|---|---|---|---|---|---|---|
+| 2022 | off | keep-incumbent | +0.001040 | 0.004575 (59) | 0.001602 | +0.032757 (worse) |
+| 2022 | on  | keep-incumbent | -0.000347 | 0.004593 (60) | 0.001605 | +0.034847 (worse) |
+| 2023 | off | keep-incumbent | -0.009353 | 0.005662 (60) | 0.001979 | +0.027476 (worse) |
+| 2023 | on  | keep-incumbent | -0.005203 | 0.004748 (60) | 0.001659 | +0.002193 (worse) |
+| 2024 | off | keep-incumbent | -0.000119 | 0.004118 (60) | 0.001439 | -0.000112 |
+| 2024 | on  | keep-incumbent | -0.000656 | 0.005037 (60) | 0.001760 | +0.000912 (worse) |
+| 2025 | off | keep-incumbent | -0.003165 | 0.003623 (60) | 0.001266 | +0.002061 (worse) |
+| 2025 | on  | keep-incumbent | -0.003222 | 0.004750 (60) | 0.001660 | +0.002842 (worse) |
+| 2026 | off | keep-incumbent | -0.002023 | 0.005536 (60) | 0.001935 | +0.005452 (worse) |
+| 2026 | on  | keep-incumbent | -0.000437 | 0.004589 (60) | 0.001604 | +0.003063 (worse) |
+
+**Nothing cleared the bar. No promotion, no re-pin, no republish.** Live pin stays
+`vpr@8.0.0+rolling-2026-09b.json`; `SIGMA1_CODE_VERSION` stays 8.0.0; publish budget
+untouched.
+
+Honesty notes, same spirit as the prior runs:
+
+- The closest challenger (2022/off, +0.10pt vs a 0.46pt bar) carried a +0.033 WORSE Brier
+  — under accuracy-primary the searches happily trade calibration for accuracy on the
+  selection window, and out-of-sample they gained no accuracy for it. The guardrail would
+  have vetoed it even at the bar.
+- This is the strongest evidence yet that the incumbent is at a genuine optimum for this
+  search space: promoted under Brier-primary, it survives a full 10-run accuracy-primary
+  challenge with 8/10 challengers strictly worse on BOTH metrics.
+- The two windows the stopped 2026-09-05 elim-R run never reached (2025/2026 origins) are
+  now measured under the new objective: keep-incumbent, all four arms.
+- STILL OUTSTANDING, not resolved by this run (no republish was warranted): the live
+  Worker re-seed for `STATE_SNAPSHOT_SHAPE_VERSION` 7 -> 8 (260904-v9n) — needs a fresh
+  publish run before the Worker loads state again.
