@@ -129,11 +129,20 @@ describe("applyParamOverrides", () => {
 
   it("reads boolean-ness from DEFAULT_SIGMA1_PARAMS rather than a hand-typed list, so a second boolean parameter cannot be left behind", () => {
     // Not a restatement of the implementation: it pins the FACT the
-    // implementation depends on — that exactly one parameter is boolean
-    // today. If a second one is added, this assertion fails and the author
-    // is sent to re-read the boolean branch above.
+    // implementation depends on — the exact set of boolean parameters today.
+    // If a third is added, this assertion fails and the author is sent to
+    // re-read the boolean branch above. `elimScoreOffsetEnabled` (quick task
+    // 260904-v9n, ELIM-OFF) is the SECOND — the case this test's own name
+    // anticipated — and `SIGMA1_PARAM_KEYS`'s own sorted order is what fixes
+    // this list's order rather than insertion order.
     const booleanKeys = SIGMA1_PARAM_KEYS.filter((key) => typeof DEFAULT_SIGMA1_PARAMS[key] === "boolean");
-    expect(booleanKeys).toEqual(["adaptationEnabled"]);
+    expect(booleanKeys).toEqual(["adaptationEnabled", "elimScoreOffsetEnabled"]);
+  });
+
+  it("accepts only true/false for elimScoreOffsetEnabled too, the second boolean parameter (ELIM-OFF, quick task 260904-v9n)", () => {
+    expect(applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["elimScoreOffsetEnabled=true"]).elimScoreOffsetEnabled).toBe(true);
+    expect(applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["elimScoreOffsetEnabled=false"]).elimScoreOffsetEnabled).toBe(false);
+    expect(() => applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["elimScoreOffsetEnabled=1"])).toThrow(/boolean parameter/);
   });
 });
 

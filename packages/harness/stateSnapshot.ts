@@ -33,7 +33,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
-import type { Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
+import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 
 // ---------------------------------------------------------------------------
@@ -154,8 +154,32 @@ export class MissingLeagueRowError extends Error {
  * rather than into anything that looks broken — every `±` on the site quietly
  * absent, with no error, no NaN and no malformed row anywhere to find. The
  * shape check is the only thing standing between that and a live tick.
+ *
+ * Bumped 7 -> 8 (ELIM-OFF, quick task 260904-v9n): the league row gains
+ * `elimScoreOffset` (`{ value, count }`, `sigma1/elim.ts`), the within-season
+ * learned additive elim score correction's EWMA accumulator.
+ *
+ * BE HONEST ABOUT HOW THIS BUMP DIFFERS FROM THE FOUR ABOVE IT, in this same
+ * register: each of those prevented a LIVE failure on data already flowing
+ * through a shipped, enabled mechanism. This one does not — the field is
+ * default-inert (`elimScoreOffsetEnabled: false`), so nothing reads
+ * `elimScoreOffset` on any currently-promoted parameter set today. This bump
+ * is PRECAUTIONARY: it arms the day the flag is flipped, at which point a
+ * stale shape-7 league row would deserialize `elimScoreOffset` as `undefined`
+ * (`readScopedState` filters rows by `algorithm_id` ONLY, never by version —
+ * the identical fact every bump above already names), and the first fold
+ * (`(1 - alpha) * undefined.value + ...`) would throw immediately rather than
+ * silently propagate a NaN, which is at least an improvement on the failure
+ * mode this shape check exists to prevent — but only if the shape check
+ * itself is current. Bumping now, while the mechanism is still off, is what
+ * keeps that guarantee true from day one of enabling it rather than from
+ * whichever day someone remembers to also bump the shape version.
+ *
+ * The bump costs a Worker re-seed from a fresh publish run, exactly like
+ * every bump above it — `readScopedState`'s version-blindness makes that
+ * true regardless of whether the shape change itself was urgent.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 7;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 8;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -270,6 +294,8 @@ interface SerializedSigma1League {
   allianceScoreStats: ExpandingStats;
   rpSkippedMatchCount: number;
   breakdownParseFailureCount: number;
+  /** ELIM-OFF (quick task 260904-v9n): the league-level learned elim score offset's EWMA accumulator — shape 8. */
+  elimScoreOffset: ElimScoreOffset;
 }
 
 /**
@@ -334,6 +360,7 @@ function serializeSigma1State(algorithmId: string, algorithmVersion: string, sta
     allianceScoreStats: state.allianceScoreStats,
     rpSkippedMatchCount: state.rpSkippedMatchCount,
     breakdownParseFailureCount: state.breakdownParseFailureCount,
+    elimScoreOffset: state.elimScoreOffset,
   };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
@@ -400,6 +427,7 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     priorSeasonRatings: { lastSeason, yearBefore },
     rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
+    elimScoreOffset: leagueJson.elimScoreOffset,
   };
 }
 

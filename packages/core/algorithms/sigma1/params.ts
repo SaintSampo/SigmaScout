@@ -356,6 +356,57 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * pass — see that file's own dated header addendum. This is the first
  * SIGMA1_CODE_VERSION bump since that file was written that is a genuine model
  * change rather than a display-only one.
+ *
+ * NOT BUMPED at ELIM-R/ELIM-OFF (D-3, quick task 260904-v9n, 2026-09-04),
+ * and that non-bump is RECORDED here — deliberately, not left as an absence a
+ * future reader could mistake for an oversight. This task added three new
+ * `Sigma1Params` fields (`elimObservationNoiseMultiplier`,
+ * `elimScoreOffsetEnabled`, `elimScoreOffsetEwmaAlpha`, both new mechanisms
+ * living in `sigma1/elim.ts`) and a new `Sigma1State.elimScoreOffset`
+ * accumulator. Applying this file's own two triggers, the ONLY two anything
+ * above has ever bumped on:
+ *
+ *   (a) the parameter SHAPE changed such that `z.strictObject` makes an old
+ *       file unparseable — does NOT fire here. All three new fields carry
+ *       Zod `.default(...)` (D-2), so every already-committed
+ *       `vpr@8.0.0+*.json` file — none of which carries these keys — still
+ *       parses unchanged and resolves to the inert values
+ *       (`elimObservationNoiseMultiplier: 1`, `elimScoreOffsetEnabled:
+ *       false`, `elimScoreOffsetEwmaAlpha: 0.05`). This is DIFFERENT from
+ *       every prior SHAPE-changing bump above (4.0.0, 5.0.0, 7.0.0), which
+ *       each required `--from-version` re-promotion because a `strictObject`
+ *       parse of an old file would fail outright; a schema DEFAULT is what
+ *       makes the identical kind of addition non-breaking this time.
+ *   (b) the observable OUTPUT changed — does NOT fire here either. Both
+ *       mechanisms are provably inert at their defaults: `elimNoiseFactor`
+ *       returns EXACTLY `1` on the qualification branch and
+ *       `params.elimObservationNoiseMultiplier` (default `1`) on every
+ *       elimination branch, so the composed `measurementNoiseMultiplier` is
+ *       bitwise unchanged; `elimScoreOffsetFor` returns EXACTLY `0` whenever
+ *       `elimScoreOffsetEnabled` is `false` (the default), so `predict()`'s
+ *       `+ 0` is exact and `update()`'s fold never runs at all — the
+ *       accumulator's STATE stays at cold start, not merely its published
+ *       output. `params.test.ts`'s identity tests assert byte-identical
+ *       prediction streams end to end, the same instrument every prior
+ *       "provably inert when off" claim in this file (`adaptationEnabled`,
+ *       D-08) has used.
+ *
+ * Neither trigger fires, so `8.0.0+{paramSetName}` still denotes EXACTLY ONE
+ * computation before and after this task — D-13's own invariant, which is
+ * precisely what a bump exists to protect. `digest.test.ts` reproducing all
+ * four committed `vpr@8.0.0+*.json` prediction-stream digests AND headline
+ * metrics BITWISE under this new code is the evidence, not an assertion: the
+ * same instrument every prior bump used to justify BUMPING, here used to
+ * justify NOT bumping.
+ *
+ * THE MOMENT EITHER MECHANISM IS ENABLED in a promoted parameter set — a
+ * nonzero `elimObservationNoiseMultiplier` deviation from `1` that a re-tune
+ * selects, or `elimScoreOffsetEnabled: true` — that promotion IS a real model
+ * change (trigger (b) fires: the observable output moves) and earns its own
+ * `SIGMA1_CODE_VERSION` bump under this block's normal rules, exactly as
+ * `adaptationEnabled`'s own still-unpromoted on-arm would if it ever shipped
+ * enabled. This task only REGISTERS the knobs; tuning and enabling either one
+ * is explicitly out of scope (see this task's own `<objective>`).
  */
 export const SIGMA1_CODE_VERSION = "8.0.0";
 

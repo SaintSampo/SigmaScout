@@ -75,8 +75,8 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     }
   });
 
-  it("leaves exactly 15 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
-    // 26 Sigma1Params fields - 11 exclusions = 15. Pinned as literals so a
+  it("leaves exactly 16 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
+    // 29 Sigma1Params fields - 13 exclusions = 16. Pinned as literals so a
     // silent addition or deletion has to be acknowledged here.
     //
     // Was 25 - 9 = 16 until SIGMA1_CODE_VERSION 5.0.0 (D-V4): the field COUNT
@@ -92,9 +92,21 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     // searchable set is untouched at 15 — the re-tune explores exactly what it
     // explored before, and swapping one display estimator for another must not
     // change that.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(15);
-    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(11);
-    expect(SIGMA1_PARAM_KEYS).toHaveLength(26);
+    //
+    // ELIM-R/ELIM-OFF (quick task 260904-v9n) is the first version since 5.0.0
+    // to WIDEN the searchable set: 26 -> 29 fields (three new: one multiplier,
+    // two offset knobs) and 11 -> 13 exclusions (only the two offset fields).
+    // `elimObservationNoiseMultiplier` is the one that becomes searchable — it
+    // moves the Kalman gain on an elim observation, hence beliefs, hence
+    // predicted margins, hence `pRedWin`, which is fully visible to D-01's
+    // objective. The offset pair (`elimScoreOffsetEnabled`/
+    // `elimScoreOffsetEwmaAlpha`) is NOT: a symmetric offset cancels in the
+    // margin by construction (D-13) and cannot move `pRedWin` at all, so the
+    // objective is structurally blind to it — the same argument the swing
+    // constants above already carry for a different display-only mechanism.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(16);
+    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(13);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(29);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });
 

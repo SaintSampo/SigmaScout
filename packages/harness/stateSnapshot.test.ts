@@ -485,7 +485,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 7, and league rows declaring the LITERAL 3, 4, 5 or 6 all throw (D-Y3, quick task 260903-750)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 8, and league rows declaring the LITERAL 3, 4, 5, 6 or 7 all throw (ELIM-OFF, quick task 260904-v9n)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -494,16 +494,18 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // `scopeKind: "event"` rows; shape 6 has them but its TEAM rows carry no
     // `swing`, so it would deserialize into teams whose accumulator is absent
     // and `teamMetrics` would publish no `±` at all — SILENTLY, since D-Y2
-    // makes "never folded" a legal, publishable-as-nothing state. That is the
-    // sharpest reason this check matters at 7: the failure it prevents looks
-    // exactly like a brand-new team rather than like corruption.
+    // makes "never folded" a legal, publishable-as-nothing state; shape 7 has
+    // `swing` but no `elimScoreOffset`, so it would deserialize the ELIM-OFF
+    // accumulator as `undefined` and the first fold would throw rather than
+    // publish a NaN — a real improvement, but only if this check itself is
+    // current (`STATE_SNAPSHOT_SHAPE_VERSION`'s own 7 -> 8 history entry).
     //
     // `apps/worker/src/stateStore.ts` filters rows by `algorithm_id` only and
     // never by `algorithm_version`, so bumping the algorithm version does not
     // by itself make a stale seeded row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(7);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(8);
 
-    for (const staleVersion of [3, 4, 5, 6]) {
+    for (const staleVersion of [3, 4, 5, 6, 7]) {
       const staleRow: StateRow = StateRowSchema.parse({
         algorithmId: "vpr",
         algorithmVersion: vpr.version,
