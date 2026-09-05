@@ -177,7 +177,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  it("a populated artifact whose season is 2024, loaded at ?year=2026, renders the fifteen vpr/2024 column headers (adjust filtered out, 2026-09-05) — the column set follows artifact.season, not ?year=", async () => {
+  it("a populated artifact whose season is 2024, loaded at ?year=2026, renders the seven collapsed-default vpr/2024 columns (sketch 009-A drill-down, 260905-3rq) — the column set follows artifact.season, not ?year=", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -188,7 +188,10 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     // "whichever tab is active by default".
     renderEventRoute("/event/2024casf?year=2026&algorithm=vpr&tab=breakdown");
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(15));
+    // The LABEL row's identified columns: Team #, Team Name, Total, the three
+    // phase columns, Fouls Committed. (getAllByRole would also count the
+    // group-band row's three toggle cells, so count the identified cells.)
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/)).toHaveLength(7));
   });
 
   it("the tab-strip scroll region and the Breakdown table's own scroll region are DOM siblings, never nested in either direction", async () => {

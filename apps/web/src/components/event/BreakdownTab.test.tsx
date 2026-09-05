@@ -13,12 +13,20 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { BreakdownTab, buildBreakdownRows, metricLabel, type BreakdownRow } from "./BreakdownTab";
+import {
+  BreakdownTab,
+  buildBreakdownRows,
+  metricLabel,
+  NO_GROUPS_EXPANDED,
+  sortBreakdownRows,
+  visibleMetricKeys,
+  type BreakdownRow,
+} from "./BreakdownTab";
 
 type ArtifactTeam = EventArtifact["teams"][number];
 
@@ -112,30 +120,31 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "vpr", season = 
   );
 }
 
-describe("BreakdownTab — column set (EVNT-03)", () => {
-  it("vpr/2024: exactly Team #, Team Name, Total, then eleven remaining component keys (adjust filtered out, 2026-09-05), in metricKeysFor order (D-5: Total leads) — no Rank column", async () => {
+/**
+ * The DOM-ordered column ids of the LABEL row's header cells
+ * (`breakdown-header-*` testids) — the stable way to read the column set now
+ * that the grouped header also contains a toggle/spacer band row whose cells
+ * carry no column identity (260905-3rq, sketch 009-A).
+ */
+function headerIds(): string[] {
+  return screen.getAllByTestId(/^breakdown-header-/).map((el) => (el.getAttribute("data-testid") as string).replace("breakdown-header-", ""));
+}
+
+describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009-A)", () => {
+  it("vpr/2024 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed — no Rank column, no wall of components", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
     renderBreakdown(artifact, "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
-
-    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expected = ["Team #", "Team Name", ...metricKeysFor("vpr", 2024)];
-    // 07-UAT.md G-7: `metricLabel` humanizes every non-Total header into
-    // space-separated Title Case (e.g. "autoLeave" -> "Auto Leave") so a
-    // wrapped header has real word-break points. `metricLabel("Team #")`/
-    // `metricLabel("Team Name")` are no-ops (no camelCase/digit boundary to
-    // split), so mapping the whole array through it uniformly is safe and
-    // avoids a special-cased branch here that could drift from the real
-    // implementation.
-    const expectedLabels = expected.map((key) => metricLabel(key));
-    expect(headers).toEqual(expectedLabels);
-    expect(headers).toHaveLength(15);
-    expect(headers[2]).toBe("Total");
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
+    expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
+    // Same set through the exported derivation the columns are actually built from.
+    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)]);
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
+    // Phase headers read through the sitewide label map — "Auto", never the raw "phaseAuto".
+    expect(screen.getByTestId("breakdown-header-phaseAuto").textContent).toContain(metricLabel("phaseAuto"));
   });
 
-  it("opr/2024: exactly Team #, Team Name, Total — a legitimately narrow table, not a broken wide one", async () => {
+  it("opr/2024: exactly Team #, Team Name, Total — no group row, no sort affordance; OPR is deliberately unchanged (user decision 2026-09-05)", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 20 } } })], { algorithmId: "opr" });
     renderBreakdown(artifact, "opr", 2024);
 
@@ -143,31 +152,56 @@ describe("BreakdownTab — column set (EVNT-03)", () => {
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(headers).toEqual(["Team #", "Team Name", "Total"]);
     expect(headers).toHaveLength(3);
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBeNull();
   });
 
-  it("column order is metricKeysFor's own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
-    const orderedKeys = [...metricKeysFor("vpr", 2024)];
+  it("clicking a phase toggle swaps that phase's column for its component columns in place; clicking again collapses it back", async () => {
+    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    renderBreakdown(artifact, "vpr", 2024);
+
+    const toggle = await screen.findByTestId("breakdown-group-toggle-teleop");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(screen.getByTestId("breakdown-group-toggle-teleop").getAttribute("aria-expanded")).toBe("true"));
+    expect(headerIds()).toEqual([
+      "teamNumber",
+      "nickname",
+      TOTAL_KEY,
+      "phaseAuto",
+      "teleopAmpNote",
+      "teleopSpeakerNote",
+      "teleopSpeakerNoteAmplified",
+      "phaseEndgame",
+      "foulsCommitted",
+    ]);
+
+    fireEvent.click(screen.getByTestId("breakdown-group-toggle-teleop"));
+    await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]));
+  });
+
+  it("the visible column set is visibleMetricKeys' own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
     const reversedMetrics: ArtifactTeam["metrics"] = {};
-    for (const key of [...orderedKeys].reverse()) {
+    for (const key of [...metricKeysFor("vpr", 2024)].reverse()) {
       reversedMetrics[key] = { value: 5 };
     }
     const artifact = makeArtifact([team({ metrics: reversedMetrics })]);
     renderBreakdown(artifact, "vpr", 2024);
 
-    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
-    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    const expectedLabels = ["Team #", "Team Name", ...orderedKeys.map((key) => metricLabel(key))];
-    expect(headers).toEqual(expectedLabels);
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
+    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)]);
   });
 });
 
 describe("BreakdownTab — partial data (EVNT-03)", () => {
-  it("a team missing one declared component key renders an em-dash in that cell; the column header for that key stays present", async () => {
+  it("a team missing one declared component key renders a blank cell once its group is expanded; the column header for that key stays present", async () => {
     const metrics = fullVPRMetrics2024();
     delete metrics.endGamePark;
     const artifact = makeArtifact([team({ metrics })]);
     renderBreakdown(artifact, "vpr", 2024);
 
+    fireEvent.click(await screen.findByTestId("breakdown-group-toggle-endgame"));
     await waitFor(() => expect(screen.getByTestId("breakdown-header-endGamePark")).toBeDefined());
     expect(screen.getByTestId("breakdown-cell-endGamePark").textContent).toBe("");
   });
@@ -314,10 +348,107 @@ describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () =
     expect(screen.getByTestId("breakdown-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
     expect(screen.getByTestId("breakdown-cell-nickname").getAttribute("data-pinned")).toBe("true");
 
-    for (const key of metricKeysFor("vpr", 2024)) {
+    for (const key of visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)) {
       expect(screen.getByTestId(`breakdown-header-${key}`).getAttribute("data-pinned")).toBe("false");
       expect(screen.getByTestId(`breakdown-cell-${key}`).getAttribute("data-pinned")).toBe("false");
     }
+  });
+});
+
+describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache shape)", () => {
+  it("a row with components but no published phase entries renders an honest value-only phase cell: summed value, no ±, no tier box", async () => {
+    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    renderBreakdown(artifact, "vpr", 2024);
+
+    const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
+    // 2024 auto = autoLeave + autoAmpNote + autoSpeakerNote, 10 each in the fixture.
+    expect(cell.textContent).toBe("30.00");
+    expect(cell.querySelector(".metric-tier")).toBeNull();
+  });
+
+  it("a published phase entry wins over the derived sum and keeps its spread and tier", async () => {
+    const metrics = fullVPRMetrics2024();
+    metrics.phaseAuto = { value: 28.5, spread: 2.1, percentile: 80 };
+    const artifact = makeArtifact([team({ metrics })]);
+    renderBreakdown(artifact, "vpr", 2024);
+
+    const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
+    expect(cell.textContent).toContain("28.50");
+    expect(cell.textContent).toContain("± 2.10");
+    expect(cell.querySelector(".metric-tier--epic")).not.toBeNull();
+  });
+});
+
+describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => {
+  function rowNumbers(): number[] {
+    return screen.getAllByTestId("breakdown-row").map((el) => Number(el.getAttribute("data-team-number")));
+  }
+
+  function makeSortableArtifact() {
+    return makeArtifact([
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, phaseAuto: { value: 5 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, phaseAuto: { value: 15 } } }),
+      team({ teamKey: "frc3", teamNumber: 3, nickname: "Three", metrics: { [TOTAL_KEY]: { value: 10 }, phaseAuto: { value: 10 } } }),
+    ]);
+  }
+
+  it("lands sorted by Total descending, with aria-sort=descending on the Total header", async () => {
+    renderBreakdown(makeSortableArtifact(), "vpr", 2024);
+    await waitFor(() => expect(rowNumbers()).toEqual([1, 2, 3]));
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("clicking another metric header sorts by it descending; clicking it again flips to ascending", async () => {
+    renderBreakdown(makeSortableArtifact(), "vpr", 2024);
+    const header = await screen.findByTestId("breakdown-header-phaseAuto");
+    fireEvent.click(within(header).getByRole("button"));
+
+    await waitFor(() => expect(rowNumbers()).toEqual([2, 3, 1]));
+    expect(screen.getByTestId("breakdown-header-phaseAuto").getAttribute("aria-sort")).toBe("descending");
+
+    fireEvent.click(within(screen.getByTestId("breakdown-header-phaseAuto")).getByRole("button"));
+    await waitFor(() => expect(rowNumbers()).toEqual([1, 3, 2]));
+    expect(screen.getByTestId("breakdown-header-phaseAuto").getAttribute("aria-sort")).toBe("ascending");
+  });
+
+  it("collapsing the group that owns the active sort key resets the sort to Total descending", async () => {
+    const artifact = makeArtifact([
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleopAmpNote: { value: 1 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleopAmpNote: { value: 9 } } }),
+    ]);
+    renderBreakdown(artifact, "vpr", 2024);
+
+    fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
+    const header = await screen.findByTestId("breakdown-header-teleopAmpNote");
+    fireEvent.click(within(header).getByRole("button"));
+    await waitFor(() => expect(rowNumbers()).toEqual([2, 1]));
+
+    fireEvent.click(screen.getByTestId("breakdown-group-toggle-teleop"));
+    await waitFor(() => expect(rowNumbers()).toEqual([1, 2]));
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("descending");
+  });
+});
+
+describe("sortBreakdownRows — the three rowModel rules generalized to any key (unit)", () => {
+  const rows: BreakdownRow[] = [
+    { teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { hubAuto: { value: 5 } } },
+    { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: {} },
+    { teamKey: "frc3", teamNumber: 3, nickname: "Three", metrics: { hubAuto: { value: 9 } } },
+  ];
+
+  it("a row missing the sorted key sorts last in BOTH directions", () => {
+    expect(sortBreakdownRows(rows, { key: "hubAuto", dir: "desc" }).map((row) => row.teamNumber)).toEqual([3, 1, 2]);
+    expect(sortBreakdownRows(rows, { key: "hubAuto", dir: "asc" }).map((row) => row.teamNumber)).toEqual([1, 3, 2]);
+  });
+
+  it("exact ties break by ascending team number, and the input array is never mutated", () => {
+    const tied: BreakdownRow[] = [
+      { teamKey: "frc9", teamNumber: 9, nickname: "Nine", metrics: { hubAuto: { value: 5 } } },
+      { teamKey: "frc3", teamNumber: 3, nickname: "Three", metrics: { hubAuto: { value: 5 } } },
+    ];
+    const sorted = sortBreakdownRows(tied, { key: "hubAuto", dir: "desc" });
+    expect(sorted.map((row) => row.teamNumber)).toEqual([3, 9]);
+    expect(tied.map((row) => row.teamNumber)).toEqual([9, 3]);
   });
 });
 
