@@ -2,6 +2,7 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
 import { SeasonHeader } from "./SeasonHeader.js";
 import { EventSectionList } from "./EventSectionList.js";
 import { TierKeyRow } from "./TierKeyRow.js";
+import { RankCards } from "./RankCards.js";
 
 /**
  * The Overview panel's composition seam (06-01-PLAN.md Task 2). Mounts
@@ -30,6 +31,12 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber, metrics
       <div className="data-card p-[var(--spacing-md)]">
         <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} />
       </div>
+      {/*
+        Quick task 260905-ldu: World/Country/District/State rank cards for
+        the currently selected algorithm/year. Renders nothing at all on an
+        artifact with no `ranks` (absent or empty) — see RankCards.tsx.
+      */}
+      <RankCards ranks={artifact.ranks} />
       <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
       {/*
         The tier key is a legend, not a headline: it explains the colour
