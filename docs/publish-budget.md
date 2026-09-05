@@ -13,14 +13,67 @@ file — there is exactly one source for these numbers, not two files that could
 
 ## Payload budget (D-05)
 
-Measured from a real full publish of all five seasons (2022-2026) across all three shipped
-algorithms (opr, epa, sigma1):
+Measured from a real full publish of all seven corpus seasons (2019, 2020, 2022-2026 — 2021 is
+permanently excluded, the at-home season with nothing to ingest) across all three shipped
+algorithms (opr, epa, vpr):
 
 ```
 pnpm publish:seasons
 ```
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
+
+**Latest run — 2026-09-04 (ET; 2026-09-05 UTC), quick task 260904-nt4's seven-season republish —
+the FIRST run to publish 2019 and 2020
+(`tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason`,
+generation `2c454968-9301-493f-81d3-f41ec3682b73`).** 75,544 page objects plus 2 manifests (75,546
+total `PUT`s) — **18,770 more objects than every run below**, all of them the two new seasons'
+artifacts (17,787 `team` = the 2019/2020 team-seasons x 3 algorithms, 969 `event` = 2019's 266 and
+2020's 57 events x 3, plus 6 `teams`, 6 `events`, 2 `compare`). 2,894,428,308 bytes of page-object
+payload, 28 min 16 sec wall clock (`00:10:40Z`-`00:38:56Z`, 2026-09-05 UTC), backgrounded from the
+first invocation (`run_in_background: true`, never a foreground call and never a retry). Zero
+concurrent publish processes: the untruncated command-line-filtered `Get-CimInstance` query
+(excluding its own self-match) returned zero real `publish.ts` processes both immediately before
+and immediately after the run. A pre-publish baseline generation was recorded from
+`v1/manifest/algorithms.json` (`15135c51-54aa-4ac6-81b2-32bac23b0792`, `computedAt`
+`2026-09-04T19:56:24.403Z`) before starting — every post-run read returned the NEW generation,
+never the baseline. Exactly ONE distinct `generation` value
+(`2c454968-9301-493f-81d3-f41ec3682b73`) across every key `pnpm verify:subset` sampled (35
+entries, 0 failing) and it equals the run's own summary line. No algorithm version moved
+(opr `4.0.0+baseline`, epa `5.0.0+baseline`, vpr `8.0.0+rolling-2026-09b`, identical to the run
+below), and `apps/worker/src` carries zero hardcoded season literals — **no Worker redeploy was
+needed or performed**.
+
+**What changed in this run:** the season set itself. This is the first publish since the corpus
+backfill (quick tasks 260903-3bv/4fs/krp, 260904-cs1) whose replay range starts at 2019, so 2019 is
+the positional cold start and — for the state-carrying algorithms (epa, vpr) — **2022 entered with
+carried 2019/2020 state instead of cold-starting**, threading the gap-aware two-year 2020->2022
+boundary carry for the first time in production (the run log confirms: `season 2020 [epa/vpr] ...
+carried state in`, `season 2022 [epa/vpr] ... carried state in`; opr replays every season cold by
+design). Consequently the 2022-2026 artifacts are NOT byte-identical to the prior generation —
+teams that competed in 2019/2020 enter 2022 with real priors rather than the rookie baseline, which
+is the intended model-level effect of the backfill, not drift. The movement is small and
+value-shaped: same-key maxima moved by -248 bytes (`teams/2026`), -34 (`team/frc3538/2024`), -72
+(`event/2024gal`) versus the run below. Every 2019/2020 artifact carries `activeYears` computed
+over the full seven-season set, which is why this run had to republish all seasons rather than just
+the two new ones (a 2022-2026 team page's year dropdown must offer 2019/2020 for teams active
+then).
+
+| Page kind | Count | Median bytes | p95 bytes | Max bytes | Largest object's key | Change vs. the 260904-586-era retune block (previous machine-readable block) |
+|---|---:|---:|---:|---:|---|---|
+| `teams/{year}` | 21 | 961,493 | 1,479,985 | 1,486,941 | `v1/teams/2026/vpr@8.0.0+rolling-2026-09b.json` | count 15 -> 21; median -137,640 (-12.5%, the two smaller new seasons entering the distribution); max -248 (-0.02%), same key |
+| `team/{teamKey}/{year}` | 70,383 | 29,776 | 91,952 | 376,339 | `v1/team/frc3538/2024/vpr@8.0.0+rolling-2026-09b.json` | count 52,596 -> 70,383; median -3,348 (-10.1%, distribution shift); max -34 (-0.01%), same key — stays under the 400,000 ceiling |
+| `events/{year}` | 21 | 73,775 | 84,108 | 84,116 | `v1/events/2025/vpr@8.0.0+rolling-2026-09b.json` | count 15 -> 21; median -1,450 (distribution shift); max unchanged |
+| `event/{eventKey}` | 5,112 | 50,505 | 97,653 | 163,490 | `v1/event/2024gal/vpr@8.0.0+rolling-2026-09b.json` | count 4,143 -> 5,112; median +472 (+0.9%); max -72 (-0.04%), same key |
+| `compare/{year}` | 7 | 13,948 | 13,999 | 13,999 | `v1/compare/2026.json` | count 5 -> 7 (`compare/2019.json` and `compare/2020.json` exist, every slice `headlineEligible: false` under the provenance rule — published and simply never fetched, since the client's `COMPARE_SEASONS` is floored at 2022) |
+
+**No ceiling is crossed and no ceiling moved.** Every page kind's max sits under its committed
+`budgetMaxBytes` (`team` 376,339 < 400,000; `teams` 1,486,941 < 3,500,000; `events` 84,116 <
+108,000; `event` 163,490 < 350,000; `compare` 13,999 < 20,000) — the two new seasons' artifacts are
+smaller per object than their modern-era peers (2019 pre-dates the richer component maps; 2020 is a
+quarter-size season), so they pulled medians DOWN and threatened no maximum.
+`packages/harness/payloadBudget.test.ts` runs green (11/11) against the machine-readable block
+below.
 
 **Latest run — 2026-09-04, quick task 260904-586's Teams-list official-play-scoping republish
 (`tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason`),
@@ -1274,48 +1327,48 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-04T20:17:50.041Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026 --include-offseason -- generation 15135c51-54aa-4ac6-81b2-32bac23b0792, 56,774 objects, 2,342,103,312 bytes total (up from 2,258,714,595, +3.69%). The 2026-09-04 retune/republish session: every artifact rebuilt under epa@5.0.0+baseline (no-foul total, 1/3 elimination discount, adjust pinned at 0 -- closing republish-after-adjust-model-change Item 3, R2 previously served epa@2.0.0) and vpr@8.0.0+rolling-2026-09b (same-session re-tune under code version 8.0.0: origin 2022's off-arm winner replaces 2022's set, all other seasons carried from rolling-2026-09; ten verdicts recorded in the completed retune-sigma1-rolling-origin todo). Object count unchanged (56,774); the byte growth is the model-version churn across every per-team/per-event artifact, dominated by teams (median 957,582 -> 1,099,133). team's maxBytes moved 380,020 -> 376,373, back UNDER the 400,000 ceiling raised on 2026-09-04. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
+  "measuredAt": "2026-09-05T00:38:56.273Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason -- generation 2c454968-9301-493f-81d3-f41ec3682b73, 75,544 objects, 2,894,428,308 bytes total. Quick task 260904-nt4: the FIRST publish of the seven-season gapped corpus (2019, 2020, 2022-2026; 2021 permanently excluded). 18,770 new objects are the two new seasons' artifacts; 2019 is the positional cold start and epa/vpr thread carried state across the two-year 2020->2022 gap for the first time in production, so 2022-2026 values moved slightly on the same keys (max deltas -0.04% or less). No algorithm version moved (opr 4.0.0+baseline, epa 5.0.0+baseline, vpr 8.0.0+rolling-2026-09b). The new seasons' smaller artifacts pull medians DOWN; no maximum was threatened. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
   "pages": {
     "teams": {
-      "count": 15,
-      "medianBytes": 1099133,
-      "p95Bytes": 1487189,
-      "maxBytes": 1487189,
+      "count": 21,
+      "medianBytes": 961493,
+      "p95Bytes": 1479985,
+      "maxBytes": 1486941,
       "budgetMaxBytes": 3500000,
       "largestKey": "v1/teams/2026/vpr@8.0.0+rolling-2026-09b.json"
     },
     "team": {
-      "count": 52596,
-      "medianBytes": 33124,
-      "p95Bytes": 95787,
-      "maxBytes": 376373,
+      "count": 70383,
+      "medianBytes": 29776,
+      "p95Bytes": 91952,
+      "maxBytes": 376339,
       "budgetMaxBytes": 400000,
       "largestKey": "v1/team/frc3538/2024/vpr@8.0.0+rolling-2026-09b.json"
     },
     "events": {
-      "count": 15,
-      "medianBytes": 75225,
-      "p95Bytes": 84116,
+      "count": 21,
+      "medianBytes": 73775,
+      "p95Bytes": 84108,
       "maxBytes": 84116,
       "budgetMaxBytes": 108000,
       "largestKey": "v1/events/2025/vpr@8.0.0+rolling-2026-09b.json"
     },
     "event": {
-      "count": 4143,
-      "medianBytes": 50033,
-      "p95Bytes": 98422,
-      "maxBytes": 163562,
+      "count": 5112,
+      "medianBytes": 50505,
+      "p95Bytes": 97653,
+      "maxBytes": 163490,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2024gal/vpr@8.0.0+rolling-2026-09b.json"
     },
     "compare": {
-      "count": 5,
-      "medianBytes": 13930,
-      "p95Bytes": 13974,
-      "maxBytes": 13974,
+      "count": 7,
+      "medianBytes": 13948,
+      "p95Bytes": 13999,
+      "maxBytes": 13999,
       "budgetMaxBytes": 20000,
-      "largestKey": "v1/compare/2023.json"
+      "largestKey": "v1/compare/2026.json"
     }
   }
 }
