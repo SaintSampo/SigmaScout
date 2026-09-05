@@ -726,6 +726,49 @@ export interface Sigma1Params {
    * multiplier below 1); see `elim.ts`'s own header for the fuller argument.
    */
   readonly elimObservationNoiseMultiplier: number;
+  /**
+   * D-10 (`./elim.js`, quick task 260904-v9n, ELIM-OFF): whether the
+   * within-season learned elim score offset is applied at all. Default
+   * `false` — the honest default from the first commit, matching D-08's
+   * `adaptationEnabled` precedent, since this ships unmeasured.
+   *
+   * KNOWN LIMITATION (D-13), carried here in full: a symmetric league-wide
+   * offset added to BOTH alliances CANCELS in the margin, so enabling this
+   * does NOT move `pRedWin`, winner accuracy or Brier — its purpose is
+   * honest published elim SCORE predictions, not accuracy. Precisely: it
+   * cancels ANALYTICALLY, not bitwise — `(a+k) - (b+k)` is not guaranteed to
+   * equal `a-b` in IEEE-754 — so with this flag ON, `pRedWin` may differ at
+   * ULP scale from the flag-OFF run, and a flag-ON digest is not guaranteed
+   * to reproduce a flag-OFF one. At the default `false` the cancellation IS
+   * exact (`x + 0 === x` for every finite `x`), which is what lets
+   * `params.test.ts`'s identity test assert byte-identical streams.
+   *
+   * A MODE, not a numeric knob — search-excluded (`searchSpace.ts`) for the
+   * `adaptationEnabled` reason (a boolean has no bound, no scale and no
+   * meaningful neighbour) AND, independently, because a symmetric offset
+   * cannot move `pRedWin` at all, so the accuracy-primary objective is
+   * structurally blind to whether it is on.
+   */
+  readonly elimScoreOffsetEnabled: boolean;
+  /**
+   * D-7 (`./elim.js`, quick task 260904-v9n, ELIM-OFF): the EWMA rate for the
+   * league-level elim score offset's online fold. Default `0.05` — roughly a
+   * 13-observation half-life (`ln(0.5) / ln(1 - 0.05) ~= 13.5`), about half a
+   * typical elim bracket's worth of alliance-observations, chosen at the
+   * LOG-MIDPOINT of this field's own declared search-exclusion-adjacent
+   * bound rather than copied from a per-team EWMA alpha: the per-team rates
+   * in this file (`consistencyEwmaAlpha`/`covEwmaAlpha`/`adaptationEwmaAlpha`,
+   * all default around 0.2) are tuned for ONE team's history and would be far
+   * too twitchy for a statistic accumulating across an entire league's
+   * concurrent elimination brackets.
+   *
+   * Display-only, therefore search-excluded (`searchSpace.ts`) for the
+   * `swingScale`/`swingHalfLifeMatches` reason: the accuracy-primary
+   * objective reads `predict()`'s win probability, which this field is
+   * structurally blind to (D-13's cancellation), so searching it would
+   * optimise noise.
+   */
+  readonly elimScoreOffsetEwmaAlpha: number;
 }
 
 /**
@@ -782,6 +825,10 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   // D-4 (quick task 260904-v9n, ELIM-R): exactly 1 — no elim-specific
   // treatment at all until the re-tune (searchable) says otherwise.
   elimObservationNoiseMultiplier: 1,
+  // D-10 (quick task 260904-v9n, ELIM-OFF): off by default, unmeasured.
+  elimScoreOffsetEnabled: false,
+  // D-7: roughly a 13-observation half-life, chosen rather than tuned.
+  elimScoreOffsetEwmaAlpha: 0.05,
 };
 
 /**
@@ -862,6 +909,10 @@ export const Sigma1ParamsSchema = z
     // what lets every already-committed `vpr@8.0.0+*.json` file — none of
     // which carries this key — still parse and resolve to the inert value.
     elimObservationNoiseMultiplier: z.number().finite().positive().default(1),
+    // D-10/D-2 (quick task 260904-v9n, ELIM-OFF/ELIM-WIRE): `.default(false)`
+    // is what keeps every committed file parsing with the mechanism inert.
+    elimScoreOffsetEnabled: z.boolean().default(false),
+    elimScoreOffsetEwmaAlpha: z.number().finite().default(0.05),
   })
   .check((ctx) => {
     const value = ctx.value;

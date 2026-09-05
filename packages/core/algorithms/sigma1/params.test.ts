@@ -19,6 +19,7 @@ import {
   type Sigma1Params,
 } from "./params.js";
 import { emptyInnovationStats } from "./adaptation.js";
+import { emptyElimScoreOffset } from "./elim.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
 import { SIGMA1_SWING_HALF_LIFE_MATCHES, SIGMA1_SWING_SCALE, emptyTeamSwing } from "./swing.js";
@@ -28,7 +29,7 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { resolveSigma1Params } from "./scale.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
-import type { MatchResult, UpcomingMatch } from "../types.js";
+import type { MatchResult, Prediction, UpcomingMatch } from "../types.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -93,6 +94,44 @@ function rawBreakdown2024Uniform(perComponentValue: number): string {
     ensembleBonusOnStageRobotsThreshold: 0,
   };
   return JSON.stringify({ red: side, blue: side });
+}
+
+/** Same 2024 field set as `rawBreakdown2024Uniform` above, but ASYMMETRIC — each alliance gets its own per-component value, so the two sides build genuinely different beliefs (ELIM-OFF's tests below need pre-existing, nonzero margin to prove D-13's cancellation is non-trivial). `rawBreakdown2024Split(v, v)` reproduces `rawBreakdown2024Uniform(v)` exactly. */
+function rawBreakdown2024Split(redVal: number, blueVal: number): string {
+  function side(perComponentValue: number): Record<string, unknown> {
+    return {
+      autoLeavePoints: perComponentValue,
+      autoAmpNotePoints: perComponentValue,
+      autoSpeakerNotePoints: perComponentValue,
+      teleopAmpNotePoints: perComponentValue,
+      teleopSpeakerNotePoints: perComponentValue,
+      teleopSpeakerNoteAmplifiedPoints: perComponentValue,
+      endGameOnStagePoints: perComponentValue,
+      endGameParkPoints: perComponentValue,
+      endGameHarmonyPoints: perComponentValue,
+      endGameNoteInTrapPoints: perComponentValue,
+      endGameSpotLightBonusPoints: perComponentValue,
+      adjustPoints: perComponentValue,
+      foulPoints: perComponentValue,
+      autoAmpNoteCount: 0,
+      autoSpeakerNoteCount: 0,
+      teleopAmpNoteCount: 0,
+      teleopSpeakerNoteCount: 0,
+      teleopSpeakerNoteAmplifiedCount: 0,
+      endGameTotalStagePoints: 0,
+      endGameRobot1: "None",
+      endGameRobot2: "None",
+      endGameRobot3: "None",
+      coopertitionBonusAchieved: false,
+      melodyBonusAchieved: false,
+      ensembleBonusAchieved: false,
+      melodyBonusThresholdCoop: 0,
+      melodyBonusThresholdNonCoop: 0,
+      ensembleBonusStagePointsThreshold: 0,
+      ensembleBonusOnStageRobotsThreshold: 0,
+    };
+  }
+  return JSON.stringify({ red: side(redVal), blue: side(blueVal) });
 }
 
 /** 2025 (Reefscape) breakdown/2025.ts's own 6 own-fields + foulPoints, all set to `perComponentValue` — same uniform-cold-start-matching trick as the 2024 helper, used to exercise a real POST-carry update. */
@@ -666,6 +705,151 @@ describe("elimObservationNoiseMultiplier composes with FALLBACK_NOISE_MULTIPLIER
   });
 });
 
+describe("Sigma1ParamsSchema — elimScoreOffsetEnabled/elimScoreOffsetEwmaAlpha (D-2, ELIM-WIRE)", () => {
+  it("parses an object omitting both fields and defaults them to false/0.05 — every committed vpr@8.0.0+*.json file still parses", () => {
+    const { elimScoreOffsetEnabled: _e, elimScoreOffsetEwmaAlpha: _a, ...withoutOffset } = DEFAULT_SIGMA1_PARAMS;
+    const parsed = Sigma1ParamsSchema.parse(withoutOffset);
+    expect(parsed.elimScoreOffsetEnabled).toBe(false);
+    expect(parsed.elimScoreOffsetEwmaAlpha).toBe(0.05);
+  });
+});
+
+/**
+ * D-7/D-9/D-10/D-13's end-to-end proofs (quick task 260904-v9n, ELIM-OFF): a
+ * sequence whose quals build ASYMMETRIC beliefs (`rawBreakdown2024Split`, red
+ * consistently ahead of blue) — so the pre-existing predicted margin is
+ * genuinely nonzero — followed by elimination matches whose OBSERVED alliance
+ * totals (`redScore`/`blueScore`) are set well ABOVE what those beliefs would
+ * predict, so the offset accumulator has something unambiguous to learn.
+ */
+function elimBiasedSequence(): MatchResult[] {
+  const qualPairs: readonly [number, number][] = [
+    [20, 8],
+    [22, 9],
+    [19, 10],
+  ];
+  const quals = qualPairs.map(([redVal, blueVal], i) =>
+    match({
+      matchKey: `2024eventa_qm${i + 1}`,
+      eventKey: "2024eventa",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 13 * redVal,
+      blueScore: 13 * blueVal,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Split(redVal, blueVal),
+    })
+  );
+  const elimCompLevels = ["ef", "qf", "sf"] as const;
+  const elims = elimCompLevels.map((compLevel, i) =>
+    match({
+      matchKey: `2024eventa_${compLevel}1m${i + 1}`,
+      eventKey: "2024eventa",
+      compLevel,
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      // The RAW breakdown stays near the quals' own scale (the per-component
+      // Kalman fold this drives is not this suite's subject); the OBSERVED
+      // totals below are set well above what quals-derived beliefs predict —
+      // that gap is what ELIM-OFF's residual fold is measuring.
+      redScore: 13 * 60,
+      blueScore: 13 * 45,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Split(20, 9),
+    })
+  );
+  return [...quals, ...elims];
+}
+
+function elimReplay(params: Sigma1Params, sequence: MatchResult[]): { predictions: Prediction[]; state: Sigma1State } {
+  const algorithm = makeSigma1({ id: "sigma1-elim-offset-test", linkMode: "predictive-variance", params });
+  let state: Sigma1State = algorithm.initState([]);
+  const predictions: Prediction[] = [];
+  for (const m of sequence) {
+    predictions.push(algorithm.predict(state, toUpcoming(m)));
+    state = algorithm.update(state, m);
+  }
+  return { predictions, state };
+}
+
+describe("elimScoreOffset — inert at default, wired when enabled, leak-free, margin-neutral, reset at season boundary", () => {
+  it("DEFAULT_SIGMA1_PARAMS and elimScoreOffsetEwmaAlpha perturbed to an extreme (elimScoreOffsetEnabled stays false) produce byte-identical prediction streams, AND the post-replay accumulator is still { value: 0, count: 0 } for both", () => {
+    const extremeOffParams: Sigma1Params = {
+      ...DEFAULT_SIGMA1_PARAMS,
+      elimScoreOffsetEnabled: false,
+      elimScoreOffsetEwmaAlpha: 0.999,
+    };
+    const defaultRun = elimReplay(DEFAULT_SIGMA1_PARAMS, elimSequence());
+    const offRun = elimReplay(extremeOffParams, elimSequence());
+    expect(JSON.stringify(offRun.predictions)).toBe(JSON.stringify(defaultRun.predictions));
+    expect(defaultRun.state.elimScoreOffset).toEqual({ value: 0, count: 0 });
+    expect(offRun.state.elimScoreOffset).toEqual({ value: 0, count: 0 });
+  });
+
+  it("elimScoreOffsetEnabled: true, over a replay whose elim matches score systematically ABOVE prediction, drives elimScoreOffset.value positive and count up, and raises the elim predictions that follow", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
+    const onRun = elimReplay(onParams, elimBiasedSequence());
+    const offRun = elimReplay(DEFAULT_SIGMA1_PARAMS, elimBiasedSequence());
+
+    expect(onRun.state.elimScoreOffset.value).toBeGreaterThan(0);
+    expect(onRun.state.elimScoreOffset.count).toBeGreaterThan(0);
+
+    // Indices 0-2 are the qm quals (offset never applies there regardless of
+    // the flag). Index 3 is "ef"'s own predict(), which runs BEFORE "ef"'s
+    // own update() ever folds anything — still offset-0, proven directly by
+    // the leak-freeness test below. Indices 4 ("qf") and 5 ("sf") run AFTER
+    // at least one elim fold, so they are where the raise is observable.
+    for (let i = 4; i < onRun.predictions.length; i++) {
+      expect(onRun.predictions[i]!.redScore).toBeGreaterThan(offRun.predictions[i]!.redScore);
+      expect(onRun.predictions[i]!.blueScore).toBeGreaterThan(offRun.predictions[i]!.blueScore);
+    }
+  });
+
+  it("leak-freeness: the FIRST elim match of a cold-started replay is predicted with an offset of EXACTLY 0, even with the flag on", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
+    const onRun = elimReplay(onParams, elimBiasedSequence());
+    const offRun = elimReplay(DEFAULT_SIGMA1_PARAMS, elimBiasedSequence());
+    // Index 3: "ef"'s own predict(), strictly before any elim fold exists.
+    expect(onRun.predictions[3]!.redScore).toBeCloseTo(offRun.predictions[3]!.redScore, 9);
+    expect(onRun.predictions[3]!.blueScore).toBeCloseTo(offRun.predictions[3]!.blueScore, 9);
+  });
+
+  it("margin neutrality (D-13): every elim prediction's redScore - blueScore matches the flag-off run's margin to within floating-point tolerance, and winner is unchanged", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
+    const onRun = elimReplay(onParams, elimBiasedSequence());
+    const offRun = elimReplay(DEFAULT_SIGMA1_PARAMS, elimBiasedSequence());
+    for (let i = 3; i < onRun.predictions.length; i++) {
+      const onMargin = onRun.predictions[i]!.redScore - onRun.predictions[i]!.blueScore;
+      const offMargin = offRun.predictions[i]!.redScore - offRun.predictions[i]!.blueScore;
+      // A TOLERANCE, not an exact equality — D-13's cancellation is
+      // analytic, not bitwise: `(a+k) - (b+k)` is not guaranteed to equal
+      // `a-b` in IEEE-754, so asserting exact equality here would be wrong.
+      expect(onMargin).toBeCloseTo(offMargin, 9);
+      expect(onRun.predictions[i]!.winner).toBe(offRun.predictions[i]!.winner);
+    }
+  });
+
+  it("resets to { value: 0, count: 0 } after carrySeason across a real season boundary, even after learning a nonzero value", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
+    const algorithm = makeSigma1({ id: "sigma1-elim-offset-reset-test", linkMode: "predictive-variance", params: onParams });
+    let state: Sigma1State = algorithm.initState([]);
+    for (const m of elimBiasedSequence()) state = algorithm.update(state, m);
+
+    // Sanity: the accumulator genuinely learned something before the reset —
+    // otherwise this test could pass by never having moved at all.
+    expect(state.elimScoreOffset.value).not.toBe(0);
+    expect(state.elimScoreOffset.count).not.toBe(0);
+
+    const carried = algorithm.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+    expect(carried.elimScoreOffset).toEqual({ value: 0, count: 0 });
+  });
+
+  it("quals are untouched: elimScoreOffsetEnabled: true over a QUALS-ONLY replay (swingingSequence, all qm) is byte-identical to the flag-off run", () => {
+    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
+    expect(JSON.stringify(swingingObservables(onParams))).toBe(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS)));
+  });
+});
+
 describe("fallbackScoreSd — predict-only, but unreachable via a normal replay", () => {
   it("changes season-sd mode's win probability when allianceScoreStats has fewer than 2 folded observations", () => {
     // Architecturally unreachable through a normal predict-then-update
@@ -725,6 +909,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
         priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
         rpSkippedMatchCount: 0,
         breakdownParseFailureCount: 0,
+        elimScoreOffset: emptyElimScoreOffset(),
       };
     }
     const upcoming: UpcomingMatch = {

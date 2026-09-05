@@ -27,6 +27,7 @@ import { ADJUST_COMPONENT, COMPONENT_GROUP_METRIC_KEYS, FOULS_COMMITTED_COMPONEN
 import { TOTAL_METRIC_KEY } from "../types.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 import { emptyInnovationStats } from "./adaptation.js";
+import { emptyElimScoreOffset } from "./elim.js";
 import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
 import { epa } from "../epa.js";
@@ -625,6 +626,7 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
       breakdownParseFailureCount: 0,
+      elimScoreOffset: emptyElimScoreOffset(),
     };
 
     const metrics = vpr.teamMetrics(state, ["NEVERPLAYED", "ONEMATCH"]);
@@ -1330,6 +1332,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       rpSkippedMatchCount: 0,
       breakdownParseFailureCount: 0,
+      elimScoreOffset: emptyElimScoreOffset(),
     };
 
     const fallbackMatch = match({

@@ -77,3 +77,94 @@ export function elimNoiseFactor(compLevel: CompLevel, params: Sigma1ResolvedPara
   if (!isElimination(compLevel)) return 1;
   return params.elimObservationNoiseMultiplier;
 }
+
+/**
+ * ELIM-OFF (quick task 260904-v9n): a LEAGUE-LEVEL (never per-team) additive
+ * elim score offset, learned online as an EWMA of the RAW prediction
+ * residual (`observed alliance total - predicted alliance total`) for
+ * elimination matches, applied to BOTH alliances' predicted scores in
+ * `sigma1/index.ts`'s `predict()`. Independent of `elimNoiseFactor` above —
+ * this mechanism never touches measurement noise or the Kalman fold at all.
+ *
+ * MOTIVATION: the same `reports/rolling-2026-09b` backtest that motivates
+ * `elimNoiseFactor` also measured that elim-minus-qual per-alliance SCORE
+ * bias SHIFTS REGIME by season: -3.5 (2022), -2.8 (2023), +4.2 (2024), +0.5
+ * (2025), -15.2 (2026) points. No fixed cross-season correction can
+ * transfer, so anything score-side must be learned WITHIN the season —
+ * hence an online, within-season EWMA rather than a tuned constant.
+ *
+ * KNOWN LIMITATION (D-13), stated here rather than left to be discovered: a
+ * symmetric league-wide offset added to BOTH alliances CANCELS in the
+ * margin, so it does NOT move `pRedWin`, winner accuracy or Brier — its
+ * purpose is honest published elim SCORE predictions, not accuracy. Be
+ * precise about the arithmetic: it cancels ANALYTICALLY, not bitwise —
+ * `(a+k) - (b+k)` is not guaranteed to equal `a-b` in IEEE-754 — so with the
+ * flag ON, `pRedWin` may differ at ULP scale and a flag-ON digest is not
+ * guaranteed to reproduce a flag-OFF one. At the default `k = 0` the
+ * cancellation IS exact, because `x + 0 === x` for every finite `x`.
+ */
+export interface ElimScoreOffset {
+  readonly value: number;
+  readonly count: number;
+}
+
+/**
+ * A never-observed cold start: `value: 0` (the honest neutral — no
+ * correction until this league's own elim matches say otherwise) and
+ * `count: 0`. `count` exists so "never observed" is distinguishable from
+ * "learned exactly zero", which is what makes a season-reset assertion
+ * meaningful (`carrySeason` must return THIS, not merely a value that
+ * happens to be 0). Deliberately NOT used as a minimum-observations gate the
+ * way `adaptationMinObservations` gates `adaptation.ts`'s `adaptationFactor`:
+ * unlike per-team adaptation, this statistic accumulates across EVERY
+ * concurrent elimination bracket in the league, so it is never thin for
+ * long, and a gate here would be an unmeasured knob rather than a documented
+ * necessity.
+ */
+export function emptyElimScoreOffset(): ElimScoreOffset {
+  return { value: 0, count: 0 };
+}
+
+/**
+ * Folds one alliance's RAW residual (`observed - predicted`, measured from
+ * the PRE-fold state — D-7) into `prior` via an EWMA:
+ * `(1 - alpha) * prior.value + alpha * residual`, with `count` incremented.
+ * Pure — returns a new object, never mutates `prior`.
+ *
+ * D-7's trap, named so nobody re-derives it and loses the fix: the residual
+ * folded here MUST be the RAW one, measured against the UNCORRECTED
+ * prediction. Folding the OFFSET-CORRECTED residual instead would make the
+ * accumulator converge toward zero and the correction would silently
+ * evaporate — the EWMA of the raw residual IS the bias estimate; there is no
+ * second correction to layer on top of it.
+ *
+ * Refuses a non-finite `residual` by throwing, mirroring `adaptation.ts`'s
+ * `foldInnovation` and `swing.ts`'s `foldSwingObservation`, for the identical
+ * reason: a non-finite residual reaching here is a genuine upstream bug
+ * (T-02-01's finite-value gate already ran on `result.redScore`/
+ * `result.blueScore` earlier in `update()`), never an input this function
+ * should paper over.
+ */
+export function foldElimScoreOffset(prior: ElimScoreOffset, residual: number, alpha: number): ElimScoreOffset {
+  if (!Number.isFinite(residual)) {
+    throw new Error(`foldElimScoreOffset: non-finite residual ${residual} — refusing to fold into the elim score offset`);
+  }
+  return {
+    value: (1 - alpha) * prior.value + alpha * residual,
+    count: prior.count + 1,
+  };
+}
+
+/**
+ * The offset APPLIED to one alliance's predicted score in `predict()`.
+ * Returns EXACTLY `0` — not a computed value that happens to be near it — on
+ * TWO INDEPENDENT gates (D-10), either of which alone is sufficient:
+ * `params.elimScoreOffsetEnabled === false` (the whole mechanism is off,
+ * regardless of `compLevel`) and `!isElimination(compLevel)` (a
+ * qualification match, regardless of the flag). Otherwise returns the
+ * accumulated `offset.value` verbatim, with no clamp or transform.
+ */
+export function elimScoreOffsetFor(offset: ElimScoreOffset, compLevel: CompLevel, params: Sigma1ResolvedParams): number {
+  if (!params.elimScoreOffsetEnabled || !isElimination(compLevel)) return 0;
+  return offset.value;
+}

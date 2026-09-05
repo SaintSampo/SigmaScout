@@ -66,7 +66,14 @@ import {
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
 import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
-import { elimNoiseFactor, isElimination } from "./elim.js";
+import {
+  elimNoiseFactor,
+  elimScoreOffsetFor,
+  emptyElimScoreOffset,
+  foldElimScoreOffset,
+  isElimination,
+  type ElimScoreOffset,
+} from "./elim.js";
 // `subsetVariance` and `teamTotalVariance` are deliberately NOT imported here
 // since 5.0.0 (D-V4): they were the R term of the retired `sqrt(P + R)`
 // display construction, and nothing on this module's publish path reads a
@@ -155,7 +162,14 @@ export {
   applyProcessNoise,
   updateAllianceSum,
 } from "./kalman.js";
-export { isElimination, elimNoiseFactor } from "./elim.js";
+export {
+  isElimination,
+  elimNoiseFactor,
+  elimScoreOffsetFor,
+  emptyElimScoreOffset,
+  foldElimScoreOffset,
+  type ElimScoreOffset,
+} from "./elim.js";
 
 function componentColdStartTotal(componentCount: number, params: Sigma1ResolvedParams): number {
   return componentCount > 0 ? params.coldStartTeamTotal / componentCount : 0;
@@ -260,6 +274,23 @@ export interface Sigma1State extends BreakdownParseTelemetry {
    * unchanged" choice) — makes the skip observable rather than silent.
    */
   readonly rpSkippedMatchCount: number;
+  /**
+   * ELIM-OFF (`./elim.js`, quick task 260904-v9n, D-10): the league-level
+   * additive elim score offset's EWMA accumulator. Lives at the TOP level of
+   * `Sigma1State`, beside `allianceScoreStats`, NOT inside `league`
+   * (`Sigma1League` holds only per-COMPONENT maps) — the closest analogue is
+   * `allianceScoreStats` itself, a league-wide scalar statistic at this same
+   * level.
+   *
+   * RESET to `emptyElimScoreOffset()` at every season boundary
+   * (`carrySeason`) and at cold start (`initState`) — D-11: unlike
+   * `allianceScoreStats` (a SCALE, which carries usefully because sigma
+   * moves slowly and resetting it would leave the first matches of a season
+   * with no scale at all), this is an additive BIAS in POINTS under one
+   * season's scoring rules. A stale bias is actively wrong; a missing one is
+   * merely zero, the honest neutral.
+   */
+  readonly elimScoreOffset: ElimScoreOffset;
   // D-Y3 (quick task 260903-750): `perEventVariance` — the retired variance
   // decomposition's per-event normal equations — IS GONE. The published `±` is
   // now one running number per team per metric key (`Sigma1TeamState.swing`),
@@ -284,6 +315,9 @@ function initState(): Sigma1State {
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     rpSkippedMatchCount: 0,
     breakdownParseFailureCount: 0,
+    // ELIM-OFF (quick task 260904-v9n): a never-observed cold start, same
+    // reasoning as every other cumulative accumulator in this state.
+    elimScoreOffset: emptyElimScoreOffset(),
   };
 }
 
@@ -975,6 +1009,31 @@ function allianceOffensiveTotal(components: Record<string, ComponentPrediction>)
 }
 
 /**
+ * D-04/D-8 (quick task 260904-v9n): the cross-attributed alliance-score pair
+ * `predict()` publishes — each side's OWN offensive total plus the OPPOSING
+ * alliance's expected `foulsCommitted` contribution (each side's own
+ * `foulsCommitted` entry represents points ITS fouls would cost the
+ * OPPONENT, mirroring `breakdown/2024.ts`'s parse()-time derivation).
+ *
+ * ONE expression, TWO call sites: `predict()`'s published score AND ELIM-OFF's
+ * `update()` residual fold below, both against the SAME `redComponents`/
+ * `blueComponents` shape. D-8: the two operands, the operator and their order
+ * must stay EXACTLY as written here — IEEE-754 addition is not associative,
+ * and a re-association has flipped a committed digest once already
+ * (`teamOwnComponentVarianceSum`'s own doc comment names that incident).
+ * `digest.test.ts` is the instrument that would catch a re-association here;
+ * if it goes red after touching this function, that is what happened.
+ */
+function crossAttributedAllianceScores(
+  redComponents: Record<string, ComponentPrediction>,
+  blueComponents: Record<string, ComponentPrediction>
+): { redScore: number; blueScore: number } {
+  const redScore = allianceOffensiveTotal(redComponents) + (blueComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
+  const blueScore = allianceOffensiveTotal(blueComponents) + (redComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
+  return { redScore, blueScore };
+}
+
+/**
  * One team's own posterior (P) sum: `belief.variance` totalled over every
  * component this team has a belief for, starting from `seed` (default 0).
  * The per-team half of `allianceComponentVarianceSum` below (which resolves
@@ -1042,15 +1101,19 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   const redComponents = allianceComponentPredictions(state, redTeams);
   const blueComponents = allianceComponentPredictions(state, blueTeams);
 
-  // D-04: a predicted alliance score must include the OPPOSING alliance's
-  // expected foulsCommitted contribution. Each side's OWN foulsCommitted
-  // entry represents points ITS fouls would cost the OPPONENT (mirrors
-  // breakdown/2024.ts's parse()-time derivation, which reads this same
-  // component from the OPPOSING side's raw foulPoints field) — so it is
-  // excluded from that side's own offensive total and added to the
-  // opponent's predicted score instead.
-  const redScore = allianceOffensiveTotal(redComponents) + (blueComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
-  const blueScore = allianceOffensiveTotal(blueComponents) + (redComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
+  // D-04/D-8: a predicted alliance score must include the OPPOSING
+  // alliance's expected foulsCommitted contribution — see
+  // `crossAttributedAllianceScores`'s own doc comment for the full argument
+  // and for why this expression has exactly two call sites.
+  const { redScore: redRawScore, blueScore: blueRawScore } = crossAttributedAllianceScores(redComponents, blueComponents);
+  // ELIM-OFF (D-10, quick task 260904-v9n): a SEPARATE step after the raw
+  // totals, so at the default `elimScoreOffset` cold start (`value: 0`) the
+  // addition is exact (`x + 0 === x` for every finite `x`). Applied to BOTH
+  // alliances identically, which is what makes it cancel in the margin
+  // (D-13's known limitation, documented in full on `elimScoreOffsetFor`).
+  const elimOffsetValue = elimScoreOffsetFor(state.elimScoreOffset, match.compLevel, resolved);
+  const redScore = redRawScore + elimOffsetValue;
+  const blueScore = blueRawScore + elimOffsetValue;
 
   // D-10: full predictive variance = P + Q + R, combined per D-03 across
   // the alliance. The posterior sums below are P+Q (every teammate's
@@ -1362,6 +1425,44 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
   if (!redIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
   if (!blueIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
+  // ELIM-OFF (D-7/D-9/D-10, quick task 260904-v9n): learned ONLY when the
+  // flag is on AND this is an elimination match — both directions of D-10's
+  // inertness guarantee live at this one gate: with the flag off, the
+  // accumulator never leaves its cold start (the STATE is inert, not just
+  // the output).
+  let elimScoreOffset = state.elimScoreOffset;
+  if (resolved.elimScoreOffsetEnabled && isElimination(result.compLevel)) {
+    // D-8: the SAME cross-attributed expression `predict()` publishes,
+    // built from the PRE-fold `state` (Pitfall EPA-1's leak-freeness applied
+    // here too — never the post-fold `afterRed`/`afterBlue` teams) — never a
+    // second derivation, and never `predictedComponentTotals` (that
+    // quantity's own doc comment records it includes the alliance's OWN
+    // fouls rather than the opponent's, the exact confusion CR-01/WR-03
+    // already cost this codebase once).
+    const redPreFoldComponents = allianceComponentPredictions(state, redTeams);
+    const bluePreFoldComponents = allianceComponentPredictions(state, blueTeams);
+    const { redScore: redPredictedRaw, blueScore: bluePredictedRaw } = crossAttributedAllianceScores(
+      redPreFoldComponents,
+      bluePreFoldComponents
+    );
+    // D-9: one guard covers every skip case — fold an alliance's residual
+    // only when its update-team list is non-empty, the SAME predicate
+    // `applyAllianceUpdate`'s own early return already uses (not
+    // ruling-zero AND not all-surrogate; a fully-demo match is already
+    // dropped by this function's first line). A `usedFallback` match DOES
+    // fold: the alliance TOTAL is always known even when its breakdown is
+    // not — the same fact `allianceScoreStats`'s own fold above relies on.
+    if (redUpdateTeams.length > 0) {
+      // D-7: the RAW residual, against the UNCORRECTED prediction — folding
+      // the offset-corrected residual instead would make the accumulator
+      // converge toward zero and the correction would silently evaporate.
+      elimScoreOffset = foldElimScoreOffset(elimScoreOffset, result.redScore - redPredictedRaw, resolved.elimScoreOffsetEwmaAlpha);
+    }
+    if (blueUpdateTeams.length > 0) {
+      elimScoreOffset = foldElimScoreOffset(elimScoreOffset, result.blueScore - bluePredictedRaw, resolved.elimScoreOffsetEwmaAlpha);
+    }
+  }
+
   // D-09: the RP threshold-variable fold, kept SEPARATE from the score-side
   // fold above — never touches `afterBlue.teams`' score fields, never
   // recomputes anything the score side already produced. Skipped entirely
@@ -1452,6 +1553,7 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
     priorSeasonRatings: state.priorSeasonRatings,
     rpSkippedMatchCount,
     breakdownParseFailureCount,
+    elimScoreOffset,
   };
 }
 
@@ -1794,6 +1896,13 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
     // whole lifetime, never reset at a season boundary — identical
     // "carry forward unchanged" treatment to `rpSkippedMatchCount` above.
     breakdownParseFailureCount: state.breakdownParseFailureCount,
+    // ELIM-OFF (D-11, quick task 260904-v9n): RESET, the opposite choice
+    // from `allianceScoreStats`/`league` above. Those carry forward because
+    // a SCALE moves slowly and resetting it would leave the first matches of
+    // a season with no scale at all; this is an additive BIAS in POINTS
+    // under one season's scoring rules, and a stale bias is actively wrong
+    // where a missing one is merely zero, the honest neutral.
+    elimScoreOffset: emptyElimScoreOffset(),
   };
 }
 
