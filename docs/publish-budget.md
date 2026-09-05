@@ -41,10 +41,15 @@ unloadable-on-flip). `pnpm manifest:algorithms` ran after the artifact publish c
 distinct generation equal to the run's own summary line. Honesty notes: no pre-publish baseline
 generation was snapshotted this time, and the concurrent-process check was not run (single
 session, single backgrounded invocation, no retry). The three `wrangler d1 execute ... --file
-reports/publish/seed-{id}.sql` applications were NOT run as part of this entry — pending
-operator approval — so the live Worker's D1 rows remain shape-7 until they are applied; the
-shape-8 loader refuses stale rows loudly by design, so the failure mode is a refused load at the
-next live tick, not silent wrong state.
+reports/publish/seed-{id}.sql` applications landed the same day, after an initial
+permission-classifier block: the operator ran epa and vpr from their own terminal (~21:00Z), and
+seed-opr.sql — which had silently not applied in that pass (read-back showed opr still at the
+2026-08-28 generation `47d020a4`, RETIRED shape 2; its first invocation had been interrupted by
+an npx install prompt) — was applied from the session afterward (36 queries, 15,895 rows
+written). Post-apply read-back: all three algorithms at generation
+`17966b1d-3026-4763-9331-26fb3ca0d4eb`, every league row `snapshotShapeVersion: 8` (epa 5,764
+rows, vpr 5,764, opr 3,967). The read-back-per-algorithm step exists because "ran the three
+commands" and "three algorithms seeded" were, in this very run, different facts.
 
 **Prior seven-season run, 2026-09-04 (ET; 2026-09-05 UTC), quick task 260904-nt4's republish —
 the FIRST run to publish 2019 and 2020
