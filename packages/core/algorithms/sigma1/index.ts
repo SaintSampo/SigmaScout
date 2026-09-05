@@ -1844,7 +1844,35 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       // would be the opposite claim (perfect certainty after a layoff) and
       // would freeze the component's gain.
       const coldStartVariance = seedConsistencyFor(state.league, name, resolved);
-      beliefs[name] = { mean: share, variance: coldStartVariance };
+      // D-1 (quick task 260905-kjb, CVR-WIRE): `carryVarianceFactor` scales
+      // this cold-start variance prior for a RETURNING team. The gate is
+      // TEAM-level (`oldTeamState !== undefined`, already in scope above),
+      // deliberately NOT `oldTeamState?.consistency[name] !== undefined` —
+      // narrowing to a per-component carried-evidence gate would silently
+      // re-collapse this knob's reach to `foulsCommitted` alone, exactly the
+      // defect this field's own params.ts doc comment records. At exactly
+      // `1` — the default — this is an EXPLICIT equality branch, not an
+      // algebraic form that merely happens to evaluate to the same number:
+      // that branch is the whole inertness proof, and therefore the whole
+      // basis for this task's SIGMA1_CODE_VERSION non-bump.
+      //
+      // Degenerate-input note, carried forward as a comment rather than a
+      // guard: this is a MULTIPLICATIVE seed, so — unlike a geometric
+      // (division-shaped) form — it cannot produce `Infinity`/`NaN` even if
+      // `coldStartVariance` is zero. `coldStartVariance` is NOT provably
+      // positive (`params.ts`'s `minConsistencyVarianceRel` schema entry has
+      // no positivity constraint, so a hand-constructed — never a searched
+      // or promoted — parameter set could drive it to zero or below). At
+      // `coldStartVariance === 0` the expression below collapses to
+      // `max(minConsistencyVariance, 0)`, i.e. `coldStartVariance` itself —
+      // self-neutralising, no guard needed. A future division-shaped
+      // (geometric) reformulation must NOT assume the base is safe to divide
+      // by; this is the fact that makes it unsafe there.
+      const seededVariance =
+        resolved.carryVarianceFactor === 1 || oldTeamState === undefined
+          ? coldStartVariance
+          : Math.max(resolved.minConsistencyVariance, coldStartVariance * resolved.carryVarianceFactor);
+      beliefs[name] = { mean: share, variance: seededVariance };
       const carriedObserved = oldTeamState?.consistency[name] ?? coldStartVariance;
       consistency[name] = carriedObserved * consistencyDecayOverGap;
     }

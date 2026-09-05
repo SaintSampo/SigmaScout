@@ -820,6 +820,54 @@ export interface Sigma1Params {
    * optimise noise.
    */
   readonly elimScoreOffsetEwmaAlpha: number;
+  /**
+   * D-1 (`carrySeason`, quick task 260905-kjb, CVR-PARAM/CVR-WIRE): a UNIFORM
+   * PER-TEAM multiplier on the cold-start belief-VARIANCE prior a returning
+   * team is seeded with at a season boundary — applied in `carrySeason`
+   * ONLY to a team that has carried state (`oldTeamState !== undefined`),
+   * and applied to EVERY modeled component of the incoming season without
+   * reference to that component's name.
+   *
+   * Default `1` is exactly today's behaviour, via an EXPLICIT `=== 1`
+   * branch in `carrySeason` — a full cold-start reset, no retention at all.
+   * Values below 1 seed a returning team with proportionally MORE
+   * confidence than a first-timer, the asymmetry
+   * `reports/autopsy-260905/FINDINGS.md` diagnosed VPR as missing relative
+   * to EPA.
+   *
+   * DIMENSIONLESS: a unitless multiplier on a variance already in the right
+   * units, so — exactly like `elimObservationNoiseMultiplier` above — it
+   * passes through `resolveSigma1Params` completely unchanged rather than
+   * being one of the five `*Rel` fields the `Omit` removes.
+   *
+   * MOTIVATED by quick task 260905-jyf's two-candidate Stage 1 experiment,
+   * whose result points both ways: R1 (a NAME-MATCHED, per-component
+   * carried seed) won its pre-committed criteria — early-slice accuracy up
+   * on both 2023 (0.7402 -> 0.7413) and 2025 (0.7405 -> 0.7407), every
+   * season inside +/-0.4 SE, pooled Brier 0.1593 -> 0.1590 — validating the
+   * DIRECTION, but by an order of magnitude under the ~1.3pt EPA-vs-VPR
+   * early-slice gap it targeted. R2 (a TEAM-LEVEL uniform factor derived
+   * from `reversionOverGap(carryMeanReversion, gap)`) closed NEGATIVE at
+   * -10.46 pooled SE-units, three seasons breaching the -2.0 SE floor —
+   * saying the DOSE (its own derived value, ~0.069) was far too aggressive,
+   * not that the shape was wrong.
+   *
+   * The REACH is deliberately TEAM-LEVEL (R2's gate), not per-component
+   * name-matched (R1's gate): FRC component names are season-specific, so
+   * a per-component carried-evidence gate (`oldTeamState?.consistency[name]
+   * !== undefined`) reaches only `foulsCommitted` at any real season
+   * boundary — checked across all five seasons' `OWN_FIELD_COMPONENT_MAP`s
+   * plus `FOULS_COMMITTED_COMPONENT` — which is a knob not worth tuning.
+   * This field uses R2's team-level reach so it moves EVERY modeled
+   * component's seed for a returning team.
+   *
+   * The VALUE is free and searchable (`searchSpace.ts`) and must NEVER be
+   * re-derived from `reversionOverGap(carryMeanReversion, gap)` — that
+   * specific derivation is what measured negative above. This field
+   * borrows R2's reach condition and multiplicative shape while leaving
+   * the dose itself to the search.
+   */
+  readonly carryVarianceFactor: number;
 }
 
 /**
@@ -880,6 +928,9 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   elimScoreOffsetEnabled: false,
   // D-7: roughly a 13-observation half-life, chosen rather than tuned.
   elimScoreOffsetEwmaAlpha: 0.05,
+  // D-1 (quick task 260905-kjb, CVR-PARAM): exactly 1 — a full cold-start
+  // reset, today's behaviour, until the re-tune says otherwise.
+  carryVarianceFactor: 1,
 };
 
 /**
@@ -964,6 +1015,17 @@ export const Sigma1ParamsSchema = z
     // is what keeps every committed file parsing with the mechanism inert.
     elimScoreOffsetEnabled: z.boolean().default(false),
     elimScoreOffsetEwmaAlpha: z.number().finite().default(0.05),
+    // D-1/CVR-PARAM (quick task 260905-kjb): `.default(1)` is what lets
+    // every already-committed `vpr@8.0.0+*.json` file — none of which
+    // carries this key — still parse and resolve inert, the same argument
+    // the elim fields' defaults carry above. `.positive()` excludes `0`,
+    // which would seed a returning team at ZERO variance (perfect certainty
+    // after a layoff — the exact claim `seedConsistencyFor`'s floor exists
+    // to refuse). `.max(1)` is a real constraint, not decoration: a factor
+    // above 1 would mean trusting a returning team LESS than a first-timer,
+    // the opposite of the hypothesis this stage tests and not a question
+    // this knob is asking.
+    carryVarianceFactor: z.number().finite().positive().max(1).default(1),
   })
   .check((ctx) => {
     const value = ctx.value;

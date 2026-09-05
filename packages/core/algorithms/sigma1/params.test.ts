@@ -10,7 +10,7 @@
  * actually surfaces — see each group's own comment).
  */
 import { describe, expect, it } from "vitest";
-import { makeSigma1, type Sigma1State } from "./index.js";
+import { makeSigma1, type Sigma1State, type TeamComponentBelief } from "./index.js";
 import {
   DEFAULT_SIGMA1_PARAMS,
   SIGMA1_PARAM_KEYS,
@@ -23,13 +23,14 @@ import { emptyElimScoreOffset } from "./elim.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
 import { SIGMA1_SWING_HALF_LIFE_MATCHES, SIGMA1_SWING_SCALE, emptyTeamSwing } from "./swing.js";
-import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE } from "./covariance.js";
+import { SIGMA1_COV_EWMA_ALPHA, SIGMA1_COV_SHRINKAGE, emptyCovariance } from "./covariance.js";
 import { SIGMA1_LINK_C } from "./linkFunctions.js";
 import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVERSION } from "../carryover.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
 import { resolveSigma1Params } from "./scale.js";
 import { FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fallback.js";
 import type { MatchResult, Prediction, UpcomingMatch } from "../types.js";
+import { ADJUST_COMPONENT } from "../breakdown/constants.js";
 
 function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">): MatchResult {
   return {
@@ -847,6 +848,234 @@ describe("elimScoreOffset — inert at default, wired when enabled, leak-free, m
   it("quals are untouched: elimScoreOffsetEnabled: true over a QUALS-ONLY replay (swingingSequence, all qm) is byte-identical to the flag-off run", () => {
     const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, elimScoreOffsetEnabled: true };
     expect(JSON.stringify(swingingObservables(onParams))).toBe(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS)));
+  });
+});
+
+/**
+ * D-1's end-to-end proof (quick task 260905-kjb, CVR-WIRE): `carrySeason`'s
+ * belief-variance seed for a RETURNING team, scaled by `carryVarianceFactor`
+ * — inert at the default, wired when moved, gated on the SEASON BOUNDARY
+ * (not the parameter's mere presence), reaching EVERY modeled component of
+ * the incoming season (not merely a per-component name match, which is the
+ * design this revision replaced), and floored at `minConsistencyVariance`
+ * like every other seeded variance in this file.
+ */
+
+/**
+ * (a) RED and BLUE must accumulate DIFFERENT totals in 2024: under
+ * `predictive-variance` link mode a zero predicted margin pins `pRedWin` at
+ * exactly 0.5 regardless of variance, so a SYMMETRIC fixture could not show
+ * this knob's wiring effect at all. `rawBreakdown2024Split` (defined above
+ * for the elim-offset tests) keeps T1/T2/T3 consistently ahead of T4/T5/T6
+ * across both matches.
+ */
+function carryVarianceBoundarySequence(): MatchResult[] {
+  const qualPairs: readonly [number, number][] = [
+    [20, 8],
+    [22, 9],
+  ];
+  return qualPairs.map(([redVal, blueVal], i) =>
+    match({
+      matchKey: `2024eventa_qm${i + 1}`,
+      eventKey: "2024eventa",
+      redTeams: ["T1", "T2", "T3"],
+      blueTeams: ["T4", "T5", "T6"],
+      redScore: 13 * redVal,
+      blueScore: 13 * blueVal,
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: rawBreakdown2024Split(redVal, blueVal),
+    })
+  );
+}
+
+/** A single 2025 predict() for the same six teams, after a REAL 2024 -> 2025 `carrySeason` crossing. */
+function carryVarianceObservables(params: Sigma1Params): unknown {
+  const algorithm = makeSigma1({ id: "sigma1-carry-variance-test", linkMode: "predictive-variance", params });
+  let state: Sigma1State = algorithm.initState([]);
+  for (const m of carryVarianceBoundarySequence()) state = algorithm.update(state, m);
+  const carried = algorithm.carrySeason!(state, { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+  return algorithm.predict(carried, {
+    matchKey: "2025eventc_qm1",
+    eventKey: "2025eventc",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 1,
+    redTeams: ["T1", "T2", "T3"],
+    blueTeams: ["T4", "T5", "T6"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: 0,
+  });
+}
+
+describe("Sigma1ParamsSchema — carryVarianceFactor (D-1, CVR-PARAM)", () => {
+  it("parses an object omitting the field and defaults it to exactly 1 — the executable proof every committed vpr@8.0.0+*.json file still parses unchanged", () => {
+    const { carryVarianceFactor: _omitted, ...withoutIt } = DEFAULT_SIGMA1_PARAMS;
+    const parsed = Sigma1ParamsSchema.parse(withoutIt);
+    expect(parsed.carryVarianceFactor).toBe(1);
+  });
+
+  it.each([0, -0.1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects %s (outside the open-closed (0, 1] domain)",
+    (value) => {
+      expect(Sigma1ParamsSchema.safeParse({ ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor: value }).success).toBe(false);
+    }
+  );
+
+  it.each([0.05, 0.3, 0.75, 1])("accepts %s", (value) => {
+    expect(Sigma1ParamsSchema.safeParse({ ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor: value }).success).toBe(true);
+  });
+});
+
+describe("carryVarianceFactor — inert at 1, wired at 0.3, gated on the season boundary (D-1, CVR-WIRE)", () => {
+  it("DEFAULT_SIGMA1_PARAMS and an explicit carryVarianceFactor: 1 produce byte-identical prediction streams across a real 2024 -> 2025 season boundary", () => {
+    const explicitParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor: 1 };
+    const defaultRun = carryVarianceObservables(DEFAULT_SIGMA1_PARAMS);
+    const explicitRun = carryVarianceObservables(explicitParams);
+    expect(JSON.stringify(explicitRun)).toBe(JSON.stringify(defaultRun));
+  });
+
+  it("carryVarianceFactor: 0.3 across that same boundary produces a stream that DIFFERS from the default — the mechanism is wired, not decorative", () => {
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor: 0.3 };
+    const movedRun = carryVarianceObservables(movedParams);
+    const defaultRun = carryVarianceObservables(DEFAULT_SIGMA1_PARAMS);
+    expect(JSON.stringify(movedRun)).not.toBe(JSON.stringify(defaultRun));
+  });
+
+  it("carryVarianceFactor: 0.3 over a SINGLE-SEASON, no-boundary replay (swingingSequence, all qm) is byte-identical to the default — proves the gate is carrySeason, not the parameter's mere presence", () => {
+    const movedParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor: 0.3 };
+    expect(JSON.stringify(swingingObservables(movedParams))).toBe(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS)));
+  });
+});
+
+/**
+ * A hand-built FROM-season (2024) state with exactly ONE returning team
+ * ("T1", present in `state.teams`) and exactly one CARRY-WORTHY BUT
+ * NON-RETURNING team ("T99", present ONLY in `priorSeasonRatings.lastSeason`
+ * — `carryover.ts`'s `epaCarryover` `carryWorthyTeams` union is the ONLY
+ * route by which a team can reach `carryResult.teamPointTotals` without ever
+ * being in `state.teams`: a rating carried INTO `fromSeason` from the season
+ * before it, for a team that then sat out `fromSeason` entirely). `league`
+ * is deliberately EMPTY so `seedConsistencyFor` resolves to the SAME
+ * `coldStartConsistencyVariance` for every component, making the seeded
+ * variances directly comparable across factors and across components.
+ */
+function stateForCarryVarianceProbe(): Sigma1State {
+  const componentOrder = [
+    "autoLeave",
+    "autoAmpNote",
+    "autoSpeakerNote",
+    "teleopAmpNote",
+    "teleopSpeakerNote",
+    "teleopSpeakerNoteAmplified",
+    "endGameOnStage",
+    "endGamePark",
+    "endGameHarmony",
+    "endGameNoteInTrap",
+    "endGameSpotLightBonus",
+    ADJUST_COMPONENT,
+    "foulsCommitted",
+  ];
+  const beliefs: Record<string, TeamComponentBelief> = {};
+  const consistency: Record<string, number> = {};
+  for (const name of componentOrder) {
+    beliefs[name] = { mean: 10, variance: 4 };
+    consistency[name] = 4;
+  }
+  return {
+    season: 2024,
+    componentOrder,
+    teams: new Map([
+      [
+        "T1",
+        {
+          beliefs,
+          covariance: emptyCovariance(componentOrder.length),
+          consistency,
+          matchCount: 3,
+          lastEventKey: "2024eventa",
+          innovationStats: emptyInnovationStats(),
+          rpBeliefs: {},
+          rpCovariance: [],
+          rpCrossCovariance: [],
+          swing: emptyTeamSwing(),
+        },
+      ],
+    ]),
+    league: { componentMean: {}, componentConsistency: {}, rpVariableMean: {} },
+    allianceScoreStats: emptyExpandingStats(),
+    priorSeasonRatings: { lastSeason: new Map([["T99", 0]]), yearBefore: new Map() },
+    rpSkippedMatchCount: 0,
+    breakdownParseFailureCount: 0,
+    elimScoreOffset: emptyElimScoreOffset(),
+  };
+}
+
+function carriedStateAt(carryVarianceFactor: number): Sigma1State {
+  const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, carryVarianceFactor };
+  const algorithm = makeSigma1({ id: "sigma1-carry-variance-probe", linkMode: "predictive-variance", params });
+  return algorithm.carrySeason!(stateForCarryVarianceProbe(), { fromSeason: 2024, toSeason: 2025, isColdStart: false });
+}
+
+describe("carrySeason's seeded variance, read directly off state (D-1, CVR-WIRE)", () => {
+  it("no-carried-state branch: T99 (carry-worthy via priorSeasonRatings, absent from state.teams) has EVERY seeded belief variance bitwise equal at carryVarianceFactor 0.05 and 1", () => {
+    const factor1 = carriedStateAt(1);
+    const factor005 = carriedStateAt(0.05);
+    const t99At1 = factor1.teams.get("T99");
+    const t99At005 = factor005.teams.get("T99");
+    expect(t99At1).toBeDefined();
+    expect(t99At005).toBeDefined();
+    for (const name of factor1.componentOrder) {
+      expect(t99At005!.beliefs[name]!.variance).toBe(t99At1!.beliefs[name]!.variance);
+    }
+  });
+
+  it("ALL-COMPONENTS reach: for the returning team T1 at carryVarianceFactor 0.3, EVERY modeled component of the incoming (2025) season is seeded at max(minConsistencyVariance, itsColdStartVariance * 0.3) — including 'algae', a component present in 2025's own OWN_FIELD_COMPONENT_MAP and ABSENT from 2024's", () => {
+    const factor1 = carriedStateAt(1);
+    const factor03 = carriedStateAt(0.3);
+    const t1At1 = factor1.teams.get("T1")!;
+    const t1At03 = factor03.teams.get("T1")!;
+    // A component whose NAME does not survive the boundary — checked
+    // directly against breakdown/2024.ts and breakdown/2025.ts's own
+    // OWN_FIELD_COMPONENT_MAPs, not assumed. Both t1At1 and t1At03 target
+    // the SAME incoming (2025) component set regardless of factor — the
+    // absence to check is against the OUTGOING (2024) shape the fixture's
+    // own `stateForCarryVarianceProbe` state was built with, not against
+    // either carried result. A per-component NAME-MATCHED gate (Stage 1's
+    // R1 shape, which this design deliberately replaced) could never move
+    // "algae", because `oldTeamState.consistency["algae"]` is always
+    // `undefined` at this real boundary. This field's TEAM-level gate does
+    // move it — that is the entire point of this pin.
+    expect(stateForCarryVarianceProbe().componentOrder).not.toContain("algae");
+    expect(Object.keys(t1At1.beliefs)).toContain("algae");
+    expect(Object.keys(t1At03.beliefs)).toContain("algae");
+
+    const resolved = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
+    for (const name of Object.keys(t1At03.beliefs)) {
+      if (name === ADJUST_COMPONENT) continue;
+      // Factor 1 IS `coldStartVariance` bitwise, by the explicit `=== 1`
+      // branch the inertness test above already establishes independently —
+      // both t1At1 and t1At03 are carries of the SAME fixture state, so this
+      // read is exact rather than approximate.
+      const coldStartVariance = t1At1.beliefs[name]!.variance;
+      const expected = Math.max(resolved.minConsistencyVariance, coldStartVariance * 0.3);
+      expect(t1At03.beliefs[name]!.variance).toBeCloseTo(expected, 9);
+    }
+  });
+
+  it("pinned branch: 'adjust' remains exactly { mean: 0, variance: 0 } at every carryVarianceFactor value tested", () => {
+    for (const factor of [0.05, 0.3, 1]) {
+      const t1 = carriedStateAt(factor).teams.get("T1")!;
+      expect(t1.beliefs[ADJUST_COMPONENT]).toEqual({ mean: 0, variance: 0 });
+    }
+  });
+
+  it("monotonicity: for T1's own 'autoMobility' (a component modeled in the incoming 2025 season), seeded variance at factor 0.25 is strictly less than at 0.5, strictly less than at 1", () => {
+    const at025 = carriedStateAt(0.25).teams.get("T1")!.beliefs["autoMobility"]!.variance;
+    const at05 = carriedStateAt(0.5).teams.get("T1")!.beliefs["autoMobility"]!.variance;
+    const at1 = carriedStateAt(1).teams.get("T1")!.beliefs["autoMobility"]!.variance;
+    expect(at025).toBeLessThan(at05);
+    expect(at05).toBeLessThan(at1);
   });
 });
 
