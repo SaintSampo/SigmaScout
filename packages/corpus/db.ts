@@ -1368,6 +1368,73 @@ export function selectEventTeamsForEvents(db: Corpus, eventKeys: string[]): Map<
   return result;
 }
 
+export interface CorpusEventAward {
+  eventKey: string;
+  awardType: number;
+  teamKey: string;
+  year: number;
+  fetchedAt: string;
+}
+
+/**
+ * Upserts one award recipient row (quick task 260905-lic revision R2a),
+ * sourced from TBA's `/event/{key}/awards`. Mirrors `upsertEventTeam`'s
+ * upsert-on-conflict shape; the `(event_key, award_type, team_key)` primary
+ * key makes a re-run idempotent.
+ */
+export function upsertEventAward(db: Corpus, award: CorpusEventAward): void {
+  db.prepare(
+    `INSERT INTO event_awards (event_key, award_type, team_key, year, fetched_at)
+     VALUES (@eventKey, @awardType, @teamKey, @year, @fetchedAt)
+     ON CONFLICT(event_key, award_type, team_key) DO UPDATE SET
+       year = excluded.year,
+       fetched_at = excluded.fetched_at`
+  ).run({
+    eventKey: award.eventKey,
+    awardType: award.awardType,
+    teamKey: award.teamKey,
+    year: award.year,
+    fetchedAt: award.fetchedAt,
+  });
+}
+
+interface EventAwardRow {
+  event_key: string;
+  award_type: number;
+  team_key: string;
+  year: number;
+  fetched_at: string;
+}
+
+/**
+ * Every stored award-recipient row for a set of event keys, keyed by event
+ * key (quick task 260905-lic revision R2a) -- mirrors
+ * `selectEventTeamsForEvents`'s absence discipline: an event with no
+ * upserted awards is absent from the returned map entirely, no key, no
+ * zero-length placeholder entry.
+ */
+export function selectEventAwardsForEvents(db: Corpus, eventKeys: string[]): Map<string, CorpusEventAward[]> {
+  const result = new Map<string, CorpusEventAward[]>();
+  if (eventKeys.length === 0) return result;
+  const placeholders = eventKeys.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT event_key, award_type, team_key, year, fetched_at FROM event_awards WHERE event_key IN (${placeholders})`
+    )
+    .all(...eventKeys) as EventAwardRow[];
+  for (const row of rows) {
+    if (!result.has(row.event_key)) result.set(row.event_key, []);
+    result.get(row.event_key)!.push({
+      eventKey: row.event_key,
+      awardType: row.award_type,
+      teamKey: row.team_key,
+      year: row.year,
+      fetchedAt: row.fetched_at,
+    });
+  }
+  return result;
+}
+
 export function selectCorpusSeasons(db: Corpus): number[] {
   const rows = db
     .prepare(

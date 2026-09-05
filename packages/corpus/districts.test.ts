@@ -14,14 +14,17 @@ import {
   openCorpus,
   selectDistrictRankings,
   selectDistrictsForYear,
+  selectEventAwardsForEvents,
   selectEventTeamsForEvents,
   upsertDistrict,
   upsertDistrictRanking,
   upsertEvent,
+  upsertEventAward,
   upsertEventTeam,
   type Corpus,
   type CorpusDistrict,
   type CorpusDistrictRanking,
+  type CorpusEventAward,
   type CorpusEventTeam,
 } from "./db.js";
 
@@ -58,6 +61,17 @@ function eventTeam(overrides: Partial<CorpusEventTeam> = {}): CorpusEventTeam {
   return {
     eventKey: "2026ncwak",
     teamKey: "frc4561",
+    fetchedAt: "2026-09-05T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function eventAward(overrides: Partial<CorpusEventAward> = {}): CorpusEventAward {
+  return {
+    eventKey: "2026ncwak",
+    awardType: 0,
+    teamKey: "frc4561",
+    year: 2026,
     fetchedAt: "2026-09-05T00:00:00.000Z",
     ...overrides,
   };
@@ -214,6 +228,55 @@ describe("districts / district_rankings / event_teams corpus accessors (quick ta
       upsertEventTeam(db, eventTeam());
       const result = selectEventTeamsForEvents(db, ["2026ncwak"]);
       expect(result.get("2026ncwak")).toEqual(["frc4561"]);
+    });
+  });
+
+  describe("upsertEventAward / selectEventAwardsForEvents (revision R2a)", () => {
+    it("round-trips an award recipient row", () => {
+      upsertEventAward(db, eventAward());
+      const result = selectEventAwardsForEvents(db, ["2026ncwak"]);
+      expect(result.get("2026ncwak")).toEqual([eventAward()]);
+    });
+
+    it("throws on an award row whose event_key has no matching events row (event_key REFERENCES events(event_key))", () => {
+      expect(() => upsertEventAward(db, eventAward({ eventKey: "2026doesnotexist" }))).toThrow(
+        /FOREIGN KEY constraint failed/i
+      );
+    });
+
+    it("carries no REFERENCES teams(team_key) constraint — a synthetic second-robot team key does not throw", () => {
+      expect(() => upsertEventAward(db, eventAward({ teamKey: "frc1165B" }))).not.toThrow();
+    });
+
+    it("an event with no upserted awards is absent from the returned map entirely, no placeholder entry", () => {
+      const result = selectEventAwardsForEvents(db, ["2026ncwak"]);
+      expect(result.has("2026ncwak")).toBe(false);
+    });
+
+    it("returns an empty map for an empty eventKeys array, does not query the database", () => {
+      const result = selectEventAwardsForEvents(db, []);
+      expect(result.size).toBe(0);
+    });
+
+    it("groups multiple recipients (different award types and teams) under the same event key", () => {
+      upsertEventAward(db, eventAward({ awardType: 0, teamKey: "frc1" }));
+      upsertEventAward(db, eventAward({ awardType: 9, teamKey: "frc2" }));
+      const result = selectEventAwardsForEvents(db, ["2026ncwak"]);
+      expect(result.get("2026ncwak")?.map((r) => `${r.awardType}:${r.teamKey}`).sort()).toEqual(["0:frc1", "9:frc2"]);
+    });
+
+    it("upserting the same (event_key, award_type, team_key) twice overwrites rather than duplicates", () => {
+      upsertEventAward(db, eventAward());
+      upsertEventAward(db, eventAward());
+      const result = selectEventAwardsForEvents(db, ["2026ncwak"]);
+      expect(result.get("2026ncwak")).toHaveLength(1);
+    });
+
+    it("a single event can carry two different award types for the same team without a primary-key collision", () => {
+      upsertEventAward(db, eventAward({ awardType: 0 }));
+      upsertEventAward(db, eventAward({ awardType: 9 }));
+      const result = selectEventAwardsForEvents(db, ["2026ncwak"]);
+      expect(result.get("2026ncwak")?.map((r) => r.awardType).sort()).toEqual([0, 9]);
     });
   });
 });

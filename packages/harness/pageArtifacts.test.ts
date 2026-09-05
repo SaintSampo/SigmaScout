@@ -1210,17 +1210,22 @@ function validDistrictFixture() {
         remainingEvents: [],
         maxRemainingDistrict: 0,
         maxRemainingChamp: 0,
+        qualifyingAwards: [
+          { eventKey: "2026ncwak", awardType: 9, label: "Engineering Inspiration", awardOnly: true },
+        ],
         districtLock: {
-          status: "locked" as "locked" | "eliminated" | "contending" | "unknown",
+          status: "locked" as "locked" | "lockedAward" | "prequalified" | "eliminated" | "contending" | "unknown",
           pointsToLock: 0 as number | null,
           threatCount: 0,
           cutLinePoints: 300 as number | null,
+          allocationNote: null as string | null,
         },
         champLock: {
-          status: "contending" as "locked" | "eliminated" | "contending" | "unknown",
+          status: "contending" as "locked" | "lockedAward" | "prequalified" | "eliminated" | "contending" | "unknown",
           pointsToLock: 12 as number | null,
           threatCount: 5,
           cutLinePoints: 340 as number | null,
+          allocationNote: null as string | null,
         },
       },
     ],
@@ -1265,13 +1270,13 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 2609
 
   it("DistrictArtifactSchema's lock verdict accepts an unknown status with a null pointsToLock and null cutLinePoints", () => {
     const fixture = validDistrictFixture();
-    fixture.teams[0]!.districtLock = { status: "unknown", pointsToLock: null, threatCount: 0, cutLinePoints: null };
+    fixture.teams[0]!.districtLock = { status: "unknown", pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null };
     expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
   });
 
   it("DistrictArtifactSchema rejects an unknown lock status literal", () => {
     const fixture = validDistrictFixture() as unknown as { teams: Array<{ districtLock: Record<string, unknown> }> };
-    fixture.teams[0]!.districtLock = { status: "not-a-real-status", pointsToLock: 0, threatCount: 0, cutLinePoints: 0 };
+    fixture.teams[0]!.districtLock = { status: "not-a-real-status", pointsToLock: 0, threatCount: 0, cutLinePoints: 0, allocationNote: null };
     expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
   });
 
@@ -1280,6 +1285,42 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 2609
     expect(parsed.teams[0]!.eventPoints).toHaveLength(2);
     expect(parsed.teams[0]!.eventPoints[0]!.tier).toBe("district");
     expect(parsed.teams[0]!.eventPoints[1]!.tier).toBe("dcmp");
+  });
+
+  it("DistrictArtifactSchema's lock verdict accepts the revision R2a lockedAward and prequalified statuses (revision R2a)", () => {
+    const fixture = validDistrictFixture();
+    fixture.teams[0]!.districtLock = { status: "lockedAward", pointsToLock: 0, threatCount: 0, cutLinePoints: 300, allocationNote: null };
+    fixture.teams[0]!.champLock = { status: "prequalified", pointsToLock: 0, threatCount: 0, cutLinePoints: 340, allocationNote: null };
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("DistrictArtifactSchema's lock verdict accepts a non-null allocationNote alongside an unknown status (2025fsc special-case shape, revision R2a)", () => {
+    const fixture = validDistrictFixture();
+    fixture.teams[0]!.champLock = {
+      status: "unknown",
+      pointsToLock: null,
+      threatCount: 0,
+      cutLinePoints: null,
+      allocationNote: "special allocation — not modeled",
+    };
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("DistrictArtifactSchema requires qualifyingAwards on every team, accepting an empty array (revision R2a)", () => {
+    const fixture = validDistrictFixture();
+    fixture.teams[0]!.qualifyingAwards = [];
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+
+    const { qualifyingAwards: _qa, ...teamWithoutField } = fixture.teams[0]!;
+    const missingFieldFixture = { ...fixture, teams: [teamWithoutField] };
+    expect(() => DistrictArtifactSchema.parse(missingFieldFixture)).toThrow();
+  });
+
+  it("DistrictArtifactSchema's qualifyingAwards round-trips eventKey/awardType/label/awardOnly verbatim (revision R2a)", () => {
+    const parsed = DistrictArtifactSchema.parse(validDistrictFixture());
+    expect(parsed.teams[0]!.qualifyingAwards).toEqual([
+      { eventKey: "2026ncwak", awardType: 9, label: "Engineering Inspiration", awardOnly: true },
+    ]);
   });
 });
 

@@ -1374,8 +1374,33 @@ export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
 
 // ---------------------------------------------------------------------------
 // Districts artifacts — v1/districts/{year}.json, v1/district/{districtKey}.json
-// (quick task 260905-lic Task 2)
+// (quick task 260905-lic Task 2; widened by revision R2a)
 // ---------------------------------------------------------------------------
+
+/**
+ * REVISION R2a SCHEMA-VERSION NOTE: this revision's plan text called for
+ * bumping `PAGE_ARTIFACT_SCHEMA_VERSION`. That constant is declared ONCE at
+ * the top of this file and shared, via `z.literal(PAGE_ARTIFACT_SCHEMA_VERSION)`,
+ * by EVERY page kind's preamble — teams, team, events, event, compare AND
+ * districts alike. Bumping it would make every already-published artifact of
+ * every OTHER page kind fail its `schemaVersion` literal check the moment a
+ * client fetches it, until the entire site (not just districts) is
+ * republished — disproportionate to, and unrelated to, this revision's
+ * scope. This file's own established convention for exactly this situation
+ * (`EventsListRowSchema`'s EVNT-01 note, `TeamSeasonArtifactSchema`'s `ranks`
+ * note, `EventArtifactSchema`'s D-18/D-03 notes — all citing "additive,
+ * optional fields on one page kind are backward-compatible for any reader")
+ * is followed instead: every field this revision adds below
+ * (`qualifyingAwards`, `allocationNote`) is additive, and the two new
+ * `status` enum literals (`"lockedAward"`, `"prequalified"`) carry the same
+ * bounded, already-accepted risk D-02's own precedent names explicitly — a
+ * stale cached client reading a freshly-published artifact within the
+ * `max-age=60` window. District artifacts are refreshed only by an offline,
+ * infrequent manual publish (this file's own header, unchanged), so that
+ * window is narrow. No version bump here; flagged in this revision's return
+ * to the orchestrator so a real bump (and the full-site republish it would
+ * force) can be chosen deliberately if wanted.
+ */
 
 /**
  * `districtsIndexKey`/`districtDetailKey` are declared as their OWN exported
@@ -1400,13 +1425,35 @@ export function districtDetailKey(districtKey: string): string {
   return `v1/district/${districtKey}.json`;
 }
 
-/** The three-way district/champ lock verdict `packages/core/districts/locks.ts`'s `computeLocks` returns, plus the season's current cut-line point total — shared by every team's `districtLock`/`champLock` entry below. */
+/**
+ * The district/champ lock verdict `packages/core/districts/locks.ts`'s
+ * `computeLocksWithQualifiers` returns, plus the season's current cut-line
+ * point total — shared by every team's `districtLock`/`champLock` entry
+ * below. Widened by revision R2a (`260905-lic-RESEARCH-awards.md`) from the
+ * original four-way `status` to six: `"lockedAward"` (an award already
+ * guarantees this team a slot, regardless of its own points standing) and
+ * `"prequalified"` (a curated FIRST Championship pre-qualification — champ
+ * lock only, never district lock) join `locked`/`eliminated`/`contending`/
+ * `unknown`.
+ *
+ * `allocationNote` is the honest "not modeled" flag for a district-year the
+ * ordinary cut-line math does not apply to at all (research: `2025fsc`'s
+ * documented five-explicit-invite exception) — `null` for every ordinary
+ * district-year. Present on BOTH `districtLock` and `champLock` (mirroring
+ * `cutLinePoints`'s own per-team-duplicated-but-district-wide-constant
+ * shape) even though the one district-year this currently applies to only
+ * special-cases the champ tier — a future special case could apply to
+ * either lock, and this schema does not want to special-case which field
+ * carries the note.
+ */
 const DistrictLockVerdictSchema = z.object({
-  status: z.enum(["locked", "eliminated", "contending", "unknown"]),
+  status: z.enum(["locked", "lockedAward", "prequalified", "eliminated", "contending", "unknown"]),
   pointsToLock: z.number().int().nonnegative().nullable(),
   threatCount: z.number().int().nonnegative(),
   /** The point total currently sitting at the slot-th rank for this lock's capacity — `null` when capacity (`slots`) is not published, mirroring `pointsToLock`'s own null contract. */
   cutLinePoints: z.number().nullable(),
+  /** revision R2a: `"special allocation — not modeled"` for a district-year the ordinary points/award-slot model does not apply to at all (currently only `2025fsc`'s champ lock, `packages/core/districts/qualification.ts`'s `specialAllocationNote`); `null` for every ordinary district-year. */
+  allocationNote: z.string().nullable(),
 });
 
 /** One district's summary row on the districts index — `dcmpSlots`/`cmpSlots` are nullable, mirroring `packages/corpus/schema.sql`'s `districts` table: `null` is "TBA published no `official_advancement_counts`", never a guessed zero. */
@@ -1450,7 +1497,26 @@ const DistrictTeamRemainingEventSchema = z.object({
   maxPoints: z.number(),
 });
 
-/** One team's full district-points standing, breakdown and both lock verdicts. */
+/**
+ * One award recipiency relevant to district/champ qualification (revision
+ * R2a, research Q1/Q4/Q5) — `packages/core/districts/qualification.ts`'s
+ * `isQualificationRelevantAward`/`isAwardOnly`/`awardDisplayName` govern
+ * which award records appear here and how each is labelled. Populated from
+ * district-tier events (`award_type` 0/9/10, with 9/10 always `awardOnly:
+ * true`) and DCMP-tier events (`award_type` 0/1/9/10, always `awardOnly:
+ * false`) alike — `eventKey` is how a reader distinguishes which tier (and
+ * therefore which Locks tab) an entry belongs to, by cross-referencing
+ * `eventPoints`/`remainingEvents`' own `tier` field for that same
+ * `eventKey`, rather than this schema duplicating a `tier` field of its own.
+ */
+const DistrictQualifyingAwardSchema = z.object({
+  eventKey: z.string().min(1),
+  awardType: z.number().int(),
+  label: z.string().min(1),
+  awardOnly: z.boolean(),
+});
+
+/** One team's full district-points standing, breakdown, qualifying awards and both lock verdicts. */
 const DistrictTeamSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int().optional(),
@@ -1463,6 +1529,8 @@ const DistrictTeamSchema = z.object({
   remainingEvents: z.array(DistrictTeamRemainingEventSchema),
   maxRemainingDistrict: z.number(),
   maxRemainingChamp: z.number(),
+  /** revision R2a — every award recipiency this team holds that is relevant to district or champ qualification, district-tier and DCMP-tier events alike. `[]` when the team holds none. */
+  qualifyingAwards: z.array(DistrictQualifyingAwardSchema),
   districtLock: DistrictLockVerdictSchema,
   champLock: DistrictLockVerdictSchema,
 });

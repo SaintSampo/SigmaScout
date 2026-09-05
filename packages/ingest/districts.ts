@@ -1,18 +1,19 @@
 /**
- * The districts normalize rule (quick task 260905-lic Task 1): turns TBA's
- * `/districts/{year}` and `/district/{key}/rankings` responses into
- * per-district and per-team-ranking arrays, or an honest empty array when
- * TBA has nothing to report for either. Pure, no I/O and no corpus import --
- * mirrors `alliances.ts` / `rankings.ts`'s contract exactly.
+ * The districts normalize rule (quick task 260905-lic Task 1; widened by
+ * revision R2a): turns TBA's `/districts/{year}`, `/district/{key}/rankings`
+ * and `/event/{key}/awards` responses into per-district, per-team-ranking and
+ * per-award-recipient arrays, or an honest empty array when TBA has nothing
+ * to report for any of the three. Pure, no I/O and no corpus import -- mirrors
+ * `alliances.ts` / `rankings.ts`'s contract exactly.
  *
- * The load-bearing rule, shared by both functions below: the WHOLE response
- * can be a bare `null` body (a district-year or district with nothing set up
- * at all -- mirrors the null-body cases `alliances.ts`/`rankings.ts` already
- * handle) and separately the array can be genuinely empty. Both are real,
- * distinct "nothing to report" answers, never coerced into each other and
- * never thrown on -- this module returns `[]` for either.
+ * The load-bearing rule, shared by every function below: the WHOLE response
+ * can be a bare `null` body (a district-year, district or event with nothing
+ * set up at all -- mirrors the null-body cases `alliances.ts`/`rankings.ts`
+ * already handle) and separately the array can be genuinely empty. Both are
+ * real, distinct "nothing to report" answers, never coerced into each other
+ * and never thrown on -- this module returns `[]` for either.
  */
-import type { TbaDistrictListElement, TbaDistrictRankingsResponse } from "./schemas.js";
+import type { TbaDistrictListElement, TbaDistrictRankingsResponse, TbaEventAwardsResponse } from "./schemas.js";
 
 /** Every non-key field `upsertDistrict` takes, under this task's exact property names. `fetchedAt` is deliberately absent: the caller supplies it, exactly as `NormalizedEventAlliance` omits `eventKey`/`fetchedAt`. */
 export interface NormalizedDistrict {
@@ -85,4 +86,46 @@ export function normalizeDistrictRankings(response: TbaDistrictRankingsResponse)
     adjustments: r.adjustments,
     eventPointsRaw: JSON.stringify(r.event_points),
   }));
+}
+
+/**
+ * The four TBA `award_type` values the award-based qualification model
+ * (`packages/core/districts/qualification.ts`) reads (revision R2a,
+ * RESEARCH-awards.md Q4): `0` Chairman's/FIRST Impact, `1` Winner, `9`
+ * Engineering Inspiration, `10` Rookie All Star. Every other award_type
+ * (Finalist, Wildcard, Dean's List, judged awards, ...) is not
+ * qualification-relevant and is dropped right here, at the normalize
+ * boundary -- `schema.sql`'s `event_awards` table doc comment states this
+ * same rule as its own contract ("store only award types 0, 1, 9, 10").
+ */
+export const QUALIFICATION_RELEVANT_AWARD_TYPES: ReadonlySet<number> = new Set([0, 1, 9, 10]);
+
+/** Every non-key field `upsertEventAward` takes, under this task's exact property names. `eventKey`/`year`/`fetchedAt` are deliberately absent: the caller supplies all three. */
+export interface NormalizedEventAward {
+  awardType: number;
+  teamKey: string;
+}
+
+/**
+ * Normalizes a (possibly null) TBA `/event/{key}/awards` response into
+ * per-recipient records (revision R2a). Filters to
+ * `QUALIFICATION_RELEVANT_AWARD_TYPES` only. A recipient entry whose
+ * `team_key` is `null` (a person, not a team -- TBA's own `recipient_list`
+ * shape) is skipped entirely: there is nothing to key an `event_awards` row
+ * on. Returns `[]` for a `null` body or an empty array -- both are real,
+ * distinct "nothing to report" answers, never coerced into each other and
+ * never thrown on, mirroring `normalizeDistricts`/`normalizeDistrictRankings`
+ * above.
+ */
+export function normalizeEventAwards(response: TbaEventAwardsResponse): NormalizedEventAward[] {
+  if (response === null || response.length === 0) return [];
+  const result: NormalizedEventAward[] = [];
+  for (const award of response) {
+    if (!QUALIFICATION_RELEVANT_AWARD_TYPES.has(award.award_type)) continue;
+    for (const recipient of award.recipient_list) {
+      if (recipient.team_key === null) continue;
+      result.push({ awardType: award.award_type, teamKey: recipient.team_key });
+    }
+  }
+  return result;
 }

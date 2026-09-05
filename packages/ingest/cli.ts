@@ -30,16 +30,28 @@
  *     resolves each event's playoff alliance selection via
  *     /event/{key}/alliances, one request per event, and stores the result
  *     in event_alliances. Includes offseason events, matching PD-01.)
- *   pnpm ingest:districts --years 2022-2026   (quick task 260905-lic Task 1:
- *     resolves each season's district point data -- capacity, per-team
- *     rankings and event registration -- via /districts/{year},
- *     /district/{key}/rankings, /district/{key}/events/keys and
- *     /event/{key}/teams/keys, and stores the result in
- *     districts/district_rankings/event_teams. Same --force caching rule as
- *     --rankings-only: an already-ingested season's cached ETags 304 with no
- *     body, so a re-run needs --force to get real rows again. --years only
- *     accepts one contiguous range; a gap season like 2021 requires a
- *     separate invocation.)
+ *   pnpm ingest:districts --years 2022-2026   (quick task 260905-lic Task 1;
+ *     widened by revision R2a to also fetch awards: resolves each season's
+ *     district point data -- capacity, per-team rankings, event registration
+ *     and award recipients -- via /districts/{year}, /district/{key}/rankings,
+ *     /district/{key}/events/keys, /event/{key}/teams/keys and
+ *     /event/{key}/awards, and stores the result in
+ *     districts/district_rankings/event_teams/event_awards. Same --force
+ *     caching rule as --rankings-only: an already-ingested season's cached
+ *     ETags 304 with no body, so a re-run needs --force to get real rows
+ *     again. --years only accepts one contiguous range; a gap season like
+ *     2021 requires a separate invocation.)
+ *   pnpm ingest:awards --years 2022-2026   (revision R2a: resolves ONLY award
+ *     recipients for one season via /event/{key}/awards, one request per
+ *     district event, and stores the result in event_awards. Standalone:
+ *     reads the district-event-key set from the corpus's OWN `events` table
+ *     (district_key IS NOT NULL, already filled by a prior --districts-only
+ *     or plain ingest run) rather than re-fetching /districts/{year} or
+ *     /district/{key}/rankings the way --districts-only does -- so an
+ *     already-ingested season can be backfilled with award data without
+ *     needing --force, which would otherwise force a needless re-fetch and
+ *     re-parse of every ranking row's event_points_raw. Same --force caching
+ *     rule as every other *-only mode applies to the awards endpoint itself.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -62,6 +74,7 @@ import {
   upsertDistrictRanking,
   upsertEvent,
   upsertEventAlliance,
+  upsertEventAward,
   upsertEventRanking,
   upsertEventTeam,
   upsertMatch,
@@ -71,7 +84,7 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { normalizeEventAlliances } from "./alliances.js";
-import { normalizeDistricts, normalizeDistrictRankings } from "./districts.js";
+import { normalizeDistricts, normalizeDistrictRankings, normalizeEventAwards } from "./districts.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
 import { normalizeEventRankings } from "./rankings.js";
@@ -79,6 +92,7 @@ import {
   tbaAllianceResponseSchema,
   tbaDistrictListSchema,
   tbaDistrictRankingsResponseSchema,
+  tbaEventAwardsResponseSchema,
   tbaEventListSchema,
   tbaEventRankingsResponseSchema,
   tbaEventSchema,
@@ -94,6 +108,7 @@ import {
   fetchDistrictRankings,
   fetchDistrictsList,
   fetchEventAlliances,
+  fetchEventAwards,
   fetchEventDetail,
   fetchEventMatches,
   fetchEventRankings,
@@ -128,8 +143,10 @@ interface CliOptions {
   rankingsOnly: boolean;
   /** EVNT-05, D-18.7 (plan 07-03): resolve/refresh only event_alliances for the requested season range. */
   alliancesOnly: boolean;
-  /** quick task 260905-lic Task 1: resolve/refresh only districts/district_rankings/event_teams for the requested season range. */
+  /** quick task 260905-lic Task 1: resolve/refresh only districts/district_rankings/event_teams for the requested season range. Revision R2a: this mode ALSO now fetches award recipients for every district event. */
   districtsOnly: boolean;
+  /** revision R2a: resolve/refresh ONLY event_awards for the requested season range, reading the district-event-key set from the corpus's own events table rather than re-fetching /districts/{year} or /district/{key}/rankings. */
+  awardsOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -157,6 +174,7 @@ function parseCliOptions(): CliOptions {
       "rankings-only": { type: "boolean", default: false },
       "alliances-only": { type: "boolean", default: false },
       "districts-only": { type: "boolean", default: false },
+      "awards-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
@@ -164,6 +182,7 @@ function parseCliOptions(): CliOptions {
   const rankingsOnly = values["rankings-only"] ?? false;
   const alliancesOnly = values["alliances-only"] ?? false;
   const districtsOnly = values["districts-only"] ?? false;
+  const awardsOnly = values["awards-only"] ?? false;
 
   if (values.event) {
     return {
@@ -176,6 +195,7 @@ function parseCliOptions(): CliOptions {
       rankingsOnly,
       alliancesOnly,
       districtsOnly,
+      awardsOnly,
     };
   }
   if (values.years) {
@@ -190,6 +210,7 @@ function parseCliOptions(): CliOptions {
       rankingsOnly,
       alliancesOnly,
       districtsOnly,
+      awardsOnly,
     };
   }
   if (values.year) {
@@ -205,6 +226,7 @@ function parseCliOptions(): CliOptions {
       rankingsOnly,
       alliancesOnly,
       districtsOnly,
+      awardsOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -612,6 +634,14 @@ async function ingestSeasonAlliancesOnly(db: Corpus, ctx: TbaClientContext, year
  * `/event/{key}/teams/keys`, storing the result in
  * districts/district_rankings/event_teams.
  *
+ * Widened by revision R2a: for every district event key (regular AND DCMP --
+ * both come from the same `/district/{key}/events/keys` list, no separate
+ * membership call), also fetches `/event/{key}/awards` and stores the
+ * qualification-relevant recipients in `event_awards`. This is the same
+ * per-event loop that already fetches `/event/{key}/teams/keys` -- the
+ * awards fetch is appended alongside it, not a second pass over the event
+ * list.
+ *
  * Carries forward `ingestSeasonRankingsOnly`'s caching rule verbatim: a
  * re-run over an already-ingested season needs `--force`, because a
  * cached-ETag 304 carries no body. On a 304 for the top-level districts
@@ -626,7 +656,8 @@ async function ingestSeasonAlliancesOnly(db: Corpus, ctx: TbaClientContext, year
  * district event key TBA reports that this corpus has never ingested (an
  * out-of-range or otherwise un-ingested event) cannot be inserted and is
  * logged separately by name, never silently dropped, per this task's done
- * criteria.
+ * criteria. `event_awards.event_key` carries the identical constraint, so
+ * the same missing-event-key guard covers both.
  */
 async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
   const districtsUrl = `/districts/${year}`;
@@ -655,6 +686,7 @@ async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year
   let rankingRowCount = 0;
   let districtEventCount = 0;
   let registrationRowCount = 0;
+  let awardRowCount = 0;
   const missingEventKeys: string[] = [];
 
   for (const districtKey of districtKeys) {
@@ -696,8 +728,13 @@ async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year
         continue;
       }
 
+      // Registration and awards are two INDEPENDENT fetches for the same
+      // event -- each has its own try/catch/continue, so a 404 or 304 on
+      // one never skips the other (unlike this loop's single earlier
+      // knownEventKeys check, which does legitimately skip both: neither
+      // can be inserted without a corpus events row).
       const teamsUrl = `/event/${eventKey}/teams/keys`;
-      let teamsResult: Awaited<ReturnType<typeof fetchEventTeamKeys>>;
+      let teamsResult: Awaited<ReturnType<typeof fetchEventTeamKeys>> | undefined;
       try {
         teamsResult = await fetchEventTeamKeys(ctx, eventKey, cachedEtagFor(db, teamsUrl, force));
       } catch (err) {
@@ -706,31 +743,134 @@ async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year
         // honest "nothing to fetch" for this event, not TBA schema drift.
         if (err instanceof Error && /HTTP 404/.test(err.message)) {
           console.log(`  ${teamsUrl}: 404 Not Found, skipping`);
-          continue;
+        } else {
+          throw err;
         }
-        throw err;
       }
-      if (teamsResult.status === 304) {
+      if (teamsResult !== undefined && teamsResult.status === 200) {
+        const teamKeys = tbaKeysResponseSchema.parse(teamsResult.body) ?? [];
+        const fetchedAt = new Date().toISOString();
+        for (const teamKey of teamKeys) {
+          upsertEventTeam(db, { eventKey, teamKey, fetchedAt });
+          registrationRowCount++;
+        }
+        if (teamsResult.etag) writeEtag(db, teamsUrl, teamsResult.etag);
+      } else if (teamsResult !== undefined) {
         console.log(`  ${teamsUrl}: 304 Not Modified`);
-        continue;
       }
 
-      const teamKeys = tbaKeysResponseSchema.parse(teamsResult.body) ?? [];
-      const fetchedAt = new Date().toISOString();
-      for (const teamKey of teamKeys) {
-        upsertEventTeam(db, { eventKey, teamKey, fetchedAt });
-        registrationRowCount++;
+      // revision R2a: award recipients for this same district event
+      // (regular or DCMP -- both are members of districtEventKeys above).
+      const awardsUrl = `/event/${eventKey}/awards`;
+      let awardsResult: Awaited<ReturnType<typeof fetchEventAwards>> | undefined;
+      try {
+        awardsResult = await fetchEventAwards(ctx, eventKey, cachedEtagFor(db, awardsUrl, force));
+      } catch (err) {
+        if (err instanceof Error && /HTTP 404/.test(err.message)) {
+          console.log(`  ${awardsUrl}: 404 Not Found, skipping`);
+        } else {
+          throw err;
+        }
       }
-      if (teamsResult.etag) writeEtag(db, teamsUrl, teamsResult.etag);
+      if (awardsResult !== undefined && awardsResult.status === 200) {
+        const parsedAwards = tbaEventAwardsResponseSchema.parse(awardsResult.body);
+        const fetchedAt = new Date().toISOString();
+        for (const award of normalizeEventAwards(parsedAwards)) {
+          upsertEventAward(db, { eventKey, awardType: award.awardType, teamKey: award.teamKey, year, fetchedAt });
+          awardRowCount++;
+        }
+        if (awardsResult.etag) writeEtag(db, awardsUrl, awardsResult.etag);
+      } else if (awardsResult !== undefined) {
+        console.log(`  ${awardsUrl}: 304 Not Modified`);
+      }
     }
   }
 
   console.log(
     `Season ${year}: ${districtKeys.length} districts, ${rankingRowCount} ranking rows, ` +
-      `${districtEventCount} district events, ${registrationRowCount} registration rows` +
+      `${districtEventCount} district events, ${registrationRowCount} registration rows, ` +
+      `${awardRowCount} award recipient rows` +
       (missingEventKeys.length > 0
         ? `, ${missingEventKeys.length} district event key(s) absent from corpus events: ${missingEventKeys.join(", ")}`
         : "")
+  );
+}
+
+/**
+ * revision R2a: resolves ONLY award recipients for one season via TBA's
+ * `/event/{key}/awards`, one request per district event, and stores the
+ * result in `event_awards`. Runs standalone over an ALREADY-INGESTED season
+ * -- it reads the district-event-key set from the corpus's OWN `events`
+ * table (`district_key IS NOT NULL`, already filled by a prior
+ * `--districts-only` or plain ingest run), never re-fetching
+ * `/districts/{year}` or `/district/{key}/rankings` the way
+ * `ingestSeasonDistrictsOnly` does. This is deliberately a NARROWER,
+ * standalone mode so the orchestrator can backfill award data onto a corpus
+ * that already has real district rankings without needing `--force` (which
+ * would re-fetch and re-parse every ranking row's `event_points_raw` for no
+ * reason).
+ *
+ * Same caching rule as every other `*-only` mode: a re-run over an
+ * already-ingested season needs `--force`, because a cached-ETag 304 carries
+ * no body.
+ */
+async function ingestSeasonAwardsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const districtEventKeys = (
+    db
+      .prepare(`SELECT event_key FROM events WHERE year = ? AND district_key IS NOT NULL ORDER BY event_key ASC`)
+      .all(year) as { event_key: string }[]
+  ).map((r) => r.event_key);
+
+  let populatedCount = 0;
+  let nullBodyCount = 0;
+  let emptyAwardsCount = 0;
+  let cacheHitCount = 0;
+  let notFoundCount = 0;
+  let recipientRowCount = 0;
+
+  for (const eventKey of districtEventKeys) {
+    const awardsUrl = `/event/${eventKey}/awards`;
+    let result: Awaited<ReturnType<typeof fetchEventAwards>>;
+    try {
+      result = await fetchEventAwards(ctx, eventKey, cachedEtagFor(db, awardsUrl, force));
+    } catch (err) {
+      // Mirrors ingestSeasonMediaOnly's/ingestSeasonAlliancesOnly's 404
+      // handling: a placeholder/unregistered event key 404ing is an honest
+      // "nothing to fetch" for this event, not TBA schema drift.
+      if (err instanceof Error && /HTTP 404/.test(err.message)) {
+        notFoundCount++;
+        console.log(`  ${awardsUrl}: 404 Not Found, skipping`);
+        continue;
+      }
+      throw err;
+    }
+    if (result.status === 304) {
+      cacheHitCount++;
+      continue;
+    }
+
+    const parsed = tbaEventAwardsResponseSchema.parse(result.body);
+    if (parsed === null) {
+      nullBodyCount++;
+    } else if (parsed.length === 0) {
+      emptyAwardsCount++;
+    } else {
+      populatedCount++;
+    }
+
+    const normalized = normalizeEventAwards(parsed);
+    const fetchedAt = new Date().toISOString();
+    for (const award of normalized) {
+      upsertEventAward(db, { eventKey, awardType: award.awardType, teamKey: award.teamKey, year, fetchedAt });
+      recipientRowCount++;
+    }
+    if (result.etag) writeEtag(db, awardsUrl, result.etag);
+  }
+
+  console.log(
+    `Season ${year}: ${districtEventKeys.length} district events (${populatedCount} populated, ${nullBodyCount} null-body, ` +
+      `${emptyAwardsCount} empty-awards, ${cacheHitCount} cache hits this run, ${notFoundCount} not-found), ` +
+      `${recipientRowCount} award recipient rows stored`
   );
 }
 
@@ -849,6 +989,20 @@ async function main(): Promise<void> {
     } else if (options.districtsOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonDistrictsOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.awardsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonAwardsOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,

@@ -1,13 +1,15 @@
 /**
  * Unit tests for `scripts/publishDistricts.ts`'s pure composition (quick
- * task 260905-lic Task 2) — no corpus, no network. `buildDistrictArtifact`
- * is exercised against small, hand-built corpus-row fixtures covering: the
- * regular/dcmp tier split, a remaining-event ceiling, the DCMP-attendance
- * gate on `maxRemainingChamp`, a `null`-capacity district, and the
- * `--years` term grammar.
+ * task 260905-lic Task 2; widened by revision R2a) — no corpus, no network.
+ * `buildDistrictArtifact` is exercised against small, hand-built corpus-row
+ * fixtures covering: the regular/dcmp tier split, a remaining-event
+ * ceiling, the DCMP-attendance gate on `maxRemainingChamp`, a
+ * `null`-capacity district, the `--years` term grammar, and (revision R2a)
+ * award-qualified/`lockedAward`, curated pre-qualification/`prequalified`,
+ * and the `2025fsc` special-allocation override.
  */
 import { describe, expect, it } from "vitest";
-import type { CorpusDistrict, CorpusDistrictRanking } from "../packages/corpus/db.js";
+import type { CorpusDistrict, CorpusDistrictRanking, CorpusEventAward } from "../packages/corpus/db.js";
 import { buildDistrictArtifact, buildDistrictsIndexArtifact, cutLinePointsFor, parseYearsSpec, type DistrictEventMeta } from "./publishDistricts.js";
 
 const GENERATION = "gen-1";
@@ -48,6 +50,10 @@ function districtEvent(overrides: Partial<DistrictEventMeta> & { eventKey: strin
   return { name: overrides.eventKey, week: 1, eventType: 1, ...overrides };
 }
 
+function eventAward(overrides: Partial<CorpusEventAward> & { eventKey: string }): CorpusEventAward {
+  return { awardType: 0, teamKey: "frc1", year: 2026, fetchedAt: COMPUTED_AT, ...overrides };
+}
+
 describe("buildDistrictArtifact", () => {
   it("splits a team's per-event points into district/dcmp tiers by district_cmp, reading component values verbatim", () => {
     const rankings = [
@@ -73,6 +79,7 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events,
       registrations: new Map(),
+      awards: new Map(),
       teamMeta: new Map(),
     });
 
@@ -101,6 +108,7 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events,
       registrations,
+      awards: new Map(),
       teamMeta: new Map(),
     });
 
@@ -126,6 +134,7 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events,
       registrations: new Map(),
+      awards: new Map(),
       teamMeta: new Map(),
     });
 
@@ -146,6 +155,7 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events: [],
       registrations: new Map(),
+      awards: new Map(),
       teamMeta: new Map(),
     });
     for (const team of artifact.teams) {
@@ -167,6 +177,7 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events: [],
       registrations: new Map(),
+      awards: new Map(),
       teamMeta,
     });
     const frc1 = artifact.teams.find((t) => t.teamKey === "frc1")!;
@@ -187,12 +198,145 @@ describe("buildDistrictArtifact", () => {
       rankings,
       events: [districtEvent({ eventKey: "2026e1" })],
       registrations: new Map(),
+      awards: new Map(),
       teamMeta: new Map(),
     });
     expect(artifact.insights.teamCount).toBe(2);
     expect(artifact.insights.eventCount).toBe(1);
     expect(artifact.insights.districtLockedCount).toBe(1);
     expect(artifact.insights.districtEliminatedCount).toBe(1);
+  });
+});
+
+describe("buildDistrictArtifact — award-based qualification (revision R2a)", () => {
+  it("a district-event Impact (award_type 0) winner reports districtLock lockedAward, and the award appears in qualifyingAwards not flagged awardOnly", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
+    const events = [districtEvent({ eventKey: "2026e1", eventType: 1 })];
+    const awards = new Map([["2026e1", [eventAward({ eventKey: "2026e1", awardType: 0, teamKey: "frc1" })]]]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 1, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    const frc1 = artifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(frc1.districtLock.status).toBe("lockedAward");
+    expect(frc1.qualifyingAwards).toEqual([{ eventKey: "2026e1", awardType: 0, label: "FIRST Impact Award", awardOnly: false }]);
+  });
+
+  it("a district-event Engineering Inspiration (award_type 9) winner is NOT districtLock-qualified (award-only, no slot), and its qualifyingAwards entry is flagged awardOnly", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
+    const events = [districtEvent({ eventKey: "2026e1", eventType: 1 })];
+    const awards = new Map([["2026e1", [eventAward({ eventKey: "2026e1", awardType: 9, teamKey: "frc1" })]]]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 1, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    const frc1 = artifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(frc1.districtLock.status).not.toBe("lockedAward");
+    expect(frc1.qualifyingAwards).toEqual([{ eventKey: "2026e1", awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
+  });
+
+  it("a DCMP Winner (award_type 1) is champLock lockedAward, though Winner is never relevant at the district tier", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
+    const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2 })];
+    const awards = new Map([["2026dcmp", [eventAward({ eventKey: "2026dcmp", awardType: 1, teamKey: "frc1" })]]]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 1, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    const frc1 = artifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(frc1.champLock.status).toBe("lockedAward");
+    expect(frc1.qualifyingAwards).toEqual([{ eventKey: "2026dcmp", awardType: 1, label: "Winner", awardOnly: false }]);
+  });
+
+  it("a curated pre-qualified team (Hall of Fame) reports champLock prequalified regardless of its own points, never districtLock prequalified (champ tier only)", () => {
+    // frc4613 is on the 2026 Hall of Fame list (prequalified.ts).
+    const rankings = [ranking({ teamKey: "frc4613", pointTotal: 0, rank: 2 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 1 })];
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 1, cmpSlots: 1 }),
+      rankings,
+      events: [],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+
+    const frc4613 = artifact.teams.find((t) => t.teamKey === "frc4613")!;
+    expect(frc4613.champLock.status).toBe("prequalified");
+    expect(frc4613.districtLock.status).not.toBe("prequalified");
+  });
+
+  it("2025fsc overrides every team's champLock to unknown with the documented allocationNote, and leaves districtLock unaffected", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 500, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 5, rank: 2 })];
+
+    const artifact = buildDistrictArtifact({
+      season: 2025,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ districtKey: "2025fsc", abbreviation: "fsc", displayName: "FIRST South Carolina", dcmpSlots: 5, cmpSlots: 5 }),
+      rankings,
+      events: [],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+
+    for (const team of artifact.teams) {
+      expect(team.champLock.status).toBe("unknown");
+      expect(team.champLock.pointsToLock).toBeNull();
+      expect(team.champLock.cutLinePoints).toBeNull();
+      expect(team.champLock.allocationNote).toBe("special allocation — not modeled");
+      expect(team.districtLock.allocationNote).toBeNull();
+    }
+    // districtLock still runs the ordinary points math -- frc1 (500 points, 1 slot) is locked.
+    expect(artifact.teams.find((t) => t.teamKey === "frc1")!.districtLock.status).toBe("locked");
+  });
+
+  it("every ordinary district-year's allocationNote is null on both locks", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 100, rank: 1 })];
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district(),
+      rankings,
+      events: [],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+    expect(artifact.teams[0]!.districtLock.allocationNote).toBeNull();
+    expect(artifact.teams[0]!.champLock.allocationNote).toBeNull();
   });
 });
 

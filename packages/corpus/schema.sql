@@ -238,3 +238,29 @@ CREATE TABLE IF NOT EXISTS event_teams (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (event_key, team_key)
 );
+
+-- Award recipients (quick task 260905-lic revision R2a): one row per
+-- (event, award_type, team_key), sourced from TBA's `/event/{key}/awards`.
+-- Stores ONLY the four award types the award-based qualification model
+-- (packages/core/districts/qualification.ts) reads -- 0 (Chairman's/FIRST
+-- Impact), 1 (Winner), 9 (Engineering Inspiration), 10 (Rookie All Star),
+-- per RESEARCH-awards.md Q4's award_type mapping. That filter is applied by
+-- packages/ingest/districts.ts's normalizeEventAwards, not by this table --
+-- every other award_type (Finalist, Wildcard, Dean's List, judged awards,
+-- ...) is dropped at the normalize boundary and never reaches this table.
+-- Recipient entries with a null team_key (a person, not a team -- TBA's own
+-- recipient_list shape) are skipped entirely: there is nothing to key a row
+-- on. Carries NO REFERENCES teams(team_key), mirroring
+-- district_rankings.team_key / event_alliances.picks's precedent above --
+-- TBA's synthetic second-robot team keys have no /team/{key} record. `year`
+-- is stored redundantly alongside `event_key` (recoverable via a join to
+-- `events`) purely so a reconciliation-style scan can select by season with
+-- no join, matching district_rankings' own denormalization discipline.
+CREATE TABLE IF NOT EXISTS event_awards (
+  event_key TEXT NOT NULL REFERENCES events(event_key),
+  award_type INTEGER NOT NULL,
+  team_key TEXT NOT NULL,
+  year INTEGER NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (event_key, award_type, team_key)
+);

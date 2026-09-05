@@ -15,7 +15,8 @@
  * event-rankings (plan 06.1-01, Phase 6.1), and event-alliances (plan
  * 07-03, Phase 7) — and none marked OPT-OUT. District data (quick task
  * 260905-lic, Task 1) adds four more: districts-list, district-rankings,
- * district-events-keys, event-teams-keys.
+ * district-events-keys, event-teams-keys. Revision R2a adds a fifth:
+ * event-awards.
  */
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
@@ -273,6 +274,20 @@ export function fetchEventTeamKeys(
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
   return tbaFetch(`/event/${eventKey}/teams/keys`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/**
+ * `GET /event/{eventKey}/awards` (quick task 260905-lic revision R2a) --
+ * every award given out at one event, in one response. Event-scoped, not
+ * team-scoped -- mirrors `fetchEventAlliances`'s shape exactly: one request
+ * per event covers every award and every recipient at it.
+ */
+export function fetchEventAwards(
+  ctx: TbaClientContext,
+  eventKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/event/${eventKey}/awards`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /**

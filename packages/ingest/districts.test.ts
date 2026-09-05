@@ -7,13 +7,15 @@
  * each case states only what it varies.
  */
 import { describe, expect, it } from "vitest";
-import { normalizeDistrictRankings, normalizeDistricts } from "./districts.js";
+import { normalizeDistrictRankings, normalizeDistricts, normalizeEventAwards } from "./districts.js";
 import {
   tbaDistrictListSchema,
   tbaDistrictRankingsResponseSchema,
+  tbaEventAwardsResponseSchema,
   tbaKeysResponseSchema,
   type TbaDistrictListElement,
   type TbaDistrictRanking,
+  type TbaEventAward,
 } from "./schemas.js";
 
 function districtElement(overrides: Partial<TbaDistrictListElement> = {}): TbaDistrictListElement {
@@ -119,6 +121,111 @@ describe("tbaDistrictRankingsResponseSchema", () => {
   it("throws on a drifted payload — rank present but non-integral", () => {
     const drifted = [{ ...districtRankingEntry(), rank: 1.5 }];
     expect(() => tbaDistrictRankingsResponseSchema.parse(drifted)).toThrow();
+  });
+});
+
+function eventAwardElement(overrides: Partial<TbaEventAward> = {}): TbaEventAward {
+  return {
+    name: "FIRST Impact Award",
+    award_type: 0,
+    event_key: "2026ncwak",
+    recipient_list: [{ team_key: "frc4561", awardee: null }],
+    year: 2026,
+    ...overrides,
+  };
+}
+
+describe("tbaEventAwardsResponseSchema", () => {
+  it("parses a null body without throwing and yields null", () => {
+    expect(() => tbaEventAwardsResponseSchema.parse(null)).not.toThrow();
+    expect(tbaEventAwardsResponseSchema.parse(null)).toBeNull();
+  });
+
+  it("parses an empty array response without throwing", () => {
+    expect(() => tbaEventAwardsResponseSchema.parse([])).not.toThrow();
+    expect(tbaEventAwardsResponseSchema.parse([])).toEqual([]);
+  });
+
+  it("parses a real award element with a team recipient", () => {
+    expect(() => tbaEventAwardsResponseSchema.parse([eventAwardElement()])).not.toThrow();
+  });
+
+  it("parses a recipient with a null team_key (a person, not a team)", () => {
+    const entry = eventAwardElement({ recipient_list: [{ team_key: null, awardee: "Jane Mentor" }] });
+    expect(() => tbaEventAwardsResponseSchema.parse([entry])).not.toThrow();
+  });
+
+  it("parses a recipient with a null awardee (a team, no named person)", () => {
+    const entry = eventAwardElement({ recipient_list: [{ team_key: "frc4561", awardee: null }] });
+    expect(() => tbaEventAwardsResponseSchema.parse([entry])).not.toThrow();
+  });
+
+  it("accepts an award_type this pipeline does not read (e.g. Finalist, 2) without throwing — the filter is normalizeEventAwards' job, not this schema's", () => {
+    expect(() => tbaEventAwardsResponseSchema.parse([eventAwardElement({ award_type: 2 })])).not.toThrow();
+  });
+
+  it("throws on a drifted payload — event_key retyped from a string to a number", () => {
+    const drifted = [{ ...eventAwardElement(), event_key: 2026 }];
+    expect(() => tbaEventAwardsResponseSchema.parse(drifted)).toThrow();
+  });
+});
+
+describe("normalizeEventAwards", () => {
+  it("normalizes a null response to an empty array, does not throw", () => {
+    expect(() => normalizeEventAwards(null)).not.toThrow();
+    expect(normalizeEventAwards(null)).toEqual([]);
+  });
+
+  it("normalizes a response with an empty array to an empty array — a SEPARATE case from the null-response case", () => {
+    expect(() => normalizeEventAwards([])).not.toThrow();
+    expect(normalizeEventAwards([])).toEqual([]);
+  });
+
+  it("keeps award_type 0 (Chairman's/FIRST Impact)", () => {
+    const result = normalizeEventAwards([eventAwardElement({ award_type: 0 })]);
+    expect(result).toEqual([{ awardType: 0, teamKey: "frc4561" }]);
+  });
+
+  it("keeps award_type 1 (Winner), 9 (Engineering Inspiration) and 10 (Rookie All Star)", () => {
+    const result = normalizeEventAwards([
+      eventAwardElement({ award_type: 1, recipient_list: [{ team_key: "frc1", awardee: null }] }),
+      eventAwardElement({ award_type: 9, recipient_list: [{ team_key: "frc2", awardee: null }] }),
+      eventAwardElement({ award_type: 10, recipient_list: [{ team_key: "frc3", awardee: null }] }),
+    ]);
+    expect(result.map((r) => r.awardType).sort((a, b) => a - b)).toEqual([1, 9, 10]);
+  });
+
+  it("drops every award_type outside {0, 1, 9, 10} — e.g. Finalist (2), Wildcard (68)", () => {
+    const result = normalizeEventAwards([
+      eventAwardElement({ award_type: 2 }),
+      eventAwardElement({ award_type: 68 }),
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("skips a recipient with a null team_key (a person, not a team), keeps sibling team recipients from the same award", () => {
+    const result = normalizeEventAwards([
+      eventAwardElement({
+        recipient_list: [
+          { team_key: null, awardee: "Jane Mentor" },
+          { team_key: "frc4561", awardee: null },
+        ],
+      }),
+    ]);
+    expect(result).toEqual([{ awardType: 0, teamKey: "frc4561" }]);
+  });
+
+  it("keeps every team recipient when one award has multiple team winners (e.g. a multi-team judged award)", () => {
+    const result = normalizeEventAwards([
+      eventAwardElement({
+        award_type: 9,
+        recipient_list: [
+          { team_key: "frc1", awardee: null },
+          { team_key: "frc2", awardee: null },
+        ],
+      }),
+    ]);
+    expect(result.map((r) => r.teamKey).sort()).toEqual(["frc1", "frc2"]);
   });
 });
 

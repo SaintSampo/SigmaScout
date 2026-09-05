@@ -303,3 +303,48 @@ export type TbaDistrictRankingsResponse = z.infer<typeof tbaDistrictRankingsResp
  */
 export const tbaKeysResponseSchema = z.array(z.string()).nullable();
 export type TbaKeysResponse = z.infer<typeof tbaKeysResponseSchema>;
+
+/**
+ * `GET /event/{key}/awards` recipient entry (quick task 260905-lic revision
+ * R2a) -- `team_key` is `.nullable()`, not required: TBA's own recipient_list
+ * shape carries a person-only recipient (a mentor/judge award) as
+ * `{ team_key: null, awardee: "Some Person" }`, per the plan's own probe.
+ * `awardee` is likewise `.nullable()` for the mirror-image case (a
+ * team-only recipient carries no person name). Both being nullable at once
+ * is a real, valid TBA shape -- this schema never requires exactly one of
+ * the two to be present.
+ */
+const tbaAwardRecipientSchema = z.object({
+  team_key: z.string().nullable(),
+  awardee: z.string().nullable(),
+});
+
+/**
+ * `GET /event/{key}/awards` element. `award_type` is TBA's own enumerated
+ * constant (RESEARCH-awards.md Q4: `0`=Chairman's/FIRST Impact, `1`=Winner,
+ * `9`=Engineering Inspiration, `10`=Rookie All Star, plus many others this
+ * pipeline does not read) -- modelled as a plain `z.number().int()`, never an
+ * enum, because this schema must accept every award_type TBA has ever
+ * enumerated (RESEARCH-awards.md Q4: "an award type must be enumerated for
+ * every type of award ever awarded... ONCE A TYPE IS ENUMERATED, IT MUST NOT
+ * BE CHANGED"), not just the four this pipeline's qualification model cares
+ * about -- that filter belongs to `districts.ts`'s `normalizeEventAwards`,
+ * at the normalize boundary, never at this parse boundary.
+ */
+export const tbaEventAwardSchema = z.object({
+  name: z.string(),
+  award_type: z.number().int(),
+  event_key: z.string(),
+  recipient_list: z.array(tbaAwardRecipientSchema),
+  year: z.number(),
+});
+export type TbaEventAward = z.infer<typeof tbaEventAwardSchema>;
+
+/**
+ * `GET /event/{key}/awards` -- the whole response. Modelled `.nullable()`
+ * mirroring `tbaEventRankingsResponseSchema`'s / `tbaAllianceResponseSchema`'s
+ * precedent above -- an event with no awards structure set up at all is a
+ * real, honest "nothing to report" answer this pipeline must not throw on.
+ */
+export const tbaEventAwardsResponseSchema = z.array(tbaEventAwardSchema).nullable();
+export type TbaEventAwardsResponse = z.infer<typeof tbaEventAwardsResponseSchema>;
