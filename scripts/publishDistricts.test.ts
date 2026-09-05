@@ -253,6 +253,29 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
     expect(frc1.qualifyingAwards).toEqual([{ eventKey: "2026e1", awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
   });
 
+  it("a DCMP DIVISION Winner (award_type 1 at event_type 5) qualifies NOTHING — division champions are not the DCMP winning alliance", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
+    const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2 }), districtEvent({ eventKey: "2026dcmp1", eventType: 5 })];
+    const awards = new Map([["2026dcmp1", [eventAward({ eventKey: "2026dcmp1", awardType: 1, teamKey: "frc1" }), eventAward({ eventKey: "2026dcmp1", awardType: 0, teamKey: "frc1" })]]]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 1, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    const frc1 = artifact.teams.find((t) => t.teamKey === "frc1")!;
+    expect(frc1.champLock.status).not.toBe("lockedAward");
+    expect(frc1.districtLock.status).not.toBe("lockedAward");
+    expect(frc1.qualifyingAwards).toEqual([]);
+  });
+
   it("a DCMP Winner (award_type 1) is champLock lockedAward, though Winner is never relevant at the district tier", () => {
     const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
     const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2 })];

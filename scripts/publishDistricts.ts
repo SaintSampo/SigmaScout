@@ -75,6 +75,7 @@ import {
   isAwardOnly,
   isQualificationRelevantAward,
   specialAllocationNote,
+  type AwardTier,
 } from "../packages/core/districts/qualification.js";
 import {
   districtDetailKey,
@@ -112,6 +113,25 @@ const EventPointsArraySchema = z.array(EventPointsEntrySchema);
 /** TBA `event_type` -> this model's two-tier vocabulary. `2`=District Championship, `5`=District Championship Division map to `"dcmp"` (mirrors `packages/core/algorithms/sigma1/rp/constants.ts`'s `EVENT_TYPE_TIERS`); every other value observed in a district's own event list is `"district"`. */
 function districtTierForEventType(eventType: number): DistrictTier {
   return eventType === 2 || eventType === 5 ? "dcmp" : "district";
+}
+
+/**
+ * TBA `event_type` -> the tier an event's AWARDS qualify a team at, or `null`
+ * for events whose awards are never qualification-relevant. This is
+ * deliberately NOT `districtTierForEventType`: a District Championship
+ * DIVISION (`event_type` 5) is `"dcmp"` for POINT purposes, but its "Winner"
+ * award crowns a division champion, not the DCMP winning alliance — only the
+ * parent DCMP event (`event_type` 2) presents the Winner/Impact/EI/RAS awards
+ * that advance a team to the FIRST Championship (research Q2/Q5: TBA's own
+ * `district_advancement_helper` reads DCMP qualifiers from the parent event).
+ * Counting division Winners was a live bug: 2026fim division winners
+ * (e.g. frc5460 at 2026micmp4) rendered champ-`lockedAward` without having
+ * won the DCMP.
+ */
+function awardTierForEventType(eventType: number): AwardTier | null {
+  if (eventType === 1) return "district";
+  if (eventType === 2) return "dcmp";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +245,8 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   const districtAwardQualified = new Set<string>();
   const dcmpAwardQualified = new Set<string>();
   for (const event of events) {
-    const tier = districtTierForEventType(event.eventType);
+    const tier = awardTierForEventType(event.eventType);
+    if (tier === null) continue; // division/other events' awards never qualify anyone
     const eventAwards = options.awards.get(event.eventKey) ?? [];
     for (const awardRow of eventAwards) {
       if (!isQualificationRelevantAward(awardRow.awardType, tier)) continue;
