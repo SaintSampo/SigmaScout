@@ -58,7 +58,12 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
+  // "popper" (quick 260905-3nf): item-aligned mode reopens the list with the
+  // SELECTED item aligned over the trigger — with the ribbon at the top of
+  // the viewport, picking a bottom option (2019) then reopening clips every
+  // option above it behind a scroll button. Popper mode always drops the
+  // full list below the trigger. This is also upstream shadcn's default.
+  position = "popper",
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
