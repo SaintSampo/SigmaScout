@@ -25,6 +25,7 @@ const NAV_LINKS = [
   { to: "/teams", label: "Teams" },
   { to: "/events", label: "Events" },
   { to: "/compare", label: "Compare" },
+  { to: "/districts", label: "Districts" },
 ] as const;
 
 /**
@@ -56,14 +57,22 @@ function preserveSearch(prev: Record<string, unknown>): never {
 }
 
 function NavLinks() {
-  // Three explicit `<Link>` elements, not a `.map()` over `NAV_LINKS` — each
+  // Four explicit `<Link>` elements, not a `.map()` over `NAV_LINKS` — each
   // element's `to` prop needs its own precise literal route path for
   // TanStack Router's typed `search` prop to type-check at all; mapping
   // over the union loses that per-route overload resolution. `NAV_LINKS`
-  // still names the ONE canonical Teams/Events/Compare order both branches
-  // below render.
+  // still names the ONE canonical Teams/Events/Compare/Districts order both
+  // branches below render.
+  //
+  // Districts (quick task 260905-lic Task 3) is the FOURTH link, appended
+  // after Compare. `gap-[var(--spacing-md)]` (was `--spacing-lg`, 24px) —
+  // narrowed to 16px so the mobile branch's compact second row (below) keeps
+  // four links comfortably inside the 390px local-phone Playwright project's
+  // width with the added link, per this plan's own instruction to "shrink
+  // the gap rather than hiding a link." Applies to both branches, since both
+  // render this same component; the desktop ribbon has ample width regardless.
   return (
-    <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-lg)]">
+    <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-md)]">
       <Link to="/teams" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[0].label}
       </Link>
@@ -72,6 +81,9 @@ function NavLinks() {
       </Link>
       <Link to="/compare" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[2].label}
+      </Link>
+      <Link to="/districts" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
+        {NAV_LINKS[3].label}
       </Link>
     </nav>
   );

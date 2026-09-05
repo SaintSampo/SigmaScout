@@ -285,3 +285,33 @@ export const EventSearchSchema = RootSearchSchema.extend({
 
 export type EventSearch = z.infer<typeof EventSearchSchema>;
 export type EventTab = (typeof EVENT_TABS)[number];
+
+/**
+ * The Districts page's four tabs (quick task 260905-lic Task 3), in the
+ * fixed order the page's own tab strip renders: Insights, Breakdown,
+ * District Locks, Champ Locks. Unlike `EVENT_TABS`'s per-wave narrowing
+ * (`REGISTERED_EVENT_TABS`), this quick task ships all four tabs in one
+ * task, so there is no partial-registration state a narrower array would
+ * need to guard against — the route's own `REGISTERED_DISTRICT_TABS` still
+ * exists (mirroring the event page's shape) but is simply the full set.
+ */
+export const DISTRICT_TABS = ["insights", "breakdown", "district-locks", "champ-locks"] as const;
+
+/** The Districts page's default tab — Insights, the page's landing tab. */
+export const DEFAULT_DISTRICT_TAB = "insights";
+
+/**
+ * Extends `RootSearchSchema` with `district` (the selected TBA year-prefixed
+ * district key, e.g. `"2026fnc"` — optional, since `/districts` with no
+ * selection is a real, valid state per this plan's must-have truth) and
+ * `tab`, mirroring `EventSearchSchema`'s `tab` field exactly. Both are URL
+ * state so a district-and-tab view is shareable, exactly as `?tab=` already
+ * is on the event and team pages.
+ */
+export const DistrictsSearchSchema = RootSearchSchema.extend({
+  district: z.string().optional(),
+  tab: z.enum(DISTRICT_TABS).catch(DEFAULT_DISTRICT_TAB),
+});
+
+export type DistrictsSearch = z.infer<typeof DistrictsSearchSchema>;
+export type DistrictTab = (typeof DISTRICT_TABS)[number];
