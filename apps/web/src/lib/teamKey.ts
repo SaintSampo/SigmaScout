@@ -8,6 +8,7 @@
  * module that needs a team key goes through `toTeamKey`, never a repeated
  * inline template literal.
  */
+import { isRealPublishedTeamKey } from "../../../../packages/harness/teamRanks.js";
 
 /** The corpus's own team-key prefix — FRC-specific to this TBA-derived corpus, not a general convention. */
 export const TEAM_KEY_PREFIX = "frc";
@@ -35,8 +36,9 @@ export function toTeamKey(teamNumber: number): string {
  * Whether a corpus team key names a REAL, competing FRC team registration
  * (2026-09-01, user report: "long names like 5199 don't show up in the teams
  * list"). Two published key shapes are not real teams and are excluded from
- * every MODEL-DERIVED surface — the Teams list and search — matching the
- * decision already recorded for the 9970-9999 "Off-Season Demo Team" block
+ * every MODEL-DERIVED surface — the Teams list, the team page's own rank
+ * cards, and search — matching the decision already recorded for the
+ * 9970-9999 "Off-Season Demo Team" block
  * (`.planning/todos/completed/exclude-offseason-demo-teams.md`), including
  * its carve-out: EVENT pages still show whoever actually played, so this
  * predicate is deliberately not applied there.
@@ -51,12 +53,15 @@ export function toTeamKey(teamNumber: number): string {
  *    ninety-plus official matches.
  * 2. `frc0` — a zero-numbered row carrying no matches and no `total` metric
  *    at all (present in 2024 only). FRC team numbers start at 1.
+ *
+ * Quick task 260905-ldu: this rule's implementation now lives in
+ * `packages/harness/teamRanks.ts`'s `isRealPublishedTeamKey` — the offline
+ * pipeline needs the identical rule to build its published rank pools, and a
+ * single shared home is what keeps this predicate from drifting into two
+ * copies. Re-exported here under its original name so every existing call
+ * site in this codebase stays unchanged.
  */
-export function isRealTeamKey(teamKey: string): boolean {
-  const match = TEAM_KEY_PATTERN.exec(teamKey);
-  if (match === null) return false; // letter-suffixed or otherwise non-canonical
-  return Number.parseInt(match[1]!, 10) > 0;
-}
+export const isRealTeamKey = isRealPublishedTeamKey;
 
 /** The corpus's own key format -> the plain team number, e.g. `"frc1114"` -> `1114`. Throws `InvalidTeamKeyError` on a key that does not match `/^frc\d+$/`. */
 export function teamNumberFromKey(teamKey: string): number {

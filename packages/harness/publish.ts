@@ -88,6 +88,7 @@ import {
   type TeamsArtifactWire,
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
+import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
@@ -960,6 +961,15 @@ export interface BuildTeamSeasonArtifactParams {
   readonly robotImageUrl?: string;
   /** D-05 (Phase 6): the seasons this team is known to have competed in, from the `activeYearsByTeam` pre-pass — feeds the team page's constrained year dropdown (D-18). */
   readonly activeYears?: readonly number[];
+  /**
+   * Quick task 260905-ldu: this team's World/Country/District/State rank
+   * scopes for this algorithm/season, from `teamRanks.ts`'s
+   * `buildTeamRankScopes`. Both an omitted value here and an empty array
+   * produce an OMITTED `ranks` key on the published artifact (never an
+   * empty array on the wire) — see this function's body for that
+   * normalization.
+   */
+  readonly ranks?: readonly TeamRankScope[];
 }
 
 /** D-07/D-05's second at-risk artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning (T-04-22). */
@@ -1082,6 +1092,10 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     metricHistory: params.metricHistory.map(roundMetricHistoryRow),
     robotImageUrl: params.robotImageUrl,
     activeYears: params.activeYears ? [...params.activeYears] : undefined,
+    // Quick task 260905-ldu: "computed, found nothing" (an empty array) and
+    // "never computed" (an omitted param) both collapse to an omitted
+    // `ranks` key here — neither ever emits `ranks: []` on the wire.
+    ranks: params.ranks && params.ranks.length > 0 ? [...params.ranks] : undefined,
   };
   return TeamSeasonArtifactSchema.parse(candidate);
 }
@@ -1808,6 +1822,25 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const teamStats = computeTeamSeasonStats(stream);
     const eventCounts = computeEventCounts(stream, scheduled);
 
+    // Quick task 260905-ldu: a team's home region is algorithm-agnostic (it
+    // does not depend on which algorithm scored the team), so it is derived
+    // exactly ONCE per season here, before the per-algorithm loop below —
+    // the same argument `actualBonusFlagsForSeason` above already makes for
+    // a per-season-not-per-algorithm quantity. `teamStats`'s own `eventKeys`
+    // set (built above, from the same `stream`) is reused directly rather
+    // than re-walking the match stream a second time.
+    const teamRegions = deriveTeamRegions({
+      teamEventKeys: new Map(Array.from(teamStats.entries(), ([teamKey, stats]) => [teamKey, stats.eventKeys])),
+      events: eventMeta.map((e) => ({
+        eventKey: e.event_key,
+        eventType: e.event_type,
+        startDate: e.start_date,
+        country: e.country,
+        stateProv: e.state_prov,
+        districtKey: e.district_key,
+      })),
+    });
+
     // D-22: HarnessPredictionInput across every algorithm this season, for
     // the compare artifact's aggregateScores call (one CompareArtifact per
     // year, per D-02's documented exception).
@@ -1934,6 +1967,24 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           matchCount: stats?.matchCount ?? 0,
         };
       });
+      // Quick task 260905-ldu: rank the SAME rows this algorithm/season is
+      // about to publish on the Teams artifact above, joined to this
+      // season's derived home regions. Ranking the rows the pipeline is
+      // about to publish, rather than a separately assembled set, is what
+      // makes the published World rank and the Teams table's client-side
+      // rank the same number BY CONSTRUCTION — `rowModel.ts`'s
+      // `buildTeamRows` ranks this exact same `teamsRows` shape client-side
+      // with the same shared `compareTeamsByTotal` comparator.
+      const rankableTeamRows: RankableTeamRow[] = teamsRows.map((row) => ({
+        teamKey: row.teamKey,
+        teamNumber: row.teamNumber,
+        metrics: row.metrics,
+        ...teamRegions.get(row.teamKey),
+      }));
+      const rankScopesByTeamKey = new Map<string, readonly TeamRankScope[]>(
+        teamsRows.map((row) => [row.teamKey, buildTeamRankScopes({ rows: rankableTeamRows, teamKey: row.teamKey })])
+      );
+
       const teamsArtifact = buildTeamsArtifact({
         season,
         algorithmId: algorithm.id,
@@ -2090,6 +2141,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           robotImageUrl: teamMediaForSeason.get(teamKey)?.imageUrl ?? undefined,
           // D-05 (Phase 6): from the activeYears pre-pass above.
           activeYears: activeYearsByTeam.get(teamKey),
+          // Quick task 260905-ldu: this team's World/Country/District/State
+          // rank scopes, from the once-per-algorithm pre-pass above.
+          ranks: rankScopesByTeamKey.get(teamKey),
           generation,
           computedAt,
         });

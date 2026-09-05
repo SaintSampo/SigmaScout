@@ -55,6 +55,7 @@ import {
   type PublishedObjectRecord,
 } from "./publish.js";
 import { artifactKey, decodeTeamsRowMetrics, TeamsArtifactSchema } from "./pageArtifacts.js";
+import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
@@ -1382,6 +1383,49 @@ describe("buildTeamSeasonArtifact", () => {
   });
 });
 
+describe("buildTeamSeasonArtifact — ranks (quick task 260905-ldu)", () => {
+  function minimalParams(overrides: Partial<Parameters<typeof buildTeamSeasonArtifact>[0]> = {}): Parameters<typeof buildTeamSeasonArtifact>[0] {
+    return {
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+      events: [],
+      metricHistory: [],
+      generation: "g1",
+      ...overrides,
+    };
+  }
+
+  it("emits the given rank scopes", () => {
+    const artifact = buildTeamSeasonArtifact(
+      minimalParams({
+        ranks: [
+          { scope: "world", rank: 12, total: 3481 },
+          { scope: "district", value: "fim", rank: 3, total: 60 },
+        ],
+      })
+    );
+    expect(artifact.ranks).toEqual([
+      { scope: "world", rank: 12, total: 3481 },
+      { scope: "district", value: "fim", rank: 3, total: 60 },
+    ]);
+  });
+
+  it("omits the ranks key (yields ranks: undefined) when given an empty array, rather than publishing an empty array", () => {
+    const artifact = buildTeamSeasonArtifact(minimalParams({ ranks: [] }));
+    expect(artifact.ranks).toBeUndefined();
+  });
+
+  it("omits the ranks key (yields ranks: undefined) when not given at all", () => {
+    const artifact = buildTeamSeasonArtifact(minimalParams());
+    expect(artifact.ranks).toBeUndefined();
+  });
+});
+
 describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fields (plan 06-04 Task 1)", () => {
   const baseParams = {
     teamKey: "frc254",
@@ -2572,6 +2616,98 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
     expect(row?.teamNumber).toBe(1);
     expect(row?.record).toEqual({ wins: 1, losses: 0, ties: 0 });
     expect(row?.metrics).toEqual({});
+  });
+});
+
+/**
+ * Quick task 260905-ldu: the cross-artifact agreement the whole rank-cards
+ * feature rests on — the World rank published on a team's OWN artifact must
+ * equal that team's index+1 in the published teams/{year} artifact's rows,
+ * after filtering to real team keys and sorting with the shared
+ * `compareTeamsByTotal`. This is asserted end-to-end against real
+ * `publishSeasons` output, not against `teamRanks.ts` in isolation — the
+ * risk this guards against is the two call sites (publish.ts's per-team loop
+ * and its Teams-artifact assembly) drifting apart, which a pure unit test of
+ * `teamRanks.ts` alone cannot catch.
+ */
+describe("publishSeasons — World rank cross-artifact agreement (quick task 260905-ldu)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-ranks-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findTeamsArtifactRaw(year: number): unknown {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string);
+  }
+
+  it("every real team's published World rank equals its index+1 in the teams artifact's rows sorted by compareTeamsByTotal", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026rnk", name: "Ranking Event", country: "USA", stateProv: "MI", districtKey: "fim" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026rnk_qm1",
+        eventKey: "2026rnk",
+        sortTime: 1_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 120,
+        blueScore: 60,
+      })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026rnk_qm2",
+        eventKey: "2026rnk",
+        sortTime: 2_000,
+        redTeams: ["frc1", "frc4", "frc7"],
+        blueTeams: ["frc2", "frc5", "frc8"],
+        redScore: 90,
+        blueScore: 110,
+      })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026rnk_qm3",
+        eventKey: "2026rnk",
+        sortTime: 3_000,
+        // frc9B (a letter-suffixed non-real key) is deliberately included:
+        // it must be excluded from every ranking pool before ranks are
+        // computed, per teamRanks.ts's own contract.
+        redTeams: ["frc3", "frc6", "frc9"],
+        blueTeams: ["frc1", "frc8", "frc9B"],
+        redScore: 70,
+        blueScore: 130,
+      })
+    );
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+    const realRows = teamsArtifact.teams.filter((t) => isRealPublishedTeamKey(t.teamKey));
+    expect(realRows.length).toBeGreaterThan(0);
+    const sorted = [...realRows].sort(compareTeamsByTotal);
+
+    for (const row of realRows) {
+      const expectedRank = sorted.findIndex((r) => r.teamKey === row.teamKey) + 1;
+      const teamArtifact = findTeamArtifact(row.teamKey, 2026);
+      const world = teamArtifact.ranks?.find((r) => r.scope === "world");
+      expect(world, `expected a world rank scope on ${row.teamKey}'s artifact`).toBeDefined();
+      expect(world?.rank, `world rank for ${row.teamKey}`).toBe(expectedRank);
+      expect(world?.total).toBe(sorted.length);
+    }
   });
 });
 

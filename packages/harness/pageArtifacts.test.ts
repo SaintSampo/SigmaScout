@@ -604,6 +604,67 @@ describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears (D-03/D-05, Pha
   });
 });
 
+describe("TeamSeasonArtifactSchema — ranks (quick task 260905-ldu)", () => {
+  it("parses a fixture with no ranks key at all -- the pre-republish back-compat case -- yielding ranks: undefined", () => {
+    const parsed = TeamSeasonArtifactSchema.parse(validTeamSeasonFixture());
+    expect(parsed.ranks).toBeUndefined();
+  });
+
+  it("parses a fixture with four rank entries", () => {
+    const fixture = {
+      ...validTeamSeasonFixture(),
+      ranks: [
+        { scope: "world", rank: 12, total: 3481 },
+        { scope: "country", value: "USA", rank: 8, total: 2900 },
+        { scope: "district", value: "fim", rank: 3, total: 60 },
+        { scope: "state", value: "MI", rank: 5, total: 120 },
+      ],
+    };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("rejects a fixture with five rank entries", () => {
+    const fixture = {
+      ...validTeamSeasonFixture(),
+      ranks: [
+        { scope: "world", rank: 1, total: 10 },
+        { scope: "country", value: "USA", rank: 1, total: 10 },
+        { scope: "district", value: "fim", rank: 1, total: 10 },
+        { scope: "state", value: "MI", rank: 1, total: 10 },
+        { scope: "world", rank: 1, total: 10 },
+      ],
+    };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects a rank of zero", () => {
+    const fixture = { ...validTeamSeasonFixture(), ranks: [{ scope: "world", rank: 0, total: 10 }] };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects a negative total", () => {
+    const fixture = { ...validTeamSeasonFixture(), ranks: [{ scope: "world", rank: 1, total: -1 }] };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects an unknown scope string", () => {
+    const fixture = { ...validTeamSeasonFixture(), ranks: [{ scope: "planet", rank: 1, total: 10 }] };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("parses a world entry with no value", () => {
+    const fixture = { ...validTeamSeasonFixture(), ranks: [{ scope: "world", rank: 1, total: 10 }] };
+    const parsed = TeamSeasonArtifactSchema.parse(fixture);
+    expect(parsed.ranks?.[0]).toEqual({ scope: "world", rank: 1, total: 10 });
+  });
+
+  it("parses a district entry with value: 'fim'", () => {
+    const fixture = { ...validTeamSeasonFixture(), ranks: [{ scope: "district", value: "fim", rank: 3, total: 60 }] };
+    const parsed = TeamSeasonArtifactSchema.parse(fixture);
+    expect(parsed.ranks?.[0]).toEqual({ scope: "district", value: "fim", rank: 3, total: 60 });
+  });
+});
+
 describe("empty-input edge (D-05/D-07) — a team with no matches is a valid empty artifact", () => {
   it("TeamSeasonArtifactSchema accepts events: [] and metricHistory: []", () => {
     const fixture = { ...validTeamSeasonFixture(), events: [], metricHistory: [] };

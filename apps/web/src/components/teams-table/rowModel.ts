@@ -31,8 +31,8 @@
  * ranking itself is unaffected.
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { compareTeamsByTotal } from "../../../../../packages/harness/teamRanks.js";
 import { withDerivedGroupMetrics } from "../../lib/metricGroups.js";
-import { TOTAL_KEY } from "../../lib/metricKeys.js";
 import { isRealTeamKey } from "../../lib/teamKey.js";
 
 export type TeamRecord = TeamsArtifact["teams"][number]["record"];
@@ -47,6 +47,12 @@ export type SortDirection = "asc" | "desc";
  * algorithm-and-year pair: sorting by a component column changes the row
  * ORDER without renumbering anyone, matching the behaviour this table's
  * users already expect from comparable FRC tools.
+ *
+ * Quick task 260905-ldu: the ranking rule itself now lives in
+ * `packages/harness/teamRanks.ts`'s `compareTeamsByTotal` — the SAME
+ * comparator the offline pipeline uses to publish each team's World rank
+ * card. A single shared implementation is what makes this table's rank and
+ * the published per-team World rank incapable of disagreeing.
  */
 export interface TeamRow {
   teamKey: string;
@@ -126,17 +132,10 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     metrics: withDerivedGroupMetrics(team.metrics, artifact.season),
   }));
 
-  const ranked = [...unranked].sort((a, b) => {
-    const totalA = a.metrics[TOTAL_KEY]?.value;
-    const totalB = b.metrics[TOTAL_KEY]?.value;
-    // A row missing the total key sorts last rather than throwing — the
-    // ranking axis is descending total, so "missing" is the worst position.
-    if (totalA === undefined && totalB === undefined) return byTeamNumberAscending(a, b);
-    if (totalA === undefined) return 1;
-    if (totalB === undefined) return -1;
-    if (totalA !== totalB) return totalB - totalA;
-    return byTeamNumberAscending(a, b);
-  });
+  // Quick task 260905-ldu: `compareTeamsByTotal` (shared with
+  // `packages/harness/publish.ts`'s published World rank) replaces the
+  // total-descending sort body that used to live here inline.
+  const ranked = [...unranked].sort(compareTeamsByTotal);
 
   return ranked.map((row, index) => ({ ...row, rank: index + 1 }));
 }

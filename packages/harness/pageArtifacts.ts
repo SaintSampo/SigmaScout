@@ -1077,6 +1077,22 @@ const TeamSeasonEventSchema = z.object({
 });
 
 /**
+ * Quick task 260905-ldu: one World/Country/District/State rank card's worth
+ * of data, mirroring `packages/harness/teamRanks.ts`'s `TeamRankScope` —
+ * that module computes the value, this schema is only the wire contract for
+ * it. `value` is the RAW published scope value (country string, district
+ * abbreviation, state-prov abbreviation); it is omitted for `world`, and
+ * reader-facing formatting (e.g. `districtDisplayName`) is the client's job,
+ * never done here.
+ */
+const TeamSeasonRankSchema = z.object({
+  scope: z.enum(["world", "country", "district", "state"]),
+  value: z.string().optional(),
+  rank: z.number().int().positive(),
+  total: z.number().int().positive(),
+});
+
+/**
  * D-07: everything the team page renders in one object. This is D-05's
  * second at-risk artifact (the 292-match outlier) — per D-07 that is the
  * budget test's problem to police, not a reason to split the file; a later
@@ -1112,6 +1128,19 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * note).
    */
   activeYears: z.array(z.number().int()).optional(),
+  /**
+   * Quick task 260905-ldu: this team's World/Country/District/State rank
+   * cards for this algorithm/season, at most one entry per scope (world,
+   * country, district, state), in that order. Optional following the same
+   * argument `activeYears`/`robotImageUrl` above already make: absence is a
+   * valid state a client must handle, because a browser can hold an
+   * artifact published before this field existed — it renders zero cards,
+   * never a placeholder. PAGE_ARTIFACT_SCHEMA_VERSION is deliberately NOT
+   * bumped for this, matching `EventsListRowSchema`'s own recorded
+   * precedent: an additive optional field on one page kind is
+   * backward-compatible for every reader.
+   */
+  ranks: z.array(TeamSeasonRankSchema).max(4).optional(),
 });
 
 export type TeamSeasonArtifact = z.infer<typeof TeamSeasonArtifactSchema>;
