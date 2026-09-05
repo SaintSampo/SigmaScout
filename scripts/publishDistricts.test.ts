@@ -253,6 +253,59 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
     expect(frc1.qualifyingAwards).toEqual([{ eventKey: "2026e1", awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
   });
 
+  it("a registered event whose start_date is already well past computedAt is NOT a remaining event — no-show registrations must not inflate a ceiling forever", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 50, eventPointsRaw: "[]" })];
+    const events = [
+      districtEvent({ eventKey: "2026past", eventType: 1, startDate: "2026-03-01" }), // long past vs COMPUTED_AT (2026-09-05)
+      districtEvent({ eventKey: "2026future", eventType: 1, startDate: "2026-10-01" }),
+      districtEvent({ eventKey: "2026undated", eventType: 1 }), // unknown date -> honestly assumed still ahead
+    ];
+    const registrations = new Map<string, readonly string[]>([
+      ["2026past", ["frc1"]],
+      ["2026future", ["frc1"]],
+      ["2026undated", ["frc1"]],
+    ]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: null, cmpSlots: null }),
+      rankings,
+      events,
+      registrations,
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+
+    expect(artifact.teams[0]!.remainingEvents.map((e) => e.eventKey).sort()).toEqual(["2026future", "2026undated"]);
+    expect(artifact.teams[0]!.maxRemainingDistrict).toBe(83 * 2);
+  });
+
+  it("a district whose DCMP start_date is already past grants no hypothetical dcmp ceiling, while a district with NO dcmp event listed still grants it (never understate a ceiling)", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 50, eventPointsRaw: "[]" })];
+    const base = {
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 10, cmpSlots: 5 }),
+      rankings,
+      registrations: new Map<string, readonly string[]>(),
+      awards: new Map<string, never[]>(),
+      teamMeta: new Map(),
+    };
+    const dcmpEventMax = 83 * 3;
+
+    const pastDcmp = buildDistrictArtifact({ ...base, events: [districtEvent({ eventKey: "2026dcmp", eventType: 2, startDate: "2026-04-01" })] });
+    expect(pastDcmp.teams[0]!.maxRemainingChamp).toBe(pastDcmp.teams[0]!.maxRemainingDistrict);
+
+    const noDcmpListed = buildDistrictArtifact({ ...base, events: [] });
+    expect(noDcmpListed.teams[0]!.maxRemainingChamp).toBe(noDcmpListed.teams[0]!.maxRemainingDistrict + dcmpEventMax);
+
+    const futureDcmp = buildDistrictArtifact({ ...base, events: [districtEvent({ eventKey: "2026dcmp", eventType: 2, startDate: "2026-10-01" })] });
+    expect(futureDcmp.teams[0]!.maxRemainingChamp).toBe(futureDcmp.teams[0]!.maxRemainingDistrict + dcmpEventMax);
+  });
+
   it("a DCMP DIVISION Winner (award_type 1 at event_type 5) qualifies NOTHING — division champions are not the DCMP winning alliance", () => {
     const rankings = [ranking({ teamKey: "frc1", pointTotal: 10, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 500, rank: 2 })];
     const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2 }), districtEvent({ eventKey: "2026dcmp1", eventType: 5 })];

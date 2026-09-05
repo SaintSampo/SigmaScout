@@ -145,6 +145,25 @@ export interface DistrictEventMeta {
   readonly name: string;
   readonly week: number | null;
   readonly eventType: number;
+  /** TBA start date (YYYY-MM-DD) or null when unknown. Used to keep already-finished events out of `remainingEvents` — a registered no-show must not inflate a ceiling forever. */
+  readonly startDate?: string | null;
+}
+
+/**
+ * True when `event` could still yield points as of `computedAt`: its start
+ * date is unknown (honest default: assume ahead), or within/after
+ * `computedAt` minus a 7-day buffer (FRC events run at most a few days;
+ * the generous buffer absorbs timezones and multi-day DCMPs). Without this
+ * gate, a team registered for an event it never attended keeps that event in
+ * `remainingEvents` forever, inflating its ceiling — conservative
+ * mid-season, but nonsense once the event is over (e.g. finished-season FiM
+ * showed "332 / 166 remaining" from no-show registrations).
+ */
+function eventStillAhead(event: DistrictEventMeta, computedAt: string): boolean {
+  if (event.startDate == null) return true;
+  const start = Date.parse(event.startDate);
+  if (Number.isNaN(start)) return true;
+  return start >= Date.parse(computedAt) - 7 * 24 * 60 * 60 * 1000;
 }
 
 interface EventRow {
@@ -152,14 +171,15 @@ interface EventRow {
   name: string | null;
   week: number | null;
   event_type: number;
+  start_date: string | null;
 }
 
 /** Every event belonging to district `abbreviation` (the bare, non-year-prefixed key `events.district_key` stores) for `year` — the authoritative "this district's full event list" this task needs, since Task 1 stores no separate district-events table. */
 function selectDistrictEvents(db: Corpus, abbreviation: string, year: number): DistrictEventMeta[] {
   const rows = db
-    .prepare(`SELECT event_key, name, week, event_type FROM events WHERE district_key = ? AND year = ? ORDER BY event_key ASC`)
+    .prepare(`SELECT event_key, name, week, event_type, start_date FROM events WHERE district_key = ? AND year = ? ORDER BY event_key ASC`)
     .all(abbreviation, year) as EventRow[];
-  return rows.map((row) => ({ eventKey: row.event_key, name: row.name ?? row.event_key, week: row.week, eventType: row.event_type }));
+  return rows.map((row) => ({ eventKey: row.event_key, name: row.name ?? row.event_key, week: row.week, eventType: row.event_type, startDate: row.start_date }));
 }
 
 interface TeamMetaRow {
@@ -296,7 +316,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     const playedEventKeys = new Set(eventPoints.map((ep) => ep.eventKey));
     const registeredEventKeys = registeredByTeam.get(ranking.teamKey) ?? new Set<string>();
     const remainingEvents = [...registeredEventKeys]
-      .filter((eventKey) => !playedEventKeys.has(eventKey))
+      .filter((eventKey) => !playedEventKeys.has(eventKey) && eventStillAhead(eventsByKey.get(eventKey)!, computedAt))
       .map((eventKey) => {
         const meta = eventsByKey.get(eventKey)!;
         const tier = districtTierForEventType(meta.eventType);
@@ -331,11 +351,20 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
 
   // Pass 2: maxRemainingChamp = maxRemainingDistrict + (one hypothetical dcmp-tier
   // event's max, only for a team that has not already attended DCMP AND is not
-  // already eliminated from DCMP qualification per pass 1's districtLock).
+  // already eliminated from DCMP qualification per pass 1's districtLock AND the
+  // district's DCMP has not already happened — once every dcmp-tier event has
+  // started (or the district has none listed at all... treated as "could still be
+  // scheduled" only when a dcmp event exists with an unknown date), no one can
+  // earn DCMP points anymore, no-show registrations included).
+  const dcmpEvents = events.filter((e) => districtTierForEventType(e.eventType) === "dcmp");
+  // No dcmp event listed at all (early-season calendar gap) must read as "still
+  // ahead": denying the hypothetical DCMP ceiling would UNDERSTATE rivals'
+  // ceilings, the one direction the lock math must never err in.
+  const dcmpStillAhead = dcmpEvents.length === 0 || dcmpEvents.some((e) => eventStillAhead(e, computedAt));
   const maxRemainingChampByTeam = new Map<string, number>();
   for (const t of perTeam) {
     const districtLock = districtLockByTeam.get(t.ranking.teamKey)!;
-    const stillMightAttendDcmp = !t.hasPlayedDcmp && districtLock.status !== "eliminated";
+    const stillMightAttendDcmp = dcmpStillAhead && !t.hasPlayedDcmp && districtLock.status !== "eliminated";
     maxRemainingChampByTeam.set(t.ranking.teamKey, t.maxRemainingDistrict + (stillMightAttendDcmp ? dcmpEventMaxTotal : 0));
   }
   const champLockInputs: LockTeamInput[] = perTeam.map((t) => ({
