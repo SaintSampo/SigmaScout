@@ -155,29 +155,29 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
 }
 
 function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
-  const stats = computeDistrictLocksHeaderStats(artifact.teams, "district");
+  const stats = computeDistrictLocksHeaderStats(artifact.teams, "district", artifact.year);
 
   return (
     <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="district-locks-header-stats">
       <div className="flex flex-wrap items-center gap-[var(--spacing-lg)]">
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">Pre-DCMP ceiling per team</span>
+          <span className="text-role-label text-[var(--color-text-muted)]">Pre-DCMP points remaining</span>
           <p className="text-role-heading" data-testid="district-locks-ceiling">
-            {stats.perEventMax === null || stats.seasonCeilingTotal === null
+            {stats.perTeamCeiling === null
               ? "Not yet known"
-              : `${formatPoints(stats.perEventMax)} / ${formatPoints(stats.seasonCeilingTotal)} per team`}
+              : `${formatPoints(stats.maxRemainingAcrossRoster)} / ${formatPoints(stats.perTeamCeiling)} per team`}
           </p>
         </div>
         <div>
           <span className="text-role-label text-[var(--color-text-muted)]">District points distributed</span>
           <p className="text-role-heading" data-testid="district-locks-distributed">
-            {formatPoints(stats.pointsPool.distributed)}
+            {formatPoints(Math.round(stats.pointsPool.distributed))}
           </p>
         </div>
         <div>
           <span className="text-role-label text-[var(--color-text-muted)]">Still to be distributed (est.)</span>
           <p className="text-role-heading" data-testid="district-locks-remaining-estimate">
-            ~{formatPoints(stats.pointsPool.remainingEstimate)}
+            ~{formatPoints(Math.round(stats.pointsPool.remainingEstimate))}
           </p>
         </div>
       </div>
@@ -199,7 +199,7 @@ function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
 }
 
 function ChampRemainingDistrictPoints({ artifact }: { artifact: DistrictArtifact }) {
-  const stats = computeChampLocksHeaderStats(artifact.teams);
+  const stats = computeChampLocksHeaderStats(artifact.teams, artifact.year);
 
   return (
     <div className="data-card flex items-center gap-[var(--spacing-lg)] p-[var(--spacing-md)]" data-testid="champ-locks-header-stats">
@@ -207,8 +207,8 @@ function ChampRemainingDistrictPoints({ artifact }: { artifact: DistrictArtifact
         <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
         <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
           {stats.preDcmpCeiling === null
-            ? formatPoints(stats.remainingDistrictPoints)
-            : `${formatPoints(stats.remainingDistrictPoints)} / ${formatPoints(stats.preDcmpCeiling)} pre-DCMP`}
+            ? formatPoints(stats.maxRemainingAcrossRoster)
+            : `${formatPoints(stats.maxRemainingAcrossRoster)} / ${formatPoints(stats.preDcmpCeiling)} pre-DCMP`}
         </p>
       </div>
     </div>

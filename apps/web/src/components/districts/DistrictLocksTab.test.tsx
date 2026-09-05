@@ -338,19 +338,88 @@ describe("DistrictLocksTab", () => {
     expect(screen.getByTestId("district-locks-distributed").textContent).toBe("60");
   });
 
-  it("the Champ Locks header shows 'Remaining district points: X / Y pre-DCMP'", async () => {
+  it("the District Locks per-team ceiling reads 'X / Y per team' from the point model (2 x 83 = 166), never 'Not yet known', even for a fully-played season with no remainingEvents left", async () => {
     const t1 = team({
-      teamKey: "frc16",
-      teamNumber: 16,
-      rank: 16,
-      remainingEvents: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", maxPoints: 83 }],
+      teamKey: "frc17",
+      teamNumber: 17,
+      rank: 17,
+      maxRemainingDistrict: 0,
+      eventPoints: [
+        { eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 22, alliance: 16, elim: 30, award: 0, total: 68 },
+        { eventKey: "eventB", eventName: "Event B", week: 5, tier: "district", qual: 22, alliance: 16, elim: 30, award: 0, total: 68 },
+      ],
+      remainingEvents: [],
     });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    expect((await screen.findByTestId("district-locks-ceiling")).textContent).toBe("0 / 166 per team");
+  });
+
+  it("the District Locks per-team ceiling's X is the MAXIMUM of maxRemainingDistrict across the roster, not the district-wide total", async () => {
+    const t1 = team({ teamKey: "frc18", teamNumber: 18, rank: 18, maxRemainingDistrict: 40 });
+    const t2 = team({ teamKey: "frc19", teamNumber: 19, rank: 19, maxRemainingDistrict: 83 });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1, t2])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    expect((await screen.findByTestId("district-locks-ceiling")).textContent).toBe("83 / 166 per team");
+  });
+
+  it("rounds a genuinely fractional points-pool estimate for display, keeping the '~' marker", async () => {
+    const t1 = team({
+      teamKey: "frc20",
+      teamNumber: 20,
+      rank: 20,
+      eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 61, alliance: 0, elim: 0, award: 0, total: 61 }],
+    });
+    const t2 = team({
+      teamKey: "frc21",
+      teamNumber: 21,
+      rank: 21,
+      eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 0, elim: 0, award: 0, total: 40 }],
+    });
+    // frc22 is the only team with eventB still ahead of it — average = 101/2
+    // = 50.5 (fractional), estimate = 1 team x 50.5 = 50.5, which must round
+    // to "51" on screen, never leak "50.5".
+    const t3 = team({
+      teamKey: "frc22",
+      teamNumber: 22,
+      rank: 22,
+      remainingEvents: [{ eventKey: "eventB", eventName: "Event B", week: 5, tier: "district", maxPoints: 83 }],
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1, t2, t3])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const remaining = await screen.findByTestId("district-locks-remaining-estimate");
+    expect(remaining.textContent).toBe("~51");
+    expect(remaining.textContent).not.toContain(".");
+  });
+
+  it("the Champ Locks header shows 'Remaining district points: X / Y pre-DCMP' with X the roster max of maxRemainingChamp and Y the fixed 2-event pre-DCMP ceiling (166)", async () => {
+    const t1 = team({ teamKey: "frc16", teamNumber: 16, rank: 16, maxRemainingChamp: 332 });
     render(
       <TestHarness>
         <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="vpr" season={2026} />
       </TestHarness>,
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
-    expect(stat.textContent).toBe("0 / 83 pre-DCMP");
+    expect(stat.textContent).toBe("332 / 166 pre-DCMP");
+  });
+
+  it("the Champ Locks header reads '0 / 166 pre-DCMP' once every team is done (matches the user-approved preview)", async () => {
+    const t1 = team({ teamKey: "frc21", teamNumber: 21, rank: 21, maxRemainingChamp: 0 });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const stat = await screen.findByTestId("champ-locks-remaining-district-points");
+    expect(stat.textContent).toBe("0 / 166 pre-DCMP");
   });
 });
