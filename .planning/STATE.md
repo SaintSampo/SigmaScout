@@ -5,9 +5,9 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-04T23:40:33.741Z"
+last_updated: "2026-09-05T03:13:20.591Z"
 last_activity: 2026-09-04
-last_activity_desc: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective (noise-band lexicographic, D-T7 accuracy bar + Brier guardrail veto)"
+last_activity_desc: "Completed quick task 260904-nt4: 2019 and 2020 shipped to the live site (seven-season republish, gapped season list, docs updated)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -397,6 +397,7 @@ None yet.
 | 42 | Move the desktop ribbon GitHub icon next to the search box instead of center-spread | 2026-09-04 | 1658cb4d | — |
 | 43 | Flip the VPR tuning objective to accuracy-primary: noise-band lexicographic comparator in the joint search (tune.ts), D-T7 ship bar gates on accuracy with a new two-half Brier guardrail veto alongside the existing MAE veto (acceptance.ts), objectiveDefinition.ts as the one objective-wording source; no tuning run, docs updated | 2026-09-04 | b97e3401 | [260904-oiu-make-maximum-prediction-accuracy-the-pri](./quick/260904-oiu-make-maximum-prediction-accuracy-the-pri/) |
 | 260904-nt4 | 2019 and 2020 SHIPPED to the live site — the site-facing half of the corpus backfill. publish.ts parseSeasonsRange accepts a gapped comma-list (2019,2020,2022-2026; 2021 permanently excluded) with a drift-tripwire test that parses package.json's own script string; apps/web SEASONS becomes the gapped seven via EXCLUDED_SEASONS=[2021] with the inverse registry test (registering a 2021 component map goes red); COMPARE_SEASONS floored at 2022 (D-4/D-5: 2019/2020 are selection-only seasons, never Compare rows); districtNames gains the pre-rekey in/tx spellings under that map's first-ever test (TBA re-keyed Indiana and Texas between 2020 and 2022 — planner found the corpus carries in/tx, not fin/fit). Full seven-season republish: 75,544 objects, 2.89 GB, 28m16s, generation 2c454968, verify:subset 35/35 with ONE distinct generation, payloadBudget 11/11 with no ceiling moved (the smaller new seasons pull medians DOWN), no worker redeploy (zero season literals in apps/worker/src). epa/vpr carried state across the two-year 2020-to-2022 boundary in production for the first time, so 2022-2026 values moved slightly on same keys — the intended warm-start effect, not drift. Rendered verification on sigmascout.org via Playwright: dropdown exactly 2026,2025,2024,2023,2022,2020,2019; team 254/2019 renders 74-12-1; 2019ftcmp and 2020arli render; FIRST IN and FIRST TX resolve on the 263-row 2019 events list; Compare stays exactly 2022-2026; zero page JS errors. Operational note: the executor subagent's sandbox denied every network-touching command incl. publish:seasons itself, so Task 3 ran in the main context after explicit user approval; a concurrent session pushed the two feature commits mid-publish, briefly opening the dropdown-before-artifacts window the plan ordered against (client 404 empty-states covered it; closed when the publish landed) | 2026-09-04 | e9849acd | [260904-nt4-ship-2019-and-2020-on-the-website-gapped](./quick/260904-nt4-ship-2019-and-2020-on-the-website-gapped/) |
+| 45 | add the elim-R multiplier and a within-season elim offset | 2026-09-05 | 0a73bbad | — |
 
 ### Roadmap Evolution
 
