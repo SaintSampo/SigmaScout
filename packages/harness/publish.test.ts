@@ -707,7 +707,7 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
    * supply it. The qualification-side assertions below are what makes this
    * non-vacuous.
    */
-  it("Test 8 (folded todo, PD-08): a freshly published playoff row carries no bonus-RP key on either artifact kind, against a real qualification-side bonus set", async () => {
+  it("Test 8 (folded todo, PD-08; qm-side event assertions flipped by quick 260905-jj8): a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
     upsertMatch(
       db,
@@ -754,10 +754,17 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
     expect(sfTeamRow).not.toHaveProperty("actualRedBonusRp");
     expect(sfTeamRow).not.toHaveProperty("actualBlueBonusRp");
 
+    // Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the EVENT
+    // artifact now carries the same four per-bonus keys on the
+    // qualification row (previously it carried none at all — the gap that
+    // left every Quals-tab dot permanently `unknown`), under the exact
+    // comp-level gate the team artifact applies: the playoff row still
+    // carries none of them, against the same real qualification-side bonus
+    // set that keeps this non-vacuous (PD-08).
     const qmEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
     const sfEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_sf1m1") as object;
     for (const key of ["redBonusRp", "blueBonusRp", "actualRedBonusRp", "actualBlueBonusRp"]) {
-      expect(qmEventRow).not.toHaveProperty(key);
+      expect(qmEventRow).toHaveProperty(key);
       expect(sfEventRow).not.toHaveProperty(key);
     }
   });

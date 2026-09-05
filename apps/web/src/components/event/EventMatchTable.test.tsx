@@ -250,7 +250,7 @@ describe("Bonus-RP dots", () => {
     return Array.from(group.querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-state"));
   }
 
-  it("a qm row renders predicted and actual dot groups per alliance, every dot unknown", () => {
+  it("a qm row WITHOUT published per-bonus fields renders predicted and actual dot groups per alliance, every dot unknown — the pre-260905-jj8 artifact shape stays the designed degradation", () => {
     renderWithRouter(
       <EventMatchTable
         rows={[makeRow({ matchKey: "m1", compLevel: "qm", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
@@ -265,6 +265,65 @@ describe("Bonus-RP dots", () => {
     expect(allStates.every((s) => s === "unknown")).toBe(true);
   });
 
+  // Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the event schemas
+  // now publish the per-bonus arrays, and the dots must map them through the
+  // same published-data-to-dot-state functions the team page uses.
+  it("a qm row WITH published per-bonus fields renders real dot states: predicted via the 0.5 threshold, actual via the flags", () => {
+    renderWithRouter(
+      <EventMatchTable
+        rows={[
+          makeRow({
+            matchKey: "m1",
+            compLevel: "qm",
+            played: true,
+            actualWinner: "red",
+            actualRedScore: 260,
+            actualBlueScore: 200,
+            redBonusRp: [0.8, 0.2],
+            blueBonusRp: [0.5, 0.49],
+            actualRedBonusRp: [true, false],
+            actualBlueBonusRp: [false, true],
+          }),
+        ]}
+        domain={DOMAIN}
+        season={2024}
+        algorithm="vpr"
+      />,
+    );
+    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "missed"]);
+    // Exactly 0.5 resolves to earned (PD-11's half-away-from-zero convention).
+    expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["earned", "missed"]);
+    expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "missed"]);
+    expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "earned"]);
+  });
+
+  it("a played qm row with a published `null` actual array renders actual dots unknown — looked-and-not-derivable is never coerced to all-missed", () => {
+    renderWithRouter(
+      <EventMatchTable
+        rows={[
+          makeRow({
+            matchKey: "m1",
+            compLevel: "qm",
+            played: true,
+            actualWinner: "red",
+            actualRedScore: 260,
+            actualBlueScore: 200,
+            redBonusRp: [0.8, 0.2],
+            actualRedBonusRp: null,
+            actualBlueBonusRp: null,
+          }),
+        ]}
+        domain={DOMAIN}
+        season={2024}
+        algorithm="vpr"
+      />,
+    );
+    expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["unknown", "unknown"]);
+    expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["unknown", "unknown"]);
+    // The predicted side is independent and keeps its real states.
+    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "missed"]);
+  });
+
   it("a 2024 row renders two dots per group and a 2025 row renders three", () => {
     renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
     expect(collectDotStates("bonus-rp-predicted-m1-red")).toHaveLength(2);
@@ -274,10 +333,23 @@ describe("Bonus-RP dots", () => {
     expect(collectDotStates("bonus-rp-predicted-m2-red")).toHaveLength(3);
   });
 
-  it("an sf row renders every dot unknown as well (via isBonusRpCompLevel returning false)", () => {
+  it("an sf row renders every dot unknown EVEN WITH populated per-bonus arrays — the applicable gate (PD-16/PD-18 defence-in-depth) overrides published playoff data", () => {
     renderWithRouter(
       <EventMatchTable
-        rows={[makeRow({ matchKey: "m1", compLevel: "sf", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
+        rows={[
+          makeRow({
+            matchKey: "m1",
+            compLevel: "sf",
+            played: true,
+            actualWinner: "red",
+            actualRedScore: 260,
+            actualBlueScore: 200,
+            redBonusRp: [0.9, 0.9],
+            blueBonusRp: [0.9, 0.9],
+            actualRedBonusRp: [true, true],
+            actualBlueBonusRp: [true, true],
+          }),
+        ]}
         domain={DOMAIN}
         season={2024}
         algorithm="vpr"

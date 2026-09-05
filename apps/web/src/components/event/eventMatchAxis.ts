@@ -47,6 +47,17 @@ export interface EventMatchRow {
   actualWinner?: "red" | "blue" | "tie";
   actualRedScore?: number;
   actualBlueScore?: number;
+  /**
+   * Quick 260905-jj8: the per-bonus RP fields, carried verbatim from
+   * whichever source row published them (`TeamSeasonMatchSchema.redBonusRp`
+   * and `.actualRedBonusRp` document the positional-alignment and
+   * three-state contracts). All optional — an artifact predating the fields
+   * simply leaves them absent, and the dots render `unknown`.
+   */
+  redBonusRp?: readonly number[];
+  blueBonusRp?: readonly number[];
+  actualRedBonusRp?: readonly boolean[] | null;
+  actualBlueBonusRp?: readonly boolean[] | null;
 }
 
 /**
@@ -154,6 +165,10 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     redScoreVarianceOwn: match.redScoreVarianceOwn,
     blueScoreVarianceOwn: match.blueScoreVarianceOwn,
     sortTime: match.sortTime,
+    // Quick 260905-jj8: both source schemas publish the predicted per-bonus
+    // marginals; copied verbatim, never defaulted (absent stays absent).
+    redBonusRp: match.redBonusRp,
+    blueBonusRp: match.blueBonusRp,
     played,
   };
   if (played) {
@@ -161,6 +176,8 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     row.actualWinner = playedMatch.actualWinner;
     row.actualRedScore = playedMatch.actualRedScore;
     row.actualBlueScore = playedMatch.actualBlueScore;
+    row.actualRedBonusRp = playedMatch.actualRedBonusRp;
+    row.actualBlueBonusRp = playedMatch.actualBlueBonusRp;
   }
   return row;
 }

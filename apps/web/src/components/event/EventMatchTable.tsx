@@ -1,6 +1,9 @@
 import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
 import { BonusRpDots } from "../team/BonusRpDots.js";
+// Quick 260905-jj8: the same published-data-to-dot-state mapping
+// `team/MatchTable.tsx` uses — one implementation, two surfaces.
+import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
 import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
@@ -140,13 +143,16 @@ function EventAllianceChip({ side }: { side: "red" | "blue" }) {
  * so a decimal would imply a precision the band denies.
  *
  * The dot group renders on every `qm` row (gated by `isBonusRpCompLevel`),
- * and EVERY dot in it is `unknown` — no `states`/`probabilities` array is
- * passed and none is derived from the row, because neither
- * `EventMatchSchema` nor `EventUpcomingMatchSchema` publishes a per-bonus
- * array of any kind. Inventing one from the score or the result would put a
- * false claim behind the identical glyph a real one uses. The group is the
- * placeholder that says "this is a qualification match and we do not know",
- * which is different from saying nothing.
+ * with real states as of quick 260905-jj8: `EventMatchSchema` and
+ * `EventUpcomingMatchSchema` now publish the same per-bonus arrays the team
+ * artifact has carried since Phase 06.1, and this line maps them through the
+ * EXACT `bonusStatesFromProbabilities`/`bonusStatesFromFlags` calls
+ * `team/MatchTable.tsx` uses — one mapping, two surfaces. A row from an
+ * artifact predating the fields (or a Worker live-merge row, whose actual
+ * side is filled only by the offline republish) passes `undefined` through
+ * and every dot renders `unknown` — the placeholder that says "this is a
+ * qualification match and we do not know", which is different from saying
+ * nothing, and different again from a false earned/missed claim.
  */
 function EventPredictedScoreLine({
   matchKey,
@@ -154,6 +160,7 @@ function EventPredictedScoreLine({
   score,
   variance,
   season,
+  bonusRp,
   compLevel,
 }: {
   matchKey: string;
@@ -161,12 +168,15 @@ function EventPredictedScoreLine({
   score: number;
   variance: number | undefined;
   season: number;
+  /** This alliance's predicted per-bonus probabilities, positionally aligned to the season's bonus list — `EventMatchSchema.redBonusRp`'s contract. Undefined when unpublished. */
+  bonusRp: readonly number[] | undefined;
   compLevel: EventMatchRow["compLevel"];
 }) {
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
+  const bonusStates = bonusStatesFromProbabilities(bonusRp, bonusRpForSeason(season).length);
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} applicable={isBonusRpCompLevel(compLevel)} />
+      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} states={bonusStates} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
         {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}
@@ -181,6 +191,7 @@ function EventActualScoreLine({
   score,
   isLoser,
   season,
+  actualBonusRp,
   compLevel,
 }: {
   matchKey: string;
@@ -188,11 +199,14 @@ function EventActualScoreLine({
   score: number;
   isLoser: boolean;
   season: number;
+  /** This alliance's actual per-bonus flags — `EventMatchSchema.actualRedBonusRp`'s three-state contract: `null` means looked-and-not-derivable, undefined means the artifact predates the field. */
+  actualBonusRp: readonly boolean[] | null | undefined;
   compLevel: EventMatchRow["compLevel"];
 }) {
+  const bonusStates = bonusStatesFromFlags(actualBonusRp, bonusRpForSeason(season).length);
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} applicable={isBonusRpCompLevel(compLevel)} />
+      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} states={bonusStates} applicable={isBonusRpCompLevel(compLevel)} />
       <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
         {score}
       </span>
@@ -285,15 +299,15 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       </td>
       <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redScoreVarianceOwn} season={season} compLevel={row.compLevel} />
-          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueScoreVarianceOwn} season={season} compLevel={row.compLevel} />
+          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redScoreVarianceOwn} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
+          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueScoreVarianceOwn} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {row.played ? (
           <div className="flex flex-col gap-[2px]">
-            <EventActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} compLevel={row.compLevel} />
-            <EventActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} compLevel={row.compLevel} />
+            <EventActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={row.actualRedBonusRp} compLevel={row.compLevel} />
+            <EventActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={row.actualBlueBonusRp} compLevel={row.compLevel} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">

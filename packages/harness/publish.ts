@@ -455,6 +455,16 @@ export interface BuildEventArtifactParams {
    * count).
    */
   readonly rankings?: ReadonlyMap<string, EventTeamRankingInput>;
+  /**
+   * Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): `match_key` ->
+   * `ActualBonusFlags | null`, the EXACT map (same producer,
+   * `actualBonusFlagsForSeason`; same three-state contract)
+   * `BuildTeamSeasonArtifactParams.actualBonusFlagsByMatchKey` already
+   * carries — see that field's doc comment, inherited verbatim. Feeds
+   * `EventMatchSchema.actualRedBonusRp`/`actualBlueBonusRp` so the event
+   * Quals tab's actual bonus-RP dots stop rendering permanently `unknown`.
+   */
+  readonly actualBonusFlagsByMatchKey?: ReadonlyMap<string, ActualBonusFlags | null>;
 }
 
 /**
@@ -508,6 +518,36 @@ function eventTeamRankingFields(
     // survives (PD-07).
     ...(ranking?.rankingScore !== null && ranking?.rankingScore !== undefined
       ? { rp: roundTo(ranking.rankingScore, ROUNDING_RULE.rankingPoints) }
+      : {}),
+  };
+}
+
+/**
+ * Quick 260905-jj8: the conditionally-spread per-bonus RP fields for one
+ * event match row — the EXACT gates `buildTeamSeasonArtifact`'s own row
+ * builder applies to the same four fields (see its inline comments around
+ * its `redBonusRp`/`actualRedBonusRp` spreads): the predicted marginals
+ * publish only for a bonus-eligible competition level AND a prediction that
+ * carries them (defence-in-depth against a caller-supplied playoff
+ * `Prediction` with populated arrays), rounded at `ROUNDING_RULE.probability`;
+ * the actual flags publish only for a bonus-eligible level with a looked-up
+ * map entry, `null` passing through as an explicit `null`, never coerced to
+ * an all-false array. Factored OUT of `buildEventArtifact` for the same
+ * reason `eventTeamRankingFields` above is — that function's range must keep
+ * exactly one `return` statement (T-07-08-02), and this helper's own
+ * `return` lives outside the counted range. An upcoming (not-yet-played)
+ * row passes `flags === undefined` and gets the predicted pair only.
+ */
+function eventMatchBonusRpFields(
+  compLevel: MatchResult["compLevel"],
+  prediction: { readonly redBonusRp?: readonly number[]; readonly blueBonusRp?: readonly number[] },
+  flags: ActualBonusFlags | null | undefined
+): Partial<{ redBonusRp: number[]; blueBonusRp: number[]; actualRedBonusRp: boolean[] | null; actualBlueBonusRp: boolean[] | null }> {
+  return {
+    ...(isBonusRpCompLevel(compLevel) && prediction.redBonusRp ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) } : {}),
+    ...(isBonusRpCompLevel(compLevel) && prediction.blueBonusRp ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) } : {}),
+    ...(isBonusRpCompLevel(compLevel) && flags !== undefined
+      ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
       : {}),
   };
 }
@@ -573,6 +613,10 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     // have.
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // Quick 260905-jj8: the four per-bonus RP fields, through the shared
+    // helper above — the same gates and the same three-state actual
+    // contract the team row builder applies to the same source data.
+    ...eventMatchBonusRpFields(match.compLevel, prediction, params.actualBonusFlagsByMatchKey?.get(match.matchKey)),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -612,6 +656,9 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // Quick 260905-jj8: predicted per-bonus marginals only — an upcoming row
+    // has no actual outcome, so `flags` is passed as undefined by design.
+    ...eventMatchBonusRpFields(match.compLevel, prediction, undefined),
   }));
 
   const teams = (params.teams ?? []).map((t) => ({
@@ -1967,6 +2014,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // sortTeamSeasonMatches) — passed straight through, no second
           // query call and no re-scoping.
           sortTimeByMatchKey,
+          // Quick 260905-jj8: the SAME per-season flags map the team-artifact
+          // builder already consumes (computed once above from the season
+          // stream) — passed straight through, no second derivation.
+          actualBonusFlagsByMatchKey,
           // D-18 item 8, plan 07-08: `e` is this event's own `eventMeta` row
           // (the loop variable above), already in scope — passed straight
           // through as raw corpus columns (PD-04).
@@ -2326,6 +2377,10 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     const eventMetaRow = selectEventMeta(db, season).find((e) => e.event_key === eventKey);
     const alliancesForEvent = selectEventAlliancesForSeason(db, season).get(eventKey) ?? [];
     const rankingsForEvent = selectEventRankingsForSeason(db, season).get(eventKey);
+    // Quick 260905-jj8: this single-event mode had no per-bonus flags read
+    // at all before — derived here from the same season stream the seasons
+    // path derives its own map from.
+    const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
 
     const validated = buildEventArtifact({
       eventKey,
@@ -2337,6 +2392,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       teams: teamsStanding,
       generation: randomUUID(),
       sortTimeByMatchKey,
+      actualBonusFlagsByMatchKey,
       eventMeta: eventMetaRow
         ? { name: eventMetaRow.name, startDate: eventMetaRow.start_date, country: eventMetaRow.country, stateProv: eventMetaRow.state_prov, week: eventMetaRow.week }
         : undefined,

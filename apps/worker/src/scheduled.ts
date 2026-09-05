@@ -106,6 +106,10 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
+// Quick 260905-jj8: dependency-free comp-level predicate (rp/constants.ts has
+// zero runtime imports) — the same direct-from-core precedent
+// apps/web/src/components/event/EventMatchTable.tsx already cites.
+import { isBonusRpCompLevel } from "../../../packages/core/algorithms/sigma1/rp/constants.js";
 import { deserializeState, serializeState } from "../../../packages/harness/stateSnapshot.js";
 import {
   artifactKey,
@@ -414,6 +418,23 @@ interface Stamp {
   readonly computedAt: string;
 }
 
+/**
+ * Quick 260905-jj8: the predicted per-bonus marginals for one live row —
+ * the same gated spread `publish.ts`'s `eventMatchBonusRpFields` applies
+ * (comp-level gate AND presence, `roundProbability` per entry). The ACTUAL
+ * per-bonus flags are deliberately NOT built here: they require parsing the
+ * score breakdown through the season's RP rule module, which this Worker
+ * does not do — the offline republish fills `actualRedBonusRp`/
+ * `actualBlueBonusRp` on played rows, and until then the client renders the
+ * actual dots `unknown`, the designed degradation.
+ */
+function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Prediction) {
+  return {
+    ...(isBonusRpCompLevel(compLevel) && prediction.redBonusRp ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) } : {}),
+    ...(isBonusRpCompLevel(compLevel) && prediction.blueBonusRp ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) } : {}),
+  };
+}
+
 function buildEventMatchRow(match: MatchResult, prediction: Prediction) {
   return {
     matchKey: match.matchKey,
@@ -426,6 +447,7 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction) {
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
+    ...liveBonusRpFields(match.compLevel, prediction),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -446,6 +468,7 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction) {
     predictedBlueScore: roundMetric(prediction.blueScore),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    ...liveBonusRpFields(match.compLevel, prediction),
   };
 }
 

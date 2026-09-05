@@ -397,6 +397,20 @@ const EventMatchSchema = z
     redRpPmf: z.array(z.number()).optional(),
     /** D-03, plan 08-02 Task 1: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
     blueRpPmf: z.array(z.number()).optional(),
+    /**
+     * Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the red
+     * alliance's predicted per-bonus MARGINALS — the exact quantity, under
+     * the exact name and positional-alignment contract,
+     * `TeamSeasonMatchSchema.redBonusRp` has carried since Phase 06.1 (see
+     * that field's doc comment; not restated here). NOT a distribution:
+     * never routed through `isValidPmf`. Omitted entirely for a
+     * non-qualification match, an algorithm that models no ranking points,
+     * or an artifact predating this field — the absence is what the
+     * Quals-tab dots render as `unknown`.
+     */
+    redBonusRp: z.array(z.number().min(0).max(1)).optional(),
+    /** Quick 260905-jj8: the blue alliance's counterpart to `redBonusRp` — see `TeamSeasonMatchSchema.redBonusRp` for the full contract. */
+    blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
     actualWinner: z.enum(["red", "blue", "tie"]),
     actualRedScore: z.number(),
     actualBlueScore: z.number(),
@@ -429,6 +443,16 @@ const EventMatchSchema = z
     actualRedRp: z.number().int().nullable().optional(),
     /** D-12, plan 08-02 Task 2: the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full three-state contract. */
     actualBlueRp: z.number().int().nullable().optional(),
+    /**
+     * Quick 260905-jj8: the algorithm-independent ACTUAL per-bonus outcome —
+     * the exact three-state contract (absent / explicit `null` /
+     * present array) `TeamSeasonMatchSchema.actualRedBonusRp` documents in
+     * full; not restated here. `null` is NEVER coerced to an all-false
+     * array, for that field's own stated reason.
+     */
+    actualRedBonusRp: z.array(z.boolean()).nullable().optional(),
+    /** Quick 260905-jj8: the blue alliance's counterpart to `actualRedBonusRp` — see `TeamSeasonMatchSchema.actualRedBonusRp` for the full three-state contract. */
+    actualBlueBonusRp: z.array(z.boolean()).nullable().optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
     message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
@@ -437,7 +461,42 @@ const EventMatchSchema = z
   .refine((row) => isValidPmf(row.blueRpPmf), {
     message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
     path: ["blueRpPmf"],
-  });
+  })
+  .refine(
+    (row) => {
+      const arrays = [row.redBonusRp, row.blueBonusRp, row.actualRedBonusRp, row.actualBlueBonusRp];
+      // Absence, not emptiness, represents absent data — mirrors
+      // TeamSeasonMatchSchema's identical refine verbatim.
+      return arrays.every((array) => array === undefined || array === null || array.length > 0);
+    },
+    {
+      message:
+        "redBonusRp/blueBonusRp/actualRedBonusRp/actualBlueBonusRp, when present as an array, must be non-empty — absence (an omitted key), not emptiness, represents absent data",
+      path: ["redBonusRp"],
+    }
+  )
+  .refine(
+    (row) => {
+      if (row.redBonusRp === undefined || row.blueBonusRp === undefined) return true;
+      return row.redBonusRp.length === row.blueBonusRp.length;
+    },
+    {
+      message: "redBonusRp and blueBonusRp, when both present, must have equal length — both alliances share one season's bonus set",
+      path: ["redBonusRp"],
+    }
+  )
+  .refine(
+    (row) => {
+      if (row.actualRedBonusRp === undefined || row.actualRedBonusRp === null) return true;
+      if (row.actualBlueBonusRp === undefined || row.actualBlueBonusRp === null) return true;
+      return row.actualRedBonusRp.length === row.actualBlueBonusRp.length;
+    },
+    {
+      message:
+        "actualRedBonusRp and actualBlueBonusRp, when both present and non-null, must have equal length — both alliances share one season's bonus set",
+      path: ["actualRedBonusRp"],
+    }
+  );
 
 /**
  * D-08: an upcoming (not-yet-played) match's full predicted-parameters
@@ -474,6 +533,10 @@ const EventUpcomingMatchSchema = z
     blueScoreVarianceOwn: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
+    /** Quick 260905-jj8: predicted per-bonus marginals for a not-yet-played qualification match — see `TeamSeasonMatchSchema.redBonusRp` for the full contract (positional alignment, never a pmf, omitted for non-`qm`/non-RP algorithms). */
+    redBonusRp: z.array(z.number().min(0).max(1)).optional(),
+    /** Quick 260905-jj8: the blue counterpart to `redBonusRp` above. */
+    blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
     message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
@@ -482,7 +545,27 @@ const EventUpcomingMatchSchema = z
   .refine((row) => isValidPmf(row.blueRpPmf), {
     message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
     path: ["blueRpPmf"],
-  });
+  })
+  .refine(
+    (row) => {
+      const arrays = [row.redBonusRp, row.blueBonusRp];
+      return arrays.every((array) => array === undefined || array.length > 0);
+    },
+    {
+      message: "redBonusRp/blueBonusRp, when present, must be non-empty — absence (an omitted key), not emptiness, represents absent data",
+      path: ["redBonusRp"],
+    }
+  )
+  .refine(
+    (row) => {
+      if (row.redBonusRp === undefined || row.blueBonusRp === undefined) return true;
+      return row.redBonusRp.length === row.blueBonusRp.length;
+    },
+    {
+      message: "redBonusRp and blueBonusRp, when both present, must have equal length — both alliances share one season's bonus set",
+      path: ["redBonusRp"],
+    }
+  );
 
 /** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. */
 const EventTeamSchema = z.object({
