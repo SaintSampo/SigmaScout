@@ -29,6 +29,13 @@ A client-only fix is impossible without dishonesty: `actualRedRp` gives the COUN
 bonuses earned (total minus win/tie RP) but not WHICH — attributing named dots from it
 would put a false claim behind the identical glyph a real one uses.
 
+## Status (2026-09-05, quick 260905-jj8, commit aa40215f)
+
+Steps 1, 2 and 4 below are DONE (schema + publisher + client, plus the Worker's
+predicted side). **Only step 3 — the republish — remains, and it waits for the user's
+explicit signal.** Until it runs, live Quals tabs keep rendering `unknown` dots (the
+designed degradation for artifacts predating the fields).
+
 ## The fix, in order
 
 1. Add optional `redBonusRp`/`blueBonusRp` (predicted marginals, upcoming + played) and
