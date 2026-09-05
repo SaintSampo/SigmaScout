@@ -23,7 +23,30 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-04 (ET; 2026-09-05 UTC), quick task 260904-nt4's seven-season republish —
+**Latest run — 2026-09-05, the STATE_SNAPSHOT_SHAPE_VERSION-8 re-seed republish
+(`pnpm publish:seasons` = `tsx --env-file=.env packages/harness/publish.ts --seasons
+2019,2020,2022-2026 --include-offseason`, generation `17966b1d-3026-4763-9331-26fb3ca0d4eb`).**
+75,544 page objects plus 2 manifests (75,546 total `PUT`s) — object count IDENTICAL to the run
+below — 2,932,223,803 bytes of page-object payload, backgrounded from the first invocation,
+completed 17:30 ET (~28 min wall clock, consistent with the run below's 28:16; exact start
+stamp not captured this run). No algorithm version moved (opr `4.0.0+baseline`, epa
+`5.0.0+baseline`, vpr `8.0.0+rolling-2026-09b` — the 2026-09-05 accuracy-primary re-tune and
+Stage 2 carryVarianceFactor tune both closed all-keep-incumbent, and the elim/carry knobs added
+since are provably inert at their defaults, so page VALUES are unchanged by intent; byte sizes
+moved slightly vs the run below from replay-environment noise, same-key maxima within ~400B).
+**This run's entire purpose was operational: regenerate `reports/publish/seed-{opr,epa,vpr}.sql`
+under snapshot shape 8** (the 260904-v9n `elimScoreOffset` field made every stored shape-7 D1 row
+unloadable-on-flip). `pnpm manifest:algorithms` ran after the artifact publish completed
+(read-back verified, 3 entries). `pnpm verify:subset`: 35 entries, 0 failing, exactly ONE
+distinct generation equal to the run's own summary line. Honesty notes: no pre-publish baseline
+generation was snapshotted this time, and the concurrent-process check was not run (single
+session, single backgrounded invocation, no retry). The three `wrangler d1 execute ... --file
+reports/publish/seed-{id}.sql` applications were NOT run as part of this entry — pending
+operator approval — so the live Worker's D1 rows remain shape-7 until they are applied; the
+shape-8 loader refuses stale rows loudly by design, so the failure mode is a refused load at the
+next live tick, not silent wrong state.
+
+**Prior seven-season run, 2026-09-04 (ET; 2026-09-05 UTC), quick task 260904-nt4's republish —
 the FIRST run to publish 2019 and 2020
 (`tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason`,
 generation `2c454968-9301-493f-81d3-f41ec3682b73`).** 75,544 page objects plus 2 manifests (75,546
