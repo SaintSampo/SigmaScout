@@ -235,6 +235,58 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // that and a linear one does not. Representable here because the schema's
   // `.positive()` keeps 0 out of the domain.
   carryVarianceFactor: { min: 0.05, max: 1, scale: "log" },
+
+  // D-1 (quick task 260905-o48, CER-SEARCH): an EVIDENCE-WEIGHTED per-team
+  // decay rate, applied to a returning team's OUTGOING matchCount, that
+  // COMPOSES multiplicatively with carryVarianceFactor above rather than
+  // replacing it.
+  //
+  //   - `min: 0` is exactly today's behaviour AND the default, so the search
+  //     can always decline the mechanism outright — and it is the FIRST
+  //     searchable parameter whose default sits at the `min` end, the case
+  //     `screenGridFor`'s at-bound-default guard was deliberately written
+  //     symmetric for (see that function's own doc comment).
+  //   - The CALIBRATION, in retained-variance terms at a typical veteran's
+  //     roughly 50-match season: a rate of about 0.003 retains roughly 86%
+  //     (exp(-0.003*50) ~= 0.861), which is close to the 2025/on near-accept
+  //     region (winner factor 0.845) — while leaving a 10-match rookie at
+  //     roughly 97% (exp(-0.003*10) ~= 0.970), essentially untouched. That
+  //     gap is the whole difference from the uniform form, and is the
+  //     concrete thing this bound exists to expose. At the top of the bound,
+  //     rate 0.03 retains roughly 22% for that same veteran
+  //     (exp(-0.03*50) ~= 0.223) and roughly 74% for the rookie
+  //     (exp(-0.03*10) ~= 0.741).
+  //   - Why `max` is 0.03 and not higher: at the DEFAULT parameter set the
+  //     cold-start consistency variance is 25x the minimum consistency
+  //     variance (VERIFIED against the constants: both
+  //     coldStartConsistencyVariance and minConsistencyVariance scale by the
+  //     same resolved scoreVariance, so their ratio is exactly
+  //     SIGMA1_COLD_START_CONSISTENCY_VARIANCE / SIGMA1_MIN_CONSISTENCY_VARIANCE
+  //     = 25 / 1 = 25 — see sigma1/params.ts and sigma1/consistency.ts), so the
+  //     floor binds once retention falls below about 4% (1/25). At rate 0.03
+  //     even a heavy-schedule veteran of roughly 80 matches retains about 9%
+  //     (exp(-0.03*80) ~= 0.0907) — aggressive but still ABOVE the floor, so
+  //     the whole declared bound stays gradient-bearing. Push `max` much past
+  //     0.04 and realistic veterans start clamping to the floor, where the
+  //     seed goes constant and the search loses the gradient it is trying to
+  //     follow.
+  //   - `linear`, not `log`, for two reasons that are each sufficient: the
+  //     domain INCLUDES 0 and a geometric grid through 0 is not representable
+  //     at all; and the quantity that actually matters is the exponent — the
+  //     rate times a match count — which is linear in the rate, so a linear
+  //     grid is the one that spaces the mechanism's effect evenly.
+  //   - The STAGE 2 CITATION, since this bound exists because of that result:
+  //     ten keep-incumbent verdicts over five origins and two arms against the
+  //     live `vpr@8.0.0+rolling-2026-09b` incumbent; 2025/on at +0.004070
+  //     accuracy against an N=62 bar of 0.004124 with Brier -0.002078 at
+  //     factor 0.845; 2026/on converging on exactly 1.0; 2022-2024 losing
+  //     out-of-sample at winners 0.452-0.520 while nine of ten searches chose
+  //     sub-1 in-sample. A keep-incumbent verdict for THIS knob is a
+  //     genuinely plausible outcome and would NOT be a defect.
+  //     `carryVarianceFactor` REMAINS searchable alongside it per that
+  //     result's own recorded disposition — the two compose, and the search
+  //     selects both together.
+  carryEvidenceRate: { min: 0, max: 0.03, scale: "linear" },
 };
 
 /**
@@ -260,16 +312,22 @@ export const SEARCHABLE_PARAM_KEYS: readonly SearchableParamKey[] = SIGMA1_PARAM
  * honestly, rather than the screen never actually evaluating the default in
  * the first place.
  *
- * D-1 (quick task 260905-kjb): `carryVarianceFactor` is the FIRST searchable
- * parameter whose default sits AT a bound (`max`, exactly 1) rather than
- * interior. Both endpoints already equal the declared bounds two lines
- * below this comment, so the interior-slot overwrite would have nothing to
- * buy and would instead write a DUPLICATE value into an interior slot,
- * destroying the strict monotonicity `searchSpace.test.ts` asserts. When
- * the default equals `min` OR `max`, this function returns the
+ * D-1 (quick task 260905-kjb): `carryVarianceFactor` was the FIRST
+ * searchable parameter whose default sits AT a bound (`max`, exactly 1)
+ * rather than interior. Both endpoints already equal the declared bounds
+ * two lines below this comment, so the interior-slot overwrite would have
+ * nothing to buy and would instead write a DUPLICATE value into an interior
+ * slot, destroying the strict monotonicity `searchSpace.test.ts` asserts.
+ * When the default equals `min` OR `max`, this function returns the
  * endpoint-pinned grid directly and skips the overwrite entirely. Written
  * against BOTH endpoints, not just `max` — the reasoning is symmetric, and
  * a future at-`min` default must not silently reintroduce the defect.
+ *
+ * D-1 (quick task 260905-o48): that future arrived one day later.
+ * `carryEvidenceRate` is the FIRST searchable parameter whose default sits
+ * AT the `min` end — exactly the case the paragraph above was written
+ * symmetric for. This function needed NO change to reach it correctly; the
+ * guard below already covered both endpoints.
  *
  * Requires `valueCount >= 3`: an endpoint-only grid of 2 cannot also hold a
  * distinct interior default for the parameters that HAVE one. Three points
@@ -326,9 +384,11 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
   // present and the interior-slot overwrite below has nothing to buy — it
   // would instead write a DUPLICATE of the default into an interior slot,
   // breaking strict monotonicity. Checked against BOTH endpoints
-  // symmetrically, not just `max` (the only case reached today,
-  // `carryVarianceFactor`) — a future at-`min` default must not silently
-  // reintroduce this defect.
+  // symmetrically: `carryVarianceFactor` reaches the `max` end and
+  // `carryEvidenceRate` (quick task 260905-o48, CER-SEARCH — the case this
+  // symmetry note was written in advance of) reaches the `min` end — a
+  // future at-either-bound default must not silently reintroduce this
+  // defect.
   if (defaultValue === min || defaultValue === max) {
     return grid;
   }
@@ -371,6 +431,16 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
  *     defense in depth for any candidate constructed outside `screenGridFor`'s
  *     own bound-respecting grid (the joint search's random sampling, in
  *     particular).
+ *
+ * CHECKED and deliberately NOT added (quick task 260905-o48, CER-SEARCH):
+ * `carryVarianceFactor` has no entry in the list above — it has no
+ * cross-parameter relationship, only its own schema bound
+ * (`.positive().max(1)`) — and `carryEvidenceRate` is its sibling in exactly
+ * that respect. It also multiplies alongside `carryVarianceFactor` rather
+ * than constraining it, and its own schema bound (`.min(0).max(0.03)`)
+ * already fences the value the search and `--set-param` can both reach. An
+ * inconsistent one-off assertion here, for a field with no cross-parameter
+ * relationship, would be noise rather than defense in depth.
  *
  * D-11 / 03-REVIEW WR-01: these same predicates are now ADDITIONALLY
  * enforced inside `sigma1/params.ts`'s `Sigma1ParamsSchema` (its own

@@ -124,9 +124,23 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     // `max` end, exactly 1) rather than interior — `screenGridFor` now
     // handles that case explicitly (see its own doc comment) rather than
     // assuming every searchable parameter has an interior default.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(16);
+    //
+    // One day later again (quick task 260905-o48, CER-SEARCH) registers
+    // `carryEvidenceRate`: an EVIDENCE-WEIGHTED per-team decay rate on a
+    // returning team's outgoing matchCount. 30 -> 31 fields, 16 -> 17
+    // searchable, exclusions unchanged at 14. It is searchable for the same
+    // reason `carryVarianceFactor` is: it scales a seeded belief variance,
+    // hence the predictive variance, hence the win probability the
+    // accuracy-primary objective reads directly. It is the SECOND searchable
+    // parameter whose default sits at a bound and the FIRST at the `min`
+    // end — `screenGridFor`'s at-bound-default guard was already written
+    // symmetric against both endpoints for exactly this case, and covers it
+    // with NO change. It COMPOSES with `carryVarianceFactor` rather than
+    // replacing it, so the searchable set now carries both carry-variance
+    // knobs and a search selects them jointly.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(17);
     expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(14);
-    expect(SIGMA1_PARAM_KEYS).toHaveLength(30);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(31);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });
 
