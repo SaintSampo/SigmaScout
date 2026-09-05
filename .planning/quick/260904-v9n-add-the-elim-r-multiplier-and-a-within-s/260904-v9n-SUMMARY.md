@@ -242,6 +242,35 @@ Two follow-ups this task deliberately does NOT do, both named here for the devel
 
 No blockers for other in-flight work.
 
+## Post-task measurement: the elim-R re-tune (2026-09-05, stopped early by user decision)
+
+Follow-up #1 above was run the same night and CLOSED NEGATIVE. Runbook mirrored the 2026-09-04
+re-tune exactly: fresh 2019-2020 sensitivity screen (16 searchable params including the new knob,
+`reports/sensitivity-screen-2026-09-04-v9n.json`, carryPriorYearShare operator override carried
+forward), then joint searches per origin at `--evals 40 --batch 4`, acceptance gated against the
+live `vpr@8.0.0+rolling-2026-09b` incumbent. Artifacts: `reports/tune-joint-*-v9n*.json`,
+`reports/retune-log-{screen,joint}-v9n.txt` (untracked, like all report artifacts).
+
+Results at the point the user called it (6 of 10 runs complete):
+
+- **Screen:** `elimObservationNoiseMultiplier` SURVIVED (Brier range 9.9e-4, ~10x threshold) but
+  its one-at-a-time optimum was EXACTLY 1.0 — both discounting (0.25x) and inflating (2-16x) elim
+  observation noise hurt monotonically in isolation.
+- **Joint verdicts:** six of six `keep-incumbent` — 2022 off/on (+0.26/+0.34pt accuracy, inside
+  the noise bar), 2023 off/on (-1.01/-0.71pt), 2024 off/on (-0.50/-0.54pt). Winner multipliers
+  scattered 0.78-1.62 with no consistent direction: noise-fitting around 1, not a signal.
+- **Not run:** the 2025/2026-origin pairs, whose selection windows (2022-2024, 2023-2025) are the
+  only ones containing both elim-gap seasons (2023-2024). The user judged six keep-incumbents and
+  a scattered multiplier sufficient to stop; the strongest-window test is therefore INCOMPLETE,
+  not failed — worth remembering if this question is ever reopened.
+
+**Standing conclusion:** elim observation weighting does not earn a promotion; Sigma1's
+full-weight elim learning stands. Statbotics' 1/3 elim discount does not transfer to this model.
+Both mechanisms stay in the code at their provably-inert defaults. `elimObservationNoiseMultiplier`
+REMAINS SEARCHABLE, so every future joint search will keep spending evals scattering it — if the
+question stays closed, a future task should move it to `searchSpace.ts`'s exclusions with this
+measurement as the recorded reason.
+
 ---
 *Phase: quick-260904-v9n*
 *Completed: 2026-09-04*
