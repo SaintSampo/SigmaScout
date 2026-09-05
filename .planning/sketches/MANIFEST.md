@@ -57,7 +57,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 006 | calibration-curve | How do you draw a calibration curve an FRC student understands in one read? | **C — plain-language first** | compare, calibration, uncertainty, accessibility, phase-8 |
 | 007 | compare-table | How do you lay out 45 accuracy numbers so the reader sees the result, not a wall of digits? | **A — season rows, algorithm columns** | compare, accuracy, table, density, phase-8 |
 | 008 | common-tier-treatment | How should Common (0–50) be treated so it reads as a tier, not an absence? (revisits 004-B "Common unboxed" at the user's request) | **C — outline only** | palette, percentile, rarity, accessibility |
-| 009 | breakdown-usability | What makes the event Breakdown table friendlier — phase drill-down, sort + focus, or standout markers + row detail? | — | table, event-page, breakdown, tiers, interaction |
+| 009 | breakdown-usability | What makes the event Breakdown table friendlier — phase drill-down, sort + focus, or standout markers + row detail? | **A — phase drill-down** | table, event-page, breakdown, tiers, interaction |
 
 ## Findings so far
 

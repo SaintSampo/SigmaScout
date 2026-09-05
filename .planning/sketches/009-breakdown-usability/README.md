@@ -2,7 +2,7 @@
 sketch: 009
 name: breakdown-usability
 question: "What makes the event Breakdown table friendlier — restructuring (phase drill-down), interactivity (sort + focus), or signal-surfacing (standout markers + row detail)?"
-winner: null
+winner: "A"
 tags: [table, event-page, breakdown, tiers, interaction]
 ---
 
