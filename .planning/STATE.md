@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-04 — Completed quick task 260904-nt4: 2019 and 2020 shipped to the live site (seven-season republish, gapped season list, docs updated)
+Last activity: 2026-09-04 — Completed quick task 260904-v9n: elim-R multiplier (searchable) and within-season elim score offset (default-off), both provably inert at defaults
 
 Progress: [██████████] 100%
 
