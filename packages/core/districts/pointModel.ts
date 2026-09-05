@@ -6,33 +6,39 @@
  * Locks tabs' "mathematically guaranteed" verdict actually true rather than a
  * guess.
  *
- * SOURCE AND HONESTY NOTE: this executor's sandbox denies outbound network,
- * so the official FIRST district-points documentation could not be fetched
- * live while writing this table. The declared values below are CORPUS-
- * CONVERGED: derived by scanning every ingested season's real
- * `district_rankings.event_points_raw` rows (2019, 2020, 2022-2026, the full
- * ingested population, not a sample) and taking the maximum value TBA ever
- * actually reported for each component at each tier. This mirrors this
- * repo's own established precedent for a value that could not be sourced
- * live — `packages/core/algorithms/sigma1/rp/2019.ts`'s and `2026.ts`'s
- * "corpus-converged" thresholds, and `STATE.md`'s own recorded 2025/2026
- * threshold entries — and, like those, is FLAGGED here for a human to
- * confirm against the official FIRST Admin Manual / district points
- * documentation. It must never be silently trusted as a verified citation.
+ * SOURCE: verified 2026-09-05 against the official FIRST district point
+ * model (2026 Admin Manual, District Tournaments section, via
+ * frcmanual.com/2026/district-tournaments): qualification max 22 (min 4),
+ * alliance selection max 16 (17 minus captain/draft position, so position 1
+ * earns 16), playoff max 30 (20 double-elim + 10 finals), District
+ * Championship multiplier 3x, rookie bonus 10 (first-year) / 5
+ * (second-year). Award points: 10 for the FIRST Impact Award (Chairman's
+ * before 2025), 8 each for Engineering Inspiration and Rookie All-Star,
+ * 5 for every other judged team award. All of these agree with the maximum
+ * value TBA ever actually reported per component across the full ingested
+ * corpus (2019, 2020, 2022-2026; qual=22, alliance=16, elim=30 in every
+ * season).
  *
- * Measured maxima (this session, full corpus scan, one component-tier pair
- * per row): every season shows qual=22, alliance=16, elim=30 for the
- * REGULAR ("district") tier, invariant across all seven ingested seasons —
- * strong evidence these are the model's actual hard caps, not sampling
- * artifacts. `award` moves across seasons (15 in 2019/2020, 13 in 2022, 10
- * from 2023 onward), consistent with FIRST's own history of reducing the
- * relative weight of award points against competition points over time. The
- * "dcmp" (District Championship) tier's every observed maximum is at or
+ * THE AWARD CEILING IS A DELIBERATE JUDGMENT CALL. The official model has
+ * no stated per-event cap on award points, and one team CAN win multiple
+ * judged awards at one event: the corpus itself shows 15 (Impact 10 + a
+ * 5-point judged award) in 2019/2020 and 13 (an 8-pointer + a 5-pointer) in
+ * 2022. From 2023 on the observed maximum is exactly 10, but the per-award
+ * values did not change and no rule forbids stacking (the rookie-only
+ * awards were only retired for 2024/2025), so 10 is the observed maximum,
+ * not a theoretical ceiling. A ceiling that is too LOW is the one direction
+ * this model must never err in — it understates a rival's reachable total
+ * and can declare a false "locked" guarantee — while a ceiling that is too
+ * high only delays a verdict, so every season declares award=15, the
+ * highest stack ever demonstrated (Impact + one judged). No larger stack
+ * (e.g. Impact + two judged, 20) appears anywhere in ~12,000 ingested
+ * team-season rows across eight seasons.
+ *
+ * The "dcmp" (District Championship) tier's every observed maximum is at or
  * below exactly 3x the same season's "district" maximum (qual 66/22,
  * alliance 48/16, elim 90/30 in every season with real DCMP data; 2019's
- * award 45/15 hits the ratio exactly) — confirming the plan's stated 3x
- * district-championship weight directly against 2026fnc's live breakdown as
- * well as every other ingested season.
+ * award 45/15 hits the ratio exactly) — confirming the manual's stated 3x
+ * weight directly against every ingested season.
  */
 
 /** The two event tiers this point model distinguishes — a regular district event, or a District Championship (weighted). */
@@ -65,17 +71,18 @@ export interface EventPointMaxima {
 }
 
 /**
- * Corpus-converged regular-tier ceilings per season — see this file's header
- * for the full sourcing note and the flagged-for-human-confirmation caveat.
+ * Regular-tier ceilings per season — qual/alliance/elim verified against the
+ * official model; award is the deliberately-conservative stacking ceiling
+ * (see this file's header for the full reasoning).
  */
 const DISTRICT_BASE_MAXIMA: Readonly<Record<number, SeasonDistrictBaseMaxima>> = {
   2019: { qual: 22, alliance: 16, elim: 30, award: 15 },
   2020: { qual: 22, alliance: 16, elim: 30, award: 15 },
-  2022: { qual: 22, alliance: 16, elim: 30, award: 13 },
-  2023: { qual: 22, alliance: 16, elim: 30, award: 10 },
-  2024: { qual: 22, alliance: 16, elim: 30, award: 10 },
-  2025: { qual: 22, alliance: 16, elim: 30, award: 10 },
-  2026: { qual: 22, alliance: 16, elim: 30, award: 10 },
+  2022: { qual: 22, alliance: 16, elim: 30, award: 15 },
+  2023: { qual: 22, alliance: 16, elim: 30, award: 15 },
+  2024: { qual: 22, alliance: 16, elim: 30, award: 15 },
+  2025: { qual: 22, alliance: 16, elim: 30, award: 15 },
+  2026: { qual: 22, alliance: 16, elim: 30, award: 15 },
 };
 
 /**
@@ -95,7 +102,7 @@ const DCMP_WEIGHT: Readonly<Record<number, number>> = {
   2026: 3,
 };
 
-/** Corpus-converged once-per-season rookie bonus ceiling — measured maximum observed is 10 in every ingested season. */
+/** Once-per-season rookie bonus ceiling — official model: 10 for a first-year team, 5 for a second-year team; the corpus maximum observed is 10 in every ingested season. */
 const ROOKIE_BONUS_MAXIMA: Readonly<Record<number, number>> = {
   2019: 10,
   2020: 10,

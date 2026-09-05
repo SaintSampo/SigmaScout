@@ -104,8 +104,8 @@ describe("buildDistrictArtifact", () => {
       teamMeta: new Map(),
     });
 
-    // district tier max total for 2026: qual 22 + alliance 16 + elim 30 + award 10 = 78, x2 regular events registered = 156
-    expect(artifact.teams[0]!.maxRemainingDistrict).toBe(78 * 2);
+    // district tier max total for 2026: qual 22 + alliance 16 + elim 30 + award 15 = 83, x2 regular events registered = 166
+    expect(artifact.teams[0]!.maxRemainingDistrict).toBe(83 * 2);
     // remainingEvents lists only the REGISTERED events, never the unregistered dcmp event
     expect(artifact.teams[0]!.remainingEvents.map((e) => e.eventKey).sort()).toEqual(["2026e1", "2026e2"]);
   });
@@ -129,7 +129,7 @@ describe("buildDistrictArtifact", () => {
       teamMeta: new Map(),
     });
 
-    const dcmpEventMax = 22 * 3 + 16 * 3 + 30 * 3 + 10 * 3; // 234
+    const dcmpEventMax = 22 * 3 + 16 * 3 + 30 * 3 + 15 * 3; // 249
     const notPlayed = artifact.teams.find((t) => t.teamKey === "notPlayedDcmpYet")!;
     const alreadyPlayed = artifact.teams.find((t) => t.teamKey === "alreadyAttendedDcmp")!;
     expect(notPlayed.maxRemainingChamp).toBe(notPlayed.maxRemainingDistrict + dcmpEventMax);

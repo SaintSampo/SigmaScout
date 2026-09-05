@@ -3,7 +3,7 @@ import { DISTRICT_REGISTERED_SEASONS, maxEventPoints, maxRookieBonus, UnknownDis
 
 describe("maxEventPoints", () => {
   it("returns the declared regular-tier ceiling for a registered season", () => {
-    expect(maxEventPoints(2026, "district")).toEqual({ qual: 22, alliance: 16, elim: 30, award: 10 });
+    expect(maxEventPoints(2026, "district")).toEqual({ qual: 22, alliance: 16, elim: 30, award: 15 });
   });
 
   it("returns the dcmp tier ceiling as the district tier multiplied by the season's weight (3)", () => {
