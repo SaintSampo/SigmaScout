@@ -26,9 +26,9 @@ function buildTestRouter(initialPath: string) {
   });
   const teamsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/teams", validateSearch: TeamsSearchSchema, component: () => <div>Teams page</div> });
   const eventsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/events", component: () => <div>Events page</div> });
-  const compareRoute = createRoute({ getParentRoute: () => rootRoute, path: "/compare", component: () => <div>Compare page</div> });
+  const methodologyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/methodology", component: () => <div>Methodology page</div> });
   const districtsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/districts", component: () => <div>Districts page</div> });
-  const routeTree = rootRoute.addChildren([teamsRoute, eventsRoute, compareRoute, districtsRoute]);
+  const routeTree = rootRoute.addChildren([teamsRoute, eventsRoute, methodologyRoute, districtsRoute]);
   return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialPath] }) });
 }
 
@@ -64,22 +64,26 @@ describe("Ribbon", () => {
     // Renders immediately even though the manifest fetch is permanently
     // pending — proving the ribbon itself is never gated on that fetch.
     // 2026-09-01: the wordmark itself became a fourth link (home). Nav order
-    // assertions read the four NAV links after it (Districts, quick task
-    // 260905-lic, is the fourth NAV link, appended after Compare).
-    // 2026-09-04: an icon-only GitHub repo link (no text content, aria-label
-    // only) is the sixth link overall.
+    // assertions read the four NAV links after it. 2026-09-04: an icon-only
+    // GitHub repo link (no text content, aria-label only) is the sixth link
+    // overall. 2026-09-05 (quick task 260905-phf): slot three (then
+    // Districts' predecessor slot) was renamed Compare -> Methodology, now a
+    // guide hub rather than a direct link to the accuracy tables. Revision R2
+    // (quick task 260905-lic Task R2b, user decision) then moved Districts
+    // ahead of Methodology: the fixed order is Teams, Events, Districts,
+    // Methodology.
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(6);
-    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare", "Districts"]);
+    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
     expect(screen.getByRole("link", { name: "SigmaScout on GitHub" })).toBeDefined();
   });
 
-  it("all four links render in the fixed order Teams, Events, Compare, Districts (desktop)", async () => {
+  it("all four links render in the fixed order Teams, Events, Districts, Methodology (desktop)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/events?year=2024&algorithm=vpr");
 
     const links = screen.getAllByRole("link");
-    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare", "Districts"]);
+    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
   });
 
   it("that order is UNCHANGED when the mobile breakpoint hook reports true — the responsive treatment reflows, it never reorders", async () => {
@@ -98,9 +102,9 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/compare?year=2024&algorithm=vpr");
+      await renderRibbonAt("/methodology?year=2024&algorithm=vpr");
       const links = screen.getAllByRole("link");
-      expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Compare", "Districts"]);
+      expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
     } finally {
       window.matchMedia = original;
     }
@@ -113,13 +117,13 @@ describe("Ribbon", () => {
     const links = screen.getAllByRole("link");
     const teamsLink = links.find((link) => link.textContent === "Teams");
     const eventsLink = links.find((link) => link.textContent === "Events");
-    const compareLink = links.find((link) => link.textContent === "Compare");
     const districtsLink = links.find((link) => link.textContent === "Districts");
+    const methodologyLink = links.find((link) => link.textContent === "Methodology");
 
     expect(teamsLink?.getAttribute("data-status")).toBe("active");
     expect(eventsLink?.getAttribute("data-status")).not.toBe("active");
-    expect(compareLink?.getAttribute("data-status")).not.toBe("active");
     expect(districtsLink?.getAttribute("data-status")).not.toBe("active");
+    expect(methodologyLink?.getAttribute("data-status")).not.toBe("active");
   });
 
   it("desktop renders the search box itself (an input), not an icon-only trigger — 05-08-PLAN.md Task 2", async () => {

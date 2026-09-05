@@ -55,8 +55,9 @@ function districtDetailResponse(districtKey: string) {
           remainingEvents: [],
           maxRemainingDistrict: 0,
           maxRemainingChamp: 0,
-          districtLock: { status: "locked", pointsToLock: 0, threatCount: 0, cutLinePoints: 100 },
-          champLock: { status: "locked", pointsToLock: 0, threatCount: 0, cutLinePoints: 200 },
+          qualifyingAwards: [],
+          districtLock: { status: "locked", pointsToLock: 0, threatCount: 0, cutLinePoints: 100, allocationNote: null },
+          champLock: { status: "locked", pointsToLock: 0, threatCount: 0, cutLinePoints: 200, allocationNote: null },
         },
       ],
       insights: {

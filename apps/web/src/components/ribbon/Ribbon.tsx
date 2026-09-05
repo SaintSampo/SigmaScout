@@ -24,8 +24,8 @@ import { SearchBox } from "../search/SearchBox.js";
 const NAV_LINKS = [
   { to: "/teams", label: "Teams" },
   { to: "/events", label: "Events" },
-  { to: "/compare", label: "Compare" },
   { to: "/districts", label: "Districts" },
+  { to: "/methodology", label: "Methodology" },
 ] as const;
 
 /**
@@ -61,16 +61,17 @@ function NavLinks() {
   // element's `to` prop needs its own precise literal route path for
   // TanStack Router's typed `search` prop to type-check at all; mapping
   // over the union loses that per-route overload resolution. `NAV_LINKS`
-  // still names the ONE canonical Teams/Events/Compare/Districts order both
-  // branches below render.
+  // still names the ONE canonical Teams/Events/Districts/Methodology order
+  // both branches below render.
   //
-  // Districts (quick task 260905-lic Task 3) is the FOURTH link, appended
-  // after Compare. `gap-[var(--spacing-md)]` (was `--spacing-lg`, 24px) —
-  // narrowed to 16px so the mobile branch's compact second row (below) keeps
-  // four links comfortably inside the 390px local-phone Playwright project's
-  // width with the added link, per this plan's own instruction to "shrink
-  // the gap rather than hiding a link." Applies to both branches, since both
-  // render this same component; the desktop ribbon has ample width regardless.
+  // Revision R2 (quick task 260905-lic Task R2b, user decision): Districts
+  // moves to the THIRD slot, ahead of what is now Methodology (renamed from
+  // Compare by quick task 260905-phf) — the user's own explicit "Teams,
+  // Events, Districts, Compare" ordering, restated against the current
+  // Methodology name. `gap-[var(--spacing-md)]` (was `--spacing-lg`, 24px)
+  // stays narrowed to 16px (260905-lic's original narrowing) so the mobile
+  // branch's compact second row (below) keeps four links comfortably inside
+  // the 390px local-phone Playwright project's width regardless of order.
   return (
     <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-md)]">
       <Link to="/teams" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
@@ -79,10 +80,10 @@ function NavLinks() {
       <Link to="/events" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[1].label}
       </Link>
-      <Link to="/compare" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
+      <Link to="/districts" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[2].label}
       </Link>
-      <Link to="/districts" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
+      <Link to="/methodology" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[3].label}
       </Link>
     </nav>
@@ -161,8 +162,8 @@ export function Ribbon() {
         </div>
         {/* The "compact second row" (05-UI-SPEC.md "Top ribbon" overflow row):
             the SAME NavLinks element the desktop branch below renders — the
-            link order (Teams, Events, Compare) never differs between the two
-            branches, only the surrounding layout reflows. `SearchBox`
+            link order (Teams, Events, Districts, Methodology) never differs
+            between the two branches, only the surrounding layout reflows. `SearchBox`
             renders as the 44x44 icon trigger here (`useIsMobile()` inside it
             resolves the same way this component's own `isMobile` did). */}
         <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">

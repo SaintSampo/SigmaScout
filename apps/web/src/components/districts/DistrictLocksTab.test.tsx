@@ -40,7 +40,7 @@ function TestHarness({ children }: { children: ReactNode }) {
 }
 
 function verdict(overrides: Partial<LockVerdict> = {}): LockVerdict {
-  return { status: "contending", pointsToLock: 10, threatCount: 2, cutLinePoints: 100, ...overrides };
+  return { status: "contending", pointsToLock: 10, threatCount: 2, cutLinePoints: 100, allocationNote: null, ...overrides };
 }
 
 function team(overrides: Partial<DistrictTeam> = {}): DistrictTeam {
@@ -56,6 +56,7 @@ function team(overrides: Partial<DistrictTeam> = {}): DistrictTeam {
     remainingEvents: [],
     maxRemainingDistrict: 20,
     maxRemainingChamp: 20,
+    qualifyingAwards: [],
     districtLock: verdict(),
     champLock: verdict(),
     ...overrides,
@@ -183,5 +184,173 @@ describe("DistrictLocksTab", () => {
     );
     expect(await screen.findByText("54")).toBeDefined();
     expect(screen.getByText("150")).toBeDefined();
+  });
+
+  it("renders a lockedAward row wearing the blue chip, with its qualifying award named in the Sent by column", async () => {
+    const t = team({
+      teamKey: "frc7",
+      teamNumber: 7,
+      rank: 7,
+      remainingEvents: [{ eventKey: "2026nccmp", eventName: "NC Regional", week: 3, tier: "district", maxPoints: 83 }],
+      qualifyingAwards: [{ eventKey: "2026nccmp", awardType: 0, label: "FIRST Impact Award", awardOnly: false }],
+      districtLock: verdict({ status: "lockedAward", pointsToLock: 0, threatCount: 0 }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const statusCell = await screen.findByTestId("district-district-lock-status");
+    expect(statusCell.textContent).toBe("Locked (Award)");
+    expect(statusCell.querySelector(".lock-status-chip--locked-award")).not.toBeNull();
+    expect(screen.getByTestId("district-district-lock-awards").textContent).toBe("FIRST Impact Award");
+  });
+
+  it("annotates a district-tier award-only invite (Engineering Inspiration/Rookie All Star) in the Sent by column", async () => {
+    const t = team({
+      teamKey: "frc8",
+      teamNumber: 8,
+      rank: 8,
+      remainingEvents: [{ eventKey: "2026nccmp", eventName: "NC Regional", week: 3, tier: "district", maxPoints: 83 }],
+      qualifyingAwards: [{ eventKey: "2026nccmp", awardType: 9, label: "Engineering Inspiration", awardOnly: true }],
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    expect((await screen.findByTestId("district-district-lock-awards")).textContent).toBe("Engineering Inspiration (award-only invite)");
+  });
+
+  it("never annotates award-only on the Champ Locks tab — no DCMP-tier award is award-only", async () => {
+    const t = team({
+      teamKey: "frc9",
+      teamNumber: 9,
+      rank: 9,
+      eventPoints: [{ eventKey: "2026ncdcmp", eventName: "NC District Championship", week: 6, tier: "dcmp", qual: 0, alliance: 0, elim: 0, award: 10, total: 10 }],
+      qualifyingAwards: [{ eventKey: "2026ncdcmp", awardType: 9, label: "Engineering Inspiration", awardOnly: false }],
+      champLock: verdict({ status: "lockedAward", pointsToLock: 0 }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    expect((await screen.findByTestId("district-champ-lock-awards")).textContent).toBe("Engineering Inspiration");
+  });
+
+  it("renders a prequalified row wearing the purple chip", async () => {
+    const t = team({
+      teamKey: "frc10",
+      teamNumber: 10,
+      rank: 10,
+      champLock: verdict({ status: "prequalified", pointsToLock: 0 }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const statusCell = await screen.findByTestId("district-champ-lock-status");
+    expect(statusCell.textContent).toBe("Prequalified");
+    expect(statusCell.querySelector(".lock-status-chip--prequalified")).not.toBeNull();
+  });
+
+  it("renders an eliminated row wearing the red chip", async () => {
+    const t = team({
+      teamKey: "frc11",
+      teamNumber: 11,
+      rank: 11,
+      districtLock: verdict({ status: "eliminated", pointsToLock: null }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const statusCell = await screen.findByTestId("district-district-lock-status");
+    expect(statusCell.querySelector(".lock-status-chip--eliminated")).not.toBeNull();
+  });
+
+  it("a locked row wears the green chip", async () => {
+    const t = team({
+      teamKey: "frc12",
+      teamNumber: 12,
+      rank: 12,
+      districtLock: verdict({ status: "locked", pointsToLock: 0 }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const statusCell = await screen.findByTestId("district-district-lock-status");
+    expect(statusCell.querySelector(".lock-status-chip--locked")).not.toBeNull();
+  });
+
+  it("contending and unknown stay plain text — no chip class on either", async () => {
+    const contendingTeam = team({ teamKey: "frc13", teamNumber: 13, rank: 13, districtLock: verdict({ status: "contending" }) });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([contendingTeam])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const statusCell = await screen.findByTestId("district-district-lock-status");
+    expect(statusCell.querySelector(".lock-status-chip")).toBeNull();
+  });
+
+  it("special-cased allocationNote (2025fsc) overrides the points-still-needed cell, even for an unknown-status verdict", async () => {
+    const t = team({
+      teamKey: "frc14",
+      teamNumber: 14,
+      rank: 14,
+      champLock: verdict({ status: "unknown", pointsToLock: null, allocationNote: "special allocation — not modeled" }),
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Capacity not published");
+    expect(screen.getByTestId("district-champ-lock-points-to-lock").textContent).toBe("special allocation — not modeled");
+  });
+
+  it("the District Locks header shows the schedule strip with played vs upcoming events and the district-wide points pool", async () => {
+    const t1 = team({
+      teamKey: "frc15",
+      teamNumber: 15,
+      rank: 15,
+      eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 20, elim: 0, award: 0, total: 60 }],
+      remainingEvents: [{ eventKey: "eventB", eventName: "Event B", week: 5, tier: "district", maxPoints: 83 }],
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const strip = await screen.findByTestId("district-locks-schedule-strip");
+    const events = strip.querySelectorAll('[data-testid="district-locks-schedule-event"]');
+    expect(events).toHaveLength(2);
+    expect(events[0]?.getAttribute("data-played")).toBe("true");
+    expect(events[0]?.textContent).toContain("Played");
+    expect(events[1]?.getAttribute("data-played")).toBe("false");
+    expect(events[1]?.textContent).toContain("Upcoming");
+    expect(screen.getByTestId("district-locks-distributed").textContent).toBe("60");
+  });
+
+  it("the Champ Locks header shows 'Remaining district points: X / Y pre-DCMP'", async () => {
+    const t1 = team({
+      teamKey: "frc16",
+      teamNumber: 16,
+      rank: 16,
+      remainingEvents: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", maxPoints: 83 }],
+    });
+    render(
+      <TestHarness>
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="vpr" season={2026} />
+      </TestHarness>,
+    );
+    const stat = await screen.findByTestId("champ-locks-remaining-district-points");
+    expect(stat.textContent).toBe("0 / 83 pre-DCMP");
   });
 });

@@ -217,6 +217,46 @@
   --sim-picker-selected-bg: color-mix(in srgb, var(--color-accent) 8%, transparent);
 
   /*
+   * District/Champ Locks status chips (revision R2, quick task 260905-lic
+   * Task R2b) — the user's own locked color mapping for four of the six
+   * `DistrictLockVerdict.status` values: green = locked on district points,
+   * blue = locked by an award (Impact), red = eliminated, purple =
+   * prequalified. `contending` and `unknown` stay plain text, no chip —
+   * `DistrictLocksTab.tsx`'s own established "status is plain text, not a
+   * colour-coded badge" discipline still holds for those two; the user's
+   * mapping only names the four above, so only those four get a chip.
+   *
+   * A DELIBERATELY SEPARATE token vocabulary, not a reuse of
+   * `--color-accent`/`--alliance-*`/`--tier-*`: this status meaning
+   * (district/champ qualification standing) is its own domain, distinct
+   * from tier rarity, FRC alliance identity, or site chrome — reusing one
+   * of those existing tokens would silently tie an unrelated future repaint
+   * of that token to this status vocabulary by accident. The soft-tint
+   * background + solid ink foreground construction mirrors this file's own
+   * `.result-chip` pattern below (win/loss/tie), which already establishes
+   * the AA-checked ink values reused here: `--lock-status-eliminated-fg` is
+   * literally `.result-chip--loss`'s rose-700, and
+   * `--lock-status-prequalified-fg` is `--tier-epic-fg`'s purple-700 value —
+   * both already-measured AA-passing inks (4.5:1+ on the white surface),
+   * restated here as their own tokens rather than shared ones so the two
+   * vocabularies (tier, lock status) can never drift into each other.
+   * `--lock-status-locked-fg` reuses `--color-accent`'s own green-800 value
+   * (already measured 4.56:1 on the white surface) — the user's own
+   * explicit override of the accent-reservation rule for this one status
+   * meaning. `--lock-status-locked-award-fg` is blue-700 (`#1D4ED8`), darker
+   * than `--alliance-blue`'s blue-600 specifically so it clears AA as small
+   * text on its own tint (blue-600 alone measures a borderline ~4.5:1).
+   */
+  --lock-status-locked-bg: rgba(76, 175, 80, 0.16);
+  --lock-status-locked-fg: #2e7d32;
+  --lock-status-locked-award-bg: rgba(37, 99, 235, 0.14);
+  --lock-status-locked-award-fg: #1d4ed8;
+  --lock-status-eliminated-bg: rgba(225, 29, 72, 0.12);
+  --lock-status-eliminated-fg: #be123c;
+  --lock-status-prequalified-bg: rgba(147, 51, 234, 0.12);
+  --lock-status-prequalified-fg: #7e22ce;
+
+  /*
    * shadcn semantic aliases — every one of these is a `var(--color-*)`
    * reference back to a contract token above, never an independent value.
    * Names match what the eight generated `src/components/ui/*` primitives
@@ -927,6 +967,41 @@ body {
 .result-chip--tie {
   background-color: var(--color-bg-inset);
   color: var(--color-text-muted);
+}
+
+/*
+ * District/Champ Locks status chips (revision R2, quick task 260905-lic
+ * Task R2b) — applies the `--lock-status-*` tokens declared above. Same
+ * geometry as `.result-chip` (this is the same "soft tint + solid ink,
+ * status word stays visible" construction, never colour alone). Only the
+ * four statuses the user's mapping names get a modifier; `contending` and
+ * `unknown` render as plain text with no chip class at all, exactly as
+ * before this revision.
+ */
+.lock-status-chip {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.lock-status-chip--locked {
+  background-color: var(--lock-status-locked-bg);
+  color: var(--lock-status-locked-fg);
+}
+.lock-status-chip--locked-award {
+  background-color: var(--lock-status-locked-award-bg);
+  color: var(--lock-status-locked-award-fg);
+}
+.lock-status-chip--eliminated {
+  background-color: var(--lock-status-eliminated-bg);
+  color: var(--lock-status-eliminated-fg);
+}
+.lock-status-chip--prequalified {
+  background-color: var(--lock-status-prequalified-bg);
+  color: var(--lock-status-prequalified-fg);
 }
 
 /*
