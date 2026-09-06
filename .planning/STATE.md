@@ -5,9 +5,9 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-05T21:45:36.931Z"
+last_updated: "2026-09-06T01:07:41.114Z"
 last_activity: 2026-09-05
-last_activity_desc: "Completed quick task 260905-lic: Districts page (fourth ribbon page; Insights, Breakdown, District Locks, Champ Locks; artifacts published, pending user visual verification)"
+last_activity_desc: "Completed quick task 260905-lic revision R2: award-based district/champ qualification (color-coded locks, awards column, prequalified purple, richer headers; artifacts republished; user visual verification pending). Prior: 260905-phf Methodology rename (visual verification pending)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -410,6 +410,7 @@ None yet.
 | 55 | Districts page as fourth ribbon page with Insights, Breakdown, District Locks, and Champ Locks tabs | 2026-09-05 | b67ec75a | — |
 | 56 | Stage 3 carryEvidenceRate knob - evidence-weighted boundary variance retention, searchable 0-0.03 linear, inert at default 0 (dir 260905-o48) | 2026-09-05 | faa9ba0f | — |
 | 260905-phf | Compare ribbon slot becomes Methodology: /methodology card hub, /methodology/compare (Compare page moved intact via git mv, /compare redirects with search preserved), and /methodology/vpr — a finished plain-language Intro to VPR for high-school readers grounded in 11 source-cited claims, with no numeric accuracy figure and no better-than claim (both structurally tested). Ribbon rename itself landed in concurrent-session commit 03046f93 (Districts reordered ahead of Methodology). Human visual verification of the three new pages still pending | 2026-09-05 | a9d971c2 | [260905-phf-rename-compare-tab-to-methodology-guide-](./quick/260905-phf-rename-compare-tab-to-methodology-guide-/) |
+| 58 | Add hover title explaining why a disabled event-page tab (Alliances/Simulation) is unavailable | 2026-09-06 | 88c74d38 | — |
 
 ### Roadmap Evolution
 
