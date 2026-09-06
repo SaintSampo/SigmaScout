@@ -1236,6 +1236,56 @@ describe("buildTeamsArtifact", () => {
     expect(artifact.teams[0]?.metrics).toEqual([[12.35]]);
     expect(decodeTeamsRowMetrics(artifact.teams[0]!.metrics as never, artifact.metricKeys!).total?.value).toBe(12.35);
   });
+
+  it("given a team input with region fields, emits them on that row (quick task 260905-ttv)", () => {
+    const artifact = buildTeamsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      teams: [
+        {
+          teamKey: "frc1114",
+          teamNumber: 1114,
+          nickname: "Simbotics",
+          record: { wins: 10, losses: 2, ties: 0 },
+          metrics: { total: { value: 50 } },
+          eventCount: 3,
+          matchCount: 36,
+          country: "USA",
+          stateProv: "MI",
+          districtKey: "fim",
+        },
+      ],
+      generation: "g1",
+    });
+    expect(artifact.teams[0]?.country).toBe("USA");
+    expect(artifact.teams[0]?.stateProv).toBe("MI");
+    expect(artifact.teams[0]?.districtKey).toBe("fim");
+  });
+
+  it("given a team input with no region fields, omits the keys entirely rather than emitting null or empty string (quick task 260905-ttv)", () => {
+    const artifact = buildTeamsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      teams: [
+        {
+          teamKey: "frc254",
+          teamNumber: 254,
+          nickname: "The Cheesy Poofs",
+          record: { wins: 10, losses: 2, ties: 0 },
+          metrics: { total: { value: 50 } },
+          eventCount: 3,
+          matchCount: 36,
+        },
+      ],
+      generation: "g1",
+    });
+    const row = artifact.teams[0] as object;
+    expect(row).not.toHaveProperty("country");
+    expect(row).not.toHaveProperty("stateProv");
+    expect(row).not.toHaveProperty("districtKey");
+  });
 });
 
 describe("buildEventsArtifact", () => {
@@ -2707,8 +2757,98 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
       expect(world, `expected a world rank scope on ${row.teamKey}'s artifact`).toBeDefined();
       expect(world?.rank, `world rank for ${row.teamKey}`).toBe(expectedRank);
       expect(world?.total).toBe(sorted.length);
+
+      // Quick task 260905-ttv: every real team here played only at
+      // "2026rnk" (USA/MI/fim) -- its published teams/{year} row carries
+      // exactly that inferred home region.
+      expect(row.country).toBe("USA");
+      expect(row.stateProv).toBe("MI");
+      expect(row.districtKey).toBe("fim");
     }
   });
+
+  it("frc9B (a letter-suffixed non-real key) is excluded from the published teams artifact's region assertions but does not corrupt the real rows' ranks", () => {
+    // Regression guard, deliberately trivial: isRealPublishedTeamKey already
+    // filters non-real keys out of `realRows` above -- this test exists so a
+    // future reader confirms that exclusion by name rather than by inference
+    // from the previous test's row count alone.
+    expect(isRealPublishedTeamKey("frc9B")).toBe(false);
+  });
+
+  it(
+    "quick task 260905-ttv: World rank is computed against ROUNDED metrics -- when two real teams are indistinguishable to OPR's design matrix " +
+      "(always paired on the same alliance) and therefore tie EXACTLY, the published World rank still equals each team's index+1 in the " +
+      "wire-round-tripped teams artifact sorted by compareTeamsByTotal, broken by ascending team number",
+    async () => {
+      // frc1 and frc2 NEVER appear on separate alliances or with different
+      // teammates across any of these three matches -- OPR's least-squares
+      // design matrix cannot distinguish their columns, so the minimum-norm
+      // solution assigns them EXACTLY equal ratings. This is the same class
+      // of collision `roundTeamMetricRecord` guards against (two distinct-
+      // by-construction values landing on the same published number) without
+      // depending on an unverifiable floating-point coincidence.
+      upsertEvent(db, seasonEvent({ eventKey: "2026tie", name: "Tie Event", country: "USA", stateProv: "MI", districtKey: "fim" }));
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: "2026tie_qm1",
+          eventKey: "2026tie",
+          sortTime: 1_000,
+          redTeams: ["frc1", "frc2", "frc3"],
+          blueTeams: ["frc4", "frc5", "frc6"],
+          redScore: 100,
+          blueScore: 60,
+        })
+      );
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: "2026tie_qm2",
+          eventKey: "2026tie",
+          sortTime: 2_000,
+          redTeams: ["frc1", "frc2", "frc7"],
+          blueTeams: ["frc8", "frc9", "frc10"],
+          redScore: 90,
+          blueScore: 70,
+        })
+      );
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: "2026tie_qm3",
+          eventKey: "2026tie",
+          sortTime: 3_000,
+          redTeams: ["frc1", "frc2", "frc11"],
+          blueTeams: ["frc12", "frc13", "frc14"],
+          redScore: 110,
+          blueScore: 50,
+        })
+      );
+
+      await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+      const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+      const frc1Row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+      const frc2Row = teamsArtifact.teams.find((t) => t.teamKey === "frc2");
+      expect(frc1Row?.metrics.total?.value).toBe(frc2Row?.metrics.total?.value);
+
+      const realRows = teamsArtifact.teams.filter((t) => isRealPublishedTeamKey(t.teamKey));
+      const sorted = [...realRows].sort(compareTeamsByTotal);
+      // frc1 (teamNumber 1) sorts before frc2 (teamNumber 2) on the tie-break.
+      const frc1Index = sorted.findIndex((r) => r.teamKey === "frc1");
+      const frc2Index = sorted.findIndex((r) => r.teamKey === "frc2");
+      expect(frc1Index).toBeLessThan(frc2Index);
+
+      for (const teamKey of ["frc1", "frc2"]) {
+        const expectedRank = sorted.findIndex((r) => r.teamKey === teamKey) + 1;
+        const teamArtifact = findTeamArtifact(teamKey, 2026);
+        const world = teamArtifact.ranks?.find((r) => r.scope === "world");
+        expect(world, `expected a world rank scope on ${teamKey}'s artifact`).toBeDefined();
+        expect(world?.rank, `world rank for ${teamKey}`).toBe(expectedRank);
+        expect(world?.total).toBe(sorted.length);
+      }
+    }
+  );
 });
 
 /**

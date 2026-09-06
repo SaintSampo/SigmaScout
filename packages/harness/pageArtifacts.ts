@@ -994,6 +994,21 @@ const TeamsTableRowRawSchema = z.object({
   matchCount: z.number().int().nonnegative(),
   record: RecordSchema,
   metrics: z.union([MetricsRecordSchema, z.array(PositionalMetricEntrySchema)]),
+  /**
+   * Quick task 260905-ttv: this team's INFERRED home region
+   * (`teamRanks.ts`'s `deriveTeamRegions` — the corpus carries no team
+   * addresses, so a consumer must never present these as TBA ground truth).
+   * Additive optional fields on one page kind are backward-compatible for
+   * every reader, matching the precedent `EventsListRowSchema` and
+   * `TeamSeasonArtifactSchema.ranks` already set (and the one quick task
+   * 260905-ldu set one day earlier for this same artifact family) — so
+   * `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped for this
+   * change. Absent on a pre-republish artifact, or on any team whose region
+   * is not derivable; never `null` or `""`.
+   */
+  country: z.string().optional(),
+  stateProv: z.string().optional(),
+  districtKey: z.string().optional(),
 });
 
 export const TeamsArtifactWireSchema = AlgorithmScopedPreambleSchema.extend({

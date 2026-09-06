@@ -4,10 +4,12 @@ import {
   compareTeamsByTotal,
   deriveTeamRegions,
   isRealPublishedTeamKey,
+  percentileForRank,
   USA_COUNTRY_VALUE,
   type RankableTeamRow,
   type SeasonEventGeoRow,
 } from "./teamRanks.js";
+import { percentileRanks } from "./percentiles.js";
 
 const OFFICIAL_REGIONAL_EVENT_TYPE = 0;
 const CHAMPIONSHIP_FINALS_EVENT_TYPE = 4;
@@ -281,5 +283,51 @@ describe("buildTeamRankScopes", () => {
 describe("USA_COUNTRY_VALUE", () => {
   it("is the literal TBA spelling", () => {
     expect(USA_COUNTRY_VALUE).toBe("USA");
+  });
+});
+
+describe("percentileForRank (quick task 260905-ttv)", () => {
+  it("rank 1 of a large pool (3481) yields a value at or above the Legendary cut (95)", () => {
+    expect(percentileForRank(1, 3481)).toBeGreaterThanOrEqual(95);
+  });
+
+  it("rank 3481 of 3481 (last place) yields a value below the Common band cut (50)", () => {
+    expect(percentileForRank(3481, 3481)).toBeLessThan(50);
+  });
+
+  it("agrees with percentileRanks for the r-th-best member of a strictly-ordered pool of n", () => {
+    const n = 20;
+    // A strictly-ordered pool: values n, n-1, ..., 1 (all distinct, no ties),
+    // so percentileRanks's mid-rank formula reduces to the same computation
+    // percentileForRank specialises to.
+    const values = Array.from({ length: n }, (_, i) => n - i);
+    const ranks = percentileRanks(values);
+    for (let rank = 1; rank <= n; rank++) {
+      // values[rank - 1] is the rank-th-best (largest-first) value.
+      expect(percentileForRank(rank, n)).toBeCloseTo(ranks[rank - 1]!, 10);
+    }
+  });
+
+  it("rank 1 of 1 yields exactly 50 -- a deliberate, tested outcome: a pool of one carries no information about whether its single member is good, so it lands mid-band rather than Legendary", () => {
+    expect(percentileForRank(1, 1)).toBe(50);
+  });
+
+  it("is monotonic: for a fixed total, a better (lower) rank never returns a lower percentile", () => {
+    const total = 50;
+    let previous = -Infinity;
+    for (let rank = total; rank >= 1; rank--) {
+      const value = percentileForRank(rank, total);
+      expect(value).toBeGreaterThanOrEqual(previous);
+      previous = value;
+    }
+  });
+
+  it("is always within the closed interval [0, 100]", () => {
+    const total = 3481;
+    for (const rank of [1, 2, 1740, 3480, 3481]) {
+      const value = percentileForRank(rank, total);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(100);
+    }
   });
 });

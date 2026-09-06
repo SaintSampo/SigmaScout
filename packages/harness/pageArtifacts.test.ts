@@ -283,6 +283,76 @@ describe("EventsListRowSchema — country/stateProv/districtKey (EVNT-01, plan 0
   });
 });
 
+describe("TeamsTableRowRawSchema — country/stateProv/districtKey (quick task 260905-ttv)", () => {
+  it("parses a row carrying none of the three region fields, yielding all three undefined", () => {
+    const fixture = validTeamsFixture();
+    const parsed = TeamsArtifactSchema.parse(fixture);
+    expect(parsed.teams[0]!.country).toBeUndefined();
+    expect(parsed.teams[0]!.stateProv).toBeUndefined();
+    expect(parsed.teams[0]!.districtKey).toBeUndefined();
+  });
+
+  it("parses a row carrying all three region fields as strings", () => {
+    const fixture = validTeamsFixture();
+    (fixture.teams[0] as Record<string, unknown>).country = "USA";
+    (fixture.teams[0] as Record<string, unknown>).stateProv = "MI";
+    (fixture.teams[0] as Record<string, unknown>).districtKey = "fim";
+    const parsed = TeamsArtifactSchema.parse(fixture);
+    expect(parsed.teams[0]!.country).toBe("USA");
+    expect(parsed.teams[0]!.stateProv).toBe("MI");
+    expect(parsed.teams[0]!.districtKey).toBe("fim");
+  });
+
+  it("rejects a non-string value on country", () => {
+    const fixture = validTeamsFixture();
+    (fixture.teams[0] as Record<string, unknown>).country = 42;
+    expect(() => TeamsArtifactWireSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects a non-string value on stateProv", () => {
+    const fixture = validTeamsFixture();
+    (fixture.teams[0] as Record<string, unknown>).stateProv = 42;
+    expect(() => TeamsArtifactWireSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects a non-string value on districtKey", () => {
+    const fixture = validTeamsFixture();
+    (fixture.teams[0] as Record<string, unknown>).districtKey = 42;
+    expect(() => TeamsArtifactWireSchema.parse(fixture)).toThrow();
+  });
+
+  it("a row carrying region fields alongside positional-encoded metrics still parses and decodes metrics to record form", () => {
+    const objectFormRow = {
+      teamKey: "frc1114",
+      teamNumber: 1114,
+      nickname: "Simbotics",
+      record: { wins: 1, losses: 0, ties: 0 },
+      eventCount: 1,
+      matchCount: 1,
+      metrics: { total: { value: 50 } },
+      country: "USA",
+      stateProv: "MI",
+      districtKey: "fim",
+    };
+    const metricKeys = deriveMetricKeyOrder([objectFormRow.metrics]);
+    const positionalArtifact = {
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-22T00:00:00.000Z",
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+test",
+      season: 2026,
+      metricKeys,
+      teams: [{ ...objectFormRow, metrics: encodeTeamsRowMetrics(objectFormRow.metrics, metricKeys) }],
+    };
+    const parsed = TeamsArtifactSchema.parse(positionalArtifact);
+    expect(parsed.teams[0]!.metrics).toEqual({ total: { value: 50 } });
+    expect(parsed.teams[0]!.country).toBe("USA");
+    expect(parsed.teams[0]!.stateProv).toBe("MI");
+    expect(parsed.teams[0]!.districtKey).toBe("fim");
+  });
+});
+
 describe("D-04 stamp — generation is required on all five schemas", () => {
   it("TeamsArtifactSchema rejects an object missing generation", () => {
     const { generation, ...rest } = validTeamsFixture();

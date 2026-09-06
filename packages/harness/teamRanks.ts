@@ -245,6 +245,33 @@ export interface BuildTeamRankScopesParams {
   teamKey: string;
 }
 
+/**
+ * Quick task 260905-ttv: the rank-to-percentile rule a rank card's tier
+ * colour is derived from — `((total - rank) + 0.5) / total * 100`.
+ *
+ * This is `percentiles.ts`'s `percentileRanks` mid-rank formula
+ * (`((countStrictlyBelow + 0.5 * countEqual) / n) * 100`) specialised to a
+ * strict total order: a member at 1-based rank r has exactly `total - r`
+ * members strictly below it and exactly one member equal to it (itself).
+ * `compareTeamsByTotal` produces a strict total order by construction (its
+ * team-number tie-break guarantees it), so that specialisation is exact, not
+ * approximate. The site already has exactly one percentile convention
+ * (`percentileRanks`); this function joins it rather than opening a second
+ * one — a rank card tinted by a different convention than the metric tile
+ * beside it would be the same class of drift this project's failure log
+ * names.
+ *
+ * Deliberately NOT rounded. `roundTo`/`ROUNDING_RULE` are not imported here
+ * (this module is dependency-free by contract, enforced by
+ * `browserSafeSchemas.test.ts`), and rounding would serve no reader: the
+ * value is never displayed, only compared against `tierForPercentile`'s
+ * cuts, where rounding could only ever move a borderline card into a tier
+ * its exact position does not occupy.
+ */
+export function percentileForRank(rank: number, total: number): number {
+  return ((total - rank + 0.5) / total) * 100;
+}
+
 /** Sorts `pool` by `compareTeamsByTotal` and returns the target's 1-based rank and the pool's total size, or `undefined` when the target is not a member of `pool`. */
 function rankWithin(pool: readonly RankableTeamRow[], teamKey: string): { rank: number; total: number } | undefined {
   const sorted = [...pool].sort(compareTeamsByTotal);

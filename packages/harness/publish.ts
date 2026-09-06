@@ -766,6 +766,15 @@ export interface TeamsArtifactTeamInput {
   readonly metrics: Record<string, TeamMetric>;
   readonly eventCount: number;
   readonly matchCount: number;
+  /**
+   * Quick task 260905-ttv: this team's inferred home region
+   * (`teamRanks.ts`'s `deriveTeamRegions`), threaded onto the teams/{year}
+   * artifact row so the Teams page can filter by it. Optional — omitted
+   * (never `null`/`""`) when a field is not derivable for this team.
+   */
+  readonly country?: string;
+  readonly stateProv?: string;
+  readonly districtKey?: string;
 }
 
 export interface BuildTeamsArtifactParams {
@@ -796,6 +805,13 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
     metrics: roundTeamMetricRecord(t.metrics),
     eventCount: t.eventCount,
     matchCount: t.matchCount,
+    // Quick task 260905-ttv: conditionally spread, never assigned `undefined`
+    // directly — an underivable field must produce a candidate object with
+    // the key genuinely ABSENT on the wire, matching this file's existing
+    // `rank`/`totalTeams` convention (see `buildTeamSeasonArtifact` above).
+    ...(t.country !== undefined ? { country: t.country } : {}),
+    ...(t.stateProv !== undefined ? { stateProv: t.stateProv } : {}),
+    ...(t.districtKey !== undefined ? { districtKey: t.districtKey } : {}),
   }));
   // 260902-pbe: the ordered key list every row's positional `metrics` array
   // aligns to — derived from the rounded rows themselves (first-seen order
@@ -1965,6 +1981,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           metrics: withPublishedTiers(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
           eventCount: stats?.eventKeys.size ?? 0,
           matchCount: stats?.matchCount ?? 0,
+          // Quick task 260905-ttv: this team's inferred home region, from the
+          // once-per-season `teamRegions` map computed above (never a second
+          // `deriveTeamRegions` call). Spread so an underivable field is
+          // genuinely absent on the row, never a fabricated `undefined` key.
+          ...teamRegions.get(teamKey),
         };
       });
       // Quick task 260905-ldu: rank the SAME rows this algorithm/season is
@@ -1978,7 +1999,18 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const rankableTeamRows: RankableTeamRow[] = teamsRows.map((row) => ({
         teamKey: row.teamKey,
         teamNumber: row.teamNumber,
-        metrics: row.metrics,
+        // Quick task 260905-ttv: ranked from ROUNDED metrics, not the raw
+        // `row.metrics` — `buildTeamsArtifact` below rounds every metric to
+        // `ROUNDING_RULE.metric` before writing, so the browser sorts
+        // ROUNDED values. Rounding can collapse two distinct totals into
+        // one, and a collapsed pair is re-ordered by the team-number
+        // tie-break — meaning a rank computed here from unrounded values
+        // could differ by one place from the rank a client computes from
+        // the published artifact. That gap was invisible while the rank was
+        // only a decorative number; now that a rank card LINKS to a table
+        // that recomputes the same rank, the two must agree on real data,
+        // not merely on fixtures.
+        metrics: roundTeamMetricRecord(row.metrics),
         ...teamRegions.get(row.teamKey),
       }));
       const rankScopesByTeamKey = new Map<string, readonly TeamRankScope[]>(
