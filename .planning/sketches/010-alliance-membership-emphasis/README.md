@@ -2,8 +2,9 @@
 sketch: 010
 name: alliance-membership-emphasis
 question: "On a team page's match table, how should the team's own alliance — and its own number within that alliance — be marked, without using bold?"
-winner: null
+winner: "C"
 tags: [team-page, match-table, alliance, emphasis, accessibility, density]
+gap: 10px
 ---
 
 # Sketch 010: Alliance-membership emphasis
@@ -40,10 +41,48 @@ Variants are deep-linkable: append `#rail`, `#ink`, `#tint`, or `#recede`.
   No colour lands on text.
 - **B: Alliance ink** — both rows take their alliance colour, echoing the bands in the next
   column. Own number takes a ring in its alliance colour.
-- **C: Ground tint** — the team's row rides on a soft alliance-tinted pill, its own number a
+- **C: Ground tint ★ SELECTED** — the team's row rides on a soft alliance-tinted pill, its own number a
   shade deeper. Figure stays neutral; the ground carries the signal.
 - **D: Recede the opponent** — adds no ink anywhere. The opposing alliance drops to slate-600;
   the team's row simply stays full-strength slate-900. Emphasis by contrast, not decoration.
+
+## Decision
+
+**Winner: C — ground tint, at a 10px gap between alliance members' numbers.**
+
+The team's alliance row rides on a soft alliance-tinted pill (`--alliance-*` at 10% over the row
+ground); its own number sits on the same hue at 20%. Numbers stay slate-900 at weight 400
+throughout — **no bold anywhere, and no coloured text**. The two-level ask is met by two tint
+depths rather than by two different mechanisms.
+
+Measured: slate-900 reads 15.28:1 on the 10% tint, 15.50:1 on blue, and 13.06:1 on the 20%
+own-number tint. Nothing in C needed an accessibility fix, which is not true of B or D.
+
+### What this settles
+
+- **Bold is gone from the match table's roster lines.** The `font-semibold` at
+  [MatchTable.tsx:319-327](../../../apps/web/src/components/team/MatchTable.tsx#L319-L327) is
+  replaced, not softened.
+- **Alliance membership is carried by ground, not by figure.** Consistent with the rest of the
+  site's rule that colour carries meaning — here the meaning is "this is your side", in the same
+  hue the bands to the right already use for that alliance.
+- **Emphasis is two-level:** 10% for the alliance row, 20% for the team's own number.
+- **Gap between alliance members is 10px** (from a literal space, ≈4px). The slider made this a
+  measurement rather than an argument.
+
+### Constraints implementation must honour
+
+1. **The pill takes no vertical padding.** `padding: 0 5px` only. `Y_RED`/`Y_BLUE` (23/45) are
+   locked so band centres land on the roster line centres (27.1/49.1); any vertical growth in
+   this cell breaks the cross-column read. Height comes from line-height.
+2. **`margin-left: -5px` on the pill** keeps the marked row's first digit x-aligned with the
+   unmarked row above it. Without it the team's row indents by 5px and the column reads ragged.
+3. **The tints are new tokens, not literals.** D-06's discipline (zero hex literals in component
+   code) holds — these need `--alliance-red-ground` / `--alliance-blue-ground` and their 20%
+   counterparts in `theme.css`, not inline `rgba()`.
+4. **C adds a second boxed shape** to a cell whose box vocabulary is otherwise spoken for by
+   tier values. The pill is fully rounded (`999px`) where tier boxes use `--radius` (6px), which
+   is what keeps them from reading as the same object. Keep that distinction.
 
 ## What to Look For
 
@@ -57,7 +96,7 @@ Variants are deep-linkable: append `#rail`, `#ink`, `#tint`, or `#recede`.
 - **Watch C's second box.** This table will also carry boxed tier values; C adds another boxed
   shape to a cell that already has box vocabulary spoken for.
 - **Then set the spacing.** The slider at the top applies to all variants, so spacing never
-  confounds the emphasis comparison. Shipped is 4px (a literal space); the proposal is 8px.
+  confounds the emphasis comparison. The previous value was 4px (a literal space); **10px was chosen**.
 
 ## Data
 

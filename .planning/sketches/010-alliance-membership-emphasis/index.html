@@ -209,16 +209,16 @@
   <button class="variant-tab active" data-v="current">Current (bold)</button>
   <button class="variant-tab" data-v="rail">A: Margin rail</button>
   <button class="variant-tab" data-v="ink">B: Alliance ink</button>
-  <button class="variant-tab" data-v="tint">C: Ground tint</button>
+  <button class="variant-tab" data-v="tint">C: Ground tint ★ Selected</button>
   <button class="variant-tab" data-v="recede">D: Recede opponent</button>
 </div>
 
 <div id="gap-bar">
   <label for="gap">Space between numbers</label>
-  <input type="range" id="gap" min="2" max="18" step="1" value="8">
-  <span class="readout" id="gap-out">8px</span>
+  <input type="range" id="gap" min="2" max="18" step="1" value="10">
+  <span class="readout" id="gap-out">10px</span>
   <button id="gap-current">Shipped (4px)</button>
-  <button id="gap-smidge">A smidge (8px)</button>
+  <button id="gap-smidge">Chosen (10px)</button>
   <span>&mdash; applies to every variant, so spacing never confounds the comparison</span>
 </div>
 
@@ -420,19 +420,19 @@ document.querySelectorAll(".variant-tab").forEach(function (t) {
 /* Deep-linkable variants (#rail, #ink, ...) so a specific one can be shared,
    and so each can be captured non-interactively for side-by-side review. */
 const fromHash = location.hash.replace("#", "");
-show(BLURB[fromHash] ? fromHash : "current");
+show(BLURB[fromHash] ? fromHash : "tint");
 
 /* ---------------- spacing ---------------- */
 const gapEl = document.getElementById("gap"), outEl = document.getElementById("gap-out");
 function setGap(px) {
   gapEl.value = px;
   document.documentElement.style.setProperty("--num-gap", px + "px");
-  outEl.textContent = px + "px" + (px === 4 ? " (shipped)" : "");
+  outEl.textContent = px + "px" + (px === 4 ? " (was)" : px === 10 ? " (chosen)" : "");
 }
 gapEl.addEventListener("input", function () { setGap(+gapEl.value); });
 document.getElementById("gap-current").addEventListener("click", function () { setGap(4); });
-document.getElementById("gap-smidge").addEventListener("click", function () { setGap(8); });
-setGap(8);
+document.getElementById("gap-smidge").addEventListener("click", function () { setGap(10); });
+setGap(10);
 
 /* ---------------- toolbar ---------------- */
 document.getElementById("theme").addEventListener("change", function (e) {
