@@ -567,3 +567,49 @@ Honesty notes:
 - Artifacts: `reports/tune-joint-*-260905s3*.json`, `reports/retune-log-*-260905s3.txt`,
   `reports/sensitivity-screen-260905-s3.json`, `reports/retune-260905-s3-run-report.md`
   (untracked, like every prior run's).
+
+---
+
+# DECISION — Rule A adopted and FIRST SHIPPED, 2026-09-05 (same session as the three tunes above).
+
+After the Stage 3 addendum above named acceptance policy as the open question, the
+operator commissioned the retroactive analysis it proposed and then DECIDED. The
+analysis (session scratchpad `baranalysis.cjs`, summarized here because scratchpads do
+not persist): all 36 accuracy-primary verdicts on disk (retune-0905, elim-R v9n,
+Stage 2 CVF, Stage 3 CER) rescored under five candidate rules.
+
+| rule | ships | character |
+|---|---|---|
+| current D-T7 bar (winner's-curse corrected, ~3 SE) | 0/36 | nothing |
+| A: accuracy-positive AND Brier-better | 3 origins | 2025 x2 (2.8/2.6 SE), 2026 x1 (1.1 SE) |
+| B: accuracy > 1 SE, no guardrail | 6 | adds three Brier-WORSE ships incl. the closed-negative elim-R 2022 |
+| C: > 1 SE AND Brier-better | 3 | identical to A on this data |
+| D: any positive accuracy | 7 | adds pure noise (+0.10pt at 0.6 SE, Brier +0.033 worse) |
+
+The clustering evidence that settled it: 2023/2024 went 0-for-16 accuracy-positive
+across every formulation while 2025 went 3-for-6 — and every 2025 positive was ALSO
+Brier-better, while every 2022 positive was Brier-worse (the noise signature). The
+Brier guardrail was a perfect noise classifier on this data.
+
+**DECIDED (operator, 2026-09-05): Rule A is the acceptance policy, and BOTH eligible
+ships go out — 2025 AND 2026** (the operator chose the wider option over the
+recommended 2025-only). Recorded consequences:
+
+- `vpr@9.0.0+rolling-2026-09c` promoted (commit 75c01ac2): 2025 = Stage 2 on-arm winner
+  (+0.0041 acc at 2.8 SE, -0.0021 Brier, carryVarianceFactor 0.845 — the FIRST promoted
+  non-default carry knob); 2026 = Stage 2 on-arm winner (+0.0015 acc at 1.1 SE, -0.0009
+  Brier, carry knobs at defaults — its delta is in the ten ordinary knobs). All other
+  seasons carried from rolling-2026-09b unchanged.
+- `SIGMA1_CODE_VERSION` 8.0.0 -> 9.0.0 — the reserved bump the three NOT-BUMPED entries
+  fired on; all four 8.0.0 sets retired and re-promoted under 9.0.0; promote.ts gained
+  the `8.`-shares-current-shape branch; full suite green (192 files / 3,524).
+- Follow-up todos filed: `codify-rule-a-acceptance` (decideAcceptance still implements
+  only the old bar — next tune would need hand-reading until this lands, and Rule A must
+  run UNCHANGED, pre-committed against policy-tuning drift) and
+  `retire-vpr-8-generation-r2` (the orphaned 8.0.0 R2 generation).
+- HONESTY: both ships were keep-incumbent under the D-T7 bar. This is a deliberate,
+  recorded loosening of the ship standard from "provably better" to "probably better
+  with a calibration guardrail," accepted with eyes open on pattern-break risk (the
+  2024 analysis in this file), chosen because per-season promotion + within-season
+  Worker updates + manual re-tunes bound the blast radius of a wrong ship to one
+  season's set until the next measurement.
