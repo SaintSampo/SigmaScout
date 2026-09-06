@@ -936,6 +936,54 @@ body {
 }
 
 /*
+ * Video column control and player (`MatchVideoCell.tsx`, quick task
+ * 260906-7eu). A small mark in the row, never a filled green chip — green is
+ * ink here, not paint, matching this file's own header rule. Every colour
+ * below is an existing `--color-*` token.
+ */
+.match-video-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.match-video-trigger:hover,
+.match-video-trigger:focus-visible {
+  color: var(--color-accent);
+}
+.match-video-trigger:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* The dialog's own max-width — wide enough for a 16:9 frame to read clearly, narrower than the viewport on desktop. */
+.match-video-dialog {
+  width: 100%;
+  max-width: 640px;
+}
+
+/* 16:9 aspect ratio, sized to the dialog's own width (the plan's explicit sizing rule) — the iframe fills it via absolute positioning. */
+.match-video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+.match-video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/*
  * Compare page calibration-chart series colour utility classes (08-10) —
  * consumed here for the same reason the `.sim-*` block below states: Tailwind
  * v4 only reliably keeps a custom property in the built stylesheet when

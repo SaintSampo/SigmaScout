@@ -15,9 +15,13 @@ describe("MatchVideoCell — a video key that parses", () => {
   it("renders exactly one control with an accessible name naming the match, and zero iframe elements before any interaction", () => {
     const { container } = render(<MatchVideoCell matchKey="2024casj_qm12" matchLabel="Qual 12" videoKey="dQw4w9WgXcQ" />);
 
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveAccessibleName(expect.stringContaining("Qual 12"));
+    // getByRole with a `name` filter throws if no element's ACCESSIBLE NAME
+    // (not merely its text content) matches — this is the accessible-name
+    // assertion itself, with no jest-dom matcher dependency (this workspace
+    // deliberately carries none — see StateViews.test.tsx's own note).
+    const button = screen.getByRole("button", { name: /Qual 12/ });
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(button).toBeTruthy();
     expect(container.querySelectorAll("iframe")).toHaveLength(0);
     expect(document.querySelectorAll("iframe")).toHaveLength(0);
   });
@@ -48,8 +52,10 @@ describe("MatchVideoCell — after activation", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveAccessibleName(expect.stringContaining("Qual 12"));
+    // Same accessible-name assertion pattern as the trigger button's own
+    // test above — `getByRole` with a `name` filter throws if no dialog's
+    // accessible name matches.
+    const dialog = screen.getByRole("dialog", { name: /Qual 12/ });
 
     const iframes = document.querySelectorAll("iframe");
     expect(iframes).toHaveLength(1);
