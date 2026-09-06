@@ -23,7 +23,25 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-05, the STATE_SNAPSHOT_SHAPE_VERSION-8 re-seed republish
+**Latest run — 2026-09-05 (evening), the Rule-A promotion republish
+(`pnpm publish:seasons`, generation `f4f8f379-b83f-4350-9971-4f4cdc87f331`).** 75,544 page
+objects plus 2 manifests (75,546 total `PUT`s), 2,932,411,463 bytes, backgrounded, ~28 min.
+**This run changed real prediction values**: vpr moved to `9.0.0+rolling-2026-09c` (commit
+75c01ac2 — the Rule-A promotion: 2025's set carries `carryVarianceFactor` 0.845 and 2026's set
+re-tuned, both from the Stage 2 tune's on-arm winners; policy record in the retune ledger).
+epa `5.0.0+baseline` and opr `4.0.0+baseline` unchanged in version but republished under the
+new generation. `pnpm manifest:algorithms` after completion (read-back verified, 3 entries);
+`pnpm verify:subset` 35/35, exactly one generation equal to the summary line. D1 re-seed
+applied same session: epa + vpr in the first pass, **opr's seed failed in the chained first
+position AGAIN (second occurrence of this exact pattern — the first `wrangler d1 execute
+--file` in a multi-command chain silently not applying) and was applied cleanly on a solo
+retry** (36 queries, 15,868 rows written); final read-back shows all three algorithms at
+generation `f4f8f379` with vpr `9.0.0+rolling-2026-09c`. Operational rule reinforced: ALWAYS
+read back per-algorithm generation after seeding; run seed files as separate invocations, not
+chains. **Follow-up owed:** the entire `vpr@8.0.0+*` generation is now orphaned in R2 — todo
+`retire-vpr-8-generation-r2` (delete pass) filed; run it after this generation soaks.
+
+**Prior run — 2026-09-05, the STATE_SNAPSHOT_SHAPE_VERSION-8 re-seed republish
 (`pnpm publish:seasons` = `tsx --env-file=.env packages/harness/publish.ts --seasons
 2019,2020,2022-2026 --include-offseason`, generation `17966b1d-3026-4763-9331-26fb3ca0d4eb`).**
 75,544 page objects plus 2 manifests (75,546 total `PUT`s) — object count IDENTICAL to the run
