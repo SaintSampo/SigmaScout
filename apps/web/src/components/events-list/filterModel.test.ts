@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { EventsArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { applyEventFilters, filterOptions, hasOutOfBandWeek, MAX_SEASON_WEEK, sortEvents, weekMatches, type EventRow } from "./filterModel.js";
+import { applyEventFilters, filterOptions, hasOutOfBandWeek, isDisplayableEvent, MAX_SEASON_WEEK, sortEvents, weekMatches, type EventRow } from "./filterModel.js";
 
 function makeArtifact(events: EventsArtifact["events"]): EventsArtifact {
   return EventsArtifactSchema.parse({
@@ -230,5 +230,38 @@ describe("sortEvents", () => {
     const originalOrder = input.map((event) => event.eventKey);
     sortEvents(input, "startDate", "desc");
     expect(input.map((event) => event.eventKey)).toEqual(originalOrder);
+  });
+});
+
+describe("isDisplayableEvent", () => {
+  const TODAY = "2026-09-05";
+
+  it("hides a past unofficial event with zero played matches — a scrimmage TBA never scored", () => {
+    const past = makeRow({ eventKey: "2026zoff3", isOffseason: true, week: null, startDate: "2026-08-15", matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(past, TODAY)).toBe(false);
+    const week0 = makeRow({ eventKey: "2026week0z", eventType: 100, week: null, startDate: "2026-01-10", matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(week0, TODAY)).toBe(false);
+  });
+
+  it("keeps a FUTURE offseason event despite zero played matches — it simply hasn't happened yet", () => {
+    const future = makeRow({ eventKey: "2026zoff4", isOffseason: true, week: null, startDate: "2026-10-17", matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(future, TODAY)).toBe(true);
+  });
+
+  it("keeps an unofficial event starting today", () => {
+    const today = makeRow({ eventKey: "2026zoff5", isOffseason: true, week: null, startDate: TODAY, matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(today, TODAY)).toBe(true);
+  });
+
+  it("keeps a past unofficial event once it has played matches", () => {
+    const played = makeRow({ eventKey: "2026zoff6", isOffseason: true, week: null, startDate: "2026-08-15", matchCount: 40, playedMatchCount: 40 });
+    expect(isDisplayableEvent(played, TODAY)).toBe(true);
+  });
+
+  it("keeps official events with zero played matches regardless of date — an upcoming season's schedule", () => {
+    const upcoming = makeRow({ eventKey: "2027alhu", eventType: 0, startDate: "2027-03-10", matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(upcoming, TODAY)).toBe(true);
+    const pastOfficial = makeRow({ eventKey: "2026alhu", eventType: 0, startDate: "2026-03-10", matchCount: 0, playedMatchCount: 0 });
+    expect(isDisplayableEvent(pastOfficial, TODAY)).toBe(true);
   });
 });

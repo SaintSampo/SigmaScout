@@ -42,10 +42,13 @@ function EventsPage() {
   // wait identically to the "fetch in flight" case, so no extra state is
   // needed here.
 
-  // `isDisplayableEvent` drops resultless unofficial events before ANY other
-  // derivation, so the filter dropdowns never offer a week that only those
-  // hidden rows would populate.
-  const allEvents = (data?.events ?? []).filter(isDisplayableEvent);
+  // `isDisplayableEvent` drops PAST resultless unofficial events before ANY
+  // other derivation, so the filter dropdowns never offer a week that only
+  // those hidden rows would populate. Upcoming offseason events stay. Local
+  // date, not UTC: en-CA formats as "YYYY-MM-DD", and `startDate` is the
+  // event's own local date.
+  const todayIso = new Date().toLocaleDateString("en-CA");
+  const allEvents = (data?.events ?? []).filter((event) => isDisplayableEvent(event, todayIso));
   const filters: EventFiltersModel = { week, country, state, district };
   const hasActiveFilter = week !== undefined || country !== undefined || state !== undefined || district !== undefined;
 

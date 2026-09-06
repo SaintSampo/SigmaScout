@@ -151,10 +151,18 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
  * noise — a scrimmage TBA never recorded results for — and is dropped
  * before filtering. Official events with zero played matches stay: an
  * upcoming season's schedule is exactly what a reader wants to see.
+ *
+ * Date-aware since 2026-09-05: `unofficial && playedMatchCount === 0`
+ * cannot distinguish a past scrimmage TBA never scored from a FUTURE
+ * offseason event that simply hasn't happened yet, and the original rule
+ * hid both. Only unofficial events already in the past (startDate before
+ * `todayIso`) are noise; one starting today or later stays visible.
+ * `todayIso` is a "YYYY-MM-DD" string compared lexicographically, matching
+ * the artifact's `startDate` format.
  */
-export function isDisplayableEvent(event: EventRow): boolean {
+export function isDisplayableEvent(event: EventRow, todayIso: string): boolean {
   const unofficial = event.isOffseason || event.eventType === 100;
-  return !(unofficial && event.playedMatchCount === 0);
+  return !(unofficial && event.playedMatchCount === 0 && event.startDate < todayIso);
 }
 
 /** The four filter dimensions, each optional — an unset dimension does not filter. */
