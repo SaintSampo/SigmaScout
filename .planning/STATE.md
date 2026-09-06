@@ -433,7 +433,18 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Live Worker | `runGlobalRebuild`'s incremental `teams/{year}` merge updates metrics and matchCount but NOT the win/loss/tie record field. Record stays accurate as of the last offline `publish:seasons` run. (WINDOWS #6) | Accepted for v1.0 — waived 2026-09-06 | 2026-09-06 |
+| Live Worker | The online path never rebuilds `events/{year}` at all, only `teams/{year}`. The events list stays accurate as of the last offline publish. (WINDOWS #7) | Accepted for v1.0 — waived 2026-09-06 | 2026-09-06 |
+| Live Worker | Phase B artifact writes are deliberately best-effort: a failure does not change an event's `advanced` outcome, so a skipped artifact stays one tick stale until that team's next match. No trigger re-attempts a partial Phase B. (WINDOWS #8) | Accepted for v1.0 — waived 2026-09-06 | 2026-09-06 |
+| Live Worker | Three published algorithms folded together for one ordinary match exceed the per-tick subrequest budget (~50 vs ~41 usable), which is why the live folding tier is restricted to one algorithm. Architectural. (WINDOWS #9) | Accepted for v1.0 — waived 2026-09-06 | 2026-09-06 |
+| Live Worker | epa/vpr solo deployed-Worker freshness runs never folded a match within the poll window and were never root-caused; opr's identical rig succeeded 6/6. The offline equivalence test proves all three algorithms equivalent and is unaffected. (WINDOWS #10) | Accepted for v1.0 — waived 2026-09-06 | 2026-09-06 |
+| Measurement | Phase 4 UAT test 4 stays `partial`: a full live event-day write-volume extrapolation was never performed because no genuinely live event fell in the measurement window. Recorded as unmeasured rather than estimated. | Needs a real event weekend | 2026-09-06 |
+
+**Common thread for the five Worker rows:** none of them affects the offline publish path that
+produces every artifact the site actually serves. They bound how fresh the *incremental* live
+updates are during an event, which is why they were acceptable scope boundaries when written and
+remain so at v1.0 close. Each is waived in `WINDOWS.md` with the same reason rather than left as a
+silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
