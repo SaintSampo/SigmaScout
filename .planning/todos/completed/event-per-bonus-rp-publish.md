@@ -56,3 +56,17 @@ designed degradation for artifacts predating the fields).
 
 A retune/republish agent was mid-run in this checkout: steps 1–3 touch the harness and
 end in a republish, which must not race it. Pick this up after that run completes.
+
+## CLOSED 2026-09-05 (Rule-A session) — the republish rode out with the day's publishes
+
+Step 3 needed no dedicated run: commit aa40215f (steps 1/2/4) landed BEFORE both of the
+day's full republishes (the shape-8 re-seed run, generation 17966b1d, and the Rule-A
+promotion run, generation f4f8f379), so the event artifacts on the live origin already
+carry the per-bonus fields. Verified by content against the live origin, not inferred:
+`v1/event/2025isde1/vpr@9.0.0+rolling-2026-09c.json` at generation f4f8f379 has 58/58
+played qm rows carrying BOTH `redBonusRp`/`blueBonusRp` and `actualRedBonusRp`/
+`actualBlueBonusRp` (sample: `redBonusRp: [0,0,0]`, `actualRedBonusRp:
+[true,true,false]`). The client side (EventMatchTable wiring, also aa40215f) is deployed:
+main == origin/main, so Cloudflare Pages built it when the commit was pushed. Quals-tab
+dots therefore render real states/probabilities on current artifacts; only a cached
+pre-fix artifact would still show the designed `unknown` degradation.
