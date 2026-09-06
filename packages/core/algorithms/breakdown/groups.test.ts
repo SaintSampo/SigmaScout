@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentMapForSeason } from "./index.js";
+import { BREAKDOWN_REGISTERED_SEASONS, componentMapForSeason } from "./index.js";
 import {
   COMPONENT_GROUP_IDS,
   COMPONENT_GROUP_METRIC_KEYS,
@@ -8,10 +8,14 @@ import {
   UNGROUPED_COMPONENTS,
 } from "./groups.js";
 
-const SEASONS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
+describe("BREAKDOWN_REGISTERED_SEASONS", () => {
+  it("is the sorted tuple 2019, 2020, 2022-2026 (2021 absent — no standard FRC season was played)", () => {
+    expect(BREAKDOWN_REGISTERED_SEASONS).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  });
+});
 
 describe("component groups cover every season exactly once", () => {
-  for (const season of SEASONS) {
+  for (const season of BREAKDOWN_REGISTERED_SEASONS) {
     it(`${season}: every component is grouped exactly once, or explicitly ungrouped`, () => {
       const declared = componentMapForSeason(season).components;
       const assigned = COMPONENT_GROUP_IDS.flatMap((id) => componentsInGroup(season, id));
@@ -32,7 +36,7 @@ describe("component groups cover every season exactly once", () => {
   }
 
   it("registers a grouping for every season the corpus declares", () => {
-    for (const season of SEASONS) {
+    for (const season of BREAKDOWN_REGISTERED_SEASONS) {
       expect(componentGroupsForSeason(season), `${season} has no grouping`).toBeDefined();
     }
   });
@@ -47,7 +51,7 @@ describe("group metric keys are collision-free", () => {
    */
   it("no group metric key equals any component name in any season", () => {
     const groupKeys = Object.values(COMPONENT_GROUP_METRIC_KEYS);
-    for (const season of SEASONS) {
+    for (const season of BREAKDOWN_REGISTERED_SEASONS) {
       for (const component of componentMapForSeason(season).components) {
         expect(groupKeys, `${season} component "${component}" collides with a group metric key`).not.toContain(component);
       }

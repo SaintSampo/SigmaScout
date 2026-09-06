@@ -55,6 +55,20 @@ const SEASON_COMPONENT_MAPS: Readonly<Record<number, SeasonComponentMap>> = {
 };
 
 /**
+ * Sorted, readonly tuple of every registered season — the single source of
+ * both `groups.test.ts`'s and `reconciliation.test.ts`'s iteration, so
+ * registering a new season automatically extends both suites without a
+ * second edit. This export exists specifically to close a failure mode in
+ * which a season registered above but missing from a test-local list
+ * shipped an unproven component map with a green suite (quick task
+ * 260906-8kd). The one conscious edit that remains when a season is
+ * registered: the pinned equality assertion in `groups.test.ts`.
+ */
+export const BREAKDOWN_REGISTERED_SEASONS = Object.keys(SEASON_COMPONENT_MAPS)
+  .map(Number)
+  .sort((a, b) => a - b) as readonly number[];
+
+/**
  * Looks up the component map for `season`. Throws for an unmapped season
  * rather than defaulting, in `score.ts`'s `seasonSplit()` style — an
  * unregistered season has no defensible component map to fall back to.
