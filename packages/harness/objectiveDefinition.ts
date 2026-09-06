@@ -19,8 +19,16 @@
  * PAIRED-DIFFERENCE standard error of the accuracy delta (the noise band,
  * `eventBlockedBootstrap`), they are treated as accuracy-tied and the LOWER
  * mean tune-season `brierScore` (combined `compLevelView`) decides instead.
- * The same rule, on the same accuracy definition (`scoreSet`'s own), governs
- * D-T7's ship/don't-ship acceptance bar in `acceptance.ts`.
+ *
+ * This is the SEARCH objective — how the search RANKS candidates against each
+ * other. It is a DIFFERENT rule, deliberately, from the SHIP decision: since
+ * quick task 260905-t88 (RULE-A, adopted 2026-09-05), `acceptance.ts`'s
+ * `decideAcceptance` ships a search winner only when it strictly improves
+ * BOTH accuracy AND Brier over the live incumbent — no noise band, no tie
+ * mechanism. Before that change this comment claimed "the same rule...
+ * governs D-T7's ship/don't-ship acceptance bar", which described the D-T7
+ * noise-bar gate `acceptance.ts` no longer implements; see that file's own
+ * header for the full account of why the ship decision moved.
  */
 export const SEARCH_OBJECTIVE_DEFINITION =
   "winner accuracy (mean per-season winnerAccuracy, combined compLevelView) is PRIMARY and MAXIMIZED; when two " +

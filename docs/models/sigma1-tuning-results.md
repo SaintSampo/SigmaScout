@@ -41,6 +41,26 @@ SE_paired(accuracy delta)` — with Brier demoted to a second guardrail veto alo
 was re-run as part of this note; a re-tune under the new bar remains a separate, deliberately-
 scheduled item.
 
+**Rule A adopted (2026-09-05, quick task 260905-t88, RULE-A):** three accuracy-primary tunes
+(retune-0905, elim-R v9n, Stage 2 CVF, Stage 3 CER) went 30/30 `keep-incumbent` under the
+accuracy-primary noise bar above while posting repeated near-accepts — 2025 sat at roughly 90% of
+the bar TWICE, with a better Brier both times. A retroactive pass over all 36 recorded
+accuracy-primary verdicts across those four runs showed a different rule — SHIP when the winner
+strictly improves BOTH out-of-sample winner accuracy AND Brier over the live incumbent, no noise
+band, no SE minimum — ships exactly the season-clustered, autopsy-predicted improvements (2025
+twice, 2026 once) and rejects every Brier-worse positive, all of which pattern as noise. The
+operator adopted this rule ("Rule A") on 2026-09-05. The first Rule-A promotion
+(`vpr@9.0.0+rolling-2026-09c`, 2025+2026) was applied MANUALLY, ahead of the code catching up;
+`packages/harness/acceptance.ts`'s `decideAcceptance` now implements Rule A directly, so future
+tunes gate on it in the machinery rather than being re-read by hand. Every verdict recorded before
+2026-09-05 — including every figure in this document — was decided under the noise bar described
+above and is left exactly as measured; `below-threshold` and `brier-veto` are that era's reason
+vocabulary and are not retro-fitted onto anything below. The retired noise bar and the retired
+Brier-veto bound are both still computed and reported on every outcome as diagnostics, never as a
+gate. Rule A is pre-committed to run UNCHANGED on future tunes: no margins, no SE minimums, no
+per-season exceptions added in reaction to any single future result. No figure elsewhere in this
+document is edited by this note, and no tuning was re-run.
+
 The committed answer to Phase 3's four questions: did the offline search actually find something
 (ALGO-04), does tuned Sigma1 beat OPR and EPA on holdout Brier *and* winner accuracy on both
 holdout seasons (SC-3), does within-season adaptation improve holdout score (ALGO-05), and does
