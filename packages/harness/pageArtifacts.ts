@@ -1680,6 +1680,17 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
       ),
     { message: "every roster index in every `r`/`b` must lie in [0, roster.length)" }
   )
+  .refine((artifact) => new Set(artifact.roster).size === artifact.roster.length, {
+    // Without this, the "makes MalformedRankHistogramError unreachable"
+    // guarantee below is FALSE rather than merely unenforced: the client
+    // decodes the roster into a Map keyed by team key, so a duplicate
+    // collapses two entries into one, `rankHistograms.size` comes out below
+    // `roster.length`, and every histogram then fails rankRows.ts's
+    // length check — in front of a reader. Today's writers happen not to
+    // emit duplicates; this is what makes that a guarantee instead of a
+    // coincidence.
+    message: "`roster` must not contain duplicate team keys — the client indexes baked histograms by team key",
+  })
   .refine((artifact) => artifact.baked.histograms.length === artifact.roster.length, {
     message: "`baked.histograms` must carry exactly one histogram per roster team (histograms.length === roster.length)",
   })

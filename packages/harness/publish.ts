@@ -1354,6 +1354,8 @@ interface PreScheduleSidecarArgs {
   /** Whether a walk-forward pre-event state was captured for this event. Absent exactly when no completed match of this event was replayed with a predecessor state — the cold-start season's first event (PD-04), or an event whose schedule landed but has no completed matches yet. */
   readonly hasPreEventState: boolean;
   readonly preEventState: unknown;
+  /** Whether ANY match of this event has been played. Distinguishes the two reasons a pre-event state can be absent: an event that has not started yet (its pre-event state is simply the current one) from the cold-start season's first event (PD-04, genuinely unavailable). */
+  readonly hasCompletedMatches: boolean;
   /** Whether a season-final state exists for this algorithm — C-07's current-state pricing source for scheduleless events. */
   readonly hasSeasonFinalState: boolean;
   readonly seasonFinalState: unknown;
@@ -1401,13 +1403,36 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   let pricedFrom: "pre-event-walk-forward" | "current-state";
   if (args.qualMatchCount > 0) {
     if (!args.hasPreEventState) {
-      console.log(
-        `${label}: schedule has landed but no pre-event walk-forward state was captured (PD-04 — the cold-start season's first event, or an event with no completed matches replayed yet)`
-      );
-      return undefined;
+      // The schedule has landed but no pre-event state was captured. That
+      // is two genuinely different situations, and collapsing them into one
+      // skip was a real defect: an event whose schedule was just posted but
+      // which has NOT started yet would stop regenerating its sidecar, so
+      // the last `current-state` one kept serving unchanged through the
+      // entire pre-event window — precisely when a reader most wants this
+      // tab.
+      //
+      // If no match of this event has been played, the honest state "before
+      // the event" simply IS the state now: nothing from this event has
+      // entered the model. Price from it and keep regenerating, exactly as
+      // the scheduleless branch below does; the sidecar switches to the
+      // frozen walk-forward pricing on the first publish after the event's
+      // first completed match.
+      if (!args.hasCompletedMatches && args.hasSeasonFinalState) {
+        pricingState = args.seasonFinalState;
+        pricedFrom = "current-state";
+      } else {
+        // The remaining case is PD-04's: this event HAS completed matches
+        // but no predecessor state exists — the cold-start season's very
+        // first event, whose honest pre-event state is the algorithm's
+        // internal cold-start state, which `WalkForwardSimulator` does not
+        // expose. Never substitute a later state for it.
+        console.log(`${label}: no pre-event walk-forward state was captured (PD-04 — the cold-start season's first event)`);
+        return undefined;
+      }
+    } else {
+      pricingState = args.preEventState;
+      pricedFrom = "pre-event-walk-forward";
     }
-    pricingState = args.preEventState;
-    pricedFrom = "pre-event-walk-forward";
   } else {
     if (!args.hasSeasonFinalState) {
       console.log(`${label}: no season-final state exists for this algorithm`);
@@ -2396,6 +2421,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               qualMatchCount: qualMatchCountByEvent.get(e.event_key) ?? 0,
               hasPreEventState: preEventStateForAlgo.has(e.event_key),
               preEventState: preEventStateForAlgo.get(e.event_key),
+              hasCompletedMatches: predictions.length > 0,
               hasSeasonFinalState: state !== undefined,
               seasonFinalState: state,
               generation,
@@ -2833,6 +2859,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
               matches.filter((m) => m.compLevel === "qm").length + scheduledForEvent.filter((m) => m.compLevel === "qm").length,
             hasPreEventState: preEventStateByEventKey.has(eventKey),
             preEventState: preEventStateByEventKey.get(eventKey),
+            hasCompletedMatches: matches.length > 0,
             hasSeasonFinalState: finalState !== undefined,
             seasonFinalState: finalState,
             generation,

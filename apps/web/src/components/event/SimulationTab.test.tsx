@@ -588,61 +588,90 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
   });
 
-  it("while the sidecar is still in flight, neither empty state is claimed and then contradicted", () => {
+  it("CR-01: while the sidecar is in flight on a QUALIFICATION-LESS event, the skeleton renders — never an empty state, never a control-less picker", () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
       <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
     );
 
+    // Not the empty state (the arriving sidecar could contradict it)...
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
+    expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
+    // ...and not the stack either: with no rows and no baked result the
+    // picker would render no slider, no number input and no stop.
+    expect(screen.queryByTestId(START_MATCH_SLIDER_TESTID)).toBeNull();
+    expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
+    expect(screen.queryByRole("button", { name: RUN_LABEL_UPDATE })).toBeNull();
+  });
+
+  it("CR-01: while the sidecar is in flight on an OFFSEASON-shaped event, no enabled run button is offered over inputs the unavailable state exists to refuse", () => {
+    const artifact = baseArtifact({
+      matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    render(
+      <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+    );
+
+    expect(screen.queryByRole("button", { name: RUN_LABEL_UPDATE })).toBeNull();
+    // Once the fetch resolves to "no sidecar", the honest state appears.
     expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
   });
 
-  it("C-02: pressing the button on the pre-schedule stop starts NO run and leaves the baked table on screen", async () => {
+  it("CR-01: a pending sidecar does NOT delay an event that clears both guards — its stack renders immediately", () => {
     const artifact = baseArtifact({
-      teams: TWO_TEAM_ROSTER,
       upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
     });
     render(
-      <RouterTestHarness>
-        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
-      </RouterTestHarness>
+      <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
-    const button = screen.getByRole("button", { name: RUN_LABEL_UPDATE }) as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
-    fireEvent.click(button);
-
-    expect(workerConstructorSpy).not.toHaveBeenCalled();
-    expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined();
-    expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined();
+    expect(screen.getByTestId(SIMULATION_STACK_TESTID)).toBeDefined();
+    expect(screen.getByTestId(START_MATCH_SLIDER_TESTID)).toBeDefined();
   });
 
-  it("C-02: moving the slider OFF position 0 selects a match, and moving it back re-shows the baked result", async () => {
-    const artifact = baseArtifact({
-      teams: TWO_TEAM_ROSTER,
-      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
-    });
-    render(
-      <RouterTestHarness>
-        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
-      </RouterTestHarness>
-    );
+  it("CR-02: a sidecar landing MID-RUN cannot hijack the run — the selection is committed when the button is pressed", async () => {
+    // Installs its own mock Worker for the duration, exactly as I1-I7 do:
+    // this case genuinely drives a run, and `installMockWorker` substitutes
+    // a DIFFERENT class from this file's module-scope `SpyWorker`, so the
+    // "still no Worker" invariant below stays intact.
+    const handle = installMockWorker({ script: (message, ctx) => runSimulationJob(message, ctx.post) });
+    try {
+      const artifact = baseArtifact({
+        teams: TWO_TEAM_ROSTER,
+        upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+      });
+      // The reader never touches the picker: the match selection is
+      // DERIVED, which is exactly the state that used to be re-evaluated
+      // out from under a running simulation when the sidecar resolved.
+      const { rerender } = render(
+        <RouterTestHarness>
+          <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+        </RouterTestHarness>
+      );
 
-    await waitFor(() => expect(screen.getByTestId(START_MATCH_SLIDER_TESTID)).toBeDefined());
-    fireEvent.change(screen.getByTestId(START_MATCH_SLIDER_TESTID), { target: { value: "1" } });
-    expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
-    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
-    // Off the stop, nothing has been run yet, so the pre-run placeholder is
-    // the honest thing to show — the baked table describes a different
-    // start point and must not stand in for a match-start result.
-    expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
-    fireEvent.change(screen.getByTestId(START_MATCH_SLIDER_TESTID), { target: { value: "0" } });
-    expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined();
-    expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined();
-    expect(workerConstructorSpy).not.toHaveBeenCalled();
+      // The sidecar resolves while that run is in flight.
+      rerender(
+        <RouterTestHarness>
+          <SimulationTab
+            artifact={artifact}
+            algorithmId="vpr"
+            season={2024}
+            preSchedule={preScheduleArtifact()}
+            preScheduleIsPending={false}
+          />
+        </RouterTestHarness>
+      );
+
+      // The picker must NOT have jumped to the pre-schedule stop, and the
+      // baked table must not have displaced the run's own result.
+      expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
+      expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
+    } finally {
+      handle.restore();
+    }
   });
 
   it("with NO sidecar the picker keeps its pre-existing range — position 0 is out of reach and no stop renders", () => {

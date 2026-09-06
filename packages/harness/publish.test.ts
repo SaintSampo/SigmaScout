@@ -3268,6 +3268,47 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(emptyCall).toBeUndefined();
   });
 
+  it("CR-03: an event whose schedule has landed but which has NOT started still gets a sidecar, priced from current state — never left serving a stale one", async () => {
+    seedTwoEventSeason(db); // gives the algorithm real season-final state
+    // A third event whose qualification schedule is posted but where not a
+    // single match has been played. Before this fix the walk-forward branch
+    // was entered (qualMatchCount > 0), found no pre-event state, and
+    // SKIPPED — so any previously published sidecar kept serving unchanged
+    // through the entire pre-event window, which is exactly when a reader
+    // most wants this tab.
+    upsertEvent(db, seasonEvent({ eventKey: "2026sch", name: "Scheduled Not Started" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026sch_qm1",
+        eventKey: "2026sch",
+        matchNumber: 1,
+        sortTime: 9_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: null,
+        blueScore: null,
+        winner: null,
+      })
+    );
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [fakeRpAlgorithm],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+    });
+
+    const call = findPresimCall("2026sch", "epa");
+    expect(call, "a scheduled-but-unplayed event must still publish a sidecar").toBeDefined();
+    const artifact = PreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
+    // "Before the event" and "now" are the same state when no match of the
+    // event has been played, so `current-state` is the honest label — and
+    // it keeps regenerating every publish until the event actually starts.
+    expect(artifact.pricedFrom).toBe("current-state");
+  });
+
   it("C-05: preScheduleFromSeason is a real parameter — a cutoff above the season suppresses every sidecar", async () => {
     seedTwoEventSeason(db);
 

@@ -327,28 +327,52 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
     // exactly what the reader asked for. Returning before `startRun` is
     // what keeps the client engine from running for this stop at all.
     if (isPreScheduleSelected) return;
-    if (simulationInputs === null) return;
+    if (simulationInputs === null || resolvedMatchKey === null) return;
+    // COMMIT the selection the run is about to be computed for. Until this
+    // point the reader may never have touched the picker, leaving
+    // `selection` null and the effective selection DERIVED — and a derived
+    // selection re-evaluates when the lazily-fetched sidecar lands, which
+    // could be mid-run. That flipped the tab to the pre-schedule stop under
+    // a running simulation: the run control kept counting draws while the
+    // table below it rendered baked data for a different start point, and
+    // the picker silently jumped to "Before schedule release". Pressing the
+    // button is an unambiguous act of choosing, so record it as one.
+    setSelection({ kind: "match", matchKey: resolvedMatchKey });
     startRun({ matches: simulationInputs.remainingMatches, baselines: simulationInputs.baselines, signature: simulationSignature });
-  }, [isPreScheduleSelected, simulationInputs, simulationSignature, startRun]);
+  }, [isPreScheduleSelected, resolvedMatchKey, simulationInputs, simulationSignature, startRun]);
 
-  // Both early returns now also require that no baked result is available
-  // or on its way (C-15). A scheduleless event trips BOTH of them — it has
-  // no qualification rows and therefore no pmf-bearing row either — and
-  // would otherwise render an empty state on top of a perfectly good
-  // pipeline result. The pending clause is what stops the tab flashing an
-  // empty state during the sidecar's own fetch and then contradicting it.
+  // Both early returns are now skipped when a baked result EXISTS (C-15): a
+  // scheduleless event trips both — it has no qualification rows and
+  // therefore no pmf-bearing row either — and would otherwise render an
+  // empty state on top of a perfectly good pipeline result.
   //
-  // `SIMULATION_UNAVAILABLE_*` still fires for offseason events, and does so
-  // without a special case: the pipeline structurally cannot publish a
-  // sidecar for an RP-ineligible event (PD-06), so `hasPreSchedule` is
-  // false exactly where that state is the right answer.
-  const hasOrExpectsPreSchedule = hasPreSchedule || preScheduleIsPending;
-
-  if (qualRows.length === 0 && !hasOrExpectsPreSchedule) {
+  // While the sidecar is still in flight the honest answer is neither the
+  // empty state (which the arriving result may contradict a moment later)
+  // nor the stack (whose picker and run control describe inputs this event
+  // may not have). It is the SKELETON: we do not know yet. Rendering the
+  // stack there was a real defect, not a cosmetic one — the route fetches a
+  // sidecar for every VPR event regardless of season, so on every pre-2026
+  // and offseason event that pending window would have shown an offseason
+  // event an ENABLED run button over the exact inputs
+  // `SIMULATION_UNAVAILABLE_*` exists to refuse, and shown a
+  // qualification-less event a picker with no controls in it at all.
+  //
+  // Note the deliberate asymmetry: an event that clears both guards renders
+  // its stack IMMEDIATELY and never waits on the sidecar. A pending fetch
+  // only defers the two states that would otherwise be wrong.
+  //
+  // `SIMULATION_UNAVAILABLE_*` still fires for offseason events once that
+  // fetch resolves, and does so without a special case: the pipeline
+  // structurally cannot publish a sidecar for an RP-ineligible event
+  // (PD-06), so `hasPreSchedule` is false exactly where that state is the
+  // right answer.
+  if (!hasPreSchedule && qualRows.length === 0) {
+    if (preScheduleIsPending) return <SimulationTabSkeleton />;
     return <EmptyState heading={SIMULATION_EMPTY_STATE_HEADING} body={SIMULATION_EMPTY_STATE_BODY} />;
   }
 
-  if (!hasSimulatableRankInputs(artifact) && !hasOrExpectsPreSchedule) {
+  if (!hasPreSchedule && !hasSimulatableRankInputs(artifact)) {
+    if (preScheduleIsPending) return <SimulationTabSkeleton />;
     return <EmptyState heading={SIMULATION_UNAVAILABLE_HEADING} body={SIMULATION_UNAVAILABLE_BODY} />;
   }
 

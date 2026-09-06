@@ -1528,6 +1528,12 @@ describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
     expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/one histogram per roster team/);
   });
 
+  it("WR-01: rejects a roster carrying a DUPLICATE team key — the client indexes baked histograms by team key, so a duplicate would throw MalformedRankHistogramError in front of a reader", () => {
+    const fixture = validPreScheduleFixture();
+    fixture.roster[1] = fixture.roster[0]!;
+    expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/duplicate team keys/);
+  });
+
   it("rejects a histogram that sums to one less than draws", () => {
     const fixture = validPreScheduleFixture();
     fixture.baked.histograms[2] = [499, 100, 100, 100, 100, 100]; // sums to 999, draws is 1000
