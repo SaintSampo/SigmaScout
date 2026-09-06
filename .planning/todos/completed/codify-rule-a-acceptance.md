@@ -41,3 +41,12 @@ happen.
 - IMPORTANT pre-commitment (recorded to prevent policy-tuning drift): Rule A was chosen
   looking at this data. It must now run UNCHANGED on future tunes — do not add margins,
   SE minimums, or per-season exceptions in reaction to any single future result.
+
+## CLOSED 2026-09-05, same session — codified as quick task 260905-t88
+
+Commits 42f59bf3 / 0e227f21 / 58d185fe: decideAcceptance now gates on Rule A
+(strict accuracy improvement AND strict Brier improvement), the retired noise bar stays
+computed and reported as diagnostics (`clearedNoiseBar`), reasons renamed so historical
+artifacts stay readable, verdict prose names Rule A, and the pre-commitment note lives in
+decideAcceptance's own doc comment. acceptance.test.ts 20/20, tune.test.ts 90/90, digests
+bitwise unchanged. Future tunes now print Rule-A verdicts directly.
