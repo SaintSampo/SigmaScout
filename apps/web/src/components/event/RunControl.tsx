@@ -13,17 +13,29 @@ import type { SimulationRunState } from "./useSimulationRun.js";
  * `isResultCurrent` and `state.status === "complete"` are two SEPARATE
  * questions (PD-02/PD-03): a `state.status === "complete"` result whose
  * inputs have since changed (`isResultCurrent === false`) renders NO
- * completion line and a button reading `RUN_LABEL_IDLE`, not
- * `RUN_LABEL_RERUN` — the caller (`SimulationTab.tsx`) derives
+ * completion line — the caller (`SimulationTab.tsx`) derives
  * `isResultCurrent` at render time from a signature comparison, never from
  * an effect, so this component never has to reconcile a stale result on
  * its own.
  */
 
-/** Copywriting Contract, verbatim. */
-export const RUN_LABEL_IDLE = "Run simulation";
-/** Copywriting Contract's "relabels 'Re-run simulation' once a result exists" row, narrowed by PD-03 to "for the CURRENT selection". */
-export const RUN_LABEL_RERUN = "Re-run simulation";
+/**
+ * A DELIBERATE deviation from the approved Copywriting Contract's two
+ * separate rows ("Run simulation" idle / "Re-run simulation" once a result
+ * exists), recorded here rather than left to read as drift (quick task
+ * 260905-tll Task 6, C-03).
+ *
+ * Both rows assumed the tab opens with nothing computed, so the button's
+ * first job was to START something. That premise is gone: the tab now opens
+ * showing the pipeline's baked pre-schedule result for every covered event,
+ * so there is never a moment when nothing is on screen. "Run" would promise
+ * a first result that already exists, and the idle/re-run split would flip
+ * the label based on a distinction the reader can no longer see. One label
+ * for one action — replace what is shown with a simulation from the
+ * currently selected start point — is both shorter and the honest
+ * description of what the button does in every state it now has.
+ */
+export const RUN_LABEL_UPDATE = "Update simulation";
 /** Copywriting Contract, verbatim. */
 export const RUN_ERROR_BODY = "Simulation failed to run.";
 export const RUN_RETRY_LABEL = "Retry";
@@ -136,7 +148,7 @@ export function RunControl({ state, isResultCurrent, canRun, onRun }: RunControl
           {formatCompletionSentence(state.elapsedMs)}
         </p>
         <Button type="button" variant="default" disabled={!canRun} onClick={onRun} className="tap-target w-fit">
-          {RUN_LABEL_RERUN}
+          {RUN_LABEL_UPDATE}
         </Button>
       </div>
     );
@@ -145,12 +157,13 @@ export function RunControl({ state, isResultCurrent, canRun, onRun }: RunControl
   // Idle — covers `state.status === "idle"` and a SUPERSEDED
   // `state.status === "complete"` result (`isResultCurrent === false`, R5):
   // a result whose inputs have changed has no rendered form at all, per
-  // PD-02/PD-03.
-  const label = isResultCurrent ? RUN_LABEL_RERUN : RUN_LABEL_IDLE;
+  // PD-02/PD-03. The label no longer varies with `isResultCurrent` (C-03);
+  // that flag still governs whether the COMPLETION LINE renders above,
+  // which is where the current/superseded distinction is genuinely visible.
   return (
     <div data-testid={RUN_CONTROL_TESTID} className="flex flex-col gap-[var(--spacing-sm)]">
       <Button type="button" variant="default" disabled={!canRun} onClick={onRun} className="tap-target w-fit">
-        {label}
+        {RUN_LABEL_UPDATE}
       </Button>
     </div>
   );

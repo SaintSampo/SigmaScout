@@ -35,9 +35,9 @@ const FIRST_QUAL_MATCH_KEY = `${EVENT_KEY}_qm1`;
 // Literal testids/labels, matching `RunControl.tsx`'s/`StartMatchPicker.tsx`'s
 // exported constants byte-for-byte (an e2e spec does not import app source —
 // see `event-page.spec.ts`'s own precedent — so these must be kept in sync by
-// hand with `RUN_CONTROL_TESTID`/`RUN_LABEL_IDLE`/`START_MATCH_ROW_TESTID_PREFIX`).
+// hand with `RUN_CONTROL_TESTID`/`RUN_LABEL_UPDATE`/`START_MATCH_ROW_TESTID_PREFIX`).
 const RUN_CONTROL_TESTID = "run-control";
-const RUN_LABEL_IDLE = "Run simulation";
+const RUN_LABEL_UPDATE = "Update simulation";
 const START_MATCH_ROW_TESTID = `start-match-row-${FIRST_QUAL_MATCH_KEY}`;
 
 test.describe("SC-2 measurement — 2023cur, real Worker, real published bytes", () => {
@@ -48,7 +48,7 @@ test.describe("SC-2 measurement — 2023cur, real Worker, real published bytes",
     await expect(firstRow).toBeVisible({ timeout: 15_000 });
     await firstRow.click();
 
-    const runButton = page.getByRole("button", { name: RUN_LABEL_IDLE });
+    const runButton = page.getByRole("button", { name: RUN_LABEL_UPDATE });
     await expect(runButton).toBeEnabled();
     await runButton.click();
 

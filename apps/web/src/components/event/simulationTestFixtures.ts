@@ -1,4 +1,4 @@
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Simulation tab's shared hand-written `EventArtifact` fixture builders
@@ -75,3 +75,38 @@ export function upcomingQualRow(overrides: Record<string, unknown> = {}) {
 }
 
 export const BOTH_PMFS = { redRpPmf: [0.2, 0.3, 0.5], blueRpPmf: [0.4, 0.3, 0.3] };
+
+/**
+ * A minimal but SCHEMA-VALID pre-schedule sidecar (quick task 260905-tll):
+ * a two-team roster, one synthetic schedule, and baked histograms that
+ * satisfy every refinement `PreScheduleArtifactSchema` enforces — each
+ * histogram is `roster.length` long and sums to exactly `baked.draws`.
+ *
+ * Built to the real schema rather than cast past it, because those two
+ * invariants are precisely what makes `rankRows.ts`'s
+ * `MalformedRankHistogramError` unreachable in front of a reader; a fixture
+ * that quietly violated them would let a test pass over a shape the
+ * publisher can never emit.
+ */
+export function preScheduleArtifact(overrides: Record<string, unknown> = {}): PreScheduleArtifact {
+  return {
+    ...BASE_PREAMBLE,
+    eventKey: "2024test",
+    season: 2024,
+    pricedFrom: "current-state" as const,
+    matchesPerTeam: 12,
+    roster: ["frc1", "frc2"],
+    schedules: [{ seed: 1, matches: [{ r: [0], b: [1], rp: [0.5, 0.5], bp: [0.5, 0.5] }] }],
+    baked: {
+      draws: 100,
+      // frc1 finishes first in 70 of 100 draws, frc2 in 30 — a genuine,
+      // asymmetric distribution rather than a uniform one, so a test can
+      // tell a decoded result apart from a fabricated placeholder.
+      histograms: [
+        [70, 30],
+        [30, 70],
+      ],
+    },
+    ...overrides,
+  } as PreScheduleArtifact;
+}

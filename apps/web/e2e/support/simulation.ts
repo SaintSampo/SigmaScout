@@ -34,8 +34,8 @@ export const SIMULATION_TEST_IDS = Object.freeze({
   rowPrefix: "start-match-row-",
   /** `RunControl.tsx`'s `RUN_CONTROL_TESTID`. */
   runControl: "run-control",
-  /** `RunControl.tsx`'s `RUN_LABEL_IDLE`. */
-  runLabelIdle: "Run simulation",
+  /** `RunControl.tsx`'s `RUN_LABEL_UPDATE`. */
+  runLabelUpdate: "Update simulation",
   /** `RankDistributionTable.tsx`'s own scroll-region testid. */
   rankTableScroll: "rank-distribution-table-scroll",
   /** `RankDistributionTable.tsx`'s per-row testid. */
@@ -64,7 +64,7 @@ export async function selectStartMatch(page: Page, index: number): Promise<void>
  */
 export async function runSimulation(page: Page): Promise<number> {
   const started = Date.now();
-  await page.getByRole("button", { name: SIMULATION_TEST_IDS.runLabelIdle }).click();
+  await page.getByRole("button", { name: SIMULATION_TEST_IDS.runLabelUpdate }).click();
   const completionLine = page.locator(`[data-testid="${SIMULATION_TEST_IDS.runControl}"] [data-elapsed-ms]`);
   await expect(completionLine).toBeVisible({ timeout: 60_000 });
   return Date.now() - started;

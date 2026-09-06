@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/StateViews";
-import { StartMatchPicker } from "./StartMatchPicker.js";
+import { StartMatchPicker, type StartSelection } from "./StartMatchPicker.js";
 import { RunControl } from "./RunControl.js";
 import { useSimulationRun } from "./useSimulationRun.js";
 import { RankDistributionTable } from "./RankDistributionTable.js";
 import { buildRankDistributionRows } from "./rankRows.js";
+import { decodePreScheduleResult } from "../../lib/preScheduleResult.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventArtifact, PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -203,22 +204,59 @@ export function SimulationTabSkeleton() {
  *    output yet, and a centred empty-state block would replace the
  *    picker/run-control mount above it rather than sitting beneath them.
  */
-export function SimulationTab({ artifact, algorithmId, season }: SimulationTabProps) {
+export function SimulationTab({ artifact, algorithmId, season, preSchedule = null, preScheduleIsPending = false }: SimulationTabProps) {
   const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
+  const hasPreSchedule = preSchedule !== null;
 
-  // The selected start matchKey — computed ONCE, in a lazy initializer, and
-  // never re-applied (PD-07): recomputing it on every artifact change would
-  // move the reader's chosen start match out from under them the moment the
-  // first unplayed match became played, mid-event, which is exactly when a
-  // reader is most likely to be watching.
-  const [selectedMatchKey, setSelectedMatchKey] = useState<string | null>(() => defaultStartMatchKey(qualRows));
+  // The reader's OWN choice — `null` until they make one. Kept separate
+  // from the default below so "the reader has not chosen yet" stays a state
+  // this component can actually observe.
+  const [selection, setSelection] = useState<StartSelection | null>(null);
+
+  // PD-07, unchanged in both mechanism and guarantee: the default start
+  // MATCH is computed ONCE, in a lazy initializer, and never re-applied.
+  // Recomputing it on every artifact change would move an unchosen start
+  // match the moment the first unplayed match became played, mid-event.
+  const [defaultMatchKey] = useState<string | null>(() => defaultStartMatchKey(qualRows));
+
+  // The default applies only until the reader chooses, and the sidecar
+  // outranks the default match (C-01): whenever a baked result exists, the
+  // pre-schedule stop IS the opening view, for every covered event — live
+  // and completed ones included, not only scheduleless ones.
+  //
+  // This is deliberately NOT folded into the lazy initializer above. The
+  // sidecar is fetched lazily by the route and lands AFTER this component
+  // first renders (Radix mounts it hidden on every event page), so an
+  // initializer would have committed to a match selection before the baked
+  // result ever arrived — and C-01 would then hold only for events whose
+  // sidecar happened to be cached. Deriving it at render time is what makes
+  // "the baked result is what you see first" true on a cold load too.
+  const effectiveSelection: StartSelection | null = useMemo(() => {
+    if (selection !== null) return selection;
+    if (hasPreSchedule) return { kind: "preSchedule" };
+    return defaultMatchKey !== null ? { kind: "match", matchKey: defaultMatchKey } : null;
+  }, [selection, hasPreSchedule, defaultMatchKey]);
 
   // PD-06: the held selection is resolved against the CURRENT rows on every
   // render. A selected key no longer present in the current rows resolves
   // to "no selection" (never a neighbouring row) — and the held state is
   // NOT cleared on a miss, so a transient artifact shape (a live refetch
-  // mid-flight) cannot permanently discard the reader's choice.
-  const resolvedMatchKey = selectedMatchKey !== null && qualRows.some((row) => row.matchKey === selectedMatchKey) ? selectedMatchKey : null;
+  // mid-flight) cannot permanently discard the reader's choice. The
+  // pre-schedule kind is resolved against the sidecar's presence for the
+  // same reason and with the same non-destructive discipline.
+  const resolvedSelection: StartSelection | null =
+    effectiveSelection === null
+      ? null
+      : effectiveSelection.kind === "preSchedule"
+        ? hasPreSchedule
+          ? effectiveSelection
+          : null
+        : qualRows.some((row) => row.matchKey === effectiveSelection.matchKey)
+          ? effectiveSelection
+          : null;
+
+  const isPreScheduleSelected = resolvedSelection?.kind === "preSchedule";
+  const resolvedMatchKey = resolvedSelection?.kind === "match" ? resolvedSelection.matchKey : null;
 
   const simulationInputs = useMemo(
     () => (resolvedMatchKey !== null ? buildSimulationInputs(artifact, resolvedMatchKey) : null),
@@ -242,14 +280,27 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
   const simulationSignature = useMemo(() => {
     const remainingCount = simulationInputs?.remainingMatches.length ?? 0;
     const baselineCount = simulationInputs?.baselines.length ?? 0;
-    return `${artifact.algorithmVersion}|${resolvedMatchKey ?? "none"}|${remainingCount}|${baselineCount}`;
-  }, [artifact.algorithmVersion, resolvedMatchKey, simulationInputs]);
+    // The selection's KIND is folded in (C-02). Before the pre-schedule stop
+    // existed a null selection folded to the literal "none"; a second
+    // non-match selection therefore needs its own token, or the two would
+    // be indistinguishable in the signature and a result computed under one
+    // could be shown as current under the other. A real match key always
+    // contains an underscore-qualified event key, so neither token can
+    // collide with one.
+    const selectionToken = isPreScheduleSelected ? "pre-schedule" : (resolvedMatchKey ?? "none");
+    return `${artifact.algorithmVersion}|${selectionToken}|${remainingCount}|${baselineCount}`;
+  }, [artifact.algorithmVersion, isPreScheduleSelected, resolvedMatchKey, simulationInputs]);
 
   const { state: runState, start: startRun } = useSimulationRun();
 
   const isResultCurrent = runState.status === "complete" && runState.signature === simulationSignature;
   const isRunning = runState.status === "running";
-  const canRun = simulationInputs !== null;
+  // The button stays pressable on the pre-schedule stop even though pressing
+  // it starts nothing (C-02): the reader's model is "this button shows me
+  // the simulation for what I picked", and a disabled control there would
+  // read as "this stop is broken" rather than "this stop is already
+  // showing you its result".
+  const canRun = simulationInputs !== null || isPreScheduleSelected;
 
   // 08-14: rows built ONLY when a completed result exists AND is current for
   // the present selection — the freshness gate (PD-02) has already been
@@ -257,20 +308,47 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
   // of its own. Reads the completed `SimResult` exactly as 08-13 exposed it
   // (`runState.result`) — constructs no second Worker and repeats no run.
   const rankResult = useMemo(() => {
+    // C-01: the baked path. Decoding is pure unpacking — no Worker, no
+    // draws, no Monte Carlo — so the tab's first paint renders a full rank
+    // table at zero client compute cost. It takes precedence over any run
+    // state because the pre-schedule stop's result is not something a run
+    // can produce.
+    if (isPreScheduleSelected && preSchedule !== null) {
+      const decoded = decodePreScheduleResult(preSchedule);
+      return { rows: buildRankDistributionRows(decoded, artifact.teams), teamCount: decoded.rankHistograms.size };
+    }
     if (runState.status !== "complete" || !isResultCurrent) return null;
     return { rows: buildRankDistributionRows(runState.result, artifact.teams), teamCount: runState.teamCount };
-  }, [runState, isResultCurrent, artifact.teams]);
+  }, [isPreScheduleSelected, preSchedule, runState, isResultCurrent, artifact.teams]);
 
   const handleRun = useCallback((): void => {
+    // C-02: pressing the button on the pre-schedule stop is a deliberate
+    // no-op — the baked result is already on screen and re-showing it is
+    // exactly what the reader asked for. Returning before `startRun` is
+    // what keeps the client engine from running for this stop at all.
+    if (isPreScheduleSelected) return;
     if (simulationInputs === null) return;
     startRun({ matches: simulationInputs.remainingMatches, baselines: simulationInputs.baselines, signature: simulationSignature });
-  }, [simulationInputs, simulationSignature, startRun]);
+  }, [isPreScheduleSelected, simulationInputs, simulationSignature, startRun]);
 
-  if (qualRows.length === 0) {
+  // Both early returns now also require that no baked result is available
+  // or on its way (C-15). A scheduleless event trips BOTH of them — it has
+  // no qualification rows and therefore no pmf-bearing row either — and
+  // would otherwise render an empty state on top of a perfectly good
+  // pipeline result. The pending clause is what stops the tab flashing an
+  // empty state during the sidecar's own fetch and then contradicting it.
+  //
+  // `SIMULATION_UNAVAILABLE_*` still fires for offseason events, and does so
+  // without a special case: the pipeline structurally cannot publish a
+  // sidecar for an RP-ineligible event (PD-06), so `hasPreSchedule` is
+  // false exactly where that state is the right answer.
+  const hasOrExpectsPreSchedule = hasPreSchedule || preScheduleIsPending;
+
+  if (qualRows.length === 0 && !hasOrExpectsPreSchedule) {
     return <EmptyState heading={SIMULATION_EMPTY_STATE_HEADING} body={SIMULATION_EMPTY_STATE_BODY} />;
   }
 
-  if (!hasSimulatableRankInputs(artifact)) {
+  if (!hasSimulatableRankInputs(artifact) && !hasOrExpectsPreSchedule) {
     return <EmptyState heading={SIMULATION_UNAVAILABLE_HEADING} body={SIMULATION_UNAVAILABLE_BODY} />;
   }
 
@@ -279,8 +357,11 @@ export function SimulationTab({ artifact, algorithmId, season }: SimulationTabPr
       {/* 08-11 mounts the start-match picker here (max-height: 320px, internal overflow-y-auto). */}
       <StartMatchPicker
         rows={qualRows}
-        selectedMatchKey={resolvedMatchKey}
-        onSelect={setSelectedMatchKey}
+        selection={resolvedSelection}
+        onSelect={setSelection}
+        hasPreScheduleStop={hasPreSchedule}
+        preScheduleScheduleCount={preSchedule?.schedules.length}
+        preScheduleDraws={preSchedule?.baked.draws}
         inputs={simulationInputs}
         startMatchNumber={startMatchNumber}
         // 08-13: inert for the duration of a run, so a mid-run click cannot

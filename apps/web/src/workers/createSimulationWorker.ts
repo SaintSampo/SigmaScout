@@ -24,7 +24,7 @@
  * The lifecycle contract 08-13's Run handler is bound by, stated here
  * because this is the file its executor will read:
  *
- * - Construct LAZILY, inside the "Run simulation" click handler — never at
+ * - Construct LAZILY, inside the "Update simulation" click handler — never at
  *   module scope and never on mount (RESEARCH.md Pitfall 1: a component
  *   test that never clicks Run must never need a `Worker` mock).
  * - Call `.terminate()` in a `useEffect` cleanup on unmount.

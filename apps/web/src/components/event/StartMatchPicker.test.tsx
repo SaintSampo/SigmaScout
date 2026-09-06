@@ -60,7 +60,7 @@ function baseInputs(overrides: Partial<SimulationInputs> = {}): SimulationInputs
 describe("row anatomy", () => {
   it("shows the SELECTED match's label and every red/blue team number; the slider spans the whole schedule (2026-09-01: one summary, not one row per match)", () => {
     const rows = [row({ matchKey: "2024test_qm1", matchNumber: 1 }), row({ matchKey: "2024test_qm2", matchNumber: 2, played: true })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey="2024test_qm2" onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm2" }} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
 
     const selected = rows[1]!;
     const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${selected.matchKey}`);
@@ -79,7 +79,7 @@ describe("row anatomy", () => {
 
   it("renders no nickname-shaped content — team numbers only, never a team name", () => {
     const rows = [row({ redTeams: ["frc111"], blueTeams: ["frc222"] })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`);
     expect(el.textContent).toContain("111");
     expect(el.textContent).toContain("222");
@@ -96,7 +96,7 @@ describe("row anatomy", () => {
 describe("selection treatment (WR-05)", () => {
   it("carries data-selected=false and no accent border colour when nothing is selected", () => {
     const rows = [row()];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
     expect(el.getAttribute("data-selected")).toBe("false");
     expect(el.className).not.toContain("border-l-[var(--color-accent)]");
@@ -105,7 +105,7 @@ describe("selection treatment (WR-05)", () => {
 
   it("carries data-selected=true and the accent border colour once a match is genuinely selected", () => {
     const rows = [row()];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={rows[0]!.matchKey} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: rows[0]!.matchKey }} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const el = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
     expect(el.getAttribute("data-selected")).toBe("true");
     expect(el.className).toContain("border-l-[var(--color-accent)]");
@@ -114,11 +114,11 @@ describe("selection treatment (WR-05)", () => {
 
   it("keeps the border WIDTH unconditional across both states — only the colour toggles, so the row never shifts horizontally", () => {
     const rows = [row()];
-    const { rerender } = render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    const { rerender } = render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const unselected = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
     expect(unselected.className).toContain("border-l-[3px]");
 
-    rerender(<StartMatchPicker rows={rows} selectedMatchKey={rows[0]!.matchKey} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    rerender(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: rows[0]!.matchKey }} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const selected = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}${rows[0]!.matchKey}`);
     expect(selected.className).toContain("border-l-[3px]");
   });
@@ -127,13 +127,13 @@ describe("selection treatment (WR-05)", () => {
 describe("status labels", () => {
   it("a played row renders START_MATCH_STATUS_PLAYED", () => {
     const rows = [row({ played: true })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).textContent).toContain(START_MATCH_STATUS_PLAYED);
   });
 
   it("an unplayed row renders START_MATCH_STATUS_UPCOMING", () => {
     const rows = [row({ played: false })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).textContent).toContain(START_MATCH_STATUS_UPCOMING);
   });
 });
@@ -141,7 +141,7 @@ describe("status labels", () => {
 describe("the absent-sortTime partial case (S1 partial)", () => {
   it("a row with no sortTime renders NO time text at all — blank, never an em-dash placeholder (2026-09-01)", () => {
     const rows = [row({ sortTime: undefined })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const rowEl = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`);
     expect(rowEl.textContent).not.toContain("—");
     // The row itself still renders its identity and status, so this proves a
@@ -152,7 +152,7 @@ describe("the absent-sortTime partial case (S1 partial)", () => {
   it("a row with sortTime renders exactly formatScheduledTime(row.sortTime)'s output, computed by calling the imported function", () => {
     const sortTime = 1735689600;
     const rows = [row({ sortTime })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).textContent).toContain(formatScheduledTime(sortTime));
   });
 });
@@ -161,10 +161,10 @@ describe("selection", () => {
   it("dragging the slider reports the matchKey at that POSITION exactly once", () => {
     const onSelect = vi.fn();
     const rows = [row({ matchKey: "2024test_qm1" }), row({ matchKey: "2024test_qm2", matchNumber: 2 })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey="2024test_qm1" onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm1" }} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     fireEvent.change(screen.getByTestId(START_MATCH_SLIDER_TESTID), { target: { value: "2" } });
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith("2024test_qm2");
+    expect(onSelect).toHaveBeenCalledWith({ kind: "match", matchKey: "2024test_qm2" });
   });
 
   it("typing a match NUMBER reports the row carrying that number, not the row at that position", () => {
@@ -173,15 +173,15 @@ describe("selection", () => {
     // disagree. Typing 7 must reach qm7, never the row that happens to sit
     // seventh (there isn't one).
     const rows = [row({ matchKey: "2024test_qm1", matchNumber: 1 }), row({ matchKey: "2024test_qm7", matchNumber: 7 })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey="2024test_qm1" onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm1" }} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "7" } });
-    expect(onSelect).toHaveBeenCalledWith("2024test_qm7");
+    expect(onSelect).toHaveBeenCalledWith({ kind: "match", matchKey: "2024test_qm7" });
   });
 
   it("typing a match number that does not exist reports nothing at all, leaving the current selection alone", () => {
     const onSelect = vi.fn();
     const rows = [row({ matchKey: "2024test_qm1", matchNumber: 1 })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey="2024test_qm1" onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm1" }} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "999" } });
     expect(onSelect).toHaveBeenCalledTimes(0);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
@@ -189,7 +189,7 @@ describe("selection", () => {
 
   it("with nothing selected the picker still shows the FIRST match, so the summary is never blank", () => {
     const rows = [row({ matchKey: "2024test_qm1" }), row({ matchKey: "2024test_qm2", matchNumber: 2 })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
   });
 });
@@ -198,7 +198,7 @@ describe("inert while disabled (PD-09)", () => {
   it("with disabled set, both controls are disabled, the panel carries the inert attribute, and the selected match stays readable", () => {
     const onSelect = vi.fn();
     const rows = [row({ matchKey: "2024test_qm1" }), row({ matchKey: "2024test_qm2", matchNumber: 2 })];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={true} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={true} hasPreScheduleStop={false} />);
     const rowEl = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`);
 
     expect((screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement).disabled).toBe(true);
@@ -215,26 +215,26 @@ describe("reaching any match without scrolling (2026-09-01)", () => {
   it("the slider's range covers the whole schedule, so the last match of a 134-match event is one gesture away", () => {
     const rows = Array.from({ length: 134 }, (_, index) => row({ matchKey: `2022oncmp_qm${index + 1}`, matchNumber: index + 1, played: true }));
     const onSelect = vi.fn();
-    render(<StartMatchPicker rows={rows} selectedMatchKey={rows[0]!.matchKey} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: rows[0]!.matchKey }} onSelect={onSelect} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
 
     const slider = screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement;
     expect(slider.max).toBe("134");
     fireEvent.change(slider, { target: { value: "134" } });
-    expect(onSelect).toHaveBeenCalledWith("2022oncmp_qm134");
+    expect(onSelect).toHaveBeenCalledWith({ kind: "match", matchKey: "2022oncmp_qm134" });
   });
 });
 
 describe("hint versus scope line", () => {
   it("with no selection, the hint renders with START_MATCH_PICKER_HINT's exact string and the scope line is absent", () => {
     const rows = [row()];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
   });
 
   it("with a selection, the hint is absent and the scope line renders simulationScopeText's output for the given inputs", () => {
     const rows = [row()];
     const inputs = baseInputs({ remainingMatches: [{ redTeamKeys: ["frc111"], blueTeamKeys: ["frc444"], redRpPmf: [1], blueRpPmf: [1] }] });
-    render(<StartMatchPicker rows={rows} selectedMatchKey="2024test_qm1" onSelect={() => {}} inputs={inputs} startMatchNumber={1} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm1" }} onSelect={() => {}} inputs={inputs} startMatchNumber={1} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
     expect(screen.getByText(simulationScopeText(inputs, 1))).toBeDefined();
   });
@@ -279,7 +279,7 @@ describe("simulationScopeText discloses both counts", () => {
 describe("the largest reachable schedule stays a fixed footprint (S1 overflow)", () => {
   it("2022oncmp's measured 134 played qualification rows — the largest RP-eligible qualification schedule, not 2024wvrox (offseason, publishes no distributions) — render as ONE summary, so the picker's height no longer grows with the schedule", () => {
     const rows = Array.from({ length: 134 }, (_, i) => row({ matchKey: `2022oncmp_qm${i + 1}`, matchNumber: i + 1, played: true }));
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     // Exactly one match summary exists no matter how long the schedule is.
     expect(screen.getAllByTestId(/^start-match-row-/)).toHaveLength(1);
     expect((screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement).max).toBe("134");
@@ -289,7 +289,7 @@ describe("the largest reachable schedule stays a fixed footprint (S1 overflow)",
 describe("one-row and empty lists (S1 zero-one-many)", () => {
   it("a single-row list renders that one match, with a slider whose range is a single position", () => {
     const rows = [row()];
-    render(<StartMatchPicker rows={rows} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
     const slider = screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement;
     expect(slider.min).toBe("1");
@@ -297,7 +297,7 @@ describe("one-row and empty lists (S1 zero-one-many)", () => {
   });
 
   it("an empty list renders no summary, no controls and no crash", () => {
-    render(<StartMatchPicker rows={[]} selectedMatchKey={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} />);
+    render(<StartMatchPicker rows={[]} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     expect(screen.getByTestId(START_MATCH_PICKER_TESTID).children.length).toBe(0);
     expect(screen.queryByTestId(START_MATCH_SLIDER_TESTID)).toBeNull();
   });

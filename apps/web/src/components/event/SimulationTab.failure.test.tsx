@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { SIMULATION_PRE_RUN_BODY, SIMULATION_PRE_RUN_TESTID, SimulationTab } from "./SimulationTab.js";
-import { RUN_ERROR_BODY, RUN_LABEL_IDLE, RUN_RETRY_LABEL } from "./RunControl.js";
+import { RUN_ERROR_BODY, RUN_LABEL_UPDATE, RUN_RETRY_LABEL } from "./RunControl.js";
 import { baseArtifact, BOTH_PMFS, upcomingQualRow } from "./simulationTestFixtures.js";
 import { installMockWorker } from "../../test/mockWorker.js";
 import type { MockWorkerScript } from "../../test/mockWorker.js";
@@ -84,7 +84,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     const handle = installMockWorker({ failOnConstruct: new Error("no module workers here") });
     try {
       render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await expectErrorStateWithNoPartialTable();
     } finally {
       handle.restore();
@@ -100,7 +100,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     const handle = installMockWorker({ script: throwingScript });
     try {
       render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await expectErrorStateWithNoPartialTable();
     } finally {
       handle.restore();
@@ -119,8 +119,8 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
           <SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />
         </RouterTestHarness>
       );
-      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined());
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
 
       // Swap the installed failure mode for a healthy one before pressing
@@ -148,7 +148,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     const handle = installMockWorker({ script: throwingScript });
     try {
       const { unmount } = render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
 
       unmount();

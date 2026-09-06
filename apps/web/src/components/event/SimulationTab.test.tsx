@@ -15,17 +15,20 @@ import {
   SimulationTabSkeleton,
 } from "./SimulationTab.js";
 import {
+  PRE_SCHEDULE_STOP_LABEL,
   START_MATCH_PICKER_HINT,
   START_MATCH_PICKER_TESTID,
+  START_MATCH_PRE_SCHEDULE_TESTID,
   START_MATCH_ROW_TESTID_PREFIX,
   START_MATCH_NUMBER_INPUT_TESTID,
+  START_MATCH_SLIDER_TESTID,
 } from "./StartMatchPicker.js";
-import { RUN_ERROR_BODY, RUN_LABEL_IDLE, RUN_LABEL_RERUN, RUN_RETRY_LABEL } from "./RunControl.js";
+import { RUN_ERROR_BODY, RUN_LABEL_UPDATE, RUN_RETRY_LABEL } from "./RunControl.js";
 import { installMockWorker } from "../../test/mockWorker.js";
 import type { MockWorkerScript } from "../../test/mockWorker.js";
 import { runSimulationJob } from "../../workers/simulationProtocol.js";
 import { RootSearchSchema, TeamSearchSchema } from "../../lib/searchParams.js";
-import { baseArtifact, BOTH_PMFS, playedQualRow, upcomingQualRow } from "./simulationTestFixtures.js";
+import { baseArtifact, BOTH_PMFS, playedQualRow, preScheduleArtifact, upcomingQualRow } from "./simulationTestFixtures.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -332,12 +335,12 @@ describe("08-13: the run control", () => {
       await waitFor(() => expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined());
 
       fireEvent.click(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`));
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
       await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
       expect(handle.instances).toHaveLength(1);
       expect(handle.instances[0]!.received).toHaveLength(1);
-      expect(screen.getByRole("button", { name: RUN_LABEL_RERUN })).toBeDefined();
+      expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined();
     } finally {
       handle.restore();
     }
@@ -349,7 +352,7 @@ describe("08-13: the run control", () => {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
       render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
       await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
       expect(screen.getByRole("button", { name: RUN_RETRY_LABEL })).toBeDefined();
@@ -369,7 +372,7 @@ describe("08-13: the run control", () => {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
       render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
       await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
       expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
@@ -394,7 +397,7 @@ describe("08-13: the run control", () => {
       render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
       expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
 
       // Attempt to change the start match mid-run through the picker's own
@@ -419,7 +422,7 @@ describe("08-13: the run control", () => {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
       render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />);
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
 
       expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
@@ -433,7 +436,7 @@ describe("08-13: the run control", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     expect(() => render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />)).not.toThrow();
     expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined();
-    expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined();
+    expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined();
     expect(screen.queryByRole("progressbar")).toBeNull();
     // RESEARCH Pitfall 1's lazy-construction rule, enforced: rendering alone
     // (picker present, Run button present, never clicked) constructs no
@@ -456,16 +459,16 @@ describe("08-13: the run control", () => {
           <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />
         </RouterTestHarness>
       );
-      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined());
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByText(/^Simulated \d+ draws in/)).toBeDefined());
-      expect(screen.getByRole("button", { name: RUN_LABEL_RERUN })).toBeDefined();
+      expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined();
 
       fireEvent.change(screen.getByTestId(START_MATCH_NUMBER_INPUT_TESTID), { target: { value: "3" } });
 
       expect(screen.queryByText(/^Simulated \d+ draws in/)).toBeNull();
-      expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined();
+      expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined();
       expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
     } finally {
       handle.restore();
@@ -498,9 +501,9 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
           <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} />
         </RouterTestHarness>
       );
-      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_IDLE })).toBeDefined());
+      await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
 
-      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_IDLE }));
+      fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined());
 
       expect(screen.getAllByTestId("rank-distribution-row").length).toBeGreaterThan(0);
@@ -524,6 +527,132 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
     render(<SimulationTab artifact={unavailableArtifact} algorithmId="vpr" season={2024} />);
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
     expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
+  });
+});
+
+/**
+ * Quick task 260905-tll Task 6 — the pre-schedule stop (C-01/C-02/C-03).
+ *
+ * Every case here asserts against `workerConstructorSpy`, which this file
+ * installs at module scope: the whole premise of the baked path is that it
+ * performs NO client compute, and a Worker construction is the observable
+ * proof that it did. The final "still no Worker" case at the bottom of this
+ * file covers these cases too.
+ */
+describe("260905-tll: the baked pre-schedule result", () => {
+  const RANK_TABLE_SCROLL_TESTID = "rank-distribution-table-scroll";
+  const TWO_TEAM_ROSTER = [
+    { teamKey: "frc1", teamNumber: 1, metrics: {} },
+    { teamKey: "frc2", teamNumber: 2, metrics: {} },
+  ] as unknown as EventArtifact["teams"];
+
+  it("C-01: renders the rank table with no run started and no Worker constructed", async () => {
+    const artifact = baseArtifact({
+      teams: TWO_TEAM_ROSTER,
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+    });
+    render(
+      <RouterTestHarness>
+        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
+      </RouterTestHarness>
+    );
+
+    await waitFor(() => expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined());
+    expect(screen.queryByTestId(SIMULATION_PRE_RUN_TESTID)).toBeNull();
+    expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined();
+    expect(screen.getByText(PRE_SCHEDULE_STOP_LABEL)).toBeDefined();
+    expect(workerConstructorSpy).not.toHaveBeenCalled();
+  });
+
+  it("C-15: a SCHEDULELESS event — zero qual rows, no pmfs — renders the stack and the baked table, not either empty state", async () => {
+    const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
+    render(
+      <RouterTestHarness>
+        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
+      </RouterTestHarness>
+    );
+
+    await waitFor(() => expect(screen.getByTestId(SIMULATION_STACK_TESTID)).toBeDefined());
+    expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
+    expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
+    expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined();
+    expect(workerConstructorSpy).not.toHaveBeenCalled();
+  });
+
+  it("an offseason-shaped event with NO sidecar still renders the unavailable state — the widened guard did not swallow it", () => {
+    const artifact = baseArtifact({
+      matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} />);
+
+    expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
+  });
+
+  it("while the sidecar is still in flight, neither empty state is claimed and then contradicted", () => {
+    const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
+    render(
+      <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+    );
+
+    expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
+    expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
+  });
+
+  it("C-02: pressing the button on the pre-schedule stop starts NO run and leaves the baked table on screen", async () => {
+    const artifact = baseArtifact({
+      teams: TWO_TEAM_ROSTER,
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+    });
+    render(
+      <RouterTestHarness>
+        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
+      </RouterTestHarness>
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
+    const button = screen.getByRole("button", { name: RUN_LABEL_UPDATE }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    expect(workerConstructorSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined();
+    expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined();
+  });
+
+  it("C-02: moving the slider OFF position 0 selects a match, and moving it back re-shows the baked result", async () => {
+    const artifact = baseArtifact({
+      teams: TWO_TEAM_ROSTER,
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+    });
+    render(
+      <RouterTestHarness>
+        <SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={preScheduleArtifact()} />
+      </RouterTestHarness>
+    );
+
+    await waitFor(() => expect(screen.getByTestId(START_MATCH_SLIDER_TESTID)).toBeDefined());
+    fireEvent.change(screen.getByTestId(START_MATCH_SLIDER_TESTID), { target: { value: "1" } });
+    expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
+    expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeDefined();
+    // Off the stop, nothing has been run yet, so the pre-run placeholder is
+    // the honest thing to show — the baked table describes a different
+    // start point and must not stand in for a match-start result.
+    expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
+
+    fireEvent.change(screen.getByTestId(START_MATCH_SLIDER_TESTID), { target: { value: "0" } });
+    expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined();
+    expect(screen.getByTestId(RANK_TABLE_SCROLL_TESTID)).toBeDefined();
+    expect(workerConstructorSpy).not.toHaveBeenCalled();
+  });
+
+  it("with NO sidecar the picker keeps its pre-existing range — position 0 is out of reach and no stop renders", () => {
+    const artifact = baseArtifact({
+      upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
+    });
+    render(<SimulationTab artifact={artifact} algorithmId="vpr" season={2024} preSchedule={null} />);
+
+    expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
+    expect((screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement).min).toBe("1");
   });
 });
 
