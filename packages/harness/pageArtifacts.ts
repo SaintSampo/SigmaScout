@@ -453,6 +453,19 @@ const EventMatchSchema = z
     actualRedBonusRp: z.array(z.boolean()).nullable().optional(),
     /** Quick 260905-jj8: the blue alliance's counterpart to `actualRedBonusRp` — see `TeamSeasonMatchSchema.actualRedBonusRp` for the full three-state contract. */
     actualBlueBonusRp: z.array(z.boolean()).nullable().optional(),
+    /**
+     * Quick task 260906-7eu: the raw YouTube video key TBA published for this
+     * match, as `packages/ingest/normalize.ts`'s `normalizeMatch` extracted
+     * it — verbatim, including any trailing timestamp suffix. Omitted
+     * entirely (never published empty) rather than `.nullable()`: absence is
+     * the single state meaning "no video", whether because TBA has genuinely
+     * published none for this match or because this artifact predates the
+     * field — one representation, so no reader has to handle two. Carries no
+     * `ROUNDING_RULE` entry because it is not a number. Deliberately NOT
+     * added to `EventUpcomingMatchSchema`: an unplayed match has no video, so
+     * the field there would be published weight that is always absent.
+     */
+    video: z.string().min(1).optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
     message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
@@ -764,6 +777,8 @@ const TeamSeasonMatchSchema = z
     sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
     blueTeams: z.array(z.string()),
+    /** Quick task 260906-7eu: see `EventMatchSchema.video`'s doc comment for the full contract — same field, same spelling, same absence-means-no-video convention. */
+    video: z.string().min(1).optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
     message: "redRpPmf, when present, must be non-empty and sum to 1 within 1e-9",

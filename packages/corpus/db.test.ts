@@ -14,6 +14,7 @@ import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   findIncompleteIngestRuns,
   hasEventRankingRecordColumns,
+  hasMatchVideoColumn,
   openCorpus,
   parseAllianceRecord,
   recordIngestRun,
@@ -99,6 +100,7 @@ function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     blueRpEarned: 0,
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
+    videoKey: null,
     ...overrides,
   };
 }
@@ -1277,5 +1279,87 @@ describe("event_rankings — record and ranking-score columns (plan 07-02 Task 2
       recordTies: null,
       rankingScore: null,
     });
+  });
+});
+
+describe("matches.video_key — additive migration (quick task 260906-7eu)", () => {
+  it("hasMatchVideoColumn is true on a freshly-opened corpus", () => {
+    expect(hasMatchVideoColumn(db)).toBe(true);
+  });
+
+  it("a legacy corpus predating video_key gains the column on the next openCorpus, with every pre-existing row's other columns and row count unchanged", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-video-key-migrate-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    try {
+      const rawDb = openCorpus(legacyPath);
+      upsertEvent(rawDb, event({ eventKey: "2024casj" }));
+      upsertMatch(rawDb, match({ matchKey: "2024casj_qm1" }));
+      upsertMatch(rawDb, match({ matchKey: "2024casj_qm2", winner: "blue" }));
+      rawDb.exec(`ALTER TABLE matches DROP COLUMN video_key`);
+      expect(hasMatchVideoColumn(rawDb)).toBe(false);
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      try {
+        expect(hasMatchVideoColumn(migrated)).toBe(true);
+        const count = migrated.prepare(`SELECT COUNT(*) as n FROM matches`).get() as { n: number };
+        expect(count.n).toBe(2);
+        const rows = migrated
+          .prepare(`SELECT match_key, winner, red_score, blue_score, video_key FROM matches ORDER BY match_key`)
+          .all() as { match_key: string; winner: string | null; red_score: number | null; blue_score: number | null; video_key: string | null }[];
+        expect(rows).toEqual([
+          { match_key: "2024casj_qm1", winner: "red", red_score: 100, blue_score: 50, video_key: null },
+          { match_key: "2024casj_qm2", winner: "blue", red_score: 100, blue_score: 50, video_key: null },
+        ]);
+      } finally {
+        migrated.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a fresh corpus and a legacy-migrated corpus end with identical PRAGMA table_info(matches) column-name sets", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-video-key-fresh-vs-migrated-legacy-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    const freshDir = mkdtempSync(join(tmpdir(), "sigmascout-video-key-fresh-vs-migrated-fresh-"));
+    const freshPath = join(freshDir, "fresh.sqlite");
+    try {
+      const rawDb = openCorpus(legacyPath);
+      rawDb.exec(`ALTER TABLE matches DROP COLUMN video_key`);
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      const fresh = openCorpus(freshPath);
+      try {
+        const migratedNames = (migrated.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        const freshNames = (fresh.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        expect(migratedNames).toEqual(freshNames);
+      } finally {
+        migrated.close();
+        fresh.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a CorpusMatch written with a videoKey round-trips it exactly; written with null stores null", () => {
+    upsertEvent(db, event({ eventKey: "2024casj" }));
+    upsertMatch(db, match({ matchKey: "2024casj_qm1", videoKey: "abc123XYZ90" }));
+    upsertMatch(db, match({ matchKey: "2024casj_qm2", videoKey: null }));
+
+    const rows = db
+      .prepare(`SELECT match_key, video_key FROM matches ORDER BY match_key`)
+      .all() as { match_key: string; video_key: string | null }[];
+    expect(rows).toEqual([
+      { match_key: "2024casj_qm1", video_key: "abc123XYZ90" },
+      { match_key: "2024casj_qm2", video_key: null },
+    ]);
   });
 });

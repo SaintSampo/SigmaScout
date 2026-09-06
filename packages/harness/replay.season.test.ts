@@ -77,6 +77,7 @@ function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     blueRpEarned: 0,
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
+    videoKey: null,
     ...overrides,
   };
 }

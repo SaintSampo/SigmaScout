@@ -387,3 +387,58 @@ describe("normalizeMatch — ranking points", () => {
     expect(result.blueRpEarned).toBe(3);
   });
 });
+
+describe("normalizeMatch — videoKey (quick task 260906-7eu)", () => {
+  it("a youtube entry yields its key", () => {
+    const match = tbaMatch({ videos: [{ type: "youtube", key: "abc123XYZ90" }] });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBe("abc123XYZ90");
+  });
+
+  it("a tba-only entry yields null", () => {
+    const match = tbaMatch({ videos: [{ type: "tba", key: "2024casj_qm1" }] });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBeNull();
+  });
+
+  it("an absent videos key yields null", () => {
+    const match = tbaMatch({ videos: undefined });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBeNull();
+  });
+
+  it("a null videos value yields null", () => {
+    const match = tbaMatch({ videos: null });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBeNull();
+  });
+
+  it("an empty array yields null", () => {
+    const match = tbaMatch({ videos: [] });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBeNull();
+  });
+
+  it("a youtube entry appearing after a tba entry is still selected", () => {
+    const match = tbaMatch({
+      videos: [
+        { type: "tba", key: "2024casj_qm1" },
+        { type: "youtube", key: "abc123XYZ90" },
+      ],
+    });
+
+    const result = normalizeMatch(match, EVENT_START);
+
+    expect(result.videoKey).toBe("abc123XYZ90");
+  });
+});

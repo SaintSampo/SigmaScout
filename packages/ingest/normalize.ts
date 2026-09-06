@@ -27,6 +27,14 @@
  *   TBA-reported `winning_alliance` is never overwritten or re-derived. The
  *   measured population of this case is 0 corpus-wide as of 2026-08-19, so
  *   this is a forward-looking guard rather than a repair.
+ * - `videoKey` (quick task 260906-7eu): the `key` of the FIRST entry of
+ *   `match.videos` whose `type` is exactly `"youtube"`, stored verbatim
+ *   including any trailing timestamp suffix TBA carries on older rows — D-05's
+ *   standing verbatim-storage rule, since the suffix is real provenance the
+ *   client's parser (Task 2) can use. `null` when `videos` is absent, null,
+ *   empty, or contains no youtube entry. Never validated, stripped or
+ *   canonicalized here — that belongs to the client-side parser, where a junk
+ *   value degrades to "no button" instead of aborting an ingest run.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
@@ -75,6 +83,8 @@ export interface CorpusMatch {
   blueRpEarned: number | null;
   hasScoreBreakdown: boolean;
   scoreBreakdownRaw: string | null;
+  /** See this file's header comment's `videoKey` bullet for the full contract. */
+  videoKey: string | null;
 }
 
 const OFFSEASON_EVENT_TYPE = 99;
@@ -108,6 +118,22 @@ function matchSortTime(match: TbaMatch, eventStartDate: string): number {
 function isPlayed(match: TbaMatch): boolean {
   const { red, blue } = match.alliances;
   return red.score != null && red.score >= 0 && blue.score != null && blue.score >= 0;
+}
+
+/**
+ * The FIRST youtube entry's `key` out of TBA's `videos` array (quick task
+ * 260906-7eu), or `null` when `videos` is absent, null, empty, or contains
+ * no youtube entry. A youtube entry appearing after a `tba`-type entry is
+ * still selected — this scans the whole array rather than assuming position
+ * 0. Stored verbatim; see this file's header comment for why no
+ * validation/canonicalization happens here.
+ */
+function extractVideoKey(videos: TbaMatch["videos"]): string | null {
+  if (videos == null) return null;
+  for (const video of videos) {
+    if (video.type === "youtube" && video.key.length > 0) return video.key;
+  }
+  return null;
 }
 
 /**
@@ -178,6 +204,7 @@ export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusM
     blueRpEarned,
     hasScoreBreakdown,
     scoreBreakdownRaw: hasScoreBreakdown ? JSON.stringify(match.score_breakdown) : null,
+    videoKey: extractVideoKey(match.videos),
   };
 }
 

@@ -179,6 +179,28 @@ export function hasEventRankingRecordColumns(db: Corpus): boolean {
   return EVENT_RANKING_RECORD_COLUMNS.every(([name]) => existing.has(name));
 }
 
+/**
+ * The single `matches.video_key` column added by quick task 260906-7eu,
+ * paired with the SQL type used when adding it via `ALTER TABLE ... ADD
+ * COLUMN` below — a one-entry list purely to mirror `EVENT_LOCATION_COLUMNS`
+ * / `EVENT_RANKING_RECORD_COLUMNS`'s shape exactly rather than special-casing
+ * a single-column migration.
+ */
+const MATCH_VIDEO_COLUMNS: readonly [string, string][] = [["video_key", "TEXT"]];
+
+/**
+ * True when the given handle's `matches` table already carries the
+ * `video_key` column (quick task 260906-7eu) — the `PRAGMA table_info`
+ * predicate `openCorpus`'s additive-migration guard and `db.test.ts`'s
+ * migration test both read, so the two cannot drift, mirroring
+ * `hasEventLocationColumns`/`hasEventRankingRecordColumns`'s exact shape.
+ */
+export function hasMatchVideoColumn(db: Corpus): boolean {
+  const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
+  const existing = new Set(columns.map((column) => column.name));
+  return MATCH_VIDEO_COLUMNS.every(([name]) => existing.has(name));
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
@@ -270,6 +292,32 @@ export function openCorpus(path: string): Corpus {
       throw new Error(
         `Additive migration for event_rankings record/ranking-score columns at ${path} did not complete — ` +
           `hasEventRankingRecordColumns still returns false after running every missing ALTER TABLE.`
+      );
+    }
+  }
+
+  // quick task 260906-7eu: the same additive-nullable-column exception as
+  // the two blocks above, applied to matches.video_key — a new SOURCE fact
+  // (TBA's own videos[] entry), not a derived one, so an existing row's NULL
+  // is already correct rather than stale. This takes the
+  // hasEventLocationColumns treatment, NOT hasWinnerImputedColumn's rebuild
+  // guard. The live corpus is gitignored, large, and must not be rebuilt or
+  // fully re-ingested by this migration.
+  if (!hasMatchVideoColumn(db)) {
+    const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
+    const existing = new Set(columns.map((column) => column.name));
+    for (const [name, sqlType] of MATCH_VIDEO_COLUMNS) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE matches ADD COLUMN ${name} ${sqlType}`);
+      }
+    }
+    if (!hasMatchVideoColumn(db)) {
+      // Unreachable in practice — guards against a bug in the ALTER loop
+      // itself, not TBA drift, so a named error is appropriate here too.
+      db.close();
+      throw new Error(
+        `Additive migration for matches table video_key column at ${path} did not complete — ` +
+          `hasMatchVideoColumn still returns false after running every missing ALTER TABLE.`
       );
     }
   }
@@ -383,12 +431,12 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
        match_key, event_key, comp_level, match_number, set_number, sort_time,
        red_teams, blue_teams, red_surrogates, blue_surrogates, red_dqs, blue_dqs,
        winner, winner_imputed, red_score, blue_score, red_rp_earned, blue_rp_earned,
-       has_score_breakdown, score_breakdown_raw, replayed, replay_detected_at
+       has_score_breakdown, score_breakdown_raw, replayed, replay_detected_at, video_key
      ) VALUES (
        @matchKey, @eventKey, @compLevel, @matchNumber, @setNumber, @sortTime,
        @redTeams, @blueTeams, @redSurrogates, @blueSurrogates, @redDqs, @blueDqs,
        @winner, @winnerImputed, @redScore, @blueScore, @redRpEarned, @blueRpEarned,
-       @hasScoreBreakdown, @scoreBreakdownRaw, @replayed, @replayDetectedAt
+       @hasScoreBreakdown, @scoreBreakdownRaw, @replayed, @replayDetectedAt, @videoKey
      )
      ON CONFLICT(match_key) DO UPDATE SET
        comp_level = excluded.comp_level,
@@ -410,7 +458,8 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
        has_score_breakdown = excluded.has_score_breakdown,
        score_breakdown_raw = excluded.score_breakdown_raw,
        replayed = excluded.replayed,
-       replay_detected_at = excluded.replay_detected_at`
+       replay_detected_at = excluded.replay_detected_at,
+       video_key = excluded.video_key`
   ).run({
     matchKey: match.matchKey,
     eventKey: match.eventKey,
@@ -434,6 +483,7 @@ export function upsertMatch(db: Corpus, match: CorpusMatch): void {
     scoreBreakdownRaw: match.scoreBreakdownRaw,
     replayed: replayed ? 1 : 0,
     replayDetectedAt,
+    videoKey: match.videoKey,
   });
 }
 

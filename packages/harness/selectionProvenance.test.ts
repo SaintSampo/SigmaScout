@@ -238,6 +238,7 @@ describe("aggregateScoresForRun", () => {
       blueRpEarned: 0,
       hasScoreBreakdown: false,
       scoreBreakdownRaw: null,
+      videoKey: null,
       ...overrides,
     };
   }

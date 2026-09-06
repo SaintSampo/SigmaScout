@@ -49,7 +49,14 @@ CREATE TABLE IF NOT EXISTS matches (
   has_score_breakdown INTEGER NOT NULL,  -- 0 if TBA omitted it (never coerce to 0-value fields)
   score_breakdown_raw TEXT,         -- exact TBA JSON, verbatim (D-05)
   replayed INTEGER NOT NULL DEFAULT 0,   -- synthesized flag (Pitfall 1 — TBA has no such field)
-  replay_detected_at TEXT           -- ISO timestamp of the upsert that first detected the replay, NULL until then
+  replay_detected_at TEXT,          -- ISO timestamp of the upsert that first detected the replay, NULL until then
+  -- quick task 260906-7eu: TBA's `videos[]` youtube entry's `key`, verbatim.
+  -- NULL is the honest value for BOTH a row ingested before this column
+  -- existed AND a match TBA has published no video for -- these two states
+  -- are deliberately not distinguished here, matching normalizeEvent's own
+  -- collapse of absent and null. See db.ts's openCorpus migration comment
+  -- for why this is an additive ALTER TABLE, not a rebuild guard.
+  video_key TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_matches_sort_time ON matches(sort_time);

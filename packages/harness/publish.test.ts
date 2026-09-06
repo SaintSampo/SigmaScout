@@ -197,6 +197,7 @@ function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     blueRpEarned: 0,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    videoKey: null,
     ...overrides,
   };
 }
@@ -663,6 +664,106 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equival
     // asserting the agreement is non-trivial (not two undefined values).
     expect(eventRow.redRpPmf).toEqual([1]);
     expect(eventRow.actualRedRp).toBe(0);
+  });
+});
+
+/**
+ * Quick task 260906-7eu Task 1: `videoByMatchKey` end-to-end through both
+ * builders, parsed through the real schema.
+ */
+describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quick task 260906-7eu)", () => {
+  it("buildEventArtifact publishes `video` on a mapped played match and omits it on an unmapped one", () => {
+    const mappedMatch = fixtureMatch({ matchKey: "2026casj_qm1" });
+    const unmappedMatch = fixtureMatch({ matchKey: "2026casj_qm3" });
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      predictions: [
+        { match: mappedMatch, prediction: fixturePrediction() },
+        { match: unmappedMatch, prediction: fixturePrediction() },
+      ],
+      videoByMatchKey: new Map([["2026casj_qm1", "abc123XYZ90"]]),
+    });
+
+    const mappedRow = artifact.matches.find((m) => m.matchKey === "2026casj_qm1")!;
+    const unmappedRow = artifact.matches.find((m) => m.matchKey === "2026casj_qm3")!;
+    expect(mappedRow.video).toBe("abc123XYZ90");
+    expect(Object.keys(unmappedRow)).not.toContain("video");
+  });
+
+  it("buildEventArtifact never publishes `video` on an upcoming row, even when the match key is in the map", () => {
+    const artifact = buildEventArtifact({
+      ...eventArtifactParams(),
+      videoByMatchKey: new Map([["2026casj_qm2", "abc123XYZ90"]]), // fixtureUpcoming's matchKey
+    });
+
+    expect(Object.keys(artifact.upcoming[0]!)).not.toContain("video");
+  });
+
+  it("buildEventArtifact with no map supplied at all parses and no row carries `video`", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+
+    expect(Object.keys(artifact.matches[0]!)).not.toContain("video");
+    expect(Object.keys(artifact.upcoming[0]!)).not.toContain("video");
+  });
+
+  it("buildTeamSeasonArtifact publishes `video` on a mapped played match and omits it on an unmapped one", () => {
+    const mappedMatch = fixtureMatch({ matchKey: "2026casj_qm1" });
+    const unmappedMatch = fixtureMatch({ matchKey: "2026casj_qm3" });
+    const artifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+test",
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [
+            { match: mappedMatch, prediction: fixturePrediction() },
+            { match: unmappedMatch, prediction: fixturePrediction() },
+          ],
+        },
+      ],
+      metricHistory: [],
+      generation: "g-video-test",
+      computedAt: "2026-08-31T00:00:00.000Z",
+      videoByMatchKey: new Map([["2026casj_qm1", "abc123XYZ90"]]),
+    });
+
+    const rows = artifact.events[0]!.matches;
+    const mappedRow = rows.find((m) => m.matchKey === "2026casj_qm1")!;
+    const unmappedRow = rows.find((m) => m.matchKey === "2026casj_qm3")!;
+    expect(mappedRow.video).toBe("abc123XYZ90");
+    expect(Object.keys(unmappedRow)).not.toContain("video");
+  });
+
+  it("buildTeamSeasonArtifact with no map supplied at all parses and no row carries `video`", () => {
+    const artifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "vpr",
+      algorithmVersion: "2.0.0+test",
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      events: [
+        {
+          eventKey: "2026casj",
+          eventName: "2026casj",
+          startDate: "2026-03-01",
+          matches: [{ match: fixtureMatch(), prediction: fixturePrediction() }],
+        },
+      ],
+      metricHistory: [],
+      generation: "g-video-test-2",
+      computedAt: "2026-08-31T00:00:00.000Z",
+    });
+
+    expect(Object.keys(artifact.events[0]!.matches[0]!)).not.toContain("video");
   });
 });
 
@@ -3457,6 +3558,7 @@ describe("selectScheduledMatches never carries an outcome key (D-08) — publish
       blueRpEarned: null,
       hasScoreBreakdown: false,
       scoreBreakdownRaw: null,
+      videoKey: null,
       ...overrides,
     };
   }

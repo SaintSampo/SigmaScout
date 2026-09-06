@@ -81,6 +81,7 @@ function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
     blueRpEarned: 0,
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
+    videoKey: null,
     ...overrides,
   };
 }

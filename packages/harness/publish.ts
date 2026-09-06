@@ -482,6 +482,15 @@ export interface BuildEventArtifactParams {
    * Quals tab's actual bonus-RP dots stop rendering permanently `unknown`.
    */
   readonly actualBonusFlagsByMatchKey?: ReadonlyMap<string, ActualBonusFlags | null>;
+  /**
+   * Quick task 260906-7eu: `match_key` -> raw YouTube video key, from
+   * `selectMatchVideoKeys` — mirrors `sortTimeByMatchKey`'s exact contract
+   * (see its doc comment above, not restated here): an omitted map, or a key
+   * absent from a supplied map, leaves that row's `video` field absent —
+   * never a synthetic default. Looked up only inside the played `matches`
+   * row builder, never the `upcoming` one — an unplayed match has no video.
+   */
+  readonly videoByMatchKey?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -651,6 +660,14 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     // team's standing that D-12's fallback then sums.
     actualRedRp: toIntegerRpOrNull(match.redRpEarned),
     actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
+    // Quick task 260906-7eu: conditional spread (never assigned `undefined`
+    // directly, matching this file's established convention) — a row with
+    // no entry in the map carries no `video` key at all in the serialized
+    // JSON. Never added to the `upcoming` builder below: an unplayed match
+    // has no video.
+    ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
+      ? { video: params.videoByMatchKey.get(match.matchKey) }
+      : {}),
   }));
 
   const upcoming = (params.upcoming ?? []).map(({ match, prediction }) => ({
@@ -1002,6 +1019,13 @@ export interface BuildTeamSeasonArtifactParams {
    * normalization.
    */
   readonly ranks?: readonly TeamRankScope[];
+  /**
+   * Quick task 260906-7eu: `match_key` -> raw YouTube video key, from
+   * `selectMatchVideoKeys` — the exact same map
+   * `BuildEventArtifactParams.videoByMatchKey` already carries; see that
+   * field's doc comment for the full contract, inherited verbatim.
+   */
+  readonly videoByMatchKey?: ReadonlyMap<string, string>;
 }
 
 /** D-07/D-05's second at-risk artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning (T-04-22). */
@@ -1068,6 +1092,16 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           : {}),
         ...(isBonusRpCompLevel(match.compLevel) && prediction.blueBonusRp
           ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) }
+          : {}),
+        // Quick task 260906-7eu: conditional spread, matching this row's own
+        // `rank`/`totalTeams`-style convention above — a row with no entry
+        // in the map carries no `video` key at all. In practice this is
+        // populated only for a played match (the corpus's `video_key` is
+        // null for anything unplayed), but the lookup is unconditional here
+        // exactly like `sortTime`'s own lookup a few lines up, rather than
+        // duplicated inside the `if ("winner" in match)` branch below.
+        ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
+          ? { video: params.videoByMatchKey.get(match.matchKey) }
           : {}),
       };
       // D-09 (Phase 6): discriminate on the presence of the outcome fields
@@ -1780,6 +1814,42 @@ function selectScheduledMatchTimes(db: Corpus, season: number, options: { exclud
   return map;
 }
 
+interface MatchVideoRow {
+  match_key: string;
+  video_key: string | null;
+}
+
+/**
+ * Quick task 260906-7eu: `match_key` -> `video_key` for every match in a
+ * season whose `video_key` column is a non-empty string — mirrors
+ * `selectScheduledMatchTimes`'s shape and `excludeOffseason` scoping
+ * exactly, so the two maps never disagree about which matches the rest of
+ * this run counts. A `NULL`/empty `video_key` never enters the returned map
+ * — absence from the map, not a `null` value inside it, is how a row with no
+ * video reaches `buildEventArtifact`/`buildTeamSeasonArtifact`'s row
+ * builders, both of which look the match key up with a conditional spread.
+ */
+function selectMatchVideoKeys(db: Corpus, season: number, options: { excludeOffseason?: boolean } = {}): Map<string, string> {
+  const clauses: string[] = ["e.year = @year"];
+  const params: Record<string, string | number> = { year: season };
+  if (options.excludeOffseason === true) {
+    clauses.push("e.is_offseason = 0");
+  }
+  const rows = db
+    .prepare(
+      `SELECT m.match_key, m.video_key
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE ${clauses.join(" AND ")}`
+    )
+    .all(params) as MatchVideoRow[];
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.video_key !== null && row.video_key.length > 0) map.set(row.match_key, row.video_key);
+  }
+  return map;
+}
+
 /** D-08 (Phase 6): the same comp-level play-order `selectScheduledMatches`'s own `CASE` clause uses, mirrored here so the two orderings cannot drift. */
 const COMP_LEVEL_RANK: Record<CompLevel, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
 
@@ -1924,6 +1994,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // played or not — feeds both TeamSeasonMatchSchema.sortTime and the
     // per-event match ordering below (sortTeamSeasonMatches).
     const sortTimeByMatchKey = selectScheduledMatchTimes(db, season, { excludeOffseason: !includeOffseason });
+    // Quick task 260906-7eu: match_key -> raw YouTube video key for every
+    // match this season, mirroring sortTimeByMatchKey's own read and scope
+    // exactly — fed into both the event and team artifact builders below.
+    const videoByMatchKey = selectMatchVideoKeys(db, season, { excludeOffseason: !includeOffseason });
     // D-03 (Phase 6): the robot-photo lookup, once per season (media is not
     // algorithm-scoped) — plan 06-03's team_media table, filled offline by
     // the media ingest pass. A null stored `imageUrl` (or no row at all) is
@@ -2401,6 +2475,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // lookup already uses — no second read, no move of the existing
           // one.
           rankings: eventRankingsForSeason.get(e.event_key),
+          // Quick task 260906-7eu: the SAME once-per-season map read above.
+          videoByMatchKey,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);
@@ -2494,6 +2570,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           ranks: rankScopesByTeamKey.get(teamKey),
           generation,
           computedAt,
+          // Quick task 260906-7eu: the SAME once-per-season map the event
+          // artifact builder above already consumes.
+          videoByMatchKey,
         });
         const key = artifactKey({ page: "team", teamKey, year: season, algorithmId: algorithm.id, version });
         teamPending.push(uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
@@ -2804,6 +2883,11 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     // NO options object (offseason matches included), unlike the
     // seasons-path read this file's season loop makes above.
     const sortTimeByMatchKey = selectScheduledMatchTimes(db, season);
+    // Quick task 260906-7eu: this single-event mode had no video-key read at
+    // all before this task — mirrors the seasons-path read just above (no
+    // options object, offseason matches included, matching this file's
+    // existing single-event convention).
+    const videoByMatchKey = selectMatchVideoKeys(db, season);
     // D-18 items 6/7/8, plan 07-08: this single-event mode had no identity,
     // alliance or ranking reads at all before this plan — `--event <key>`
     // is 07-10's ONLY subset-publish path, so an artifact written here
@@ -2839,6 +2923,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
         : undefined,
       alliances: alliancesForEvent,
       rankings: rankingsForEvent,
+      videoByMatchKey,
     });
 
     // Quick task 260905-tll Task 4: the same sidecar generation path the

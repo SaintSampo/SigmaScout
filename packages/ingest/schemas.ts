@@ -62,6 +62,23 @@ const tbaAllianceSchema = z.object({
   score: z.number().nullable(),
 });
 
+/**
+ * `GET /match/{key}` and list-endpoint element's `videos[]` entry (quick
+ * task 260906-7eu Task 1). `type` is modelled as a plain `z.string()`, not
+ * an enum, for the identical reason `tbaMediaSchema.type` above already
+ * gives: TBA publishes `type` values of `youtube` and `tba`, and only the
+ * `youtube` variant is embeddable by this pipeline, but an unknown future
+ * type string must degrade to "not selected" in `normalize.ts`'s picker,
+ * never to a parse failure that aborts an ingest run. This shape is taken
+ * from TBA's documented v3 contract and was NOT confirmed against a live
+ * response inside this task — the executor that wrote it has no network
+ * access; confirming it live against a recent event is a listed follow-up.
+ */
+const tbaMatchVideoSchema = z.object({
+  type: z.string(),
+  key: z.string(),
+});
+
 export const tbaMatchSchema = z.object({
   key: z.string(),
   event_key: z.string(),
@@ -79,6 +96,11 @@ export const tbaMatchSchema = z.object({
   }),
   // Per D-05: store verbatim, normalize only totals/winner/RP here.
   score_breakdown: z.unknown(),
+  // `.nullish()`, never required (quick task 260906-7eu): every fixture and
+  // every recorded response that predates this change omits this key
+  // entirely, and this file's header policy makes a required key a
+  // run-aborting parse failure on every one of them.
+  videos: z.array(tbaMatchVideoSchema).nullish(),
 });
 export type TbaMatch = z.infer<typeof tbaMatchSchema>;
 
