@@ -287,6 +287,26 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   //     result's own recorded disposition — the two compose, and the search
   //     selects both together.
   carryEvidenceRate: { min: 0, max: 0.03, scale: "linear" },
+  // D-1 (quick task 260906-8i1, ATTRIB-PARAM). Bounds set by the measured
+  // sweep, not guessed: arms at 0.30 / 0.50 / 0.70 ALL passed Rule A on both
+  // legs against `vpr@9.0.0+rolling-2026-09c`, and the pooled curve was flat
+  // across that band rather than perched on an optimum — so the region worth
+  // searching is wide and interior. `min: 0` keeps the inert default
+  // reachable, which matters because 2024 is the one season that measurably
+  // prefers it. `max: 0.9` stops short of a fully uniform attribution, which
+  // would discard the filter's own uncertainty entirely — a different model,
+  // not a setting of this one — and matches `Sigma1ParamsSchema`'s own cap so
+  // the search cannot reach a region a hand-edited version file could not.
+  attributionShrinkage: { min: 0, max: 0.9, scale: "linear" },
+  // D-2 (quick task 260906-7fj, GAINCAP-PARAM). `min: 0.08` because 0.05
+  // collapsed every season hard (-4.90 SE pooled) while 0.10 was still
+  // positive — the floor sits just below the last useful measured point
+  // rather than at an arbitrary round number. `max: 1` keeps the provably
+  // inert default reachable. Anything above roughly 0.45 was measurably
+  // inert (0.60 changed nothing at all), so the upper half of this range is
+  // cheap for the search to cross but is deliberately not fenced off: the
+  // inert end IS the incumbent, and the search must be able to return to it.
+  maxTeamKalmanGain: { min: 0.08, max: 1, scale: "linear" },
 };
 
 /**
@@ -459,5 +479,12 @@ export function isValidParamSet(params: Sigma1Params): boolean {
   if (!(params.adaptationMinFactor < params.adaptationMaxFactor)) return false;
   if (!(params.carryMeanReversion >= 0 && params.carryMeanReversion <= 1)) return false;
   if (!(params.carryPriorYearShare >= 0 && params.carryPriorYearShare <= 1)) return false;
+  // D-1/D-2 (quick tasks 260906-8i1 / 260906-7fj). These mirror
+  // `Sigma1ParamsSchema`'s own bounds rather than the search bounds, because
+  // this predicate also guards `--set-param` and hand-edited version files,
+  // which never pass through the search at all. `maxTeamKalmanGain` must
+  // exclude 0 outright: a zero ceiling freezes every belief permanently.
+  if (!(params.attributionShrinkage >= 0 && params.attributionShrinkage <= 0.9)) return false;
+  if (!(params.maxTeamKalmanGain > 0 && params.maxTeamKalmanGain <= 1)) return false;
   return true;
 }

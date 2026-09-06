@@ -138,9 +138,34 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     // with NO change. It COMPOSES with `carryVarianceFactor` rather than
     // replacing it, so the searchable set now carries both carry-variance
     // knobs and a search selects them jointly.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(17);
+    // 2026-09-06 (SIGMA1_CODE_VERSION 10.0.0, quick tasks 260906-8i1 /
+    // 260906-7fj) registers TWO genuinely new fields at once, both acting on
+    // the alliance-sum Kalman gain and both searchable: `attributionShrinkage`
+    // (blends the per-team gain vector toward a uniform split) and
+    // `maxTeamKalmanGain` (a ceiling on any one team's gain). 31 -> 33 fields,
+    // 17 -> 19 searchable, exclusions unchanged at 14.
+    //
+    // Searchable for the same reason the two carry-variance knobs above are:
+    // each moves the gain, hence the posterior belief, hence the predicted
+    // margin, hence `pRedWin`, which the accuracy-primary objective reads
+    // directly. Neither is display-only and neither cancels in the margin, so
+    // none of the structural-blindness arguments in SEARCH_EXCLUSIONS applies.
+    //
+    // They are the THIRD and FOURTH searchable parameters whose defaults sit
+    // AT a bound — `attributionShrinkage` at `min` (0, like
+    // `carryEvidenceRate`) and `maxTeamKalmanGain` at `max` (1, like
+    // `carryVarianceFactor`) — so `screenGridFor`'s symmetric at-bound guard
+    // covers both with no change, exactly as it did for the previous pair.
+    //
+    // They are also the first pair registered together where the pair itself
+    // is the point: they are DIFFERENT mechanisms, not two spellings of one.
+    // `Sum_j K_j` is invariant in `attributionShrinkage` (it redistributes
+    // learning) and is REDUCED by `maxTeamKalmanGain` (it removes learning),
+    // which is why the measured sweep found them composing (+0.52 SE and
+    // +0.83 SE alone, +1.14 SE together) rather than saturating.
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(19);
     expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(14);
-    expect(SIGMA1_PARAM_KEYS).toHaveLength(31);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(33);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });
 

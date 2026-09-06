@@ -1,8 +1,8 @@
 {
   "id": "vpr",
-  "codeVersion": "9.0.0",
-  "paramSetName": "rolling-2026-09c",
-  "version": "9.0.0+rolling-2026-09c",
+  "codeVersion": "10.0.0",
+  "paramSetName": "rolling-2026-09b",
+  "version": "10.0.0+rolling-2026-09b",
   "paramSetsBySeason": {
     "2019": {
       "params": {
@@ -36,7 +36,9 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2022,
@@ -89,7 +91,9 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2022,
@@ -142,7 +146,9 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2019,
@@ -188,7 +194,9 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2022,
@@ -241,7 +249,9 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2022,
@@ -264,27 +274,27 @@
     },
     "2025": {
       "params": {
-        "processNoiseWithinEventRel": 0.0003348682973699514,
-        "processNoiseEventBoundaryRel": 0.00447025349344905,
-        "consistencyEwmaAlpha": 0.04163307648431509,
+        "processNoiseWithinEventRel": 0.00014123880999220739,
+        "processNoiseEventBoundaryRel": 0.0009725587575408342,
+        "consistencyEwmaAlpha": 0.03444905576109887,
         "swingHalfLifeMatches": 6,
         "swingScale": 1.92,
-        "minConsistencyVarianceRel": 0.003251980879552056,
-        "covEwmaAlpha": 0.14234703605249524,
+        "minConsistencyVarianceRel": 0.0009725587575408342,
+        "covEwmaAlpha": 0.2600009894482791,
         "covShrinkage": 0.3,
-        "linkC": 0.5224524416318134,
+        "linkC": 0.5,
         "coldStartTeamTotalRel": 0.6237174865404478,
-        "coldStartConsistencyVarianceRel": 0.03207129716760755,
+        "coldStartConsistencyVarianceRel": 0.016294455300514255,
         "fallbackScoreSd": 25,
-        "consistencyCarryDecay": 1,
-        "carryMeanReversion": 0.08796802558936179,
-        "carryPriorYearShare": 0.7995579732581973,
-        "rpProcessNoiseWithinEvent": 0.5,
-        "rpProcessNoiseEventBoundary": 8,
-        "rpColdStartVariance": 25,
+        "consistencyCarryDecay": 0.4142244359478354,
+        "carryMeanReversion": 0.06930459369905292,
+        "carryPriorYearShare": 0.3,
+        "rpProcessNoiseWithinEvent": 0.14522393520915602,
+        "rpProcessNoiseEventBoundary": 1,
+        "rpColdStartVariance": 16.75421168559074,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": true,
+        "adaptationEnabled": false,
         "adaptationEwmaAlpha": 0.2,
         "adaptationExponent": 0.5,
         "adaptationMinFactor": 0.25,
@@ -293,38 +303,47 @@
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
-        "carryVarianceFactor": 0.8448855225401831,
-        "carryEvidenceRate": 0
+        "carryVarianceFactor": 1,
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
         2022,
         2023,
         2024
       ],
-      "sourceKind": "search-winner",
-      "sourceArtifact": "reports/tune-joint-on-origin2025-260905s2.json",
-      "sourceArtifactSha256": "d00e219cfde87317d0378358a005d016ea04569689c3f5d4c855eec7b78f918a",
-      "objective": 0.7521005106168218,
-      "objectiveAppliesToPromotedParams": true,
-      "adaptationMode": "on"
+      "sourceKind": "carried-version",
+      "sourceArtifact": "reports/tune-joint-off.json",
+      "sourceArtifactSha256": "d08926da7c0d7362efbb87b856ef1617453653d3614ca4fdfd506d230b0dd991",
+      "objective": 0.17076606538105618,
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "off",
+      "paramOverrides": {
+        "linkC": 0.5,
+        "covShrinkage": 0.3,
+        "varianceOprRidge": 2
+      },
+      "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
+      "derivedFromVersion": "9.0.0+rolling-2026-09b"
     },
     "2026": {
       "params": {
-        "processNoiseWithinEventRel": 0.0003348682973699514,
-        "processNoiseEventBoundaryRel": 0.0012773483063183615,
-        "consistencyEwmaAlpha": 0.04163307648431509,
+        "processNoiseWithinEventRel": 0.0003259594473140922,
+        "processNoiseEventBoundaryRel": 0.005406482680872875,
+        "consistencyEwmaAlpha": 0.02,
         "swingHalfLifeMatches": 6,
         "swingScale": 1.92,
-        "minConsistencyVarianceRel": 0.003251980879552056,
-        "covEwmaAlpha": 0.14234703605249524,
+        "minConsistencyVarianceRel": 0.022559162938357025,
+        "covEwmaAlpha": 0.09703017393313348,
         "covShrinkage": 0.3,
-        "linkC": 0.5224524416318134,
+        "linkC": 0.5289026422752404,
         "coldStartTeamTotalRel": 0.6237174865404478,
-        "coldStartConsistencyVarianceRel": 0.03207129716760755,
+        "coldStartConsistencyVarianceRel": 0.06835030519693538,
         "fallbackScoreSd": 25,
-        "consistencyCarryDecay": 1,
-        "carryMeanReversion": 0.08796802558936179,
-        "carryPriorYearShare": 0.7995579732581973,
+        "consistencyCarryDecay": 0.7833498983178288,
+        "carryMeanReversion": 0.2753560509067029,
+        "carryPriorYearShare": 0.7281769673340023,
         "rpProcessNoiseWithinEvent": 0.5,
         "rpProcessNoiseEventBoundary": 8,
         "rpColdStartVariance": 25,
@@ -340,26 +359,31 @@
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0,
+        "maxTeamKalmanGain": 1
       },
       "selectedOnSeasons": [
+        2019,
+        2020,
+        2022,
         2023,
         2024,
         2025
       ],
-      "sourceKind": "search-winner",
-      "sourceArtifact": "reports/tune-joint-on-origin2026-260905s2.json",
-      "sourceArtifactSha256": "4164527ebefd5795fee2ca4ef9c6816d72969c4174190577dc3f36675988afe6",
-      "objective": 0.7477613912012019,
-      "objectiveAppliesToPromotedParams": true,
-      "adaptationMode": "on"
+      "sourceKind": "carried-version",
+      "sourceArtifact": "reports/tune-joint-on-origin2026.json",
+      "sourceArtifactSha256": "fa5a426478a1359949c24e685f55e636315408b507cb1671a8c0a06cebe4d553",
+      "objective": 0.17205297855845073,
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "on",
+      "derivedFromVersion": "9.0.0+rolling-2026-09b"
     }
   },
   "provenance": {
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-06T00:13:15.833Z",
-    "objectiveDefinition": "each season's own paramSetsBySeason entry's `objective` number is that entry's SOURCE search's PRIMARY objective value AT THE TIME that search ran — see objectiveDefinition.ts's SEARCH_OBJECTIVE_DEFINITION for the current (accuracy-primary/Brier-secondary) rule, and that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search produced it",
-    "note": "Rule-A promotion (2026-09-05): operator-adopted acceptance policy - ship when the search winner improves BOTH out-of-sample accuracy AND Brier. 2025 from the Stage 2 carryVarianceFactor tune's on-arm winner (+0.0041 acc at 2.8 SE, -0.0021 Brier, carryVarianceFactor 0.845); 2026 from the same run's on-arm winner (+0.0015 acc at 1.1 SE, -0.0009 Brier, carry knobs at defaults). Both were keep-incumbent under the D-T7 noise bar; the 36-verdict retroactive analysis behind Rule A is recorded in the retune ledger's Stage 3 addendum. All other seasons carried unchanged from rolling-2026-09b."
+    "promotedAt": "2026-09-06T20:54:35.277Z",
+    "objectiveDefinition": "each season's own paramSetsBySeason entry's `objective` number is that entry's SOURCE search's PRIMARY objective value AT THE TIME that search ran — see objectiveDefinition.ts's SEARCH_OBJECTIVE_DEFINITION for the current (accuracy-primary/Brier-secondary) rule, and that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search produced it"
   },
   "digest": {
     "sliceSeason": 2022,

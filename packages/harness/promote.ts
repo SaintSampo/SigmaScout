@@ -905,8 +905,19 @@ export function migrateSourceParams(
   // fill in via `Sigma1ParamsSchema`'s own defaults, exactly the argument the
   // `7.` branch below already carries. Shared-shape ASSERTION, not a
   // migration — do not invent one.
+  // 2026-09-06 (the 9.0.0 -> 10.0.0 attribution bump, quick tasks 260906-8i1 /
+  // 260906-7fj): `9.` ALSO shares the CURRENT shape, by the identical argument
+  // the `8.` note above makes. That bump ADDS two fields —
+  // `attributionShrinkage` (default 0) and `maxTeamKalmanGain` (default 1) —
+  // and REMOVES none, and both carry `.default(...)` in `Sigma1ParamsSchema`,
+  // so a 9.x file parses directly and fills in at the values that are provably
+  // inert. Both inertness claims were additionally verified by replaying a
+  // season at the default and confirming a sha256-identical predictions
+  // stream, so "fills in inert" here is measured rather than argued.
+  // Shared-shape ASSERTION, not a migration — do not invent one.
   if (
     sourceVersion.codeVersion === SIGMA1_CODE_VERSION ||
+    sourceVersion.codeVersion.startsWith("9.") ||
     sourceVersion.codeVersion.startsWith("8.") ||
     sourceVersion.codeVersion.startsWith("7.")
   ) {

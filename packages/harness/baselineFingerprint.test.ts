@@ -247,12 +247,23 @@ describe("committed baseline fingerprints", () => {
     // keep-incumbent), every other season carried from rolling-2026-09b. All
     // four `vpr@8.0.0+*` files were retired and re-promoted as `vpr@9.0.0+*`
     // in the same change, the same precedent as the 7.0.0 -> 8.0.0 bump.
+    // 2026-09-06 (SIGMA1_CODE_VERSION 10.0.0, quick tasks 260906-8i1 /
+    // 260906-7fj): all five `vpr@9.0.0+*` files were retired and re-promoted
+    // as `vpr@10.0.0+*`, the same precedent as both bumps named above. The
+    // COUNT is unchanged at five — this bump adds two provably-inert
+    // parameters, it does not add or remove a promoted set. The three
+    // per-season `rolling-*` files were re-promoted with `--per-season
+    // "<seasons>=version:<9.0.0 file>"` rather than `--from-version`, which
+    // only reads a legacy single-`params` source; every season's values
+    // carried forward unchanged (2025 keeps its 0.8448855225401831
+    // carryVarianceFactor), with the two new fields filling in at their
+    // schema defaults of 0 and 1.
     ).toEqual([
-      "vpr@9.0.0+rolling-2026-09.json",
-      "vpr@9.0.0+rolling-2026-09b.json",
-      "vpr@9.0.0+rolling-2026-09c.json",
-      "vpr@9.0.0+tracer-check.json",
-      "vpr@9.0.0+tuned-2026-08.json",
+      "vpr@10.0.0+rolling-2026-09.json",
+      "vpr@10.0.0+rolling-2026-09b.json",
+      "vpr@10.0.0+rolling-2026-09c.json",
+      "vpr@10.0.0+tracer-check.json",
+      "vpr@10.0.0+tuned-2026-08.json",
     ]);
   });
 

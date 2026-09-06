@@ -541,8 +541,37 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * All four `vpr@8.0.0+*.json` files were retired and re-promoted as
  * `vpr@9.0.0+*` in this same change via `pnpm promote --from-version`
  * running this constant — the same precedent every prior bump records.
+ *
+ * ## 9.0.0 -> 10.0.0 (quick task 260906-8i1, with 260906-7fj)
+ *
+ * TWO new `Sigma1Params` fields reach the alliance-sum Kalman update:
+ * `attributionShrinkage` (blends the per-team gain vector toward a uniform
+ * split; `Sum_j K_j` is invariant in it, so total learning per observation
+ * does not change) and `maxTeamKalmanGain` (a ceiling on any one team's
+ * gain, which DOES reduce that sum). Both are read only by the score-side
+ * `updateAllianceSum`/`componentGains` call sites; `rp/state.ts` passes
+ * three arguments and keeps the unshrunk, uncapped attribution.
+ *
+ * BOTH ARE PROVABLY INERT AT THEIR DEFAULTS (0 and 1), and — unlike 8.0.0's
+ * three non-bumps, which rested on the inertness argument alone — each was
+ * additionally VERIFIED by replaying a season at the default and confirming
+ * the predictions stream was sha256-identical to the promoted baseline's.
+ * So why bump at all? Because the same reasoning 9.0.0 records applies: the
+ * moment a promoted set carries a non-default value the mechanism fires for
+ * real, and D-13 forbids a committed artifact family whose behaviour depends
+ * on a code path its version string does not name. The bump is taken HERE,
+ * before the re-tune that may select non-defaults, rather than retroactively.
+ *
+ * Why these two fields exist at all, briefly (full record in the two quick
+ * tasks' RESULTS.md): the 2026-09-05 autopsy located EPA's remaining accuracy
+ * lead in thin-information matches; 260906-6zc closed the season-boundary
+ * carry axis negative; 260906-8ao then showed the residual deficit is
+ * VARIANCE rather than bias, and falsified both saturation and
+ * per-component compounding as explanations. These two knobs are the
+ * mechanism that survived, measured at 80% of the pooled gap on a single
+ * global configuration with Rule A passing on both legs.
  */
-export const SIGMA1_CODE_VERSION = "9.0.0";
+export const SIGMA1_CODE_VERSION = "10.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:
@@ -1060,6 +1089,86 @@ export interface Sigma1Params {
    * The VALUE is free and searchable (`searchSpace.ts`).
    */
   readonly carryEvidenceRate: number;
+  /**
+   * D-1 (quick task 260906-8i1, ATTRIB-PARAM): how far the alliance-sum
+   * ATTRIBUTION VECTOR is shrunk toward a uniform split, in [0, 1).
+   *
+   * `updateAllianceSum` (`kalman.ts`) attributes a SHARED alliance-component
+   * observation across teammates strictly by variance share,
+   * `K_j = P_j / (Sum P_i + R)`. A team the filter is very unsure about
+   * therefore absorbs nearly the whole innovation, on an assumption about who
+   * was responsible that `covariance.ts`'s own header already names as
+   * unrecoverable from a summed observation. This field blends that vector
+   * toward the uniform one:
+   *
+   *     share_j   = P_j / (Sum P_i + R)
+   *     uniform_j = (Sum P_i / (Sum P_i + R)) / n
+   *     K_j       = (1 - s) * share_j + s * uniform_j
+   *
+   * The property that makes this a DIFFERENT mechanism from
+   * `maxTeamKalmanGain` below, rather than a second way to say the same
+   * thing: `Sum_j share_j` and `Sum_j uniform_j` are BOTH exactly
+   * `Sum P_i / (Sum P_i + R)`, so `Sum_j K_j` is invariant in `s`. The
+   * alliance's TOTAL learning from one observation does not change at any
+   * setting — only its distribution across teammates does. This is not a
+   * slower filter.
+   *
+   * Measured (quick task 260906-8i1, five-season walk-forward replay against
+   * `vpr@9.0.0+rolling-2026-09c`): every arm in [0.30, 0.70] passes Rule A on
+   * both legs, the pooled curve is FLAT across that band rather than perched
+   * on an optimum, and `s = 0.30` composed with `maxTeamKalmanGain = 0.20`
+   * closed 80% of VPR's pooled winner-accuracy deficit to EPA (-0.204pt to
+   * -0.04pt, +0.17pt accuracy, -0.000640 Brier). The invariance above is
+   * load-bearing in that measurement: 2024 — the one season that punishes
+   * slower adaptation — lost 0.57 SE to the gain cap alone but only 0.11 SE
+   * to this knob at comparable pooled gain.
+   *
+   * INERT AT 0 BY CONSTRUCTION, and proven so rather than asserted: the
+   * blend collapses to `share_j` exactly (`(1 - 0) * x + 0 * y === x` for
+   * finite `x` in IEEE-754), verified by a `--seasons 2022-2022` replay whose
+   * predictions stream was sha256-identical to the promoted baseline's.
+   *
+   * Read ONLY by the score-side call sites. `rp/state.ts` calls
+   * `updateAllianceSum` with three arguments and keeps the unshrunk
+   * attribution: D-01's objective is Brier over the predicted WIN
+   * PROBABILITY, structurally blind to the RP pmf, so extending this there
+   * could not move the objective but WOULD make a measured effect
+   * unattributable to the score components.
+   */
+  readonly attributionShrinkage: number;
+  /**
+   * D-2 (quick task 260906-7fj, GAINCAP-PARAM): a ceiling on any single
+   * team's alliance-sum Kalman gain, in (0, 1].
+   *
+   * Applied AFTER `attributionShrinkage` above — order is load-bearing and
+   * fixed: capping first would let the uniform blend lift a clipped gain back
+   * over the ceiling, so the cap would not bind at all.
+   *
+   * Unlike `attributionShrinkage`, this DOES reduce `Sum_j K_j` for an
+   * alliance containing a dominant-variance team — it genuinely slows the
+   * filter there, which is why the two compose rather than duplicate
+   * (measured: cap alone +0.52 SE, shrinkage alone +0.83 SE, together
+   * +1.14 SE pooled).
+   *
+   * What the measurement corrected about the motivating story: a green team's
+   * gain does NOT approach 1. `coldStartVariance` (`index.ts`'s
+   * `seedConsistencyFor`) and that team's own contribution to the measurement
+   * noise `R` are seeded from the SAME quantity, so `K` is pinned near 0.5 by
+   * construction — an implicit ceiling nobody designed and, before this
+   * field, one NO parameter could move, because scaling
+   * `coldStartConsistencyVariance` moves numerator and denominator together.
+   * A cap of 0.60 was measurably inert; 0.45 left the cold-start season
+   * bitwise unchanged. The defect is that the early gain is uniformly about
+   * twice what it should be, not that one match overwrites a rating.
+   *
+   * INERT AT 1 BY CONSTRUCTION: `K_j = P_j / (Sum P_i + R) <= 1` whenever
+   * every `P >= 0` and `R >= 0`, so `Math.min(K_j, 1)` returns `K_j` bitwise
+   * unchanged. Verified the same way as the field above — a 2022 replay
+   * sha256-identical to the promoted baseline.
+   *
+   * Score side only, for the identical reason `attributionShrinkage` records.
+   */
+  readonly maxTeamKalmanGain: number;
 }
 
 /**
@@ -1126,6 +1235,14 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   // D-1/CER-PARAM (quick task 260905-o48): exactly 0 — no evidence
   // weighting at all, today's behaviour, until the re-tune says otherwise.
   carryEvidenceRate: 0,
+  // D-1 (quick task 260906-8i1, ATTRIB-PARAM): exactly 0 — the unshrunk
+  // variance-share attribution, today's behaviour, until the re-tune says
+  // otherwise. Proven bitwise inert at this value.
+  attributionShrinkage: 0,
+  // D-2 (quick task 260906-7fj, GAINCAP-PARAM): exactly 1 — no ceiling at
+  // all, today's behaviour, until the re-tune says otherwise. Provably inert
+  // since the gain can never exceed 1.
+  maxTeamKalmanGain: 1,
 };
 
 /**
@@ -1235,6 +1352,27 @@ export const Sigma1ParamsSchema = z
     // object-level `.check(...)` invariant is added: this field has no
     // cross-parameter relationship, it only multiplies alongside one.
     carryEvidenceRate: z.number().finite().min(0).max(0.03).default(0),
+    // D-1/ATTRIB-PARAM (quick task 260906-8i1): `.default(0)` is what lets
+    // every already-committed `vpr@9.0.0+*.json` file — none of which carries
+    // this key — still parse and resolve inert, the same argument
+    // `carryEvidenceRate`'s default carries directly above. `.min(0)` is
+    // CLOSED because zero IS the inert default, and a NEGATIVE shrinkage
+    // would push the attribution vector AWAY from uniform — sharpening the
+    // very concentration this field exists to soften, and able to drive an
+    // individual gain negative (a team's mean moving the wrong way along its
+    // own innovation). `.max(0.9)` matches the search bound `searchSpace.ts`
+    // registers, so a hand-edited version file cannot reach a region the
+    // search is fenced out of; it stops short of 1 because a fully uniform
+    // attribution would ignore the filter's own uncertainty entirely, which
+    // is a different model rather than a setting of this one.
+    attributionShrinkage: z.number().finite().min(0).max(0.9).default(0),
+    // D-2/GAINCAP-PARAM (quick task 260906-7fj): `.default(1)` keeps every
+    // committed file parsing with the mechanism inert. `.positive()` excludes
+    // 0, which would freeze every belief permanently (a filter that cannot
+    // learn at all). `.max(1)` is not decoration: the gain is a SHARE of
+    // pooled variance and cannot exceed 1, so a ceiling above 1 would be a
+    // no-op dressed as a setting — the value would silently never bind.
+    maxTeamKalmanGain: z.number().finite().positive().max(1).default(1),
   })
   .check((ctx) => {
     const value = ctx.value;

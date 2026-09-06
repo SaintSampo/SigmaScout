@@ -117,7 +117,9 @@ export const SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY = 8;
 export function updateAllianceSum(
   teammates: readonly TeamComponentBelief[],
   observedSum: number,
-  measurementNoise: number
+  measurementNoise: number,
+  attributionShrinkage: number = 0,
+  maxTeamKalmanGain: number = 1
 ): TeamComponentBelief[] {
   if (teammates.length === 0) {
     return [];
@@ -131,8 +133,28 @@ export function updateAllianceSum(
     return teammates.map((t) => ({ mean: t.mean, variance: t.variance }));
   }
 
+  // D-1/D-2 (quick tasks 260906-8i1 / 260906-7fj). ORDER IS LOAD-BEARING:
+  // shrink the attribution vector toward uniform FIRST, then clip. Capping
+  // first would let the uniform blend lift a clipped gain back over the
+  // ceiling, so `maxTeamKalmanGain` would silently never bind.
+  //
+  // `uniformGain` is the pooled gain `Sum P_i / (Sum P_i + R)` divided evenly
+  // across teammates, so `Sum_j uniform_j === Sum_j share_j` and the blend
+  // leaves the alliance's TOTAL learning per observation invariant in
+  // `attributionShrinkage` — see that field's own doc comment.
+  const sumP = pooledVariance - measurementNoise;
+  const uniformGain = sumP / pooledVariance / teammates.length;
   return teammates.map((t) => {
-    const gain = t.variance / pooledVariance;
+    const shareGain = t.variance / pooledVariance;
+    // Both branches are bitwise-identical at the defaults; the explicit
+    // `=== 0` short-circuit exists so the untouched path is exactly the
+    // pre-10.0.0 expression rather than an arithmetically-equal rewrite of
+    // it, the same discipline `carryVarianceFactor`'s own seed site follows.
+    const blended =
+      attributionShrinkage === 0
+        ? shareGain
+        : (1 - attributionShrinkage) * shareGain + attributionShrinkage * uniformGain;
+    const gain = Math.min(blended, maxTeamKalmanGain);
     return {
       mean: t.mean + gain * innovation,
       variance: t.variance * (1 - gain),

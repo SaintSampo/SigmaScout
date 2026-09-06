@@ -487,10 +487,29 @@ function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, par
  * observation without assuming something, and reusing the update's own
  * gain is the least-arbitrary available assumption.
  */
-function componentGains(teammates: readonly TeamComponentBelief[], measurementNoise: number): number[] {
+function componentGains(
+  teammates: readonly TeamComponentBelief[],
+  measurementNoise: number,
+  attributionShrinkage: number = 0,
+  maxTeamKalmanGain: number = 1
+): number[] {
   const pooled = teammates.reduce((sum, t) => sum + t.variance, 0) + measurementNoise;
   if (pooled === 0) return teammates.map(() => 0);
-  return teammates.map((t) => t.variance / pooled);
+  // Must mirror `updateAllianceSum`'s gain EXACTLY, including the
+  // shrink-then-clip order: this function's output attributes the per-team
+  // residual that `covariance.ts` and the consistency estimator fold, so a
+  // gain here that disagreed with the one the filter actually applied would
+  // silently corrupt both.
+  const sumP = pooled - measurementNoise;
+  const uniformGain = sumP / pooled / teammates.length;
+  return teammates.map((t) => {
+    const shareGain = t.variance / pooled;
+    const blended =
+      attributionShrinkage === 0
+        ? shareGain
+        : (1 - attributionShrinkage) * shareGain + attributionShrinkage * uniformGain;
+    return Math.min(blended, maxTeamKalmanGain);
+  });
 }
 
 /**
@@ -751,8 +770,22 @@ function applyAllianceUpdate(
         0
       ) * measurementNoiseMultiplier;
 
-    const updated = updateAllianceSum(teammateBeliefs, observedSum, measurementNoise);
-    const gains = componentGains(teammateBeliefs, measurementNoise);
+    // D-1/D-2 (quick tasks 260906-8i1 / 260906-7fj): the SCORE side passes
+    // both attribution knobs. `rp/state.ts` deliberately does not — see
+    // `attributionShrinkage`'s doc comment for why the RP path stays unshrunk.
+    const updated = updateAllianceSum(
+      teammateBeliefs,
+      observedSum,
+      measurementNoise,
+      params.attributionShrinkage,
+      params.maxTeamKalmanGain
+    );
+    const gains = componentGains(
+      teammateBeliefs,
+      measurementNoise,
+      params.attributionShrinkage,
+      params.maxTeamKalmanGain
+    );
     const predictedSum = teammateBeliefs.reduce((sum, t) => sum + t.mean, 0);
     const innovation = observedSum - predictedSum;
     const observedShare = observedSum / allianceTeams.length;
