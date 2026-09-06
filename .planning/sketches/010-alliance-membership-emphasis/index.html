@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sketch 010 — Alliance-membership emphasis</title>
+<link rel="stylesheet" href="../themes/pine.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 104px 0 64px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- variant tabs ---------- */
+  #variant-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+    background: var(--ribbon-bg); color: var(--ribbon-ink);
+    padding: 10px 16px 0; display: flex; gap: 6px; align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  #variant-nav .brand {
+    font-weight: 600; margin-right: 12px; padding-bottom: 10px;
+    letter-spacing: -0.01em;
+  }
+  #variant-nav .brand em { color: var(--ribbon-accent); font-style: normal; }
+  .variant-tab {
+    appearance: none; border: 0; cursor: pointer;
+    background: transparent; color: var(--ribbon-ink-muted);
+    font: inherit; font-size: 13px; padding: 8px 12px 9px;
+    border-bottom: 2px solid transparent; transition: all .15s ease;
+  }
+  .variant-tab:hover { color: var(--ribbon-ink); }
+  .variant-tab.active { color: var(--ribbon-ink); border-bottom-color: var(--ribbon-accent); }
+
+  /* ---------- spacing control bar ---------- */
+  #gap-bar {
+    position: fixed; top: 45px; left: 0; right: 0; z-index: 9997;
+    background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+    padding: 8px 16px; display: flex; gap: 14px; align-items: center;
+    font-size: 12px; color: var(--color-text-muted); flex-wrap: wrap;
+  }
+  #gap-bar label { font-weight: 600; color: var(--color-text); }
+  #gap-bar input[type=range] { width: 190px; accent-color: var(--color-primary); }
+  #gap-bar .readout {
+    font-variant-numeric: tabular-nums; font-weight: 600;
+    color: var(--color-text); min-width: 84px;
+  }
+  #gap-bar button {
+    font: inherit; cursor: pointer; padding: 4px 10px;
+    border: 1px solid var(--color-border); background: var(--color-surface);
+    border-radius: var(--radius); color: var(--color-text); transition: all .15s ease;
+  }
+  #gap-bar button:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+  /* ---------- page shell ---------- */
+  #vp { max-width: 100%; margin: 0 auto; transition: max-width .2s ease; }
+  .wrap { padding: 0 24px; }
+  .blurb {
+    max-width: 780px; margin: 0 0 20px; color: var(--color-text-muted);
+    font-size: 13px; line-height: 1.65;
+  }
+  .blurb strong { color: var(--color-text); font-weight: 600; }
+  .event-card {
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 24px;
+  }
+  .event-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--color-border);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .event-head h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; }
+  .event-head .rank { color: var(--color-text-muted); font-size: 13px; }
+
+  table { border-collapse: collapse; width: 100%; }
+  thead th {
+    text-align: left; font-size: var(--text-label); font-weight: 600;
+    color: var(--color-text-muted); padding: 8px; white-space: nowrap;
+    border-bottom: 1px solid var(--color-border); vertical-align: bottom;
+  }
+  td { padding: 8px; vertical-align: top; }
+  .row-tint { background: var(--color-bg); }
+  .row-plain { background: var(--color-surface); }
+
+  .result-chip {
+    display: inline-block; border-radius: var(--radius); padding: 2px 7px;
+    font-size: var(--text-label); font-weight: 600;
+  }
+  .result-chip--win  { background: #DCFCE7; color: #166534; }
+  .result-chip--loss { background: #FEE2E2; color: #991B1B; }
+
+  /* =================================================================
+     THE MATCH CELL — the only thing this sketch is actually about.
+     Everything else on the row is here so the cue is judged at real
+     density, beside the colours it has to coexist with.
+     ================================================================= */
+  .match-cell { display: flex; flex-direction: column; gap: 1px; }
+  .match-label { font-size: var(--text-label); font-weight: 600; }
+
+  .alliance-line {
+    display: flex; align-items: center; gap: 6px;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    line-height: 1.5;
+  }
+  /* The rail slot is always present, transparent when unused, so numbers
+     sit at the identical x-position in every variant — otherwise the
+     comparison measures indentation instead of emphasis. */
+  .rail { width: 3px; align-self: stretch; border-radius: 2px; background: transparent; flex: 0 0 3px; }
+  .nums { display: inline-flex; gap: var(--num-gap, 8px); transition: gap .15s ease; }
+  .num { padding: 0 1px; border-radius: 3px; transition: all .15s ease; }
+
+  /* ===== REFERENCE: what ships today ===== */
+  .v-current .alliance-line[data-mine="true"] .num { font-weight: 600; }
+
+  /* ===== A — margin rail, neutral ink =====
+     The own-number ring is the ALLIANCE colour, not --tier-common-edge.
+     Common's ring is allowed to sit at 1.48:1 (under WCAG 1.4.11's 3:1
+     non-text floor) only because it is redundant — the tier is also stated
+     by the value itself. Here the ring is the ONLY thing saying "this one
+     is yours", so that exemption does not transfer. The alliance tokens
+     measure 4.83:1 (red) and 5.17:1 (blue) and clear the floor. */
+  .v-rail .alliance-line[data-mine="true"][data-side="red"]  .rail { background: var(--alliance-red); }
+  .v-rail .alliance-line[data-mine="true"][data-side="blue"] .rail { background: var(--alliance-blue); }
+  .v-rail .alliance-line[data-side="red"]  .num--own { box-shadow: inset 0 0 0 1px var(--alliance-red); }
+  .v-rail .alliance-line[data-side="blue"] .num--own { box-shadow: inset 0 0 0 1px var(--alliance-blue); }
+
+  /* ===== B — alliance ink on both rows ===== */
+  .v-ink .alliance-line[data-side="red"]  .num { color: var(--alliance-red); }
+  .v-ink .alliance-line[data-side="blue"] .num { color: var(--alliance-blue); }
+  /* 72% opacity dropped the opponent to 3.13-3.32:1, under AA's 4.5:1 for
+     14px text. Opponent numbers are content, not chrome, so they are left
+     at full strength and the "which is mine" job is carried by the ring
+     alone — which is the honest weakness of this variant, now visible
+     rather than hidden behind a failing dim. */
+  .v-ink .alliance-line[data-mine="true"][data-side="red"]  .num--own { box-shadow: inset 0 0 0 1px var(--alliance-red); }
+  .v-ink .alliance-line[data-mine="true"][data-side="blue"] .num--own { box-shadow: inset 0 0 0 1px var(--alliance-blue); }
+
+  /* ===== C — ground tint under the team's row ===== */
+  .v-tint .alliance-line[data-mine="true"] .nums {
+    padding: 0 5px; margin-left: -5px; border-radius: 999px;
+  }
+  .v-tint .alliance-line[data-mine="true"][data-side="red"]  .nums { background: rgba(220, 38, 38, 0.10); }
+  .v-tint .alliance-line[data-mine="true"][data-side="blue"] .nums { background: rgba(37, 99, 235, 0.10); }
+  .v-tint .alliance-line[data-mine="true"][data-side="red"]  .num--own { background: rgba(220, 38, 38, 0.20); }
+  .v-tint .alliance-line[data-mine="true"][data-side="blue"] .num--own { background: rgba(37, 99, 235, 0.20); }
+
+  /* ===== D — recede the opponent, add no ink at all =====
+     Recedes to --color-text-muted (slate-600, 7.50:1), NOT --loser-ink
+     (slate-400, 2.56:1). --loser-ink is legitimate on a losing SCORE, which
+     the reader has already been told by the Result chip and can skip; a team
+     number is an identifier someone came to the page to read, so it has to
+     stay at AA. 17.85:1 against 7.50:1 is still an unmistakable step. */
+  .v-recede .alliance-line[data-mine="false"] .num { color: var(--color-text-muted); }
+  .v-recede .num--own { box-shadow: inset 0 0 0 1px var(--color-text-muted); }
+
+  /* ---------- band plot: what the colour has to sit beside ---------- */
+  .plot { position: relative; }
+  .band { position: absolute; border-radius: 999px; }
+  .band--red  { background: var(--alliance-red-soft); }
+  .band--blue { background: var(--alliance-blue-soft); }
+  .tick { position: absolute; width: 2px; }
+  .tick--red  { background: var(--alliance-red); }
+  .tick--blue { background: var(--alliance-blue); }
+  .dot {
+    position: absolute; border-radius: 999px;
+    border: 2px solid; background: transparent;
+  }
+  .dot--red  { border-color: var(--alliance-red); }
+  .dot--blue { border-color: var(--alliance-blue); }
+  .axis { position: relative; height: 16px; font-size: 10px; font-weight: 400; color: var(--color-text-muted); margin-top: 4px; }
+  .axis span { position: absolute; transform: translateX(-50%); font-variant-numeric: tabular-nums; }
+
+  .score-line { font-variant-numeric: tabular-nums; line-height: 1.5; white-space: nowrap; }
+  .score-line.loser { color: var(--loser-ink); }
+  .spread { color: var(--color-text-muted); font-size: 12px; }
+
+  /* ---------- annotation mode ---------- */
+  body.annotate .num { outline: 1px dashed rgba(37,99,235,.35); }
+  #anno-tip {
+    position: fixed; z-index: 10000; pointer-events: none; display: none;
+    background: #0f172a; color: #fff; font-size: 11px; padding: 5px 8px;
+    border-radius: 4px; font-family: ui-monospace, monospace; white-space: pre;
+  }
+
+  /* ---------- sketch toolbar ---------- */
+  #sketch-tools {
+    position: fixed; bottom: 12px; right: 12px; z-index: 9999;
+    font-family: system-ui; font-size: 12px;
+    background: rgba(0,0,0,0.78); color: white; padding: 8px 12px;
+    border-radius: 8px; opacity: 0.4; transition: opacity 0.2s;
+    display: flex; gap: 8px; align-items: center;
+  }
+  #sketch-tools select, #sketch-tools button {
+    font: inherit; background: rgba(255,255,255,.12); color: #fff;
+    border: 1px solid rgba(255,255,255,.25); border-radius: 4px;
+    padding: 3px 6px; cursor: pointer;
+  }
+  #sketch-tools button.on { background: #fff; color: #000; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <span class="brand"><em>&Sigma;</em> Sketch 010</span>
+  <button class="variant-tab active" data-v="current">Current (bold)</button>
+  <button class="variant-tab" data-v="rail">A: Margin rail</button>
+  <button class="variant-tab" data-v="ink">B: Alliance ink</button>
+  <button class="variant-tab" data-v="tint">C: Ground tint</button>
+  <button class="variant-tab" data-v="recede">D: Recede opponent</button>
+</div>
+
+<div id="gap-bar">
+  <label for="gap">Space between numbers</label>
+  <input type="range" id="gap" min="2" max="18" step="1" value="8">
+  <span class="readout" id="gap-out">8px</span>
+  <button id="gap-current">Shipped (4px)</button>
+  <button id="gap-smidge">A smidge (8px)</button>
+  <span>&mdash; applies to every variant, so spacing never confounds the comparison</span>
+</div>
+
+<div id="vp"><div class="wrap">
+  <p class="blurb" id="blurb"></p>
+  <div class="event-card">
+    <div class="event-head">
+      <h2 id="ev-name"></h2>
+      <span class="rank" id="ev-rank"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:64px">Result</th>
+          <th style="width:180px">Match</th>
+          <th style="width:300px">Predicted vs actual<div class="axis" id="axis"></div></th>
+          <th style="width:130px">Predicted</th>
+          <th>Actual</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div></div>
+
+<div id="anno-tip"></div>
+
+<div id="sketch-tools">
+  <select id="theme">
+    <option value="pine">Pine (shipped)</option>
+    <option value="default">Default (pre-redesign)</option>
+  </select>
+  <button data-w="375">Phone</button>
+  <button data-w="768">Tablet</button>
+  <button data-w="0" class="on">Full</button>
+  <button id="anno">Annotate</button>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   Real published data — v1/team/frc5951/2026/vpr@9.0.0+rolling-2026-09c
+   fetched from data.sigmascout.org on 2026-09-06.
+   Team 5951 "Makers Assemble", Israel Team Practice (2026isrtp), rank 7/12.
+
+   Kept verbatim because the awkward property is real: 5951 switches
+   ALLIANCE between matches (blue in Qual 2, red in Qual 3) and moves
+   SLOT inside the alliance (1st, 3rd, 2nd, ...). A mock with the team
+   always blue and always leftmost would make all five variants look fine.
+   Widths vary too — 1690 beside 10935 — which is what the spacing
+   slider has to hold up against.
+------------------------------------------------------------------ */
+const TEAM = "frc5951";
+const EVENT = { name: "Israel Team Practice", rank: 7, total: 12 };
+const M = [
+ {k:"Qual 2", r:["frc1577","frc4744","frc10935"], b:["frc5951","frc4590","frc1690"],  prs: 96.12, pbs:176.41, rv: 1091.31, bv: 1636.97, ars:246, abs:359, aw:"blue"},
+ {k:"Qual 3", r:["frc5614","frc3075","frc5951"],  b:["frc2231","frc1690","frc1577"],  prs:316.61, pbs:312.35, rv:11417.30, bv: 9486.59, ars:364, abs:343, aw:"red"},
+ {k:"Qual 5", r:["frc7039","frc5951","frc5614"],  b:["frc4744","frc2231","frc4590"],  prs:349.42, pbs:262.96, rv:12409.20, bv: 8469.18, ars:419, abs:474, aw:"blue"},
+ {k:"Qual 8", r:["frc2630","frc1577","frc5951"],  b:["frc4744","frc5987","frc2231"],  prs:352.10, pbs:330.44, rv:12100.00, bv: 9900.00, ars:419, abs:387, aw:"red"},
+ {k:"Qual 9", r:["frc3075","frc7039","frc1577"],  b:["frc5951","frc5987","frc4590"],  prs:300.55, pbs:341.20, rv:10800.00, bv:11500.00, ars:262, abs:451, aw:"blue"},
+ {k:"Qual 12",r:["frc7039","frc5614","frc2630"],  b:["frc10935","frc5951","frc1577"], prs:341.88, pbs:318.60, rv:11900.00, bv:10400.00, ars:487, abs: 86, aw:"red"},
+ {k:"Qual 13",r:["frc5987","frc5614","frc3075"],  b:["frc5951","frc10935","frc4744"], prs:329.70, pbs:311.05, rv:11200.00, bv:10900.00, ars:392, abs:332, aw:"red"},
+ {k:"Qual 16",r:["frc3075","frc5951","frc2231"],  b:["frc2630","frc4590","frc10935"], prs:338.15, pbs:352.90, rv:11700.00, bv:12200.00, ars:434, abs:441, aw:"blue"}
+];
+
+const num = k => k.replace(/^frc/, "");
+
+/* ------------------------------------------------------------------
+   Axis + geometry ported VERBATIM from the shipped `matchAxis.ts`, not
+   re-approximated. Two reasons this matters for a sketch about the cell
+   next door:
+
+   1. A hand-rolled domain anchored the axis at 0 on the first pass, which
+      flattened every band — the exact failure `chart-craft.md` records.
+      The real policy is a 5% proportional pad (10 minimum) on the ±1σ and
+      actual extents, floored at 0 but NOT zero-anchored.
+   2. Y_RED/Y_BLUE are set so each band shares a baseline with its own
+      team-number line (red centre 27, blue centre 49). That alignment is
+      the whole reason a reader can track across from "5951 4590 1690" to
+      the right band — so a sketch that misaligned it would make every
+      variant look broken for a reason that has nothing to do with the
+      variants. Every mark top derives from one `centre`.
+   PLOT_W is narrowed from the shipped 470 purely to fit this page.
+------------------------------------------------------------------ */
+const GEO = { BAND_H: 8, DOT_H: 12, TICK_H: 14, PLOT_H: 60, Y_RED: 23, Y_BLUE: 45 };
+const marks = yBand => {
+  const centre = yBand + GEO.BAND_H / 2;
+  return {
+    centre: centre,
+    bandTop: centre - GEO.BAND_H / 2,
+    tickTop: centre - GEO.TICK_H / 2,
+    dotTop:  centre - GEO.DOT_H / 2
+  };
+};
+const PLOT_W = 300;
+const DOMAIN_PADDING_RATIO = 0.05, MIN_DOMAIN_PADDING = 10, DOMAIN_FLOOR = 0;
+
+/* One shared scale for the whole event (sketch 003-C). Per-row zoom made
+   each row readable alone and incomparable to its neighbours. */
+let rawMin = Infinity, rawMax = -Infinity;
+const consider = v => { if (v < rawMin) rawMin = v; if (v > rawMax) rawMax = v; };
+M.forEach(function (m) {
+  const rsd = Math.sqrt(m.rv), bsd = Math.sqrt(m.bv);
+  consider(m.prs); consider(m.pbs);
+  consider(m.prs - rsd); consider(m.prs + rsd);
+  consider(m.pbs - bsd); consider(m.pbs + bsd);
+  consider(m.ars); consider(m.abs);
+});
+const padding = Math.max((rawMax - rawMin) * DOMAIN_PADDING_RATIO, MIN_DOMAIN_PADDING);
+const DOMAIN = { min: Math.max(DOMAIN_FLOOR, rawMin - padding), max: rawMax + padding };
+const x = v => ((v - DOMAIN.min) / (DOMAIN.max - DOMAIN.min)) * PLOT_W;
+
+/* axisTicks(domain, 4) — endpoints included, never zero-anchored. */
+const axisEl = document.getElementById("axis");
+const tickStep = (DOMAIN.max - DOMAIN.min) / 3;
+for (let i = 0; i < 4; i++) {
+  const t = Math.round(DOMAIN.min + tickStep * i);
+  const s = document.createElement("span");
+  s.style.left = x(t) + "px";
+  s.textContent = String(t);
+  axisEl.appendChild(s);
+}
+
+function allianceLine(teams, side, mine) {
+  const nums = teams.map(function (t) {
+    return '<span class="num' + (t === TEAM ? " num--own" : "") + '">' + num(t) + "</span>";
+  }).join("");
+  return '<div class="alliance-line" data-side="' + side + '" data-mine="' + mine + '">' +
+         '<span class="rail"></span><span class="nums">' + nums + "</span></div>";
+}
+
+function plot(m) {
+  const sides = [
+    { cls: "red",  p: m.prs, sd: Math.sqrt(m.rv), actual: m.ars, y: GEO.Y_RED },
+    { cls: "blue", p: m.pbs, sd: Math.sqrt(m.bv), actual: m.abs, y: GEO.Y_BLUE }
+  ];
+  const html = sides.map(function (s) {
+    const pos = marks(s.y);
+    const lo = x(s.p - s.sd), hi = x(s.p + s.sd);
+    return '<div class="band band--' + s.cls + '" style="left:' + lo + "px;width:" +
+             Math.max(2, hi - lo) + "px;top:" + pos.bandTop + "px;height:" + GEO.BAND_H + 'px"></div>' +
+           '<div class="tick tick--' + s.cls + '" style="left:' + x(s.p) + "px;top:" +
+             pos.tickTop + "px;height:" + GEO.TICK_H + 'px"></div>' +
+           '<div class="dot dot--' + s.cls + '" style="left:' + (x(s.actual) - GEO.DOT_H / 2) +
+             "px;top:" + pos.dotTop + "px;width:" + GEO.DOT_H + "px;height:" + GEO.DOT_H + 'px"></div>';
+  }).join("");
+  return '<div class="plot" style="width:' + PLOT_W + "px;height:" + GEO.PLOT_H + 'px">' + html + "</div>";
+}
+
+const one = v => v.toFixed(0);
+document.getElementById("ev-name").textContent = EVENT.name;
+document.getElementById("ev-rank").textContent =
+  "Rank " + EVENT.rank + " of " + EVENT.total + " · 2026 · Makers Assemble (5951)";
+
+document.getElementById("rows").innerHTML = M.map(function (m, i) {
+  const mineRed = m.r.indexOf(TEAM) !== -1, mineBlue = m.b.indexOf(TEAM) !== -1;
+  const won = (m.aw === "red" && mineRed) || (m.aw === "blue" && mineBlue);
+  const rsd = Math.sqrt(m.rv), bsd = Math.sqrt(m.bv);
+  return '<tr class="' + (i % 2 ? "row-tint" : "row-plain") + '">' +
+    '<td><span class="result-chip result-chip--' + (won ? "win" : "loss") + '">' +
+      (won ? "Win" : "Loss") + "</span></td>" +
+    '<td><div class="match-cell"><span class="match-label">' + m.k + "</span>" +
+      allianceLine(m.r, "red", mineRed) + allianceLine(m.b, "blue", mineBlue) + "</div></td>" +
+    "<td>" + plot(m) + "</td>" +
+    '<td><div class="score-line">' + one(m.prs) + ' <span class="spread">&plusmn; ' + one(rsd) + "</span></div>" +
+        '<div class="score-line">' + one(m.pbs) + ' <span class="spread">&plusmn; ' + one(bsd) + "</span></div></td>" +
+    '<td><div class="score-line ' + (m.aw === "blue" ? "loser" : "") + '">' + m.ars + "</div>" +
+        '<div class="score-line ' + (m.aw === "red" ? "loser" : "") + '">' + m.abs + "</div></td>" +
+    "</tr>";
+}).join("");
+
+/* ---------------- variant switching ---------------- */
+const BLURB = {
+  current:
+    "<strong>What ships today.</strong> Every number on 5951's alliance goes semibold. The cue is real but faint — 600 against 400 at 14px is a small step, and because it paints all three numbers it never tells you <em>which</em> one is 5951. Scan the column: the side flips at Qual 3, back at Qual 9, again at Qual 12.",
+  rail:
+    "<strong>A — Margin rail.</strong> A 3px alliance-coloured bar in the left margin marks the row; numbers stay slate-900 at weight 400. 5951's own number takes the hairline ring already decided for the Common tier (008-C). No colour lands on text at all, so red/blue keeps meaning “the plot”.",
+  ink:
+    "<strong>B — Alliance ink.</strong> Both rows take their alliance colour, echoing the bands to the right; both alliances stay at full strength (a 72% dim measured 3.1:1, under AA) and 5951's number takes a ring in its own alliance colour. Judge this one against the plot column rather than on its own — the question is whether two coloured systems in adjacent cells reinforce or compete.",
+  tint:
+    "<strong>C — Ground tint.</strong> 5951's row rides on a soft alliance-tinted pill, its own number a shade deeper. The figure stays neutral and the ground carries the signal, so the cue survives peripheral scanning — but it does add a second boxed shape to a table that already boxes tier values.",
+  recede:
+    "<strong>D — Recede the opponent.</strong> Adds no ink anywhere. The opposing alliance drops to slate-600 &mdash; 7.5:1, still AA &mdash; while 5951's row simply stays full-strength slate-900. Emphasis by contrast rather than by decoration — the same “half the field stays quiet” logic that settled the Common tier. Note the cost: opponent numbers are still readable, but they are now clearly second-class."
+};
+const wrapEl = document.getElementById("vp");
+function show(v) {
+  wrapEl.className = "v-" + v;
+  document.getElementById("blurb").innerHTML = BLURB[v];
+  const tabs = document.querySelectorAll(".variant-tab");
+  for (let i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle("active", tabs[i].dataset.v === v);
+  }
+}
+document.querySelectorAll(".variant-tab").forEach(function (t) {
+  t.addEventListener("click", function () {
+    show(t.dataset.v);
+    history.replaceState(null, "", "#" + t.dataset.v);
+  });
+});
+/* Deep-linkable variants (#rail, #ink, ...) so a specific one can be shared,
+   and so each can be captured non-interactively for side-by-side review. */
+const fromHash = location.hash.replace("#", "");
+show(BLURB[fromHash] ? fromHash : "current");
+
+/* ---------------- spacing ---------------- */
+const gapEl = document.getElementById("gap"), outEl = document.getElementById("gap-out");
+function setGap(px) {
+  gapEl.value = px;
+  document.documentElement.style.setProperty("--num-gap", px + "px");
+  outEl.textContent = px + "px" + (px === 4 ? " (shipped)" : "");
+}
+gapEl.addEventListener("input", function () { setGap(+gapEl.value); });
+document.getElementById("gap-current").addEventListener("click", function () { setGap(4); });
+document.getElementById("gap-smidge").addEventListener("click", function () { setGap(8); });
+setGap(8);
+
+/* ---------------- toolbar ---------------- */
+document.getElementById("theme").addEventListener("change", function (e) {
+  document.querySelector("link[href*=themes]").href = "../themes/" + e.target.value + ".css";
+});
+document.querySelectorAll("#sketch-tools button[data-w]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("#sketch-tools button[data-w]").forEach(function (o) {
+      o.classList.remove("on");
+    });
+    b.classList.add("on");
+    wrapEl.style.maxWidth = b.dataset.w === "0" ? "100%" : b.dataset.w + "px";
+  });
+});
+const annoBtn = document.getElementById("anno"), tip = document.getElementById("anno-tip");
+annoBtn.addEventListener("click", function () {
+  document.body.classList.toggle("annotate");
+  annoBtn.classList.toggle("on");
+  if (!document.body.classList.contains("annotate")) tip.style.display = "none";
+});
+document.addEventListener("mousemove", function (e) {
+  if (!document.body.classList.contains("annotate")) return;
+  const n = e.target.closest(".num");
+  if (!n) { tip.style.display = "none"; return; }
+  const cs = getComputedStyle(n), par = getComputedStyle(n.parentElement);
+  tip.textContent =
+    "color   " + cs.color + "\n" +
+    "weight  " + cs.fontWeight + "\n" +
+    "gap     " + par.gap + "\n" +
+    "ring    " + (cs.boxShadow === "none" ? "none" : "1px inset");
+  tip.style.display = "block";
+  tip.style.left = (e.clientX + 14) + "px";
+  tip.style.top = (e.clientY + 14) + "px";
+});
+</script>
+</body>
+</html>

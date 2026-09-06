@@ -1,0 +1,57 @@
+/*
+ * Pine theme — the palette SigmaScout ACTUALLY ships as of the 2026-09-01
+ * redesign, transcribed from `apps/web/src/styles/theme.css`.
+ *
+ * `default.css` still carries the pre-redesign indigo working palette, which
+ * earlier sketches (001-008) were judged against. Rather than rewrite that
+ * file and silently invalidate those judgements, this theme sits beside it so
+ * a new sketch can be evaluated against the real shipped ground.
+ *
+ * Custom properties only — no component styles, no layout rules.
+ */
+:root {
+  /* --- ground + ink (60/30/10) --- */
+  --color-bg: #f8fafc;          /* --color-bg-page, slate-50 */
+  --color-surface: #ffffff;     /* --color-bg-surface */
+  --color-chrome: #f1f5f9;
+  --color-border: #e2e8f0;      /* slate-200 hairlines */
+  --color-text: #0f172a;        /* --color-text-primary, slate-900 */
+  --color-text-muted: #475569;  /* slate-600, measured 7.25:1 on the page ground */
+  --color-primary: #2e7d32;     /* --color-accent, Material green-800 */
+
+  /* --- pine ribbon --- */
+  --ribbon-bg: #14532d;
+  --ribbon-ink: #ffffff;
+  --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+  --ribbon-accent: #81c784;
+
+  /*
+   * --- FRC alliance vocabulary ---
+   * Domain vocabulary (what an alliance IS), not a palette choice. Validated
+   * ΔE 29.9 protan. Never adjusted to match the site accent.
+   */
+  --alliance-red: #DC2626;
+  --alliance-red-soft: rgba(220, 38, 38, 0.3);
+  --alliance-blue: #2563EB;
+  --alliance-blue-soft: rgba(37, 99, 235, 0.3);
+  --loser-ink: #94A3B8;
+
+  /* --- rarity tiers (008-C: Common is outline-only) --- */
+  --tier-common-edge: #CBD5E1;
+  --tier-rare-bg: #E0F2FE;   --tier-rare-fg: #0369A1;
+  --tier-epic-bg: #F3E8FF;   --tier-epic-fg: #7E22CE;
+  --tier-legendary-bg: #FEF3C7; --tier-legendary-fg: #B45309;
+
+  /* --- type: two weights only, 400 and 600. No 500, no 700. --- */
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --text-body: 14px;
+  --text-label: 12px;
+  --text-heading: 20px;
+
+  /* --- space: multiples of 4 --- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --radius: 0.375rem;
+}
