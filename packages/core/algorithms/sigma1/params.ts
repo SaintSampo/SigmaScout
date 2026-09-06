@@ -514,8 +514,35 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * still-at-default arm would if a re-tune ever moved it off 1. This task
  * only REGISTERS the knob; tuning and promoting it is explicitly out of
  * scope.
+ *
+ * Bumped `"8.0.0"` -> `"9.0.0"` (2026-09-05, the Rule-A acceptance-policy
+ * decision — see `.planning/todos/completed/retune-sigma1-rolling-origin.md`'s
+ * Stage 3 addendum): this is EXACTLY the reserved bump the three NOT-BUMPED
+ * entries above name. NO code changed in this bump — the trigger is that a
+ * PROMOTED parameter set (`rolling-2026-09c`) now carries a non-default
+ * `carryVarianceFactor` (0.8448855225401831, season 2025's set, from
+ * `reports/tune-joint-on-origin2025-260905s2.json`'s winner), so trigger (b)
+ * fires for every returning team in that season's replay: the "provably inert
+ * at defaults" argument that justified 8.0.0's three non-bumps no longer
+ * covers the committed set family. Season 2026's set also moves (same
+ * artifact family, `carryVarianceFactor` exactly 1 — its change is in the
+ * ten ordinary searched knobs, not the carry mechanism).
+ *
+ * The acceptance decision behind this promotion deliberately DID NOT clear
+ * the D-T7 noise bar (both ships were keep-incumbent under it). It shipped
+ * under the operator-adopted Rule A — accept when the search winner improves
+ * BOTH out-of-sample winner accuracy AND Brier — recorded with the full
+ * retroactive 36-verdict analysis in the retune ledger. 2025:
+ * +0.0041 accuracy (2.8 SE) with -0.0021 Brier; 2026: +0.0015 accuracy
+ * (1.1 SE) with -0.0009 Brier. Codifying Rule A into
+ * `decideAcceptance` for future tunes is a recorded follow-up, not part of
+ * this bump.
+ *
+ * All four `vpr@8.0.0+*.json` files were retired and re-promoted as
+ * `vpr@9.0.0+*` in this same change via `pnpm promote --from-version`
+ * running this constant — the same precedent every prior bump records.
  */
-export const SIGMA1_CODE_VERSION = "8.0.0";
+export const SIGMA1_CODE_VERSION = "9.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:

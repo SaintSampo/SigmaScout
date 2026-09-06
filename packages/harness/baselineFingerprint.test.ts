@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 4 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 5 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -240,11 +240,19 @@ describe("committed baseline fingerprints", () => {
       [...files].sort(),
       `data/algorithm-versions/ is glob-scanned and Sigma1-schema-parsed by digest.test.ts — baseline fingerprints ` +
         `belong in ${BASELINES_DIR}, never in ${ALGORITHM_VERSIONS_DIR}. Found: ${JSON.stringify(files)}`
+    // The 2026-09-05 Rule-A promotion (see params.ts's 9.0.0 entry) added the
+    // fifth: `vpr@9.0.0+rolling-2026-09c.json` — 2025/2026 take the Stage 2
+    // carryVarianceFactor tune's on-arm winners under the operator-adopted
+    // Rule A (accuracy AND Brier both improved; the D-T7 bar itself was
+    // keep-incumbent), every other season carried from rolling-2026-09b. All
+    // four `vpr@8.0.0+*` files were retired and re-promoted as `vpr@9.0.0+*`
+    // in the same change, the same precedent as the 7.0.0 -> 8.0.0 bump.
     ).toEqual([
-      "vpr@8.0.0+rolling-2026-09.json",
-      "vpr@8.0.0+rolling-2026-09b.json",
-      "vpr@8.0.0+tracer-check.json",
-      "vpr@8.0.0+tuned-2026-08.json",
+      "vpr@9.0.0+rolling-2026-09.json",
+      "vpr@9.0.0+rolling-2026-09b.json",
+      "vpr@9.0.0+rolling-2026-09c.json",
+      "vpr@9.0.0+tracer-check.json",
+      "vpr@9.0.0+tuned-2026-08.json",
     ]);
   });
 

@@ -70,6 +70,17 @@
  * only origin 2022 cleared the D-T7 bar (off arm), so the new file replaces
  * 2022's set and carries every other season's `rolling-2026-09` entry
  * forward unchanged.
+ *
+ * Re-pinned to `rolling-2026-09c` (2026-09-05, the Rule-A promotion — the
+ * operator-adopted acceptance policy "ship when the search winner improves
+ * BOTH out-of-sample accuracy AND Brier", adopted after three tunes went
+ * 30/30 keep-incumbent under the D-T7 noise bar while posting repeated
+ * near-accepts; full 36-verdict retroactive analysis in the retune ledger's
+ * Stage 3 addendum): 2025 and 2026 take the Stage 2 carryVarianceFactor
+ * tune's on-arm winners, every other season carries `rolling-2026-09b`
+ * forward unchanged. This re-pin rode the 8.0.0 -> 9.0.0 code-version bump
+ * (see `params.ts`'s 9.0.0 entry — the first promoted set carrying a
+ * non-default `carryVarianceFactor`, season 2025 at 0.845).
  */
 import { join } from "node:path";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
@@ -77,5 +88,5 @@ import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans. */
 export const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
-/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`. */
-export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09b.json`);
+/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`, `rolling-2026-09b`. */
+export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09c.json`);

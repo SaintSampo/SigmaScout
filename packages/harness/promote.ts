@@ -897,7 +897,19 @@ export function migrateSourceParams(
   // never the parameter set), so a 7.x source parses directly against
   // `Sigma1ParamsSchema` with no migration and no tag. This is a
   // shared-shape ASSERTION, not a migration — do not invent one.
-  if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION || sourceVersion.codeVersion.startsWith("7.")) {
+  // 2026-09-05 (the 8.0.0 -> 9.0.0 Rule-A promotion bump): `8.` ALSO shares
+  // the CURRENT shape. That bump changed no code and no required field — its
+  // trigger was a promoted set carrying a non-default `carryVarianceFactor`
+  // (see `params.ts`'s 9.0.0 entry) — and the two fields added since 8.0.0
+  // shipped (`carryVarianceFactor`, `carryEvidenceRate`, both schema-defaulted)
+  // fill in via `Sigma1ParamsSchema`'s own defaults, exactly the argument the
+  // `7.` branch below already carries. Shared-shape ASSERTION, not a
+  // migration — do not invent one.
+  if (
+    sourceVersion.codeVersion === SIGMA1_CODE_VERSION ||
+    sourceVersion.codeVersion.startsWith("8.") ||
+    sourceVersion.codeVersion.startsWith("7.")
+  ) {
     return { params: Sigma1ParamsSchema.parse(sourceVersion.params), paramShapeMigration: undefined };
   } else if (sourceVersion.codeVersion.startsWith("6.") || sourceVersion.codeVersion.startsWith("5.")) {
     // D-Y1/D-Y3 (quick task 260903-750): 6.0.0 -> 7.0.0 DROPS
