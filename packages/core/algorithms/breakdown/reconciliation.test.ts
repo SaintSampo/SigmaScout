@@ -15,7 +15,12 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../../corpus/db.js";
-import { componentMapForSeason, FOULS_COMMITTED_COMPONENT, parseBreakdown } from "./index.js";
+import {
+  BREAKDOWN_REGISTERED_SEASONS,
+  componentMapForSeason,
+  FOULS_COMMITTED_COMPONENT,
+  parseBreakdown,
+} from "./index.js";
 import { distributeResidual } from "./fallback.js";
 import type { ParsedComponents } from "./constants.js";
 
@@ -23,13 +28,15 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const SAMPLE_SIZE = 2000;
 const RECONCILIATION_TOLERANCE = 1e-6;
 /**
- * All seven seasons registered in `breakdown/index.ts` (D-19: additive, no
- * dispatch branching). 2024 was registered by plan 02-01; 2022/2023 by
- * plan 02-01's Task 1; 2025/2026 by its Task 2; 2020 and 2019 by quick task
- * 260903-4fs's Tasks 1 and 2 respectively. 2021 is deliberately absent —
- * no standard FRC season was played that year.
+ * Provenance of the seasons registered in `breakdown/index.ts` (D-19:
+ * additive, no dispatch branching). 2024 was registered by plan 02-01;
+ * 2022/2023 by plan 02-01's Task 1; 2025/2026 by its Task 2; 2020 and 2019
+ * by quick task 260903-4fs's Tasks 1 and 2 respectively. 2021 is
+ * deliberately absent — no standard FRC season was played that year. The
+ * list itself is now derived from the dispatch table
+ * (`BREAKDOWN_REGISTERED_SEASONS`, imported above) rather than restated
+ * here (quick task 260906-8kd).
  */
-const REGISTERED_SEASONS = [2019, 2020, 2022, 2023, 2024, 2025, 2026] as const;
 
 interface SampledBreakdownRow {
   match_key: string;
@@ -77,7 +84,7 @@ function allianceTotalPoints(rawJson: unknown, side: "red" | "blue"): number {
 
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 
-describe.each(REGISTERED_SEASONS)("season %i component map reconciliation (D-01, D-02)", (year) => {
+describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliation (D-01, D-02)", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
     return;
@@ -246,7 +253,7 @@ describe("prototype-pollution regression (T-02-04)", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
   } else {
-    it.each(REGISTERED_SEASONS)(
+    it.each(BREAKDOWN_REGISTERED_SEASONS)(
       "season %i: a poisoned score_breakdown yields a null-prototype record and never touches Object.prototype",
       (year) => {
         const [row] = sampleBreakdowns(year, 1);
