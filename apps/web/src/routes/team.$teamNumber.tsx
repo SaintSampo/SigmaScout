@@ -151,7 +151,7 @@ function TeamPage() {
           {/* The identity chrome (name, number — image/TBA link join once
               plan 06-07 wires D-03) is not year-scoped and renders normally
               above the empty body, per D-19/E5's own instruction. */}
-          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} /></div>
+          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} ranks={data.ranks} /></div>
           {yearMismatch ? (
             <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
           ) : (

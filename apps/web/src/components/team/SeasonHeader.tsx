@@ -4,6 +4,8 @@ import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { RankCards } from "./RankCards.js";
 
 /**
  * One of the two composition seams `OverviewTab.tsx` freezes this task
@@ -13,11 +15,25 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
  */
 export interface SeasonHeaderProps {
   artifact: TeamSeasonArtifact;
-  algorithmId: string;
+  /**
+   * Quick task 260905-ttv: narrowed from `string` to `PublishedAlgorithmId`
+   * so `RankCards`' `/teams` links typecheck against `TeamsSearchSchema`'s
+   * `algorithm` field. Every real caller already passes
+   * `Route.useSearch().algorithm`, which has exactly this type, so this
+   * narrows a prop rather than changing any runtime value.
+   */
+  algorithmId: PublishedAlgorithmId;
   season: number;
   teamNumber: number;
   /** The last-OFFICIAL-match snapshot metrics (lib/officialSnapshot.ts), when the route could derive one — season-final values render otherwise. */
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
+  /**
+   * Quick task 260905-ttv: this team's World/Country/District/State rank
+   * scopes, threaded straight through to `RankCards` — see that module's own
+   * header for the graceful-absence contract (undefined/empty both render
+   * nothing).
+   */
+  ranks?: TeamSeasonArtifact["ranks"];
 }
 
 /** Copied from `apps/web/src/components/teams-table/columns.tsx`'s own `formatRecord` — do not import across the teams-table module boundary (06-PATTERNS.md). */
@@ -53,7 +69,7 @@ function metricLabel(key: string): string {
  * D-03), a "View on TBA" link, the record/win-rate strings, D-17's tier key
  * row, and the tier-boxed metric grid.
  */
-export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride }: SeasonHeaderProps) {
+export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, ranks }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
   const { record } = artifact.seasonStats;
   // 2026-09-01 (user request): tiles read the last-OFFICIAL-match snapshot
@@ -105,62 +121,76 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
 
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-md)]">
-      <div className="flex min-w-0 items-center gap-[var(--spacing-md)]">
-        {/*
-          Robot image (TEAM-02, D-03). `Avatar`'s own built-in error-triggered
-          fallback slot is what makes the ~25% no-photo case a rendering
-          branch rather than a conditional tree: `AvatarImage` is only
-          rendered at all when `robotImageUrl` is present, and Radix itself
-          swaps to `AvatarFallback` on any load failure. Overriding the
-          primitive's default `rounded-full`/`size-8` with this app's own
-          radius token and a larger fixed size — the fallback tile is
-          decorative chrome carrying no visible text, only `role="img"` and
-          an accessible label naming the team (06-UI-SPEC.md Copywriting
-          Contract).
-        */}
-        <Avatar className="size-28 shrink-0 rounded-[var(--radius)] after:rounded-[var(--radius)]">
-          {artifact.robotImageUrl !== undefined && (
-            <AvatarImage src={artifact.robotImageUrl} alt={`${nickname} robot photo`} className="rounded-[var(--radius)]" />
-          )}
-          <AvatarFallback
-            role="img"
-            aria-label={`No robot photo available for team ${teamNumber}`}
-            className="rounded-[var(--radius)] bg-[var(--color-bg-surface)]"
-          />
-        </Avatar>
-        <div className="flex min-w-0 flex-col gap-[var(--spacing-sm)]">
-          <div className="flex min-w-0 items-baseline gap-[var(--spacing-md)]">
-            <span className="numeric-cell text-role-display shrink-0 text-[var(--color-text-primary)]">{`#${teamNumber}`}</span>
-            {/* The page's one semantic <h1> — the team's identity is the page title (teams.tsx's own <h1> precedent), even though the team NUMBER is the larger, Display-scale visual focal point per 06-UI-SPEC.md's Visual Hierarchy section. */}
-            <h1 title={nickname} className="text-role-heading min-w-0 truncate text-[var(--color-text-primary)]">
-              {nickname}
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-[var(--spacing-md)]">
-            <span data-testid="team-record" className="numeric-cell text-role-body text-[var(--color-text-primary)]">
-              {formatRecord(record)}
-            </span>
-            <span className="numeric-cell text-role-body text-[var(--color-text-muted)]">{formatWinRate(winRateOf(record))}</span>
-            {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): the record
-                is `artifact.seasonStats.record` — always season-final and
-                inclusive of offseason/preseason play — which is a DIFFERENT
-                as-of instant from the tiles beside it whenever a snapshot is
-                present below. Named here so the two never read as the same
-                claim. */}
-            <span data-testid="team-record-basis" className="text-role-label text-[var(--color-text-muted)]">
-              Season-final, includes offseason/preseason
-            </span>
-            {/* TEAM-02's "working link to the team's TBA page" — built from the team NUMBER, not the internal corpus key, per 06-UI-SPEC.md's Copywriting Contract. */}
-            <a
-              href={tbaUrl}
-              target="_blank"
-              rel="noopener"
-              className="text-role-body text-[var(--color-accent)] underline-offset-2 hover:underline"
-            >
-              View on TBA
-            </a>
+      {/*
+        Quick task 260905-ttv: this row is now `flex-wrap items-start
+        justify-between` rather than a single `items-center` row of just
+        Avatar+identity — the rank cards (second child) are pushed to the
+        row's right edge at wide widths and wrap below the identity block
+        (first child, which keeps its own `min-w-0` below so the nickname
+        still truncates instead of being squeezed by the cards) at narrow
+        ones. Renders identically to before when `ranks` is absent/empty,
+        since `RankCards` then renders nothing and `justify-between` has
+        only one child to place.
+      */}
+      <div className="flex flex-wrap items-start justify-between gap-[var(--spacing-md)]">
+        <div className="flex min-w-0 items-center gap-[var(--spacing-md)]">
+          {/*
+            Robot image (TEAM-02, D-03). `Avatar`'s own built-in error-triggered
+            fallback slot is what makes the ~25% no-photo case a rendering
+            branch rather than a conditional tree: `AvatarImage` is only
+            rendered at all when `robotImageUrl` is present, and Radix itself
+            swaps to `AvatarFallback` on any load failure. Overriding the
+            primitive's default `rounded-full`/`size-8` with this app's own
+            radius token and a larger fixed size — the fallback tile is
+            decorative chrome carrying no visible text, only `role="img"` and
+            an accessible label naming the team (06-UI-SPEC.md Copywriting
+            Contract).
+          */}
+          <Avatar className="size-28 shrink-0 rounded-[var(--radius)] after:rounded-[var(--radius)]">
+            {artifact.robotImageUrl !== undefined && (
+              <AvatarImage src={artifact.robotImageUrl} alt={`${nickname} robot photo`} className="rounded-[var(--radius)]" />
+            )}
+            <AvatarFallback
+              role="img"
+              aria-label={`No robot photo available for team ${teamNumber}`}
+              className="rounded-[var(--radius)] bg-[var(--color-bg-surface)]"
+            />
+          </Avatar>
+          <div className="flex min-w-0 flex-col gap-[var(--spacing-sm)]">
+            <div className="flex min-w-0 items-baseline gap-[var(--spacing-md)]">
+              <span className="numeric-cell text-role-display shrink-0 text-[var(--color-text-primary)]">{`#${teamNumber}`}</span>
+              {/* The page's one semantic <h1> — the team's identity is the page title (teams.tsx's own <h1> precedent), even though the team NUMBER is the larger, Display-scale visual focal point per 06-UI-SPEC.md's Visual Hierarchy section. */}
+              <h1 title={nickname} className="text-role-heading min-w-0 truncate text-[var(--color-text-primary)]">
+                {nickname}
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-[var(--spacing-md)]">
+              <span data-testid="team-record" className="numeric-cell text-role-body text-[var(--color-text-primary)]">
+                {formatRecord(record)}
+              </span>
+              <span className="numeric-cell text-role-body text-[var(--color-text-muted)]">{formatWinRate(winRateOf(record))}</span>
+              {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): the record
+                  is `artifact.seasonStats.record` — always season-final and
+                  inclusive of offseason/preseason play — which is a DIFFERENT
+                  as-of instant from the tiles beside it whenever a snapshot is
+                  present below. Named here so the two never read as the same
+                  claim. */}
+              <span data-testid="team-record-basis" className="text-role-label text-[var(--color-text-muted)]">
+                Season-final, includes offseason/preseason
+              </span>
+              {/* TEAM-02's "working link to the team's TBA page" — built from the team NUMBER, not the internal corpus key, per 06-UI-SPEC.md's Copywriting Contract. */}
+              <a
+                href={tbaUrl}
+                target="_blank"
+                rel="noopener"
+                className="text-role-body text-[var(--color-accent)] underline-offset-2 hover:underline"
+              >
+                View on TBA
+              </a>
+            </div>
           </div>
         </div>
+        <RankCards ranks={ranks} season={season} algorithmId={algorithmId} />
       </div>
 
       <div className="flex flex-col gap-[var(--spacing-sm)]">

@@ -1,8 +1,8 @@
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SeasonHeader } from "./SeasonHeader.js";
 import { EventSectionList } from "./EventSectionList.js";
 import { TierKeyRow } from "./TierKeyRow.js";
-import { RankCards } from "./RankCards.js";
 
 /**
  * The Overview panel's composition seam (06-01-PLAN.md Task 2). Mounts
@@ -12,7 +12,8 @@ import { RankCards } from "./RankCards.js";
  */
 export interface OverviewTabProps {
   artifact: TeamSeasonArtifact;
-  algorithmId: string;
+  /** Quick task 260905-ttv: narrowed from `string` — see `SeasonHeaderProps.algorithmId`'s doc comment for the full reasoning; this component only threads the value through unchanged. */
+  algorithmId: PublishedAlgorithmId;
   season: number;
   teamNumber: number;
   /**
@@ -29,14 +30,15 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber, metrics
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
       <div className="data-card p-[var(--spacing-md)]">
-        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} />
+        {/*
+          Quick task 260905-ttv: `RankCards` moved INSIDE `SeasonHeader`
+          (rendered in its identity row, right-aligned) — this component no
+          longer mounts `RankCards` itself. `artifact.ranks` is threaded
+          straight through; `SeasonHeader`/`RankCards` own the
+          graceful-absence contract (undefined/empty both render nothing).
+        */}
+        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} ranks={artifact.ranks} />
       </div>
-      {/*
-        Quick task 260905-ldu: World/Country/District/State rank cards for
-        the currently selected algorithm/year. Renders nothing at all on an
-        artifact with no `ranks` (absent or empty) — see RankCards.tsx.
-      */}
-      <RankCards ranks={artifact.ranks} />
       <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
       {/*
         The tier key is a legend, not a headline: it explains the colour

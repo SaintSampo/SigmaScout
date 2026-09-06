@@ -585,6 +585,48 @@ body {
 }
 
 /*
+ * Quick task 260905-ttv: the rank-card row's fixed width plus its own
+ * per-tier colour, placed AFTER `.data-card` in source order — LOAD-BEARING,
+ * not incidental. Each card also carries `.data-card` for its border/radius/
+ * shadow, and a tier modifier below sets `background-color`; at equal
+ * specificity (both are single class selectors) the LATER rule in the
+ * cascade wins, so the tier's fill paints over `.data-card`'s own
+ * `background-color` only because this block is declared after it. Moving
+ * this block above `.data-card` would silently make every tiered card look
+ * like a plain white one.
+ *
+ * A card is NOT `.metric-tier`: that class's `min-width: 58px`,
+ * `display: inline-block` and `text-align: right` are tuned for a numeric
+ * cell inside an aligned table column, not a standalone card carrying a
+ * label, a number and a denominator stacked vertically. Do not "simplify"
+ * the two together — a card reusing `.metric-tier` would inherit a
+ * right-aligned, inline-block box far too narrow for its content.
+ */
+.rank-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  width: 108px;
+  flex-shrink: 0;
+}
+.rank-card--common {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), inset 0 0 0 1px var(--tier-common-edge);
+}
+.rank-card--rare {
+  background-color: var(--tier-rare-bg);
+  color: var(--tier-rare-fg);
+}
+.rank-card--epic {
+  background-color: var(--tier-epic-bg);
+  color: var(--tier-epic-fg);
+}
+.rank-card--legendary {
+  background-color: var(--tier-legendary-bg);
+  color: var(--tier-legendary-fg);
+}
+
+/*
  * Event-type chips (2026-09-01 redesign, decision 3 option E1): ONE chip
  * vocabulary for officialness across the site. Filled = official season;
  * the single dark chip = Championship; dashed outline + muted ink =

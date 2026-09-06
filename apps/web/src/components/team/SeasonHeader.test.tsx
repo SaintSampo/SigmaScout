@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { renderWithRouter } from "@/test/routerHarness";
 import { SeasonHeader } from "./SeasonHeader.js";
 import { metricKeysFor } from "@/lib/metricKeys";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, type TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -311,5 +312,23 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
     const asOf = screen.getByTestId("season-header-as-of");
     expect(asOf.textContent).not.toContain("official match");
     expect(asOf.textContent).toContain("Season-final");
+  });
+});
+
+describe("SeasonHeader — rank cards render inside the header (quick task 260905-ttv)", () => {
+  afterEach(() => cleanup());
+
+  it("renders the rank cards inside the header when ranks is supplied", () => {
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 12, total: 3481 }];
+    renderWithRouter(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} ranks={ranks} />);
+
+    expect(screen.getByTestId("rank-cards")).toBeDefined();
+    expect(screen.getByTestId("rank-card").textContent).toContain("World");
+  });
+
+  it("renders nothing extra when ranks is absent -- no rank-cards element, and every other assertion in this file is unaffected", () => {
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    expect(screen.queryByTestId("rank-cards")).toBeNull();
   });
 });

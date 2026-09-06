@@ -19,7 +19,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { render } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
+import { RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
 
 const ChildrenContext = createContext<ReactNode>(null);
 
@@ -31,7 +31,12 @@ function buildRouter() {
   const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
   const eventRoute = createRoute({ path: "/event/$eventKey", getParentRoute: () => rootRoute, component: RouteBody });
   const teamRoute = createRoute({ path: "/team/$teamNumber", getParentRoute: () => rootRoute, validateSearch: TeamSearchSchema, component: () => null });
-  const routeTree = rootRoute.addChildren([eventRoute, teamRoute]);
+  // Quick task 260905-ttv: the rank cards' own `<Link to="/teams">` target —
+  // registered here (never rendered as the initial route) so a subject that
+  // links there resolves a real route in the tree rather than an unknown
+  // path.
+  const teamsRoute = createRoute({ path: "/teams", getParentRoute: () => rootRoute, validateSearch: TeamsSearchSchema, component: () => null });
+  const routeTree = rootRoute.addChildren([eventRoute, teamRoute, teamsRoute]);
   return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/event/2024casf"] }) });
 }
 
