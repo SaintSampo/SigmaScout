@@ -278,14 +278,43 @@ describe("TeamsTable", () => {
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 
-  it("renders the contract's empty-state heading with the year substituted", async () => {
+  it("renders the contract's empty-state heading with the year substituted, with no active filter", async () => {
     render(
       <TestHarness>
         <TeamsTable status="empty" rows={[]} algorithmId="opr" season={2022} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
       </TestHarness>,
     );
     await waitFor(() => expect(screen.getByText("No teams for 2022")).toBeDefined());
+    expect(screen.queryByText("Clear filters")).toBeNull();
   });
+
+  it(
+    "quick task 260905-ttv: with an active filter and zero rows, the empty state names the filters as the cause and offers Clear filters",
+    async () => {
+      const onClearFilters = vi.fn();
+      render(
+        <TestHarness>
+          <TeamsTable
+            status="empty"
+            rows={[]}
+            algorithmId="opr"
+            season={2022}
+            view="components"
+            sortKey={TOTAL_KEY}
+            sortDirection="desc"
+            onSortChange={noop}
+            onRetry={noop}
+            hasActiveFilter
+            onClearFilters={onClearFilters}
+          />
+        </TestHarness>,
+      );
+      await waitFor(() => expect(screen.getByText("No teams match your filters")).toBeDefined());
+      expect(screen.queryByText("No teams for 2022")).toBeNull();
+      fireEvent.click(screen.getByText("Clear filters"));
+      expect(onClearFilters).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("renders the contract's error copy, and Retry invokes the callback", async () => {
     const onRetry = vi.fn();

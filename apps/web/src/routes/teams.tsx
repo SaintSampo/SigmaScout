@@ -10,6 +10,8 @@ import { resolveSortKey } from "../lib/resolveSortKey.js";
 import { buildTeamRows, sortTeamRows, WIN_RATE_SORT_KEY } from "../components/teams-table/rowModel.js";
 import { displayedMetricKeys, type TeamsTableView } from "../components/teams-table/columns.js";
 import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/TeamsTable.js";
+import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
+import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
@@ -19,8 +21,14 @@ export const Route = createFileRoute("/teams")({
 function TeamsPage() {
   // 05-06-PLAN.md Task 3: the real table replaces the tracer's plain one,
   // with sort bound to the URL (D-14) instead of a hard-coded slice.
-  const { year, algorithm, sort, sortDir, cols } = Route.useSearch();
+  const { year, algorithm, sort, sortDir, cols, country, state, district } = Route.useSearch();
   const navigate = Route.useNavigate();
+
+  // Quick task 260905-ttv: the three region filter dimensions, read from the
+  // URL exactly like every other search-param-backed piece of state on this
+  // route.
+  const filters: TeamFiltersModel = { country, state, district };
+  const hasActiveFilter = country !== undefined || state !== undefined || district !== undefined;
 
   // Decision T1 (2026-09-01 redesign): grouped Auto/Teleop/Endgame/Total by
   // default, the full component set behind the URL-backed `cols` toggle.
@@ -95,8 +103,17 @@ function TeamsPage() {
 
   const rows = useMemo(() => {
     if (!data) return [];
-    return sortTeamRows(buildTeamRows(data, algorithm), effectiveSortKey, sortDir);
-  }, [data, algorithm, effectiveSortKey, sortDir]);
+    // Quick task 260905-ttv: rows are filtered BEFORE buildTeamRows, so the
+    // rank column is the rank WITHIN the active filter, not the World rank
+    // filtered down after the fact. This is the invariant the rank cards'
+    // links depend on (see 260905-ttv-PLAN.md's
+    // <the_invariant_this_task_rests_on>): a District rank card reading
+    // "#3 of 60" must land on a table where the team shows "#3", not its
+    // World rank. It is also what a reader coming from Statbotics expects a
+    // filtered ranking to mean.
+    const filteredTeams = applyTeamFilters(data.teams, filters);
+    return sortTeamRows(buildTeamRows({ ...data, teams: filteredTeams }, algorithm), effectiveSortKey, sortDir);
+  }, [data, algorithm, effectiveSortKey, sortDir, filters]);
 
   let status: TeamsTableStatus;
   if (isPending) status = "loading";
@@ -107,6 +124,30 @@ function TeamsPage() {
   function handleViewToggle() {
     navigate({
       search: (prev) => ({ ...prev, cols: view === "components" ? undefined : "components" }),
+    });
+  }
+
+  // Quick task 260905-ttv: the updater form so year/algorithm/sort/cols all
+  // survive, mirroring `events.tsx`'s `handleFiltersChange`/`handleClearFilters`.
+  function handleFiltersChange(nextFilters: TeamFiltersModel) {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        country: nextFilters.country,
+        state: nextFilters.state,
+        district: nextFilters.district,
+      }),
+    });
+  }
+
+  function handleClearFilters() {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        country: undefined,
+        state: undefined,
+        district: undefined,
+      }),
     });
   }
 
@@ -136,6 +177,20 @@ function TeamsPage() {
             </button>
           )}
         </div>
+        {/*
+          Quick task 260905-ttv: gated on `data !== undefined` (the artifact
+          fetch itself succeeded), NOT on `status === "success"` — that local
+          `status` also folds in the filtered row count, and hiding the
+          controls the moment a filter empties the table would strand the
+          reader with no way back except the empty state's own Clear-filters
+          link. Option lists derive from `data.teams` UNFILTERED, so
+          selecting a country never empties the district list.
+        */}
+        {data && (
+          <div className="mb-[var(--spacing-md)]">
+            <TeamsFilters rows={data.teams} filters={filters} onFiltersChange={handleFiltersChange} onClearFilters={handleClearFilters} />
+          </div>
+        )}
         <TeamsTable
           status={status}
           rows={rows}
@@ -146,6 +201,8 @@ function TeamsPage() {
           sortDirection={sortDir}
           onSortChange={handleSortChange}
           onRetry={() => void refetch()}
+          hasActiveFilter={hasActiveFilter}
+          onClearFilters={handleClearFilters}
         />
       </div>
     </div>

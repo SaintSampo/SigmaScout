@@ -53,13 +53,24 @@ export interface TeamsTableProps {
   sortDirection: SortDirection;
   onSortChange: (columnId: string) => void;
   onRetry: () => void;
+  /**
+   * Quick task 260905-ttv: whether a Country/State/District filter is
+   * currently active. Branches the empty state (below) between the
+   * pre-existing year-gap copy and a filtered-to-zero copy that names the
+   * filters as the cause and offers a Clear-filters action — mirroring
+   * `EventsList.tsx`'s own empty branch. Without this, a filter's
+   * zero-result state told the reader to check a different year, which is
+   * the wrong diagnosis and an unrecoverable dead end on a phone.
+   */
+  hasActiveFilter?: boolean;
+  onClearFilters?: () => void;
 }
 
 function cellClassName(columnId: string): string {
   return columnId === "nickname" ? "truncate text-role-body" : "numeric-cell text-role-body";
 }
 
-export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, sortDirection, onSortChange, onRetry }: TeamsTableProps) {
+export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, sortDirection, onSortChange, onRetry, hasActiveFilter, onClearFilters }: TeamsTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // 07-UAT.md G-2: below `MOBILE_BREAKPOINT_PX`, nickname unpins and
@@ -112,6 +123,11 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
   // phone width without a sideways scroll — never nested inside the
   // virtualized container below.
   if (status === "empty") {
+    if (hasActiveFilter) {
+      return (
+        <EmptyState heading="No teams match your filters" body="Try removing a filter, or check a different year." onClearFilters={onClearFilters} />
+      );
+    }
     return <EmptyState heading={`No teams for ${season}`} body={`No teams found for ${season}. Check a different year.`} />;
   }
 

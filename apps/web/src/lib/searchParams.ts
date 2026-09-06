@@ -90,6 +90,27 @@ export const TeamsSearchSchema = RootSearchSchema.extend({
    * choice; anything unrecognized falls back to the default.
    */
   cols: z.literal("components").optional().catch(undefined),
+  /**
+   * Quick task 260905-ttv: the Teams page's Country/State/District filter
+   * dimensions, backing `TeamsFilters`/`teamFilterModel.ts`'s `applyTeamFilters`.
+   * Plain optional strings, copying `EventsSearchSchema`'s own doc-comment
+   * reasoning for `country`/`state`/`district` verbatim: their valid value
+   * set is data-dependent (this year's distinct published regions), not a
+   * closed enum this static schema could know, and a value matching no real
+   * option is not an error — it is an ordinary filter that matches nothing,
+   * yielding the table's own filtered-to-zero empty state rather than an
+   * undefined page state.
+   *
+   * These three names are safe to share with `EventsSearchSchema` — unlike
+   * `sort`, which `applyYearChange` rewrites and which is exactly why the
+   * Events page had to name its own field `eventSort` — because
+   * `applyYearChange` touches only the literal key `sort` and passes
+   * everything else through its `...current` spread untouched. That is what
+   * makes a year change preserve these filters for free.
+   */
+  country: z.string().optional().catch(undefined),
+  state: z.string().optional().catch(undefined),
+  district: z.string().optional().catch(undefined),
 });
 
 export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;
