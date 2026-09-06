@@ -63,11 +63,14 @@ import {
   openCorpusReadOnly,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
+  selectEventTeamsForEvents,
   selectScheduledMatches,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   type Corpus,
 } from "../corpus/db.js";
+import { buildPreScheduleArtifact } from "./preSchedule.js";
+import { defaultMatchesPerTeam, matchesPerTeamFor, ScheduleTemplateUnavailableError } from "./scheduleTemplates.js";
 import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionRecord } from "./replay.js";
 import {
   artifactKey,
@@ -78,6 +81,7 @@ import {
   EventArtifactSchema,
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
+  preScheduleKey,
   publishedTierForPercentile,
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
@@ -108,6 +112,18 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
 const DEFAULT_CONCURRENCY = 16;
 const SEED_OUT_DIR = join("reports", "publish");
+/**
+ * C-05 (quick task 260905-tll Task 4): the default first season that gets
+ * pre-schedule sidecars. A PARAMETER end to end — settable per run via
+ * `--presim-from-season` / `PublishSeasonsOptions.preScheduleFromSeason` —
+ * and this default is the ONLY place the cutoff appears; nothing inside the
+ * per-event logic hardcodes it.
+ */
+const DEFAULT_PRESCHEDULE_FROM_SEASON = 2026;
+/** C-08: K synthetic qualification schedules per covered event. */
+const PRESIM_SCHEDULE_COUNT = 20;
+/** 20 schedules x 50 draws = 1,000 total baked draws — matching the client engine's own `SIMULATION_DRAWS`, so the baked and live results are the same kind of quantity at the same resolution. */
+const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
 /** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the three published ids. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
 const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr };
@@ -1258,6 +1274,16 @@ export function computeSizeStats(records: readonly PublishedObjectRecord[]): Par
  */
 class BoundedUploader {
   readonly records: PublishedObjectRecord[] = [];
+  /**
+   * Quick task 260905-tll Task 4 (PD-01): pre-schedule sidecar uploads,
+   * recorded SEPARATELY from the `PageKind`-keyed `records` array above —
+   * the sidecar is deliberately not a `PageKind` (see `preScheduleKey`'s
+   * doc comment in pageArtifacts.ts), so it must not enter
+   * `computeSizeStats`' per-kind budget accounting or
+   * `payloadBudget.test.ts`'s `PAGE_KINDS` gate. Its own size summary is
+   * printed from this array at the end of the run.
+   */
+  readonly sidecarRecords: { key: string; bytes: number }[] = [];
   #active = 0;
   readonly #queue: (() => void)[] = [];
 
@@ -1290,6 +1316,144 @@ class BoundedUploader {
       putObject(this.bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" })
     );
   }
+
+  /**
+   * Quick task 260905-tll Task 4: the sidecar counterpart to `publish` —
+   * same bounded semaphore, same `application/json` / `max-age=60` headers,
+   * same dry-run record-without-upload behavior, but records into
+   * `sidecarRecords` rather than the `PageKind`-keyed `records` array
+   * (PD-01). Callers chain the returned promise BEFORE the same event's
+   * event-artifact `publish`, following the repo's established
+   * artifacts-before-index ordering rule.
+   */
+  publishSidecar(key: string, body: string): Promise<void> {
+    const bytes = Buffer.byteLength(body, "utf8");
+    this.sidecarRecords.push({ key, bytes });
+    if (this.dryRun) return Promise.resolve();
+    return this.#withSlot(() =>
+      putObject(this.bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" })
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-schedule sidecar generation (quick task 260905-tll Task 4)
+// ---------------------------------------------------------------------------
+
+/** Everything `buildPreScheduleSidecarForEvent` needs to decide, price and serialize one (event, algorithm) pair's sidecar. */
+interface PreScheduleSidecarArgs {
+  readonly eventKey: string;
+  readonly season: number;
+  /** The REAL event's TBA `event_type` — load-bearing (PD-06): `eventTierFor` throws for an unmapped type (99/Offseason is deliberately unmapped), so RP-ineligible events must be gated out BEFORE any synthetic match exists. */
+  readonly eventType: number;
+  readonly algorithm: AlgorithmModule<any>;
+  /** The event's published roster — match-derived when matches exist, registered (`event_teams`) otherwise (PD-05). */
+  readonly roster: readonly string[];
+  /** Qualification matches (played + scheduled) this event has in the corpus — PD-02's freeze predicate AND `matchesPerTeamFor`'s input (C-12). */
+  readonly qualMatchCount: number;
+  /** Whether a walk-forward pre-event state was captured for this event. Absent exactly when no completed match of this event was replayed with a predecessor state — the cold-start season's first event (PD-04), or an event whose schedule landed but has no completed matches yet. */
+  readonly hasPreEventState: boolean;
+  readonly preEventState: unknown;
+  /** Whether a season-final state exists for this algorithm — C-07's current-state pricing source for scheduleless events. */
+  readonly hasSeasonFinalState: boolean;
+  readonly seasonFinalState: unknown;
+  readonly generation: string;
+  readonly computedAt: string;
+}
+
+/**
+ * Decides whether one (event, algorithm) pair gets a pre-schedule sidecar,
+ * and builds + serializes it when it does (C-04/C-05/C-06/C-07, PD-02/PD-04/
+ * PD-06). Returns `undefined` on every skip. The caller must upload the
+ * returned body BEFORE the event artifact for the same event (the
+ * established artifacts-before-index ordering rule).
+ *
+ * PD-02 — "freeze once the schedule lands" is a source-of-state switch, not
+ * an R2 read-before-write: at least one qualification match row in the
+ * corpus (played or scheduled) means the schedule HAS landed, so the sidecar
+ * prices from the walk-forward PRE-EVENT state (C-06) — stable across
+ * republishes because it is a function of the corpus prefix, not of the
+ * run. Zero qualification rows means the schedule has not landed, so the
+ * sidecar prices from current (season-final) state and regenerates every
+ * full publish (C-07). No R2 read, no freeze flag.
+ *
+ * Error split (C-11): `ScheduleTemplateUnavailableError` (a team count the
+ * grid cannot serve) skips that one event with a logged reason;
+ * `ScheduleTemplateMissingError` propagates and fails the whole run — a
+ * missing cache file is an operator problem the run must surface loudly.
+ *
+ * A `null` from `buildPreScheduleArtifact` means this algorithm does not
+ * model ranking points (the ordinary opr/epa answer) — skipped silently, so
+ * a full-season publish across three algorithms produces no log spam.
+ */
+function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: string; body: string } | undefined {
+  const label = `publish: presim skip ${args.eventKey} [${args.algorithm.id}]`;
+  if (!isRpEligibleEventType(args.eventType)) {
+    console.log(`${label}: event_type ${args.eventType} is not RP-eligible (PD-06)`);
+    return undefined;
+  }
+  if (args.roster.length < 6) {
+    console.log(`${label}: roster has ${args.roster.length} team(s), below the 6-team minimum`);
+    return undefined;
+  }
+
+  let pricingState: unknown;
+  let pricedFrom: "pre-event-walk-forward" | "current-state";
+  if (args.qualMatchCount > 0) {
+    if (!args.hasPreEventState) {
+      console.log(
+        `${label}: schedule has landed but no pre-event walk-forward state was captured (PD-04 — the cold-start season's first event, or an event with no completed matches replayed yet)`
+      );
+      return undefined;
+    }
+    pricingState = args.preEventState;
+    pricedFrom = "pre-event-walk-forward";
+  } else {
+    if (!args.hasSeasonFinalState) {
+      console.log(`${label}: no season-final state exists for this algorithm`);
+      return undefined;
+    }
+    pricingState = args.seasonFinalState;
+    pricedFrom = "current-state";
+  }
+
+  // C-12: the real schedule's own matches-per-team when it is known,
+  // Statbotics' 12 (10 for Championship Divisions) when it is not.
+  const matchesPerTeam =
+    args.qualMatchCount > 0 ? matchesPerTeamFor(args.roster.length, args.qualMatchCount) : defaultMatchesPerTeam(args.eventType);
+
+  let artifact;
+  try {
+    artifact = buildPreScheduleArtifact({
+      eventKey: args.eventKey,
+      season: args.season,
+      eventType: args.eventType,
+      algorithmId: args.algorithm.id,
+      algorithmVersion: args.algorithm.version,
+      roster: args.roster,
+      matchesPerTeam,
+      pricedFrom,
+      scheduleCount: PRESIM_SCHEDULE_COUNT,
+      drawsPerSchedule: PRESIM_DRAWS_PER_SCHEDULE,
+      generation: args.generation,
+      computedAt: args.computedAt,
+      // The C-04 seam: bound HERE to the chosen walk-forward/current state,
+      // so every published pmf is produced by the SAME `algorithm.predict()`
+      // joint-covariance RP path real matches use — this module owns no
+      // pricing math and no independence approximation can exist in it.
+      predict: (match) => args.algorithm.predict(pricingState, match),
+    });
+  } catch (err) {
+    if (err instanceof ScheduleTemplateUnavailableError) {
+      console.log(`${label}: ${err.message}`);
+      return undefined;
+    }
+    throw err; // ScheduleTemplateMissingError (C-11) and anything unexpected fail the run
+  }
+  if (artifact === null) return undefined; // RP-less algorithm — silent by design
+
+  const key = preScheduleKey({ eventKey: args.eventKey, algorithmId: args.algorithm.id, version: args.algorithm.version });
+  return { key, body: JSON.stringify(artifact) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1442,6 +1606,14 @@ export interface PublishSeasonsOptions {
    * Leave it unset for an ordinary publish run.
    */
   readonly coldStartSeason?: number;
+  /**
+   * Quick task 260905-tll Task 4 (C-05): the first season that gets
+   * pre-schedule sidecars. Defaults to `DEFAULT_PRESCHEDULE_FROM_SEASON`
+   * (2026); settable from the CLI as `--presim-from-season`. A parameter
+   * end to end — the cutoff appears in exactly one place (the default) and
+   * nowhere inside the per-event logic.
+   */
+  readonly preScheduleFromSeason?: number;
   readonly generation?: string;
   readonly computedAt?: string;
 }
@@ -1629,6 +1801,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const dryRun = options.dryRun ?? false;
   const includeOffseason = options.includeOffseason ?? false;
   const coldStartSeason = options.coldStartSeason;
+  const preScheduleFromSeason = options.preScheduleFromSeason ?? DEFAULT_PRESCHEDULE_FROM_SEASON;
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
 
@@ -1695,6 +1868,33 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // officialSnapshot.ts`) is what keeps this set from drifting from
     // either of those.
     const officialEventKeys = new Set(eventMeta.filter((e) => isOfficialEventType(e.event_type)).map((e) => e.event_key));
+    // Quick task 260905-tll Task 4 (C-15/C-17): the registered-teams map for
+    // every event key this season, read ONCE per season, before the
+    // per-algorithm loop. `selectEventTeamsForEvents`' absence discipline is
+    // respected exactly: an event with no rows is ABSENT from the map, and
+    // an absent key means "unknown", not "zero teams" — it is never
+    // coalesced into an empty array and published as an empty roster.
+    const registeredTeamsByEvent = selectEventTeamsForEvents(
+      db,
+      eventMeta.map((e) => e.event_key)
+    );
+    // Quick task 260905-tll Task 4 (PD-02): qualification matches (played +
+    // scheduled) per event — the corpus-derived "has the schedule landed?"
+    // predicate, and `matchesPerTeamFor`'s qual-count input (C-12).
+    const qualMatchCountByEvent = new Map<string, number>();
+    for (const m of stream) {
+      if (m.compLevel === "qm") qualMatchCountByEvent.set(m.eventKey, (qualMatchCountByEvent.get(m.eventKey) ?? 0) + 1);
+    }
+    for (const m of scheduled) {
+      if (m.compLevel === "qm") qualMatchCountByEvent.set(m.eventKey, (qualMatchCountByEvent.get(m.eventKey) ?? 0) + 1);
+    }
+    // C-05: the season gate is checked once per season (and logged once)
+    // rather than once per (event, algorithm) — the per-event skip logging
+    // below covers only seasons that are actually in presim scope.
+    const presimEnabled = season >= preScheduleFromSeason;
+    if (!presimEnabled) {
+      console.log(`publish: presim: season ${season} is below presim-from-season ${preScheduleFromSeason} — no sidecars this season.`);
+    }
     // D-08 (Phase 6): match_key -> sort_time for every match this season,
     // played or not — feeds both TeamSeasonMatchSchema.sortTime and the
     // per-event match ordering below (sortTeamSeasonMatches).
@@ -1774,9 +1974,52 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // takes 16-29 seconds per season.
     const stateByAlgoEvent = new Map<string, Map<string, unknown>>();
     for (const algorithm of options.algorithms) stateByAlgoEvent.set(algorithm.id, new Map());
+    // Quick task 260905-tll Task 4 (C-06): the PRE-event counterpart to
+    // `stateByAlgoEvent` above — eventKey -> the state immediately BEFORE
+    // that event's first completed match, captured inside this SAME hook.
+    // Three facts recorded here rather than rediscovered later: (1) no
+    // second replay pass and no second corpus read is added — the capture
+    // rides the hook D-28's metric history already pays for; (2) events run
+    // concurrently, so "the state before event X's first match" is genuinely
+    // the GLOBAL state at that instant — the correct walk-forward answer,
+    // not a defect; (3) every algorithm's `update` returns a NEW state
+    // object, so storing the reference is a real snapshot, never an alias
+    // of the eventually-final state. `lastStateByAlgo` holds the state after
+    // the previous chronological match, which is by construction the state
+    // immediately before the current event's first match. All lookups use
+    // `.has()`, never truthiness — state is typed `unknown` and a falsy
+    // state object is representable. `preEventCaptureSeen` exists so the
+    // capture decision is made exactly ONCE per (algorithm, event), on that
+    // event's FIRST completed match: without it, the cold-start season's
+    // first event (which stores nothing — PD-04) would be re-visited on its
+    // SECOND match and wrongly given a mid-event state as "pre-event".
+    const preEventStateByAlgoEvent = new Map<string, Map<string, unknown>>();
+    const preEventCaptureSeen = new Map<string, Set<string>>();
+    for (const algorithm of options.algorithms) {
+      preEventStateByAlgoEvent.set(algorithm.id, new Map());
+      preEventCaptureSeen.set(algorithm.id, new Set());
+    }
+    const lastStateByAlgo = new Map<string, unknown>();
     const onMatchComplete = (match: MatchResult, algorithmId: string, state: unknown): void => {
       const algorithm = algorithmById.get(algorithmId);
       if (!algorithm) return;
+      const seen = preEventCaptureSeen.get(algorithmId)!;
+      if (!seen.has(match.eventKey)) {
+        seen.add(match.eventKey);
+        if (lastStateByAlgo.has(algorithmId)) {
+          preEventStateByAlgoEvent.get(algorithmId)!.set(match.eventKey, lastStateByAlgo.get(algorithmId));
+        } else if (initialStates !== undefined && initialStates.has(algorithmId)) {
+          // The season's very first match: the honest pre-event state is the
+          // carried (season-boundary) state this season started from.
+          preEventStateByAlgoEvent.get(algorithmId)!.set(match.eventKey, initialStates.get(algorithmId));
+        }
+        // else: the cold-start season's very first event. Its honest
+        // pre-event state is the algorithm's internal cold-start state,
+        // which WalkForwardSimulator does not expose — deliberately NO
+        // entry, so the sidecar path skips it (PD-04) rather than
+        // fabricating a confident distribution from nothing.
+      }
+      lastStateByAlgo.set(algorithmId, state);
       stateByAlgoEvent.get(algorithmId)!.set(match.eventKey, state);
       const involvedTeams = [...match.redTeams, ...match.blueTeams];
       const metrics = algorithm.teamMetrics(state, involvedTeams);
@@ -1902,6 +2145,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // D-10, plan 07-09: this algorithm's per-event state capture, bound
       // once here for the event loop below — never rebuilt per event.
       const stateByEventForAlgo = stateByAlgoEvent.get(algorithm.id)!;
+      // Quick task 260905-tll Task 4: this algorithm's pre-event state
+      // capture, bound once here for the event loop below — never rebuilt
+      // per event (mirrors stateByEventForAlgo directly above).
+      const preEventStateForAlgo = preEventStateByAlgoEvent.get(algorithm.id)!;
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
@@ -2072,10 +2319,25 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         const predictions = eventMatchesForAlgo.get(e.event_key) ?? [];
         const scheduledForEvent = scheduledByEvent.get(e.event_key) ?? [];
         const upcoming: UpcomingPredictionRecord[] = scheduledPredictionsByEvent.get(e.event_key) ?? [];
-        const eventTeamKeys = Array.from(
+        const matchDerivedTeamKeys = Array.from(
           new Set([...predictions.flatMap((p) => [...p.match.redTeams, ...p.match.blueTeams]), ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
         );
-        if (predictions.length === 0 && upcoming.length === 0) continue; // no data for this event under this run's scope
+        // Quick task 260905-tll Task 4 (C-15/C-17): an event now survives
+        // when it has predictions, OR upcoming matches, OR a non-empty
+        // registered-team list — before this task, a scheduleless event had
+        // no page at all. An `undefined` map entry means "registration
+        // unknown", never "zero teams" (the absence discipline above).
+        const registeredTeamKeys = registeredTeamsByEvent.get(e.event_key);
+        if (predictions.length === 0 && upcoming.length === 0 && registeredTeamKeys === undefined) continue; // no data for this event under this run's scope
+        // PD-05: the registered roster is used ONLY when the match-derived
+        // roster is empty. Unioning it in unconditionally would add
+        // registered-but-never-played teams to every already-published
+        // event's standings table, changing bytes and rendered rows across
+        // the whole corpus for no requirement in this task. Sorted ascending
+        // so a registered-only roster publishes deterministically regardless
+        // of corpus row order (match-derived rosters keep their established
+        // chronological order — Test 11b pins it).
+        const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
         // D-10, plan 07-09: the value is AS-OF-EVENT (this event's last
         // chronological match, or the season-final fallback for an event
         // with no completed matches — PD-04); the pool is SEASON-FINAL
@@ -2116,7 +2378,35 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           rankings: eventRankingsForSeason.get(e.event_key),
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
-        eventPending.push(uploader.publish("event", key, JSON.stringify(eventArtifact)));
+        const eventBody = JSON.stringify(eventArtifact);
+        // Quick task 260905-tll Task 4: the pre-schedule sidecar for this
+        // (event, algorithm) pair. Generated only for seasons in presim
+        // scope (C-05, gated once per season above); every other skip reason
+        // is decided and logged inside `buildPreScheduleSidecarForEvent`.
+        // The sidecar is written BEFORE the event artifact for the same
+        // event (the artifacts-before-index ordering rule) by CHAINING the
+        // event upload behind the sidecar upload — the two never race.
+        const sidecar = presimEnabled
+          ? buildPreScheduleSidecarForEvent({
+              eventKey: e.event_key,
+              season,
+              eventType: e.event_type,
+              algorithm,
+              roster: eventTeamKeys,
+              qualMatchCount: qualMatchCountByEvent.get(e.event_key) ?? 0,
+              hasPreEventState: preEventStateForAlgo.has(e.event_key),
+              preEventState: preEventStateForAlgo.get(e.event_key),
+              hasSeasonFinalState: state !== undefined,
+              seasonFinalState: state,
+              generation,
+              computedAt,
+            })
+          : undefined;
+        if (sidecar !== undefined) {
+          eventPending.push(uploader.publishSidecar(sidecar.key, sidecar.body).then(() => uploader.publish("event", key, eventBody)));
+        } else {
+          eventPending.push(uploader.publish("event", key, eventBody));
+        }
       }
 
       // --- team/{teamKey}/{year}/{algorithm}@{version}.json, one per team ---
@@ -2271,6 +2561,18 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       `  ${kind}: count=${stats!.count} median=${stats!.medianBytes}B p95=${stats!.p95Bytes}B max=${stats!.maxBytes}B key=${stats!.largestKey}`
     );
   }
+  // Quick task 260905-tll Task 4: the sidecar size summary, printed in the
+  // same shape as the page-kind lines above so the figures can be
+  // transcribed by hand into docs/publish-budget.md after a real run —
+  // deliberately OUTSIDE `computeSizeStats`/the machine-readable budget
+  // block, because the sidecar is not a `PageKind` (PD-01).
+  if (uploader.sidecarRecords.length > 0) {
+    const sidecarBytesSorted = uploader.sidecarRecords.map((r) => r.bytes).sort((a, b) => a - b);
+    const largestSidecar = uploader.sidecarRecords.reduce((max, r) => (r.bytes > max.bytes ? r : max));
+    console.log(
+      `  presim: count=${uploader.sidecarRecords.length} median=${percentileOf(sidecarBytesSorted, 50)}B p95=${percentileOf(sidecarBytesSorted, 95)}B max=${largestSidecar.bytes}B key=${largestSidecar.key}`
+    );
+  }
   if (manifestKeys.length > 0) console.log(`  manifests: ${manifestKeys.join(", ")}`);
   if (seedFiles.length > 0) console.log(`  seed files: ${seedFiles.join(", ")}`);
 
@@ -2407,11 +2709,14 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       new Set([...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]), ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
     );
 
-    // PD-07: the loud zero-completed-matches guard and its exact message
-    // are unchanged from 07-08/Phase 4 — never widened to silently publish
-    // a scheduled-only event.
+    // C-17 (quick task 260905-tll Task 4): the loud zero-completed-matches
+    // guard keeps its exact message, but gains the scheduleless branch — an
+    // event with zero completed matches that DOES have registered teams in
+    // `event_teams` proceeds with a roster-only artifact (C-15); an event
+    // with neither still throws, message unchanged from 07-08/Phase 4.
     const matches = stream.filter((m) => m.eventKey === eventKey);
-    if (matches.length === 0) {
+    const registeredTeamKeys = selectEventTeamsForEvents(db, [eventKey]).get(eventKey);
+    if (matches.length === 0 && registeredTeamKeys === undefined) {
       throw new Error(`No completed matches found in corpus for event ${eventKey}`);
     }
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
@@ -2419,9 +2724,25 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     // D-10, plan 07-09 Task 2: the same one-line per-event state capture
     // Task 1 added to the seasons path's own per-match completion hook —
     // one Map, no season-boundary threading (this mode publishes no
-    // team-season artifact and needs none).
+    // team-season artifact and needs none). Quick task 260905-tll Task 4
+    // adds the PRE-event counterpart with a single map and a single
+    // `lastState` local, mirroring the seasons path's own capture: the
+    // decision is made once per event on its FIRST completed match
+    // (`preEventCaptureSeen`), and the season's first event under this
+    // cold replay deliberately gets NO entry (PD-04 — the honest pre-event
+    // state there is the unexposed cold-start state).
     const stateByEventKey = new Map<string, unknown>();
+    const preEventStateByEventKey = new Map<string, unknown>();
+    const preEventCaptureSeen = new Set<string>();
+    let lastState: unknown;
+    let hasLastState = false;
     const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
+      if (!preEventCaptureSeen.has(match.eventKey)) {
+        preEventCaptureSeen.add(match.eventKey);
+        if (hasLastState) preEventStateByEventKey.set(match.eventKey, lastState);
+      }
+      lastState = state;
+      hasLastState = true;
       stateByEventKey.set(match.eventKey, state);
     };
     const simulator = new WalkForwardSimulator(stream);
@@ -2436,7 +2757,12 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       finalState !== undefined ? scheduledForEvent.map((match) => ({ match, prediction: algorithm.predict(finalState, match) })) : [];
 
     const teamInfo = lookupAllTeamInfo(db);
-    const eventTeamKeys = Array.from(new Set([...teams, ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
+    const matchDerivedTeamKeys = Array.from(new Set([...teams, ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
+    // PD-05 (quick task 260905-tll Task 4): the registered roster is used
+    // ONLY when the match-derived roster is empty — same rule as the
+    // seasons path. Sorted ascending for a deterministic registered-only
+    // publish.
+    const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
 
     // D-10, plan 07-09 Task 2: derived exactly as the seasons path's own
     // per-algorithm block derives them — season-final metrics over the
@@ -2468,6 +2794,9 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     // path derives its own map from.
     const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
 
+    // Quick task 260905-tll Task 4: one generation stamp shared by the
+    // event artifact and its sidecar — the two describe the same run.
+    const generation = randomUUID();
     const validated = buildEventArtifact({
       eventKey,
       season,
@@ -2476,7 +2805,7 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       predictions,
       upcoming,
       teams: teamsStanding,
-      generation: randomUUID(),
+      generation,
       sortTimeByMatchKey,
       actualBonusFlagsByMatchKey,
       eventMeta: eventMetaRow
@@ -2486,14 +2815,47 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
       rankings: rankingsForEvent,
     });
 
+    // Quick task 260905-tll Task 4: the same sidecar generation path the
+    // seasons publisher runs, so a single-event subset publish also writes
+    // its sidecar. Gated on the same default season cutoff (C-05) and on a
+    // known `events` row (the sidecar needs the real event_type — PD-06);
+    // every other skip reason is decided and logged inside
+    // `buildPreScheduleSidecarForEvent`.
+    const sidecar =
+      season >= DEFAULT_PRESCHEDULE_FROM_SEASON && eventMetaRow !== undefined
+        ? buildPreScheduleSidecarForEvent({
+            eventKey,
+            season,
+            eventType: eventMetaRow.event_type,
+            algorithm,
+            roster: eventTeamKeys,
+            qualMatchCount:
+              matches.filter((m) => m.compLevel === "qm").length + scheduledForEvent.filter((m) => m.compLevel === "qm").length,
+            hasPreEventState: preEventStateByEventKey.has(eventKey),
+            preEventState: preEventStateByEventKey.get(eventKey),
+            hasSeasonFinalState: finalState !== undefined,
+            seasonFinalState: finalState,
+            generation,
+            computedAt: new Date().toISOString(),
+          })
+        : undefined;
+
     const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });
     const body = JSON.stringify(validated);
 
     if (dryRun) {
+      if (sidecar !== undefined) {
+        console.log(`[dry-run] Would publish "${sidecar.key}" (${sidecar.body.length} bytes) to bucket "${bucket}" — no upload performed.`);
+      }
       console.log(`[dry-run] Would publish "${key}" (${body.length} bytes) to bucket "${bucket}" — no upload performed.`);
       return;
     }
 
+    // Sidecar BEFORE the event artifact (the artifacts-before-index rule).
+    if (sidecar !== undefined) {
+      await putObject(bucket, sidecar.key, sidecar.body, { contentType: "application/json", cacheControl: "public, max-age=60" });
+      console.log(`Published "${sidecar.key}" to bucket "${bucket}" (${sidecar.body.length} bytes).`);
+    }
     await putObject(bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
     console.log(`Published "${key}" to bucket "${bucket}" (${body.length} bytes).`);
   } finally {
@@ -2508,14 +2870,15 @@ async function runSeasonsCliMode(
   concurrency: number,
   dryRun: boolean,
   skipState: boolean,
-  includeOffseason: boolean
+  includeOffseason: boolean,
+  preScheduleFromSeason: number | undefined
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason });
+    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason, preScheduleFromSeason });
   } finally {
     db.close();
   }
@@ -2532,11 +2895,22 @@ async function main(): Promise<void> {
       concurrency: { type: "string" },
       "skip-state": { type: "boolean" },
       "include-offseason": { type: "boolean" },
+      // Quick task 260905-tll Task 4 (C-05): the pre-schedule sidecar
+      // season cutoff, threaded through runSeasonsCliMode into
+      // publishSeasons — the default lives on DEFAULT_PRESCHEDULE_FROM_SEASON.
+      "presim-from-season": { type: "string" },
     },
   });
 
   const bucket = values.bucket ?? DEFAULT_BUCKET;
   const dryRun = values["dry-run"] === true;
+  let preScheduleFromSeason: number | undefined;
+  if (values["presim-from-season"] !== undefined) {
+    preScheduleFromSeason = Number.parseInt(values["presim-from-season"], 10);
+    if (!Number.isInteger(preScheduleFromSeason)) {
+      throw new Error(`--presim-from-season must be an integer year, got "${values["presim-from-season"]}"`);
+    }
+  }
 
   if (values.event) {
     await runEventMode(values.event, values.algorithm, bucket, dryRun);
@@ -2549,7 +2923,8 @@ async function main(): Promise<void> {
       concurrency,
       dryRun,
       values["skip-state"] === true,
-      values["include-offseason"] === true
+      values["include-offseason"] === true,
+      preScheduleFromSeason
     );
   } else {
     throw new Error("One of --event or --seasons is required");

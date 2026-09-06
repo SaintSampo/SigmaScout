@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, TeamMetrics, UpcomingMatch } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -26,6 +26,7 @@ import {
   upsertEvent,
   upsertEventAlliance,
   upsertEventRanking,
+  upsertEventTeam,
   upsertMatch,
   upsertTeam,
   upsertTeamMedia,
@@ -54,7 +55,7 @@ import {
   type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
-import { artifactKey, decodeTeamsRowMetrics, TeamsArtifactSchema } from "./pageArtifacts.js";
+import { artifactKey, decodeTeamsRowMetrics, preScheduleKey, PreScheduleArtifactSchema, TeamsArtifactSchema } from "./pageArtifacts.js";
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
@@ -3129,6 +3130,158 @@ describe("publishSeasons — D-10 as-of-event value + season-final percentile on
     // rather than hand-typed, so this cannot silently drift from production.
     const expectedOrder = Array.from(new Set(earlyArtifact.matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
     expect(earlyArtifact.teams.map((t) => t.teamKey)).toEqual(expectedOrder);
+  });
+});
+
+/**
+ * Quick task 260905-tll Task 4: a minimal RP-modeling fake algorithm whose
+ * predictions ENCODE its own state (`matchCount`), so which state priced a
+ * sidecar is directly readable from the published pmf bytes. Registered
+ * under the id "epa" deliberately: `publishSeasons`' compare step routes
+ * every algorithm id through `selectedOnSeasonsFor`'s explicit registry,
+ * which throws for an unregistered id — "epa"'s registered source is the
+ * honest `() => []`, and this module never touches the real epa module
+ * (publishSeasons uses the passed-in module directly).
+ */
+interface FakeRpState {
+  matchCount: number;
+}
+const fakeRpAlgorithm: AlgorithmModule<FakeRpState> = {
+  id: "epa",
+  version: "9.9.9+presim-test",
+  initState: () => ({ matchCount: 0 }),
+  predict: (state) => {
+    // 0.01 per completed match — exact at ROUNDING_RULE.pmf (5 decimals),
+    // so roundPmf is the identity on these fixtures and the assertion below
+    // compares published bytes to an exactly-representable expectation.
+    const bonus = Math.min(0.4, state.matchCount * 0.01);
+    return {
+      winner: "red",
+      pRedWin: 0.5,
+      redScore: 50,
+      blueScore: 50,
+      redRpPmf: [1 - bonus, bonus],
+      blueRpPmf: [1 - bonus, bonus],
+    };
+  },
+  update: (state) => ({ matchCount: state.matchCount + 1 }),
+  teamMetrics: (state, teams): TeamMetrics =>
+    Object.fromEntries((teams ?? []).map((teamKey) => [teamKey, { total: { value: state.matchCount } }])),
+};
+
+describe("publishSeasons — pre-event walk-forward state, scheduleless events, and the presim sidecar (quick task 260905-tll Task 4)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-presim-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findPresimCall(eventKey: string, algorithmId: string): [unknown, unknown, unknown, unknown] | undefined {
+    return vi
+      .mocked(putObject)
+      .mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${eventKey}/${algorithmId}@`)) as
+      | [unknown, unknown, unknown, unknown]
+      | undefined;
+  }
+
+  it("C-06/PD-02/PD-04: the later event's sidecar is priced from the PRE-event walk-forward state (the state after the earlier event's last match), never its post-event state — and the cold-start season's first event gets NO sidecar", async () => {
+    seedTwoEventSeason(db);
+
+    // Fixture-vacuity guard FIRST: the pre-event encoding (state after the
+    // early event's two matches, matchCount=2) and the post-event encoding
+    // (after all four matches, matchCount=4) must genuinely differ, or the
+    // equality assertions below prove nothing.
+    const preEventPmf = [0.98, 0.02];
+    const postEventPmf = [0.96, 0.04];
+    expect(preEventPmf, "fixture-vacuity guard: pre- and post-event pmf encodings must differ").not.toEqual(postEventPmf);
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [fakeRpAlgorithm],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+    });
+
+    // The later event's sidecar exists, under the ONE key spelling.
+    const call = findPresimCall("2026lat", "epa");
+    expect(call, "expected a v1/presim/2026lat/epa@... putObject call").toBeDefined();
+    expect(call![1]).toBe(preScheduleKey({ eventKey: "2026lat", algorithmId: "epa", version: "9.9.9+presim-test" }));
+
+    // The body round-trips through the sidecar schema (publish-boundary
+    // guarantee) and is priced from the PRE-event state.
+    const artifact = PreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
+    expect(artifact.pricedFrom).toBe("pre-event-walk-forward");
+    expect(artifact.roster).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    expect(artifact.baked.draws).toBe(1000); // 20 schedules x 50 draws, matching the client's SIMULATION_DRAWS
+    const firstMatch = artifact.schedules[0]!.matches[0]!;
+    expect(firstMatch.rp).toEqual(preEventPmf);
+    expect(firstMatch.rp, "the sidecar must NOT be priced from the post-event state").not.toEqual(postEventPmf);
+
+    // PD-04: the season's FIRST event has no exposable pre-event state under
+    // a cold start — no sidecar, never a fabricated one.
+    expect(findPresimCall("2026ear", "epa")).toBeUndefined();
+
+    // Ordering: the sidecar is written BEFORE the same event's artifact.
+    const calls = vi.mocked(putObject).mock.calls;
+    const presimIndex = calls.findIndex(([, key]) => (key as string).startsWith("v1/presim/2026lat/"));
+    const eventIndex = calls.findIndex(([, key]) => (key as string).startsWith("v1/event/2026lat/"));
+    expect(presimIndex).toBeGreaterThanOrEqual(0);
+    expect(eventIndex).toBeGreaterThanOrEqual(0);
+    expect(presimIndex, "sidecar must be uploaded before the event artifact for the same event").toBeLessThan(eventIndex);
+  });
+
+  it("C-15/C-17: an event with event_teams rows and zero matches publishes a full event artifact — registered roster, non-empty (season-final fallback) metrics, empty matches/upcoming", async () => {
+    seedTwoEventSeason(db); // gives frc1..frc6 real season play, so season-final metrics exist
+    upsertEvent(db, seasonEvent({ eventKey: "2026reg", name: "Registered Only" }));
+    // Inserted in reverse order deliberately: the published roster must be
+    // sorted ascending, not corpus row order.
+    upsertEventTeam(db, { eventKey: "2026reg", teamKey: "frc2", fetchedAt: "2026-09-05T00:00:00.000Z" });
+    upsertEventTeam(db, { eventKey: "2026reg", teamKey: "frc1", fetchedAt: "2026-09-05T00:00:00.000Z" });
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const artifact = findEventArtifact("2026reg", "opr");
+    expect(artifact.teams.map((t) => t.teamKey)).toEqual(["frc1", "frc2"]);
+    expect(artifact.matches).toEqual([]);
+    expect(artifact.upcoming).toEqual([]);
+    // metricsAsOfEvent's season-final fallback (PD-04 of plan 07-09) is
+    // exactly the as-of-now metrics a pre-schedule page should show.
+    expect(artifact.teams[0]?.metrics.total?.value).toBeDefined();
+  });
+
+  it("C-17 negative half: an event with neither matches nor registered teams is still skipped entirely", async () => {
+    seedTwoEventSeason(db);
+    upsertEvent(db, seasonEvent({ eventKey: "2026emp", name: "Empty Event" }));
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const emptyCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith("v1/event/2026emp/"));
+    expect(emptyCall).toBeUndefined();
+  });
+
+  it("C-05: preScheduleFromSeason is a real parameter — a cutoff above the season suppresses every sidecar", async () => {
+    seedTwoEventSeason(db);
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [fakeRpAlgorithm],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      preScheduleFromSeason: 2027,
+    });
+
+    const presimCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith("v1/presim/"));
+    expect(presimCall).toBeUndefined();
   });
 });
 

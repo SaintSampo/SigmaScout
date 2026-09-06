@@ -688,6 +688,33 @@ the table above, unchanged in kind from the 2026-08-25 finding, re-measured here
 own (larger) objects. The RAW byte counts remain the correct figures for the
 budget/`payloadBudget.test.ts` gate (they bound worst-case parse/memory cost, not wire cost).
 
+## The `presim` pre-schedule sidecar (quick task 260905-tll)
+
+`v1/presim/{eventKey}/{algorithmId}@{version}.json` carries the pre-schedule rank simulation:
+K=20 seeded synthetic qualification schedules whose every match is priced through the same
+`algorithm.predict()` joint-covariance RP path real matches use, plus a baked rank-distribution
+result (20 schedules × 50 draws = 1,000 draws) so the Simulation tab's default view needs zero
+client compute.
+
+**It is deliberately not a `PageKind`.** It has its own key function, its own uploader array, and
+its own size-summary line, and it is absent from both `computeSizeStats`' per-kind accounting and
+`payloadBudget.test.ts`'s `PAGE_KINDS` gate. Three consequences follow structurally rather than by
+convention: the live Worker (whose artifact writer is keyed on `PageKind` and never deletes) cannot
+clobber a sidecar during an event; the deliberately-reachable `EVENT_PAGE_ABSOLUTE_MAX_BYTES`
+350,000 event-page gate is unaffected; and no `pages.presim` row belongs in the machine-readable
+JSON block below.
+
+**No measured figures exist yet.** The only number available is a pre-implementation projection
+from the task's research pass — roughly 160 KB raw at a 43-team, 86-qual event under roster-index
+encoding, against a 2026 pmf length of 7. That figure is a projection, not a measurement: it was
+computed by hand from the schema, not read off a publish run. The real median/p95/max and the
+per-season object and byte counts land only after the first full republish that generates
+sidecars, at which point `publish:seasons`' own `presim: count=… median=… p95=… max=… key=…`
+summary line should be transcribed here by hand, exactly as the page-kind figures already are.
+Until then this section carries no table, and the machine-readable block below carries no
+`presim` entry — a fabricated row there would be precisely the kind of unmeasured number this
+project's premise forbids.
+
 ## Storage and write volume (DATA-05)
 
 One full publish (`pnpm publish:seasons`, latest run — 2026-08-27, plan 06.1-07's single authorized
