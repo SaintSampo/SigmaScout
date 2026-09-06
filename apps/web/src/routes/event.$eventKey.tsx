@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEFAULT_EVENT_TAB, EventSearchSchema, type EventTab } from "../lib/searchParams.js";
 import { isValidEventKey, seasonFromEventKey } from "../lib/eventKey.js";
 import { eventQueryOptions } from "../lib/api/event.js";
+import { preScheduleQueryOptions } from "../lib/api/preSchedule.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
@@ -157,16 +158,6 @@ function EventPage() {
     placeholderData: keepPreviousData,
   });
 
-  if (!isValidKey) {
-    return (
-      <div className="p-[var(--spacing-lg)]">
-        <p className="text-role-heading text-[var(--color-text-primary)]">{`"${eventKey}" is not a valid event key.`}</p>
-      </div>
-    );
-  }
-
-  const season = seasonFromEventKey(eventKey);
-
   // D-17: the Alliances trigger is disabled only once the artifact for THIS
   // event key has genuinely resolved — data present, not pending, no error,
   // and NOT placeholder data. `placeholderData: keepPreviousData` (above)
@@ -191,6 +182,48 @@ function EventPage() {
   // reason, and would blur two genuinely different rules into one shape.
   const isSimulationDisabled = algorithm !== SIMULATION_ALGORITHM_ID;
   const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
+
+  /**
+   * C-10 (quick task 260905-tll Task 5): the pre-schedule sidecar is
+   * LAZY — fetched only while the Simulation tab is genuinely the active
+   * tab, never with the main event artifact.
+   *
+   * **This gate MUST live here and never inside `SimulationTab`.** Radix
+   * keeps every `TabsContent` mounted with `hidden`, so `SimulationTab`
+   * renders on EVERY event page view regardless of which tab is active
+   * (that component's own file header says so, and it is the stated reason
+   * `useSimulationRun` constructs nothing until `start()` is called). A
+   * `useQuery` placed inside it would therefore fetch a ~160KB sidecar on
+   * every event page load in the app, defeating the lazy requirement
+   * entirely — the exact same trap, one layer up, that the Worker
+   * lazy-construction rule already avoids.
+   *
+   * `!isSimulationDisabled` is part of the gate because D-04 makes the tab
+   * VPR-only: on OPR/EPA the trigger is disabled, `resolveActiveTab` sends
+   * `?tab=simulation` back to the default tab, and no sidecar exists for
+   * those algorithms anyway (they model no ranking points, so
+   * `buildPreScheduleArtifact` returns `null` and publishes nothing).
+   */
+  const isPreScheduleEnabled = isValidKey && version !== undefined && !isSimulationDisabled && activeTab === "simulation";
+  const { data: preSchedule, isPending: isPreScheduleQueryPending } = useQuery({
+    ...preScheduleQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
+    enabled: isPreScheduleEnabled,
+  });
+  // A DISABLED TanStack Query reports `status: "pending"` forever, so the
+  // raw flag alone would tell `SimulationTab` "the sidecar is still coming"
+  // on every event where it is never coming at all. Conjoining the gate is
+  // what makes this flag mean what its name says.
+  const preScheduleIsPending = isPreScheduleEnabled && isPreScheduleQueryPending;
+
+  if (!isValidKey) {
+    return (
+      <div className="p-[var(--spacing-lg)]">
+        <p className="text-role-heading text-[var(--color-text-primary)]">{`"${eventKey}" is not a valid event key.`}</p>
+      </div>
+    );
+  }
+
+  const season = seasonFromEventKey(eventKey);
 
   function handleTabChange(value: string) {
     const nextTab = value as EventTab;
@@ -302,7 +335,21 @@ function EventPage() {
       season,
       onRetry: () => void refetch(),
       renderPending: () => <SimulationTabSkeleton />,
-      renderPopulated: (artifact) => <SimulationTab artifact={artifact} algorithmId={algorithm} season={artifact.season} />,
+      renderPopulated: (artifact) => (
+        <SimulationTab
+          artifact={artifact}
+          algorithmId={algorithm}
+          season={artifact.season}
+          // `?? null` collapses the two ABSENT states the query can report
+          // — "not fetched yet" (`undefined`) and "fetched, no sidecar
+          // published for this event" (`null`, the fetcher's own 404
+          // answer) — into the one thing the tab needs to know: there is no
+          // baked result to show. The pending flag beside it is what keeps
+          // those two distinguishable where it matters.
+          preSchedule={preSchedule ?? null}
+          preScheduleIsPending={preScheduleIsPending}
+        />
+      ),
     });
   }
 

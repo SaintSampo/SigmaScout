@@ -8,7 +8,7 @@ import { RankDistributionTable } from "./RankDistributionTable.js";
 import { buildRankDistributionRows } from "./rankRows.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Simulation tab shell (EVNT-07, D-01…D-07, 08-09-PLAN.md, 08-11-PLAN.md
@@ -40,6 +40,24 @@ export interface SimulationTabProps {
   artifact: EventArtifact;
   algorithmId: string;
   season: number;
+  /**
+   * The event's pre-schedule sidecar (quick task 260905-tll), or `null`
+   * when none is published for it — fetched LAZILY by the route
+   * (`event.$eventKey.tsx`), never by this component, because Radix keeps
+   * every `TabsContent` mounted-but-hidden and a query here would fetch on
+   * every event page load. Optional so every existing caller and test that
+   * predates the sidecar keeps compiling and keeps its current behaviour:
+   * an omitted prop is exactly the "this event has no baked result" case.
+   */
+  preSchedule?: PreScheduleArtifact | null;
+  /**
+   * True only while the sidecar query is genuinely in flight — the route
+   * conjoins its own `enabled` gate before passing this, because a DISABLED
+   * TanStack Query reports `pending` forever. Distinguishes "no baked
+   * result is coming" from "the baked result has not landed yet", which is
+   * what stops this tab claiming an empty state it is about to contradict.
+   */
+  preScheduleIsPending?: boolean;
 }
 
 /**
