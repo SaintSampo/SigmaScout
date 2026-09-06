@@ -1,5 +1,8 @@
 import { cn } from "@/lib/utils";
 import { BonusRpDots } from "./BonusRpDots.js";
+// Quick task 260906-7eu: the same shared Video-column control
+// `event/EventMatchTable.tsx` renders — one implementation, two surfaces.
+import { MatchVideoCell } from "../MatchVideoCell.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
@@ -391,6 +394,9 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
           <span aria-label="Prediction incorrect" className="call-miss">{"✗"}</span>
         )}
       </td>
+      <td data-testid={`video-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        <MatchVideoCell matchKey={match.matchKey} matchLabel={matchLabel(match)} videoKey={match.video} />
+      </td>
     </tr>
   );
 }
@@ -418,6 +424,7 @@ export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Video</th>
         </tr>
       </thead>
       <tbody>

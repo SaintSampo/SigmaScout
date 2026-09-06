@@ -58,6 +58,13 @@ export interface EventMatchRow {
   blueBonusRp?: readonly number[];
   actualRedBonusRp?: readonly boolean[] | null;
   actualBlueBonusRp?: readonly boolean[] | null;
+  /**
+   * Quick task 260906-7eu: the raw video key carried verbatim from
+   * `EventMatchSchema.video`, absent for an unplayed row by construction —
+   * `EventUpcomingMatchSchema` publishes no such field, so copying it
+   * unconditionally in `toRow` would be reading a field that cannot exist.
+   */
+  video?: string;
 }
 
 /**
@@ -178,6 +185,9 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     row.actualBlueScore = playedMatch.actualBlueScore;
     row.actualRedBonusRp = playedMatch.actualRedBonusRp;
     row.actualBlueBonusRp = playedMatch.actualBlueBonusRp;
+    // Quick task 260906-7eu: played-only, matching this branch's other
+    // played-only fields above — EventUpcomingMatchSchema has no `video` key.
+    row.video = playedMatch.video;
   }
   return row;
 }

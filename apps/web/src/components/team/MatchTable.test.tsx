@@ -577,4 +577,40 @@ describe("MatchTable", () => {
       expect(allStates).not.toContain("missed");
     });
   });
+
+  describe("Video column (quick task 260906-7eu)", () => {
+    it("the header row contains a Video column", () => {
+      render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} />);
+      expect(screen.getByRole("columnheader", { name: "Video" })).toBeDefined();
+    });
+
+    it("a match whose data carries a parseable video key renders a control in its Video cell", () => {
+      render(
+        <MatchTable
+          matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, video: "dQw4w9WgXcQ" })]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+      const cell = screen.getByTestId("video-m1");
+      expect(within(cell).getAllByRole("button")).toHaveLength(1);
+    });
+
+    it("a match without a video key renders an empty Video cell", () => {
+      render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} />);
+      const cell = screen.getByTestId("video-m1");
+      expect(within(cell).queryAllByRole("button")).toHaveLength(0);
+    });
+
+    it("a many-row table with a video on every row holds zero iframes before any interaction", () => {
+      const matches = Array.from({ length: 80 }, (_, i) =>
+        makeMatch({ matchKey: `m${i}`, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, video: "dQw4w9WgXcQ" }),
+      );
+      const { container } = render(<MatchTable matches={matches} domain={DOMAIN} teamKey="frc118" season={2024} />);
+      expect(screen.getAllByRole("button").length).toBeGreaterThanOrEqual(80);
+      expect(container.querySelectorAll("iframe")).toHaveLength(0);
+      expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    });
+  });
 });
