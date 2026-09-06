@@ -19,7 +19,7 @@
  * this reason; this file follows that same established convention.
  */
 export interface MethodologyCardDescriptor {
-  readonly to: "/methodology/vpr" | "/methodology/compare";
+  readonly to: "/methodology/vpr" | "/methodology/compare" | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
   readonly testId: string;
@@ -37,5 +37,11 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Algorithm accuracy",
     blurb: "How VPR's predictions score against OPR and EPA, season by season.",
     testId: "methodology-card-compare",
+  },
+  {
+    to: "/methodology/acknowledgments",
+    title: "Acknowledgments",
+    blurb: "The projects and data SigmaScout is built on — The Blue Alliance, Statbotics, and more.",
+    testId: "methodology-card-acknowledgments",
   },
 ] as const;
