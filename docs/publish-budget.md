@@ -704,16 +704,30 @@ clobber a sidecar during an event; the deliberately-reachable `EVENT_PAGE_ABSOLU
 350,000 event-page gate is unaffected; and no `pages.presim` row belongs in the machine-readable
 JSON block below.
 
-**No measured figures exist yet.** The only number available is a pre-implementation projection
-from the task's research pass — roughly 160 KB raw at a 43-team, 86-qual event under roster-index
-encoding, against a 2026 pmf length of 7. That figure is a projection, not a measurement: it was
-computed by hand from the schema, not read off a publish run. The real median/p95/max and the
-per-season object and byte counts land only after the first full republish that generates
-sidecars, at which point `publish:seasons`' own `presim: count=… median=… p95=… max=… key=…`
-summary line should be transcribed here by hand, exactly as the page-kind figures already are.
-Until then this section carries no table, and the machine-readable block below carries no
-`presim` entry — a fabricated row there would be precisely the kind of unmeasured number this
-project's premise forbids.
+**MEASURED 2026-09-06** (the `rolling-2026-09d` republish — the first full publish that generated
+sidecars; generation `7a2e4e5b-f335-4e2b-9ef5-340d36576b66`). Transcribed by hand from
+`publish:seasons`' own `presim:` summary line, exactly as every page-kind figure here is:
+
+| | count | median | p95 | max | largest key |
+|---|---|---|---|---|---|
+| `presim` | 216 | 138,710 B | 243,647 B | 265,617 B | `v1/presim/2026mrcmp/vpr@10.0.0+rolling-2026-09d.json` |
+
+**The pre-implementation projection was low by roughly 1.7x at the median and 1.9x at the p95.**
+The research pass projected ~160 KB raw for a 43-team, 86-qual event; the measured median is
+138.7 KB and the p95 is 243.6 KB. The projection was not wrong about the encoding — it was
+computed for a mid-sized event, and the p95/max tail is driven by championship-division and
+large-district events with more teams and longer rosters than the projected case. Recorded as a
+correction to that number, not as a defect: 265.6 KB at the maximum is comfortably inside what a
+lazily-fetched sidecar can carry.
+
+Only 216 sidecars exist because generation is gated to `presim-from-season 2026` and to
+RP-eligible events — every pre-2026 season logs `below presim-from-season`, and `event_type 99`
+offseason events are skipped by PD-06. Verified live: the largest key above returns HTTP 200 at
+265,617 bytes from `data.sigmascout.org`.
+
+Still deliberately absent from the machine-readable block below: `presim` is not a `PageKind`, so
+it carries no `budgetMaxBytes` gate and no `pages.presim` row, exactly as this section's second
+paragraph requires. The table above is a measurement record, not a budget.
 
 ## Storage and write volume (DATA-05)
 
@@ -1429,46 +1443,46 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-05T00:38:56.273Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason -- generation 2c454968-9301-493f-81d3-f41ec3682b73, 75,544 objects, 2,894,428,308 bytes total. Quick task 260904-nt4: the FIRST publish of the seven-season gapped corpus (2019, 2020, 2022-2026; 2021 permanently excluded). 18,770 new objects are the two new seasons' artifacts; 2019 is the positional cold start and epa/vpr thread carried state across the two-year 2020->2022 gap for the first time in production, so 2022-2026 values moved slightly on the same keys (max deltas -0.04% or less). No algorithm version moved (opr 4.0.0+baseline, epa 5.0.0+baseline, vpr 8.0.0+rolling-2026-09b). The new seasons' smaller artifacts pull medians DOWN; no maximum was threatened. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
+  "measuredAt": "2026-09-06T23:39:04.646Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason -- generation 7a2e4e5b-f335-4e2b-9ef5-340d36576b66, 75,796 objects, 2,938,526,798 bytes total. The 2026-09-06 re-tune republish: SIGMA1_CODE_VERSION 9.0.0 -> 10.0.0 (two new alliance-sum attribution parameters, both provably inert at their defaults) and vpr 9.0.0+rolling-2026-09c -> 10.0.0+rolling-2026-09d, in which origin 2022 was the only one of five to clear Rule A and every other season carried forward unchanged. opr 4.0.0+baseline and epa 5.0.0+baseline did not move. The +252 objects over the prior run are the 216 NEW presim pre-schedule sidecars (quick task 260905-tll, generated for the first time here) plus 36 new 2026 events entering the corpus; presim is deliberately NOT a PageKind and so has no row in this block. Every page kind's median and max moved UP modestly because 2022's promoted parameter set changed and 2026 gained events: team max 376,339 -> 376,837 B is the closest any kind sits to its ceiling at 94.2% of 400,000. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
   "pages": {
     "teams": {
       "count": 21,
-      "medianBytes": 961493,
-      "p95Bytes": 1479985,
-      "maxBytes": 1486941,
+      "medianBytes": 1093398,
+      "p95Bytes": 1630128,
+      "maxBytes": 1652006,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/vpr@8.0.0+rolling-2026-09b.json"
+      "largestKey": "v1/teams/2026/vpr@10.0.0+rolling-2026-09d.json"
     },
     "team": {
       "count": 70383,
-      "medianBytes": 29776,
-      "p95Bytes": 91952,
-      "maxBytes": 376339,
+      "medianBytes": 29963,
+      "p95Bytes": 92212,
+      "maxBytes": 376837,
       "budgetMaxBytes": 400000,
-      "largestKey": "v1/team/frc3538/2024/vpr@8.0.0+rolling-2026-09b.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@10.0.0+rolling-2026-09d.json"
     },
     "events": {
       "count": 21,
       "medianBytes": 73775,
       "p95Bytes": 84108,
-      "maxBytes": 84116,
+      "maxBytes": 84117,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@8.0.0+rolling-2026-09b.json"
+      "largestKey": "v1/events/2025/vpr@10.0.0+rolling-2026-09d.json"
     },
     "event": {
-      "count": 5112,
-      "medianBytes": 50505,
-      "p95Bytes": 97653,
-      "maxBytes": 163490,
+      "count": 5364,
+      "medianBytes": 52789,
+      "p95Bytes": 106043,
+      "maxBytes": 178103,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024gal/vpr@8.0.0+rolling-2026-09b.json"
+      "largestKey": "v1/event/2024gal/vpr@10.0.0+rolling-2026-09d.json"
     },
     "compare": {
       "count": 7,
-      "medianBytes": 13948,
-      "p95Bytes": 13999,
-      "maxBytes": 13999,
+      "medianBytes": 13934,
+      "p95Bytes": 14005,
+      "maxBytes": 14005,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }

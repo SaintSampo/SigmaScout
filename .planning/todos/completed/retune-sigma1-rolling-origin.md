@@ -613,3 +613,118 @@ recommended 2025-only). Recorded consequences:
   2024 analysis in this file), chosen because per-season promotion + within-season
   Worker updates + manual re-tunes bound the blast radius of a wrong ship to one
   season's set until the next measurement.
+
+---
+
+## RUN — 2026-09-06 (the attribution re-tune, `rolling-2026-09d`)
+
+First tune of two brand-new searchable parameters, landed the same session at the operator's
+instruction (commit `814f6063`, `SIGMA1_CODE_VERSION` 9.0.0 -> 10.0.0):
+
+- `attributionShrinkage` (default 0) — blends the alliance-sum Kalman gain vector toward a
+  uniform split. `Sum_j K_j` is INVARIANT in it, so total learning per observation is unchanged;
+  only its distribution across teammates moves.
+- `maxTeamKalmanGain` (default 1) — caps any one team's gain, which DOES reduce that sum. The two
+  compose rather than duplicate.
+
+Both provably inert at their defaults, and verified rather than argued: a 2022 replay under the
+landed code reproduced the promoted baseline's predictions stream bitwise
+(`sha256 f738f553…`, every field but `algorithmVersion`).
+
+Motivating measurements: quick tasks `260906-7fj` (gain-cap sweep, 38% of the pooled EPA accuracy
+gap), `260906-8ao` (residual autopsy — the remaining deficit is VARIANCE not bias; saturation and
+per-component compounding both falsified), `260906-8i1` (attribution sweep + combination, 80% of
+the gap on a single global configuration). Predecessor `260906-6zc` closed the season-boundary
+carry axis negative and is what redirected the search here.
+
+### Screen (2019/2020, 5 values, batch 4)
+
+13 of 19 survive. **Both new knobs survived on their own merits**, on a window sharing no seasons
+with the replay sweeps: `attributionShrinkage` best at 0.9 (at bound, range 9.663e-4),
+`maxTeamKalmanGain` best at 0.31 (range 4.016e-3). The cap's screen optimum of 0.31 landed beside
+the 0.20-0.30 region 7fj measured on 2022-2026 — two windows, two objectives, same neighbourhood.
+
+`carryPriorYearShare` forced into survivors per the standing pre-committed override (range exactly
+0 because 2019 is the corpus start, so it is structurally unreachable on this window rather than
+inert). Recorded in the artifact under `operatorOverrides`. This is the first search that could
+see it.
+
+### Verdicts — 5 origins x 2 arms, incumbent `vpr@10.0.0+rolling-2026-09c`
+
+| origin | arm | accuracy margin | Brier delta | matches | verdict |
+|---|---|---|---|---|---|
+| 2022 | off | **+0.010328** | -0.001981 | 14,603 | **ACCEPTED (Rule A)** |
+| 2022 | on | **+0.010397** | -0.002038 | 14,603 | **ACCEPTED (Rule A)** |
+| 2023 | off | -0.001858 | +0.001483 | 16,290 | keep-incumbent |
+| 2023 | on | -0.001734 | +0.000845 | 16,290 | keep-incumbent |
+| 2024 | off | -0.014913 | +0.007529 | 16,958 | keep-incumbent |
+| 2024 | on | -0.015211 | +0.007434 | 16,958 | keep-incumbent |
+| 2025 | off | -0.007065 | +0.003923 | 17,815 | keep-incumbent |
+| 2025 | on | -0.000904 | +0.000775 | 17,815 | keep-incumbent |
+| 2026 | off | -0.001968 | +0.001854 | 18,337 | keep-incumbent |
+| 2026 | on | -0.001367 | +0.001736 | 18,337 | keep-incumbent |
+
+Ten verdicts from ten searches; no run failed, no `NO-VERDICT`.
+
+**2022 is the only origin to clear, and it clears on both arms.** Tie-break applied as
+pre-committed (larger accuracy margin; Brier breaks a tie): the `on` arm wins on both, so nothing
+turns on the ordering.
+
+### What the winner chose, and why it is worth recording
+
+Origin 2022's winner (both arms selected candidate index 64, differing only in
+`coldStartConsistencyVarianceRel`):
+
+| parameter | value |
+|---|---|
+| `attributionShrinkage` | **0.8437785745365546** |
+| `maxTeamKalmanGain` | **0.9594665372092277** (near-inert) |
+| `carryVarianceFactor` | 0.07874067750387675 |
+| `carryPriorYearShare` | 0.8446698528714478 |
+| `carryMeanReversion` | 0.22933135144412517 |
+| `linkC` | 0.9365693620017962 |
+
+**The tuner reached for attribution shrinkage, not the cap** — pushing it near its upper bound
+while leaving the ceiling almost fully open. Three independent instruments now agree the
+redistribution mechanism carries the signal: the 2022-2026 replay sweep, the 2019/2020 screen, and
+this rolling-origin search. The cap going inert here is consistent with 7fj's own finding that a
+cap does nothing in a cold-start season, where every team holds equal variance and none dominates
+the pooled split.
+
+`carryPriorYearShare` selected 0.845, a long way from the 0.3 it has been pinned at by override in
+every prior run — which is exactly what permitting it into the survivor set was for.
+
+### 2024 rejected hardest, and that is the gate working
+
+-1.49pt, the largest rejection of the ten. Both quick tasks measured 2024 as the one season
+preferring these knobs INERT; its rolling-origin selection window (2020/2022/2023) prefers them
+ON; and the skill's Phase 3 note flagged in advance that this was the case most likely to be
+mishandled out-of-sample. It was not mishandled — the gate caught it, 2024 keeps its current set,
+and it loses nothing.
+
+### Promotion and republish
+
+`vpr@10.0.0+rolling-2026-09d` (commit `e89de315`): 2022 takes the on-arm search winner; 2019,
+2020, 2023, 2024, 2025 and 2026 carry `rolling-2026-09c` forward untouched. Full suite green from
+the repo root, 203 files / 3,727 tests.
+
+Republished in the load-bearing order — artifacts (75,796 objects, 2.94 GB, generation
+`7a2e4e5b`), then manifest, then the hand-transcribed publish budget. Live origin verified by
+CONTENT: `data.sigmascout.org/v1/manifest/algorithms.json` advertises
+`vpr -> 10.0.0+rolling-2026-09d`.
+
+**216 presim pre-schedule sidecars generated for the first time in production** — quick task
+260905-tll's work had been dark since it landed and went live with this republish. Its measured
+sizes (median 138,710 B, p95 243,647 B, max 265,617 B) are now recorded in
+`docs/publish-budget.md`, replacing the placeholder that named this run as the one that would
+supply them; the pre-implementation ~160 KB projection was low by ~1.7x at the median.
+
+### Honest limit of this run
+
+**It does not close the EPA gap.** The seasons carrying most of the remaining deficit — 2025
+(-1.06pt) and 2023 (-0.59pt) — both returned keep-incumbent, so the pooled head-to-head is
+largely unchanged outside 2022. What it establishes is that the attribution mechanism survives an
+out-of-sample rolling-origin gate where the search could find a configuration for it, and that
+both knobs are now permanent, searchable, and inert-by-default for every future tune.
+
+Full run report: `reports/retune-260906-run-report.md`.
