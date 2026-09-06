@@ -110,40 +110,43 @@
  * already-promoted files describe how THEY were selected, and removing it
  * would invalidate a historical record.
  *
- * ## D-T7's PRE-COMMITTED ACCEPTANCE RULE, and D-T4's two arms
+ * ## RULE A IS THE SHIPPING GATE (quick task 260905-t88, 2026-09-05), and D-T4's two arms
  *
  * After gate 4's write, an `--origin` run evaluates the winner AND the
  * incumbent on the origin season and applies `acceptance.ts`'s
- * `decideAcceptance`. Since quick task 260904-oiu (OBJ-BAR) the bar is on
- * ACCURACY: `sqrt(2 ln N) * SE_paired(accuracy delta)`, where N is the
- * number of candidates actually evaluated (`evaluationCountForBar` — not the
- * requested `--evals`, and not the rejected-and-resampled draws that were
- * never scored). N is recorded in the artifact beside the threshold it
- * produced, because the bar MOVES with it. Brier is now a two-half GUARDRAIL
- * VETO alongside the pre-existing score-MAE veto — see `acceptance.ts`'s
- * header for the full three-condition shape.
+ * `decideAcceptance`. Since quick task 260905-t88 (RULE-A) the gate is: the
+ * candidate ships when it strictly improves BOTH out-of-sample winner
+ * ACCURACY and BRIER over the incumbent, subject to the unchanged score-MAE
+ * veto. The D-T7 noise bar (`sqrt(2 ln N) * SE_paired(accuracy delta)`,
+ * quick task 260904-oiu / OBJ-BAR) and the Brier guardrail's bound are both
+ * still COMPUTED and REPORTED — N is still recorded beside the bar it
+ * produces, because a threshold quoted without its N cannot be checked — but
+ * neither is a gate anymore. See `acceptance.ts`'s header for the full
+ * account of why Rule A replaced the bar and what each retired quantity's
+ * evidence field is for.
  *
  * The incumbent is read from the committed
  * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+tuned-2026-08.json` and a
- * missing file THROWS. D-T7's bar is "beats what ships", and the shipped set
- * is not `DEFAULT_SIGMA1_PARAMS`.
+ * missing file THROWS. Rule A's gate is "beats what ships", and the shipped
+ * set is not `DEFAULT_SIGMA1_PARAMS`.
  *
  * Three standard errors are reported under deliberately distinct names.
- * `accuracyDeltaStandardError` is the PAIRED difference SE the bar is
- * actually ON. `brierDeltaStandardError` is the PAIRED difference SE that now
- * feeds only the Brier guardrail. `brierLevelStandardError` is the
- * candidate's own level SE, the quantity D-T6's published 0.001219 is
+ * `accuracyDeltaStandardError` is the PAIRED difference SE that now feeds
+ * only the DIAGNOSTIC noise bar (`clearedNoiseBar`), never the gate.
+ * `brierDeltaStandardError` is the PAIRED difference SE that feeds the
+ * retired, also-diagnostic Brier guardrail bound. `brierLevelStandardError`
+ * is the candidate's own level SE, the quantity D-T6's published 0.001219 is
  * comparable to. Three fields all called `se` would be confusable at a
  * glance; these are not.
  *
- * `keep-incumbent` EXITS 0 and reads as a result. A search that clears nothing
- * has completed successfully.
+ * `keep-incumbent` EXITS 0 and reads as a result. A search that finds nothing
+ * that improves both accuracy and Brier has completed successfully.
  *
  * D-T4's arms need no new machinery — `--adaptation on|off` already exists and
  * `adaptationEnabled` is in `SEARCH_EXCLUSIONS` (a mode, not a dimension). What
  * the acceptance rule adds is the COMPARISON SHAPE: the two arms produce two
  * artifacts per origin, and adaptation ships only if ITS arm's winner clears
- * the D-T7 bar against the incumbent out-of-sample. D-T4's measured -0.0015
+ * RULE A against the incumbent out-of-sample. D-T4's measured -0.0015
  * Brier for adaptation-on (holdout 0.153558 -> 0.152054, on top of 16x process
  * noise, so it is NOT merely a proxy for process noise) is a real result with a
  * real caveat: its winning sub-parameters were selected by LOOKING AT HOLDOUT,
@@ -1441,12 +1444,16 @@ async function runJointStage(
           `the operator, not the machinery, chose this set. Use --origin for D-T5's rolling-origin discipline.`
       );
     }
-    // The budget tradeoff, printed rather than buried: D-T7's acceptance bar
-    // moves with N as sqrt(2 ln N), so the operator can see what a reduced
-    // --evals bought before the run rather than after.
+    // The budget tradeoff, printed rather than buried. Since Rule A (quick
+    // task 260905-t88, 2026-09-05) the ship/don't-ship gate has NO N
+    // dependence at all — a smaller --evals buys less search BREADTH, full
+    // stop, and does not trade against shipping probability. The retired
+    // sqrt(2 ln N) bar still moves with N exactly as before, but it is now
+    // reported as diagnostics only (`clearedNoiseBar`), not a gate.
     console.log(
-      `Budget: --evals ${evalsCount}, --batch ${batchSize}. D-T7's acceptance bar scales as sqrt(2 ln N) x SE, so a smaller ` +
-        `--evals both costs less and RELAXES the bar (60 -> 40 moves it from ~0.003488 to ~0.003310 at SE 0.001219).`
+      `Budget: --evals ${evalsCount}, --batch ${batchSize}. --evals buys search breadth; since Rule A (2026-09-05) it has no bearing ` +
+        `on the ship/don't-ship gate. The retired diagnostic-only noise bar still scales as sqrt(2 ln N) x SE (60 -> 40 moves it from ` +
+        `~0.003488 to ~0.003310 at SE 0.001219), for context only.`
     );
 
     const plan = planJointCandidates(survivors, evalsCount, seed, adaptationEnabled);
@@ -1581,10 +1588,11 @@ async function runJointStage(
     // The process exits 0 for EVERY outcome, `keep-incumbent` included.
     // This is the single place a future operator is most likely to "fix" by
     // adding a non-zero exit or a retry loop, so: doing either would defeat
-    // the entire purpose of a pre-committed bar. A search that finds nothing
-    // above the bar has SUCCEEDED and its correct output is "the incumbent
-    // stands, and here is the bar it could not clear" (D-T7; `acceptance.ts`'s
-    // header states the same contract at the decision function itself).
+    // the entire purpose of a pre-committed rule. A search that finds nothing
+    // that improves both accuracy and Brier has SUCCEEDED and its correct
+    // output is "the incumbent stands, and here is why Rule A did not accept
+    // it" (`acceptance.ts`'s header states the same contract at the decision
+    // function itself).
     // ─────────────────────────────────────────────────────────────────────
   } finally {
     db.close();
@@ -1853,14 +1861,17 @@ export interface OriginAcceptanceReport {
 }
 
 /**
- * Builds D-T7's decision and the one plain sentence that reports it.
+ * Builds Rule A's decision (quick task 260905-t88, adopted 2026-09-05) and
+ * the one plain sentence that reports it.
  *
- * Pure, and exported, so `tune.test.ts` can assert the shape of all three
- * outcomes without a corpus. The bootstrap and the rule itself are already
- * unit-tested in `eventBootstrap.test.ts`/`acceptance.test.ts`; what this
- * function is responsible for is the WIRING — that the paired SE goes to the
- * bar, the level SE goes only into the report, and the veto's two bounds
- * travel with the number they judged.
+ * Pure, and exported, so `tune.test.ts` can assert the shape of all four
+ * outcomes without a corpus. `decideAcceptance` itself is already
+ * unit-tested in `acceptance.test.ts`, and the bootstrap in
+ * `eventBootstrap.test.ts`; what this function is responsible for is the
+ * WIRING — that the paired accuracy SE feeds the (now diagnostic) noise bar,
+ * the level SE goes only into the report, the MAE veto's bound travels with
+ * the number it judged, and the printed verdict names Rule A as the rule
+ * that decided.
  */
 export function buildAcceptanceReport(input: {
   originSeason: number;
@@ -1906,35 +1917,48 @@ export function buildAcceptanceReport(input: {
   // failure is how an operator gets talked into widening the bar.
   //
   // The shared prefix is SIGN-NEUTRAL, and must stay that way (260904-4ik's
-  // hard-won fix, carried forward through the accuracy-primary rewrite).
-  // `outcome.accuracyMargin` is SIGNED (`candidateAccuracy - incumbentAccuracy`),
-  // so it is negative for every candidate that is genuinely less accurate. A
-  // directional verb in a prefix all four branches reuse would assert the
-  // OPPOSITE of the number beside it on those outcomes — exactly the hazard
-  // that once rendered a loss as a near-miss. Report the number; claim no side.
+  // hard-won fix, carried forward through Rule A, quick task 260905-t88).
+  // `outcome.accuracyMargin` and `outcome.brierDelta` are both SIGNED, so
+  // either can be negative for a perfectly normal outcome (a losing
+  // candidate's accuracy margin, or a WINNING candidate's brierDelta — Rule A
+  // requires it negative to accept). A directional verb in a prefix all four
+  // branches reuse would assert the OPPOSITE of the number beside it on some
+  // outcome — exactly the hazard that once rendered a loss as a near-miss.
+  // Report both numbers; claim no side.
   //
-  // The prefix's TRAILING clause is load-bearing grammar: both veto branches
-  // concatenate `${shared} and was cleared`, where "cleared" refers to *the
-  // bar* the tail names. Restructuring that tail breaks those branches'
-  // sentences while every assertion still passes.
+  // Each branch below is now SELF-CONTAINED — no shared trailing clause is
+  // appended by more than one branch. That used to be structured as
+  // `${shared} and was cleared`, true only because the retired D-T7 bar was
+  // the gate every accepting/vetoed branch had necessarily cleared. Under
+  // Rule A that is no longer true: a candidate can be ACCEPTED, or VETOED on
+  // MAE, WITHOUT having cleared the bar (the 2026-09-05 motivating case is
+  // exactly an accept below the bar), so a branch that still appended "and
+  // was cleared" could assert something false. The bar clause inside `shared`
+  // instead reports `outcome.clearedNoiseBar` directly, and is worded so
+  // "CLEARED" and "NOT CLEARED" cannot be confused by a bare substring match.
+  const barClause = outcome.clearedNoiseBar
+    ? `the retired noise bar at N = ${input.evaluationCount} (${outcome.threshold.toFixed(6)}) is diagnostic only since ` +
+      `2026-09-05 — RULE A is the gate — and this candidate's margin was CLEARED`
+    : `the retired noise bar at N = ${input.evaluationCount} (${outcome.threshold.toFixed(6)}) is diagnostic only since ` +
+      `2026-09-05 — RULE A is the gate — and this candidate's margin was NOT CLEARED`;
   const shared =
     `Origin ${input.originSeason}: the search evaluated ${input.evaluationCount} candidates on ${input.selectionSeasons.join(", ")} ` +
-    `and its winner's out-of-sample ACCURACY margin over the incumbent (${input.incumbentVersion}) was ${outcome.accuracyMargin.toFixed(6)} ` +
-    `over ${n} matches across ${input.eventCount} events; the bar at N = ${input.evaluationCount} was ${outcome.threshold.toFixed(6)}`;
+    `and its winner's out-of-sample ACCURACY margin over the incumbent (${input.incumbentVersion}) was ${outcome.accuracyMargin.toFixed(6)}, ` +
+    `with a Brier delta of ${outcome.brierDelta.toFixed(6)}, over ${n} matches across ${input.eventCount} events; ${barClause}`;
   const verdict =
     outcome.decision === "accept"
-      ? `${shared}, so the candidate is ACCEPTED (score-MAE delta ${outcome.maeDelta.toFixed(4)}, inside the guardrail's ` +
-        `${outcome.maeVetoBound.toFixed(4)} bound; Brier delta ${outcome.brierDelta.toFixed(6)}, inside the guardrail's ` +
-        `${outcome.brierVetoBound.toFixed(6)} bound).`
-      : outcome.reason === "below-threshold"
-        ? `${shared}, so the INCUMBENT STANDS. Nothing cleared a pre-committed bar, which is a completed search, not a failed one.`
-        : outcome.reason === "mae-veto"
-          ? `${shared} and was cleared — but the candidate worsens alliance-score MAE by ${outcome.maeDelta.toFixed(4)} points, past the ` +
-            `guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so it is VETOED and the INCUMBENT STANDS. D-T7's guardrail exists because ` +
-            `the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both rated equal-or-better.`
-          : `${shared} and was cleared — but the candidate is more accurate at the cost of a Brier regression of ${outcome.brierDelta.toFixed(6)}, ` +
-            `past the guardrail's ${outcome.brierVetoBound.toFixed(6)} bound, so it is VETOED and the INCUMBENT STANDS. A challenger more ` +
-            `accurate but materially worse-calibrated is not shipped (quick task 260904-oiu).`;
+      ? `${shared}, so the candidate is ACCEPTED under RULE A (quick task 260905-t88): it improves BOTH accuracy and Brier ` +
+        `over the incumbent (score-MAE delta ${outcome.maeDelta.toFixed(4)}, inside the guardrail's ${outcome.maeVetoBound.toFixed(4)} bound).`
+      : outcome.reason === "no-accuracy-gain"
+        ? `${shared}, so the INCUMBENT STANDS under RULE A: the candidate is not more accurate out-of-sample. This is a ` +
+          `completed search, not a failed one.`
+        : outcome.reason === "brier-regression"
+          ? `${shared}, so the INCUMBENT STANDS under RULE A: the candidate is more accurate, but its Brier is not better, ` +
+            `and a Brier-worse accuracy positive patterns as noise (2026-09-05 policy). This is a completed search, not a failed one.`
+          : `${shared}, so the candidate cleared RULE A but is VETOED on alliance-score MAE: it worsens alliance-score MAE by ` +
+            `${outcome.maeDelta.toFixed(4)} points, past the guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so the INCUMBENT ` +
+            `STANDS. D-T7's guardrail exists because the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both ` +
+            `rated equal-or-better.`;
 
   return {
     originSeason: input.originSeason,

@@ -648,7 +648,7 @@ describe("buildPairedOriginUnits (the paired comparison's precondition)", () => 
   });
 });
 
-describe("buildAcceptanceReport (D-T7's FOUR outcomes since OBJ-BAR, as the artifact records them)", () => {
+describe("buildAcceptanceReport (Rule A's FOUR outcomes since quick task 260905-t88, as the artifact records them)", () => {
   /**
    * Synthetic paired units built to an EXACT known accuracy/Brier/MAE mean,
    * so the report's arithmetic is checkable without a corpus. A large N
@@ -694,72 +694,69 @@ describe("buildAcceptanceReport (D-T7's FOUR outcomes since OBJ-BAR, as the arti
     evaluationCount: 58,
   };
 
-  it("accept: a comfortable accuracy margin, Brier and MAE unchanged", () => {
+  it("accept: accuracy improves ABOVE the noise bar, and Brier improves too — Rule A's both halves satisfied", () => {
     // Bar at N=58, accuracy SE 0.0005 is sqrt(2 ln 58) * 0.0005 ~ 0.00349. Margin 0.01.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 20, 20) });
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.159, 0.16, 20, 20) });
     expect(report.outcome.decision).toBe("accept");
     expect(report.verdict).toMatch(/ACCEPTED/);
+    expect(report.verdict).toMatch(/RULE A/);
+    expect(report.outcome.clearedNoiseBar).toBe(true);
+    // The bar clause must read as CLEARED, and must not ALSO match the
+    // "NOT CLEARED" wording (a bare match on "CLEARED" would pass for both).
+    expect(report.verdict).toMatch(/margin was CLEARED/);
+    expect(report.verdict).not.toMatch(/NOT CLEARED/);
     expect(report.candidateAccuracy).toBeCloseTo(0.61, 3);
     expect(report.incumbentAccuracy).toBeCloseTo(0.6, 3);
   });
 
-  it("keep-incumbent / below-threshold: a positive but sub-bar accuracy margin, reported as a completed search", () => {
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.6002, 0.6, 0.16, 0.16, 20, 20) });
-    expect(report.outcome.decision).toBe("keep-incumbent");
-    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
-    expect(report.verdict).toMatch(/INCUMBENT STANDS/);
-    // The contract, asserted rather than assumed: this is NOT phrased as a
-    // failure, because a search that clears nothing has succeeded.
-    expect(report.verdict).toMatch(/completed search, not a failed one/);
+  it("[2026-09-05 MOTIVATING CASE] accept: a positive but sub-bar accuracy margin still ships under Rule A, with clearedNoiseBar false and the verdict saying so — the REPORT is what an operator reads", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.6002, 0.6, 0.159, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("accept");
+    expect(report.outcome.clearedNoiseBar).toBe(false);
+    expect(report.verdict).toMatch(/ACCEPTED/);
+    expect(report.verdict).toMatch(/margin was NOT CLEARED/);
   });
 
-  it("keep-incumbent / mae-veto: accuracy bar cleared, MAE guardrail tripped, and the reported reason names the VETO", () => {
-    // Accuracy clears the bar; Brier unchanged; +8% MAE (20 -> 21.6) against
-    // a small SE: both halves of the MAE guardrail's AND are satisfied.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 21.6, 20) });
+  it("keep-incumbent / no-accuracy-gain: accuracy worsens (and Brier worsens too), reported as a completed search that claims no win", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.59, 0.6, 0.159, 0.16, 20, 20) });
     expect(report.outcome.decision).toBe("keep-incumbent");
-    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("mae-veto");
-    expect(report.verdict).toMatch(/VETOED/);
-    // The report must say the candidate was vetoed on MAE, not the far less
-    // useful "nothing was accepted" -- the accuracy bar WAS cleared.
-    expect(report.verdict).toMatch(/and was cleared/);
-  });
-
-  it("keep-incumbent / brier-veto: accuracy bar cleared, MAE unchanged, Brier guardrail tripped — the whole point of OBJ-BAR", () => {
-    // Accuracy clears the bar; MAE unchanged; Brier worsens by 0.008 (5% of
-    // 0.16), well past both the relative bound (0.0016) and the noise bound
-    // (2 * 0.0008 = 0.0016) at BASE's brierDeltaStandardError.
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.168, 0.16, 20, 20) });
-    expect(report.outcome.decision).toBe("keep-incumbent");
-    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("brier-veto");
-    expect(report.verdict).toMatch(/VETOED/);
-    expect(report.verdict).toMatch(/and was cleared/);
-    expect(report.verdict).toMatch(/more accurate/);
-  });
-
-  /**
-   * The negative-margin path — a candidate genuinely LESS ACCURATE than the
-   * incumbent — was uncovered until this case (260904-4ik), and that gap is
-   * exactly why a report describing a losing candidate as a winner shipped.
-   * `outcome.accuracyMargin` is SIGNED (`candidateAccuracy - incumbentAccuracy`),
-   * so it is negative here. A directional verb in the shared prefix would
-   * assert the OPPOSITE of the number beside it on this outcome.
-   */
-  it("keep-incumbent / below-threshold with a NEGATIVE accuracy margin: the verdict claims no win", () => {
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.59, 0.6, 0.16, 0.16, 20, 20) });
-    expect(report.outcome.decision).toBe("keep-incumbent");
-    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("below-threshold");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("no-accuracy-gain");
     expect(report.outcome.accuracyMargin).toBeCloseTo(-0.01, 3);
     expect(report.verdict).toMatch(/INCUMBENT STANDS/);
-    // The point of the case: the shared prefix must report the signed number
-    // without claiming a side, or every keep-incumbent report reads as a win.
+    // The contract, asserted rather than assumed: this is NOT phrased as a
+    // failure, because a search that finds nothing has succeeded.
+    expect(report.verdict).toMatch(/completed search, not a failed one/);
+    // 260904-4ik's fix, carried forward: the shared prefix must report the
+    // signed number without claiming a side, or every keep-incumbent report
+    // reads as a win.
     expect(report.verdict).not.toMatch(/beat the incumbent/);
   });
 
-  it("records evaluationCount, the threshold, and ALL THREE SEs under distinct, unconfusable names", () => {
-    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.16, 0.16, 20, 20) });
+  it("keep-incumbent / brier-regression: accuracy improves, but Brier is not better — Rule A's whole point", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.168, 0.16, 20, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("brier-regression");
+    expect(report.verdict).toMatch(/INCUMBENT STANDS/);
+    expect(report.verdict).toMatch(/RULE A/);
+    expect(report.verdict).toMatch(/more accurate/);
+    expect(report.verdict).toMatch(/Brier is not better/);
+  });
+
+  it("keep-incumbent / mae-veto: cleared Rule A's two halves, MAE guardrail tripped, and the reported reason names the VETO and the bound", () => {
+    // Accuracy AND Brier both improve; +8% MAE (20 -> 21.6) against a small
+    // SE: both halves of the MAE guardrail's AND are satisfied.
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.159, 0.16, 21.6, 20) });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.outcome.decision === "keep-incumbent" && report.outcome.reason).toBe("mae-veto");
+    expect(report.verdict).toMatch(/VETOED/);
+    expect(report.verdict).toMatch(new RegExp(report.outcome.maeVetoBound.toFixed(4).replace(".", "\\.")));
+  });
+
+  it("records evaluationCount, the threshold, clearedNoiseBar, and ALL THREE SEs under distinct, unconfusable names", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.61, 0.6, 0.159, 0.16, 20, 20) });
     expect(report.outcome.evaluationCount).toBe(58);
     expect(report.outcome.threshold).toBeCloseTo(Math.sqrt(2 * Math.log(58)) * 0.0005, 12);
+    expect(typeof report.outcome.clearedNoiseBar).toBe("boolean");
     expect(report.accuracyDeltaStandardError).toBe(0.0005);
     expect(report.brierDeltaStandardError).toBe(0.0008);
     expect(report.brierLevelStandardError).toBe(0.00122);
