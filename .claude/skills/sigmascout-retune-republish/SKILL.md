@@ -89,9 +89,13 @@ tsx packages/harness/tune.ts --stage joint --origin <YEAR> --adaptation <off|on>
 
 ## Phase 3 — acceptance decisions (pre-committed, zero judgment)
 
-- An origin promotes **only** if `decideAcceptance` says ACCEPTED. keep-incumbent means
-  that origin keeps its live set — no action, no retry.
-- If **both** arms of an origin are accepted, the **larger delta Brier wins**.
+- An origin promotes **only** if `decideAcceptance` says ACCEPTED. Since 2026-09-05 that
+  IS Rule A (accuracy AND Brier both improve — quick task 260905-t88); the old noise bar
+  is reported as diagnostics only. keep-incumbent means that origin keeps its live set —
+  no action, no retry. Do not re-read verdicts under the retired bar.
+- If **both** arms of an origin are accepted, the **larger accuracy margin wins**; Brier
+  breaks a tie. (Updated 2026-09-06 — the previous "larger delta Brier" rule predates the
+  accuracy-primary objective.)
 - Never compare these numbers to a previous run's table (different model era /
   incumbent — the run record explains why). The only comparison that exists is the one
   `--incumbent` already made.
