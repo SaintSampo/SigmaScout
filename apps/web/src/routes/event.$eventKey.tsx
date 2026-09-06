@@ -368,42 +368,47 @@ function EventPage() {
               Qualifications
             </TabsTrigger>
             {/*
-              D-17: `disabled` alone is the whole treatment — no title, no
-              accessible-description reference, no icon, no badge, no custom
-              class. `apps/web/src/components/ui/tabs.tsx` already removes
-              pointer events and halves opacity for a disabled trigger; Radix
-              supplies the disabled semantics. The Copywriting Contract's own
-              row for this element reads that there is no copy at all.
+              D-17 shipped `disabled` alone as the whole treatment (no copy at
+              all); user request 2026-09-05 supersedes that — a greyed tab now
+              explains itself on hover. The explanation is a native `title`
+              (the same quiet mechanism as AlliancesTab's G-8 disclosure), and
+              it lives on this wrapper span because the disabled trigger
+              itself carries `pointer-events-none` and can never receive the
+              hover. The span is inert when the tab is enabled.
             */}
-            <TabsTrigger
-              value="alliances"
-              disabled={isAlliancesDisabled}
-              className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+            <span
+              className="inline-flex"
+              title={isAlliancesDisabled ? "Alliance selection results haven't been published for this event yet." : undefined}
             >
-              Alliances
-            </TabsTrigger>
+              <TabsTrigger
+                value="alliances"
+                disabled={isAlliancesDisabled}
+                className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+              >
+                Alliances
+              </TabsTrigger>
+            </span>
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Playoffs
             </TabsTrigger>
             {/*
-              D-04 (08-09-PLAN.md Task 3), reusing Phase 7 D-17's treatment
-              verbatim: `disabled` alone is the whole treatment — no title, no
-              accessible-description reference, no icon, no badge, no custom
-              class. `apps/web/src/components/ui/tabs.tsx` already removes
-              pointer events and halves opacity for a disabled trigger; Radix
-              supplies the disabled semantics. The Copywriting Contract's own
-              row for this element reads that there is no copy at all. The
-              one sentence specific to D-04: the accepted cost is that a user
-              on OPR or EPA sees a dead tab with no hint, taken deliberately
-              so the site keeps exactly one rule for a tab you cannot use.
+              D-04 accepted "a dead tab with no hint" on OPR/EPA; user request
+              2026-09-05 supersedes that acceptance — same wrapper-span
+              `title` treatment as Alliances above, and for the same
+              pointer-events-none reason.
             */}
-            <TabsTrigger
-              value="simulation"
-              disabled={isSimulationDisabled}
-              className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+            <span
+              className="inline-flex"
+              title={isSimulationDisabled ? "Simulation is only available on the VPR algorithm — switch the algorithm selector to VPR." : undefined}
             >
-              Simulation
-            </TabsTrigger>
+              <TabsTrigger
+                value="simulation"
+                disabled={isSimulationDisabled}
+                className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]"
+              >
+                Simulation
+              </TabsTrigger>
+            </span>
           </TabsList>
         </div>
         <TabsContent value="insights" data-testid="insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
