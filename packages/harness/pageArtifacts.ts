@@ -1575,3 +1575,125 @@ export const DistrictArtifactSchema = PagePreambleSchema.extend({
 });
 
 export type DistrictArtifact = z.infer<typeof DistrictArtifactSchema>;
+
+// ---------------------------------------------------------------------------
+// Pre-schedule rank-simulation sidecar — v1/presim/{eventKey}/{algorithmId}@{version}.json
+// (quick task 260905-tll Task 1, PD-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * `preScheduleKey` is declared as its OWN exported function and
+ * deliberately NOT added to `PageKind`/`ArtifactKeyParams` above, following
+ * `districtsIndexKey`/`districtDetailKey`'s precedent immediately above
+ * (PD-01). Three consequences fall out of that single choice at once:
+ * `apps/worker/src/artifactWriter.ts`'s exhaustive `SCHEMA_BY_PAGE`-keyed
+ * writer structurally cannot address (and therefore cannot clobber or
+ * delete) a sidecar the Worker must never regenerate (C-18 — the Worker
+ * never simulates); `packages/harness/payloadBudget.test.ts`'s own
+ * `PAGE_KINDS` list stays untouched, so the sidecar lives outside the
+ * machine-readable size-budget block on purpose; and the event artifact's
+ * reachable 350,000-byte ceiling is never approached, because the sidecar
+ * is a separate, lazily-fetched object rather than new bytes on the event
+ * page's own key. `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped — this
+ * file's established convention (the districts note above) is that an
+ * additive new artifact kind never bumps it.
+ *
+ * This function is the ONE spelling of the sidecar key, imported by BOTH
+ * `packages/harness/publish.ts` (the writer) and
+ * `apps/web/src/lib/api/preSchedule.ts` (the reader) — two spellings would
+ * be a silent permanent 404.
+ */
+export function preScheduleKey(params: { eventKey: string; algorithmId: string; version: string }): string {
+  assertVersionShape(params.algorithmId, params.version);
+  return `v1/presim/${params.eventKey}/${params.algorithmId}@${params.version}.json`;
+}
+
+/**
+ * One synthetic qualification match inside a pre-schedule sidecar, in the
+ * compact roster-index encoding: `r`/`b` are three-element arrays of
+ * indices into the artifact's own `roster`, never team keys — the roster
+ * defines the index space once and every match row reuses it.
+ */
+const PreScheduleMatchSchema = z.object({
+  /** Red alliance: three roster indices (zero-based positions in this artifact's `roster`). */
+  r: z.array(z.number().int()).length(3),
+  /** Blue alliance: three roster indices — same encoding as `r`. */
+  b: z.array(z.number().int()).length(3),
+  /**
+   * The red alliance's predicted ranking-point pmf, `P(RP = i)` at index
+   * `i` — exactly the same physical quantity, in the same encoding and at
+   * the same `ROUNDING_RULE.pmf` precision, as `EventMatchSchema`'s own
+   * `redRpPmf` above. Required here (never optional): a sidecar exists
+   * ONLY for algorithms that model ranking points; an RP-less algorithm
+   * gets no sidecar at all rather than one with holes.
+   */
+  rp: z.array(z.number()),
+  /** The blue alliance's counterpart to `rp` — same quantity, same encoding, same `ROUNDING_RULE.pmf` precision as `EventMatchSchema.blueRpPmf`. */
+  bp: z.array(z.number()),
+});
+
+/**
+ * The pre-schedule rank-simulation sidecar (C-04/C-08/C-09): K synthetic
+ * qualification schedules priced by the exact joint-covariance RP model,
+ * plus the baked default rank distribution the Simulation tab renders on
+ * first paint with zero client compute. The four refinements below are the
+ * publish-boundary guarantee that makes `MalformedRankHistogramError` in
+ * `apps/web/src/components/event/rankRows.ts` unreachable in front of a
+ * visitor — the client deliberately does NOT re-derive these bounds
+ * (T-tll-02/T-tll-03).
+ */
+export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
+  eventKey: z.string().min(1),
+  season: z.number().int(),
+  /** How this sidecar was priced (PD-02): walk-forward pre-event state when the corpus shows the event's schedule has landed, current (season-final) state when it has not. */
+  pricedFrom: z.enum(["pre-event-walk-forward", "current-state"]),
+  matchesPerTeam: z.number().int().positive(),
+  /** The team keys that define the index space for every `r`/`b` array and every baked histogram below — sorted ascending by the builder, so republishes are byte-stable regardless of corpus row order. */
+  roster: z.array(z.string().min(1)).min(1),
+  schedules: z
+    .array(
+      z.object({
+        /** The seed that reproduces this schedule's team-to-slot shuffle (C-14/T-tll-06) — published so any sidecar can be regenerated and compared. */
+        seed: z.number().int(),
+        matches: z.array(PreScheduleMatchSchema).min(1),
+      })
+    )
+    .min(1),
+  baked: z.object({
+    /** Total simulated draws across all schedules (`scheduleCount * drawsPerSchedule`) — every histogram below sums to exactly this. */
+    draws: z.number().int().positive(),
+    /** One per-rank draw-count histogram per roster team, in roster order, each of length `roster.length` — index `rank - 1` holds the count of draws finishing at that rank. */
+    histograms: z.array(z.array(z.number().int())).min(1),
+  }),
+})
+  .refine(
+    (artifact) =>
+      artifact.schedules.every((schedule) => schedule.matches.every((match) => isValidPmf(match.rp) && isValidPmf(match.bp))),
+    { message: "every `rp` and `bp` must be a valid pmf (non-empty, sums to 1 within the shared 1e-9 tolerance)" }
+  )
+  .refine(
+    (artifact) =>
+      artifact.schedules.every((schedule) =>
+        schedule.matches.every((match) =>
+          [...match.r, ...match.b].every((index) => index >= 0 && index < artifact.roster.length)
+        )
+      ),
+    { message: "every roster index in every `r`/`b` must lie in [0, roster.length)" }
+  )
+  .refine((artifact) => artifact.baked.histograms.length === artifact.roster.length, {
+    message: "`baked.histograms` must carry exactly one histogram per roster team (histograms.length === roster.length)",
+  })
+  .refine(
+    (artifact) =>
+      artifact.baked.histograms.every(
+        (histogram) =>
+          histogram.length === artifact.roster.length &&
+          histogram.reduce((total, count) => total + count, 0) === artifact.baked.draws
+      ),
+    {
+      message:
+        "every baked histogram must have length roster.length and sum exactly to baked.draws — the guarantee that makes rankRows.ts's MalformedRankHistogramError unreachable",
+    }
+  );
+
+export type PreScheduleArtifact = z.infer<typeof PreScheduleArtifactSchema>;

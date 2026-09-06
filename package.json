@@ -23,6 +23,7 @@
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
     "measure:rewind-gap": "tsx scripts/measureRewindGap.ts",
+    "fetch:schedule-templates": "tsx scripts/fetchScheduleTemplates.ts",
     "reparam:equivalence": "tsx scripts/reparamEquivalence.ts",
     "lint:reviews": "tsx scripts/reviewFrontmatterLint.ts",
     "publish:artifacts": "tsx --env-file=.env packages/harness/publish.ts",

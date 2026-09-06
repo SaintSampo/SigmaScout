@@ -21,7 +21,10 @@ import {
   encodeTeamsRowMetrics,
   EventArtifactSchema,
   EventsArtifactSchema,
+  MissingVersionSeparatorError,
   PAGE_ARTIFACT_SCHEMA_VERSION,
+  preScheduleKey,
+  PreScheduleArtifactSchema,
   TeamsArtifactSchema,
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
@@ -1444,5 +1447,90 @@ describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped fie
     for (const name of allRowNames) {
       expect(name).not.toMatch(COMPARISON_PATTERN);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-schedule sidecar (quick task 260905-tll Task 1, PD-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * A six-team, one-schedule, two-match sidecar whose baked histograms
+ * satisfy all four refinements: 6 histograms, each length 6, each summing
+ * to `draws` (1000). Every pmf sums to exactly 1.
+ */
+function validPreScheduleFixture() {
+  const pmf = [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.1];
+  return {
+    ...ALGO_PREAMBLE,
+    eventKey: "2026casj",
+    season: 2026,
+    pricedFrom: "pre-event-walk-forward" as "pre-event-walk-forward" | "current-state",
+    matchesPerTeam: 12,
+    roster: ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"],
+    schedules: [
+      {
+        seed: 42,
+        matches: [
+          { r: [0, 1, 2], b: [3, 4, 5], rp: [...pmf], bp: [...pmf] },
+          { r: [5, 3, 1], b: [4, 2, 0], rp: [...pmf], bp: [...pmf] },
+        ],
+      },
+    ],
+    baked: {
+      draws: 1000,
+      histograms: [
+        [500, 100, 100, 100, 100, 100],
+        [100, 500, 100, 100, 100, 100],
+        [100, 100, 500, 100, 100, 100],
+        [100, 100, 100, 500, 100, 100],
+        [100, 100, 100, 100, 500, 100],
+        [100, 100, 100, 100, 100, 500],
+      ],
+    },
+  };
+}
+
+describe("preScheduleKey (quick task 260905-tll Task 1, PD-01)", () => {
+  it("builds the v1/presim key shape", () => {
+    expect(preScheduleKey({ eventKey: "2026casj", algorithmId: "vpr", version: "9.0.0+rolling-2026-09c" })).toBe(
+      "v1/presim/2026casj/vpr@9.0.0+rolling-2026-09c.json"
+    );
+  });
+
+  it("throws MissingVersionSeparatorError for a version with no '+'", () => {
+    expect(() => preScheduleKey({ eventKey: "2026casj", algorithmId: "vpr", version: "9.0.0" })).toThrow(
+      MissingVersionSeparatorError
+    );
+  });
+});
+
+describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
+  it("parses a well-formed sidecar object", () => {
+    expect(() => PreScheduleArtifactSchema.parse(validPreScheduleFixture())).not.toThrow();
+  });
+
+  it("rejects a pmf that sums to 0.9 (isValidPmf refinement)", () => {
+    const fixture = validPreScheduleFixture();
+    fixture.schedules[0]!.matches[1]!.bp = [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.0];
+    expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/pmf/);
+  });
+
+  it("rejects an out-of-range roster index (index-bound refinement)", () => {
+    const fixture = validPreScheduleFixture();
+    fixture.schedules[0]!.matches[0]!.r = [0, 1, 6]; // roster.length is 6, so 6 is out of range
+    expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/roster index/);
+  });
+
+  it("rejects a histogram count that disagrees with the roster length", () => {
+    const fixture = validPreScheduleFixture();
+    fixture.baked.histograms = fixture.baked.histograms.slice(0, 5);
+    expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/one histogram per roster team/);
+  });
+
+  it("rejects a histogram that sums to one less than draws", () => {
+    const fixture = validPreScheduleFixture();
+    fixture.baked.histograms[2] = [499, 100, 100, 100, 100, 100]; // sums to 999, draws is 1000
+    expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/sum exactly to baked\.draws/);
   });
 });
