@@ -9,7 +9,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -421,5 +421,106 @@ describe("DistrictLocksTab", () => {
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
     expect(stat.textContent).toBe("0 / 166 pre-DCMP");
+  });
+
+  describe("revision R3: per-event column toggle (260905-lic)", () => {
+    it("is collapsed by default — no Rookie Bonus, Adjustments or event columns visible", async () => {
+      const t = team({
+        teamKey: "frc30",
+        teamNumber: 30,
+        rank: 1,
+        rookieBonus: 20,
+        adjustments: -5,
+        eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 20, elim: 0, award: 0, total: 60 }],
+      });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+        </TestHarness>,
+      );
+      await screen.findByTestId("district-district-lock-status");
+      expect(screen.queryByText("Rookie Bonus")).toBeNull();
+      expect(screen.queryByText("Event A")).toBeNull();
+      expect(screen.queryByTestId("district-district-lock-rookie-bonus")).toBeNull();
+    });
+
+    it("clicking the toggle reveals Rookie Bonus, Adjustments, and one 4-column band per played event, in chronological (week) order", async () => {
+      const t = team({
+        teamKey: "frc31",
+        teamNumber: 31,
+        rank: 1,
+        rookieBonus: 20,
+        adjustments: -5,
+        eventPoints: [
+          { eventKey: "eventB", eventName: "Event B", week: 5, tier: "district", qual: 22, alliance: 16, elim: 30, award: 0, total: 68 },
+          { eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 20, elim: 0, award: 10, total: 70 },
+        ],
+      });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="vpr" season={2026} />
+        </TestHarness>,
+      );
+      await screen.findByTestId("district-district-lock-status");
+      const toggle = screen.getByTestId("district-district-locks-column-toggle");
+      fireEvent.click(toggle);
+
+      expect(screen.getByText("Rookie Bonus")).toBeDefined();
+      expect(screen.getByTestId("district-district-lock-rookie-bonus").textContent).toBe("20");
+      expect(screen.getByTestId("district-district-lock-adjustments").textContent).toBe("-5");
+
+      // Chronological order — Event A (week 1) before Event B (week 5),
+      // regardless of the team's own `eventPoints` array order.
+      const bandCells = screen.getAllByText(/^Event [AB]$/);
+      expect(bandCells.map((cell) => cell.textContent)).toEqual(["Event A", "Event B"]);
+
+      expect(screen.getByTestId("district-district-lock-event-eventA-qual").textContent).toBe("40");
+      expect(screen.getByTestId("district-district-lock-event-eventA-alliance").textContent).toBe("20");
+      expect(screen.getByTestId("district-district-lock-event-eventA-elim").textContent).toBe("0");
+      expect(screen.getByTestId("district-district-lock-event-eventA-award").textContent).toBe("10");
+      expect(screen.getByTestId("district-district-lock-event-eventB-qual").textContent).toBe("22");
+    });
+
+    it("a team that did not play a given event renders an em-dash across that event's four columns, never a fabricated zero", async () => {
+      const played = team({
+        teamKey: "frc32",
+        teamNumber: 32,
+        rank: 1,
+        eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 20, elim: 0, award: 0, total: 60 }],
+      });
+      const absent = team({ teamKey: "frc33", teamNumber: 33, rank: 2, eventPoints: [] });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([played, absent])} which="district" algorithm="vpr" season={2026} />
+        </TestHarness>,
+      );
+      await screen.findAllByTestId("district-district-lock-status");
+      fireEvent.click(screen.getByTestId("district-district-locks-column-toggle"));
+
+      // Rows render in rank order (played=rank 1, absent=rank 2), so the
+      // second `eventA` qual cell belongs to the team that never played it.
+      const qualCells = screen.getAllByTestId("district-district-lock-event-eventA-qual");
+      expect(qualCells[0]?.textContent).toBe("40");
+      expect(qualCells[1]?.textContent).toBe("—");
+    });
+
+    it("shows the same expanded columns on the Champ Locks tab, independently toggled", async () => {
+      const t = team({
+        teamKey: "frc34",
+        teamNumber: 34,
+        rank: 1,
+        rookieBonus: 5,
+        adjustments: 0,
+        eventPoints: [{ eventKey: "eventC", eventName: "Event C", week: 2, tier: "dcmp", qual: 10, alliance: 5, elim: 15, award: 0, total: 30 }],
+      });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="vpr" season={2026} />
+        </TestHarness>,
+      );
+      await screen.findByTestId("district-champ-lock-status");
+      fireEvent.click(screen.getByTestId("district-champ-locks-column-toggle"));
+      expect(screen.getByTestId("district-champ-lock-event-eventC-elim").textContent).toBe("15");
+    });
   });
 });

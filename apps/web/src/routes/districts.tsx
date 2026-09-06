@@ -5,7 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_DISTRICT_TAB, DISTRICT_TABS, DistrictsSearchSchema, type DistrictTab } from "../lib/searchParams.js";
 import { districtQueryOptions, districtsIndexQueryOptions } from "../lib/api/districts.js";
+import { teamsQueryOptions } from "../lib/api/teams.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
+import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
 import { DistrictInsightsTab } from "../components/districts/DistrictInsightsTab.js";
@@ -14,12 +16,21 @@ import { DistrictLocksTab } from "../components/districts/DistrictLocksTab.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The `/districts` route (quick task 260905-lic Task 3): the fourth ribbon
- * page, backed by two artifacts with no algorithm dependency at all
- * (`lib/api/districts.ts`'s own doc comment). `algorithm` still flows
- * through `RootSearchSchema` (validated at `__root.tsx`'s router boundary)
- * only so every `Link to="/team/$teamNumber"` on this page can pass it
- * through unchanged — this page never uses it to select a fetch.
+ * The `/districts` route (quick task 260905-lic Task 3; revision R3 adds a
+ * THIRD, algorithm-scoped fetch). The district artifacts themselves carry no
+ * algorithm dependency at all (`lib/api/districts.ts`'s own doc comment) —
+ * `algorithm` still flows through `RootSearchSchema` (validated at
+ * `__root.tsx`'s router boundary) so every `Link to="/team/$teamNumber"` on
+ * this page can pass it through unchanged, AND (revision R3, user
+ * correction: "the district insights and breakdown tables are now for
+ * VPR/opr/epa") so the Insights and Breakdown tabs can join the district
+ * roster against the selected algorithm's own teams-table artifact — the
+ * SAME fetcher (`lib/api/teams.ts`) and `useAlgorithmVersion`-gated `enabled`
+ * pattern `routes/teams.tsx` itself uses, added here rather than inside
+ * either tab component so both tabs share one query (one cache entry, one
+ * loading/placeholder lifecycle) instead of independently duplicating it.
+ * District-Locks/Champ-Locks stay entirely unaffected — locks/points never
+ * vary by algorithm.
  */
 export const Route = createFileRoute("/districts")({
   validateSearch: DistrictsSearchSchema,
@@ -123,6 +134,24 @@ function DistrictsPage() {
     placeholderData: keepPreviousData,
   });
 
+  // Revision R3: the Insights/Breakdown tabs' algorithm-scoped join source.
+  // Matches `routes/teams.tsx`'s own pattern exactly — disabled until the
+  // algorithms manifest resolves a real version, `keepPreviousData` so an
+  // algorithm/year switch doesn't collapse the table mid-transition. This
+  // query's `data` staying `undefined` (pending, disabled, or errored) is
+  // NOT gated on here as a page-level error/pending branch — both tab
+  // components already treat an absent teams artifact as "no join yet" via
+  // `districtMetricsJoin.tsx`'s own em-dash contract, so a slow or failed
+  // algorithm fetch degrades to em-dashed metric cells rather than blocking
+  // the whole district page (whose own primary data has no algorithm
+  // dependency at all).
+  const version = useAlgorithmVersion(algorithm);
+  const teamsQuery = useQuery({
+    ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
+    enabled: version !== undefined,
+    placeholderData: keepPreviousData,
+  });
+
   const activeTab = resolveActiveTab(tab);
 
   function handleTabChange(value: string) {
@@ -152,7 +181,7 @@ function DistrictsPage() {
       districtKey: district ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictInsightsTab artifact={artifact} algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <DistrictInsightsTab artifact={artifact} teamsArtifact={teamsQuery.data} algorithm={algorithm} season={year} />,
     });
   }
 
@@ -165,7 +194,7 @@ function DistrictsPage() {
       districtKey: district ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictBreakdownTab artifact={artifact} algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <DistrictBreakdownTab artifact={artifact} teamsArtifact={teamsQuery.data} algorithm={algorithm} season={year} />,
     });
   }
 

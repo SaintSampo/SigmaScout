@@ -38,7 +38,23 @@
  *     client-side by `districtLocksHeaderStats.ts` — see that module's own
  *     doc comment for why (the published artifact carries no dedicated
  *     aggregate field for either).
+ *
+ * Revision R3 (quick task 260905-lic, user correction: "the district
+ * insights and breakdown tables are now for VPR/opr/epa") folds the OLD
+ * `DistrictBreakdownTab.tsx`'s per-team expandable-dropdown-row district-
+ * points detail into THIS component instead, as COLUMNS behind a single
+ * expand toggle — explicitly never as expandable rows again (the user's own
+ * rejection of that pattern). Toggled on, every default column above stays
+ * exactly as it is; Rookie Bonus and Adjustments append as two more
+ * columns, then every event either tab's roster has ever played — the union
+ * across BOTH tiers, in chronological (week) order, matching the old
+ * Breakdown's own scope — appends as a four-column band (Qualification,
+ * Alliance Selection, Playoff Advancement, Award) grouped under an
+ * event-name header, mirroring `event/BreakdownTab.tsx`'s own group-band
+ * pattern. A team that did not play a given event renders an honest em-dash
+ * across that event's four cells, never a fabricated zero.
  */
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -51,6 +67,7 @@ import { computeChampLocksHeaderStats, computeDistrictLocksHeaderStats, type Dis
 type DistrictTeam = DistrictArtifact["teams"][number];
 type LockVerdict = DistrictTeam["districtLock"];
 type QualifyingAward = DistrictTeam["qualifyingAwards"][number];
+type DistrictEventPoints = DistrictTeam["eventPoints"][number];
 
 export type DistrictLockKind = "district" | "champ";
 
@@ -63,6 +80,12 @@ const LOCK_KIND_LABEL: Record<DistrictLockKind, string> = {
 const LOCK_KIND_TIER: Record<DistrictLockKind, DistrictEventTier> = {
   district: "district",
   champ: "dcmp",
+};
+
+/** The expanded event-columns band's tooltip label per tier — restated locally (the old `DistrictBreakdownTab.tsx` carried an identical map before revision R3 removed that component's own per-team expandable rows). */
+const EVENT_TIER_LABEL: Record<DistrictEventPoints["tier"], string> = {
+  district: "District Event",
+  dcmp: "District Championship",
 };
 
 const STATUS_LABEL: Record<LockVerdict["status"], string> = {
@@ -215,6 +238,51 @@ function ChampRemainingDistrictPoints({ artifact }: { artifact: DistrictArtifact
   );
 }
 
+/** One event column-band spec — the union of every event any roster team's `eventPoints` names, deduplicated by `eventKey`. */
+interface DistrictEventColumn {
+  eventKey: string;
+  eventName: string;
+  tier: DistrictEventPoints["tier"];
+  week: number | null;
+}
+
+/**
+ * Every distinct event across the WHOLE roster's `eventPoints` (both tiers,
+ * matching the old `DistrictBreakdownTab.tsx`'s own pre-R3 scope, which
+ * showed a team's full point history regardless of which Locks tab a reader
+ * might separately be viewing), in chronological (week) order — unknown
+ * week sorts last, then by event name for a stable tie-break.
+ */
+function collectAllEvents(teams: readonly DistrictTeam[]): DistrictEventColumn[] {
+  const byKey = new Map<string, DistrictEventColumn>();
+  for (const team of teams) {
+    for (const eventPoint of team.eventPoints) {
+      if (!byKey.has(eventPoint.eventKey)) {
+        byKey.set(eventPoint.eventKey, {
+          eventKey: eventPoint.eventKey,
+          eventName: eventPoint.eventName,
+          tier: eventPoint.tier,
+          week: eventPoint.week,
+        });
+      }
+    }
+  }
+  return [...byKey.values()].sort((a, b) => {
+    if (a.week !== b.week) {
+      if (a.week === null) return 1;
+      if (b.week === null) return -1;
+      return a.week - b.week;
+    }
+    return a.eventName.localeCompare(b.eventName);
+  });
+}
+
+/** One event-component cell — an honest em-dash when this team never played `event`, never a fabricated zero. */
+function EventComponentCell({ eventPoints, component }: { eventPoints: DistrictEventPoints | undefined; component: "qual" | "alliance" | "elim" | "award" }) {
+  if (eventPoints === undefined) return <>—</>;
+  return <>{formatPoints(eventPoints[component])}</>;
+}
+
 export interface DistrictLocksTabProps {
   artifact: DistrictArtifact;
   which: DistrictLockKind;
@@ -223,6 +291,9 @@ export interface DistrictLocksTabProps {
 }
 
 export function DistrictLocksTab({ artifact, which, algorithm, season }: DistrictLocksTabProps) {
+  const [columnsExpanded, setColumnsExpanded] = useState(false);
+  const allEvents = useMemo(() => collectAllEvents(artifact.teams), [artifact.teams]);
+
   if (artifact.teams.length === 0) {
     return (
       <EmptyState
@@ -235,6 +306,7 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
   const slots = which === "district" ? artifact.dcmpSlots : artifact.cmpSlots;
   const cutLine = which === "district" ? artifact.insights.dcmpCutLinePoints : artifact.insights.cmpCutLinePoints;
   const teams = [...artifact.teams].sort((a, b) => a.rank - b.rank);
+  const showEventColumns = columnsExpanded && allEvents.length > 0;
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid={`district-${which}-locks-tab`}>
@@ -250,9 +322,43 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
       </div>
       {which === "district" ? <DistrictScheduleStrip artifact={artifact} /> : <ChampRemainingDistrictPoints artifact={artifact} />}
       <p className="text-role-body text-[var(--color-text-muted)]">{DISTRICT_LOCKS_CAVEAT}</p>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-testid={`district-${which}-locks-column-toggle`}
+          aria-expanded={columnsExpanded}
+          onClick={() => setColumnsExpanded((prev) => !prev)}
+          className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+        >
+          {columnsExpanded ? "◂ Fewer columns" : "Per-event columns ▸"}
+        </button>
+      </div>
       <div className="data-card w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <Table>
           <TableHeader>
+            {showEventColumns && (
+              <TableRow data-testid={`district-${which}-locks-event-band-row`}>
+                {/* The 8 default columns carry no band of their own — a
+                    single spanning spacer, aria-hidden, matching
+                    `event/BreakdownTab.tsx`'s own group-band spacer
+                    treatment for its pinned identity columns. */}
+                <TableHead aria-hidden="true" colSpan={8} className="h-auto py-1" />
+                {/* Rookie Bonus / Adjustments are standalone columns, not a
+                    group — an aria-hidden spacer, no band label. */}
+                <TableHead aria-hidden="true" colSpan={2} className="h-auto py-1" />
+                {allEvents.map((event) => (
+                  <TableHead
+                    key={event.eventKey}
+                    data-testid={`district-${which}-locks-event-band-${event.eventKey}`}
+                    colSpan={4}
+                    title={EVENT_TIER_LABEL[event.tier]}
+                    className="h-auto truncate py-1 text-center"
+                  >
+                    {event.eventName}
+                  </TableHead>
+                ))}
+              </TableRow>
+            )}
             <TableRow>
               <TableHead>Rank</TableHead>
               <TableHead>Team #</TableHead>
@@ -262,6 +368,19 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
               <TableHead>Status</TableHead>
               <TableHead>Sent by</TableHead>
               <TableHead>Points Still Needed</TableHead>
+              {columnsExpanded && (
+                <>
+                  <TableHead>Rookie Bonus</TableHead>
+                  <TableHead>Adjustments</TableHead>
+                  {showEventColumns &&
+                    allEvents.flatMap((event) => [
+                      <TableHead key={`${event.eventKey}-qual`}>Qualification</TableHead>,
+                      <TableHead key={`${event.eventKey}-alliance`}>Alliance Selection</TableHead>,
+                      <TableHead key={`${event.eventKey}-elim`}>Playoff Advancement</TableHead>,
+                      <TableHead key={`${event.eventKey}-award`}>Award</TableHead>,
+                    ])}
+                </>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -292,6 +411,34 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
                   <TableCell data-testid={`district-${which}-lock-points-to-lock`} className="whitespace-nowrap">
                     {formatPointsToLock(verdict)}
                   </TableCell>
+                  {columnsExpanded && (
+                    <>
+                      <TableCell data-testid={`district-${which}-lock-rookie-bonus`} className="numeric-cell">
+                        {formatPoints(team.rookieBonus)}
+                      </TableCell>
+                      <TableCell data-testid={`district-${which}-lock-adjustments`} className="numeric-cell">
+                        {formatPoints(team.adjustments)}
+                      </TableCell>
+                      {showEventColumns &&
+                        allEvents.flatMap((event) => {
+                          const eventPoints = team.eventPoints.find((entry) => entry.eventKey === event.eventKey);
+                          return [
+                            <TableCell key={`${event.eventKey}-qual`} data-testid={`district-${which}-lock-event-${event.eventKey}-qual`} className="numeric-cell">
+                              <EventComponentCell eventPoints={eventPoints} component="qual" />
+                            </TableCell>,
+                            <TableCell key={`${event.eventKey}-alliance`} data-testid={`district-${which}-lock-event-${event.eventKey}-alliance`} className="numeric-cell">
+                              <EventComponentCell eventPoints={eventPoints} component="alliance" />
+                            </TableCell>,
+                            <TableCell key={`${event.eventKey}-elim`} data-testid={`district-${which}-lock-event-${event.eventKey}-elim`} className="numeric-cell">
+                              <EventComponentCell eventPoints={eventPoints} component="elim" />
+                            </TableCell>,
+                            <TableCell key={`${event.eventKey}-award`} data-testid={`district-${which}-lock-event-${event.eventKey}-award`} className="numeric-cell">
+                              <EventComponentCell eventPoints={eventPoints} component="award" />
+                            </TableCell>,
+                          ];
+                        })}
+                    </>
+                  )}
                 </TableRow>
               );
             })}
