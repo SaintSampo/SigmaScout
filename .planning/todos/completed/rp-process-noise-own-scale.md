@@ -63,3 +63,19 @@ replacements inherit that argument unchanged and should be excluded too. **This 
 its own objective** — an RP-pmf-sensitive one, e.g. RP-prediction log-loss — or it cannot be
 evaluated at all. That is the real reason this is `low` priority rather than merely deferred:
 the measurement does not exist yet.
+
+## CLOSED 2026-09-05/06 — MEASURED NEGATIVE (quick task 260905-tpx, commit e9ada7c4)
+
+The measurement this todo said was missing now EXISTS and is committed: an RP-pmf log-loss
+scorer (`score-rp-logloss.cjs`) plus the corpus-measured per-variable spread derivation
+(`measure-rp-spread.ts`, weighted reference variance 3.964037). Under it, the own-scale
+form went NO-WIN against pre-committed criteria in BOTH framings: it wins big in 2022/2023/
+2026 (up to -34 SE in 2026, pooled -14 to -23 SE better) but breaches the 2-SE
+worst-season ceiling every time (2024 +5.2 SE vs control, with a zero-mass regression;
+2025 +2.4 SE vs baseline). Win-probability streams were bitwise identical throughout
+(experiment valid; RP dynamics provably do not feed pRedWin). The three absolute params
+stay; their SEARCH_EXCLUSIONS reasoning stands. If reopened: the pooled gains say the
+DIRECTION is real but the uniform relative constant overshoots somewhere — the same
+uniform-vs-targeted lesson the carry-variance work hit; any future attempt should be
+per-variable-family, not one global rel constant, and gets measured by the now-existing
+scorer. Full tables: 260905-tpx-RESULTS.md.
