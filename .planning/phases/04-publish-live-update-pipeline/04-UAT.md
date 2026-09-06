@@ -3,7 +3,7 @@ status: passed
 phase: 04-publish-live-update-pipeline
 source: [ROADMAP.md Phase 4 Success Criteria]
 started: 2026-08-23
-updated: 2026-08-23
+updated: 2026-09-06
 completed: 2026-08-23
 ---
 
@@ -38,7 +38,9 @@ evidence:
 
 ### 3. Measured Worker CPU (`cpuTime` as reported by Workers Logs, NOT wall time) per cron invocation stays under the 10 ms free-tier limit
 expected: Every cron invocation's `cpuTime` — the field Cloudflare enforces the limit against — is under 10 ms. Wall time and the tick's own `durationMs` are different quantities and do not test this criterion.
-result: pass (idle path); advanced-tick shape unverified — see Gaps
+result: pass (idle path, median 7 ms). Advanced-tick shape MEASURED 2026-08-23 and closed 2026-09-06
+  at 42 ms / 208 ms cpuTime on two `eventsAdvanced:1` folds — above the 10 ms configured limit, and
+  `ok` on both because that limit carries isolate flexibility for infrequent overage. See gap G1.
 
 measured:
 - Idle tick, `cpuTime` from `wrangler tail --format json`, deployed version `cfdafca8`, two independent samples: **n=10 → median 7 ms, range 5–9, one 14 ms cold start**; **n=9 → median 7 ms, range 5–10**. Combined n=19, **zero invocations over 10 ms** apart from the single cold start.
@@ -69,9 +71,46 @@ partial: 1
 ## Gaps
 
 ### G1. The advanced (real fold) tick's CPU has never been measured against `cpuTime`
-status: open
+status: closed
 severity: low
 source: Test 3
+closed_at: 2026-09-06
+closed_by: measurement (replay-rig folds 2026-08-23; distribution assembled 2026-08-29)
+
+**CLOSED — the measurement exists, and it did NOT come out the way this gap guessed.**
+
+The figure G1 asked for was captured on 2026-08-23 by the replay rig on Worker version
+`6cbe6d50`: **two real folds, both logging `eventsAdvanced:1`, at cpuTime 42 ms and 208 ms**, both
+`outcome: "ok"` and both demonstrably run to completion (the tick's log line is its last
+statement, so a logged tick is a finished tick). Those two points sat unattributed until the
+Phase 7 worker-CPU investigation assembled the full observed distribution — see
+`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`, which is the authoritative record.
+
+**The speculation below was wrong.** G1 reasoned the advanced tick was "plausible it is fine"
+because a fold plus seven R2 round-trips is mostly awaited I/O that does not accrue CPU. Measured,
+the advanced tick costs 42–208 ms against an idle median of 7 ms — 6× to 30× idle, and 4× to 20×
+the 10 ms configured limit. The I/O argument did not hold.
+
+**Why that is nevertheless not a production failure**, stated precisely because the naive reading
+of those numbers is alarming: 10 ms is the *configured* limit per Cron Trigger on Workers Free,
+not a flat per-invocation ceiling. Cloudflare's limits page grants each isolate "built-in
+flexibility... for cases where your Worker infrequently runs over the configured limit", and
+terminates a Worker that hits the limit *consistently*. An advanced tick is by nature infrequent
+(it fires only when a match actually completes), so a 42 ms or 208 ms fold is exactly the
+infrequent overage that flexibility covers.
+
+**G1's own "not a blocker" note was also disproven, separately.** It read: "no `exceededCpu`
+outcome has ever been observed." On 2026-08-29 the deployed Worker was observed at `exceededCpu`
+on 11 separate ticks. The cause was *not* the advanced fold this gap was about — it was per-tick
+Zod validation of 1,581 live-window entries on the *idle* path, plus phantom `inferred` windows
+keeping ticks off their early exit. Fixed and verified at `outcome: "ok"`, cpuTime 17/21/30 ms.
+The durable lesson is recorded in `.claude/CLAUDE.md`: budget for the sustained cost of the common
+path, and never read a single healthy over-budget tick as evidence the budget is safe.
+
+**No action outstanding.** The original text is preserved below as the record of what was unknown
+on 2026-08-23.
+
+---
 
 The only tick shape that does the expensive work — Phase A fold plus Phase B's
 seven sequential R2 read-then-writes — has no trustworthy CPU figure. Its
@@ -90,5 +129,6 @@ deployed Worker at the fixture Worker via `wrangler deploy --var TBA_BASE_URL:�
 and restoring tracked config afterwards, so it is a real production operation
 rather than a passive observation.
 
-**Not a blocker:** no `exceededCpu` outcome has ever been observed, including
-during the live folds already performed in plan 04-07 and the quick task.
+~~**Not a blocker:** no `exceededCpu` outcome has ever been observed, including
+during the live folds already performed in plan 04-07 and the quick task.~~
+*(Disproven 2026-08-29 — 11 `exceededCpu` observations. See the closure note above.)*

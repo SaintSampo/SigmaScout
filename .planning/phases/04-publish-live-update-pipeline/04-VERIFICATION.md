@@ -9,6 +9,9 @@ human_verification_disposition:
   resolved: 2026-08-23
   resolved_by: user (Jacob)
   outcome: accepted-unverified
+  superseded: 2026-09-06
+  superseded_outcome: measured
+  superseded_detail: "SUPERSEDED — the advanced tick's cpuTime is no longer unmeasured. Plan 04-07's own replay-rig folds (2026-08-23, Worker v6cbe6d50) had ALREADY produced the figure this item asked for — two folds logging eventsAdvanced:1 at cpuTime 42 ms and 208 ms, both outcome:ok — but the numbers were never read off the trace and attributed to this item at the time, which is why it was closed as accepted-unverified on the same day the measurement existed. The Phase 7 worker-CPU investigation assembled the full observed distribution on 2026-08-29 and surfaced them. Two corrections follow: (1) the expectation stated below ('cpuTime stays under the 10ms limit, since the fold is mostly awaited I/O') is FALSE — the fold costs 42-208 ms, 6-30x the idle median of 7 ms; (2) the acceptance basis stated above ('exceededCpu has never appeared on any trace') was disproven on 2026-08-29 by 11 exceededCpu observations, whose cause was per-tick Zod validation on the IDLE path, not this fold. Not a production failure: 10 ms is the configured per-Cron-Trigger limit and carries documented isolate flexibility for infrequent overage, which an advanced tick (fires only when a match completes) is. See .planning/debug/resolved/worker-tick-exceeds-cpu-budget.md and 04-UAT.md gap G1."
   detail: "The human verification item below was NOT performed. The user reviewed it as G1 in 04-UAT.md, was presented with both options (drive the live fold now, or close with the shape logged as unmeasured), and chose to close and revisit only if an event weekend shows strain. This is an accepted known gap, not a passed test — the advanced tick's cpuTime remains unmeasured. Recorded here explicitly so a future reader does not mistake this phase's `passed` status for evidence that every tick shape was measured. Basis for acceptance: `exceededCpu` has never appeared on any trace captured in this phase, including the live folds already performed in plan 04-07 and the quick task, and idle cpuTime measured median 7 ms (n=19) against a 10 ms limit."
 human_verification:
   - test: "Drive one live fold through scripts/replayRig.ts for the 'advanced' tick shape (a real Phase A fold plus Phase B's seven sequential R2 read-then-writes) and read cpuTime off the eventsAdvanced:1 trace."
@@ -117,6 +120,18 @@ None. Debt-marker scan (TBD/FIXME/XXX/TODO/HACK/PLACEHOLDER) across all phase-04
 ### Human Verification Required
 
 ### 1. The "advanced" (real fold) tick's CPU time against the 10ms free-tier limit
+
+> **CLOSED 2026-09-06 — measured, and the expectation below is disproven.** Plan 04-07's replay-rig
+> folds had already produced this figure on 2026-08-23 (Worker `6cbe6d50`): two `eventsAdvanced:1`
+> traces at cpuTime **42 ms** and **208 ms**, both `outcome: "ok"`. They were simply never read off
+> the trace and attributed here. The "Expected" line below — under 10 ms, because the fold is mostly
+> awaited I/O — is **wrong**: the advanced tick runs 6–30× the 7 ms idle median. It is nevertheless
+> not a production failure, because 10 ms is the *configured* limit and Cloudflare grants isolates
+> documented flexibility for infrequent overage, which an advanced tick is. The "no `exceededCpu`
+> has ever been observed" premise was separately disproven on 2026-08-29 (11 observations), with a
+> cause on the **idle** path, not this fold. Full record:
+> `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`; closure: `04-UAT.md` gap G1.
+> Text below is preserved as written on 2026-08-23.
 
 **Test:** Drive one live fold through `scripts/replayRig.ts` (temporarily pointing the deployed Worker at the fixture Worker via `wrangler deploy --var TBA_BASE_URL:...`, per `docs/worker-operations.md`'s replay-rig procedure) and read `cpuTime` off the resulting `eventsAdvanced:1` trace via `wrangler tail --format json`.
 **Expected:** `cpuTime` stays under the 10ms free-tier CPU limit — consistent with the idle path's measured 5-10ms range, since the fold itself is mostly awaited I/O (a sigma1 fold plus seven R2 round-trips), which typically does not accrue CPU time.

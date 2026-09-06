@@ -140,9 +140,19 @@ _Verifier: Claude (gsd-verifier)_
 Recorded 2026-08-26, by explicit decision, so Phase 6 can close with the gap visible in the
 record rather than closed by silence.
 
-### D-10 real-device iOS Safari gesture arbitration — ACCEPTED RISK
+### D-10 real-device iOS Safari gesture arbitration — ~~ACCEPTED RISK~~ CLOSED BY MEASUREMENT 2026-09-06
 
-**Status:** permanently unverifiable by this project as currently equipped. Not "deferred".
+> **SUPERSEDED 2026-09-06.** The developer ran this check on a real iPhone and reported every
+> gesture behaving correctly; `06-UAT.md` test 2 is now `result: pass`, not `skipped`. D-10 is
+> closed by measurement rather than by decision, and the "standing consequence" in the Completion
+> exception below no longer holds. Everything after this banner is the historical record of why
+> the gap stood open between 2026-08-26 and 2026-09-06 — preserved, not rewritten, because the
+> reasoning about what a Chromium/CDP pass is and is not evidence of remains correct and still
+> governs any FUTURE iOS regression (one real-device pass is a point-in-time observation, not
+> ongoing automated coverage).
+
+**Status:** ~~permanently unverifiable by this project as currently equipped. Not "deferred".~~
+Verified on real hardware 2026-09-06.
 
 **What is unverified:** that a horizontal drag inside a team page's per-event match table scrolls
 only that table on real iOS Safari, without the page panning sideways or the gesture sticking to
@@ -199,5 +209,11 @@ interaction is unverified on the platform it was written for. `skipped` was chos
 on accuracy grounds — `blocked` implies a prerequisite that will eventually arrive — and it does
 NOT satisfy the gate either, so it was not a way around it.
 
-**Standing consequence:** an iOS-only regression in per-section touch scrolling would land
-unobserved. That remains true after this phase closes, and closing the phase does not retire it.
+**Standing consequence:** ~~an iOS-only regression in per-section touch scrolling would land
+unobserved. That remains true after this phase closes, and closing the phase does not retire it.~~
+
+**RETIRED 2026-09-06** — the interaction was verified on a real iPhone and test 2 now reads
+`pass`. The narrower form of this consequence still holds and is worth keeping in view: the pass
+is a point-in-time human observation, not automated coverage, so a FUTURE iOS-only regression
+would still land unobserved. What is no longer true is that the interaction was never verified on
+the platform it was written for.

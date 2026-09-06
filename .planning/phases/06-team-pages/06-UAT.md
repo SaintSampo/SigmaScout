@@ -3,12 +3,13 @@ status: complete
 phase: 06-team-pages
 source: [06-VERIFICATION.md]
 started: 2026-08-25T20:20:00Z
-updated: 2026-08-26T21:00:00Z
+updated: 2026-09-06T00:00:00Z
 ---
 
 ## Current Test
 
-[testing complete — 2 passed, 1 accepted risk (no iOS device exists for this project)]
+[testing complete — 3 passed. The iOS real-device check (test 2) stood as an accepted risk from
+2026-08-26 until it was verified on a real iPhone on 2026-09-06; nothing is outstanding.]
 
 ## Tests
 
@@ -51,23 +52,29 @@ note: |
 
 ### 2. Real-device iOS Safari touch-gesture check
 expected: On a real iPhone in Safari, open a team page with >=2 event sections (e.g. frc118/2024). Dragging horizontally inside the first event's match table scrolls only that table — the page must not pan sideways. Repeat in the second section: same result, and the first section must not move. Dragging vertically over a match table scrolls the page normally. Dragging diagonally must not stick to the wrong axis.
-result: skipped
-blocked_by: physical-device
-reason: |
-  "I dont even have an iphone" — closed as an ACCEPTED RISK, not as awaiting a device.
-  Recorded as `skipped` rather than `blocked` deliberately: `blocked` asserts the test is
-  waiting on something that will arrive, and this one is not. No iOS device exists for this
-  project, so there is nothing to wait for. `blocked_by: physical-device` is retained because it
-  is still the accurate cause.
-resolution: accepted-risk
-resolved_at: 2026-08-26
-resolution_note: |
-  Closed as an ACCEPTED RISK by explicit decision, not as a pass and not as a deferral. The full
-  reasoning — what is verified, what a Chromium/CDP pass is and is not evidence of, the specific
-  exposure, and the routes that would close it later — is recorded under "## Accepted Gaps" in
-  06-VERIFICATION.md. Phase 6 closes with this gap visible in the record.
+result: pass
+resolved_at: 2026-09-06
+resolution: |
+  PASSED on a real iPhone (2026-09-06). The developer ran this check on physical iOS hardware and
+  reported every gesture behaving correctly. D-10's real-device question is now closed by
+  MEASUREMENT rather than by decision, superseding the accepted-risk disposition recorded below on
+  2026-08-26. The Chromium/CDP caveat in `note:` still stands as a statement about what the
+  automated suite can and cannot prove — it is simply no longer the only evidence behind this
+  behavior on iOS.
 
-blocked_detail: |
+superseded_disposition: accepted-risk
+superseded_at: 2026-08-26
+superseded_reason: |
+  Held as an ACCEPTED RISK for eleven days — not a pass, not a deferral — on the grounds of
+  "I dont even have an iphone". Recorded as `skipped` rather than `blocked` deliberately, since
+  `blocked` asserts the test is waiting on something that will arrive and at that time nothing
+  was. The full reasoning is recorded under "## Accepted Gaps" in 06-VERIFICATION.md, which this
+  pass supersedes.
+
+superseded_blocked_detail: |
+  HISTORICAL — written 2026-08-26, when no iOS hardware was available. Superseded by the
+  2026-09-06 pass above; retained as the record of why the gap stood open.
+
   Not a scheduling problem — the hardware is not available to this project at all, so this check
   cannot be discharged by re-running it later. D-10's real-device question therefore stays OPEN
   for Phase 6 and must be carried forward rather than silently closed.
@@ -135,10 +142,10 @@ note: |
 ## Summary
 
 total: 3
-passed: 2
+passed: 3
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
