@@ -41,6 +41,15 @@
  *     ETags 304 with no body, so a re-run needs --force to get real rows
  *     again. --years only accepts one contiguous range; a gap season like
  *     2021 requires a separate invocation.)
+ *   pnpm ingest:event-teams --years 2026-2026   (quick task 260905-tll Task 3,
+ *     C-16: resolves registered teams for EVERY official event of a season —
+ *     not just district events the way --districts-only does — via
+ *     /event/{key}/teams/keys, one request per event, storing the result in
+ *     event_teams. Standalone: reads the official-event-key set from the
+ *     corpus's own `events` table rather than re-fetching /events/{year}.
+ *     Same --force caching rule as every other *-only mode: a re-run over an
+ *     already-ingested season needs --force, because a cached-ETag 304
+ *     carries no body.)
  *   pnpm ingest:awards --years 2022-2026   (revision R2a: resolves ONLY award
  *     recipients for one season via /event/{key}/awards, one request per
  *     district event, and stores the result in event_awards. Standalone:
@@ -84,6 +93,7 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { normalizeEventAlliances } from "./alliances.js";
+import { eventTeamsUrlFor, selectOfficialEventKeysForYear } from "./eventTeams.js";
 import { normalizeDistricts, normalizeDistrictRankings, normalizeEventAwards } from "./districts.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
@@ -147,6 +157,8 @@ interface CliOptions {
   districtsOnly: boolean;
   /** revision R2a: resolve/refresh ONLY event_awards for the requested season range, reading the district-event-key set from the corpus's own events table rather than re-fetching /districts/{year} or /district/{key}/rankings. */
   awardsOnly: boolean;
+  /** quick task 260905-tll Task 3 (C-16): resolve/refresh ONLY event_teams for the requested season range, for EVERY official event — the districts loop populated it for district events alone, which left regionals/championships with no registered-team roster and made the pre-schedule (scheduleless-event) publish path nearly inert. */
+  eventTeamsOnly: boolean;
 }
 
 function parseYearsRange(spec: string): [number, number] {
@@ -175,6 +187,7 @@ function parseCliOptions(): CliOptions {
       "alliances-only": { type: "boolean", default: false },
       "districts-only": { type: "boolean", default: false },
       "awards-only": { type: "boolean", default: false },
+      "event-teams-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
@@ -183,6 +196,7 @@ function parseCliOptions(): CliOptions {
   const alliancesOnly = values["alliances-only"] ?? false;
   const districtsOnly = values["districts-only"] ?? false;
   const awardsOnly = values["awards-only"] ?? false;
+  const eventTeamsOnly = values["event-teams-only"] ?? false;
 
   if (values.event) {
     return {
@@ -196,6 +210,7 @@ function parseCliOptions(): CliOptions {
       alliancesOnly,
       districtsOnly,
       awardsOnly,
+      eventTeamsOnly,
     };
   }
   if (values.years) {
@@ -211,6 +226,7 @@ function parseCliOptions(): CliOptions {
       alliancesOnly,
       districtsOnly,
       awardsOnly,
+      eventTeamsOnly,
     };
   }
   if (values.year) {
@@ -227,6 +243,7 @@ function parseCliOptions(): CliOptions {
       alliancesOnly,
       districtsOnly,
       awardsOnly,
+      eventTeamsOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -874,6 +891,83 @@ async function ingestSeasonAwardsOnly(db: Corpus, ctx: TbaClientContext, year: n
   );
 }
 
+/**
+ * quick task 260905-tll Task 3 (C-16): resolves registered teams for EVERY
+ * official event of one season via TBA's `/event/{key}/teams/keys`, one
+ * request per event, and stores the result in `event_teams`. Before this
+ * mode, `event_teams` was populated only inside `ingestSeasonDistrictsOnly`'s
+ * per-district-event loop, covering 150 of 2026's 310 events and ZERO
+ * regionals, championships, preseason or offseason events — which left the
+ * scheduleless-event publish path (`packages/harness/publish.ts`'s roster
+ * fallback) with almost nothing to publish.
+ *
+ * Runs standalone over an ALREADY-INGESTED season: the official-event-key
+ * set comes from the corpus's OWN `events` table
+ * (`selectOfficialEventKeysForYear`, gated on the shared
+ * `isOfficialEventType` predicate), never a re-fetch of `/events/{year}` —
+ * mirroring `ingestSeasonAwardsOnly`'s narrower-standalone-mode shape
+ * directly above.
+ *
+ * Same caching rule as every other `*-only` mode: a re-run over an
+ * already-ingested season needs `--force`, because a cached-ETag 304 carries
+ * no body.
+ */
+async function ingestSeasonEventTeamsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
+  const eventKeys = selectOfficialEventKeysForYear(db, year);
+
+  let populatedCount = 0;
+  let nullBodyCount = 0;
+  let emptyRosterCount = 0;
+  let cacheHitCount = 0;
+  let notFoundCount = 0;
+  let registrationRowCount = 0;
+
+  for (const eventKey of eventKeys) {
+    const teamsUrl = eventTeamsUrlFor(eventKey);
+    let result: Awaited<ReturnType<typeof fetchEventTeamKeys>>;
+    try {
+      result = await fetchEventTeamKeys(ctx, eventKey, cachedEtagFor(db, teamsUrl, force));
+    } catch (err) {
+      // Mirrors ingestSeasonAwardsOnly's 404 handling: a placeholder/
+      // unregistered event key 404ing is an honest "nothing to fetch" for
+      // this event, not TBA schema drift — logged and skipped, never a
+      // thrown run failure.
+      if (err instanceof Error && /HTTP 404/.test(err.message)) {
+        notFoundCount++;
+        console.log(`  ${teamsUrl}: 404 Not Found, skipping`);
+        continue;
+      }
+      throw err;
+    }
+    if (result.status === 304) {
+      cacheHitCount++;
+      continue;
+    }
+
+    const teamKeys = tbaKeysResponseSchema.parse(result.body);
+    if (teamKeys === null) {
+      nullBodyCount++;
+    } else if (teamKeys.length === 0) {
+      emptyRosterCount++;
+    } else {
+      populatedCount++;
+    }
+
+    const fetchedAt = new Date().toISOString();
+    for (const teamKey of teamKeys ?? []) {
+      upsertEventTeam(db, { eventKey, teamKey, fetchedAt });
+      registrationRowCount++;
+    }
+    if (result.etag) writeEtag(db, teamsUrl, result.etag);
+  }
+
+  console.log(
+    `Season ${year}: ${eventKeys.length} official events (${populatedCount} populated, ${nullBodyCount} null-body, ` +
+      `${emptyRosterCount} empty-roster, ${cacheHitCount} cache hits this run, ${notFoundCount} not-found), ` +
+      `${registrationRowCount} registration rows stored`
+  );
+}
+
 async function main(): Promise<void> {
   const options = parseCliOptions();
   const apiKey = tbaApiKey();
@@ -1003,6 +1097,20 @@ async function main(): Promise<void> {
     } else if (options.awardsOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonAwardsOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.eventTeamsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonEventTeamsOnly(db, ctx, year, options.force);
         recordIngestRun(db, {
           runId,
           startedAt,
