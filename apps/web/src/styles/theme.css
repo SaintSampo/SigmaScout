@@ -112,6 +112,38 @@
   --loser-ink: #94A3B8;
 
   /*
+   * Alliance ground-tint tokens (sketch 010-C, selected 2026-09-06, quick
+   * task 260906-80e) — the team page's match table used to mark "this is my
+   * alliance"/"this is me" with `font-semibold`, which does both jobs badly:
+   * it's a weak 600-against-400 step at 14px, and because it paints every
+   * number on the line it never says WHICH number is the team's own. These
+   * four tokens replace that with ground, not figure: the team's whole
+   * alliance line rides a 10% tint of that alliance's hue, and the team's
+   * own number rides a 20% tint on top of it. The figure (the numbers
+   * themselves) stays neutral `--color-text-primary` throughout — see
+   * `.match-alliance-*` below.
+   *
+   * Each is `color-mix`-derived from the existing `--alliance-red`/
+   * `--alliance-blue` tokens above rather than restating a hue as a new
+   * literal, so a future alliance-colour change carries into the ground
+   * tint with no second edit (the same pattern as `--sim-hist-bar`/
+   * `--sim-band-overlay` below, and `--sim-picker-selected-bg`).
+   *
+   * Measured contrasts (sketch 010, `README.md`): `--color-text-primary`
+   * (slate-900) reads 15.28:1 on the red 10% tint, 15.50:1 on the blue 10%
+   * tint, and 13.06:1 on the 20% own-number tint — all comfortably above
+   * AA. One thing a future reader will otherwise "fix": the own number's
+   * 20% composites ON TOP of its line's own 10% (both backgrounds are
+   * painted, one on the wrapper and one on the nested own-number span), so
+   * the own number's EFFECTIVE tint is deeper than a bare 20% would read
+   * alone — that's the approved sketch's actual rendering, not a bug.
+   */
+  --alliance-red-ground: color-mix(in srgb, var(--alliance-red) 10%, transparent);
+  --alliance-blue-ground: color-mix(in srgb, var(--alliance-blue) 10%, transparent);
+  --alliance-red-ground-own: color-mix(in srgb, var(--alliance-red) 20%, transparent);
+  --alliance-blue-ground-own: color-mix(in srgb, var(--alliance-blue) 20%, transparent);
+
+  /*
    * Rarity-tier tokens (D-04/D-17, Phase 6 plan 06-07; Common outline added
    * quick task 260904-7rt, sketch 008 winner C) — the
    * sketch-findings-sigmascout skill's `colour-and-tiers.md` decided
@@ -876,6 +908,66 @@ body {
 .alliance-chip--blue {
   background-color: var(--alliance-blue-soft);
   color: var(--alliance-blue);
+}
+
+/*
+ * Team-page match table roster lines (`MatchTable.tsx`, sketch 010-C, quick
+ * task 260906-80e) — ports the sketch's `.nums`/`.num`/`.v-tint` rules,
+ * substituting the ground tokens above for its `rgba()` literals. Two
+ * numbers, not one: the wrapper carries "this is my alliance" at 10%, the
+ * nested own-number span carries "this one is me" at 20% on top of it.
+ *
+ * `.match-alliance-nums` wraps all three numbers on ONE roster line (both
+ * the team's own line and the opposing line get this wrapper, so the same
+ * 10px gap is uniform whether or not the line is marked). 10px was measured
+ * on the sketch's slider against real 4- and 5-digit roster data (`1690`
+ * beside `10935`), replacing the previous literal space character (~4px).
+ */
+.match-alliance-nums {
+  display: inline-flex;
+  gap: 10px;
+}
+.match-alliance-num {
+  /* Horizontal padding only, on EVERY number (marked line or not) — so the
+     own number's own ground (below) does not shift its neighbours' spacing
+     relative to the unmarked line above it. */
+  padding: 0 1px;
+  border-radius: 3px;
+}
+.match-alliance-nums--mine {
+  /*
+   * `padding: 0 5px` — HORIZONTAL ONLY. This cell's vertical rhythm is
+   * locked: `MATCH_GEOMETRY.Y_RED`/`Y_BLUE` (23/45) put each alliance band's
+   * centre at 27.1/49.1 on this roster line's own centre, and the sketch
+   * measured that `padding: 1px 5px` grew the line 2px and pushed the blue
+   * roster line off its own band (README.md, "Variant C's pill cannot take
+   * vertical padding"). Height comes from line-height alone — do not add
+   * padding-top/-bottom/-block, margin-top/-bottom/-block, or line-height
+   * here.
+   *
+   * `margin-left: -5px` cancels the pill's own left padding so the marked
+   * line's first digit stays x-aligned with the unmarked line above it —
+   * without it the team's line indents 5px and the column reads ragged.
+   *
+   * `border-radius: 999px` is deliberately NOT `var(--radius)` (6px): this
+   * cell's box vocabulary is already spoken for by tier values, and the two
+   * shapes must not read as the same object.
+   */
+  padding: 0 5px;
+  margin-left: -5px;
+  border-radius: 999px;
+}
+.match-alliance-nums--red {
+  background-color: var(--alliance-red-ground);
+}
+.match-alliance-nums--blue {
+  background-color: var(--alliance-blue-ground);
+}
+.match-alliance-nums--red .match-alliance-num--own {
+  background-color: var(--alliance-red-ground-own);
+}
+.match-alliance-nums--blue .match-alliance-num--own {
+  background-color: var(--alliance-blue-ground-own);
 }
 
 /*

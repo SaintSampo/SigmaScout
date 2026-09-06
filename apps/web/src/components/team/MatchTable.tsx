@@ -317,21 +317,30 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
       <td className={cn("sticky left-[64px] z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         <div className="flex min-w-0 flex-col gap-[1px]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
+          {/* Sketch 010-C ground tint (quick 260906-80e): the team's own
+              alliance line rides a pill on `--alliance-{red,blue}-ground`;
+              its own number rides `-ground-own` on top. This replaces the
+              prior bold-weight treatment entirely — the figure stays
+              neutral `--color-text-primary` here, ground carries the
+              signal. The 10px gap between roster numbers is
+              `.match-alliance-nums`'s `gap`, not a text-node space. */}
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {match.redTeams.map((key, index) => (
-              <span key={key} className={cn(teamIsRed && "font-semibold")}>
-                {index > 0 ? " " : ""}
-                {teamNumberLabel(key)}
-              </span>
-            ))}
+            <span className={cn("match-alliance-nums", teamIsRed && "match-alliance-nums--mine match-alliance-nums--red")}>
+              {match.redTeams.map((key) => (
+                <span key={key} className={cn("match-alliance-num", key === teamKey && "match-alliance-num--own")}>
+                  {teamNumberLabel(key)}
+                </span>
+              ))}
+            </span>
           </span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {match.blueTeams.map((key, index) => (
-              <span key={key} className={cn(teamIsBlue && "font-semibold")}>
-                {index > 0 ? " " : ""}
-                {teamNumberLabel(key)}
-              </span>
-            ))}
+            <span className={cn("match-alliance-nums", teamIsBlue && "match-alliance-nums--mine match-alliance-nums--blue")}>
+              {match.blueTeams.map((key) => (
+                <span key={key} className={cn("match-alliance-num", key === teamKey && "match-alliance-num--own")}>
+                  {teamNumberLabel(key)}
+                </span>
+              ))}
+            </span>
           </span>
         </div>
       </td>

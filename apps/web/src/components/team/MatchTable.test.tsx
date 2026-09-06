@@ -1,9 +1,123 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { MatchTable, matchLabel } from "./MatchTable.js";
 import type { TeamSeasonMatch } from "./matchAxis.js";
 
 const DOMAIN = { min: 100, max: 400 };
+
+// theme.css scrollbar guard's documented fallback (jsdom applies no CSS —
+// `theme.scrollbar.test.ts`): assert the shipped CSS TEXT, not a runtime
+// measurement. `findRuleBody` is reimplemented here rather than imported
+// because the scrollbar test's copy is not exported.
+const THEME_CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../styles/theme.css");
+
+function readThemeCss(): string {
+  return readFileSync(THEME_CSS_PATH, "utf-8");
+}
+
+/** Extracts the declaration block body for the first rule whose selector
+ * (after stripping comments) matches `selectorPattern` exactly. */
+function findRuleBody(css: string, selectorPattern: RegExp): string | null {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleRegex = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = ruleRegex.exec(withoutComments)) !== null) {
+    const selector = (match[1] ?? "").trim();
+    if (selectorPattern.test(selector)) {
+      return match[2] ?? "";
+    }
+  }
+  return null;
+}
+
+/** Extracts a single custom-property declaration's value (e.g.
+ * `--alliance-red-ground: color-mix(...);` -> `color-mix(...)`), searching
+ * the whole file text (these declarations live inside the shared `:root`
+ * block alongside many others, so a rule-body match on `:root` alone would
+ * be too broad to assert against). */
+function findDeclarationValue(css: string, propertyName: string): string | null {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const match = withoutComments.match(new RegExp(`--${propertyName}:\\s*([^;]+);`));
+  return match ? (match[1] ?? "").trim() : null;
+}
+
+describe("theme.css alliance ground tint tokens & rule block (sketch 010-C, quick 260906-80e)", () => {
+  it("declares four color-mix-derived ground tokens from the existing alliance tokens, no rgba()/hex literal", () => {
+    const css = readThemeCss();
+    const redGround = findDeclarationValue(css, "alliance-red-ground");
+    const blueGround = findDeclarationValue(css, "alliance-blue-ground");
+    const redGroundOwn = findDeclarationValue(css, "alliance-red-ground-own");
+    const blueGroundOwn = findDeclarationValue(css, "alliance-blue-ground-own");
+
+    expect(redGround, "expected --alliance-red-ground to exist").not.toBeNull();
+    expect(blueGround, "expected --alliance-blue-ground to exist").not.toBeNull();
+    expect(redGroundOwn, "expected --alliance-red-ground-own to exist").not.toBeNull();
+    expect(blueGroundOwn, "expected --alliance-blue-ground-own to exist").not.toBeNull();
+
+    expect(redGround).toBe("color-mix(in srgb, var(--alliance-red) 10%, transparent)");
+    expect(blueGround).toBe("color-mix(in srgb, var(--alliance-blue) 10%, transparent)");
+    expect(redGroundOwn).toBe("color-mix(in srgb, var(--alliance-red) 20%, transparent)");
+    expect(blueGroundOwn).toBe("color-mix(in srgb, var(--alliance-blue) 20%, transparent)");
+
+    for (const value of [redGround, blueGround, redGroundOwn, blueGroundOwn]) {
+      expect(value).not.toMatch(/rgba\(/);
+      expect(value).not.toMatch(/#/);
+    }
+  });
+
+  it("declares .match-alliance-nums with inline-flex and a 10px gap", () => {
+    const css = readThemeCss();
+    const body = findRuleBody(css, /^\.match-alliance-nums$/);
+    expect(body, "expected a bare `.match-alliance-nums { ... }` rule").not.toBeNull();
+    expect(body).toMatch(/display:\s*inline-flex\s*;/);
+    expect(body).toMatch(/gap:\s*10px\s*;/);
+  });
+
+  it("declares .match-alliance-nums--mine as a horizontal-only 999px pill (no vertical rhythm change)", () => {
+    const css = readThemeCss();
+    const body = findRuleBody(css, /^\.match-alliance-nums--mine$/);
+    expect(body, "expected a `.match-alliance-nums--mine { ... }` rule").not.toBeNull();
+    expect(body).toMatch(/padding:\s*0\s+5px\s*;/);
+    expect(body).toMatch(/margin-left:\s*-5px\s*;/);
+    expect(body).toMatch(/border-radius:\s*999px\s*;/);
+    expect(body).not.toMatch(/var\(--radius\)/);
+
+    for (const forbidden of [
+      /padding-top/,
+      /padding-bottom/,
+      /padding-block/,
+      /margin-top/,
+      /margin-bottom/,
+      /margin-block/,
+      /line-height/,
+    ]) {
+      expect(body).not.toMatch(forbidden);
+    }
+  });
+
+  it("sides .match-alliance-nums--red/--blue to the matching plain ground token", () => {
+    const css = readThemeCss();
+    const redBody = findRuleBody(css, /^\.match-alliance-nums--red$/);
+    const blueBody = findRuleBody(css, /^\.match-alliance-nums--blue$/);
+    expect(redBody, "expected `.match-alliance-nums--red { ... }`").not.toBeNull();
+    expect(blueBody, "expected `.match-alliance-nums--blue { ... }`").not.toBeNull();
+    expect(redBody).toMatch(/background-color:\s*var\(--alliance-red-ground\)\s*;/);
+    expect(blueBody).toMatch(/background-color:\s*var\(--alliance-blue-ground\)\s*;/);
+  });
+
+  it("sides the own-number descendant selectors to the matching -own ground token", () => {
+    const css = readThemeCss();
+    const redOwnBody = findRuleBody(css, /^\.match-alliance-nums--red\s+\.match-alliance-num--own$/);
+    const blueOwnBody = findRuleBody(css, /^\.match-alliance-nums--blue\s+\.match-alliance-num--own$/);
+    expect(redOwnBody, "expected `.match-alliance-nums--red .match-alliance-num--own { ... }`").not.toBeNull();
+    expect(blueOwnBody, "expected `.match-alliance-nums--blue .match-alliance-num--own { ... }`").not.toBeNull();
+    expect(redOwnBody).toMatch(/background-color:\s*var\(--alliance-red-ground-own\)\s*;/);
+    expect(blueOwnBody).toMatch(/background-color:\s*var\(--alliance-blue-ground-own\)\s*;/);
+  });
+});
 
 function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
   return {
@@ -223,19 +337,123 @@ describe("MatchTable", () => {
     }
   });
 
-  it("renders this team's own three numbers at semibold and the opposing three at regular weight, with no row background class difference", () => {
-    render(
-      <MatchTable matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]} domain={DOMAIN} teamKey="frc118"
-        season={2024}
-      />,
-    );
-    const row = screen.getByTestId("match-row-m1");
-    const ownNumber = within(row).getByText("118");
-    const opponentNumber = within(row).getByText("604");
-    expect(ownNumber.className).toContain("font-semibold");
-    expect(opponentNumber.className).not.toContain("font-semibold");
-    // Both belong to the same physical <tr> — no per-alliance background class exists on it.
-    expect(ownNumber.closest("tr")).toBe(opponentNumber.closest("tr"));
+  /**
+   * Sketch 010 variant C, selected 2026-09-06 (quick task 260906-80e):
+   * replaces the roster-line `font-semibold` with an alliance ground tint —
+   * the team's own alliance line wrapped in a pill, its own number a deeper
+   * tint on top. Figure stays neutral throughout.
+   */
+  describe("alliance ground tint (sketch 010-C, quick 260906-80e)", () => {
+    it("marks the red-alliance team's own line as a red pill, its own number as --own, and leaves the opposing line unmarked", () => {
+      render(
+        <MatchTable
+          matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+      const row = screen.getByTestId("match-row-m1");
+      const ownSpan = within(row).getByText("118");
+      const ownWrapper = ownSpan.closest(".match-alliance-nums");
+      expect(ownWrapper, "expected the own number's ancestor wrapper to carry .match-alliance-nums").not.toBeNull();
+      expect(ownWrapper!.className).toContain("match-alliance-nums--mine");
+      expect(ownWrapper!.className).toContain("match-alliance-nums--red");
+      expect(ownWrapper!.className).not.toContain("match-alliance-nums--blue");
+      expect(ownSpan.className).toContain("match-alliance-num--own");
+
+      const teammateSpan = within(row).getByText("254");
+      expect(teammateSpan.className).not.toContain("match-alliance-num--own");
+      expect(teammateSpan.closest(".match-alliance-nums")).toBe(ownWrapper);
+
+      const opponentSpan = within(row).getByText("604");
+      const opponentWrapper = opponentSpan.closest(".match-alliance-nums");
+      expect(opponentWrapper!.className).not.toContain("match-alliance-nums--mine");
+      expect(opponentWrapper!.className).not.toContain("match-alliance-nums--red");
+      expect(opponentWrapper!.className).not.toContain("match-alliance-nums--blue");
+    });
+
+    it("carries no bold weight and no alliance-coloured text on any roster number", () => {
+      render(
+        <MatchTable
+          matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+      const row = screen.getByTestId("match-row-m1");
+      const wrappers = row.querySelectorAll(".match-alliance-nums");
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of Array.from(wrappers)) {
+        expect(wrapper.className).not.toContain("font-semibold");
+        expect(wrapper.className).not.toContain("font-bold");
+        expect(wrapper.className).not.toMatch(/text-\[var\(--alliance/);
+        for (const numberSpan of Array.from(wrapper.querySelectorAll(".match-alliance-num"))) {
+          expect(numberSpan.className).not.toContain("font-semibold");
+          expect(numberSpan.className).not.toContain("font-bold");
+          expect(numberSpan.className).not.toMatch(/text-\[var\(--alliance/);
+        }
+      }
+    });
+
+    it("separates the roster numbers by layout gap, not a literal space character", () => {
+      render(
+        <MatchTable
+          matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
+          domain={DOMAIN}
+          teamKey="frc118"
+          season={2024}
+        />,
+      );
+      const row = screen.getByTestId("match-row-m1");
+      const ownWrapper = within(row).getByText("118").closest(".match-alliance-nums");
+      expect(ownWrapper!.textContent).toBe("118254971");
+    });
+
+    it("marks the blue-alliance team's own line as a blue pill and leaves the red line unmarked", () => {
+      render(
+        <MatchTable
+          matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
+          domain={DOMAIN}
+          teamKey="frc604"
+          season={2024}
+        />,
+      );
+      const row = screen.getByTestId("match-row-m1");
+      const ownSpan = within(row).getByText("604");
+      const ownWrapper = ownSpan.closest(".match-alliance-nums");
+      expect(ownWrapper!.className).toContain("match-alliance-nums--mine");
+      expect(ownWrapper!.className).toContain("match-alliance-nums--blue");
+      expect(ownSpan.className).toContain("match-alliance-num--own");
+
+      const redWrapper = within(row).getByText("118").closest(".match-alliance-nums");
+      expect(redWrapper!.className).not.toContain("match-alliance-nums--mine");
+    });
+
+    it("marks neither roster --mine nor any number --own for the WR-02 letter-suffixed-second-robot case", () => {
+      render(
+        <MatchTable
+          matches={[
+            makeMatch({
+              matchKey: "m1",
+              redTeams: ["frc118", "frc254", "frc971"],
+              blueTeams: ["frc604", "frc1678", "frc5199B"],
+            }),
+          ]}
+          domain={DOMAIN}
+          teamKey="frc5199"
+          season={2024}
+        />,
+      );
+      const row = screen.getByTestId("match-row-m1");
+      const wrappers = row.querySelectorAll(".match-alliance-nums");
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of Array.from(wrappers)) {
+        expect(wrapper.className).not.toContain("match-alliance-nums--mine");
+      }
+      expect(row.querySelectorAll(".match-alliance-num--own").length).toBe(0);
+    });
   });
 
   it("renders the axis header exactly once, with at least two labelled ticks, and never labels the lowest tick 0 for a 180-floor fixture", () => {
