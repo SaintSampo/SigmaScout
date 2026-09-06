@@ -806,6 +806,35 @@ document's "State-row shape" section describes, now that the retired id's rows a
 dashboard cross-check named above remains the same open manual step it has been since plan 04-04 —
 this pass neither closes it nor fabricates it.
 
+## Delete pass — 2026-09-05, superseded vpr@8.0.0 generation removed (version-retirement mode)
+
+The Rule-A promotion bump (vpr 8.0.0 -> 9.0.0, commit 75c01ac2) orphaned every
+`vpr@8.0.0+rolling-2026-09b` page object — todo `retire-vpr-8-generation-r2`, closed by this
+pass the same evening once `verify:subset` confirmed the 9.0.0 generation live. ONLY vpr is
+retired this time: epa (`5.0.0+baseline`) and opr (`4.0.0+baseline`) did not change version, so
+their keys were overwritten in place by the 9.0.0-era publishes and have no orphaned generation.
+
+Procedure identical to the 2026-08-30 pass below (census-first, live-manifest guard, --execute,
+post-census):
+
+```bash
+tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts --retired-id vpr --version 8.0.0+rolling-2026-09b --supersedes-live            # census: 55/60 present, generation 17966b1d
+tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts --retired-id vpr --version 8.0.0+rolling-2026-09b --supersedes-live --execute  # 19,261 deletes issued (5 teams + 5 events + 1,581 event + 17,670 team)
+tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts --retired-id vpr --version 8.0.0+rolling-2026-09                               # census: 0/60 — the earlier 8.0.0 name was already clean
+```
+
+- Live-manifest guard confirmed at run time: live is `vpr@9.0.0+rolling-2026-09c` (never the
+  target), so `RefusedLiveVersionError` did not fire and enumeration proceeded.
+- Pre-delete census read generation `17966b1d-3026-4763-9331-26fb3ca0d4eb` (the shape-8 re-seed
+  publish) off the targets — the superseded generation identified by content, not assumed.
+- Post-delete census: the SAME 60-key stratified sample, 0/60 present. `pnpm verify:subset`
+  immediately after: 35/35, one generation (`f4f8f379`) — the live site untouched.
+- Recovered storage, ESTIMATED (unlike the 2026-08-30 pass, no single-algorithm byte total was
+  recorded for this generation): 19,261 of the generation's 75,544 objects (25.5% by count) were
+  vpr-keyed; at the generation's 2,932,223,803-byte page-object payload and near-uniform per-kind
+  sizes across algorithms, that is roughly ~1.0 GB (~10% of the free tier) reclaimed. R2 now holds
+  ONE full generation plus nothing orphaned under vpr.
+
 ## Delete pass — 2026-08-30, superseded opr/epa/vpr generation removed (version-retirement mode)
 
 **A different kind of retirement than the section above.** The 07-19 delete pass (previous section)
