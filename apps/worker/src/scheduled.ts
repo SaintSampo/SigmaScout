@@ -360,6 +360,19 @@ function toMatchResult(match: CorpusMatch, eventType: number): MatchResult {
     blueTeams: match.blueTeams,
     redSurrogates: match.redSurrogates,
     blueSurrogates: match.blueSurrogates,
+    // DQ keys must be threaded through, never defaulted. All three algorithms
+    // call `isFullyDqZeroScoreAlliance(teams, result.redDqs, result.redScore)`
+    // in `update()`, and that predicate fails OPEN rather than loudly when the
+    // field is absent: `new Set(undefined)` is a legal empty Set, not a throw,
+    // so `teams.every(t => dqSet.has(t))` simply returns false. Omitting these
+    // two fields therefore did not crash the live fold — it silently skipped
+    // the whole-alliance-DQ exclusion that the offline publish path applies,
+    // folding a fully-DQ'd zero-score alliance as if it were real play and
+    // corrupting those teams' ratings until the next full republish.
+    // `normalizeMatch` has always produced both from TBA's `dq_team_keys`
+    // (see its call in `refreshEvent`), so the data was in hand the whole time.
+    redDqs: match.redDqs,
+    blueDqs: match.blueDqs,
     eventType,
     winner: match.winner as "red" | "blue" | "tie",
     redScore: match.redScore!,

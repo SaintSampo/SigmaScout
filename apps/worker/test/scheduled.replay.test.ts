@@ -286,15 +286,46 @@ interface MatchFixture {
   readonly blueTeams: readonly string[];
   readonly redScore: number;
   readonly blueScore: number;
+  /**
+   * Disqualified team keys, threaded into BOTH halves of the equivalence
+   * comparison — `dq_team_keys` on the TBA side, `redDqs`/`blueDqs` on the
+   * offline `MatchResult` side.
+   *
+   * These exist because their ABSENCE is what made this suite blind to a real
+   * production defect. `toMatchResult` used to omit `redDqs`/`blueDqs`
+   * entirely while `toTbaMatch` sent `dq_team_keys: []`, so both halves saw an
+   * empty DQ set and agreed — while the deployed Worker, which also dropped
+   * the fields, silently skipped the whole-alliance-DQ exclusion the offline
+   * publish path applies. The predicate fails open (`new Set(undefined)` is a
+   * legal empty Set, never a throw), so nothing anywhere went red.
+   *
+   * Fixture 7 below is the non-vacuous case: an equivalence suite that never
+   * feeds a DQ cannot prove the two paths treat DQs alike.
+   */
+  readonly redDqs?: readonly string[];
+  readonly blueDqs?: readonly string[];
 }
 
 const MATCH_FIXTURES: readonly MatchFixture[] = [
   { matchNumber: 1, redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 95 },
   { matchNumber: 2, redTeams: ["frc7", "frc8", "frc1"], blueTeams: ["frc2", "frc3", "frc4"], redScore: 88, blueScore: 110 },
-  { matchNumber: 3, redTeams: ["frc5", "frc6", "frc7"], blueTeams: ["frc8", "frc1", "frc2"], redScore: 140, blueScore: 130 },
-  { matchNumber: 4, redTeams: ["frc3", "frc4", "frc5"], blueTeams: ["frc6", "frc7", "frc8"], redScore: 75, blueScore: 100 },
-  { matchNumber: 5, redTeams: ["frc1", "frc4", "frc7"], blueTeams: ["frc2", "frc5", "frc8"], redScore: 160, blueScore: 155 },
-  { matchNumber: 6, redTeams: ["frc3", "frc6", "frc8"], blueTeams: ["frc1", "frc5", "frc7"], redScore: 99, blueScore: 101 },
+  // Match 3: a FULLY-DQ'd, zero-score red alliance — the one shape that makes
+  // `isFullyDqZeroScoreAlliance` fire (it needs a non-empty team list, a score
+  // of exactly 0, and every team present in the DQ set). Without this row the
+  // equivalence assertion holds vacuously for DQ handling, which is precisely
+  // how the Worker's dropped `redDqs`/`blueDqs` survived undetected.
+  //
+  // It sits at position 3, NOT last, and that placement is load-bearing: the
+  // digest compares PREDICTIONS, and a prediction is made before its own match
+  // is folded. A DQ in the final match would change state that no later
+  // prediction ever reads, so the assertion would stay green either way. Every
+  // DQ'd team here (frc2/frc6/frc8) reappears in matches 4-7 below, so the
+  // exclusion's effect on their ratings is observed by four later predictions.
+  { matchNumber: 3, redTeams: ["frc2", "frc6", "frc8"], blueTeams: ["frc1", "frc3", "frc5"], redScore: 0, blueScore: 118, redDqs: ["frc2", "frc6", "frc8"] },
+  { matchNumber: 4, redTeams: ["frc5", "frc6", "frc7"], blueTeams: ["frc8", "frc1", "frc2"], redScore: 140, blueScore: 130 },
+  { matchNumber: 5, redTeams: ["frc3", "frc4", "frc5"], blueTeams: ["frc6", "frc7", "frc8"], redScore: 75, blueScore: 100 },
+  { matchNumber: 6, redTeams: ["frc1", "frc4", "frc7"], blueTeams: ["frc2", "frc5", "frc8"], redScore: 160, blueScore: 155 },
+  { matchNumber: 7, redTeams: ["frc3", "frc6", "frc8"], blueTeams: ["frc1", "frc5", "frc7"], redScore: 99, blueScore: 101 },
 ];
 
 const ALL_TOUCHED_TEAMS = [...new Set(MATCH_FIXTURES.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
@@ -320,8 +351,8 @@ function toTbaMatch(f: MatchFixture): unknown {
     actual_time: Math.floor(NOW_MS / 1000) + f.matchNumber * 60,
     winning_alliance: winnerOf(f),
     alliances: {
-      red: { team_keys: f.redTeams, surrogate_team_keys: [], dq_team_keys: [], score: f.redScore },
-      blue: { team_keys: f.blueTeams, surrogate_team_keys: [], dq_team_keys: [], score: f.blueScore },
+      red: { team_keys: f.redTeams, surrogate_team_keys: [], dq_team_keys: f.redDqs ?? [], score: f.redScore },
+      blue: { team_keys: f.blueTeams, surrogate_team_keys: [], dq_team_keys: f.blueDqs ?? [], score: f.blueScore },
     },
     score_breakdown: null,
   };
@@ -339,6 +370,8 @@ function toMatchResult(f: MatchFixture): MatchResult {
     blueTeams: f.blueTeams,
     redSurrogates: [],
     blueSurrogates: [],
+    redDqs: f.redDqs ?? [],
+    blueDqs: f.blueDqs ?? [],
     eventType: 0,
     winner: winnerOf(f),
     redScore: f.redScore,

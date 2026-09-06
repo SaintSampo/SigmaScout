@@ -31,6 +31,8 @@ import { rpPmfForMatch } from "../../../packages/core/algorithms/sigma1/rp/distr
 import type { AllianceRpMoments } from "../../../packages/core/algorithms/sigma1/rp/state.js";
 import { rpRuleModuleForSeason } from "../../../packages/core/algorithms/sigma1/rp/rules.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../../../packages/core/algorithms/sigma1/params.js";
+import { resolveSigma1Params } from "../../../packages/core/algorithms/sigma1/scale.js";
+import { emptyExpandingStats } from "../../../packages/core/scoring/expandingStats.js";
 
 const EVENT_KEY = "2026testq";
 const MATCH_KEY = "2026testq_qm1";
@@ -53,6 +55,13 @@ const upcomingMatch: UpcomingMatch = {
 const playedMatch: MatchResult = {
   ...upcomingMatch,
   winner: "red",
+  // No disqualifications in this smoke fixture. Stated explicitly rather than
+  // omitted: `isFullyDqZeroScoreAlliance` treats an absent DQ list and an empty
+  // one identically (`new Set(undefined)` is a legal empty Set), so an omission
+  // here would compile-fail loudly but read as harmless — which is exactly how
+  // the same omission in `scheduled.ts`'s own `toMatchResult` went unnoticed.
+  redDqs: [],
+  blueDqs: [],
   redScore: 120,
   blueScore: 95,
   redRpEarned: null,
@@ -108,7 +117,13 @@ function runBundleSmoke(): BundleSmokeResult {
     eventType: REGIONAL_EVENT_TYPE,
     matchKey: MATCH_KEY,
     compLevel: "qm",
-    params: DEFAULT_SIGMA1_PARAMS,
+    // `rpPmfForMatch` takes RESOLVED params (scale-relative fractions already
+    // converted to absolute variances against the season's own alliance-score
+    // stats), not the raw declared set. Resolving against empty stats is the
+    // documented cold-start path and is what every sigma1 unit test does — this
+    // smoke proof only needs the dependency to LOAD and EXECUTE in the Workers
+    // runtime, so cold-start scale is sufficient and honest here.
+    params: resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats()),
   });
 
   return {
