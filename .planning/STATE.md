@@ -5,9 +5,9 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-06T01:10:10.176Z"
+last_updated: "2026-09-06T01:21:46.773Z"
 last_activity: 2026-09-05
-last_activity_desc: "Completed quick task 260905-lic revision R2: award-based district/champ qualification (color-coded locks, awards column, prequalified purple, richer headers; artifacts republished; user visual verification pending). Prior: 260905-phf Methodology rename (visual verification pending)"
+last_activity_desc: "Completed quick task 260905-lic revision R3: district Insights/Breakdown now algorithm-scoped (VPR/OPR/EPA join vs district-points rank), per-event point columns folded into Locks tabs behind an expand toggle (user visual verification pending). Prior: 260905-phf Methodology rename (visual verification pending)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -412,6 +412,7 @@ None yet.
 | 260905-phf | Compare ribbon slot becomes Methodology: /methodology card hub, /methodology/compare (Compare page moved intact via git mv, /compare redirects with search preserved), and /methodology/vpr — a finished plain-language Intro to VPR for high-school readers grounded in 11 source-cited claims, with no numeric accuracy figure and no better-than claim (both structurally tested). Ribbon rename itself landed in concurrent-session commit 03046f93 (Districts reordered ahead of Methodology). Human visual verification of the three new pages still pending | 2026-09-05 | a9d971c2 | [260905-phf-rename-compare-tab-to-methodology-guide-](./quick/260905-phf-rename-compare-tab-to-methodology-guide-/) |
 | 58 | Add hover title explaining why a disabled event-page tab (Alliances/Simulation) is unavailable | 2026-09-06 | 88c74d38 | — |
 | 59 | make event list date-aware so future offseason events show | 2026-09-06 | de5d92f3 | — |
+| 60 | Codify Rule A in decideAcceptance - accuracy AND Brier both improve is the gate, old noise bar demoted to reported diagnostics (dir 260905-t88) | 2026-09-06 | 377cc96a | — |
 
 ### Roadmap Evolution
 
