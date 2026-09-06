@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 5 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 6 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -258,10 +258,20 @@ describe("committed baseline fingerprints", () => {
     // carried forward unchanged (2025 keeps its 0.8448855225401831
     // carryVarianceFactor), with the two new fields filling in at their
     // schema defaults of 0 and 1.
+    // The 2026-09-06 re-tune (this same session, one phase later) added the
+    // sixth: `vpr@10.0.0+rolling-2026-09d.json`. Origin 2022 was the ONLY one
+    // of five to clear Rule A — on both arms, the `on` arm winning the
+    // tie-break on the larger accuracy margin (+0.010397 vs +0.010328) — so
+    // 2022 takes that search winner and every other season carries
+    // rolling-2026-09c forward untouched. The census COUNT goes 5 -> 6 here,
+    // which is the ordinary shape of a promotion; the 5 -> 5 above was the
+    // unusual case, because a code-version bump retires the generation it
+    // replaces while a promotion adds to it.
     ).toEqual([
       "vpr@10.0.0+rolling-2026-09.json",
       "vpr@10.0.0+rolling-2026-09b.json",
       "vpr@10.0.0+rolling-2026-09c.json",
+      "vpr@10.0.0+rolling-2026-09d.json",
       "vpr@10.0.0+tracer-check.json",
       "vpr@10.0.0+tuned-2026-08.json",
     ]);

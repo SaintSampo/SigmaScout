@@ -89,4 +89,4 @@ import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 export const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 /** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`, `rolling-2026-09b`. */
-export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09c.json`);
+export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09d.json`);
