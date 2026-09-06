@@ -12,6 +12,7 @@ commits:
   - ece27eeb (R2 fix — DCMP division awards must not qualify anyone)
   - 8c4d505c (R2b fix — per-team header semantics, point-model ceiling, rounding)
   - 8ab8071b (R2 fix — registered-but-past events no longer inflate ceilings)
+  - fb4ae48d (R3 — Insights/Breakdown become algorithm-scoped; per-event point columns in Locks)
 ---
 
 # Quick Task 260905-lic: Districts page with Insights, Breakdown, District Locks, Champ Locks
@@ -121,6 +122,24 @@ mapping and slot arithmetic read from TBA source).
 - Republished after each data fix; final state verified by live-origin content checks and
   screenshots (FiM: only real DCMP award winners blue, 503 purple prequalified,
   header 0 / 166 on the finished season).
+
+## Revision R3 (user correction: Insights/Breakdown are for VPR/OPR/EPA, not district points)
+
+Plan: `260905-lic-PLAN-r3.md`. Pure apps/web change — the metrics join is client-side
+against the already-published algorithm-scoped teams artifact; no republish needed.
+
+- **Insights**: rank + metrics join — district teams in district-points rank order with
+  District Points and the selected algorithm's Total/Auto/Teleop/Endgame, tier-boxed,
+  mirroring the event Insights tab. Teams missing from the teams artifact render em-dashed,
+  never dropped.
+- **Breakdown**: the event page's grouped/expandable metric-columns table over the district
+  roster (phase-group toggles, sortable headers, OPR stays flat, collapse resets sort).
+- **Locks tabs**: per-event point components (qual/alliance/playoff/award per played event,
+  chronological, plus rookie bonus and adjustments) added as COLUMNS behind one expand
+  toggle — the user explicitly rejected expandable rows. Default columns, chips, awards
+  column, and header stats unchanged.
+- Shared join module `districtMetricsJoin.tsx`; both new tabs follow the ribbon's algorithm
+  and year; district detail fetch stays algorithm-independent.
 
 ## Test evidence
 
