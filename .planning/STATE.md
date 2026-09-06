@@ -7,7 +7,7 @@ status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
 last_updated: "2026-09-06T03:32:58.995Z"
 last_activity: 2026-09-06
-last_activity_desc: "Completed quick task 260905-tor: Acknowledgments page as third Methodology hub card crediting TBA, Statbotics, FRC Locks, FIRST, and the open-source stack (visual verification pending). Prior: 260905-lic R3 and 260905-phf, both also pending visual verification"
+last_activity_desc: "Completed quick task 260905-ttv: rank cards v2 + Teams-page region filters (republish pending user signal)"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-06 - Completed quick task 260905-tor: Acknowledgments page as third Methodology hub card crediting TBA, Statbotics, FRC Locks, FIRST, and the open-source stack (visual verification pending). Prior: 260905-lic R3 and 260905-phf, both also pending visual verification
+Last activity: 2026-09-06 - Completed quick task 260905-ttv: rank cards v2 + Teams-page region filters (republish pending user signal)
 
 Progress: [██████████] 100%
 
@@ -414,6 +414,7 @@ None yet.
 | 59 | make event list date-aware so future offseason events show | 2026-09-06 | de5d92f3 | — |
 | 60 | Codify Rule A in decideAcceptance - accuracy AND Brier both improve is the gate, old noise bar demoted to reported diagnostics (dir 260905-t88) | 2026-09-06 | 377cc96a | — |
 | 260905-tor | Acknowledgments page at /methodology/acknowledgments as a third hub card (grid md:grid-cols-2 to md:grid-cols-3): credits The Blue Alliance (sole match-data source, ETag/throttle guidance), Statbotics (most prominent — page-shape inspiration and the reimplemented EPA benchmark), FRC Locks (lock concept only, no values taken), FIRST (game manuals, non-affiliation sentence), and a manifest-gated built-with list of 7 packages read live from apps/web/package.json at test time. Route test gates names, links, rel/target, and the negative rules (no better-than claim, no accuracy figure, no licence/terms claim, no sponsor mention). 89 files / 1356 tests green. Human visual verification of the page and three-up grid pending | 2026-09-06 | 499d3c81 | [260905-tor-acknowledgments-page-crediting-everythin](./quick/260905-tor-acknowledgments-page-crediting-everythin/) |
+| 260905-ttv | Rank cards v2 (header-mounted, fixed width, rarity-tier coloured, linked to Teams page) + Country/State/District filters on Teams page + region fields on teams artifact; also fixed rank computed from unrounded metrics. Filters disabled on live site until republish | 2026-09-06 | 69fcae13 | [260905-ttv-team-page-rank-cards-v2-and-teams-page-r](./quick/260905-ttv-team-page-rank-cards-v2-and-teams-page-r/) |
 | 62 | RP own-scale process noise - built the RP-pmf log-loss instrument and A/B measured the own-spread form: NO-WIN, todo closed measured-negative (dir 260905-tpx) | 2026-09-06 | 46fdd730 | — |
 
 ### Roadmap Evolution
