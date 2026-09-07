@@ -80,8 +80,21 @@ export type SeasonComponentGroups = Readonly<Record<ComponentGroupId, readonly s
  *    prefix — `autoSwitchOwnership`/`autoScaleOwnership` in auto,
  *    `teleopSwitchOwnership`/`teleopScaleOwnership` in teleop — never
  *    merged into one cross-phase "ownership" group.
+ *  - 2017 `kPaBonus`/`rotorBonus`: both are playoff-only bonuses (always 0
+ *    in quals) and both are grouped in TELEOP because that is where TBA
+ *    itself counts them — inside its own `teleopPoints` roll-up. Grouping
+ *    them anywhere else would put this project's phase split at odds with
+ *    the source's. `teleopTakeoff` is the endgame action and is grouped as
+ *    endgame despite its `teleop` name prefix — the same treatment 2019's
+ *    `habClimb` already gets, and the reason the mapping is declared rather
+ *    than derived from a key prefix.
  */
 const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
+  2017: {
+    auto: ["autoMobility", "autoFuel", "autoRotor"],
+    teleop: ["teleopFuel", "teleopRotor", "kPaBonus", "rotorBonus"],
+    endgame: ["teleopTakeoff"],
+  },
   2018: {
     auto: ["autoRun", "autoSwitchOwnership", "autoScaleOwnership"],
     teleop: ["teleopSwitchOwnership", "teleopScaleOwnership", "vault"],

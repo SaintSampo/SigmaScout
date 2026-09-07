@@ -9,8 +9,8 @@ import {
 } from "./groups.js";
 
 describe("BREAKDOWN_REGISTERED_SEASONS", () => {
-  it("is the sorted tuple 2018-2020, 2022-2026 (2021 absent — no standard FRC season was played)", () => {
-    expect(BREAKDOWN_REGISTERED_SEASONS).toEqual([2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  it("is the sorted tuple 2017-2020, 2022-2026 (2021 absent — no standard FRC season was played)", () => {
+    expect(BREAKDOWN_REGISTERED_SEASONS).toEqual([2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
   });
 });
 
