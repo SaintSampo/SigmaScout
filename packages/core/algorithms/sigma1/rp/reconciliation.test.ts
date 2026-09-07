@@ -417,13 +417,44 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
  * `red_rp_earned` and `blue_rp_earned` are 0 for every played match. This
  * is the ground for plan 03-03's degenerate `P(RP=0)=1` pmf.
  */
+/**
+ * Seasons for which TBA reports NO ranking-point value at all on a played
+ * ELIMINATION match — `red_rp_earned`/`blue_rp_earned` are SQL `NULL`, not
+ * `0`. From 2018 onward TBA populates an explicit `0` instead. Measured
+ * directly against `data/corpus.sqlite` over the full official
+ * (non-offseason) played-elimination population, 2026-09-07:
+ *
+ * | season | played elims | NULL (both sides) | explicit 0 | non-zero |
+ * |---|---|---|---|---|
+ * | 2016 | 2,223 | 2,223 | 0 | 0 |
+ * | 2017 | 2,747 | 2,747 | 0 | 0 |
+ * | 2018-2026 | 2,806 / 3,122 / 843 / 2,613 / 2,795 / 2,867 / 3,056 / 3,212 | 0 | all | 0 |
+ *
+ * Pitfall 3's SUBSTANTIVE invariant — no bonus RP is ever awarded in
+ * elimination play — holds identically in both representations, and is
+ * asserted below for every season regardless of which one applies. This
+ * list pins only the REPRESENTATION, so a future ingest that silently
+ * stopped populating a season's elimination RP (turning explicit zeros into
+ * nulls) still fails loudly rather than passing under a `?? 0` coalesce.
+ *
+ * 2016 is listed from the same measurement even though `rp/2016.ts` is not
+ * yet registered — this table iterates `RP_REGISTERED_SEASONS`, so the 2016
+ * entry is inert until that registration lands, and is a recorded
+ * measurement rather than an anticipation.
+ *
+ * Note this is an ELIMINATION-only artifact: the QUALIFICATION populations
+ * both seasons feed into the reconciliations above carry no nulls at all
+ * (2016 0/11,079 and 2017 0/12,693 played official quals).
+ */
+const NULL_ELIMINATION_RP_SEASONS: readonly number[] = [2016, 2017];
+
 describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant (Pitfall 3)", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found`, () => {});
     return;
   }
 
-  it("red_rp_earned = 0 and blue_rp_earned = 0 for every played elimination match, full population", () => {
+  it("no played elimination match awards a non-zero RP, full population (reported as 0 from 2018 on, as NULL for 2016/2017)", () => {
     const db = openCorpusReadOnly(CORPUS_PATH);
     let rows: EliminationRow[];
     try {
@@ -432,10 +463,24 @@ describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant (Pitfal
       db.close();
     }
 
+    const reportsNull = NULL_ELIMINATION_RP_SEASONS.includes(year);
+
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      expect(row.red_rp_earned, `match ${row.match_key}: red_rp_earned should be 0 in elimination play`).toBe(0);
-      expect(row.blue_rp_earned, `match ${row.match_key}: blue_rp_earned should be 0 in elimination play`).toBe(0);
+      for (const side of ["red", "blue"] as const) {
+        const value = side === "red" ? row.red_rp_earned : row.blue_rp_earned;
+
+        // Pitfall 3's substantive invariant, asserted for EVERY season in
+        // whichever representation that season uses.
+        expect(value ?? 0, `match ${row.match_key}: ${side}_rp_earned is a non-zero RP in elimination play`).toBe(0);
+
+        // The representation pin — see NULL_ELIMINATION_RP_SEASONS above.
+        if (reportsNull) {
+          expect(value, `match ${row.match_key}: ${side}_rp_earned should be NULL in ${year} elimination play`).toBeNull();
+        } else {
+          expect(value, `match ${row.match_key}: ${side}_rp_earned should be 0 in elimination play`).toBe(0);
+        }
+      }
     }
   });
 });
