@@ -36,7 +36,7 @@ export interface StatboticsReference {
   season: number;
   /** Winner-prediction accuracy in [0, 1] — directly comparable to our own `winnerAccuracy`. */
   value: number;
-  /** Statbotics' own winner-prediction Brier score (`metrics.win_prob.season.mse`) — directly comparable to our own `brierScore`. Optional: absent on a fallback row for a season the live shape has never been captured for (unreachable today — every 2022-2026 fallback below carries one). */
+  /** Statbotics' own winner-prediction Brier score (`metrics.win_prob.season.mse`) — directly comparable to our own `brierScore`. Optional: absent on a fallback row for a season the live shape has never been captured for (unreachable today — every fallback below, 2016-2020 and 2022-2026, carries one). */
   mse?: number;
   sourceLabel: string;
   matchPopulation: string;
@@ -73,17 +73,32 @@ const StatboticsYearResponseSchema = z.object({
  *
  * **2018 and 2019 added 2026-09-07 (quick task 260907-12k), each fetched and
  * verified live the same day.** No site page reads these constants — they
- * are consumed by harness report runs only, so registering 2018 and 2019
- * here changes nothing on the site and is independent of `FIRST_SEASON` in
- * `apps/web/src/lib/seasons.ts` (still 2019; no 2018 artifacts exist in R2).
+ * are consumed by harness report runs only, so registering a season here
+ * changes nothing on the site and is independent of `FIRST_SEASON` in
+ * `apps/web/src/lib/seasons.ts` (still 2019; no 2016, 2017 or 2018
+ * artifacts exist in R2).
  *
- * **2020 is a deliberate, named gap, not an oversight.** No one has
- * measured Statbotics' 2020 winner accuracy, and this repo's executor
- * sandbox has no network access, so there is no honest way to produce a
- * value during execution. An offline harness run that reaches season 2020
- * still throws (`statboticsReference` has no fallback to catch it) while
- * the live path continues to work unaffected. Closing this gap needs one
- * live `GET /v3/year/2020`.
+ * **2016, 2017 and 2020 added 2026-09-07 (quick task 260907-203)**, each
+ * fetched live from `GET /v3/year/{season}` the same day and read from
+ * `metrics.win_prob.season`: 2016 acc 0.7312 / mse 0.1799 over 13,286
+ * matches, 2017 acc 0.6694 / mse 0.2023 over 15,429, 2020 acc 0.7262 /
+ * mse 0.1834 over 4,634 (2020's small count is the cancelled season, not a
+ * fetch problem). **The 2020 row CLOSES the named gap quick task 260907-12k
+ * recorded** — that gap paragraph is deleted rather than left standing,
+ * because a file that still claims an open gap it has already filled is the
+ * "docs describe a deleted model" defect this project logs against itself.
+ * With 2020 filled, every season the corpus carries (2016-2020, 2022-2026;
+ * 2021 is permanently excluded) now resolves offline.
+ *
+ * **2017 is the hardest season any of these numbers describes.** Its 0.6694
+ * is the LOWEST Statbotics winner accuracy of any season in this table —
+ * below even 2018's 0.7435, and 5.7 accuracy points below the second-lowest
+ * (2020's 0.7262), a gap wider than the entire spread of the 2016/2018/2019/
+ * 2020 cluster. Its Brier score agrees independently: 0.2023 is the WORST
+ * (highest) `mse` in the table. That is third-party evidence that 2017, and
+ * not only 2018, is genuinely hard to predict — a useful anchor for any
+ * future headline claim, and a reason not to read a weak SigmaScout 2017
+ * result as a SigmaScout-specific failure.
  *
  * **Endpoint correction.** The correct path is `/v3/year/{season}`. An
  * earlier probe of `/v3/season/{season}` returned 404 — that is a
@@ -100,6 +115,24 @@ const StatboticsYearResponseSchema = z.object({
  * for any future 2018 headline claim.
  */
 export const STATBOTICS_REFERENCE_FALLBACK: Readonly<Record<number, StatboticsReference>> = {
+  2016: {
+    season: 2016,
+    value: 0.7312,
+    mse: 0.1799,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
+    matchPopulation: "all 2016 qualification + elimination matches (Statbotics EPA model)",
+    capturedAt: "2026-09-07",
+    fetched: false,
+  },
+  2017: {
+    season: 2017,
+    value: 0.6694,
+    mse: 0.2023,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
+    matchPopulation: "all 2017 qualification + elimination matches (Statbotics EPA model)",
+    capturedAt: "2026-09-07",
+    fetched: false,
+  },
   2018: {
     season: 2018,
     value: 0.7435,
@@ -115,6 +148,15 @@ export const STATBOTICS_REFERENCE_FALLBACK: Readonly<Record<number, StatboticsRe
     mse: 0.1763,
     sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
     matchPopulation: "all 2019 qualification + elimination matches (Statbotics EPA model)",
+    capturedAt: "2026-09-07",
+    fetched: false,
+  },
+  2020: {
+    season: 2020,
+    value: 0.7262,
+    mse: 0.1834,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
+    matchPopulation: "all 2020 qualification + elimination matches (Statbotics EPA model)",
     capturedAt: "2026-09-07",
     fetched: false,
   },
@@ -213,11 +255,13 @@ export interface StatboticsReferenceOptions {
  * Returns the Statbotics reference row for a season. Always attempts a live
  * fetch first; any failure (network error, non-2xx status, schema mismatch)
  * falls back to the dated constant. Never throws for a Statbotics-side
- * failure — a Statbotics outage is context for our numbers, not an input to
+ * failure is context for our numbers, not an input to
  * them (T-01-12). Throws only if `season` has neither a live result nor a
  * fallback constant — see `STATBOTICS_REFERENCE_FALLBACK`'s own keys for the
- * currently-covered set (2020 is a named, unmeasured gap; see that
- * constant's doc comment).
+ * currently-covered set, which as of 2026-09-07 is every season the corpus
+ * carries (2016-2020 and 2022-2026; 2021 is permanently excluded). There is
+ * no longer a named gap: 2020's, the last one, was filled by quick task
+ * 260907-203.
  */
 export async function statboticsReference(
   season: number,
