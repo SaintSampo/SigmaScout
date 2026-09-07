@@ -16,8 +16,17 @@
  * before 2025), 8 each for Engineering Inspiration and Rookie All-Star,
  * 5 for every other judged team award. All of these agree with the maximum
  * value TBA ever actually reported per component across the full ingested
- * corpus (2019, 2020, 2022-2026; qual=22, alliance=16, elim=30 in every
- * season).
+ * corpus (2018, 2019, 2020, 2022-2026; qual=22, alliance=16, elim=30 in
+ * every season).
+ *
+ * 2018 re-verified independently, 2026-09-07 (quick task 260907-12k):
+ * `data/corpus.sqlite`, 1,543 `district_rankings` team rows and 3,724
+ * `event_points_raw` entries for `district.year = 2018`, gave district tier
+ * 22/16/30/15 and dcmp tier 66/48/90/30 observed, rookie bonus 10, DCMP
+ * weight 3 confirmed by the exact 3x ratio on qual/alliance/elim — the same
+ * numbers every other registered season already carries. These were
+ * re-derived from the corpus, not copied forward from 2019's row; they
+ * happen to agree with it.
  *
  * THE AWARD CEILING IS A DELIBERATE JUDGMENT CALL. The official model has
  * no stated per-event cap on award points, and one team CAN win multiple
@@ -38,7 +47,19 @@
  * below exactly 3x the same season's "district" maximum (qual 66/22,
  * alliance 48/16, elim 90/30 in every season with real DCMP data; 2019's
  * award 45/15 hits the ratio exactly) — confirming the manual's stated 3x
- * weight directly against every ingested season.
+ * weight directly against every ingested season. 2018 is the one exception
+ * worth naming rather than smoothing over: its observed dcmp award maximum
+ * is 30 (not 45 = 3x15), because no 2018 team collected the full award
+ * stack — Impact plus a second judged award — at a District Championship.
+ * The declared ceiling stays 15 regardless, for the reason given above: a
+ * ceiling set too low is the only direction this model must never err in,
+ * while one set too high (relative to what any single 2018 team actually
+ * reached) only delays a verdict, never produces a wrong one.
+ *
+ * INERT ON THE SITE TODAY: `FIRST_SEASON` in `apps/web/src/lib/seasons.ts`
+ * is still 2019 and no 2018 artifacts exist in R2, so the 2018 row below is
+ * consumed only by the harness and by `reconciliation.test.ts`'s corpus
+ * proof until a 2018 publish lands.
  */
 
 /** The two event tiers this point model distinguishes — a regular district event, or a District Championship (weighted). */
@@ -76,6 +97,7 @@ export interface EventPointMaxima {
  * (see this file's header for the full reasoning).
  */
 const DISTRICT_BASE_MAXIMA: Readonly<Record<number, SeasonDistrictBaseMaxima>> = {
+  2018: { qual: 22, alliance: 16, elim: 30, award: 15 },
   2019: { qual: 22, alliance: 16, elim: 30, award: 15 },
   2020: { qual: 22, alliance: 16, elim: 30, award: 15 },
   2022: { qual: 22, alliance: 16, elim: 30, award: 15 },
@@ -93,6 +115,7 @@ const DISTRICT_BASE_MAXIMA: Readonly<Record<number, SeasonDistrictBaseMaxima>> =
  * qual/alliance/elim ratios (see file header).
  */
 const DCMP_WEIGHT: Readonly<Record<number, number>> = {
+  2018: 3,
   2019: 3,
   2020: 3,
   2022: 3,
@@ -104,6 +127,7 @@ const DCMP_WEIGHT: Readonly<Record<number, number>> = {
 
 /** Once-per-season rookie bonus ceiling — official model: 10 for a first-year team, 5 for a second-year team; the corpus maximum observed is 10 in every ingested season. */
 const ROOKIE_BONUS_MAXIMA: Readonly<Record<number, number>> = {
+  2018: 10,
   2019: 10,
   2020: 10,
   2022: 10,
