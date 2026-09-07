@@ -31,8 +31,11 @@ import { epa } from "../../../packages/core/algorithms/epa.js";
 import type { AlgorithmModule } from "../../../packages/core/algorithms/types.js";
 import { readFileSync, writeFileSync } from "node:fs";
 
-const REPLAY_SEASONS = [2024, 2025, 2026] as const;
-const SCORE_SEASON = 2026;
+// Set from --season / --replay in main(). Every origin scores its OWN shipped
+// parameter set as the baseline, so a per-origin verdict compares like with
+// like rather than against 2026's parameters.
+let REPLAY_SEASONS: readonly number[] = [2024, 2025, 2026];
+let SCORE_SEASON = 2026;
 
 interface Config {
   readonly id: string;
@@ -55,7 +58,7 @@ async function replayBatch(db: Corpus, algorithms: readonly AlgorithmModule<any>
   let liveStates = new Map<string, unknown>();
 
   for (const [seasonIdx, season] of REPLAY_SEASONS.entries()) {
-    const boundary = seasonBoundaryFor(REPLAY_SEASONS as unknown as number[], seasonIdx);
+    const boundary = seasonBoundaryFor(REPLAY_SEASONS, seasonIdx);
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (!boundary.isColdStart) {
       const carried = new Map<string, unknown>();
@@ -138,6 +141,11 @@ async function main(): Promise<void> {
   };
 
   const versionPath = arg("version", "data/algorithm-versions/vpr@10.0.0+rolling-2026-09d.json");
+  SCORE_SEASON = Number(arg("season", "2026"));
+  REPLAY_SEASONS = arg("replay", "2024,2025,2026").split(",").map(Number);
+  if (!REPLAY_SEASONS.includes(SCORE_SEASON)) {
+    throw new Error(`--replay (${REPLAY_SEASONS.join(",")}) must contain --season ${SCORE_SEASON}`);
+  }
   const valueCount = Number(arg("values", "5"));
   const batchSize = Number(arg("batch", "6"));
   const outPath = arg("out");
