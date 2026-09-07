@@ -4,19 +4,37 @@
  * `district.abbreviation` (e.g. `fnc`); the reader-facing name follows the
  * user's own stated pattern — `FIRST {state abbrev}` where the district is a
  * single-state FIRST district, the established proper name otherwise. The
- * key set is closed for the seven-season corpus (2019, 2020, 2022-2026;
- * districts don't appear retroactively); an unknown future key falls back to
- * its uppercased abbreviation, which is exactly what the UI showed for every
- * key before this map existed.
+ * The key set is **not** closed. It was believed closed for the
+ * seven-season 2019-2026 corpus, but the corpus is now extending
+ * *backward* (2018 landed 2026-09-06; 2017 and 2016 are planned per
+ * `.planning/todos/pending/extend-corpus-2018-2017-2016.md`), and each
+ * backward season may introduce further pre-rename spellings the way 2018
+ * did. A future backfill must re-run
+ * `SELECT DISTINCT district_key FROM events WHERE year = N` for the new
+ * season and compare against this map before assuming coverage. An unknown
+ * key falls back to its uppercased abbreviation, which is exactly what the
+ * UI showed for every key before this map existed.
  *
- * `in`/`fin` and `tx`/`fit` are deliberate DUPLICATE entries, not an
- * oversight: TBA re-keyed the Indiana and Texas districts between the 2020
- * and 2022 seasons (`in`/`tx` in 2019-2020, `fin`/`fit` from 2022 onward), so
- * both spellings are live in the corpus once 2019/2020 are published (quick
- * task 260904-nt4) and both must resolve to the same reader-facing name.
- * Verified against the corpus 2026-09-04: 2019/2020 events carry exactly
- * `chs, fim, fma, fnc, in, isr, ne, ont, pch, pnw, tx` — every key but `in`
- * and `tx` was already present from the 2022-2026 set.
+ * `in`/`fin`, `tx`/`fit`, `mar`/`fma`, and `nc`/`fnc` are deliberate
+ * DUPLICATE entries, not an oversight — one phenomenon (TBA re-keying a
+ * district's abbreviation at a season boundary) with two occurrences so far:
+ * Indiana and Texas were re-keyed between the 2020 and 2022 seasons
+ * (`in`/`tx` in 2019-2020, `fin`/`fit` from 2022 onward), and Mid-Atlantic
+ * and North Carolina were re-keyed between the 2018 and 2019 seasons
+ * (`mar`/`nc` in 2018, `fma`/`fnc` from 2019 onward). Both spellings of each
+ * pair are live in the corpus and both must resolve to the same
+ * reader-facing name. Verified against the corpus 2026-09-04: 2019/2020
+ * events carry exactly `chs, fim, fma, fnc, in, isr, ne, ont, pch, pnw, tx`
+ * — every key but `in` and `tx` was already present from the 2022-2026 set.
+ * Verified again 2026-09-07 (quick task 260907-12k):
+ * `SELECT DISTINCT district_key FROM events WHERE year = 2018` returned
+ * exactly `chs, fim, in, isr, mar, nc, ne, ont, pch, pnw` — `mar` and `nc`
+ * are new pre-rename spellings; `tx` did not exist in 2018.
+ *
+ * INERT ON THE SITE TODAY: `FIRST_SEASON` in `apps/web/src/lib/seasons.ts`
+ * is still 2019 and no 2018 artifacts exist in R2, so the `mar` and `nc`
+ * entries below are unreachable from the running site until a 2018 publish
+ * and a deliberate `seasons.ts` change land — in that order.
  */
 const DISTRICT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   ca: "FIRST California",
@@ -29,7 +47,9 @@ const DISTRICT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   fit: "FIRST TX",
   tx: "FIRST TX",
   fma: "FIRST Mid-Atlantic",
+  mar: "FIRST Mid-Atlantic",
   fnc: "FIRST NC",
+  nc: "FIRST NC",
   fsc: "FIRST SC",
   isr: "FIRST Israel",
   ne: "New England",
