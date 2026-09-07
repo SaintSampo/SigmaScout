@@ -373,42 +373,6 @@ describe("Skeleton", () => {
   });
 });
 
-describe("Video column (quick task 260906-7eu)", () => {
-  it("the header row contains a Video column", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
-    expect(screen.getByRole("columnheader", { name: "Video" })).toBeDefined();
-  });
-
-  it("a row whose data carries a parseable video key renders a control in its Video cell", () => {
-    renderWithRouter(
-      <EventMatchTable
-        rows={[makeRow({ matchKey: "m1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, video: "dQw4w9WgXcQ" })]}
-        domain={DOMAIN}
-        season={2024}
-        algorithm="vpr"
-      />,
-    );
-    const cell = screen.getByTestId("video-m1");
-    expect(within(cell).getAllByRole("button")).toHaveLength(1);
-  });
-
-  it("a row without a video key renders an empty Video cell", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
-    const cell = screen.getByTestId("video-m1");
-    expect(within(cell).queryAllByRole("button")).toHaveLength(0);
-  });
-
-  it("a many-row table with a video on every row holds zero iframes before any interaction", () => {
-    const rows = Array.from({ length: 80 }, (_, i) =>
-      makeRow({ matchKey: `m${i}`, matchNumber: i + 1, played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, video: "dQw4w9WgXcQ" }),
-    );
-    const { container } = renderWithRouter(<EventMatchTable rows={rows} domain={DOMAIN} season={2024} algorithm="vpr" />);
-    expect(screen.getAllByRole("button").length).toBeGreaterThanOrEqual(80);
-    expect(container.querySelectorAll("iframe")).toHaveLength(0);
-    expect(document.querySelectorAll("iframe")).toHaveLength(0);
-  });
-});
-
 describe("Row count conservation", () => {
   it.each([1, 2, 40])("rendering %i rows produces exactly that many body rows", (n) => {
     const rows = Array.from({ length: n }, (_, i) =>

@@ -1,10 +1,6 @@
 import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
 import { BonusRpDots } from "../team/BonusRpDots.js";
-// Quick task 260906-7eu: the same shared Video-column control
-// `team/MatchTable.tsx` renders — one implementation, two surfaces, the
-// precedent `BonusRpDots` above already sets.
-import { MatchVideoCell } from "../MatchVideoCell.js";
 // Quick 260905-jj8: the same published-data-to-dot-state mapping
 // `team/MatchTable.tsx` uses — one implementation, two surfaces.
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
@@ -42,10 +38,10 @@ export interface EventMatchTableProps {
   algorithm: PublishedAlgorithmId;
 }
 
-/** Match, plot, Conf., Pred. Score, Actual, Call, Video — the same seven columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. Video is LAST (quick task 260906-7eu): a secondary affordance most rows will not have, added after every other column's existing left-to-right scan. */
-export const EVENT_MATCH_TABLE_COLUMN_COUNT = 7;
+/** Match, plot, Conf., Pred. Score, Actual, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. (A seventh Video column shipped in quick task 260906-7eu and was unwired in 260907-1w7; `MatchVideoCell` and its parser remain in the tree, unrendered.) */
+export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 
-const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Confidence", "Prediction", "Actual", "Call", "Video"] as const;
+const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Confidence", "Prediction", "Actual", "Call"] as const;
 
 /** A team key's displayed number, falling back to the raw key string when it does not match the `frc{number}` shape — the same construction `MatchTable.tsx`'s own module-private label helper uses. Named distinctly from this row type's own field names so a structural props-declaration gate cannot mistake it for a per-team prop. */
 function rosterNumberLabel(rosterKey: string): string {
@@ -330,9 +326,6 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
           <span aria-label="Prediction incorrect">{"✗"}</span>
         )}
       </td>
-      <td data-testid={`video-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <MatchVideoCell matchKey={row.matchKey} matchLabel={matchLabel(row)} videoKey={row.video} />
-      </td>
     </tr>
   );
 }
@@ -353,7 +346,6 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Video</th>
         </tr>
       </thead>
       <tbody>
