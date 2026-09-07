@@ -81,6 +81,29 @@
  * forward unchanged. This re-pin rode the 8.0.0 -> 9.0.0 code-version bump
  * (see `params.ts`'s 9.0.0 entry — the first promoted set carrying a
  * non-default `carryVarianceFactor`, season 2025 at 0.845).
+ *
+ * Re-pinned to `rolling-2026-09d` (2026-09-06, the 10.0.0 code-version
+ * re-tune): origin 2022 was the only one to clear the Rule-A bar; every
+ * other season carried `rolling-2026-09c` forward untouched.
+ *
+ * Re-pinned to `rolling-2026-09e` (2026-09-07, quick task 260907-203). This
+ * one is NOT a re-tune — every season's `params` object is BITWISE IDENTICAL
+ * to `rolling-2026-09d`'s (verified by hashing each season's `params` in both
+ * files; only the per-entry `derivedFromVersion` provenance link moved
+ * `09c` -> `09d`, and the recorded `digest` block is byte-for-byte the same,
+ * which is also why the committed `fixtures/digest-slice.json` did NOT need
+ * regenerating). What changed is COVERAGE: the corpus was extended BACKWARD
+ * to 2016, and `09e` adds `paramSetsBySeason` entries for 2016/2017/2018
+ * carrying the same `tuned-2026-08`-derived set (`selectedOnSeasons`
+ * `[2022,2023,2024]`, source `reports/tune-joint-off.json`) that 2019, 2020,
+ * 2023 and 2024 already run.
+ *
+ * That coverage is precisely why this pin HAD to move rather than being left
+ * alone as a no-op: `resolveParamSets(...).forSeason(season)` THROWS for a
+ * season absent from the map, by design (an unpinned season must be loud,
+ * never silently defaulted). So `09d` cannot serve 2016-2018 at all, and any
+ * harness or publish run over the widened `--seasons 2016-2020,2022-2026`
+ * would have died on the first 2016 match while `09d` stayed pinned.
  */
 import { join } from "node:path";
 import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
@@ -88,5 +111,5 @@ import { SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 /** The committed version-file directory `warnIfNewerPromotedVpr` scans. */
 export const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
-/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`, `rolling-2026-09b`. */
-export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09d.json`);
+/** The one live pin: which committed `vpr` version file every harness/publish path resolves. Previous values: `tuned-2026-08`, `rolling-2026-09`, `rolling-2026-09b`, `rolling-2026-09c`, `rolling-2026-09d`. */
+export const PROMOTED_VPR_VERSION_PATH = join(ALGORITHM_VERSIONS_DIR, `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09e.json`);

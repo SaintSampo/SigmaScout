@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 6 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 7 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -267,11 +267,21 @@ describe("committed baseline fingerprints", () => {
     // which is the ordinary shape of a promotion; the 5 -> 5 above was the
     // unusual case, because a code-version bump retires the generation it
     // replaces while a promotion adds to it.
+    // 2026-09-07 (quick task 260907-203) added the seventh:
+    // `vpr@10.0.0+rolling-2026-09e.json`. This one is NOT a re-tune — every
+    // season's `params` is bitwise identical to `rolling-2026-09d`'s and the
+    // recorded `digest` block is byte-for-byte the same. What it adds is
+    // COVERAGE: `paramSetsBySeason` entries for 2016/2017/2018 (the backward
+    // corpus extension), carrying the same tuned-2026-08-derived set 2019,
+    // 2020, 2023 and 2024 already run. The census COUNT goes 6 -> 7: a
+    // promotion adds to this directory whether or not it moves any number,
+    // so a coverage-only promotion is counted here exactly like a re-tune.
     ).toEqual([
       "vpr@10.0.0+rolling-2026-09.json",
       "vpr@10.0.0+rolling-2026-09b.json",
       "vpr@10.0.0+rolling-2026-09c.json",
       "vpr@10.0.0+rolling-2026-09d.json",
+      "vpr@10.0.0+rolling-2026-09e.json",
       "vpr@10.0.0+tracer-check.json",
       "vpr@10.0.0+tuned-2026-08.json",
     ]);

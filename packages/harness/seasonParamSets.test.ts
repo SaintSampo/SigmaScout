@@ -252,7 +252,15 @@ describe("D-4 equivalence gate, Leg A: a uniform paramSetsBySeason reproduces th
     // gate's whole point: the per-season machinery must be a faithful
     // generalisation of today's single-set replay, not a rewrite that
     // happens to run.
-    const seasons = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
+    //
+    // Widened 7 -> 10 seasons by quick task 260907-203 to keep "every corpus
+    // season" TRUE after the backward corpus extension to 2016. This is a
+    // comment-accuracy fix, not a behavioural one and not a weakened bar: the
+    // replayed slice is season 2022 only, so the three added entries change
+    // nothing about what is asserted (the committed digest, bitwise) — they
+    // only stop this list from quietly describing a corpus that no longer
+    // exists. 2021 stays absent: it is a permanent exclusion.
+    const seasons = [2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026];
     const uniform = synthesizeUniformPromotedVersion(incumbent, seasons);
     const algorithm = makeSeasonalSigma1(uniform, { id: uniform.id, linkMode: "predictive-variance" });
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
