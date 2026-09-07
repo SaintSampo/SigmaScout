@@ -70,8 +70,54 @@ const StatboticsYearResponseSchema = z.object({
  * "unverified estimate", and `fetched: false` still marks every artifact
  * that falls back to one of these (a live fetch is always attempted first;
  * this is the fallback path only, per this module's own contract).
+ *
+ * **2018 and 2019 added 2026-09-07 (quick task 260907-12k), each fetched and
+ * verified live the same day.** No site page reads these constants — they
+ * are consumed by harness report runs only, so registering 2018 and 2019
+ * here changes nothing on the site and is independent of `FIRST_SEASON` in
+ * `apps/web/src/lib/seasons.ts` (still 2019; no 2018 artifacts exist in R2).
+ *
+ * **2020 is a deliberate, named gap, not an oversight.** No one has
+ * measured Statbotics' 2020 winner accuracy, and this repo's executor
+ * sandbox has no network access, so there is no honest way to produce a
+ * value during execution. An offline harness run that reaches season 2020
+ * still throws (`statboticsReference` has no fallback to catch it) while
+ * the live path continues to work unaffected. Closing this gap needs one
+ * live `GET /v3/year/2020`.
+ *
+ * **Endpoint correction.** The correct path is `/v3/year/{season}`. An
+ * earlier probe of `/v3/season/{season}` returned 404 — that is a
+ * WRONG-PATH result, not evidence any season is unavailable from
+ * Statbotics, and must never be re-recorded as such.
+ *
+ * **2018 corroborates this project's own anti-additivity finding.**
+ * Statbotics' own 2018 winner accuracy (0.7435) sits well below its 2022
+ * (0.7815) — independent, third-party confirmation that 2018 is a
+ * genuinely harder season to predict, consistent with this project's own
+ * measurement that 2018 is the only corpus season whose red and blue
+ * alliance scores are *anti*-correlated (corr(red, blue) totalPoints
+ * -0.4567, against +0.24..+0.52 in every other season). Useful as an anchor
+ * for any future 2018 headline claim.
  */
 export const STATBOTICS_REFERENCE_FALLBACK: Readonly<Record<number, StatboticsReference>> = {
+  2018: {
+    season: 2018,
+    value: 0.7435,
+    mse: 0.1747,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
+    matchPopulation: "all 2018 qualification + elimination matches (Statbotics EPA model)",
+    capturedAt: "2026-09-07",
+    fetched: false,
+  },
+  2019: {
+    season: 2019,
+    value: 0.7322,
+    mse: 0.1763,
+    sourceLabel: "Statbotics API (v3/year, fetched and verified 2026-09-07 — dated manual constant, not a live call)",
+    matchPopulation: "all 2019 qualification + elimination matches (Statbotics EPA model)",
+    capturedAt: "2026-09-07",
+    fetched: false,
+  },
   2022: {
     season: 2022,
     value: 0.7815,
@@ -169,7 +215,9 @@ export interface StatboticsReferenceOptions {
  * falls back to the dated constant. Never throws for a Statbotics-side
  * failure — a Statbotics outage is context for our numbers, not an input to
  * them (T-01-12). Throws only if `season` has neither a live result nor a
- * fallback constant (outside the covered 2022-2026 range).
+ * fallback constant — see `STATBOTICS_REFERENCE_FALLBACK`'s own keys for the
+ * currently-covered set (2020 is a named, unmeasured gap; see that
+ * constant's doc comment).
  */
 export async function statboticsReference(
   season: number,
@@ -191,7 +239,11 @@ export async function statboticsReference(
   } catch {
     const fallback = STATBOTICS_REFERENCE_FALLBACK[season];
     if (!fallback) {
-      throw new Error(`statboticsReference: no fallback constant for season ${season} (covered: 2022-2026)`);
+      const covered = Object.keys(STATBOTICS_REFERENCE_FALLBACK)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .join(", ");
+      throw new Error(`statboticsReference: no fallback constant for season ${season} (covered: ${covered})`);
     }
     return fallback;
   }
