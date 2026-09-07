@@ -31,9 +31,9 @@ const RECONCILIATION_TOLERANCE = 1e-6;
  * Provenance of the seasons registered in `breakdown/index.ts` (D-19:
  * additive, no dispatch branching). 2024 was registered by plan 02-01;
  * 2022/2023 by plan 02-01's Task 1; 2025/2026 by its Task 2; 2020 and 2019
- * by quick task 260903-4fs's Tasks 1 and 2 respectively. 2021 is
- * deliberately absent — no standard FRC season was played that year. The
- * list itself is now derived from the dispatch table
+ * by quick task 260903-4fs's Tasks 1 and 2 respectively; 2018 by quick task
+ * 260907-057. 2021 is deliberately absent — no standard FRC season was
+ * played that year. The list itself is now derived from the dispatch table
  * (`BREAKDOWN_REGISTERED_SEASONS`, imported above) rather than restated
  * here (quick task 260906-8kd).
  */
@@ -41,6 +41,58 @@ const RECONCILIATION_TOLERANCE = 1e-6;
 interface SampledBreakdownRow {
   match_key: string;
   score_breakdown_raw: string;
+}
+
+/**
+ * One season's named, capped reconciliation tolerance — the breakdown-side
+ * mirror of `rp/reconciliation.test.ts`'s `KNOWN_TOLERANCES` (D-2). A
+ * season with NO entry here stays at an EFFECTIVE rate of exactly 0 —
+ * unchanged behaviour, since `breakdownToleranceFor` returns `undefined` and
+ * the assertion below falls back to "any exception fails".
+ *
+ * `rate` is the measured EXCEPTION rate (mismatches / sampled sides) as a
+ * decimal fraction, plus a small stated margin — never a guess.
+ * `maxAbsGap` caps the absolute size of any TOLERATED exception; an
+ * exception larger than this fails regardless of `rate`, which is what
+ * keeps a genuine regression (e.g. a broken component extractor producing a
+ * huge gap) failing even under an otherwise-satisfied rate budget. This
+ * tolerance covers a MEASURED ARTIFACT IN TBA's OWN ARITHMETIC (D-2: 196 of
+ * 28,312 sides also fail TBA's own `totalPoints == autoPoints + teleopPoints
+ * + foulPoints + adjustPoints` identity) and MUST NEVER be widened to cover
+ * a component-map error.
+ */
+interface BreakdownTolerance {
+  readonly season: number;
+  /** Measured exception rate (mismatches / sampled sides), plus a small margin. */
+  readonly rate: number;
+  /** Cap on the absolute gap any tolerated exception may show. */
+  readonly maxAbsGap: number;
+  /** Only set when every observed exception carries the same sign — never encoded from an assumption. */
+  readonly direction?: "positive" | "negative";
+}
+
+/**
+ * 2018: TBA's own roll-up-identity residual (D-2), measured over the FULL
+ * official qual population — 196 / 28,312 sides (0.6923%), magnitudes 1 (188
+ * sides) and 2 (8 sides) only, EVERY exception carrying the SAME sign
+ * (`reconciledTotal - expectedTotal > 0` for all 196; 0 negative). Proven to
+ * be TBA's own arithmetic, not a component-map defect, three ways (see
+ * `2018.ts`'s file header): our auto half reconciles 0/28,312 against TBA's
+ * auto half; our teleop half reconciles 0/28,312 against TBA's teleop half;
+ * all 196 of 196 mismatching sides also fail TBA's OWN four-term identity
+ * (`totalPoints == autoPoints + teleopPoints + foulPoints + adjustPoints`).
+ *
+ * This suite's own `SAMPLE_SIZE=2000`-windowed run (ordered by `match_key`
+ * ASC) observed 8/2000 red (0.400%) and 6/2000 blue (0.300%) exceptions,
+ * every one +1 — consistent with the population figure and its direction.
+ * `0.008` keeps a small margin above the larger of the population rate
+ * (0.6923%) and the sampled-window rate (0.400%/0.300%), and is no more
+ * than 1.5x either.
+ */
+const KNOWN_BREAKDOWN_TOLERANCES: readonly BreakdownTolerance[] = [{ season: 2018, rate: 0.008, maxAbsGap: 2, direction: "positive" }];
+
+function breakdownToleranceFor(season: number): BreakdownTolerance | undefined {
+  return KNOWN_BREAKDOWN_TOLERANCES.find((t) => t.season === season);
 }
 
 /**
@@ -104,6 +156,8 @@ describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliat
       const map = componentMapForSeason(year);
       const opponentSide = side === "red" ? "blue" : "red";
 
+      const exceptions: { matchKey: string; gap: number }[] = [];
+
       for (const row of rows) {
         const rawJson: unknown = JSON.parse(row.score_breakdown_raw);
         const ownComponents = map.parse(rawJson, side);
@@ -117,10 +171,45 @@ describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliat
         const expectedTotal = allianceTotalPoints(rawJson, side);
         const gap = reconciledTotal - expectedTotal;
 
+        if (Math.abs(gap) >= RECONCILIATION_TOLERANCE) {
+          exceptions.push({ matchKey: row.match_key, gap });
+        }
+      }
+
+      const sampledSides = rows.length;
+      const rate = sampledSides > 0 ? exceptions.length / sampledSides : 0;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[breakdown reconciliation ${year} ${side}] ${exceptions.length}/${sampledSides} exceptions (${(rate * 100).toFixed(3)}%)` +
+          (exceptions.length > 0 ? `, first few: ${JSON.stringify(exceptions.slice(0, 5))}` : "")
+      );
+
+      const tolerance = breakdownToleranceFor(year);
+      if (tolerance === undefined) {
         expect(
-          Math.abs(gap) < RECONCILIATION_TOLERANCE,
-          `match ${row.match_key} (${side}, season ${year}): reconciled total ${reconciledTotal} vs totalPoints ${expectedTotal} (gap ${gap})`
+          exceptions.length,
+          `season ${year} (${side}): ${exceptions.length} reconciliation exceptions with no named tolerance — this is a component-map error, fix the map rather than adding a tolerance` +
+            (exceptions.length > 0 ? ` (first few: ${JSON.stringify(exceptions.slice(0, 5))})` : "")
+        ).toBe(0);
+      } else {
+        const offender = exceptions.find((e) => Math.abs(e.gap) > tolerance.maxAbsGap);
+        expect(
+          offender === undefined,
+          `season ${year} (${side}): exception at match ${offender?.matchKey} has |gap| ${offender ? Math.abs(offender.gap) : 0} exceeding the named tolerance's maxAbsGap ${tolerance.maxAbsGap}`
         ).toBe(true);
+
+        expect(
+          rate <= tolerance.rate,
+          `season ${year} (${side}): measured rate ${rate} exceeds the named tolerance ${tolerance.rate} — this tolerance covers a measured artifact in TBA's own arithmetic and must never be widened to cover a component-map error`
+        ).toBe(true);
+
+        if (tolerance.direction !== undefined) {
+          const wrongSign = exceptions.find((e) => (tolerance.direction === "positive" ? e.gap <= 0 : e.gap >= 0));
+          expect(
+            wrongSign === undefined,
+            `season ${year} (${side}): exception at match ${wrongSign?.matchKey} has gap ${wrongSign?.gap}, contradicting the tolerance's recorded direction "${tolerance.direction}"`
+          ).toBe(true);
+        }
       }
     }
   );
@@ -334,5 +423,63 @@ describe("2026 field-rename assertion (T-02-07)", () => {
 
     expect(foulCountMatches?.length ?? 0).toBe(0);
     expect(techFoulCountMatches?.length ?? 0).toBe(0);
+  });
+});
+
+describe("2018 Scale/Switch split source gate (D-1)", () => {
+  /**
+   * The corpus reconciliation proof above CANNOT catch a substitution of
+   * TBA's fused ownership roll-ups for the split components D-1 requires,
+   * because the fused form reconciles EXACTLY too (see `2018.ts`'s file
+   * header, "The roll-up hazards"). This is the identical class of hazard
+   * `2019.ts`'s `autoPoints`/`sandStormBonusPoints` numeric-identity roll-up
+   * gets from this file's 2026 field-rename assertion above — a
+   * comment-stripped source scan is the only thing that can catch it, since
+   * the corpus proof alone would pass either way.
+   *
+   * The negative half (no roll-up field read) is paired with a POSITIVE
+   * assertion that both split pairs are actually present in
+   * `components` — pinning D-1's decision as a test, not only as a comment.
+   */
+  it("2018.ts: never reads TBA's fused ownership/roll-up fields or the teleop Force fields (only comments documenting why)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const filePath = path.join(currentDir, "2018.ts");
+    const content = fs.readFileSync(filePath, "utf-8");
+
+    let stripped = content
+      .split("\n")
+      .map((line) => {
+        const commentIdx = line.indexOf("//");
+        return commentIdx !== -1 ? line.substring(0, commentIdx) : line;
+      })
+      .join("\n");
+    stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    const FORBIDDEN_FIELDS = [
+      "autoPoints",
+      "teleopPoints",
+      "totalPoints",
+      "autoOwnershipPoints",
+      "teleopOwnershipPoints",
+      "teleopSwitchForceSec",
+      "teleopScaleForceSec",
+    ];
+
+    for (const field of FORBIDDEN_FIELDS) {
+      const matches = stripped.match(new RegExp(`\\b${field}\\b`, "g"));
+      expect(matches?.length ?? 0, `2018.ts reads forbidden roll-up/Force field "${field}" outside a comment`).toBe(0);
+    }
+  });
+
+  it("2018.ts: components split BOTH auto and teleop ownership into separate Scale/Switch entries (D-1 pinned as a test)", () => {
+    const components = componentMapForSeason(2018).components;
+    expect(components).toContain("autoSwitchOwnership");
+    expect(components).toContain("autoScaleOwnership");
+    expect(components).toContain("teleopSwitchOwnership");
+    expect(components).toContain("teleopScaleOwnership");
   });
 });

@@ -74,8 +74,19 @@ export type SeasonComponentGroups = Readonly<Record<ComponentGroupId, readonly s
  *    ENDGAME action and is grouped as endgame here — the identical
  *    treatment 2022 already gives its own endgame component, which TBA
  *    likewise folds into a `teleopPoints` roll-up.
+ *  - 2018 `vault`: the Vault is a teleop activity (cubes are exchanged
+ *    during teleop for power-ups), so it groups there. Both ownership
+ *    components (D-1's Scale/Switch split) group by their own phase
+ *    prefix — `autoSwitchOwnership`/`autoScaleOwnership` in auto,
+ *    `teleopSwitchOwnership`/`teleopScaleOwnership` in teleop — never
+ *    merged into one cross-phase "ownership" group.
  */
 const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
+  2018: {
+    auto: ["autoRun", "autoSwitchOwnership", "autoScaleOwnership"],
+    teleop: ["teleopSwitchOwnership", "teleopScaleOwnership", "vault"],
+    endgame: ["endgame"],
+  },
   2019: {
     auto: ["sandstormBonus"],
     teleop: ["hatchPanel", "cargo"],
