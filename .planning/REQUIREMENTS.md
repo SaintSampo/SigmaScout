@@ -67,12 +67,23 @@ for the full baseline-change narrative.
 
 ### Navigation & UI
 
-- [x] **NAV-01**: Top ribbon navigates to Teams, Events, and Compare
+- [x] **NAV-01**: Top ribbon navigates to Teams, Events, Districts, and Methodology; the accuracy-comparison table lives under Methodology at `/methodology/compare`
 - [x] **NAV-02**: Prominent global dropdowns select the prediction algorithm and the year, re-slicing every page
 - [x] **NAV-03**: Search bar finds teams and events
 - [x] **NAV-04**: All pages are usable on mobile and desktop
 - [x] **NAV-05**: URLs are deep-linkable: year, algorithm, and current team/event view are encoded in the shareable URL
 - [x] **NAV-06**: Pages render from precomputed artifacts with fast load as the top priority — no season statistics are recomputed in the browser
+
+**Re-issued 2026-09-07 (quick task 260907-3fq, per the v1.0 milestone audit):** NAV-01's text above
+was corrected from "Top ribbon navigates to Teams, Events, and Compare" (no longer true) to the four
+destinations the ribbon actually carries. Quick task `260905-phf` (2026-09-05, commit `a9d971c2`)
+replaced the ribbon's Compare slot with Methodology and moved the accuracy-comparison page intact via
+`git mv` to `/methodology/compare`; `apps/web/src/routes/compare.tsx` redirects the original
+`/compare` path there with search params preserved, and `VprGuide.tsx` and `AcknowledgmentsPage.tsx`
+both link to it. Nothing the requirement asked for was dropped — the Compare table is still reachable,
+still deep-linkable, and still one click from the ribbon. This is a requirement-text correction, not a
+new requirement and not a scope reduction — the `[x]` completion mark and ID are unchanged, following
+the same re-issue pattern ALGO-01 received in Phase 3.2.
 
 ## v2 Requirements
 

@@ -239,10 +239,12 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
   plain-language-first calibration, and the rule that differences too small to call render as ties
   rather than defeats.
 
-  The two pipeline gaps this blurb used to name (per-metric percentiles, match-level predictive
-  variance) are both **resolved** — verified against live artifacts 2026-08-30. One gap remains and
-  is Phase 8's: played event matches carry no `redRpPmf`/`blueRpPmf`, so the rank simulation cannot
-  rewind into played matches until that republish lands.
+  The three pipeline gaps this blurb used to name are **all resolved**. Per-metric percentiles and
+  match-level predictive variance were verified against live artifacts 2026-08-30. The third — played
+  event matches carrying no `redRpPmf`/`blueRpPmf`, which blocked the rank simulation from rewinding
+  into played matches — closed with the 2026-09-06 retune republish (75,796 objects, 216 presim
+  sidecars) and was verified 72/72 on played qualification matches during the v1.0 milestone audit,
+  2026-09-07.
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
