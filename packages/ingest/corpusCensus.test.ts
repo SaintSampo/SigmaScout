@@ -198,8 +198,56 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
    * pushes past it, re-measure and re-document -- do NOT raise it reflexively,
    * because the failure this bound exists to catch is `ingestSeasonRankingsOnly`
    * silently writing nothing, which looks exactly like a slow upward drift.
+   *
+   * Raised 550 -> 634 on 2026-09-07 (quick task 260907-203), for the same
+   * reason and after the same discipline: the corpus grew again, backward,
+   * from eight seasons to ten (2017 and 2016 ingested 2026-09-07). The
+   * reading moved 490 -> 570. Re-measured directly, read-only, the same day:
+   *
+   *     year | events with no event_rankings row | of which never played a match
+   *     2016 |  37 |  21
+   *     2017 |  43 |  30
+   *     2018 |  41 |  29
+   *     2019 |  47 |  37
+   *     2020 | 143 | 139   <-- the cancelled season
+   *     2022 |  52 |  35
+   *     2023 |  60 |  51
+   *     2024 |  44 |  32
+   *     2025 |  39 |  24
+   *     2026 |  64 |  57
+   *     TOTAL | 570
+   *
+   * The 80 new rows (37 + 43) are legitimately rankings-less, and NOT for
+   * 2020's cancelled-season reason. Classified exhaustively, 80 = 66 + 9 + 4 + 1:
+   *
+   *   - 66 (33 per season) are OFFSEASON events (`is_offseason = 1`,
+   *     `event_type` 99). TBA holds rankings for only some offseason events
+   *     at all -- 31 of 2016's 64 and 52 of 2017's 85 have them -- and this
+   *     is not a "never played" story: 15 of 2016's 33 and 8 of 2017's 33
+   *     DO carry qualification matches. TBA simply never posted a rankings
+   *     table for them, and no ingest run can conjure one.
+   *   - 9 are PRESEASON shells (`event_type` 100) carrying zero matches:
+   *     2016cass, 2016ctss, 2016tnt, 2017aurb, 2017capb, 2017ckw0,
+   *     2017ctss, 2017mike0, 2017mnw0.
+   *   - 4 are PLAYOFF-ONLY events with zero `qm` matches, which structurally
+   *     cannot have a qualification ranking: 2016cmp, 2017cmpmo and
+   *     2017cmptx (Championship Finals -- 2017 ran two championships), and
+   *     2017nhfoc (Festival of Champions).
+   *   - 1 is 2017micmp (`event_type` 2, the FiM District Championship),
+   *     6 matches and 0 `qm`: the finals-only shell over its own divisions.
+   *
+   * 634 = 570 + 64, where 64 is the largest number of rankings-less events
+   * any single NON-cancelled season contributes (2026's, from the table
+   * above). That is one season of headroom at the worst observed rate --
+   * a stated margin of 11.2% over today's reading, derived from the data
+   * rather than rounded up to a comfortable 650. It affords exactly ONE
+   * more season: an eleventh must re-measure and re-document this block,
+   * which is the point. The bound still catches what it exists to catch,
+   * with room to spare -- `ingestSeasonRankingsOnly` silently writing
+   * nothing for a season would add that season's FULL event count (~200+),
+   * not ~60.
    */
-  it("the count of corpus events with no event_rankings row at all is less than 550", () => {
+  it("the count of corpus events with no event_rankings row at all is less than 634", () => {
     const row = db
       .prepare(
         `SELECT COUNT(*) AS n
@@ -207,7 +255,7 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
          WHERE NOT EXISTS (SELECT 1 FROM event_rankings er WHERE er.event_key = e.event_key)`
       )
       .get() as { n: number };
-    expect(row.n).toBeLessThan(550);
+    expect(row.n).toBeLessThan(634);
   });
 });
 
