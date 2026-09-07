@@ -33,8 +33,8 @@ describe("maxEventPoints", () => {
     expect(() => maxEventPoints(2027, "dcmp")).toThrow(UnknownDistrictSeasonError);
   });
 
-  it("covers every season this plan lists: 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026", () => {
-    expect(DISTRICT_REGISTERED_SEASONS).toEqual([2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  it("covers every season this plan lists: 2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026", () => {
+    expect(DISTRICT_REGISTERED_SEASONS).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
   });
 });
 
