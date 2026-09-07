@@ -4,6 +4,7 @@
  *   pnpm harness --event <event_key> --algorithm opr [--out <dir>]
  *   pnpm harness --season <year> --algorithm opr [--out <dir>] [--include-offseason]
  *   pnpm harness --seasons <start>-<end> --algorithm opr [--out <dir>] [--include-offseason] [--cold-start-season <year>]
+ *   pnpm harness --seasons 2016-2020,2022-2026 --algorithm vpr   (gapped list — the real corpus, 2021 excluded)
  *
  * --event fetches one event from TBA (conditional requests via tbaClient),
  * Zod-validates the response, normalizes and stores it in the SQLite
@@ -411,20 +412,71 @@ function reportBreakdownParseFailures(
   }
 }
 
-/** Parses `--seasons "2022-2026"` into an inclusive array of season years. */
-function parseSeasonsRange(spec: string): number[] {
-  const rangeMatch = /^(\d{4})-(\d{4})$/.exec(spec);
-  if (!rangeMatch) {
-    throw new Error(`--seasons must be a range like "2022-2026", got "${spec}"`);
+/**
+ * `--seasons "2022-2026"` -> `[2022, 2023, 2024, 2025, 2026]`, a single year
+ * `--seasons "2026"` -> `[2026]`, or a comma-separated LIST of terms, each
+ * itself a single year or a range, e.g. `--seasons "2016-2020,2022-2026"` ->
+ * `[2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]`. Terms may
+ * repeat or arrive out of order; the result is always ascending and
+ * de-duplicated.
+ *
+ * The list form exists because the corpus is GAPPED: 2021 has no registered
+ * component map (it was the at-home/remote season with no conventional 3v3
+ * alliance matches, so there is nothing to ingest or score — permanent
+ * exclusion, not a deferral), so a single contiguous `2016-2026` range would
+ * include 2021. That is not merely cosmetic here: `isHeadlineEligible`
+ * (`score.ts`) counts DISTINCT seasons in the DECLARED set strictly less than
+ * a given season, so an empty 2021 sitting in the declared set would buy
+ * every later season an undeserved prior and silently corrupt headline
+ * eligibility. The gapped list is the only spelling that lets `--seasons`
+ * name the real ten-season corpus without a contiguous range lying about
+ * what exists.
+ *
+ * This grammar is a DELIBERATE MIRROR of `publish.ts`'s own exported
+ * `parseSeasonsRange` — quick task 260907-203 widened this copy to match it
+ * term-for-term and message-for-message rather than inventing a second
+ * dialect for the same flag name (`publish.ts`'s own doc comment had
+ * recorded the divergence as intentional-but-temporary scope of 260904-nt4).
+ * Two parsers that disagree about `--seasons` is precisely the
+ * duplicated-fact drift this repo keeps getting bitten by; if one moves, move
+ * the other. The single-year and single-range forms are byte-identical in
+ * behaviour to what this function accepted before the widening — every
+ * existing caller passing `2022-2026` is unaffected.
+ *
+ * **EXPORTED** for direct test coverage, following the exported-for-test
+ * precedent `publish.ts`'s `parseSeasonsRange` already sets.
+ */
+export function parseSeasonsRange(spec: string): number[] {
+  const terms = spec
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (terms.length === 0) {
+    throw new Error(`--seasons must not be empty, got "${spec}"`);
   }
-  const start = Number.parseInt(rangeMatch[1]!, 10);
-  const end = Number.parseInt(rangeMatch[2]!, 10);
-  if (end < start) {
-    throw new Error(`--seasons range end (${end}) must be >= start (${start})`);
+
+  const seasons = new Set<number>();
+  for (const term of terms) {
+    const singleMatch = /^(\d{4})$/.exec(term);
+    if (singleMatch) {
+      seasons.add(Number.parseInt(singleMatch[1]!, 10));
+      continue;
+    }
+    const rangeMatch = /^(\d{4})-(\d{4})$/.exec(term);
+    if (!rangeMatch) {
+      throw new Error(
+        `--seasons terms must each be a single year like "2026" or a range like "2022-2026" (or a comma-separated list of these, e.g. "2016-2020,2022-2026"), got invalid term "${term}" in "${spec}"`
+      );
+    }
+    const start = Number.parseInt(rangeMatch[1]!, 10);
+    const end = Number.parseInt(rangeMatch[2]!, 10);
+    if (end < start) {
+      throw new Error(`--seasons range end (${end}) must be >= start (${start}), in term "${term}" of "${spec}"`);
+    }
+    for (let year = start; year <= end; year++) seasons.add(year);
   }
-  const seasons: number[] = [];
-  for (let year = start; year <= end; year++) seasons.push(year);
-  return seasons;
+
+  return Array.from(seasons).sort((a, b) => a - b);
 }
 
 function parseSingleSeason(spec: string): number {

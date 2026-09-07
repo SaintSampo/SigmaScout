@@ -3606,7 +3606,17 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(() => parseSeasonsRange("")).toThrowError(/must not be empty/);
   });
 
-  it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the seven-season corpus", () => {
+  // Quick task 260907-203 WIDENED this expectation from the seven-season
+  // corpus to the ten-season one, deliberately rather than to make a red go
+  // green: the corpus itself grew backwards (2016/2017/2018 ingested and
+  // registered in every algorithm registry), and `package.json`'s
+  // `publish:seasons` was re-spelled `2016-2020,2022-2026` in the same task
+  // so the publisher actually covers what exists. This tripwire's JOB is to
+  // fail when the script and the real corpus disagree, so the season list
+  // here must track the corpus — what must NOT be weakened is the exact
+  // equality (never a `toContain`/length check), and it is not: 2021 is still
+  // absent, and a contiguous `2016-2026` in the script would fail this line.
+  it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the ten-season corpus", () => {
     const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
     const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
     const script = pkg.scripts["publish:seasons"];
@@ -3616,9 +3626,15 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(match, `--seasons argument not found in publish:seasons script: ${script}`).not.toBeNull();
 
     const parsed = parseSeasonsRange(match![1]!);
-    expect(parsed).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+    expect(parsed).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+    expect(parsed, "2021 is a permanent exclusion — the at-home season has no conventional 3v3 matches").not.toContain(2021);
   });
 
+  // Kept on the literal seven-season spec (NOT re-pointed at package.json):
+  // this case is about `seasonBoundaryFor`'s arithmetic across a one-season
+  // hole, and `2019,2020,2022-2026` is the minimal spec that exhibits one.
+  // The ten-season corpus has the identical single hole, so widening it here
+  // would add eight boundary rows that prove nothing new.
   it("the gapped-boundary proof: over the parsed seven-season list, seasonBoundaryFor reports a two-year gap entering 2022, a one-year gap everywhere else, and a positional cold start only at index 0 (2019)", () => {
     const seasons = parseSeasonsRange("2019,2020,2022-2026");
     const boundaries = seasons.map((_, index) => seasonBoundaryFor(seasons, index));
