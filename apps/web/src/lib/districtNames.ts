@@ -5,11 +5,11 @@
  * user's own stated pattern — `FIRST {state abbrev}` where the district is a
  * single-state FIRST district, the established proper name otherwise. The
  * The key set is **not** closed. It was believed closed for the
- * seven-season 2019-2026 corpus, but the corpus is now extending
- * *backward* (2018 landed 2026-09-06; 2017 and 2016 are planned per
- * `.planning/todos/pending/extend-corpus-2018-2017-2016.md`), and each
- * backward season may introduce further pre-rename spellings the way 2018
- * did. A future backfill must re-run
+ * seven-season 2019-2026 corpus, but the corpus then extended *backward*
+ * (2018 landed 2026-09-06; 2017 and 2016 landed 2026-09-07), and each
+ * backward season could have introduced further pre-rename spellings the
+ * way 2018 did. Only 2018 actually did — see the 2016/2017 verification
+ * below. A future backfill must still re-run
  * `SELECT DISTINCT district_key FROM events WHERE year = N` for the new
  * season and compare against this map before assuming coverage. An unknown
  * key falls back to its uppercased abbreviation, which is exactly what the
@@ -30,11 +30,24 @@
  * `SELECT DISTINCT district_key FROM events WHERE year = 2018` returned
  * exactly `chs, fim, in, isr, mar, nc, ne, ont, pch, pnw` — `mar` and `nc`
  * are new pre-rename spellings; `tx` did not exist in 2018.
+ * Verified once more 2026-09-07 (quick task 260907-203), same query, for
+ * the two seasons the backward extension reached next:
+ *   year = 2017 -> `chs, fim, in, isr, mar, nc, ne, ont, pch, pnw` (10)
+ *   year = 2016 -> `chs, fim, in, mar, nc, ne, pch, pnw` (8)
+ * 2017's set is identical to 2018's. 2016 lacks `isr` and `ont` — FIRST
+ * Israel and Ontario were not yet districts — and **neither season has
+ * `tx`**, so Texas's pre-rename spelling is a 2019/2020-only key, not a
+ * general pre-2019 one. **No map change was needed for either season:**
+ * every one of the 18 key-occurrences across both already resolves,
+ * because `mar` and `nc` had landed with 2018. The backward extension
+ * reached 2016 without introducing a single new key — the two pre-rename
+ * spellings 2018 introduced were the whole of it.
  *
  * INERT ON THE SITE TODAY: `FIRST_SEASON` in `apps/web/src/lib/seasons.ts`
- * is still 2019 and no 2018 artifacts exist in R2, so the `mar` and `nc`
- * entries below are unreachable from the running site until a 2018 publish
- * and a deliberate `seasons.ts` change land — in that order.
+ * is still 2019 and no 2016, 2017 or 2018 artifacts exist in R2, so the
+ * `mar` and `nc` entries below are unreachable from the running site until
+ * a publish for those seasons and a deliberate `seasons.ts` change land —
+ * in that order.
  */
 const DISTRICT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   ca: "FIRST California",
