@@ -22,6 +22,15 @@ reports/
 apps/web/dist/
 apps/web/src/routeTree.gen.ts
 apps/web/test-results/
+
+# TanStack Router/Start plugin scratch space. Transient, hash-named files
+# written DURING a build or test run and removed again — the same class as
+# .wrangler/ above. Untracked-but-not-ignored, it was showing up in every
+# `git status` and, worse, was being walked by algorithmIdentity.test.ts's
+# whole-repo sweep, which asserts an exact marker-exemption cap. Files
+# appearing and vanishing mid-run under a test that counts lines across the
+# tree is a flake generator; that test now skips this directory too.
+apps/web/.tanstack/
 apps/web/playwright-report/
 
 
