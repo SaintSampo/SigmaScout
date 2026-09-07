@@ -12,8 +12,18 @@
  * tracks the algorithms' own season registry rather than being an arbitrary
  * hole.
  *
- * The corpus (and this site) covers seven seasons: 2019, 2020, 2022, 2023,
- * 2024, 2025, 2026. **2021 is a PERMANENT exclusion, not a deferral or a gap
+ * The corpus (and this site) covers TEN seasons: 2016, 2017, 2018, 2019,
+ * 2020, 2022, 2023, 2024, 2025, 2026 — widened from seven by quick task
+ * 260907-203 (2026-09-07), which ingested 2016/2017, registered 2016/2017/2018
+ * in every algorithm registry, and published all ten seasons to R2 under
+ * `vpr@10.0.0+rolling-2026-09e`. `FIRST_SEASON` moved 2019 -> 2016 ONLY AFTER
+ * that publish landed and was verified by reading `v1/compare/2016.json`,
+ * `v1/events/2016/...` and `v1/districts/2016.json` back from the live origin
+ * — publish-then-reveal, in that order. The 2019/2020 rollout once shipped a
+ * year dropdown ahead of its artifacts and every page 404'd; that ordering is
+ * the standing rule, not a one-off precaution.
+ *
+ * **2021 is a PERMANENT exclusion, not a deferral or a gap
  * awaiting backfill.** 2021 was the at-home/remote season with no
  * conventional 3v3 alliance matches, so there is nothing for a match
  * predictor to ingest or score — recorded user decision, 2026-09-03
@@ -28,7 +38,7 @@
  */
 
 /** The oldest season this site's pages can render — the corpus's earliest ingested season (PROJECT.md). */
-export const FIRST_SEASON = 2019;
+export const FIRST_SEASON = 2016;
 
 /** The newest season this site's pages can render — the 2026 season is complete (PROJECT.md, "The 2026 season is complete"). */
 export const CURRENT_SEASON = 2026;

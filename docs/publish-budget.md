@@ -1443,46 +1443,46 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-06T23:39:04.646Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2019,2020,2022-2026 --include-offseason -- generation 7a2e4e5b-f335-4e2b-9ef5-340d36576b66, 75,796 objects, 2,938,526,798 bytes total. The 2026-09-06 re-tune republish: SIGMA1_CODE_VERSION 9.0.0 -> 10.0.0 (two new alliance-sum attribution parameters, both provably inert at their defaults) and vpr 9.0.0+rolling-2026-09c -> 10.0.0+rolling-2026-09d, in which origin 2022 was the only one of five to clear Rule A and every other season carried forward unchanged. opr 4.0.0+baseline and epa 5.0.0+baseline did not move. The +252 objects over the prior run are the 216 NEW presim pre-schedule sidecars (quick task 260905-tll, generated for the first time here) plus 36 new 2026 events entering the corpus; presim is deliberately NOT a PageKind and so has no row in this block. Every page kind's median and max moved UP modestly because 2022's promoted parameter set changed and 2026 gained events: team max 376,339 -> 376,837 B is the closest any kind sits to its ceiling at 94.2% of 400,000. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
+  "measuredAt": "2026-09-07T18:47:00.000Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason -- generation 969314df-b37b-4b9b-b993-d6528471b471, 108,805 objects, 4,235,107,744 bytes total. The 2026-09-07 BACKWARD CORPUS EXTENSION republish (quick task 260907-203): seasons 2016, 2017 and 2018 entered the corpus and are published for the first time, taking the covered range from seven seasons (2019,2020,2022-2026) to ten (2016-2020,2022-2026). This is NOT a re-tune. vpr moved 10.0.0+rolling-2026-09d -> 10.0.0+rolling-2026-09e, a COVERAGE-ONLY promotion: every 2019-2026 season's params object is bitwise identical to 09d's (verified by hashing each season's params in both files), and 09e merely adds entries for 2016/2017/2018 carrying the same tuned-2026-08-derived set (selectedOnSeasons [2022,2023,2024]) that 2019, 2020, 2023 and 2024 already run. SIGMA1_CODE_VERSION is unchanged at 10.0.0; opr 4.0.0+baseline and epa 5.0.0+baseline did not move. Object count rose 75,796 -> 108,805 (+33,009) and bytes 2.94 GB -> 4.24 GB, both almost entirely the three new seasons' team and event pages (team 70,383 -> 101,400; event 5,364 -> 7,335). TWO ROWS MOVED MATERIALLY AND BOTH ARE THE NEW SEASONS' DOING: event max 178,103 -> 260,531 B, because the largest event page is now v1/event/2016micmp (the 2016 Michigan state championship) rather than 2024gal \u2014 that is a jump from 50.9% to 74.4% of the 350,000 ceiling, the single largest headroom loss in this block's history, and it is a NEW KIND of large page (a very large early-era district championship) rather than growth in an existing one. teams median rose 1,093,398 -> 1,241,033 B because the per-season teams index now spans ten seasons. team max 377,306 B remains the closest any kind sits to its ceiling at 94.3% of 400,000 (up from 94.2%). NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes. presim (216 sidecars, 2026 only) is deliberately NOT a PageKind and so has no row here.",
   "pages": {
     "teams": {
-      "count": 21,
-      "medianBytes": 1093398,
-      "p95Bytes": 1630128,
-      "maxBytes": 1652006,
+      "count": 30,
+      "medianBytes": 1241033,
+      "p95Bytes": 1631373,
+      "maxBytes": 1653494,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/vpr@10.0.0+rolling-2026-09d.json"
+      "largestKey": "v1/teams/2026/vpr@10.0.0+rolling-2026-09e.json"
     },
     "team": {
-      "count": 70383,
-      "medianBytes": 29963,
-      "p95Bytes": 92212,
-      "maxBytes": 376837,
+      "count": 101400,
+      "medianBytes": 29832,
+      "p95Bytes": 93255,
+      "maxBytes": 377306,
       "budgetMaxBytes": 400000,
-      "largestKey": "v1/team/frc3538/2024/vpr@10.0.0+rolling-2026-09d.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@10.0.0+rolling-2026-09e.json"
     },
     "events": {
-      "count": 21,
-      "medianBytes": 73775,
+      "count": 30,
+      "medianBytes": 68683,
       "p95Bytes": 84108,
       "maxBytes": 84117,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@10.0.0+rolling-2026-09d.json"
+      "largestKey": "v1/events/2025/vpr@10.0.0+rolling-2026-09e.json"
     },
     "event": {
-      "count": 5364,
-      "medianBytes": 52789,
-      "p95Bytes": 106043,
-      "maxBytes": 178103,
+      "count": 7335,
+      "medianBytes": 55489,
+      "p95Bytes": 110865,
+      "maxBytes": 260531,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2024gal/vpr@10.0.0+rolling-2026-09d.json"
+      "largestKey": "v1/event/2016micmp/vpr@10.0.0+rolling-2026-09e.json"
     },
     "compare": {
-      "count": 7,
-      "medianBytes": 13934,
-      "p95Bytes": 14005,
-      "maxBytes": 14005,
+      "count": 10,
+      "medianBytes": 13594,
+      "p95Bytes": 14015,
+      "maxBytes": 14015,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
