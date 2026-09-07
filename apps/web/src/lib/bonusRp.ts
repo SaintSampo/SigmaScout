@@ -27,12 +27,24 @@ export interface BonusRp {
 }
 
 /**
- * 2019 carries two bonus RP; 2020 carries one (Shield Energized is not
+ * 2018 and 2019 carry two bonus RP; 2020 carries one (Shield Energized is not
  * modelled — see `rp/2020.ts` — so it has no entry here); 2022–2024 carry
  * two; 2025 and 2026 carry three. The dot count per alliance is therefore
  * season-dependent, never a fixed number.
+ *
+ * This table must stay in lockstep with core's `RP_RULE_MODULES` — keys AND
+ * order — which `bonusRp.test.ts` asserts season by season. It is therefore
+ * NOT part of "surfacing a season on the website" (season list, districts,
+ * publishing); it is the mechanical other half of registering a season's RP
+ * rule module, and belongs in the SAME change. Quick task 260907-057 split it
+ * out and left `main` red until this entry landed; the 2019/2020 precedent
+ * (`ad70f6ef`) had already got this right by patching both together.
  */
 export const BONUS_RP_BY_SEASON: Readonly<Record<number, readonly BonusRp[]>> = {
+  2018: [
+    { key: "autoQuest", letter: "A", label: "Auto Quest" },
+    { key: "faceTheBoss", letter: "B", label: "Face the Boss" },
+  ],
   2019: [
     { key: "habDocking", letter: "H", label: "HAB Docking" },
     { key: "completeRocket", letter: "R", label: "Complete Rocket" },
