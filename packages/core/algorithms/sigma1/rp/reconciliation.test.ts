@@ -354,6 +354,7 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
   }
 
   const CHECKS: readonly BoundaryCheck[] = [
+    { season: 2018, bonus: "faceTheBoss", variable: "endgamePoints", threshold: { base: 90, districtChampionship: 90, championship: 90 } },
     { season: 2019, bonus: "habDocking", variable: "habClimbPoints", threshold: { base: 15, districtChampionship: 15, championship: 15 } },
     { season: 2020, bonus: "shieldOperational", variable: "endgamePoints", threshold: { base: 65, districtChampionship: 65, championship: 65 } },
     { season: 2022, bonus: "hangarBonus", variable: "endgamePoints", threshold: { base: 16, districtChampionship: 16, championship: 16 } },
