@@ -3,8 +3,9 @@
  * season is a new entry in `RP_RULE_MODULES` below and a new `{year}.ts`
  * file — never a branch here, the identical discipline
  * `breakdown/index.ts`'s file header documents for the score-component
- * dispatch table. Extending back to 2016 (D-19, deferred) is data entry:
- * a new import plus a new record entry.
+ * dispatch table. The back-extension to 2017 and 2016 (D-19) landed on
+ * 2026-09-07 as exactly that data entry — a new import plus a new record
+ * entry each, no branch — so 2016 is no longer deferred.
  *
  * Shared types/constants (`RpRuleModule`, `RpParsedResult`,
  * `RpThresholdVariable`, `RpTieredThreshold`, `EventTier`,
@@ -33,6 +34,7 @@ import type { RpRuleModule } from "./constants.js";
 
 // Registered seasons (D-19: adding one is data entry — a new import plus a
 // new record entry — never a branch in this dispatch function).
+import { rp2016 } from "./2016.js";
 import { rp2017 } from "./2017.js";
 import { rp2018 } from "./2018.js";
 import { rp2019 } from "./2019.js";
@@ -44,6 +46,7 @@ import { rp2025 } from "./2025.js";
 import { rp2026 } from "./2026.js";
 
 export const RP_RULE_MODULES: Readonly<Record<number, RpRuleModule>> = {
+  2016: rp2016,
   2017: rp2017,
   2018: rp2018,
   2019: rp2019,

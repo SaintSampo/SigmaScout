@@ -137,6 +137,26 @@ interface Tolerance {
 }
 
 const KNOWN_TOLERANCES: readonly Tolerance[] = [
+  // 2016 Capture Bonus: exactly ONE false positive in 22,158 sides, and
+  // ZERO false negatives at every tier. The single exception is
+  // `2016melew_qm24` red — the attacked tower is at strength -2 and all
+  // three robots are up, so the shipped rule fires, but TBA records
+  // not-captured. Measured per event_type, 2026-09-07: 0/8,732 (type 0),
+  // **1/9,590 = 0.01043% (type 1)**, 0/1,804 (type 2), 0/2,000 (type 3),
+  // 0/32 (type 100); 2016 has no event_type 5 at all.
+  //
+  // `eventTypes` lists ONLY type 1 deliberately. Every other tier measured
+  // EXACTLY 0, and each stays bound to 0 by the ABSENCE of an entry —
+  // `toleranceFor` returns undefined there and any mismatch fails outright.
+  // Listing the usual [0, 1, 2, 3, 5, 100] would silently license a
+  // regression at five tiers that are currently perfect.
+  //
+  // The summed-RP assertion inherits this rate automatically via
+  // `summedRpToleranceFor` below; the measured summed-RP mismatch at
+  // event_type 1 is the same single row (1/9,590 = 0.0001043), comfortably
+  // inside it. 2016 `breach` gets NO entry (0 FP / 0 FN at every tier), and
+  // 2017 gets no entry at all.
+  { season: 2016, bonus: "capture", eventTypes: [1], rate: 0.0005 },
   // 2022 Cargo Bonus: measured ~0.29% at event_type 0, ~0.28% at event_type
   // 1, 0% at every higher tier (Pitfall 5). Affected event keys sampled
   // this session: 2022txwac, 2022azfl, 2022scan, 2022gacol, 2022mibel,
@@ -437,10 +457,11 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
  * stopped populating a season's elimination RP (turning explicit zeros into
  * nulls) still fails loudly rather than passing under a `?? 0` coalesce.
  *
- * 2016 is listed from the same measurement even though `rp/2016.ts` is not
- * yet registered — this table iterates `RP_REGISTERED_SEASONS`, so the 2016
- * entry is inert until that registration lands, and is a recorded
- * measurement rather than an anticipation.
+ * The 2016 entry was recorded from the measurement above BEFORE
+ * `rp/2016.ts` existed, and was inert until then because this table
+ * iterates `RP_REGISTERED_SEASONS`. That registration landed on 2026-09-07
+ * (quick task 260907-203), so the 2016 row is now LIVE and asserted against
+ * all 2,223 played 2016 elimination sides on every run.
  *
  * Note this is an ELIMINATION-only artifact: the QUALIFICATION populations
  * both seasons feed into the reconciliations above carry no nulls at all

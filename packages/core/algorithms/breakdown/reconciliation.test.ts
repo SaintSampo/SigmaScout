@@ -89,7 +89,40 @@ interface BreakdownTolerance {
  * (0.6923%) and the sampled-window rate (0.400%/0.300%), and is no more
  * than 1.5x either.
  */
-const KNOWN_BREAKDOWN_TOLERANCES: readonly BreakdownTolerance[] = [{ season: 2018, rate: 0.008, maxAbsGap: 2, direction: "positive" }];
+const KNOWN_BREAKDOWN_TOLERANCES: readonly BreakdownTolerance[] = [
+  // 2016: TBA's own roll-up-identity residual, measured over the FULL
+  // official non-offseason population, ALL comp levels — 3 / 26,604 sides
+  // (0.01128%), magnitude 25 on every one, and ALL THREE are ELIMINATION
+  // matches: `2016capl_f1m1` (+25), `2016milsu_qf4m1` (+25),
+  // `2016mndu2_f1m2` (-25). Proven to be TBA's arithmetic, not a
+  // component-map defect, the same three ways 2018's entry below is (see
+  // `2016.ts`'s file header): our auto half reconciles 0/3 against TBA's own
+  // `autoPoints`; our teleop half reconciles 0/3 against TBA's own
+  // `teleopPoints`; and all 3 of 3 also fail TBA's OWN
+  // `totalPoints == autoPoints + teleopPoints + foulPoints + adjustPoints`
+  // identity with the exact OPPOSITE-signed gap.
+  //
+  // Exactly ONE of the three (`2016capl_f1m1`, BLUE side, +25) falls inside
+  // this suite's `SAMPLE_SIZE=2000` `match_key`-ordered window, which is
+  // playoff-inclusive: measured red 0/2000 (0.000%) and blue 1/2000
+  // (0.0005). `rate: 0.001` is exactly 2x that binding sampled-window rate —
+  // the smallest round margin that does not sit ON the boundary of the
+  // single observed exception, so a one-row shift in the window cannot flip
+  // this suite red for a reason unrelated to the component map — and ~8.9x
+  // the full-population rate of 0.0001128. `maxAbsGap: 25` is the exact
+  // observed magnitude, so any LARGER gap still fails regardless of rate.
+  //
+  // `direction` is deliberately OMITTED. The three observed signs are MIXED
+  // (+25, +25, -25) and only the positive one is in today's window, so
+  // recording `direction: "positive"` from the window alone would encode a
+  // sampling artifact as a fact — precisely what the field's own doc comment
+  // above forbids. MUST NEVER be widened to cover a component-map error.
+  //
+  // 2017 gets NO entry: 0 exceptions / 30,880 sides over the same full
+  // all-comp-level population, so its absence here is a measured result.
+  { season: 2016, rate: 0.001, maxAbsGap: 25 },
+  { season: 2018, rate: 0.008, maxAbsGap: 2, direction: "positive" },
+];
 
 function breakdownToleranceFor(season: number): BreakdownTolerance | undefined {
   return KNOWN_BREAKDOWN_TOLERANCES.find((t) => t.season === season);
