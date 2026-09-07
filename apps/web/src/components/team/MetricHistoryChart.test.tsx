@@ -158,6 +158,66 @@ describe("MetricHistoryChart", () => {
     expect(extremeWidth).toBeGreaterThan(60);
   });
 
+  /**
+   * 2026-09-07 (user request): the Y axis always includes metric = 0, so the
+   * reader measures a trajectory against zero rather than against whichever
+   * value this team happened to bottom out at. Asserted through the RENDERED
+   * tick labels rather than by reaching into the component's internals —
+   * the domain is not otherwise observable from the DOM, and a test that
+   * reproduced the clamp arithmetic would pass against a broken component.
+   */
+  function tickValues(container: HTMLElement): number[] {
+    return Array.from(container.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value"))
+      .map((tick) => Number(tick.textContent))
+      .filter((value) => Number.isFinite(value));
+  }
+
+  it("Y axis includes zero for an all-positive series — the baseline is 0, not the data minimum", () => {
+    // Values nowhere near zero: pre-change the domain floor was 114 (the
+    // lowest band edge), so 0 was nowhere on the axis.
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 118, spread: 4 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 124, spread: 5 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const ticks = tickValues(container);
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(Math.min(...ticks)).toBe(0);
+    // The top still clears the data for the event-band label strip.
+    expect(Math.max(...ticks)).toBeGreaterThanOrEqual(129);
+  });
+
+  it("Y axis includes zero for an all-NEGATIVE series — there 0 is the CEILING, not the floor", () => {
+    // The clamp is two-sided: VPR/OPR totals go genuinely negative, and a
+    // one-sided Math.min(0, ...) would leave this series' axis topping out
+    // below zero.
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -80, spread: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: -40, spread: 5 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const ticks = tickValues(container);
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(Math.max(...ticks)).toBe(0);
+    expect(Math.min(...ticks)).toBeLessThanOrEqual(-85);
+  });
+
+  it("a flat all-positive series still spans zero rather than collapsing to a hairline", () => {
+    // Zero-range data took the `headroom = 1` branch, which pre-change gave
+    // the degenerate domain [100, 101].
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 100 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const ticks = tickValues(container);
+    expect(Math.min(...ticks)).toBe(0);
+    expect(Math.max(...ticks)).toBeGreaterThanOrEqual(100);
+  });
+
   it("plots only the Total metric — never a component key — for a mixed metrics payload", () => {
     const rows: MetricHistoryRow[] = [
       { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "vpr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 200, spread: 8 }, autoPoints: { value: 20, spread: 2 } } },

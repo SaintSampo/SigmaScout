@@ -186,19 +186,43 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
   // domain never collapses.
   let yDomain: [number, number] | undefined;
   if (yAxisDomainValues.length > 0) {
-    const yMin = Math.min(...yAxisDomainValues);
-    const yMax = Math.max(...yAxisDomainValues);
-    const headroom = yMax > yMin ? (yMax - yMin) * 0.12 : 1;
-    const yMaxExtended = yMax + headroom;
-    yDomain = [yMin, yMaxExtended];
+    const dataMin = Math.min(...yAxisDomainValues);
+    const dataMax = Math.max(...yAxisDomainValues);
+    const headroom = dataMax > dataMin ? (dataMax - dataMin) * 0.12 : 1;
+    // 2026-09-07 (user request): the axis ALWAYS includes metric = 0, so the
+    // baseline the reader measures against is zero rather than whichever
+    // value this team happened to bottom out at. A truncated axis exaggerates
+    // differences — a team drifting 118 -> 124 fills the plot exactly like one
+    // climbing 0 -> 124 when the domain starts at the data minimum, and the
+    // reader has no way to tell those apart without reading tick labels. This
+    // chart's whole job is showing a metric's TRAJECTORY, which is a
+    // magnitude claim, so the zero baseline is load-bearing rather than
+    // decorative.
+    //
+    // Clamped on BOTH ends, not just the floor: VPR/OPR totals go genuinely
+    // negative (see the G-13 tests' -1354.13 case), and for an all-negative
+    // team zero is the CEILING. `Math.min`/`Math.max` against 0 covers all
+    // three shapes — all-positive, all-negative, and straddling — without a
+    // sign branch.
+    //
+    // Headroom is still computed from the DATA range, not the zero-extended
+    // range, because it exists to keep the event-band label strip clear of
+    // the plotted line: extending the floor to 0 moves no data toward the top
+    // of the plot, so scaling headroom by the widened range would reserve
+    // space proportional to a distance the marks never travel.
+    const yMaxExtended = Math.max(0, dataMax + headroom);
+    const yMinExtended = Math.min(0, dataMin);
+    yDomain = [yMinExtended, yMaxExtended];
     // WR-08 (260902-post-phase08-ungoverned-ui/REVIEW.md): the width above
     // was measured against the RAW domain values, but the headroom just
     // extended the RENDERED domain past every one of them — so a headroom
     // extension crossing a digit boundary (e.g. 98 -> 109.76) could produce
     // a top tick label wider than the width reserved for it. Recompute the
-    // width from the values plus this extended upper bound, so the space
-    // reserved matches the domain the axis actually renders.
-    yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended]);
+    // width from the values plus BOTH extended bounds, so the space reserved
+    // matches the domain the axis actually renders (chart-craft.md's "derive
+    // coupled geometry" rule — the domain and the width must never be two
+    // independently maintained numbers).
+    yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended, yMinExtended]);
   }
 
   return (
