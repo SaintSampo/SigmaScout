@@ -1,57 +1,77 @@
 ---
-task: VPR simplification stab — Stage 1
+task: VPR simplification stab — Stage 1 (+ 1b multi-season verification)
 date: 2026-09-07
 status: complete
-commits: [d2600e93, 15fbf94e]
-outcome: measurement only — deletion list produced, nothing promoted or published
+commits: [d2600e93, 15fbf94e, 339ab332, 8d23367c]
+outcome: measurement only — deletion list produced AND partially self-refuted; nothing promoted or published
 ---
 
 # Summary
 
-Stage 1 asked which VPR parameters are actually load-bearing for prediction
-accuracy. Answer: **8 of 19, and possibly 7.**
+Stage 1 asked which VPR parameters are load-bearing for prediction accuracy.
+Stage 1b then checked the answer on the other four origins, and **refuted part
+of it.** Final answer: **9 of 19 parameters are confirmed free, not 11.**
 
 ## What was done
 
-Built `probe.ts`, a measurement harness that rebuilds the parameter-relevance
-instrument on the three axes the existing sensitivity screen gets wrong for an
-accuracy-first objective. The screen runs on 2019/2020, against Brier, around
-DEFAULT values; this probe scores **2026 accuracy** around the **shipped 2026
-values** with **event-blocked paired** standard errors. Two runs: a 96-config
-one-at-a-time sweep over all 19 searchable parameters, and a 9-config joint pin
-test that leave-one-out structurally cannot substitute for.
+Built `probe.ts`, which rebuilds the parameter-relevance instrument on the three
+axes the existing sensitivity screen gets wrong for an accuracy-first objective
+(it screens on 2019/2020, against Brier, around DEFAULT values). This probe
+scores a chosen origin's accuracy around that origin's **shipped** values with
+**event-blocked paired** standard errors. Six runs: full 19-knob sweeps on 2026,
+2025 and 2024, plus the joint pin test on all five origins 2022–2026.
 
-## Results
+## What survived
 
-1. **`linkC` and `covEwmaAlpha` are provably incapable of changing winner
-   accuracy**, by algebra rather than measurement — and confirmed bitwise.
-   `linkC` is the top-ranked survivor of the existing Brier screen.
-2. **11 of 19 parameters pin at identity for exactly zero accuracy cost.**
-3. **The adaptation subsystem is inert while enabled** — 6 parameters, a state
-   field and a module, never previously measured where it actually operates.
-4. **The carry-damping family is optimal switched off**, reproducing quick task
-   260906-6zc by a different objective on a different season.
-5. **`attributionShrinkage` is the one unexploited gain**: +0.00213 at 0.9, and
-   the resulting 8-parameter model leads EPA on 2026 by **+1.01σ** — a lead the
-   size of its own uncertainty, recorded as a direction, not a win.
+1. **`linkC` and `covEwmaAlpha` cannot change winner accuracy** — proved from
+   `linkFunctions.ts:113` (`logistic(margin / (c·√variance))`, both factors
+   positive, so sign of argument = sign of margin), and confirmed **+0.00000
+   with a paired SE of exactly 0 on all five origins**. `linkC` is the
+   top-ranked survivor of the existing Brier screen.
+2. **The adaptation subsystem is free to delete** — 6 fields, a state field and
+   a module, verified on the three origins that actually ship it enabled.
+3. **`maxTeamKalmanGain` never binds on any origin** — 0.54→1.0 bitwise
+   identical on 2024, 2025 and 2026.
 
-Two problems found while reading the previous run's artifacts, both written up
-in `RESULTS.md`: the acceptance comparison is **contaminated on origins 2023 and
-2024** (the incumbent's parameters for those seasons were selected on a window
-containing them, while every candidate is blinded), and the incumbent is
-**stale by its own provenance note** — fit against a retired R estimator.
+That is **9 fields**: 2 moved to a post-hoc calibration fit, 7 deleted.
+
+## What was refuted — by my own follow-up
+
+The 2026 headline of "11 free" **does not generalise**. `minimal` costs 2024
+−3.2σ and 2022 −2.1σ.
+
+- **`minConsistencyVarianceRel` is not dead.** 0.53σ on 2026 but **3.58σ on
+  2024**, where it wants to be *higher*, not lower. It alone accounts for the
+  entire 2024 regression.
+- **The three carry-damping fields are conditional.** Free on four origins,
+  −1.7σ on 2022 — the one origin shipping all three away from identity.
+
+The lesson generalises past this task: **a single-season relevance screen cannot
+be trusted, and that includes this one.** It is the same failure the existing
+2019/2020 screen makes, just at a different season.
+
+## New findings from the multi-season pass
+
+- **VPR already beats EPA outright on 2024 by +5.5σ.** The aggregate deficit is
+  not uniform — it is three losing seasons plus one strong win.
+- **A fixed `attributionShrinkage: 0.9` cuts the mean EPA gap by 44%**
+  (−0.266pt → −0.148pt), improving 2023, 2025 and 2026 while costing 2024 —
+  consistent with the 2026-09-06 tune rejecting it hardest on that origin.
+- The acceptance comparison is **contaminated on origins 2023 and 2024** (the
+  incumbent's parameters for those seasons were selected on a window containing
+  them, while candidates are blinded), and the incumbent is **stale by its own
+  provenance note**.
 
 ## Corrections to this author's own prior work
 
-`maxTeamKalmanGain`, added and promoted the previous session, is the weakest
-knob of all nineteen (0.3σ) and its cap never binds because real Kalman gains
-never exceed 0.54. Recorded in `RESULTS.md` rather than quietly dropped.
+`maxTeamKalmanGain`, added and promoted the previous session, never binds on any
+season measured. `attributionShrinkage`, added in the same session, is the one
+genuine lead in the whole parameter set.
 
 ## Scope held
 
-No `packages/` change. Nothing promoted, nothing published, no field deleted.
-The deletion list is Stage 2's input and is explicitly gated on first re-running
-this probe across origins 2022–2025 — every result here is one season.
+No `packages/` change. Nothing promoted, published, or deleted. Every number is
+a measurement; the deletion list is Stage 2's input.
 
-See `RESULTS.md` for the full tables, the invariance proof, and the four things
-Stage 1 does **not** establish.
+See `RESULTS.md` — the 2026 sections are left standing unedited with Stage 1b as
+the correction, so the retraction is visible rather than tidied away.

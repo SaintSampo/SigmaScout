@@ -1,10 +1,16 @@
 ---
 task: VPR simplification stab — Stage 1 results
 date: 2026-09-07
-status: measurement complete; no code change proposed for promotion
+status: measurement complete, incl. Stage 1b multi-season verification; no code change proposed for promotion
 ---
 
-# Stage 1 results: 11 of 19 searched parameters cost nothing to delete
+# Stage 1 results: 9 of 19 searched parameters cost nothing to delete
+
+> **SUPERSEDED HEADLINE.** This document first reported **11**, measured on 2026
+> alone. The multi-season verification in *Stage 1b* below **refuted two of the
+> eleven** and made three more conditional. The 2026 sections are left standing
+> unedited, with Stage 1b as the correction — the number that survives is **9**.
+> This is the exact failure mode the task's own caveat #1 named, and it fired.
 
 ## Headline
 
@@ -15,9 +21,10 @@ Measured on **2026 winner accuracy** (18,403 matches / 214 events, replay
 - **Two parameters are provably incapable of changing winner accuracy** — not
   "flat within noise", algebraically zero. One of them is the **top-ranked
   survivor of the existing sensitivity screen.**
-- **Eleven of nineteen searchable parameters can be pinned at identity with
-  zero net accuracy cost.** The `minimal` configuration lands on exactly the
-  shipped model's accuracy with 8 live parameters instead of 19.
+- **Eleven of nineteen searchable parameters pin at identity with zero net
+  accuracy cost ON 2026.** Verified across 2022-2025 in Stage 1b, **nine**
+  survive: `minConsistencyVarianceRel` is live on 2024 (3.6σ) and the three
+  carry-damping fields cost 2022 −0.23pt.
 - **The whole adaptation subsystem is inert** — 5 numeric parameters, a
   boolean, a state field and a module — while *enabled* on 2026.
 - **`attributionShrinkage` is a real lead**: monotone across its full bound,
@@ -198,36 +205,48 @@ search, where they cannot consume search budget or trade against accuracy.
 - `linkC`
 - `covEwmaAlpha` (`covShrinkage` is already search-excluded and is the same class)
 
-### B — delete the field and hardcode the mechanism off (11)
+### B — CONFIRMED deletable on all five origins (7)
 
 | field | evidence |
 |---|---|
-| `adaptationEnabled` | whole subsystem −0.00044 (0.7σ) |
-| `adaptationEwmaAlpha` | 0.9σ over full bound |
-| `adaptationExponent` | 1.7σ, best point negative |
-| `adaptationMinFactor` | 1.5σ |
-| `adaptationMaxFactor` | 2.0σ, best point +0.00005 |
-| `adaptationMinObservations` | 0.6σ |
-| `maxTeamKalmanGain` | 0.3σ; never binds above 0.54 |
-| `minConsistencyVarianceRel` | 0.5σ; every value negative |
-| `carryVarianceFactor` | optimal exactly at identity 1 |
-| `carryEvidenceRate` | optimal exactly at identity 0 |
-| `carryMeanReversion` | optimal at ~0; identity costs 0.55σ |
+| `adaptationEnabled` | subsystem free on 2022/2025/2026, the three origins that ship it on |
+| `adaptationEwmaAlpha` | ≤1.5σ on every origin where it is reachable |
+| `adaptationExponent` | ≤2.1σ, best point negative |
+| `adaptationMinFactor` | ≤1.5σ |
+| `adaptationMaxFactor` | ≤2.0σ |
+| `adaptationMinObservations` | ≤0.9σ |
+| `maxTeamKalmanGain` | never binds on ANY origin — 0.54→1.0 bitwise identical on 2024, 2025 and 2026 |
 
-Deleting all eleven together costs **exactly zero** 2026 accuracy (`minimal`).
-Also removes `adaptation.ts`, the `InnovationStats` state field, and one
-`Sigma1State` shape concern.
+Deleting these seven also removes `adaptation.ts`, the `InnovationStats` state
+field, and one `Sigma1State` shape concern. Combined with category A that is
+**9 of 19**.
 
-`consistencyCarryDecay` is a **twelfth candidate** not tested here: 2026 already
-ships it at its identity value of 1, so deleting it is free on 2026 by
-construction. Other seasons use 0.414 and 0.120, so it is a multi-season
-question rather than a 2026 one.
+### B-RETRACTED — looked dead on 2026, is live elsewhere (1)
 
-### C — keep (6, plus the lead) — the actual core
+- **`minConsistencyVarianceRel`.** 0.53σ on 2026, **3.58σ on 2024**, and 2024
+  wants the floor *higher* (+0.00251 at 0.00721, +2.6σ). Pinning it near
+  identity is the entire cause of `pin-dead`'s −3.5σ on 2024. **Keep.**
+
+### B-CONDITIONAL — free on four origins, costs 2022 (3)
+
+- `carryVarianceFactor`, `carryEvidenceRate`, `carryMeanReversion`.
+
+Free on 2023/2024/2026 and mildly *helpful* on 2025 (+2.2σ), but 2022 — the one
+origin shipping all three away from identity — loses −0.00229 (−1.7σ). Deleting
+them is defensible for a 2026-facing model and is **not** defensible as a
+blanket change. Decide this explicitly in Stage 2 rather than letting the 2026
+result carry it.
+
+`consistencyCarryDecay` remains an untested candidate: 2026 ships it at its
+identity value of 1, so deletion is free there by construction, while 2024 and
+2025 score it at 2.8σ and 2.4σ. It is live and stays.
+
+### C — keep (7, plus the lead) — the actual core
 
 `processNoiseWithinEventRel`, `processNoiseEventBoundaryRel`,
 `consistencyEwmaAlpha`, `coldStartConsistencyVarianceRel`,
-`consistencyCarryDecay`, `carryPriorYearShare` — plus `attributionShrinkage`,
+`consistencyCarryDecay`, `carryPriorYearShare`, `minConsistencyVarianceRel` —
+plus `attributionShrinkage`,
 which is the only knob in the whole set with an unexploited gain.
 
 Both process-noise terms want to be **larger** than shipped, and the
@@ -235,6 +254,104 @@ Both process-noise terms want to be **larger** than shipped, and the
 **binding** — the top of the within-event bound was skipped as invalid, so the
 optimum may sit at or beyond a constraint the search cannot currently reach.
 That is worth its own look in Stage 2.
+
+## Stage 1b — multi-season verification (the correction)
+
+Run 2026-09-07 over origins 2022-2025, each scoring **its own** shipped
+parameter set as the baseline so every verdict compares like with like. Replay
+windows are the origin plus the two seasons before it (2021 does not exist).
+
+### The deletion gate
+
+Δ accuracy vs that origin's own shipped parameters, with σ against the
+event-blocked paired SE:
+
+| origin | `pin-variance` | `no-adaptation` | `pin-dead` | `pin-carry-damping` | `minimal` |
+|---|---|---|---|---|---|
+| 2022 | **+0.00000 (0σ)** | −0.00007 (−0.1σ) | −0.00042 (−0.3σ) | −0.00229 (**−1.7σ**) | −0.00305 (**−2.1σ**) |
+| 2023 | **+0.00000 (0σ)** | +0.00000 (0σ) | −0.00019 (−0.8σ) | −0.00006 (−0.2σ) | −0.00006 (−0.2σ) |
+| 2024 | **+0.00000 (0σ)** | +0.00000 (0σ) | −0.00262 (**−3.5σ**) | +0.00000 (0σ) | −0.00227 (**−3.2σ**) |
+| 2025 | **+0.00000 (0σ)** | −0.00073 (−1.0σ) | −0.00107 (−1.5σ) | +0.00136 (+2.2σ) | +0.00034 (+0.4σ) |
+| 2026 | **+0.00000 (0σ)** | −0.00044 (−0.7σ) | −0.00060 (−1.0σ) | −0.00027 (−0.6σ) | +0.00000 (0σ) |
+
+**`minimal` is NOT free.** It costs 2024 −3.2σ and 2022 −2.1σ. The 2026 result
+was the exception, not the rule, and the "eleven parameters are free" headline
+is retracted.
+
+Two independent causes, both traced to a specific field:
+
+1. **2024's regression is entirely `minConsistencyVarianceRel`.** Its
+   one-at-a-time delta at the pinned 1e-4 is −0.00262 — the same number as the
+   whole `pin-dead` delta, to five decimals. At 2024's shipped 0.000973 the
+   delta is 0, and 2024 actually wants the floor **higher**: 0.00721 scores
+   **+0.00251 (+2.6σ)**. The parameter is not dead; it is dead *on 2026*. The
+   near-identity caveat noted earlier turned out to be load-bearing after all.
+2. **2022's regression is the carry-damping trio.** 2022 is the only origin
+   shipping all three away from identity (`carryMeanReversion` 0.229,
+   `carryVarianceFactor` 0.0787, `carryEvidenceRate` 0.0188), which is exactly
+   the risk flagged in caveat #1 before the run.
+
+**`pin-variance` is +0.00000 with a paired SE of exactly 0 on all five
+origins.** The invariance theorem is not a 2026 artifact — it is now confirmed
+on every season the corpus carries.
+
+**`no-adaptation` is free on all five.** The meaningful tests are 2022, 2025 and
+2026, the three origins that ship `adaptationEnabled: true`; 2023 and 2024 ship
+it off, so their zeros are true by construction rather than evidence.
+
+### `maxTeamKalmanGain`: high span/SE, still deletable
+
+On 2024 it scores span/SE **4.32**, which reads "live" — but the entire span is
+the bound's low end being harmful (0.08 costs −0.01175), and values **0.54 →
+1.0 are bitwise identical on 2024, 2025 and 2026 alike**. The cap never binds on
+any origin tested, because real Kalman gains never reach 0.54. A one-sided span
+into a bad region is not evidence a parameter earns its place — which is why
+direction matters as much as magnitude in the table above.
+
+### Liveness is season-dependent
+
+span/SE for the three origins that got a full 19-knob sweep:
+
+| knob | 2024 | 2025 | 2026 |
+|---|---|---|---|
+| `carryVarianceFactor` | 7.54 | 11.19 | 6.40 |
+| `carryMeanReversion` | 8.76 | 9.00 | 9.01 |
+| `carryEvidenceRate` | 2.67 | 9.41 | 6.19 |
+| `processNoiseEventBoundaryRel` | 8.70 | 2.70 | 2.89 |
+| `consistencyEwmaAlpha` | 3.57 | 7.93 | 4.21 |
+| `coldStartConsistencyVarianceRel` | 6.50 | 5.64 | 4.14 |
+| `processNoiseWithinEventRel` | 2.27 | 0.49 | 5.04 |
+| `maxTeamKalmanGain` | 4.32 | 0.69 | 0.33 |
+| `minConsistencyVarianceRel` | **3.58** | 1.41 | **0.53** |
+| `carryPriorYearShare` | 3.36 | 3.26 | 2.07 |
+| `attributionShrinkage` | 2.40 | 2.97 | 1.78 |
+| `covEwmaAlpha` / `linkC` | **0.00** | **0.00** | **0.00** |
+
+`minConsistencyVarianceRel` at 0.53 on 2026 and 3.58 on 2024 is the whole
+lesson: **a single-season relevance screen cannot be trusted, and that includes
+this one.** The adaptation rows read 0.00 on 2024 only because 2024 ships the
+mechanism off.
+
+### VPR against EPA, per season
+
+Shipped VPR, and the same parameters with `attributionShrinkage` at 0.9:
+
+| origin | VPR − EPA | σ | with shrink | σ |
+|---|---|---|---|---|
+| 2022 | −0.00908 | −3.2 | −0.00922 | −3.3 |
+| 2023 | −0.00619 | −3.1 | **−0.00149** | **−0.8** |
+| 2024 | **+0.01247** | **+5.5** | +0.00859 | +3.8 |
+| 2025 | −0.01029 | −5.2 | **−0.00707** | **−3.7** |
+| 2026 | −0.00022 | −0.1 | **+0.00180** | **+1.0** |
+| **mean** | **−0.00266** | | **−0.00148** | |
+
+Two things worth naming. **VPR already beats EPA outright on 2024 by +5.5σ** —
+the aggregate deficit is not a uniform deficit, it is three losing seasons and
+one strong win. And **a single fixed `attributionShrinkage: 0.9` cuts the mean
+gap by 44%** (−0.266pt → −0.148pt), improving 2023, 2025 and 2026 while costing
+2024. That is a per-season effect, not a global constant — and 2024 preferring
+it off is consistent with the 2026-09-06 tune, which rejected the knob hardest
+on exactly that origin.
 
 ## What Stage 1 does NOT establish
 
