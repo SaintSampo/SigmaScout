@@ -89,7 +89,11 @@ function table(title: string, groups: Array<[string, Rec[]]>): void {
 function main(): void {
   const paramsPath = process.argv[2] ?? "packages/bpr/frozen-params.json";
   const year = Number(process.argv[3] ?? "2023");
-  const weeks = new Set((process.argv[4] ?? "0,1").split(",").map((s) => Number(s.trim())));
+  // "champs" selects the championship, whose events carry week = null. Without
+  // it a "rest of season" slice would silently drop the biggest event of the year.
+  const weekArgs = (process.argv[4] ?? "0,1").split(",").map((s) => s.trim());
+  const wantChamps = weekArgs.includes("champs");
+  const weeks = new Set(weekArgs.filter((s) => s !== "champs").map((s) => Number(s)));
 
   const raw = JSON.parse(readFileSync(paramsPath, "utf8")) as { params?: BprParams };
   const params: BprParams = { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
@@ -112,7 +116,9 @@ function main(): void {
     const pred = model.predict(m.redTeams, m.blueTeams, m.year, isElim);
     const outcome = m.winner === "red" ? 1 : m.winner === "blue" ? 0 : 0.5;
 
-    if (m.year === year && m.week !== null && weeks.has(m.week)) {
+    const inSlice =
+      m.year === year && (m.week === null ? wantChamps : weeks.has(m.week));
+    if (inSlice) {
       events.add(m.eventKey);
       const teams = [...m.redTeams, ...m.blueTeams];
       let minExp = Number.POSITIVE_INFINITY;
@@ -162,10 +168,11 @@ function main(): void {
   );
   console.log("");
 
-  table(
-    "By week",
-    [...weeks].sort((a, b) => a - b).map((w) => [`week ${w}`, recs.filter((r) => r.week === w)]),
-  );
+  const weekGroups: Array<[string, typeof recs]> = [...weeks]
+    .sort((a, b) => a - b)
+    .map((w) => [`week ${w}`, recs.filter((r) => r.week === w)]);
+  if (wantChamps) weekGroups.push(["championship", recs.filter((r) => r.week === null)]);
+  table("By week", weekGroups);
 
   table("By competition level", [
     ["qualification", recs.filter((r) => r.compLevel === "qm")],
