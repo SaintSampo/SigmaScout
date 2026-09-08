@@ -1,0 +1,111 @@
+---
+id: match-band-calibration-and-the-broken-additivity-identity
+created: 2026-09-08
+source: measured against live 2026 artifacts (vpr@11.0.0+rolling-2026-09e) during quick task 260908-5wd, at the developer's request to put the match ± and the alliance band under a microscope
+resolves_phase:
+priority: medium
+---
+
+# The match band is decently calibrated; the identity the schema claims for it is not true
+
+Measurement only. Nothing was changed, and no fix is proposed here without a decision first.
+
+All figures below are 2026 official play (offseason excluded), `vpr@11.0.0+rolling-2026-09e`,
+read from the live published artifacts through the local `/v1` proxy.
+
+## Where the numbers on screen come from
+
+The match row's text `± N` and the plotted alliance band are the SAME source — both take
+`redScoreVarianceOwn`/`blueScoreVarianceOwn` and root it (`MatchTable.tsx:224/350`,
+`EventMatchTable.tsx:175/272`). They cannot disagree with each other, which is good and worth
+keeping.
+
+## Finding A — the sum-of-squares identity is FALSE, and the code already knew
+
+`pageArtifacts.ts`'s file header states, as one of two rules "enforced by `pageArtifacts.test.ts`
+rather than left to convention", that `redScoreVarianceOwn` **equals the sum of its three teams'
+`TeamMetric.spread` squares, by construction**. `uncertainty-display.md` leans on the same claim
+("the site becomes internally consistent by construction, not by discipline").
+
+Measured over **10,016 alliance observations** (ratio = `redScoreVarianceOwn` ÷ Σ team `spread²`):
+
+| statistic | value |
+|---|---|
+| mean | 0.927 |
+| median | **0.837** |
+| 5th percentile | 0.427 |
+| 95th percentile | 1.741 |
+| min / max | 0.186 / 5.676 |
+| **within 1% of 1.0** | **1.9%** |
+
+A 30× range is not a rounding artifact. `sigma1/index.ts:1598` already says so outright:
+
+> "THE ALLIANCE-ADDITIVITY IDENTITY IS STILL GONE, AND IT IS STILL A REAL COST. … The published
+> spread and `predict()`'s variance are different quantities and have been since 5.0.0."
+
+— and `sigma1.test.ts` pins the break as an INEQUALITY so the two paths cannot be re-coupled by
+accident. So the model is behaving as its authors intended; the **schema header and the skill
+doc are stale**, asserting a property that was deliberately removed three majors ago. That is
+exactly the "docs describe a model that no longer exists" failure this project's log names as its
+original sin, and it is currently load-bearing documentation.
+
+One honest confound, stated so nobody over-reads the table: published team `spread` is
+SEASON-FINAL while `redScoreVarianceOwn` is AS-OF-MATCH, so some dispersion is expected even had
+the constructions matched. It does not explain a median 16% low or a 0.19–5.68 range, and it does
+not explain `index.ts`'s own comment.
+
+## Finding B — the band is conservative, not broken
+
+**36,805 alliance observations across 216 events**, `z = (actual − predicted) / √varianceOwn`:
+
+| statistic | measured | Gaussian ±1σ would give |
+|---|---|---|
+| RMS z | **0.920** | 1.000 |
+| within ±1σ | **75.2%** | 68.3% |
+| within ±2σ | 96.3% | 95.4% |
+| within ±3σ | 99.5% | 99.7% |
+| max abs z | 6.66 | — |
+
+The band is roughly **8% too wide**: it is drawn as ±1σ but behaves like a ~75% interval. The
+shape is peakier than Gaussian in the middle with a slightly heavier tail (99.5% vs 99.7% at 3σ,
+one observation out at 6.7σ).
+
+**This is NOT sketch 003's failure recurring.** That one put actuals 7–10σ outside the band from a
+partial variance. This band errs the safe way. But "±1σ" implies 68% to a reader who knows the
+convention, and it delivers 75%.
+
+## Finding C — a systematic under-prediction, ~25σ significant
+
+Mean `z` = **+0.1197** over 36,805 observations (SE ≈ 0.0048, so ~25σ from zero — not noise).
+Alliances score about 0.12σ ABOVE prediction on average, which at a typical σ ≈ 95 is roughly
+**+11 points per alliance**.
+
+Most likely a filter lagging a target that improves across a season — teams get better, and a
+walk-forward estimate is always slightly behind. **Recorded as an observation, not a diagnosis**;
+nobody has tested that hypothesis. Worth checking whether the bias is concentrated early-season
+(consistent with lag) or flat across weeks (which would mean something else).
+
+## Finding D — the site again shows TWO different ± under one name
+
+D-01/D-02/D-03 rejected having two uncertainty quantities. It has two again:
+
+- **Team page ±** = Swing Factor, the robot's match-to-match swing (`swing.ts`; P deliberately
+  excluded, and as of quick task 260908-5wd this is intentional — it is a bonus stat about the
+  robot, not about the model's confidence).
+- **Match row ± and band** = full predictive variance (per-team P + R plus covariance totals).
+
+Team 254 / 2026 shows `± 55.71` on its tile and its matches carry roughly `± 95`. Both are printed
+as "±", neither is labelled, and they do not reconcile.
+
+Given 260908-5wd deliberately made the team-page number a swing statistic, the resolution is
+probably NOT to re-couple them but to stop claiming they are one quantity: correct the schema
+header and `uncertainty-display.md`, and give the two numbers distinguishable labels in the UI.
+That is a decision, so it is recorded rather than taken.
+
+## Suggested order if this is picked up
+
+1. Correct `pageArtifacts.ts`'s header and `uncertainty-display.md` — they are false TODAY and
+   cost nothing to fix.
+2. Decide the labelling question in Finding D.
+3. Decide whether the ~8% width and the +0.12σ centre are worth a calibration pass, or are
+   acceptable conservatism. Note a width fix and a bias fix are independent.
