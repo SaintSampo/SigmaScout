@@ -353,32 +353,102 @@ gap by 44%** (−0.266pt → −0.148pt), improving 2023, 2025 and 2026 while co
 it off is consistent with the 2026-09-06 tune, which rejected the knob hardest
 on exactly that origin.
 
+## Stage 1c — are the BOUNDS choosing the values? (hypothesis refuted)
+
+Two parameters measured their optimum exactly **at their declared maximum**:
+`attributionShrinkage` peaks at 0.9 on both 2025 and 2026, and
+`minConsistencyVarianceRel` peaks at 0.03 on 2025 (2022 *ships* at 0.03). If a
+parameter's optimum sits at its ceiling, then the registered search box — not
+the data — is choosing its value, and **every joint tune ever run was searching
+a space that excludes the answer.** That would have been a third independent
+reason the tuner underperforms, alongside the 67-evaluation budget and the
+contaminated incumbent.
+
+Tested past both ceilings on all five origins. Testing `attributionShrinkage`
+above 0.9 required a **working-tree-only** patch to its Zod `.max(0.9)`;
+that patch was reverted and `packages/` verified clean before this section was
+written. It was never committed.
+
+**Both hypotheses are refuted. The bounds are fine.**
+
+### `minConsistencyVarianceRel` — the ceiling is correct
+
+Δ accuracy vs each origin's own shipped value:
+
+| origin | 0.03 | 0.06 | 0.12 | 0.25 |
+|---|---|---|---|---|
+| 2022 | +0.00000 | −0.00076 | −0.00132 | −0.00409 (−2.9σ) |
+| 2023 | −0.00136 | −0.00446 | −0.00576 | −0.00756 (−3.8σ) |
+| 2024 | −0.00101 | −0.00149 | −0.00334 | −0.00483 (−2.4σ) |
+| 2025 | +0.00130 | +0.00023 | +0.00006 | −0.00051 |
+| 2026 | −0.00038 | −0.00148 | −0.00246 | −0.00301 (−2.0σ) |
+| **mean** | **−0.00029** | **−0.00159** | **−0.00256** | **−0.00400** |
+
+Monotone degradation on every origin. 2025's apparent "peak at the max" was the
+top of a plateau, not a truncated climb.
+
+### `attributionShrinkage` — a plateau, not a climb
+
+| origin | 0.9 | 0.95 | 0.98 | 1.0 |
+|---|---|---|---|---|
+| 2022 | −0.00014 | −0.00035 | −0.00021 | −0.00055 |
+| 2023 | +0.00471 | +0.00489 | **+0.00551** | +0.00527 |
+| 2024 | −0.00388 | −0.00364 | −0.00316 | −0.00322 |
+| 2025 | +0.00322 | +0.00367 | +0.00362 | **+0.00390** |
+| 2026 | **+0.00202** | +0.00191 | +0.00169 | +0.00153 |
+| **mean** | **+0.00119** | +0.00130 | **+0.00149** | +0.00139 |
+
+Widening the bound to 0.98 is worth **+0.0003 mean accuracy** — real but
+marginal, and it does not change any origin's sign. 2023 and 2025 prefer a
+little more than 0.9; 2026 prefers a little less. The 0.9 ceiling is adequate.
+
+### What this rules out, and what it argues for
+
+**Rules out:** "the search space excludes the optimum" is NOT an explanation for
+the tuner's underperformance. That leaves the two established causes — a
+67-evaluation budget in 14 dimensions, and an incumbent that is in-sample on
+2023/2024 and stale by its own provenance note.
+
+**Argues for:** from λ = 0.9 to λ = 1.0, accuracy moves by less than 0.0008 on
+every origin. Once the gain is shrunk most of the way toward uniform, **the
+exact amount stops mattering.** That is an argument for hardcoding near-uniform
+attribution rather than carrying `attributionShrinkage` as a tuned parameter —
+a further simplification, and the opposite of what this probe set out to find.
+
+The parameter's *real* structure is the per-season sign, not its magnitude:
+worth roughly +0.5pt on 2023, positive on 2025 and 2026, and −0.35pt on 2024 at
+every value in the top of the range.
+
 ## What Stage 1 does NOT establish
 
 Stated explicitly so none of the above gets over-read:
 
-1. **One season.** Everything here is 2026. Other seasons plainly use these
-   knobs differently — 2022's promoted set carries `carryMeanReversion` 0.229
-   and `attributionShrinkage` 0.844. A deletion that is free on 2026 is not yet
-   shown free on 2022–2025.
+1. ~~**One season.**~~ **RESOLVED by Stage 1b, and it FIRED:** verified on
+   2022–2025, and two of the eleven deletions did not survive. This caveat was
+   the correct one to worry about.
 2. **Not a re-tune.** `minimal+shrink` is the *shipped* values with pins
    applied, not an optimum for the reduced set. A properly re-tuned 8-parameter
    model should do better than +0.00213, not worse — but that is a prediction,
    not a measurement.
-3. **`attributionShrinkage: 0.9` sits at the bound edge.** The true optimum may
-   be beyond 0.9; the bound needs widening before anyone reads 0.9 as "the
-   answer."
+3. ~~**`attributionShrinkage: 0.9` sits at the bound edge.**~~ **RESOLVED by
+   Stage 1c:** tested to 1.0 on all five origins. It is a plateau, not a
+   truncated climb — widening the bound is worth +0.0003 mean accuracy and
+   changes no origin's sign.
 4. **Beating EPA on 2026 is one season at roughly 1σ.** It is not a claim that
    VPR beats EPA.
 
 ## Recommended Stage 2
 
-1. Re-run this probe on origins 2022–2025 before deleting anything, to confirm
-   the deletions hold outside 2026.
-2. Delete category B; move category A out of the search into a post-hoc
-   calibration fit.
-3. Widen `attributionShrinkage`'s bound past 0.9 and revisit the process-noise
-   ordering constraint.
+1. ~~Re-run this probe on origins 2022–2025 before deleting anything~~ — **done
+   (Stage 1b). Two deletions refuted, three made conditional.**
+2. Delete category B (**the 7 confirmed fields, not the original 11**); move
+   category A out of the search into a post-hoc calibration fit. Decide the 3
+   conditional carry-damping fields explicitly — they cost 2022 −1.7σ.
+3. ~~Widen `attributionShrinkage`'s bound past 0.9~~ — **done in Stage 1c, not
+   worth it.** Still open: the `processNoiseEventBoundaryRel >
+   processNoiseWithinEventRel` ordering constraint, which was BINDING on 2026
+   (the top of the within-event bound was skipped as invalid while the trend
+   was still improving). That one is untested and remains a live lead.
 4. Re-tune the ~7 survivors on 2024+2025 with a real optimizer (CMA-ES) against
    a smooth accuracy-aligned surrogate, at a budget far above 67 evaluations.
 5. Rebuild the incumbent before any acceptance comparison — the current one is

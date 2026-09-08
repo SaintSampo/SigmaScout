@@ -229,10 +229,28 @@ async function main(): Promise<void> {
     return;
   }
 
+  // `--explicit "knobA=1,2,3;knobB=4,5"` replaces the registered-bound grid with
+  // hand-chosen values. This exists because three parameters measured their
+  // OPTIMUM AT A BOUND EDGE (attributionShrinkage and minConsistencyVarianceRel
+  // both peak at their declared max on 2025), which means the registered bound
+  // -- not the data -- is what is choosing the value. A sweep that stops where
+  // the search space stops cannot tell you the search space is too small.
+  const explicit = new Map<string, number[]>();
+  if (args.includes("--explicit")) {
+    for (const clause of arg("explicit").split(";")) {
+      const [name, values] = clause.split("=");
+      explicit.set(name.trim(), values.split(",").map(Number));
+    }
+  }
+
   const knobFilter = args.indexOf("--knobs") >= 0 ? new Set(arg("knobs").split(",")) : null;
-  const keys = (Object.keys(SIGMA1_SEARCH_SPACE) as SearchableParamKey[]).filter((k) => knobFilter === null || knobFilter.has(k));
+  const keys = (
+    explicit.size > 0
+      ? ([...explicit.keys()] as SearchableParamKey[])
+      : (Object.keys(SIGMA1_SEARCH_SPACE) as SearchableParamKey[])
+  ).filter((k) => knobFilter === null || knobFilter.has(k));
   for (const key of keys) {
-    const grid = screenGridFor(key, valueCount);
+    const grid = explicit.get(key) ?? screenGridFor(key, valueCount);
     for (const [gi, value] of grid.entries()) {
       const candidate = { ...baseline, [key]: value };
       // A grid point that violates a cross-parameter invariant (e.g. the
