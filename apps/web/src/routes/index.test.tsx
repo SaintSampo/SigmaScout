@@ -63,7 +63,9 @@ describe("home page podium", () => {
     // one is legitimately absent. Derived from the same fixtures the podium
     // reads, so this tracks whichever three actually lead.
     const expected = pooledAccuracyPodium(
-      PODIUM_SEASONS.map((season) => ({ season, artifact: FIXTURES_BY_YEAR[season]! as unknown as Artifact })),
+      PODIUM_SEASONS.map((season) => ({ season, artifact: FIXTURES_BY_YEAR[season]! })) as unknown as Parameters<
+        typeof pooledAccuracyPodium
+      >[0],
     ).slice(0, 3);
     expect(expected).toHaveLength(3);
 
