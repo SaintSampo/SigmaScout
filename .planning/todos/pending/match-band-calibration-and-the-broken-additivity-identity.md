@@ -102,6 +102,52 @@ probably NOT to re-couple them but to stop claiming they are one quantity: corre
 header and `uncertainty-display.md`, and give the two numbers distinguishable labels in the UI.
 That is a decision, so it is recorded rather than taken.
 
+## Finding E — the skew is REAL but MODEST, and it is a population property, not a per-team one
+
+Measured 2026-09-08 on **36,806 alliance observations / 227 events**, after removing the mean so
+Finding C's bias is not mistaken for skew:
+
+| statistic | value |
+|---|---|
+| residual mean (the Finding C bias) | **+8.92 points** |
+| residual SD | 68.94 |
+| skewness | **+0.0825** (z-skewness +0.169) |
+| semi-deviation below centre | 64.91 |
+| semi-deviation above centre | **73.27** |
+| **upper / lower ratio** | **1.129** |
+| centred p05 / p95 | −101.6 / **+117.5** |
+| centred p01 / p99 | −174.3 / +184.2 |
+
+Coverage, symmetric vs asymmetric band of the same nominal width:
+
+| band | inside | miss LOW | miss HIGH |
+|---|---|---|---|
+| symmetric ±1σ | 74.0% | 11.8% | **14.3%** |
+| asymmetric ±1 semi-deviation | 73.8% | 13.2% | 13.0% |
+
+**What this does and does not justify.** The asymmetry is real — the upper side is ~13% wider,
+and with a symmetric band a reader is about 21% more likely to be surprised high than low
+(14.3% vs 11.8%). An asymmetric band fixes exactly that lopsidedness, balancing the misses at
+13.2/13.0. It does NOT cover more in total (73.8% vs 74.0%) — it redistributes, it does not tighten.
+
+Skewness of +0.08 is small in absolute terms, so this is a refinement, not a defect being repaired.
+
+**The trap to avoid: per-team semi-deviations.** With a 6-match half-life the effective sample per
+team is only about 9 observations (Σ decay^age → 1/(1−w) ≈ 9.2). Splitting that by sign leaves
+~4.5 per side, so any single team's up/down asymmetry would be mostly noise — a team would get a
+lopsided band because of which way its last few matches happened to break, and the site would be
+asserting a per-robot skew it cannot possibly know. The 1.129 ratio is stable because it rests on
+36,806 observations, not on one team's four.
+
+**Recommended shape if this is built:** keep the per-team width symmetric (stable), and apply the
+POPULATION-level ratio as a global shaping constant. Asymmetry then comes from the quantity that
+actually supports it, and no per-team skew is invented.
+
+**Bigger prize than the shape:** the band is centred on the prediction, but actuals average +8.92
+points above it (Finding C). Re-centring is worth more than re-shaping — and it belongs in the
+model, not in the band, since a band drawn off-centre from its own tick would be its own kind of
+lie.
+
 ## Suggested order if this is picked up
 
 1. Correct `pageArtifacts.ts`'s header and `uncertainty-display.md` — they are false TODAY and
