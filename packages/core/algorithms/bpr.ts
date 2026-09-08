@@ -135,7 +135,19 @@ function erf(x: number): number {
       Math.exp(-a * a);
   return s * y;
 }
-const normCdf = (z: number): number => 0.5 * (1 + erf(z / Math.SQRT2));
+/**
+ * Exact at z=0 by symmetry, special-cased because the A-S approximation above
+ * returns +1.0e-9 rather than 0 there, making `normCdf(0)` come out as
+ * 0.5000000005. That residual is numerically irrelevant to Brier or accuracy
+ * (the `pRedWin >= 0.5` tiebreak already resolves an even matchup to red), but
+ * it is NOT irrelevant to reporting: `packages/core/scoring/brier.ts` detects a
+ * no-call by exact equality with 0.5, so without this line a genuinely even
+ * prediction is silently recorded as a confident red pick. That hid all 275 of
+ * BPR's dead-even cold-start matches (274 in 2016, 1 in 2017) from the
+ * published no-call count. Mirrors the same guard `sigma1/linkFunctions.ts`
+ * already applies to its own erf-based CDF.
+ */
+const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 
 function freshTeam(p: BprParams): BprTeamState {
   return { muL: p.rookieMean, pL: p.priorVar, muS: 0, pS: p.fastPriorVar };

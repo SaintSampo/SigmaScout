@@ -217,3 +217,66 @@ a per-algorithm hue. Near-ties still render as ties with no emphasis at all.
 - `publish.test.ts` and four others fail only under full-suite contention;
   `publish.test.ts` passes 149/149 in isolation
 - the holdout is spent: re-tuning BPR against 2023-2026 voids the 78.05%
+
+---
+
+# Addendum 2: the no-call boundary (2026-09-08)
+
+Follow-up question: why does BPR report zero no-calls when OPR/EPA/VPR report
+some? Because it could not reach the boundary in floating point, and that was
+scoring in its favour.
+
+## The defect
+
+`packages/core/scoring/brier.ts` identifies a no-call by EXACT equality with
+0.5, and D-Q3 counts a no-call against a decided match as a MISS. BPR's link is
+a normal CDF over the Abramowitz-Stegun erf approximation, which returns
++1.0e-9 at the origin rather than 0 -- so `normCdf(0)` evaluated to
+0.5000000005. A dead-even matchup landed a hair above the line and was scored
+as a confident red pick.
+
+That is not a display problem. OPR, EPA and VPR use logistic links that hit 0.5
+exactly and pay the D-Q3 penalty; BPR was collecting credit on coin flips they
+were charged for.
+
+## Census, under the frozen parameters
+
+Exactly-0.5 predictions, walked forward over the full corpus:
+
+| season | dead-even predictions |
+|---|---|
+| 2016 | 274 |
+| 2017 | 1 |
+| 2018-2026 | 0 |
+| **total** | **275** |
+
+Of those 275, red won 134, blue won 139, and 2 were actual ties.
+
+All of them are cold start -- both alliances entirely unseen. Same shape as
+EPA's 272+1 and VPR's 269+1. OPR's much larger per-season counts are a
+different cause: it is event-scoped, so every event restarts everyone at zero.
+
+## The fix
+
+`normCdf` now short-circuits `z === 0` to exactly 0.5, in both the production
+port and the research model. This mirrors the guard
+`sigma1/linkFunctions.ts::normalCdf` already applies to its own erf-based CDF --
+the repo had solved this once already.
+
+`packages/core/algorithms/bpr.test.ts` pins the boundary with exact-equality
+assertions (`toBeCloseTo` would pass against the bug this prevents).
+
+## What it costs, on republish
+
+- **2016 winner accuracy falls by roughly 1.0pp** (134 credited calls of ~13,140
+  decided matches become misses). 2017 moves by ~0.007pp.
+- **2018-2026 are untouched**, and the sealed holdout **78.05% is unchanged** --
+  the 2023-2026 era contains zero dead-even matches.
+- The research harness scores a no-call as half credit rather than a miss
+  (`evaluate.ts`), a convention split that predates this fix and is now
+  reachable: design-era accuracy recomputes to 73.084% against the 73.081%
+  sealed in `frozen-params.json`. That file is a record of what was measured at
+  freeze time and is deliberately NOT edited.
+
+Artifacts still carry the old numbers until the next republish.
+

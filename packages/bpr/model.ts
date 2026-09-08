@@ -170,7 +170,14 @@ function erf(x: number): number {
       Math.exp(-a * a);
   return s * y;
 }
-const normCdf = (z: number): number => 0.5 * (1 + erf(z / Math.SQRT2));
+/**
+ * Exact at z=0 by symmetry. Without this the A-S approximation returns
+ * 0.5000000005 for a dead-even matchup, which never equals 0.5 — silently
+ * disabling `evaluate.ts`'s half-credit branch for exactly the matches it
+ * exists to handle. Kept in step with the production port in
+ * `packages/core/algorithms/bpr.ts`.
+ */
+const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 
 export interface Prediction {
   /** P(red wins), in (0,1). */
