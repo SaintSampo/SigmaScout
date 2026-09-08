@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
-last_updated: "2026-09-08T08:28:31.451Z"
+last_updated: "2026-09-08T18:15:18.978Z"
 last_activity: 2026-09-08
 last_activity_desc: "Completed quick task 260908-5wd: Swing Factor moved out of VPR and became a browser-computed, site-wide bonus stat with a ribbon toggle; OPR and EPA now show a spread, VPR's is untouched, core deletion deferred to the next Sigma1 params major"
 progress:
@@ -442,6 +442,7 @@ None yet.
 | 66 | backfill event alliances for 2016-2020 corpus years; schema fix for zero-pick slots | 2026-09-08 | d692f237 | — |
 | 66 | Compare leader pill recolored Legendary gold instead of neutral | 2026-09-08 | 3b6a909d | — |
 | 260908-5wd | Swing Factor (the Y in X plus-or-minus Y) moved out of VPR and became a site-wide bonus stat the browser computes. apps/web/src/lib/swingFactor.ts re-implements the core estimator (6-match half-life, 1.92 scale, recency-weighted RMS about zero) over fields every artifact already publishes, so OPR and EPA now show a spread where they previously showed a bare number, with no republish and no retune and no prediction change. Safety rests on a published-wins merge in SeasonHeader.tsx: the browser value fills Total's spread ONLY when the artifact published none, so VPR renders byte-identically and no two surfaces can ever print different Swing Factors for one team. That same rule is the removal path for free - the day a model version stops publishing spread, the browser value takes over with no code change. A persisted Zustand store plus a ribbon toggle gate every spread on the site from one place, read inside MetricValue (the single render primitive) rather than threaded as a prop; match-prediction bands are deliberately NOT gated, since those draw full predictive variance and hiding them would be a lie by omission. Deleting swing from the core was DEFERRED with reasons: Sigma1ParamsSchema is a strictObject, so dropping the two fields forces a params major, a legacyParams migration, a stateSnapshot bump that invalidates live worker D1 state, and a pass over every promoted set - tracked in .planning/todos/pending/remove-swing-from-sigma1-core.md, triggered by the next Sigma1 params major. The Teams table still cannot show it (its artifact carries season aggregates only, no per-match rows) and the guide says so plainly. Browser includes elim matches and skips surrogate handling, which is safe only because published-wins means it is never shown beside a pipeline number. 97 tests across 7 files; full repo-root run green apart from the already-documented flaky seasonParamSets D-4 Leg B gate, which passed isolated. Human-verify checkpoint NOT yet run | 2026-09-08 | 307670ce | [260908-5wd-remove-swing-score-as-a-core-vpr-compone](./quick/260908-5wd-remove-swing-score-as-a-core-vpr-compone/) |
+| 66 | 260908-615 offseason scoping - official-only W-L-T, eventCount and matchCount on the Teams list and team page header; EPA carries across a season boundary from the last OFFICIAL match instead of the season-final state (epa@6.0.0+baseline). epaVsStatbotics --check PASSED and agreement with Statbotics tightened in every season. R2 republish HELD - see SUMMARY | 2026-09-08 | ed5c7b8c | — |
 
 ### Roadmap Evolution
 
