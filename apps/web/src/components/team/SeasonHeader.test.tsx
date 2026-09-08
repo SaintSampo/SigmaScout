@@ -347,10 +347,32 @@ describe("SeasonHeader — browser-computed Swing Factor (quick task 260908-5wd)
     ];
   }
 
+  /**
+   * Two played matches with DIFFERENT residuals. Since the browser estimator
+   * centres (2026-09-08), a single observation cannot separate model bias from
+   * robot swing and correctly yields nothing — so any fixture asserting that a
+   * ± RENDERS needs at least two, and they must not be identical (identical
+   * deviations are a real zero-swing case, which renders "0.00" rather than a
+   * blank).
+   */
+  function eventsWithTwoMatches() {
+    const [event] = eventsWithOneMatch();
+    const firstMatch = event?.matches[0];
+    return [
+      {
+        ...event,
+        matches: [
+          { ...firstMatch, matchKey: "2026miket_qm1", actualRedScore: 130 },
+          { ...firstMatch, matchKey: "2026miket_qm2", actualRedScore: 70 },
+        ],
+      },
+    ] as TeamSeasonArtifact["events"];
+  }
+
   it("an OPR-shaped artifact (Total entry with no spread) renders a browser-computed ± on the Total tile", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 42.1 } } },
-      events: eventsWithOneMatch(),
+      events: eventsWithTwoMatches(),
     });
 
     render(<SeasonHeader artifact={artifact} algorithmId="opr" season={2026} teamNumber={1114} />);

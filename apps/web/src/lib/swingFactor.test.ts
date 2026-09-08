@@ -45,22 +45,48 @@ describe("swingFactorFromDeviations", () => {
     expect(swingFactorFromDeviations([])).toBeUndefined();
   });
 
-  it("returns SCALE * |deviation| exactly for exactly one observation, with no first-observation special case", () => {
-    expect(swingFactorFromDeviations([4])).toBeCloseTo(SWING_FACTOR_SCALE * 4, 10);
-    expect(swingFactorFromDeviations([-4])).toBeCloseTo(SWING_FACTOR_SCALE * 4, 10);
+  // 2026-09-08, developer decision: the estimator CENTRES about the team's own
+  // weighted mean deviation, so it reports the robot's swing rather than the
+  // model's systematic bias. The three cases below previously pinned the
+  // ABOUT-ZERO behaviour and are rewritten, not deleted, so the change of
+  // meaning is visible in the diff rather than silently dropped.
+  it("returns undefined for exactly one observation — one point cannot separate bias from swing", () => {
+    expect(swingFactorFromDeviations([4])).toBeUndefined();
+    expect(swingFactorFromDeviations([-4])).toBeUndefined();
   });
 
-  it("treats two observations of equal magnitude but opposite sign the same as two identical ones — no running mean is subtracted", () => {
-    const oppositeSign = swingFactorFromDeviations([5, -5]);
-    const sameSign = swingFactorFromDeviations([5, 5]);
-    expect(oppositeSign).toBeCloseTo(sameSign as number, 10);
+  it("reports a LARGE swing for opposite-signed deviations and NO swing for identical ones — the whole point of centring", () => {
+    const oppositeSign = swingFactorFromDeviations([5, -5]) as number;
+    const sameSign = swingFactorFromDeviations([5, 5]) as number;
+    expect(sameSign).toBeCloseTo(0, 10);
+    expect(oppositeSign).toBeGreaterThan(0);
   });
 
-  it("returns exactly SCALE * |deviation| for the same deviation repeated k times, for several k", () => {
-    for (const k of [1, 2, 5, 20]) {
+  it("returns exactly 0 for the same deviation repeated k times — a robot the model misses by a CONSTANT is perfectly consistent", () => {
+    for (const k of [2, 5, 20]) {
       const deviations = Array.from({ length: k }, () => 3);
-      expect(swingFactorFromDeviations(deviations)).toBeCloseTo(SWING_FACTOR_SCALE * 3, 10);
+      expect(swingFactorFromDeviations(deviations)).toBeCloseTo(0, 10);
     }
+  });
+
+  it("is invariant to a constant shift of every deviation — a pure model bias cannot move it", () => {
+    const base = [4, -2, 7, 1, -3];
+    const shifted = base.map((d) => d + 250);
+    expect(swingFactorFromDeviations(shifted)).toBeCloseTo(swingFactorFromDeviations(base) as number, 8);
+  });
+
+  it("matches the standard weighted-unbiased sample variance on an independently computed case", () => {
+    // Two observations, weights w (older) and 1 (newer). The weighted
+    // unbiased variance about the weighted mean, worked out independently of
+    // the module's one-pass form.
+    const decay = 0.5 ** (1 / SWING_FACTOR_HALF_LIFE_MATCHES);
+    const [older, newer] = [2, 10];
+    const sumW = decay + 1;
+    const mean = (decay * older + newer) / sumW;
+    const numerator = decay * (older - mean) ** 2 + (newer - mean) ** 2;
+    const denominator = sumW - (decay * decay + 1) / sumW;
+    const expected = SWING_FACTOR_SCALE * Math.sqrt(numerator / denominator);
+    expect(swingFactorFromDeviations([older, newer])).toBeCloseTo(expected, 10);
   });
 
   it("weights an observation exactly halfLife matches old at half the newest observation's weight", () => {
@@ -71,14 +97,19 @@ describe("swingFactorFromDeviations", () => {
     // module's output rather than a restatement of its internals.
     const halfLife = SWING_FACTOR_HALF_LIFE_MATCHES;
     const decay = 0.5 ** (1 / halfLife);
+    const series = [10, ...Array(halfLife).fill(0)];
     let ws = 0;
+    let wsum = 0;
     let w = 0;
-    for (const d of [10, ...Array(halfLife).fill(0)]) {
+    let w2 = 0;
+    for (const d of series) {
       ws = decay * ws + d * d;
+      wsum = decay * wsum + d;
       w = decay * w + 1;
+      w2 = decay * decay * w2 + 1;
     }
-    const expected = SWING_FACTOR_SCALE * Math.sqrt(ws / w);
-    expect(swingFactorFromDeviations([10, ...Array(halfLife).fill(0)])).toBeCloseTo(expected, 10);
+    const expected = SWING_FACTOR_SCALE * Math.sqrt((ws - (wsum * wsum) / w) / (w - w2 / w));
+    expect(swingFactorFromDeviations(series)).toBeCloseTo(expected, 10);
   });
 
   it("a recent large deviation moves the result more than an equally large deviation six matches older", () => {
@@ -88,9 +119,20 @@ describe("swingFactorFromDeviations", () => {
   });
 
   it("ordering is load-bearing: reversing the observation list changes the result whenever the deviations differ", () => {
-    const forward = swingFactorFromDeviations([2, 8]);
-    const reversed = swingFactorFromDeviations([8, 2]);
+    const forward = swingFactorFromDeviations([1, 1, 1, 9]);
+    const reversed = swingFactorFromDeviations([9, 1, 1, 1]);
     expect(forward).not.toBeCloseTo(reversed as number, 6);
+  });
+
+  // Found while centring (2026-09-08), and worth pinning so a future reader
+  // meets it as a property rather than as a suspected bug: at EXACTLY two
+  // observations the centred spread is order-INVARIANT. Both points sit
+  // symmetrically about their own weighted mean, and the algebra collapses to
+  // `w * (a - b)^2 / (w + 1)`, which depends only on |a - b|. Recency
+  // weighting still moves the MEAN, but the spread about it cannot tell the
+  // two orderings apart. Order becomes load-bearing again from k = 3.
+  it("is order-invariant at exactly two observations — a property of centring, not a bug", () => {
+    expect(swingFactorFromDeviations([2, 8])).toBeCloseTo(swingFactorFromDeviations([8, 2]) as number, 12);
   });
 
   it("throws on a non-finite deviation rather than skipping or coercing it", () => {
@@ -126,35 +168,42 @@ describe("swingFactorForTeam", () => {
   });
 
   it("uses the team's OWN alliance residual: a red-alliance team's deviation is (actualRedScore - predictedRedScore) / redTeams.length", () => {
-    const match = baseMatch({
-      redTeams: ["frc1114", "frc254", "frc2056"],
-      blueTeams: ["frc118", "frc971", "frc148"],
-      predictedRedScore: 100,
-      predictedBlueScore: 90,
-      actualRedScore: 130,
-      actualBlueScore: 90,
-    });
+    const matches = [130, 70].map((actualRedScore, index) =>
+      baseMatch({
+        matchKey: `2026miket_qm${index + 1}`,
+        redTeams: ["frc1114", "frc254", "frc2056"],
+        blueTeams: ["frc118", "frc971", "frc148"],
+        predictedRedScore: 100,
+        predictedBlueScore: 90,
+        actualRedScore,
+        actualBlueScore: 90,
+      })
+    );
     const artifact = baseArtifact({
-      events: [{ eventKey: "2026miket", eventName: "Kettering", startDate: "2026-03-01", matches: [match] }],
+      events: [{ eventKey: "2026miket", eventName: "Kettering", startDate: "2026-03-01", matches }],
     });
-    // Deviation = (130 - 100) / 3 = 10
-    expect(swingFactorForTeam(artifact, "frc1114")).toBeCloseTo(SWING_FACTOR_SCALE * 10, 10);
+    // Deviations = (130 - 100) / 3 = 10, then (70 - 100) / 3 = -10.
+    expect(swingFactorForTeam(artifact, "frc1114")).toBeCloseTo(swingFactorFromDeviations([10, -10]) as number, 10);
   });
 
   it("uses the blue alliance's own residual for a blue-roster team, never the red one", () => {
-    const match = baseMatch({
-      redTeams: ["frc254", "frc2056", "frc33"],
-      blueTeams: ["frc1114", "frc971", "frc148"],
-      predictedRedScore: 100,
-      predictedBlueScore: 90,
-      actualRedScore: 400, // large red deviation, irrelevant to frc1114 (blue)
-      actualBlueScore: 96,
-    });
+    const matches = [96, 84].map((actualBlueScore, index) =>
+      baseMatch({
+        matchKey: `2026miket_qm${index + 1}`,
+        redTeams: ["frc254", "frc2056", "frc33"],
+        blueTeams: ["frc1114", "frc971", "frc148"],
+        predictedRedScore: 100,
+        predictedBlueScore: 90,
+        actualRedScore: 400, // large red deviation, irrelevant to frc1114 (blue)
+        actualBlueScore,
+      })
+    );
     const artifact = baseArtifact({
-      events: [{ eventKey: "2026miket", eventName: "Kettering", startDate: "2026-03-01", matches: [match] }],
+      events: [{ eventKey: "2026miket", eventName: "Kettering", startDate: "2026-03-01", matches }],
     });
-    // Deviation = (96 - 90) / 3 = 2
-    expect(swingFactorForTeam(artifact, "frc1114")).toBeCloseTo(SWING_FACTOR_SCALE * 2, 10);
+    // Deviations = (96 - 90) / 3 = 2, then (84 - 90) / 3 = -2. Had the red
+    // residual leaked in, the result would be enormous rather than this.
+    expect(swingFactorForTeam(artifact, "frc1114")).toBeCloseTo(swingFactorFromDeviations([2, -2]) as number, 10);
   });
 
   it("skips a row where the team's own roster is empty", () => {
@@ -328,12 +377,9 @@ describe("swingFactorForTeam", () => {
       expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm99" })).toBeUndefined();
     });
 
-    it("a bound landing on the team's FIRST match yields exactly SCALE * |deviation|", () => {
-      const { devs, artifact } = threeMatchArtifact();
-      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm1" })).toBeCloseTo(
-        SWING_FACTOR_SCALE * Math.abs(devs[0] as number),
-        10
-      );
+    it("a bound landing on the team's FIRST match publishes nothing — one observation cannot separate bias from swing", () => {
+      const { artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm1" })).toBeUndefined();
     });
   });
 });
