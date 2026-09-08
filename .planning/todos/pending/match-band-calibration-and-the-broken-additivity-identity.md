@@ -148,6 +148,35 @@ points above it (Finding C). Re-centring is worth more than re-shaping — and i
 model, not in the band, since a band drawn off-centre from its own tick would be its own kind of
 lie.
 
+## SHIPPED 2026-09-08 — what this todo still covers, and what it no longer does
+
+`f4b07846` moved the EVENT-PAGE band off the published variance and onto
+`√(Σ the three teams' Swing Factor²)`, browser-computed for every algorithm, walk-forward.
+
+**Closed by that change:**
+
+- Finding A on the event page. The sum-of-squares identity is now true BY CONSTRUCTION there,
+  because the band is literally that sum. (The `pageArtifacts.ts` header and
+  `uncertainty-display.md` are still wrong about the PUBLISHED field — see below.)
+- The VPR-only privilege. All three algorithms now render identically: 181 of 222 predicted
+  cells and 120 bands on `2026casnv`, verified live.
+- Finding D on the event page. The tile `±` and the match band are one quantity again.
+
+**Still open:**
+
+1. **The docs are still false about the published field.** `redScoreVarianceOwn` is still
+   published by VPR and still is not the sum of its teams' spread squares. Nothing reads it on
+   the event page any more, but `pageArtifacts.ts`'s header still states the identity as an
+   enforced rule and `uncertainty-display.md` still leans on it. Correct the prose, or stop
+   publishing the field.
+2. **The team page still draws VPR-only bands.** It cannot use this construction: measured on
+   `frc254`'s 2026 artifact, the other 135 teams appear a median of 2 times and only 52.6% appear
+   twice at all, so per-team swing is not estimable there. Fixing it needs either the event
+   artifacts fetched per event section (a page-load cost on the project's top-priority metric) or
+   a per-team swing field added to an artifact (a pipeline change and a republish).
+3. **Findings B, C and E are untouched** — the conservatism (~76% coverage where 1σ claims
+   68.3%), the +8.92-point centring bias, and the asymmetric-band question.
+
 ## Suggested order if this is picked up
 
 1. Correct `pageArtifacts.ts`'s header and `uncertainty-display.md` — they are false TODAY and
