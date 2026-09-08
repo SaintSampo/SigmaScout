@@ -255,26 +255,26 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
 
     const diverged = decisions.filter((d) => !sameLeaderSet(d.computed, d.naive));
 
-    // Measured against the ten committed real fixtures. At planning time
-    // (08-CONTEXT.md D-11) this was four divergences, ALL in the elimination
-    // view; the Compare floor moving 2022 -> 2016 on 2026-09-07 added five
-    // more and broke the elimination-only property. Both changes are real
-    // and neither was forced: the original four are reproduced UNCHANGED
-    // below, and the five new ones all come from the three seasons added.
+    // Measured against the ten committed real fixtures. History: four
+    // divergences at planning time (08-CONTEXT.md D-11), nine after the
+    // Compare floor moved 2022 -> 2016 on 2026-09-07, and ten now that BPR is
+    // published (quick task 260908-b4t).
     //
-    // The elimination-only property was never a rule — it was an observation
-    // about which seasons happened to be close. It broke for a substantive
-    // reason: in 2016 EPA (70.45%) and VPR (70.12%) are 0.33pp apart in
-    // QUALIFICATION, inside the near-tie threshold, so the real rule
-    // withholds emphasis in all three views while the naive strawman bolds
-    // EPA in each. That is precisely the divergence this lock exists to
-    // demonstrate, now visible outside elimination play for the first time.
-    expect(diverged).toHaveLength(9);
+    // BPR did not add one case to the previous nine -- it REPLACED the set.
+    // Every divergence is now a season where BPR is the naive accuracy leader
+    // but sits inside the near-tie threshold of the runner-up, so the real
+    // rule withholds emphasis while the strawman bolds BPR. The old cases
+    // stopped diverging because BPR overtook the pairs that used to be the
+    // close ones, and the previous Brier divergence is gone entirely: all ten
+    // are accuracy decisions.
+    expect(diverged).toHaveLength(10);
+    expect(diverged.every((d) => d.metric === "accuracy")).toBe(true);
+    expect(diverged.every((d) => d.naive.length === 1 && d.naive[0] === "bpr")).toBe(true);
 
-    // Seven of the nine still sit in elimination play (the original four
-    // plus 2016/2018/2020 accuracy); the two outside it are both 2016.
+    // Six of the ten sit in elimination play, where the samples are smallest
+    // and near-ties therefore most common.
     const eliminationDivergences = diverged.filter((d) => d.view === "elimination");
-    expect(eliminationDivergences).toHaveLength(7);
+    expect(eliminationDivergences).toHaveLength(6);
 
     function decisionFor(view: CompareCompLevelView, season: number, metric: "brier" | "accuracy") {
       const found = diverged.find((d) => d.view === view && d.season === season && d.metric === metric);
@@ -283,17 +283,16 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
     }
 
     // Named individually, so a failure states which case moved.
-    // Original four (08-CONTEXT.md D-11), unchanged:
-    decisionFor("elimination", 2022, "brier");
-    decisionFor("elimination", 2022, "accuracy");
-    decisionFor("elimination", 2024, "accuracy");
-    decisionFor("elimination", 2025, "accuracy");
-    // Added 2026-09-07 with the 2016-2020 floor move:
-    decisionFor("combined", 2016, "accuracy");
-    decisionFor("qualification", 2016, "accuracy");
+    decisionFor("combined", 2017, "accuracy");
+    decisionFor("combined", 2023, "accuracy");
+    decisionFor("qualification", 2017, "accuracy");
+    decisionFor("qualification", 2023, "accuracy");
     decisionFor("elimination", 2016, "accuracy");
-    decisionFor("elimination", 2018, "accuracy");
+    decisionFor("elimination", 2017, "accuracy");
     decisionFor("elimination", 2020, "accuracy");
+    decisionFor("elimination", 2022, "accuracy");
+    decisionFor("elimination", 2023, "accuracy");
+    decisionFor("elimination", 2026, "accuracy");
 
     // Every divergence is the real rule WITHHOLDING emphasis the naive
     // strawman would have applied — never the reverse. That direction is the
@@ -320,14 +319,22 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
     }) as typeof fetch;
   }
 
-  it("2023 elimination Winner Accuracy renders VPR bold — the tightest above-threshold case in the corpus", async () => {
+  it("2023 elimination Winner Accuracy renders no bold at all — BPR leads but inside the near-tie threshold", async () => {
+    // Was "renders VPR bold — the tightest above-threshold case in the
+    // corpus". Publishing BPR (quick task 260908-b4t) ended that: BPR now
+    // leads 2023 elimination accuracy, but by less than the near-tie
+    // threshold, so the rule withholds emphasis from EVERY cell rather than
+    // moving the bold from VPR to BPR. Asserting the whole row is unbolded is
+    // the stronger claim, and it is the same case the D-11 divergence lock
+    // above names as `elimination 2023 accuracy`.
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
-    await waitFor(() => expect(readCellIsBold(2023, "vpr", "accuracy")).toBe(true));
-    expect(readCellIsBold(2023, "opr", "accuracy")).toBe(false);
-    expect(readCellIsBold(2023, "epa", "accuracy")).toBe(false);
+    await waitFor(() => expect(readCellIsBold(2023, "bpr", "accuracy")).toBe(false));
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      expect(readCellIsBold(2023, algorithmId, "accuracy"), `${algorithmId} must not be bold`).toBe(false);
+    }
   });
 
   it("2022 elimination Winner Accuracy renders no bold at all, even though OPR leads — the withheld leader is not the site's own model", async () => {
