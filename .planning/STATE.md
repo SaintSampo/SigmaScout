@@ -7,7 +7,7 @@ status: completed
 stopped_at: "Completed quick task 260904-oiu: accuracy-primary VPR tuning objective, Brier secondary"
 last_updated: "2026-09-08T08:28:31.451Z"
 last_activity: 2026-09-08
-last_activity_desc: "Completed quick task 260908-3k5: GBR (Gradient-Boosted Rating) research package built in packages/gbr - hand-rolled histogram GBDT over 25 season-normalized walk-forward features, rolling-origin validation on 2016-2025, sealed 2026 holdout intact; tuning and holdout still to run"
+last_activity_desc: "Completed quick task 260908-5wd: Swing Factor moved out of VPR and became a browser-computed, site-wide bonus stat with a ribbon toggle; OPR and EPA now show a spread, VPR's is untouched, core deletion deferred to the next Sigma1 params major"
 progress:
   total_phases: 11
   completed_phases: 11
