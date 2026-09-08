@@ -282,4 +282,58 @@ describe("swingFactorForTeam", () => {
 
     expect(swingFactorForTeam(artifact, "frc1114")).toBeCloseTo(artifact.seasonStats.metrics.total?.spread as number, 10);
   });
+  // Quick task 260908-5wd follow-up, found by running the real site against
+  // live 2026 data: a real team's header almost always resolves an
+  // as-of-last-official-match snapshot, so the merge originally SKIPPED and
+  // the Swing Factor never appeared for OPR/EPA in production even though
+  // every unit test passed. The window is now bounded instead of skipped.
+  describe("untilMatchKey bounds the observation window to the header's as-of instant", () => {
+    function threeMatchArtifact() {
+      const devs = [6, -3, 12];
+      const matches: TeamSeasonMatch[] = devs.map((deviation, index) =>
+        baseMatch({
+          matchKey: `2026miket_qm${index + 1}`,
+          redTeams: ["frc1114", "frc254", "frc2056"],
+          predictedRedScore: 100,
+          actualRedScore: 100 + deviation * 3,
+          actualBlueScore: 90,
+        })
+      );
+      return { devs, artifact: baseArtifact({ events: [{ eventKey: "2026miket", eventName: "Kettering", startDate: "2026-03-01", matches }] }) };
+    }
+
+    it("folds only matches up to and including the bound", () => {
+      const { devs, artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm2" })).toBeCloseTo(
+        swingFactorFromDeviations(devs.slice(0, 2)) as number,
+        10
+      );
+    });
+
+    it("bounding on the LAST match equals the unbounded whole-season value", () => {
+      const { artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm3" })).toBeCloseTo(
+        swingFactorForTeam(artifact, "frc1114") as number,
+        10
+      );
+    });
+
+    it("an absent bound is the whole season, exactly as before this option existed", () => {
+      const { devs, artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", {})).toBeCloseTo(swingFactorFromDeviations(devs) as number, 10);
+    });
+
+    it("publishes NOTHING for a bound that never appears, rather than silently measuring a different span", () => {
+      const { artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm99" })).toBeUndefined();
+    });
+
+    it("a bound landing on the team's FIRST match yields exactly SCALE * |deviation|", () => {
+      const { devs, artifact } = threeMatchArtifact();
+      expect(swingFactorForTeam(artifact, "frc1114", { untilMatchKey: "2026miket_qm1" })).toBeCloseTo(
+        SWING_FACTOR_SCALE * Math.abs(devs[0] as number),
+        10
+      );
+    });
+  });
 });

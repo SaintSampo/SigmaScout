@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { eventsQueryOptions } from "../lib/api/events.js";
-import { officialSnapshotMetrics } from "../lib/officialSnapshot.js";
+import { officialSnapshotRow } from "../lib/officialSnapshot.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { TEAM_TABS, TeamSearchSchema } from "../lib/searchParams.js";
@@ -94,7 +94,13 @@ function TeamPage() {
     ...eventsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
     enabled: isValidTeamNumber && version !== undefined,
   });
-  const headerMetrics = data !== undefined && eventsQuery.data !== undefined ? officialSnapshotMetrics(data.metricHistory, eventsQuery.data.events) : undefined;
+  // Quick task 260908-5wd: resolve the snapshot ROW, not just its metrics, so
+  // the header can bound its browser-computed Swing Factor to the same as-of
+  // instant the tiles beside it show. `headerMetrics` is derived from the row
+  // and keeps its exact prior meaning ("the official snapshot or undefined,
+  // nothing else"), so the labelling precondition above is untouched.
+  const snapshotRow = data !== undefined && eventsQuery.data !== undefined ? officialSnapshotRow(data.metricHistory, eventsQuery.data.events) : undefined;
+  const headerMetrics = snapshotRow?.metrics;
 
   if (!isValidTeamNumber) {
     return (
@@ -151,7 +157,7 @@ function TeamPage() {
           {/* The identity chrome (name, number — image/TBA link join once
               plan 06-07 wires D-03) is not year-scoped and renders normally
               above the empty body, per D-19/E5's own instruction. */}
-          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} ranks={data.ranks} /></div>
+          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} ranks={data.ranks} /></div>
           {yearMismatch ? (
             <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
           ) : (
@@ -161,7 +167,7 @@ function TeamPage() {
       );
     }
 
-    return <OverviewTab artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} />;
+    return <OverviewTab artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} />;
   }
 
   // Both tabs render from first paint regardless of query state

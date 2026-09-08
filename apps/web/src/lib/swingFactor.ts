@@ -20,6 +20,38 @@
  * published-wins merge rule that makes this safe to ship against artifacts
  * that already publish a real `spread`: this module's output is only ever
  * SHOWN where the pipeline published nothing to disagree with.
+ *
+ * ---------------------------------------------------------------------------
+ * MEASURED ON LIVE 2026 DATA, 2026-09-08 — A WEAK MODEL'S SWING FACTOR IS
+ * MOSTLY THE MODEL'S ERROR, NOT THE ROBOT'S SWING
+ * ---------------------------------------------------------------------------
+ *
+ * Team 254, 2026, all three algorithms, same robot and same matches:
+ *
+ *     VPR (published)   ± 55.71
+ *     EPA (browser)     ± 58.04
+ *     OPR (browser)     ± 298.92
+ *
+ * The OPR figure is ARITHMETICALLY CORRECT and it is not a bug in this module.
+ * 254's four most recent matches are Einstein, where OPR under-predicts by
+ * +239, +209, +256 and +233 points per robot — a SYSTEMATIC, same-signed bias,
+ * which the 6-match half-life then weights most heavily of all.
+ *
+ * But it means something different from the other two. `swing.ts`'s header is
+ * explicit that Y is meant to be the ROBOT'S OWN match-to-match swing, and
+ * concedes that a residual "also carries MEAN-MODEL ERROR as well as robot
+ * noise". For VPR and EPA that error term is small and roughly centred, so Y
+ * is mostly robot. For OPR at the top of the field it is neither small nor
+ * centred, so Y is mostly OPR being wrong in one direction.
+ *
+ * NOT silently corrected here, and the temptation to is worth naming:
+ * subtracting a running mean deviation would remove the bias and make OPR's
+ * number look reasonable — but `swing.ts` forbids exactly that, on the measured
+ * grounds that residuals are already centred by construction and subtracting a
+ * sampling-error mean biases Y downward. That reasoning holds for VPR and does
+ * NOT hold for OPR, and resolving the asymmetry is a decision about what the
+ * published number MEANS, not a refactor. Left for the developer with the
+ * measurement above rather than settled by whoever touched the file last.
  */
 
 import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
@@ -125,14 +157,47 @@ export function swingFactorFromDeviations(deviations: readonly number[]): number
  * `SeasonHeader.tsx`) guarantees this number is only displayed where the
  * pipeline published nothing to disagree with, so no surface can ever show
  * two different Swing Factors for the same team.
+ *
+ * `untilMatchKey` BOUNDS THE OBSERVATION WINDOW, and exists because the team
+ * header usually renders an AS-OF-LAST-OFFICIAL-MATCH snapshot rather than
+ * season-final values (`officialSnapshot.ts`). A whole-season `±` printed
+ * beside an as-of-then value would describe a window the value beside it does
+ * not — the exact "two different as-of instants in one block" defect IN-01
+ * already names on this component. Passing the snapshot's own `matchKey`
+ * makes the two agree: fold every match UP TO AND INCLUDING that one, then
+ * stop.
+ *
+ * Preseason ("Week 0") matches preceding the bound stay INCLUDED, and that is
+ * correct rather than an oversight: the snapshot's value is the model's state
+ * after the last official match, and that state had already learned from every
+ * earlier match whatever its event type. The window matches what the number
+ * beside it actually saw.
+ *
+ * A `untilMatchKey` that never appears returns `undefined` rather than
+ * silently falling back to the whole season — a window we cannot reconstruct
+ * must publish nothing, never a number quietly measured over a different span.
  */
-export function swingFactorForTeam(artifact: TeamSeasonArtifact, teamKey: string): number | undefined {
+export function swingFactorForTeam(
+  artifact: TeamSeasonArtifact,
+  teamKey: string,
+  options?: { readonly untilMatchKey?: string }
+): number | undefined {
+  const untilMatchKey = options?.untilMatchKey;
   const sortedEvents = [...artifact.events].sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0));
 
   const deviations: number[] = [];
+  let reachedBound = untilMatchKey === undefined;
   for (const event of sortedEvents) {
+    if (reachedBound && untilMatchKey !== undefined) break;
     for (const match of event.matches) {
-      if (match.actualRedScore === undefined || match.actualBlueScore === undefined) continue;
+      const isBound = untilMatchKey !== undefined && match.matchKey === untilMatchKey;
+      if (match.actualRedScore === undefined || match.actualBlueScore === undefined) {
+        if (isBound) {
+          reachedBound = true;
+          break;
+        }
+        continue;
+      }
 
       let roster: readonly string[];
       let actualScore: number;
@@ -146,13 +211,24 @@ export function swingFactorForTeam(artifact: TeamSeasonArtifact, teamKey: string
         actualScore = match.actualBlueScore;
         predictedScore = match.predictedBlueScore;
       } else {
+        if (isBound) {
+          reachedBound = true;
+          break;
+        }
         continue;
       }
-      if (roster.length === 0) continue;
+      if (roster.length !== 0) deviations.push((actualScore - predictedScore) / roster.length);
 
-      deviations.push((actualScore - predictedScore) / roster.length);
+      if (isBound) {
+        reachedBound = true;
+        break;
+      }
     }
   }
+
+  // A window we could not reconstruct publishes nothing — never a number
+  // quietly measured over a different span than the value beside it.
+  if (!reachedBound) return undefined;
 
   return swingFactorFromDeviations(deviations);
 }

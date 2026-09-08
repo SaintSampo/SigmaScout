@@ -35,14 +35,29 @@ function isOfficialEvent(row: EventRows[number]): boolean {
   return !row.isOffseason && isOfficialEventType(row.eventType);
 }
 
-export function officialSnapshotMetrics(
+/**
+ * The snapshot ROW, not just its metrics — the same last-official-match row
+ * `officialSnapshotMetrics` has always resolved, exposed whole (quick task
+ * 260908-5wd) because the row's `matchKey` is what bounds the browser-computed
+ * Swing Factor's observation window to the same span the snapshot's own values
+ * describe. Without it the header would print an as-of-then value beside a
+ * whole-season `±`, which is the two-as-of-instants defect IN-01 names.
+ */
+export function officialSnapshotRow(
   metricHistory: MetricHistoryRows,
   eventRows: EventRows,
-): MetricHistoryRows[number]["metrics"] | undefined {
+): MetricHistoryRows[number] | undefined {
   const officialKeys = new Set(eventRows.filter(isOfficialEvent).map((row) => row.eventKey));
   let last: MetricHistoryRows[number] | undefined;
   for (const row of metricHistory) {
     if (officialKeys.has(row.eventKey)) last = row;
   }
-  return last?.metrics;
+  return last;
+}
+
+export function officialSnapshotMetrics(
+  metricHistory: MetricHistoryRows,
+  eventRows: EventRows,
+): MetricHistoryRows[number]["metrics"] | undefined {
+  return officialSnapshotRow(metricHistory, eventRows)?.metrics;
 }

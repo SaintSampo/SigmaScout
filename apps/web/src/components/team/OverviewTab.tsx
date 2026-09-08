@@ -24,9 +24,11 @@ export interface OverviewTabProps {
    * page silently kept showing season-final values.
    */
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
+  /** Quick task 260908-5wd: the snapshot row's `matchKey`, threaded through unchanged — see `SeasonHeaderProps.snapshotMatchKey`. */
+  snapshotMatchKey?: string;
 }
 
-export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride }: OverviewTabProps) {
+export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey }: OverviewTabProps) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
       <div className="data-card p-[var(--spacing-md)]">
@@ -37,7 +39,7 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber, metrics
           straight through; `SeasonHeader`/`RankCards` own the
           graceful-absence contract (undefined/empty both render nothing).
         */}
-        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} ranks={artifact.ranks} />
+        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} snapshotMatchKey={snapshotMatchKey} ranks={artifact.ranks} />
       </div>
       <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
       {/*

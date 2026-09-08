@@ -29,6 +29,15 @@ export interface SeasonHeaderProps {
   /** The last-OFFICIAL-match snapshot metrics (lib/officialSnapshot.ts), when the route could derive one — season-final values render otherwise. */
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
   /**
+   * The `matchKey` of the row `metricsOverride` came from (quick task
+   * 260908-5wd) — the as-of instant, passed as data rather than re-derived
+   * here, so the browser-computed Swing Factor can be measured over exactly
+   * the span the snapshot's own values describe. Meaningful only alongside
+   * `metricsOverride`; absent for the season-final case, where the window is
+   * the whole season.
+   */
+  snapshotMatchKey?: string;
+  /**
    * Quick task 260905-ttv: this team's World/Country/District/State rank
    * scopes, threaded straight through to `RankCards` — see that module's own
    * header for the graceful-absence contract (undefined/empty both render
@@ -57,14 +66,26 @@ function formatWinRate(value: number | null): string {
  * VPR renders exactly what it rendered before this task; OPR and EPA gain a
  * Swing Factor they never had; and the two can never disagree because they
  * never both exist for the same team at once.
+ *
+ * `untilMatchKey` carries the header's as-of instant down into the estimator.
+ * This merge originally ran ONLY when no snapshot was in play, on the reasoning
+ * that a whole-season `±` must not sit beside an as-of-then value. That
+ * reasoning was right and the remedy was wrong: verified against live 2026 data
+ * (2026-09-08), a real team's header almost always DOES resolve a snapshot, so
+ * skipping meant OPR and EPA never showed a Swing Factor at all and the feature
+ * was invisible in production while every unit test passed. Bounding the window
+ * to the snapshot's own match satisfies the same honesty requirement without
+ * costing the feature — the `±` and the value beside it now describe the same
+ * span.
  */
 function withBrowserSwingFactor(
   metrics: TeamSeasonArtifact["seasonStats"]["metrics"],
-  artifact: TeamSeasonArtifact
+  artifact: TeamSeasonArtifact,
+  untilMatchKey?: string
 ): TeamSeasonArtifact["seasonStats"]["metrics"] {
   const totalEntry = metrics[TOTAL_KEY];
   if (totalEntry === undefined || totalEntry.spread !== undefined) return metrics;
-  const swingFactor = swingFactorForTeam(artifact, artifact.teamKey);
+  const swingFactor = swingFactorForTeam(artifact, artifact.teamKey, { untilMatchKey });
   if (swingFactor === undefined) return metrics;
   return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: swingFactor } };
 }
@@ -91,7 +112,7 @@ function metricLabel(key: string): string {
  * D-03), a "View on TBA" link, the record/win-rate strings, D-17's tier key
  * row, and the tier-boxed metric grid.
  */
-export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, ranks }: SeasonHeaderProps) {
+export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
   const { record } = artifact.seasonStats;
   // 2026-09-01 (user request): tiles read the last-OFFICIAL-match snapshot
@@ -111,14 +132,13 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // through this identical call, so the snapshot caption above stays
   // truthful either way. See lib/metricGroups.ts's header for the full
   // honesty argument.
-  // Swing Factor merge runs BEFORE withDerivedGroupMetrics and ONLY when
-  // metricsOverride is absent — the observation window swingFactorForTeam
-  // reads (this artifact's WHOLE season of matches) must match the metrics
-  // being displayed. A scoped snapshot (metricsOverride present) describes a
-  // different window than the team's whole season, and pairing one with the
-  // other would print a number that means neither.
+  // Swing Factor merge runs BEFORE withDerivedGroupMetrics, in BOTH as-of
+  // states, with its observation window bounded to match whichever one is
+  // showing: the whole season for season-final values, and everything up to
+  // the snapshot's own match when `snapshotMatchKey` is supplied. See
+  // `withBrowserSwingFactor` for why bounding replaced the original skip.
   const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
-  const metricsWithSwingFactor = metricsOverride === undefined ? withBrowserSwingFactor(resolvedMetrics, artifact) : resolvedMetrics;
+  const metricsWithSwingFactor = withBrowserSwingFactor(resolvedMetrics, artifact, metricsOverride === undefined ? undefined : snapshotMatchKey);
   const metrics = withDerivedGroupMetrics(metricsWithSwingFactor, season);
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
