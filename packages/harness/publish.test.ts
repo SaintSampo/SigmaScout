@@ -2782,8 +2782,156 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
     const row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
     expect(row).toBeDefined();
     expect(row?.teamNumber).toBe(1);
-    expect(row?.record).toEqual({ wins: 1, losses: 0, ties: 0 });
+    // Quick task 260908-615: PRESENT-AND-ZERO, not absent. frc1 won its only
+    // match, but that match was at an offseason event, so the official-scoped
+    // record counts nothing — while the row itself still exists so the team
+    // remains findable and its page still links.
+    expect(row?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
+    expect(row?.eventCount).toBe(0);
+    expect(row?.matchCount).toBe(0);
     expect(row?.metrics).toEqual({});
+  });
+});
+
+describe("publishSeasons — official-only record, eventCount and matchCount (quick task 260908-615)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-official-counts-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Local copy of the sibling block's helper — `findTeamsArtifactRaw` there is describe-scoped. */
+  function findTeamsArtifactRaw(year: number): unknown {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string);
+  }
+
+  /** frc1 plays one official match (a win) and one offseason match (also a win). */
+  function seedOneOfficialOneOffseason(): void {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026casj_qm1", eventKey: "2026casj", sortTime: 1_000 }));
+
+    upsertEvent(
+      db,
+      seasonEvent({ eventKey: "2026ex", name: "Exhibition", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true })
+    );
+    upsertMatch(db, seasonMatch({ matchKey: "2026ex_qm1", eventKey: "2026ex", sortTime: 9_000 }));
+  }
+
+  it("the Teams-list row counts the official match only, with matchCount 1 and eventCount 1", async () => {
+    seedOneOfficialOneOffseason();
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+    const row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+    expect(row?.record).toEqual({ wins: 1, losses: 0, ties: 0 });
+    expect(row?.matchCount).toBe(1);
+    expect(row?.eventCount).toBe(1);
+  });
+
+  it("the per-team artifact publishes the same official-only record while still carrying the offseason event, its matches and its metricHistory rows", async () => {
+    seedOneOfficialOneOffseason();
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const artifact = findTeamArtifact("frc1", 2026);
+    expect(artifact.seasonStats.record, "same population as the Teams-list row").toEqual({
+      wins: 1,
+      losses: 0,
+      ties: 0,
+    });
+
+    // The re-scoping half: nothing about the offseason event is hidden.
+    const exhibition = artifact.events.find((e) => e.eventKey === "2026ex");
+    expect(exhibition, "the offseason event keeps its own section").toBeDefined();
+    expect(exhibition?.matches).toHaveLength(1);
+    expect(
+      artifact.metricHistory.some((r) => r.eventKey === "2026ex"),
+      "the offseason match still moves the metric-history chart"
+    ).toBe(true);
+  });
+
+  it("region derivation is untouched: an offseason event never contributed a region (deriveTeamRegions filters officially on its own), and a team with official play still gets one", async () => {
+    // frc10..frc15 play an OFFICIAL event carrying geography.
+    upsertEvent(
+      db,
+      seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0, country: "USA", stateProv: "CA" })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026casj_qm1",
+        eventKey: "2026casj",
+        sortTime: 500,
+        redTeams: ["frc10", "frc11", "frc12"],
+        blueTeams: ["frc13", "frc14", "frc15"],
+      })
+    );
+
+    // frc1..frc6 play ONLY an offseason event, which also carries geography.
+    upsertEvent(
+      db,
+      seasonEvent({
+        eventKey: "2026ex",
+        name: "Exhibition",
+        eventType: OFFSEASON_EVENT_TYPE,
+        isOffseason: true,
+        country: "USA",
+        stateProv: "TX",
+      })
+    );
+    upsertMatch(db, seasonMatch({ matchKey: "2026ex_qm1", eventKey: "2026ex", sortTime: 9_000 }));
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+
+    // The offseason-only team: zero official counts, and NO region — not
+    // because this task narrowed the region input (it did not; the all-play
+    // map is still passed), but because `deriveTeamRegions` applies its own
+    // `isRegionEligibleEvent` official-type filter. Pinned here so a future
+    // reader does not "fix" the region input believing it was broken by the
+    // record scoping.
+    const offseasonOnly = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+    expect(offseasonOnly?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
+    expect(offseasonOnly?.country).toBeUndefined();
+    expect(offseasonOnly?.stateProv).toBeUndefined();
+
+    // The official-play team: region derives exactly as before.
+    const officialTeam = teamsArtifact.teams.find((t) => t.teamKey === "frc10");
+    expect(officialTeam?.country).toBe("USA");
+    expect(officialTeam?.stateProv).toBe("CA");
   });
 });
 

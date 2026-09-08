@@ -285,6 +285,20 @@ export function composeEventLocation(stateProv: string | null, country: string |
 }
 
 /** Win/loss/tie counts as three integer fields, never a formatted string. */
+/**
+ * A team's win-loss-tie record over OFFICIAL play only, as of quick task
+ * 260908-615 — offseason (TBA event type 99) and preseason Week-0 (type 100)
+ * results do not appear in these counts, on either surface that carries this
+ * shape. The scoping predicate is `isOfficialEventType`
+ * (`packages/core/algorithms/eventTypes.ts`), the same one the Teams-list
+ * metric snapshot, the team-page header and the live Worker's incremental
+ * merge all read.
+ *
+ * Those matches are NOT hidden: a team-season artifact's own `events` and
+ * `metricHistory` arrays remain fully offseason-inclusive, so an offseason
+ * event keeps its section, its match rows and its rating movement. Only the
+ * summary counts are scoped.
+ */
 const RecordSchema = z.object({
   wins: z.number().int().nonnegative(),
   losses: z.number().int().nonnegative(),
@@ -1005,7 +1019,14 @@ const TeamsTableRowRawSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int(),
   nickname: z.string(),
+  /**
+   * Distinct OFFICIAL events this team played (quick task 260908-615 —
+   * see `RecordSchema`'s own comment for the scoping rule and why the
+   * offseason data is still present elsewhere in the artifact). A team whose
+   * only play was offseason publishes `0` here and still gets a row.
+   */
   eventCount: z.number().int().nonnegative(),
+  /** OFFICIAL matches played — same scoping as `eventCount` above. */
   matchCount: z.number().int().nonnegative(),
   record: RecordSchema,
   metrics: z.union([MetricsRecordSchema, z.array(PositionalMetricEntrySchema)]),

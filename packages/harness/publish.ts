@@ -2178,18 +2178,43 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       scheduledByEvent.set(m.eventKey, list);
     }
 
-    const teamStats = computeTeamSeasonStats(stream);
+    // Two populations, deliberately (quick task 260908-615).
+    //
+    //   `teamStatsAllPlay` covers every replayed match, offseason and
+    //   preseason included. Consumed by `deriveTeamRegions` below — home
+    //   region is a separate question this task does not reopen, and a team
+    //   whose only events are offseason ones must keep its region.
+    //
+    //   `teamStatsOfficial` covers OFFICIAL play only, and is what the
+    //   published W-L-T record, `matchCount` and `eventCount` draw from on
+    //   both team surfaces. It filters by the already-built
+    //   `officialEventKeys` set rather than re-testing event types here: that
+    //   set is derived once per season from the shared `isOfficialEventType`
+    //   predicate a couple hundred lines above, and a second derivation is
+    //   exactly the drift this codebase has already paid for once.
+    const teamStatsAllPlay = computeTeamSeasonStats(stream);
+    const teamStatsOfficial = computeTeamSeasonStats(stream.filter((m) => officialEventKeys.has(m.eventKey)));
     const eventCounts = computeEventCounts(stream, scheduled);
 
     // Quick task 260905-ldu: a team's home region is algorithm-agnostic (it
     // does not depend on which algorithm scored the team), so it is derived
     // exactly ONCE per season here, before the per-algorithm loop below —
     // the same argument `actualBonusFlagsForSeason` above already makes for
-    // a per-season-not-per-algorithm quantity. `teamStats`'s own `eventKeys`
-    // set (built above, from the same `stream`) is reused directly rather
-    // than re-walking the match stream a second time.
+    // a per-season-not-per-algorithm quantity. `teamStatsAllPlay`'s own
+    // `eventKeys` set (built above, from the same `stream`) is reused directly
+    // rather than re-walking the match stream a second time.
+    //
+    // Quick task 260908-615 deliberately left this input as the ALL-PLAY map
+    // rather than switching it to `teamStatsOfficial` alongside the record and
+    // counts. The two are equivalent HERE — `deriveTeamRegions` applies its
+    // own `isRegionEligibleEvent` filter (official types, minus neutral-site
+    // ones), so an offseason event cannot reach a region either way — and
+    // keeping the wider input makes this site's behavior provably unchanged
+    // by that task rather than merely believed to be. A future reader should
+    // NOT read this line as "offseason events contribute to a region": they
+    // do not, and never did.
     const teamRegions = deriveTeamRegions({
-      teamEventKeys: new Map(Array.from(teamStats.entries(), ([teamKey, stats]) => [teamKey, stats.eventKeys])),
+      teamEventKeys: new Map(Array.from(teamStatsAllPlay.entries(), ([teamKey, stats]) => [teamKey, stats.eventKeys])),
       events: eventMeta.map((e) => ({
         eventKey: e.event_key,
         eventType: e.event_type,
@@ -2298,7 +2323,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // --- teams/{year}/{algorithm}@{version}.json ---
       const teamsRows: TeamsArtifactTeamInput[] = teamsThisSeason.map((teamKey) => {
         const info = teamInfoOrFallback(teamInfo, teamKey);
-        const stats = teamStats.get(teamKey);
+        // Quick task 260908-615: OFFICIAL play only, for the record and both
+        // counts below. A team with no official play at all is absent from
+        // this map and publishes an all-zero record with zero counts —
+        // present-and-zero, never a missing row.
+        const stats = teamStatsOfficial.get(teamKey);
         return {
           teamKey,
           teamNumber: info.teamNumber,
@@ -2308,11 +2337,16 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // OFFICIAL match, not the season-final snapshot — ranked (via
           // `officialMetricsByTeamWithPercentiles` above) against the field
           // of teams that have official play, so an offseason result can
-          // never move a team's position on this list. `record`/
-          // `eventCount`/`matchCount` below stay season-wide (unchanged):
-          // the team page applies this identical split — an official-scoped
-          // header over a season-scoped record — and matching that
-          // precedent keeps the two pages coherent (see `officialSnapshot.ts`).
+          // never move a team's position on this list.
+          //
+          // Quick task 260908-615: `record`, `eventCount` and `matchCount`
+          // below now draw from that SAME official population, so this whole
+          // row means one thing. They used to stay season-wide beside an
+          // official-scoped metric snapshot, which put two populations in one
+          // header row; the reason 260904-586 scoped the snapshot is the same
+          // reason these three are scoped now. Offseason and preseason play
+          // stays fully visible in the per-team artifact's own `events` and
+          // `metricHistory` arrays — this is a re-scoping, not a hiding.
           //
           // Carries the D-17 rarity TIER, not the raw percentile. The Teams
           // table now applies the same tiers the team page does, so a
@@ -2543,7 +2577,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             matches: sortTeamSeasonMatches(matches, sortTimeByMatchKey),
           };
         });
-        const stats = teamStats.get(teamKey);
+        // Quick task 260908-615: OFFICIAL play only, matching the Teams-list
+        // row above so the two surfaces cannot disagree about a team's
+        // record. The `events` array built just above is UNSCOPED and stays
+        // that way — an offseason event keeps its own section, its matches
+        // and its metric-history rows.
+        const stats = teamStatsOfficial.get(teamKey);
         const teamSeasonArtifact = buildTeamSeasonArtifact({
           teamKey,
           teamNumber: info.teamNumber,

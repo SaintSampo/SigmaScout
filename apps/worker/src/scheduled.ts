@@ -63,16 +63,28 @@
  * extends this mechanism or a manual republish runs. Documented as a Known
  * Stub in this plan's SUMMARY, not a silent gap.
  *
- * OFFICIAL-PLAY SCOPE (quick task 260904-586): this incremental merge into
- * `teams/{year}` now covers OFFICIAL play only, matching what `publish.ts`
- * writes offline (`isOfficialEventType`, `packages/core/algorithms/
- * eventTypes.ts`) -- a live offseason or preseason Week-0 event still folds
- * its matches into per-event/per-team artifacts normally, but contributes
- * nothing to `touchedTeamsByAlgorithm`, so it can never move the season
- * leaderboard. An unknown event type (the `-1` "detail fetch failed"
- * sentinel) is treated as official, so a failed TBA detail fetch degrades
- * toward keeping the leaderboard updated rather than toward silently
- * freezing it.
+ * OFFICIAL-PLAY SCOPE (quick task 260904-586, WIDENED by quick task
+ * 260908-615): every SUMMARY quantity this merge writes covers OFFICIAL play
+ * only (`isOfficialEventType`, `packages/core/algorithms/eventTypes.ts`),
+ * matching what `publish.ts` writes offline. Two gates, at two levels:
+ *
+ *   - the `teams/{year}` leaderboard feed — a live offseason or preseason
+ *     Week-0 event contributes nothing to `touchedTeamsByAlgorithm`, so it
+ *     can never move the season leaderboard (260904-586);
+ *   - the per-team artifact's own `seasonStats.record` — `incrementRecord`
+ *     skips an unofficial match outright (260908-615). This per-team write
+ *     was UNCONDITIONAL before that task, which is what this paragraph used
+ *     to say; that is no longer true and the old wording is replaced rather
+ *     than appended to, since an offseason win counted live but not offline
+ *     is precisely the live/offline divergence both gates exist to prevent.
+ *
+ * A live offseason event still folds its matches into per-event and per-team
+ * artifacts normally — match rows and metric-history rows are written exactly
+ * as before. Only the summary record is scoped.
+ *
+ * An unknown event type (the `-1` "detail fetch failed" sentinel) is treated
+ * as official at BOTH gates, so a failed TBA detail fetch degrades toward
+ * keeping the leaderboard updated rather than toward silently freezing it.
  *
  * OFF-SEASON DEMO TEAM EXCLUSION (`.planning/todos/completed/
  * exclude-offseason-demo-teams-SUMMARY.md`, "gap 1"): `packages/core/
@@ -562,7 +574,22 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
   };
 }
 
+/**
+ * Quick task 260908-615: OFFICIAL play only. An offseason or preseason
+ * Week-0 match returns the record unchanged, matching what `publish.ts`
+ * writes offline (`teamStatsOfficial`) — without this gate the live merge
+ * would re-introduce, one tick at a time, exactly the offseason wins the
+ * offline publisher had just stopped counting, and the two would silently
+ * disagree about the same team's record.
+ *
+ * The test is per-match and inside the fold loop rather than a boolean
+ * threaded down from the caller, so an unknown/sentinel event type (`-1`,
+ * "event detail fetch failed") degrades toward COUNTING the match — the
+ * same direction `isOfficialEventType` documents and the same direction the
+ * teams-artifact feed's own gate already takes.
+ */
 function incrementRecord(record: { wins: number; losses: number; ties: number }, teamKey: string, match: MatchResult) {
+  if (!isOfficialEventType(match.eventType)) return record;
   const onRed = match.redTeams.includes(teamKey);
   const onBlue = match.blueTeams.includes(teamKey);
   if (!onRed && !onBlue) return record;
@@ -586,8 +613,19 @@ interface MergeTeamSeasonArtifactParams {
   readonly stamp: Stamp;
 }
 
-/** Read-modify-write merge for one team's season artifact: appends this tick's newly-folded matches at `eventKey` (creating the event's entry if this is the team's first match there), refreshes `seasonStats`, and appends metric-history rows. */
-function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
+/**
+ * Read-modify-write merge for one team's season artifact: appends this tick's
+ * newly-folded matches at `eventKey` (creating the event's entry if this is
+ * the team's first match there), refreshes `seasonStats`, and appends
+ * metric-history rows.
+ *
+ * Exported for `test/scheduled.officialRecord.test.ts` (quick task
+ * 260908-615), which pins the one asymmetry this function now carries: an
+ * offseason match's rows ARE appended while the summary record is NOT
+ * incremented. Driving that assertion through `runTick` would need the whole
+ * D1/R2/KV fake rig to prove a property of ten lines of pure merge logic.
+ */
+export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
   const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, stamp } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
