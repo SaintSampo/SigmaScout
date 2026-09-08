@@ -1,9 +1,10 @@
 ---
-task: VPR simplification stab — Stage 1 (+ 1b multi-season verification)
+task: VPR simplification stab — Stages 1, 1b, 1c, 1d + Stage 2A (the deletion)
 date: 2026-09-07
 status: complete
-commits: [d2600e93, 15fbf94e, 339ab332, 8d23367c]
-outcome: measurement only — deletion list produced AND partially self-refuted; nothing promoted or published
+commits: [d2600e93, 15fbf94e, 339ab332, 8d23367c, cd705f95, 06232d62, d3c36f6f, c400808a, 97c25673]
+outcome: 7 parameters DELETED at SIGMA1_CODE_VERSION 11.0.0; three follow-up hypotheses refuted; NOT republished
+stopped_at: operator halted the line of work 2026-09-08; origin 2022's Stage 1d run has no data
 ---
 
 # Summary

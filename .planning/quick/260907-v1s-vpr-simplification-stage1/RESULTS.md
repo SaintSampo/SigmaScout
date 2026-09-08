@@ -419,6 +419,64 @@ The parameter's *real* structure is the per-season sign, not its magnitude:
 worth roughly +0.5pt on 2023, positive on 2025 and 2026, and −0.35pt on 2024 at
 every value in the top of the range.
 
+## Stage 1d — was the ordering CONSTRAINT hiding the optimum? (refuted)
+
+The last untested lead. `processNoiseEventBoundaryRel > processNoiseWithinEventRel`
+is enforced by both `isValidParamSet` and the schema, and on 2026 that
+constraint **bound**: the one-at-a-time sweep's top grid point was rejected as
+invalid while accuracy was still climbing, so it stopped at a wall rather than
+at an optimum. A constraint that truncates a sweep is indistinguishable from a
+flat knob.
+
+Tested by moving BOTH terms together, in two families so a result cannot be an
+artifact of either — `ratioN` slides the pair up at a fixed boundary/within
+ratio, `fixedB` holds the boundary at 0.00778 (the value 2026's own sweep
+preferred) and sweeps within underneath it. Run against the **11.0.0**
+simplified model.
+
+**Refuted. The truncated region is worse, not better.**
+
+Δ accuracy vs each origin's own shipped set, at the best config in each family:
+
+| origin | shipped `within` | best config | Δ accuracy | σ | direction beyond the old wall |
+|---|---|---|---|---|---|
+| 2026 | 0.000335 | `fixedB` w=0.0005 | **+0.00202** | 1.66 | w=0.002 → −0.00251; w=0.008 → −0.01542 |
+| 2025 | 0.000335 | `ratio3` w=0.0005 | +0.00045 | 0.71 | w=0.008 → −0.01718 |
+| 2024 | 0.000141 | `ratio3` w=0.0002 | −0.00060 | −0.96 | every config negative; w=0.008 → −0.04050 |
+| 2023 | 0.000141 | `ratio3` w=0.0002 | +0.00031 | 0.53 | w=0.008 → −0.02800 |
+| 2022 | — | **NO DATA** | — | — | run stopped mid-origin by operator |
+
+Every origin degrades monotonically past w ≈ 0.001, reaching −6σ to −12σ at the
+top. Whatever the constraint was cutting off, it was not a better model.
+
+**2026 does show a modest real gain**, and it improves BOTH metrics: +0.00202
+accuracy (1.66σ) with Brier 0.14345 → 0.14247. Note the winning value
+(w = 0.0005) was **inside the reachable region all along** — the gain comes
+from raising the BOUNDARY, not from crossing the constraint. 2024 rejects the
+same move at −0.96σ and gets rapidly worse beyond it.
+
+So this is the third parameter in a row whose story is a **per-season sign**
+rather than a global optimum, alongside `attributionShrinkage` and the
+carry-damping family.
+
+### An unplanned confirmation of Stage 2A
+
+The 11.0.0 baselines in this run were measured on a different day, through a
+different code path, against rebuilt version files. They reproduce Stage 1b's
+predicted cost of the deletion **to five decimals**:
+
+| origin | pre-cut baseline | post-cut baseline | measured Δ | Stage 1b predicted |
+|---|---|---|---|---|
+| 2026 | 0.79270 | 0.79226 | −0.00044 | −0.00044 |
+| 2025 | 0.76639 | 0.76566 | −0.00073 | −0.00073 |
+| 2024 | 0.74547 | 0.74547 | +0.00000 | +0.00000 |
+| 2023 | 0.75483 | 0.75483 | +0.00000 | +0.00000 |
+
+2023 and 2024 are unchanged because they shipped `adaptationEnabled: false` —
+exactly the split the 11.0.0 inertness check found. This is the strongest
+evidence in the whole task that the Stage 2A deletion did what was measured and
+nothing else.
+
 ## What Stage 1 does NOT establish
 
 Stated explicitly so none of the above gets over-read:
@@ -444,11 +502,11 @@ Stated explicitly so none of the above gets over-read:
 2. Delete category B (**the 7 confirmed fields, not the original 11**); move
    category A out of the search into a post-hoc calibration fit. Decide the 3
    conditional carry-damping fields explicitly — they cost 2022 −1.7σ.
-3. ~~Widen `attributionShrinkage`'s bound past 0.9~~ — **done in Stage 1c, not
-   worth it.** Still open: the `processNoiseEventBoundaryRel >
-   processNoiseWithinEventRel` ordering constraint, which was BINDING on 2026
-   (the top of the within-event bound was skipped as invalid while the trend
-   was still improving). That one is untested and remains a live lead.
+3. ~~Widen `attributionShrinkage`'s bound past 0.9~~ (Stage 1c) and ~~test the
+   process-noise ordering constraint~~ (Stage 1d) — **both done, both refuted.**
+   Neither bound nor constraint was hiding an optimum. The only residue is a
+   modest 2026-only gain from a larger `processNoiseEventBoundaryRel`
+   (+0.00202, 1.66σ, Brier also better) that 2024 rejects.
 4. Re-tune the ~7 survivors on 2024+2025 with a real optimizer (CMA-ES) against
    a smooth accuracy-aligned surrogate, at a budget far above 67 evaluations.
 5. Rebuild the incumbent before any acceptance comparison — the current one is
