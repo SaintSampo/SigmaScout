@@ -5,6 +5,9 @@ date: 2026-09-08
 frozen_at: a66688af
 holdout_accuracy_all: 0.7805
 holdout_accuracy_quals: 0.7837
+published: true
+published_at: 2026-09-08
+publish_generation: 34927891-7c14-401d-8684-af4f473ed02e
 ---
 
 # BPR — a fresh, 2023-blind FRC match predictor
@@ -133,3 +136,79 @@ model was frozen.
 - `packages/bpr/model.test.ts` — 9 tests
 - `DECISION.md` — pre-committed freeze rule
 - `HOLDOUT-RESULT.txt` — the single-shot output
+
+---
+
+# Addendum: shipped to production (2026-09-08)
+
+The sections above are the sealed research result. This records what happened
+when it was published, which was a materially larger job than "add a model".
+
+## Published
+
+`bpr@1.0.0+baseline`, all ten official seasons, generation `34927891`:
+145,070 objects / 5.28 GB, zero errors. Live on `data.sigmascout.org` and
+rendering on the Compare page and ribbon.
+
+## The site is now N-algorithm generic
+
+The stated goal was to make the NEXT model cheap. A new algorithm now needs a
+registry line plus a module; six seams were involved and the ones that could
+fail silently were made to fail loudly:
+
+| seam | change |
+|---|---|
+| `PUBLISHED_ALGORITHM_IDS` | the one edit a new algorithm should need |
+| `BASE_PUBLISH_ALGORITHMS` | id to module, feeds publish + cleanup |
+| `buildAlgorithmsManifest` | now DERIVED, throws on an unregistered id |
+| `ALGORITHM_DISPLAY_LABELS` | ribbon label |
+| `SELECTED_ON_SEASONS_SOURCES` | already threw loudly |
+| `serializeState` | bpr branch added; the silent Sigma1 fallthrough documented |
+
+`AccuracyTable`'s column count and `DataCoverageTable`'s test assertions are
+derived rather than literal, and the compare/ribbon test suites assert against
+the registry instead of a pinned triple.
+
+## Three defects the dry-run caught before any production write
+
+None would have been caught by tests, and all three were found by running
+`--dry-run` on one season first:
+
+1. version `1.0.0` violated the D-13 `{codeVersion}+{paramSetName}` artifact-key
+   shape, now `1.0.0+baseline`
+2. no selected-on provenance registered
+3. `state.componentOrder is not iterable` -- `serializeState` silently treats an
+   unknown id as Sigma1-shaped, so BPR failed naming a field it has never had
+
+## How BPR compares, and the caveat that matters
+
+Published pooled combined accuracy: BPR leads every season it was measured on
+(2024 .7671, 2025 .7854, 2026 .8041) against EPA (.7354/.7745/.7944) and VPR
+(.7321/.7641/.7874).
+
+**This is not a like-for-like comparison.** VPR is tuned ON those seasons;
+BPR treated them as a sealed holdout. The honest reading is that a
+2023-blind model is competitive with tuned ones, not that it is 3pp better.
+A visible consequence: OPR has dropped off the home page podium, which has
+three places for four algorithms.
+
+## Budget headroom -- one number to watch
+
+`compare` is now at **93.2% of its 20,000-byte ceiling** (14,015 -> 18,630 B),
+because that artifact carries one slice set per algorithm. A FIFTH algorithm
+breaches it. Raise the ceiling or shrink the per-slice payload first.
+R2 storage is at 5.28 GB of the 10 GB free tier.
+
+## Compare page: pill instead of bold
+
+With four algorithms the bold winning value was hard to pick out of a dense
+numeric grid. It now renders in a rounded pill -- a SHAPE signal, because the
+palette is spent (alliances, tiers, win/loss, accent) and sketch 007 ruled out
+a per-algorithm hue. Near-ties still render as ties with no emphasis at all.
+
+## Not done
+
+- `packages/gbr/seal.test.ts` failures belong to a concurrent session
+- `publish.test.ts` and four others fail only under full-suite contention;
+  `publish.test.ts` passes 149/149 in isolation
+- the holdout is spent: re-tuning BPR against 2023-2026 voids the 78.05%
