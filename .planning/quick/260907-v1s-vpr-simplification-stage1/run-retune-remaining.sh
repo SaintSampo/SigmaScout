@@ -32,7 +32,7 @@
 # distinguishable winner rather than leaving it to faith.
 set -u
 cd "$(dirname "$0")/../../.." || exit 1
-STAMP=260908-r2
+STAMP=260908-r3
 SURVIVORS=reports/sensitivity-screen-260908-decon.json
 INCUMBENT=data/algorithm-versions/vpr@11.0.0+rolling-2026-09f.json
 
