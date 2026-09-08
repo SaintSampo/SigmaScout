@@ -1,11 +1,11 @@
 ---
 task: Stage 2A — delete the confirmed-dead VPR parameters
 date: 2026-09-07
-status: planned, not started
+status: DONE — landed as c400808a
 depends_on: Stage 1b/1c results in RESULTS.md
 ---
 
-# Stage 2A: cut 19 searchable parameters to 10
+# Stage 2A: cut 19 searchable parameters to 11
 
 ## What gets removed
 
@@ -40,14 +40,21 @@ Brier after the accuracy search.
 
 ## Census after
 
-| | before | after |
-|---|---|---|
-| `SIGMA1_PARAM_KEYS` | 33 | **26** |
-| `SEARCHABLE_PARAM_KEYS` | 19 | **10** |
-| `SEARCH_EXCLUSIONS` | 14 | **16** |
+| | before | after (planned) | after (ACTUAL) |
+|---|---|---|---|
+| `SIGMA1_PARAM_KEYS` | 33 | 26 | **26** |
+| `SEARCHABLE_PARAM_KEYS` | 19 | 10 | **11** |
+| `SEARCH_EXCLUSIONS` | 14 | 16 | **15** |
 
-10 + 16 = 26. `searchSpace.test.ts` asserts this partition and will name any
-field left in neither.
+11 + 15 = 26. `searchSpace.test.ts` asserts this partition and named the
+discrepancy the moment the plan's numbers were wrong.
+
+**The planned figures were wrong and the test caught it.** The plan counted
+`adaptationEnabled` as MOVING into `SEARCH_EXCLUSIONS` (where it already
+lived) when it is in fact DELETED along with the rest of its family — so
+exclusions go 14 - 1 + 2 = 15, not 16, and searchable goes 19 - 8 = 11, not
+10. Recorded rather than quietly corrected, because a plan whose arithmetic
+is silently patched afterwards teaches nothing about how to count next time.
 
 ## THE COST, stated up front
 

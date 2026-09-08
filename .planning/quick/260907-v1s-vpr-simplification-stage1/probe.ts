@@ -140,7 +140,7 @@ async function main(): Promise<void> {
     throw new Error(`missing --${name}`);
   };
 
-  const versionPath = arg("version", "data/algorithm-versions/vpr@10.0.0+rolling-2026-09d.json");
+  const versionPath = arg("version", "data/algorithm-versions/vpr@11.0.0+rolling-2026-09e.json");
   SCORE_SEASON = Number(arg("season", "2026"));
   REPLAY_SEASONS = arg("replay", "2024,2025,2026").split(",").map(Number);
   if (!REPLAY_SEASONS.includes(SCORE_SEASON)) {
