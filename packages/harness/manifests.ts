@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { bpr } from "../core/algorithms/bpr.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
@@ -245,9 +246,6 @@ export interface BuildAlgorithmsManifestOptions {
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
   const { generation, computedAt, paramsSeason } = options;
 
-  const oprSplit = splitManifestVersion(opr.id, opr.version);
-  const epaSplit = splitManifestVersion(epa.id, epa.version);
-
   // D-12 / 03-REVIEW WR-03: the same staleness check `applyPromotedOverrides`
   // runs before reading the pinned file — a newer committed version must be
   // exactly as loud here as it is in a harness run.
@@ -262,18 +260,34 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // the pinned file becomes a per-season one.
   const paramsForManifest = resolveParamSets(promoted).forSeason(paramsSeason).params;
 
-  const algorithms: AlgorithmManifestEntry[] = [
-    { id: opr.id, version: opr.version, codeVersion: oprSplit.codeVersion, paramSetName: oprSplit.paramSetName },
-    { id: epa.id, version: epa.version, codeVersion: epaSplit.codeVersion, paramSetName: epaSplit.paramSetName },
-    {
-      id: promoted.id,
-      version: promoted.version,
-      codeVersion: vprSplit.codeVersion,
-      paramSetName: vprSplit.paramSetName,
-      params: paramsForManifest,
-      paramsSeason,
-    },
-  ];
+  // Derived from PUBLISHED_ALGORITHM_IDS rather than written out, so adding an
+  // algorithm is a registry edit rather than an edit here that someone has to
+  // remember. The lookup throws on an unregistered id instead of silently
+  // emitting a short manifest -- a missing entry would make the algorithm
+  // invisible to the browser while every test still passed.
+  const untunedModules: Record<string, { id: string; version: string }> = { opr, epa, bpr };
+
+  const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
+    if (id === promoted.id) {
+      return {
+        id: promoted.id,
+        version: promoted.version,
+        codeVersion: vprSplit.codeVersion,
+        paramSetName: vprSplit.paramSetName,
+        params: paramsForManifest,
+        paramsSeason,
+      };
+    }
+    const mod = untunedModules[id];
+    if (!mod) {
+      throw new Error(
+        `buildAlgorithmsManifest: no module registered for published id "${id}" ` +
+          `(known: ${Object.keys(untunedModules).join(", ")}, plus the promoted "${promoted.id}")`,
+      );
+    }
+    const split = splitManifestVersion(mod.id, mod.version);
+    return { id: mod.id, version: mod.version, codeVersion: split.codeVersion, paramSetName: split.paramSetName };
+  });
 
   return AlgorithmsManifestSchema.parse({
     schemaVersion: MANIFEST_SCHEMA_VERSION,

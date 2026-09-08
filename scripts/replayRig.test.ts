@@ -25,7 +25,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 // the constant's members is caught here without editing this test.
 describe("replayRig's default --algorithm list (plan 07-16/07-18)", () => {
   it("PUBLISHED_ALGORITHM_IDS resolves to the renamed triple, in publish order", () => {
-    expect([...PUBLISHED_ALGORITHM_IDS]).toEqual(["opr", "epa", "vpr"]);
+    expect([...PUBLISHED_ALGORITHM_IDS]).toEqual(["opr", "epa", "vpr", "bpr"]);
   });
 });
 
@@ -115,7 +115,7 @@ describe("ReplayRigResultSchema", () => {
     workerUrl: "https://sigmascout-worker.example.workers.dev",
     fixtureUrl: "https://sigmascout-fixture-rig.example.workers.dev",
     event: { eventKey: "2026cmptx", season: 2026, matchCount: 16 },
-    algorithms: ["opr", "epa", "vpr"],
+    algorithms: ["opr", "epa", "vpr", "bpr"],
     gap: MEASUREMENT_GAP_NOTE,
   };
 

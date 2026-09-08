@@ -37,7 +37,7 @@ describe("EXPECTED_CANDIDATE_KEY_COUNT", () => {
 });
 
 describe("resolveLiveAlgorithmVersions", () => {
-  it("resolves exactly the three published algorithm ids, each carrying a non-empty version", () => {
+  it("resolves exactly the published algorithm ids, each carrying a non-empty version", () => {
     const resolved = resolveLiveAlgorithmVersions();
     expect(resolved.map((a) => a.id).sort()).toEqual([...PUBLISHED_ALGORITHM_IDS].sort());
     for (const { version } of resolved) {

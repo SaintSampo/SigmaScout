@@ -53,6 +53,7 @@ import type {
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
+import { bpr } from "../core/algorithms/bpr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
@@ -125,8 +126,8 @@ const PRESIM_SCHEDULE_COUNT = 20;
 /** 20 schedules x 50 draws = 1,000 total baked draws — matching the client engine's own `SIMULATION_DRAWS`, so the baked and live results are the same kind of quantity at the same resolution. */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the three published ids. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
-const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr };
+/** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the published ids. `bpr` joined 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
+const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, bpr };
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below

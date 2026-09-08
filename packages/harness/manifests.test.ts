@@ -434,10 +434,10 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // collapsed the two tiers back into one; the literal stays as written
   // (it is still correct, and a future accidental re-split would now fail
   // this case rather than pass vacuously).
-  it("returns exactly 3 entries whose ids are opr, epa, vpr — in that order", () => {
+  it("returns one entry per published id, in PUBLISHED_ALGORITHM_IDS order", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
-    expect(manifest.algorithms).toHaveLength(3);
-    expect(manifest.algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);
+    expect(manifest.algorithms).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
+    expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
   it("reads opr/epa's id and version straight from the modules", () => {
@@ -499,7 +499,7 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
   // the ONLY algorithm-id constant this module exports, and its members are
   // the renamed triple in the shipped order.
   it("is the module's only algorithm-id constant, and its members are the renamed triple in the shipped order", async () => {
-    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "vpr"]);
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "vpr", "bpr"]);
     expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS"]);
   });
 

@@ -20,7 +20,18 @@
  * publisher/Worker and the browser again.
  */
 
-/** D-03/D-05: the published set is exactly these three ids, in this order — `vpr` (formerly `sigma1`) renamed by plan 07-18, once 07-17's write pass made the `vpr@` objects live. */
-export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "vpr"] as const;
+/**
+ * D-03/D-05: the published set, in display order — `vpr` (formerly the retired
+ * id) renamed by plan 07-18, once 07-17's write pass made the `vpr@` objects
+ * live.
+ *
+ * `bpr` joined 2026-09-08 (quick task 260908-b4t). It is a winner/score model
+ * only: like `opr` and `epa` it carries no ranking-point model, so it emits no
+ * RP pmf and the rank simulation stays `vpr`-only. Its parameters were frozen
+ * on 2016-2022 evidence alone and evaluated once against a sealed 2023-2026
+ * holdout — see `packages/core/algorithms/bpr.ts` for the provenance that
+ * number depends on.
+ */
+export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "vpr", "bpr"] as const;
 
 export type PublishedAlgorithmId = (typeof PUBLISHED_ALGORITHM_IDS)[number];

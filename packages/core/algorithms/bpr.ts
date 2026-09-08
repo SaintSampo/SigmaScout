@@ -32,7 +32,7 @@
  * Huber robustness, and a learned red-side bias. `packages/bpr/model.ts`
  * retains them behind inert defaults for future research.
  *
- * Like `opr.ts` and `epa.ts`, and unlike `sigma1`, BPR carries no ranking-point
+ * Like `opr.ts` and `epa.ts`, and unlike `vpr`, BPR carries no ranking-point
  * model, so it emits no `redRpPmf`/`blueRpPmf` and cannot drive the rank
  * simulation. That is a deliberate scope boundary, not an omission.
  */
@@ -90,7 +90,15 @@ export const BPR_PARAMS: BprParams = {
   w3: 0.5,
 };
 
-export const BPR_VERSION = "1.0.0";
+/**
+ * D-13 requires a `{codeVersion}+{paramSetName}` shape, because the paramSetName
+ * half becomes part of every published artifact key. `baseline` is the same
+ * suffix `opr` (4.0.0+baseline) and `epa` (5.0.0+baseline) carry, and it is the
+ * honest one here: BPR has no tuned parameter file and is never touched by
+ * `applyPromotedOverrides`. Its constants were frozen once, on 2016-2022
+ * evidence, and are not re-tuned per season.
+ */
+export const BPR_VERSION = "1.0.0+baseline";
 
 export interface BprTeamState {
   /** Slow "true talent" component. */

@@ -8,7 +8,7 @@ import type { YearChangeableSearch } from "@/lib/searchParams";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /**
- * Display labels for the three published ids — a build-time constant, never
+ * Display labels for the published ids — a build-time constant, never
  * derived from the manifest. This is the SINGLE place the site's model name
  * is written (D-04, plan 07-18): every other model-name render in the app —
  * the Teams-page rank column header (D-20, `columns.tsx`), the Insights
@@ -28,6 +28,7 @@ const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> =
   opr: "OPR",
   epa: "EPA",
   vpr: "VPR",
+  bpr: "BPR",
 };
 
 /**

@@ -124,6 +124,12 @@ const SELECTED_ON_SEASONS_SOURCES: Readonly<Record<string, (season: number) => r
   // D-2, not an omission standing in for it.
   opr: () => [],
   epa: () => [],
+  // BPR's constants were frozen once on 2016-2022 evidence and are never
+  // re-tuned per season, so it has no selected-on set for the same reason
+  // opr and epa do not. Deliberately NOT the seasons its design used: a
+  // selected-on season means "a search picked this parameter set here", and
+  // BPR ran no per-season search.
+  bpr: () => [],
   // Constructed by `makeSigma1` with the versioned DEFAULT parameter set
   // (`packages/core/algorithms/sigma1/index.ts`'s `vprDefaults`/
   // `vprSeasonSd`/`vprNormalCdf` all omit `options.params`, which falls back

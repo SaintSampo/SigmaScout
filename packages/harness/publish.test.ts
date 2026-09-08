@@ -18,6 +18,7 @@ import { epa } from "../core/algorithms/epa.js";
 // own `publish.ts` importer now imports the published `vpr` registry entry
 // under its post-rename name.
 import { vpr } from "../core/algorithms/sigma1/index.js";
+import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   openCorpus,
@@ -308,9 +309,9 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
   // the path an operator actually takes) resolves to the OPR id, the EPA
   // id, and `vpr` — read from `PUBLISHED_ALGORITHM_IDS`, the single
   // algorithm-id constant again as of plan 07-18's collapse.
-  it("the default (undefined) publish set resolves to opr, epa, vpr", () => {
+  it("the default (undefined) publish set resolves to opr, epa, vpr, bpr", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
-    expect(algorithms.map((a) => a.id)).toEqual([opr.id, epa.id, "vpr"]);
+    expect(algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
   // Test 8: every emitted artifact key for the published algorithm carries

@@ -35,7 +35,14 @@ export const WINNER_ACCURACY_HEADER_LABEL = "Winner Accuracy";
 export const BRIER_HEADER_LABEL = "Brier Score (lower is better)";
 
 const ACCURACY_TABLE_ROW_COUNT = 5;
-const ACCURACY_TABLE_COLUMN_COUNT = 7; // Year + 3 algorithms x 2 metrics
+/**
+ * Year + one two-metric group (winner accuracy, Brier) per published
+ * algorithm. Derived rather than hardcoded, matching
+ * `DataCoverageTable`'s `COVERAGE_LEAF_COLUMN_COUNT`: the skeleton must keep
+ * the same width as the real table when an algorithm is added, and a literal
+ * here silently desyncs the loading state from the loaded one.
+ */
+const ACCURACY_TABLE_COLUMN_COUNT = 1 + PUBLISHED_ALGORITHM_IDS.length * 2;
 
 /**
  * One (season, algorithm, compLevelView) triple's figures. `hasSlice` is the
