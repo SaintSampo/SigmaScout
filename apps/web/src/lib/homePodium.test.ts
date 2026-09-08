@@ -22,8 +22,8 @@ function seasoned(season: number, art: CompareArtifact): SeasonedCompareArtifact
 
 describe("pooledAccuracyPodium", () => {
   it("pools as a scoredCount-weighted mean, never a mean of means", () => {
-    const a = artifact(2024, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 } });
-    const b = artifact(2025, { vpr: { acc: 0.6, n: 900 }, epa: { acc: 0.7, n: 900 }, opr: { acc: 0.75, n: 900 } });
+    const a = artifact(2024, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 }, bpr: { acc: 0.7, n: 100 } });
+    const b = artifact(2025, { vpr: { acc: 0.6, n: 900 }, epa: { acc: 0.7, n: 900 }, opr: { acc: 0.75, n: 900 }, bpr: { acc: 0.7, n: 900 } });
     const podium = pooledAccuracyPodium([seasoned(2024, a), seasoned(2025, b)]);
     const vpr = podium.find((p) => p.algorithmId === "vpr")!;
     // Weighted: (0.8*100 + 0.6*900) / 1000 = 0.62 — a mean-of-means would say 0.7.
@@ -32,13 +32,13 @@ describe("pooledAccuracyPodium", () => {
   });
 
   it("sorts best-first — the podium order", () => {
-    const a = artifact(2024, { vpr: { acc: 0.76, n: 10 }, epa: { acc: 0.72, n: 10 }, opr: { acc: 0.73, n: 10 } });
-    expect(pooledAccuracyPodium([seasoned(2024, a)]).map((p) => p.algorithmId)).toEqual(["vpr", "opr", "epa"]);
+    const a = artifact(2024, { vpr: { acc: 0.76, n: 10 }, epa: { acc: 0.72, n: 10 }, opr: { acc: 0.73, n: 10 }, bpr: { acc: 0.71, n: 10 } });
+    expect(pooledAccuracyPodium([seasoned(2024, a)]).map((p) => p.algorithmId)).toEqual(["vpr", "opr", "epa", "bpr"]);
   });
 
   it("a null-accuracy slice contributes nothing rather than poisoning the pool", () => {
-    const a = artifact(2024, { vpr: { acc: null, n: 50 }, epa: { acc: 0.7, n: 50 }, opr: { acc: 0.7, n: 50 } });
-    const b = artifact(2025, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 } });
+    const a = artifact(2024, { vpr: { acc: null, n: 50 }, epa: { acc: 0.7, n: 50 }, opr: { acc: 0.7, n: 50 }, bpr: { acc: 0.7, n: 50 } });
+    const b = artifact(2025, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 }, bpr: { acc: 0.7, n: 100 } });
     const vpr = pooledAccuracyPodium([seasoned(2024, a), seasoned(2025, b)]).find((p) => p.algorithmId === "vpr")!;
     expect(vpr.accuracy).toBeCloseTo(0.8, 10);
     expect(vpr.scoredCount).toBe(100);
@@ -59,7 +59,7 @@ describe("pooledAccuracyPodium", () => {
    * matched on algorithmId + compLevelView alone).
    */
   it("throws, naming the season, when an artifact carries only OTHER seasons' slices", () => {
-    const wrongSeason = artifact(2023, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 } });
+    const wrongSeason = artifact(2023, { vpr: { acc: 0.8, n: 100 }, epa: { acc: 0.7, n: 100 }, opr: { acc: 0.7, n: 100 }, bpr: { acc: 0.7, n: 100 } });
     expect(() => pooledAccuracyPodium([seasoned(2024, wrongSeason)])).toThrow(/no combined 2024 slice/);
   });
 });

@@ -53,7 +53,7 @@ describe("useAlgorithmOptions", () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // never resolves
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
     expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
-    expect(result.current.map((o) => o.label)).toEqual(["OPR", "EPA", "VPR"]);
+    expect(result.current.map((o) => o.label)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
   });
 
   it("MANIFEST FAILURE: silently keeps the build-time list with no version suffix — no error surfaces from the hook", async () => {
@@ -61,7 +61,7 @@ describe("useAlgorithmOptions", () => {
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
     // Give the (single, non-retried) failed query a tick to settle.
     await waitFor(() => expect(result.current).toHaveLength(PUBLISHED_ALGORITHM_IDS.length));
-    expect(result.current.map((o) => o.label)).toEqual(["OPR", "EPA", "VPR"]);
+    expect(result.current.map((o) => o.label)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
   });
 
   it("an id in the manifest but not in PUBLISHED_ALGORITHM_IDS is ignored rather than rendered", async () => {

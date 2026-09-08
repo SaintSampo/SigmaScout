@@ -235,7 +235,7 @@ describe("AccuracyTable — header structure and Copywriting Contract strings", 
     expect(yearHeader.getAttribute("rowspan")).toBe("2");
 
     const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
-    expect(groupHeaders.map((h) => h.textContent)).toEqual(["OPR", "EPA", "VPR"]);
+    expect(groupHeaders.map((h) => h.textContent)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
     for (const header of groupHeaders) {
       expect(header.getAttribute("colspan")).toBe("2");
     }
@@ -248,7 +248,7 @@ describe("AccuracyTable — header structure and Copywriting Contract strings", 
     // Exactly 7 leaf columns in the body: Year + 3 algorithms x 2 metrics.
     const table = screen.getByRole("table");
     const bodyRows = within(table).getAllByRole("row").slice(2); // 2 header rows precede
-    expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(7);
+    expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(1 + PUBLISHED_ALGORITHM_IDS.length * 2);
   });
 
   it("the accuracy header's accessible text is exactly the Copywriting Contract's Winner Accuracy string, and the Brier header carries the lower-is-better parenthetical", () => {
@@ -270,7 +270,7 @@ describe("AccuracyTable — ordering (COMP-01)", () => {
     }
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
-    expect(groupHeaders.map((h) => h.textContent)).toEqual(["OPR", "EPA", "VPR"]);
+    expect(groupHeaders.map((h) => h.textContent)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
   });
 
   it("row order is COMPARE_SEASONS ascending even when the year-keyed map is built in descending insertion order", () => {
@@ -498,6 +498,6 @@ describe("AccuracyTableSkeleton", () => {
     const table = screen.getByRole("table");
     const bodyRows = within(table).getAllByRole("row").slice(2);
     expect(bodyRows).toHaveLength(5);
-    expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(7);
+    expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(1 + PUBLISHED_ALGORITHM_IDS.length * 2);
   });
 });

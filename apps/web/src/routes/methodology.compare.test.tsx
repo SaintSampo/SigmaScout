@@ -18,7 +18,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema } from "../lib/searchParams.js";
 import { COMPARE_SEASONS, type CompareCompLevelView } from "../lib/api/compare.js";
-import { PUBLISHED_ALGORITHM_IDS } from "../../../../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
 import { buildAccuracyRows, buildRowEmphasis, COMPARE_ACCURACY_SCROLL_TESTID } from "../components/compare/AccuracyTable.js";
 import { compLevelSegmentTestId } from "../components/compare/CompLevelSwitcher.js";
 import { METHODOLOGY_NOTE_TESTID, buildMethodologyFigures } from "../components/compare/MethodologyNote.js";
@@ -517,13 +517,13 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   }
 
   /** The fixture-recomputed headline sentence for one card — the SAME pure model the component renders through, per D-10. */
-  function expectedSentence(year: number, algorithmId: "opr" | "epa" | "vpr", view: string): string {
+  function expectedSentence(year: number, algorithmId: PublishedAlgorithmId, view: string): string {
     const card = buildCalibrationCard(calibrationSliceFor(year, algorithmId, view));
     if (card.headline === null) throw new Error("fixture unexpectedly has no valid bins");
     return cardHeadlineSentence(algorithmDisplayLabel(algorithmId), card.headline);
   }
 
-  it("default render: ALL THREE cards carry their own fixture-recomputed 2026 combined-view headline sentence", async () => {
+  it("default render: EVERY card carries its own fixture-recomputed 2026 combined-view headline sentence", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
