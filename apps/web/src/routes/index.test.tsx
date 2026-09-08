@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../../packages/harness/publishedAlgorithms.js";
-import { PODIUM_SEASONS } from "../lib/homePodium.js";
+import { PODIUM_SEASONS, pooledAccuracyPodium } from "../lib/homePodium.js";
 import { HOME_PODIUM_TESTID, Podium } from "./index.js";
 import compare2024 from "./__fixtures__/compare-2024.json";
 import compare2025 from "./__fixtures__/compare-2025.json";
@@ -53,11 +53,26 @@ function renderPodium(transform: (artifact: Artifact, year: number) => Artifact 
 describe("home page podium", () => {
   afterEach(cleanup);
 
-  it("renders one step per published algorithm from the committed compare fixtures", () => {
+  it("renders exactly the top three algorithms by pooled accuracy — a podium has three places, however many algorithms are published", () => {
     renderPodium();
     expect(screen.getByTestId(HOME_PODIUM_TESTID)).toBeDefined();
-    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
-      expect(screen.getByTestId(`podium-${algorithmId}`)).toBeDefined();
+
+    // Was "one step per published algorithm", which only held while exactly
+    // three were published. BPR's arrival (quick task 260908-b4t) made that
+    // false: four algorithms compete for three medals, so the lowest-ranked
+    // one is legitimately absent. Derived from the same fixtures the podium
+    // reads, so this tracks whichever three actually lead.
+    const expected = pooledAccuracyPodium(
+      PODIUM_SEASONS.map((season) => ({ season, artifact: FIXTURES_BY_YEAR[season]! as unknown as Artifact })),
+    ).slice(0, 3);
+    expect(expected).toHaveLength(3);
+
+    for (const entry of expected) {
+      expect(screen.getByTestId(`podium-${entry.algorithmId}`)).toBeDefined();
+    }
+    const offPodium = PUBLISHED_ALGORITHM_IDS.filter((id) => !expected.some((e) => e.algorithmId === id));
+    for (const algorithmId of offPodium) {
+      expect(screen.queryByTestId(`podium-${algorithmId}`)).toBeNull();
     }
   });
 
