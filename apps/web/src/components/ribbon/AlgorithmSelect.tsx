@@ -35,26 +35,59 @@ const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> =
  * D-03 (quick task 260904-5px) — the ribbon dropdown's EPA option, ONLY,
  * reads this full name instead of the short `ALGORITHM_DISPLAY_LABELS.epa` +
  * version-suffix pattern every other option uses, gated on the manifest's
- * resolved `epa` version starting with major `5` (`useAlgorithmOptions`
- * below). Every other model-name render in the app (table headers, the
- * Insights notice, the Breakdown caption, the podium) keeps reading the
- * short `EPA` via `algorithmDisplayLabel` — this constant is the ribbon
- * option only.
+ * resolved `epa` version (`useAlgorithmOptions` below). Every other
+ * model-name render in the app (table headers, the Insights notice, the
+ * Breakdown caption, the podium) keeps reading the short `EPA` via
+ * `algorithmDisplayLabel` — this constant is the ribbon option only.
  *
  * The gate exists because R2 does not necessarily serve what the code just
  * shipped: this repo's own failure log is a documentation-describes-a-
- * deleted-model story, and a HARDCODED "EPA Statbotics 5.0" would keep
- * claiming that name during the window between this code shipping and the
- * republish (`.planning/todos/pending/republish-after-adjust-model-change.md`)
- * that actually re-publishes EPA artifacts under `epa@5.0.0+baseline` — the
- * site would be claiming a number it is not yet serving. Reading the
- * manifest instead makes the gate self-correcting: it needs no second edit
- * when the republish eventually lands, and no coordination with it either.
- * The full name embeds its own version, which is why the ordinary
+ * deleted-model story, and a HARDCODED name would keep claiming itself
+ * during the window between this code shipping and the republish that
+ * actually re-publishes EPA artifacts — the site would be claiming a number
+ * it is not yet serving. Reading the manifest instead makes the gate
+ * self-correcting: it needs no second edit when the republish lands, and no
+ * coordination with it either. That property is UNCHANGED by everything
+ * below. The full name embeds its own version, which is why the ordinary
  * `${baseLabel} ${entry.version}` suffix is not appended a second time on
  * this branch.
+ *
+ * The name deliberately still says "5.0" under `epa@6.0.0+baseline`: it
+ * names the STATBOTICS model this reimplementation tracks, not our own
+ * version string. See `EPA_STATBOTICS_FAMILY_MIN_MAJOR` below.
  */
 const EPA_STATBOTICS_FULL_NAME = "EPA Statbotics 5.0";
+
+/**
+ * The lowest `epa` code-version major that counts as the Statbotics-EPA-5.0
+ * model family for the label above.
+ *
+ * Quick task 260908-615 is why this is a threshold rather than the literal
+ * major-5 prefix test it replaced. That task bumped EPA to
+ * `6.0.0+baseline` (the season-boundary carry instant), and a
+ * `version.startsWith("5.")` gate would have silently stopped matching the
+ * moment the republish landed — the ribbon would have quietly fallen back to
+ * a version-suffixed short label, a UI regression with no test to catch it
+ * and no error to notice. A `>=` comparison means the next EPA bump needs no
+ * edit here at all.
+ *
+ * Raising this constant is a deliberate act: do it only if EPA ever stops
+ * tracking Statbotics' 5.0-era model, which is a modelling decision, not a
+ * version-number one.
+ */
+export const EPA_STATBOTICS_FAMILY_MIN_MAJOR = 5;
+
+/**
+ * The leading integer of a `{codeVersion}+{paramSetName}` version string's
+ * code-version segment, or `null` when it does not parse. Deliberately
+ * strict: a manifest value this function cannot read falls through to the
+ * honest `${baseLabel} ${entry.version}` branch rather than being assumed
+ * new enough for the full name.
+ */
+function codeVersionMajor(version: string): number | null {
+  const major = Number.parseInt(version.split("+")[0]!.split(".")[0]!, 10);
+  return Number.isInteger(major) ? major : null;
+}
 
 interface AlgorithmOption {
   id: PublishedAlgorithmId;
@@ -84,12 +117,19 @@ export function useAlgorithmOptions(): AlgorithmOption[] {
     const entry = data?.algorithms.find((candidate) => candidate.id === id);
     const baseLabel = ALGORITHM_DISPLAY_LABELS[id];
     // D-03 (quick task 260904-5px): EPA gets its full Statbotics-parity name
-    // ONLY when the manifest confirms the SERVED artifacts are EPA 5.x —
-    // every other id/version keeps today's `${baseLabel} ${entry.version}`
-    // branch, including a pre-5.0 EPA (which still reads the honest older
-    // version string).
-    if (id === "epa" && entry !== undefined && entry.version.startsWith("5.")) {
-      return { id, label: EPA_STATBOTICS_FULL_NAME };
+    // ONLY when the manifest confirms the SERVED artifacts are in that model
+    // family — every other id/version keeps today's
+    // `${baseLabel} ${entry.version}` branch, including a pre-5.0 EPA (which
+    // still reads the honest older version string).
+    //
+    // Quick task 260908-615 widened the test from a major-5 prefix to a
+    // family MINIMUM, so the 6.0.0 carry-instant bump does not silently drop
+    // the label. See `EPA_STATBOTICS_FAMILY_MIN_MAJOR`.
+    if (id === "epa" && entry !== undefined) {
+      const major = codeVersionMajor(entry.version);
+      if (major !== null && major >= EPA_STATBOTICS_FAMILY_MIN_MAJOR) {
+        return { id, label: EPA_STATBOTICS_FULL_NAME };
+      }
     }
     return { id, label: entry === undefined ? baseLabel : `${baseLabel} ${entry.version}` };
   });

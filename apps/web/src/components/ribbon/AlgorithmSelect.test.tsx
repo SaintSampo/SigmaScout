@@ -129,8 +129,24 @@ describe("useAlgorithmOptions", () => {
       );
     }
 
-    it("epa at 5.x reads exactly 'EPA Statbotics 5.0' — no version suffix appended", async () => {
+    it("epa at 5.x — the family minimum — reads exactly 'EPA Statbotics 5.0' with no version suffix appended", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("5.0.0+baseline"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
+    });
+
+    // Quick task 260908-615: the carry-instant bump ships epa@6.0.0+baseline.
+    // Under the retired `version.startsWith("5.")` gate this case fell through
+    // to the version-suffixed short label the moment the republish landed —
+    // a silent UI regression. This test is the one that would have caught it.
+    it("epa at 6.x still reads the full name — the gate is a family minimum, not a single-major prefix", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("6.0.0+baseline"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
+    });
+
+    it("epa at a far-future 12.x reads the full name too, so no future bump needs an edit here", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("12.3.4+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
       await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
     });
@@ -158,6 +174,12 @@ describe("useAlgorithmOptions", () => {
 
     it("algorithmDisplayLabel('epa') still returns the short 'EPA' regardless of the ribbon's version-gated full name", () => {
       expect(algorithmDisplayLabel("epa")).toBe("EPA");
+    });
+
+    it("an unparseable manifest version falls through to the honest suffixed label rather than being assumed new enough", async () => {
+      global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("not-a-version"));
+      const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA not-a-version"));
     });
   });
 });

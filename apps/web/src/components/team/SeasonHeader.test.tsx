@@ -405,3 +405,20 @@ describe("SeasonHeader — rank cards render inside the header (quick task 26090
     expect(screen.queryByTestId("rank-cards")).toBeNull();
   });
 });
+
+describe("SeasonHeader — record basis caption (quick task 260908-615)", () => {
+  afterEach(() => cleanup());
+
+  it("names the official-only population beside the record", () => {
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    expect(screen.getByTestId("team-record-basis").textContent).toBe("Official events only");
+  });
+
+  it("still renders the record itself unchanged — the caption describes it, it does not replace it", () => {
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    expect(screen.getByTestId("team-record").textContent).toContain("35");
+    expect(screen.getByTestId("team-record").textContent).toContain("28");
+  });
+});

@@ -109,8 +109,10 @@ function metricLabel(key: string): string {
  * (falling back to `Team {teamNumber}` when empty, truncated by CSS
  * ellipsis with a `title` attribute — never by slicing the string), the
  * robot image (or an honest fallback tile for the ~25% no-photo case,
- * D-03), a "View on TBA" link, the record/win-rate strings, D-17's tier key
- * row, and the tier-boxed metric grid.
+ * D-03), a "View on TBA" link, the record/win-rate strings (OFFICIAL play
+ * only as of quick task 260908-615 — offseason and preseason results are
+ * excluded from these two, and from them alone), D-17's tier key row, and the
+ * tier-boxed metric grid.
  */
 export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
@@ -219,14 +221,20 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
                 {formatRecord(record)}
               </span>
               <span className="numeric-cell text-role-body text-[var(--color-text-muted)]">{formatWinRate(winRateOf(record))}</span>
-              {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): the record
-                  is `artifact.seasonStats.record` — always season-final and
-                  inclusive of offseason/preseason play — which is a DIFFERENT
-                  as-of instant from the tiles beside it whenever a snapshot is
-                  present below. Named here so the two never read as the same
-                  claim. */}
+              {/* IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md), REVISED
+                  by quick task 260908-615: the record is
+                  `artifact.seasonStats.record`, which the publisher now scopes
+                  to OFFICIAL play (`teamStatsOfficial`) — the same population
+                  the metric tiles below are snapshotted from. This caption used
+                  to warn that the two were DIFFERENT as-of instants; they are
+                  now drawn from one population, and the caption says which.
+
+                  What it does NOT mean: offseason and preseason play is not
+                  hidden. CONTEXT.md's locked D-WLT keeps it fully visible in
+                  this page's match table, its event sections and its
+                  metric-history chart — only the summary record is scoped. */}
               <span data-testid="team-record-basis" className="text-role-label text-[var(--color-text-muted)]">
-                Season-final, includes offseason/preseason
+                Official events only
               </span>
               {/* TEAM-02's "working link to the team's TBA page" — built from the team NUMBER, not the internal corpus key, per 06-UI-SPEC.md's Copywriting Contract. */}
               <a
