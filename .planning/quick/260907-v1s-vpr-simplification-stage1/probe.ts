@@ -156,6 +156,69 @@ async function main(): Promise<void> {
     { id: "epa", params: null, knob: "__epa__", value: null },
   ];
 
+  // `--mode procnoise`: the two process-noise terms swept TOGETHER.
+  //
+  // They cannot be tested one at a time. `isValidParamSet` and the Zod schema
+  // both enforce `processNoiseEventBoundaryRel > processNoiseWithinEventRel`,
+  // and on 2026 that constraint BOUND: the top of the within-event bound was
+  // rejected as invalid while the accuracy trend was still climbing, so the
+  // one-at-a-time sweep stopped short of the model's actual preference rather
+  // than at it. A constraint that truncates a sweep is indistinguishable from
+  // a flat knob unless you move both sides of it at once.
+  //
+  // Two families, so a result cannot be an artifact of either choice:
+  //   ratio-N : boundary pinned at N x within, sliding both up together
+  //   fixed-B : boundary held at a large good value, within swept underneath
+  if (args.includes("--mode") && arg("mode") === "procnoise") {
+    const WITHIN = [0.0002, 0.0005, 0.001, 0.002, 0.004, 0.008];
+    const add = (id: string, within: number, boundary: number): void => {
+      const parsed = Sigma1ParamsSchema.safeParse({
+        ...baseline,
+        processNoiseWithinEventRel: within,
+        processNoiseEventBoundaryRel: boundary,
+      });
+      if (!parsed.success) {
+        console.log(`[probe] SKIP ${id}: ${parsed.error.issues[0]?.message ?? "unknown"}`);
+        return;
+      }
+      configs.push({ id, params: parsed.data, knob: "__procnoise__", value: within });
+    };
+    for (const w of WITHIN) {
+      for (const ratio of [3, 10]) add(`ratio${ratio}#w=${w}`, w, w * ratio);
+      // Boundary held at the value 2026's own one-at-a-time sweep preferred,
+      // so this family asks "given a good boundary, how high does within want
+      // to go?" -- skipped automatically wherever it would violate ordering.
+      add(`fixedB#w=${w}`, w, 0.00778);
+    }
+    console.log(`[probe] procnoise mode: ${configs.length} configs`);
+    const db = openCorpusReadOnly("data/corpus.sqlite");
+    const measured = await measure(db, configs, batchSize);
+    const base = measured.find((m) => m.id === "baseline");
+    const epaRef = measured.find((m) => m.id === "epa");
+    if (!base || base.accuracy === null || !epaRef || epaRef.accuracy === null) throw new Error("missing reference");
+    const rows = measured.map((m) => ({
+      id: m.id,
+      within: m.value,
+      accuracy: m.accuracy,
+      brier: m.brier,
+      accuracyDelta: m.accuracy !== null ? m.accuracy - base.accuracy! : null,
+      pairedSe: m.id === "baseline" ? 0 : accuracyDeltaStandardError(m.blocks, base.blocks),
+      deltaVsEpa: m.accuracy !== null ? m.accuracy - epaRef.accuracy! : null,
+    }));
+    writeFileSync(
+      outPath,
+      JSON.stringify({ generatedAt: new Date().toISOString(), probe: "stage1d-procnoise", versionPath, scoreSeason: SCORE_SEASON, shippedWithin: baseline.processNoiseWithinEventRel, shippedBoundary: baseline.processNoiseEventBoundaryRel, rows }, null, 2)
+    );
+    console.log(`
+shipped within=${baseline.processNoiseWithinEventRel} boundary=${baseline.processNoiseEventBoundaryRel}`);
+    console.log(`config			accuracy	delta		sigma	brier`);
+    for (const r of rows) {
+      const sig = r.pairedSe > 0 ? (r.accuracyDelta! / r.pairedSe).toFixed(2) : "-";
+      console.log(`${r.id.padEnd(22)}	${r.accuracy?.toFixed(5)}	${r.accuracyDelta! >= 0 ? "+" : ""}${r.accuracyDelta?.toFixed(5)}	${sig}	${r.brier?.toFixed(5)}`);
+    }
+    return;
+  }
+
   // `--mode combos`: joint pins rather than a one-at-a-time sweep. Answers the
   // question leave-one-out structurally cannot -- whether a group of knobs
   // that are each individually flat are also flat TOGETHER.
