@@ -1,0 +1,9 @@
+GBR holdout result — frozen params @ 78f1bc87
+training years: 2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025
+holdout year: 2026
+scored=20161 ties=46
+winnerAccuracy=0.7733
+brier=0.1542
+qualsAccuracy=0.7716 (n=16479)
+elimsAccuracy=0.7811 (n=3682)
+offseasonAccuracy=0.7657 (n=1899, brier=0.1640)
