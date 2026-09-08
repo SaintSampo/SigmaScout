@@ -127,7 +127,8 @@ function readCellIsBold(season: number, algorithmId: string, metric: "accuracy" 
   const algorithmIndex = PUBLISHED_ALGORITHM_IDS.indexOf(algorithmId as (typeof PUBLISHED_ALGORITHM_IDS)[number]);
   const cellIndex = 1 + algorithmIndex * 2 + (metric === "accuracy" ? 0 : 1);
   const cells = within(row).getAllByRole("cell");
-  return /font-semibold/.test(cells[cellIndex]!.className);
+  // Emphasis is a pill element, not a font weight (quick task 260908-b4t).
+  return cells[cellIndex]!.querySelector("[data-emphasis]") !== null;
 }
 
 describe("/compare route — D-10 parity across all three compLevel views (real fixtures, 3 views x 10 seasons x 3 algorithms = 90)", () => {

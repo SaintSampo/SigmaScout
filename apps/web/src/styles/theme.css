@@ -1204,3 +1204,25 @@ body {
  */
 .call-hit { color: #047857; font-weight: 700; }
 .call-miss { color: #be123c; font-weight: 700; }
+
+/*
+ * Compare page: the winning accuracy / Brier value in a season row.
+ *
+ * Replaces bold (quick task 260908-b4t, user request): with four algorithms the
+ * bold cell was hard to pick out of a dense numeric grid. A pill is a SHAPE
+ * signal, deliberately not a colour one -- the palette is spent (red/blue is
+ * alliances, sky/purple/amber is rarity tier, green/rose is win/loss, accent
+ * means interactive) and sketch 007 ruled out a per-algorithm identity hue.
+ * So this uses the same neutral inset fill the site's chips already use.
+ *
+ * Emphasis is still WITHHELD entirely on a near-tie (D-11) -- this only
+ * restyles the cases that already qualified, it never adds new ones.
+ */
+.compare-leader-pill {
+  display: inline-block;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--color-bg-inset);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  font-variant-numeric: tabular-nums;
+}

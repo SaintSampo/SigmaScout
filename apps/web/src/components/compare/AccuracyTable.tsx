@@ -229,11 +229,23 @@ export function AccuracyTable({ artifactsByYear, compLevelView }: AccuracyTableP
                   const brierIsLeader = emphasis.brierLeaders.includes(algorithmId);
                   return (
                     <Fragment key={algorithmId}>
-                      <TableCell className={cn("numeric-cell border-l", accuracyIsLeader && "font-semibold")}>
-                        {formatWinnerAccuracy(cell.winnerAccuracy)}
+                      <TableCell className="numeric-cell border-l">
+                        {accuracyIsLeader ? (
+                          <span className="compare-leader-pill" data-emphasis="true">
+                            {formatWinnerAccuracy(cell.winnerAccuracy)}
+                          </span>
+                        ) : (
+                          formatWinnerAccuracy(cell.winnerAccuracy)
+                        )}
                       </TableCell>
-                      <TableCell className={cn("numeric-cell", brierIsLeader && "font-semibold")}>
-                        {formatBrier(cell.brierScore)}
+                      <TableCell className="numeric-cell">
+                        {brierIsLeader ? (
+                          <span className="compare-leader-pill" data-emphasis="true">
+                            {formatBrier(cell.brierScore)}
+                          </span>
+                        ) : (
+                          formatBrier(cell.brierScore)
+                        )}
                       </TableCell>
                     </Fragment>
                   );

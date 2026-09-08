@@ -419,8 +419,8 @@ describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (0
         const brierCellIndex = accuracyCellIndex + 1;
         const expectAccuracyBold = emphasis.winnerAccuracyLeaders.includes(algorithmId);
         const expectBrierBold = emphasis.brierLeaders.includes(algorithmId);
-        expect(/font-semibold/.test(cells[accuracyCellIndex]!.className)).toBe(expectAccuracyBold);
-        expect(/font-semibold/.test(cells[brierCellIndex]!.className)).toBe(expectBrierBold);
+        expect((cells[accuracyCellIndex]!.querySelector("[data-emphasis]") !== null)).toBe(expectAccuracyBold);
+        expect((cells[brierCellIndex]!.querySelector("[data-emphasis]") !== null)).toBe(expectBrierBold);
       });
     });
   });
@@ -440,12 +440,12 @@ describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (0
     const row = bodyRows.find((r) => within(r).getAllByRole("cell")[0]?.textContent === String(season))!;
     const cells = within(row).getAllByRole("cell");
     // Layout: [Year, opr-accuracy, opr-brier, epa-accuracy, epa-brier, vpr-accuracy, vpr-brier]
-    expect(/font-semibold/.test(cells[1]!.className)).toBe(false); // opr accuracy: not the leader (epa is)
-    expect(/font-semibold/.test(cells[2]!.className)).toBe(true); // opr brier: the leader (lowest, 0.1)
-    expect(/font-semibold/.test(cells[3]!.className)).toBe(true); // epa accuracy: the leader (highest, 0.9)
-    expect(/font-semibold/.test(cells[4]!.className)).toBe(false); // epa brier: not the leader
-    expect(/font-semibold/.test(cells[5]!.className)).toBe(false); // vpr accuracy: not the leader
-    expect(/font-semibold/.test(cells[6]!.className)).toBe(false); // vpr brier: not the leader
+    expect((cells[1]!.querySelector("[data-emphasis]") !== null)).toBe(false); // opr accuracy: not the leader (epa is)
+    expect((cells[2]!.querySelector("[data-emphasis]") !== null)).toBe(true); // opr brier: the leader (lowest, 0.1)
+    expect((cells[3]!.querySelector("[data-emphasis]") !== null)).toBe(true); // epa accuracy: the leader (highest, 0.9)
+    expect((cells[4]!.querySelector("[data-emphasis]") !== null)).toBe(false); // epa brier: not the leader
+    expect((cells[5]!.querySelector("[data-emphasis]") !== null)).toBe(false); // vpr accuracy: not the leader
+    expect((cells[6]!.querySelector("[data-emphasis]") !== null)).toBe(false); // vpr brier: not the leader
   });
 
   it("a cell built from a slice with scoredCount zero still builds and renders its figures, and only its emphasis is withheld", () => {
