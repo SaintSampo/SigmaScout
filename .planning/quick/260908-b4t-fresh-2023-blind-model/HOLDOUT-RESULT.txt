@@ -1,0 +1,20 @@
+BPR holdout evaluation
+  frozen params: packages/bpr/frozen-params.json @ a66688af
+  seasons:       2023, 2024, 2025, 2026
+
+[bpr] loaded 152457 matches in 1826ms
+ALL matches (quals + playoffs)
+  year      n   acc%    brier   logloss
+  2023   16316   76.44  0.1566  0.4798
+  2024   16977   76.86  0.1567  0.4823
+  2025   17846   78.44  0.1451  0.4469
+  2026   18372   80.20  0.1364  0.4260
+  TOTAL  69511   78.05  0.1483  0.4578
+
+Qualification matches only
+  year      n   acc%    brier   logloss
+  2023   13538   76.86  0.1532  0.4717
+  2024   14125   77.47  0.1527  0.4738
+  2025   14805   78.61  0.1438  0.4441
+  2026   15176   80.29  0.1358  0.4232
+  TOTAL  57644   78.37  0.1461  0.4524
