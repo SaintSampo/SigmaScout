@@ -4,7 +4,8 @@
  * elements — the single source of names, links and prose — so
  * `methodology.acknowledgments.test.tsx` can iterate this constant
  * structurally rather than hand-typing a second copy, matching the
- * discipline `vprGuideContent.ts` already established.
+ * content-as-data discipline the former Intro to VPR page's own content
+ * module established (retired by quick task 260908-n5o).
  *
  * Audience: the same FRC community (students, mentors, scouts) the rest of
  * the site is written for. Gracious, specific, plain language, short

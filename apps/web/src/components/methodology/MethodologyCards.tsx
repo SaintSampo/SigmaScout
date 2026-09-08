@@ -32,19 +32,19 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * row on desktop); mobile stays a single column via the unprefixed `grid`.
  */
 export function MethodologyCards() {
-  const [vprCard, compareCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
-  if (vprCard === undefined || compareCard === undefined || acknowledgmentsCard === undefined) return null;
+  const [epaVsStatboticsCard, compareCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  if (epaVsStatboticsCard === undefined || compareCard === undefined || acknowledgmentsCard === undefined) return null;
 
   return (
     <div className="grid gap-[var(--spacing-md)] md:grid-cols-3">
       <Link
-        to={vprCard.to}
+        to={epaVsStatboticsCard.to}
         search={preserveSearch}
-        data-testid={vprCard.testId}
+        data-testid={epaVsStatboticsCard.testId}
         className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
       >
-        <span className="text-role-heading text-[var(--color-text-primary)]">{vprCard.title}</span>
-        <span className="text-role-body text-[var(--color-text-muted)]">{vprCard.blurb}</span>
+        <span className="text-role-heading text-[var(--color-text-primary)]">{epaVsStatboticsCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{epaVsStatboticsCard.blurb}</span>
       </Link>
       <Link
         to={compareCard.to}

@@ -19,18 +19,24 @@
  * this reason; this file follows that same established convention.
  */
 export interface MethodologyCardDescriptor {
-  readonly to: "/methodology/vpr" | "/methodology/compare" | "/methodology/acknowledgments";
+  readonly to: "/methodology/epa-vs-statbotics" | "/methodology/compare" | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
   readonly testId: string;
 }
 
+/**
+ * The first card's slot (quick task 260908-n5o) previously held the former
+ * Intro to VPR page, retired and purged as part of this same task. This
+ * card takes its place, in the same first position — the hub still shows
+ * exactly three cards.
+ */
 export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
-    to: "/methodology/vpr",
-    title: "Intro to VPR",
-    blurb: "What VPR is and what the ± beside it means, in plain language.",
-    testId: "methodology-card-vpr",
+    to: "/methodology/epa-vs-statbotics",
+    title: "Our EPA vs Statbotics' EPA",
+    blurb: "Both sites publish a rating called EPA. See where the two numbers come apart, and by how much.",
+    testId: "methodology-card-epa-vs-statbotics",
   },
   {
     to: "/methodology/compare",
