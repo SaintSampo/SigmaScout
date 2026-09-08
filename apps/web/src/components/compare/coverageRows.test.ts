@@ -15,6 +15,11 @@ import {
 import { COMPARE_SEASONS } from "../../lib/api/compare.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import compare2016 from "../../routes/__fixtures__/compare-2016.json";
+import compare2017 from "../../routes/__fixtures__/compare-2017.json";
+import compare2018 from "../../routes/__fixtures__/compare-2018.json";
+import compare2019 from "../../routes/__fixtures__/compare-2019.json";
+import compare2020 from "../../routes/__fixtures__/compare-2020.json";
 import compare2022 from "../../routes/__fixtures__/compare-2022.json";
 import compare2023 from "../../routes/__fixtures__/compare-2023.json";
 import compare2024 from "../../routes/__fixtures__/compare-2024.json";
@@ -89,7 +94,7 @@ describe("collapseSharedCount", () => {
 });
 
 describe("buildCoverageRows", () => {
-  it("returns exactly five rows for the five COMPARE_SEASONS, ascending, regardless of the input map's insertion order", () => {
+  it("returns exactly one row per COMPARE_SEASONS entry, ascending, regardless of the input map's insertion order", () => {
     const slices: Slice[] = [];
     for (const season of [...COMPARE_SEASONS].reverse()) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
@@ -292,6 +297,11 @@ describe("buildCoverageRows", () => {
 
 describe("candidate/scored/exclusion identity guard (fixture-based, labelled as such)", () => {
   const FIXTURES: Record<number, { slices: Slice[] }> = {
+    2016: compare2016 as unknown as { slices: Slice[] },
+    2017: compare2017 as unknown as { slices: Slice[] },
+    2018: compare2018 as unknown as { slices: Slice[] },
+    2019: compare2019 as unknown as { slices: Slice[] },
+    2020: compare2020 as unknown as { slices: Slice[] },
     2022: compare2022 as unknown as { slices: Slice[] },
     2023: compare2023 as unknown as { slices: Slice[] },
     2024: compare2024 as unknown as { slices: Slice[] },
@@ -299,7 +309,7 @@ describe("candidate/scored/exclusion identity guard (fixture-based, labelled as 
     2026: compare2026 as unknown as { slices: Slice[] },
   };
 
-  it("over all five committed fixtures and all three views, candidateCount equals scoredCount plus the four exclusion counts — measured at planning time: 45 of 45", () => {
+  it("over all ten committed fixtures and all three views, candidateCount equals scoredCount plus the four exclusion counts — 90 of 90 after the 2016-2020 floor move (was 45 of 45 over five)", () => {
     let checked = 0;
     for (const season of COMPARE_SEASONS) {
       for (const slice of FIXTURES[season]!.slices) {
@@ -309,6 +319,6 @@ describe("candidate/scored/exclusion identity guard (fixture-based, labelled as 
         checked += 1;
       }
     }
-    expect(checked).toBe(45);
+    expect(checked).toBe(90);
   });
 });

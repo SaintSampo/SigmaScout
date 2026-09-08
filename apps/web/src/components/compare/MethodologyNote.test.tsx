@@ -10,6 +10,11 @@ import {
 import { formatBrierDisplay } from "../../lib/compareTie.js";
 import { COMPARE_SEASONS } from "../../lib/api/compare.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import compare2016 from "../../routes/__fixtures__/compare-2016.json";
+import compare2017 from "../../routes/__fixtures__/compare-2017.json";
+import compare2018 from "../../routes/__fixtures__/compare-2018.json";
+import compare2019 from "../../routes/__fixtures__/compare-2019.json";
+import compare2020 from "../../routes/__fixtures__/compare-2020.json";
 import compare2022 from "../../routes/__fixtures__/compare-2022.json";
 import compare2023 from "../../routes/__fixtures__/compare-2023.json";
 import compare2024 from "../../routes/__fixtures__/compare-2024.json";
@@ -21,6 +26,11 @@ afterEach(() => {
 });
 
 const FIXTURES_BY_YEAR: Record<number, CompareArtifact> = {
+  2016: compare2016 as unknown as CompareArtifact,
+  2017: compare2017 as unknown as CompareArtifact,
+  2018: compare2018 as unknown as CompareArtifact,
+  2019: compare2019 as unknown as CompareArtifact,
+  2020: compare2020 as unknown as CompareArtifact,
   2022: compare2022 as CompareArtifact,
   2023: compare2023 as CompareArtifact,
   2024: compare2024 as CompareArtifact,

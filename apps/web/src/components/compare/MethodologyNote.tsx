@@ -30,10 +30,19 @@ import type { CompareArtifact } from "../../../../../packages/harness/pageArtifa
  * below). Per D-5, saying less is preferred to saying something false.
  *
  * This module now reads NEITHER `seasonLabel` NOR `headlineEligible` — the
- * inverse of this module's prior instruction to read `seasonLabel`. Every
- * season `COMPARE_SEASONS` selects is, by construction, an origin season the
- * Compare page displays, so there is nothing left for either field to
- * distinguish here. `AccuracyTable.tsx` continues to read neither field
+ * inverse of this module's prior instruction to read `seasonLabel`.
+ *
+ * CORRECTED 2026-09-07: this paragraph used to justify that by asserting
+ * "every season `COMPARE_SEASONS` selects is, by construction, an origin
+ * season", which stopped being true when the Compare floor moved 2022 -> 2016
+ * — 2016 and 2017 publish `headlineEligible: false` (zero and one prior
+ * corpus season). The conclusion is unchanged and the reason is the ORIGINAL
+ * one, stated two paragraphs up: a `false` there conflates "too few prior
+ * seasons" with "the optimizer saw this season", so it cannot support the
+ * holdout claim this note would need it for. Per D-5, saying less is
+ * preferred to saying something false. What is gone is only the extra
+ * by-construction argument, which was load-bearing for nothing and is now
+ * simply wrong. `AccuracyTable.tsx` continues to read neither field
  * either, and this note must never be mounted inside it.
  */
 

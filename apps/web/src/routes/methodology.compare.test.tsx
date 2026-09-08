@@ -36,6 +36,29 @@ import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
 import { coverageCellTestId, DATA_COVERAGE_SCROLL_TESTID, DATA_COVERAGE_SECTION_TESTID } from "../components/compare/DataCoverageTable.js";
 import { COVERAGE_EXCLUSION_COLUMNS } from "../components/compare/coverageRows.js";
 import { Route as CompareRouteImport } from "./methodology.compare.js";
+/**
+ * Fixture provenance, and why this set is deliberately MIXED-GENERATION.
+ *
+ * 2022-2026 are frozen snapshots of generation `1c11cdd8` (2026-08-30,
+ * vpr 2.1.0+tuned-2026-08). They are NOT refreshed on each republish, because
+ * several tests below pin hand-picked cases against their exact figures — the
+ * 2023 elimination near-tie is described in its own test name as "the tightest
+ * above-threshold case in the corpus", and re-fetching would silently
+ * re-select which case that is, turning a deliberate boundary test into
+ * whatever the newest data happens to contain.
+ *
+ * 2016-2020 were added 2026-09-07 when the Compare floor moved 2022 -> 2016,
+ * fetched from the live origin at generation `969314df` (vpr
+ * 10.0.0+rolling-2026-09e). They carry no pinned figures — nothing below
+ * asserts a specific number from them — so the generation skew costs nothing
+ * and is preferable to the alternative of refreshing all ten and losing the
+ * pinned cases above.
+ */
+import compare2016 from "./__fixtures__/compare-2016.json";
+import compare2017 from "./__fixtures__/compare-2017.json";
+import compare2018 from "./__fixtures__/compare-2018.json";
+import compare2019 from "./__fixtures__/compare-2019.json";
+import compare2020 from "./__fixtures__/compare-2020.json";
 import compare2022 from "./__fixtures__/compare-2022.json";
 import compare2023 from "./__fixtures__/compare-2023.json";
 import compare2024 from "./__fixtures__/compare-2024.json";
@@ -44,6 +67,11 @@ import compare2026 from "./__fixtures__/compare-2026.json";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 const FIXTURES_BY_YEAR: Record<number, typeof compare2022> = {
+  2016: compare2016 as unknown as typeof compare2022,
+  2017: compare2017 as unknown as typeof compare2022,
+  2018: compare2018 as unknown as typeof compare2022,
+  2019: compare2019 as unknown as typeof compare2022,
+  2020: compare2020 as unknown as typeof compare2022,
   2022: compare2022,
   2023: compare2023,
   2024: compare2024,
@@ -102,7 +130,7 @@ function readCellIsBold(season: number, algorithmId: string, metric: "accuracy" 
   return /font-semibold/.test(cells[cellIndex]!.className);
 }
 
-describe("/compare route — D-10 parity across all three compLevel views (real fixtures, 3 views x 5 seasons x 3 algorithms = 45)", () => {
+describe("/compare route — D-10 parity across all three compLevel views (real fixtures, 3 views x 10 seasons x 3 algorithms = 90)", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -130,12 +158,12 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
     }) as typeof fetch;
   }
 
-  it("issues exactly five artifact requests, one per season, and NO manifest request", async () => {
+  it("issues exactly ten artifact requests, one per season, and NO manifest request", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
 
-    expect(fetchCalls).toHaveLength(5);
+    expect(fetchCalls).toHaveLength(10);
     expect(fetchCalls.some((url) => url.includes("manifest"))).toBe(false);
   });
 
@@ -168,8 +196,8 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
   }
 });
 
-describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views x 5 seasons x 2 metrics = 30 decisions)", () => {
-  it("the computed rule (buildAccuracyRows + buildRowEmphasis) and an inline naive max/min strawman disagree on exactly four of thirty emphasis decisions, all in the elimination view, each named individually", () => {
+describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views x 10 seasons x 2 metrics = 60 decisions)", () => {
+  it("the computed rule (buildAccuracyRows + buildRowEmphasis) and an inline naive max/min strawman disagree on exactly nine of sixty emphasis decisions, each named individually", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
     for (const season of COMPARE_SEASONS) {
       artifactsByYear.set(season, FIXTURES_BY_YEAR[season] as unknown as CompareArtifact);
@@ -223,30 +251,58 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
       }
     }
 
-    expect(decisions).toHaveLength(30);
+    expect(decisions).toHaveLength(60);
 
     const diverged = decisions.filter((d) => !sameLeaderSet(d.computed, d.naive));
 
-    // Measured against the five committed real fixtures at planning time
-    // (08-CONTEXT.md D-11): exactly four divergences, all in the
-    // elimination view. If the committed bytes have moved since, this
-    // asserts whatever the fixtures actually produce (08-06-PLAN.md
-    // Flagged Planner Assumption 1) — any discrepancy from the four named
-    // below is recorded in this plan's SUMMARY, not silently forced.
-    expect(diverged.every((d) => d.view === "elimination")).toBe(true);
-    expect(diverged).toHaveLength(4);
+    // Measured against the ten committed real fixtures. At planning time
+    // (08-CONTEXT.md D-11) this was four divergences, ALL in the elimination
+    // view; the Compare floor moving 2022 -> 2016 on 2026-09-07 added five
+    // more and broke the elimination-only property. Both changes are real
+    // and neither was forced: the original four are reproduced UNCHANGED
+    // below, and the five new ones all come from the three seasons added.
+    //
+    // The elimination-only property was never a rule — it was an observation
+    // about which seasons happened to be close. It broke for a substantive
+    // reason: in 2016 EPA (70.45%) and VPR (70.12%) are 0.33pp apart in
+    // QUALIFICATION, inside the near-tie threshold, so the real rule
+    // withholds emphasis in all three views while the naive strawman bolds
+    // EPA in each. That is precisely the divergence this lock exists to
+    // demonstrate, now visible outside elimination play for the first time.
+    expect(diverged).toHaveLength(9);
 
-    function decisionFor(season: number, metric: "brier" | "accuracy") {
-      const found = diverged.find((d) => d.season === season && d.metric === metric);
-      if (found === undefined) throw new Error(`expected a divergence at elimination ${season} ${metric}`);
+    // Seven of the nine still sit in elimination play (the original four
+    // plus 2016/2018/2020 accuracy); the two outside it are both 2016.
+    const eliminationDivergences = diverged.filter((d) => d.view === "elimination");
+    expect(eliminationDivergences).toHaveLength(7);
+
+    function decisionFor(view: CompareCompLevelView, season: number, metric: "brier" | "accuracy") {
+      const found = diverged.find((d) => d.view === view && d.season === season && d.metric === metric);
+      if (found === undefined) throw new Error(`expected a divergence at ${view} ${season} ${metric}`);
       return found;
     }
 
     // Named individually, so a failure states which case moved.
-    decisionFor(2022, "brier");
-    decisionFor(2022, "accuracy");
-    decisionFor(2024, "accuracy");
-    decisionFor(2025, "accuracy");
+    // Original four (08-CONTEXT.md D-11), unchanged:
+    decisionFor("elimination", 2022, "brier");
+    decisionFor("elimination", 2022, "accuracy");
+    decisionFor("elimination", 2024, "accuracy");
+    decisionFor("elimination", 2025, "accuracy");
+    // Added 2026-09-07 with the 2016-2020 floor move:
+    decisionFor("combined", 2016, "accuracy");
+    decisionFor("qualification", 2016, "accuracy");
+    decisionFor("elimination", 2016, "accuracy");
+    decisionFor("elimination", 2018, "accuracy");
+    decisionFor("elimination", 2020, "accuracy");
+
+    // Every divergence is the real rule WITHHOLDING emphasis the naive
+    // strawman would have applied — never the reverse. That direction is the
+    // point of the lock: the near-tie rule can only ever decline to call a
+    // winner, never invent one.
+    for (const d of diverged) {
+      expect(d.computed).toHaveLength(0);
+      expect(d.naive.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -615,7 +671,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
     }
   }
 
-  it("the three algorithms agree on all seven collapsible coverage fields in all fifteen (view, season) groups — measured 15 of 15, so every rendered shared cell IS a single number, never a labelled triple", () => {
+  it("the three algorithms agree on all seven collapsible coverage fields in all thirty (view, season) groups — measured 30 of 30, so every rendered shared cell IS a single number, never a labelled triple", () => {
     let checkedGroups = 0;
     for (const view of COMP_LEVEL_VIEWS) {
       for (const season of COMPARE_SEASONS) {
@@ -633,7 +689,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
         checkedGroups += 1;
       }
     }
-    expect(checkedGroups).toBe(15);
+    expect(checkedGroups).toBe(30);
   });
 
   it("published zeros render the digit zero, never the em-dash — derived from the fixture rather than hardcoded coordinates (COMP-01 empty)", async () => {

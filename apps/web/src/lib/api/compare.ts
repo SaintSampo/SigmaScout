@@ -40,30 +40,49 @@ export type CompareCompLevelView = CompareArtifact["slices"][number]["compLevelV
 
 /**
  * `SEASONS` (`lib/seasons.ts`) is STILL the one source of "which seasons
- * exist" in this codebase — this is a documented NARROWING of it, never a
- * second hand-typed year array. Since quick task 260904-nt4, `SEASONS` also
- * carries 2019 and 2020 (the gapped seven-season corpus), and neither may
- * enter Compare.
+ * exist" in this codebase — this is the seam where Compare's own set may
+ * narrow it, never a second hand-typed year array.
  *
- * The floor exists because a Compare row must be able to become
- * headline-eligible, which under the provenance-aware rule
- * (`packages/harness/score.ts`, quick task 260903-n2o) requires at least two
- * prior corpus seasons AND absence from the algorithm's own selected-on set.
- * 2019 has zero prior corpus seasons and 2020 has only a thin 2019 prior, so
- * both are selection-only seasons FOREVER (D-4/D-5) — no future republish
- * changes this, because their prior-season count can only grow if the corpus
- * is extended even further backward, and there is no earlier season to add.
- * `v1/compare/2019.json` and `v1/compare/2020.json` ARE published by
- * `publishSeasons` (one slice per season in the run) and simply never
- * fetched — this floor is what stops the page rendering a
- * permanently-ineligible empty row, not a gap in what gets published.
+ * **The floor moved 2022 -> 2016 on 2026-09-07 (user request), because the
+ * reason it sat at 2022 stopped being true.** The retired rationale is worth
+ * stating exactly, since it was wrong in an instructive way: it argued that
+ * 2019 and 2020 were selection-only "FOREVER", on the explicit grounds that
+ * "their prior-season count can only grow if the corpus is extended even
+ * further backward, and THERE IS NO EARLIER SEASON TO ADD." The corpus was
+ * then extended backward — 2016, 2017 and 2018 landed 2026-09-07 (quick task
+ * 260907-203) — so the premise failed, not the logic built on it. A "forever"
+ * claim resting on an unstated assumption about what would never be ingested
+ * is the shape to distrust here.
+ *
+ * Verified against the LIVE published artifacts rather than re-derived, since
+ * `headlineEligible` is computed at publish time and is the authority:
+ * **2018, 2019 and 2020 now publish `headlineEligible: true`** (they have
+ * three, four and five prior corpus seasons respectively). The floor's own
+ * stated purpose — keep permanently-ineligible rows off the page — no longer
+ * excludes them.
+ *
+ * **2016 and 2017 publish `headlineEligible: false` and are shown anyway.**
+ * 2016 is the corpus cold start (zero priors, and it can never gain one);
+ * 2017 has a single thin prior. Their published winner-accuracy and Brier
+ * figures are real measurements and are NOT empty — the flag governs whether
+ * this project makes a HEADLINE claim from a season, not whether the number
+ * is valid to display. Two caveats a reader cannot see from the table, and
+ * which no component currently surfaces: every algorithm cold-starts in 2016,
+ * so its absolute figures are depressed relative to a season with carry (the
+ * head-to-head between algorithms is still fair — they are handicapped
+ * equally), and 2017's single prior is thin for the same reason. If those
+ * caveats ever need to be visible, `headlineEligible` is already on every
+ * published slice and is the field to read.
  *
  * `COMPARE_SEASONS` is `SEASONS` filtered to `>= COMPARE_FIRST_SEASON` and
- * sorted ASCENDING (`Year` column order, top-to-bottom 2022-2026); `SEASONS`
+ * sorted ASCENDING (`Year` column order, top-to-bottom 2016-2026); `SEASONS`
  * itself is DESCENDING by design (the year dropdown's default selection is
- * first).
+ * first). The filter is presently a NO-OP — the floor equals `FIRST_SEASON` —
+ * and the constant is kept rather than deleted because it is the documented
+ * seam for narrowing Compare independently of the site's season list, which
+ * is exactly the move that was made once and then had to be undone.
  */
-export const COMPARE_FIRST_SEASON = 2022;
+export const COMPARE_FIRST_SEASON = 2016;
 
 export const COMPARE_SEASONS: readonly number[] = [...SEASONS].filter((season) => season >= COMPARE_FIRST_SEASON).sort((a, b) => a - b);
 

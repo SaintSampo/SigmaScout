@@ -79,15 +79,24 @@ describe("FetchCompareArtifactParams — compile-time shape assertion", () => {
 });
 
 describe("COMPARE_SEASONS", () => {
-  it("is exactly 2022-2026 in ascending order, a documented narrowing of SEASONS (which now also carries 2019 and 2020)", () => {
-    expect(COMPARE_SEASONS).toEqual([2022, 2023, 2024, 2025, 2026]);
+  it("is exactly the ten-season corpus in ascending order, 2016-2020 and 2022-2026", () => {
+    expect(COMPARE_SEASONS).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
     expect(COMPARE_SEASONS[0]).toBeLessThan(COMPARE_SEASONS[COMPARE_SEASONS.length - 1]!);
   });
 
-  it("SEASONS contains 2019 and 2020 while COMPARE_SEASONS contains neither — the narrowing is deliberate and visible, not a bug", () => {
-    expect(SEASONS).toContain(2019);
-    expect(SEASONS).toContain(2020);
-    expect(COMPARE_SEASONS).not.toContain(2019);
-    expect(COMPARE_SEASONS).not.toContain(2020);
+  it("never contains 2021 — a permanent exclusion inherited from SEASONS, not a gap awaiting backfill", () => {
+    expect(COMPARE_SEASONS).not.toContain(2021);
+  });
+
+  it("no longer narrows SEASONS at all — the 2022 floor was removed on 2026-09-07 and this is the pin that says so", () => {
+    // The floor's retired rationale claimed 2019/2020 were selection-only
+    // "FOREVER ... there is no earlier season to add". 2016/2017/2018 were
+    // then added, so the premise failed. This asserts the two sets now agree
+    // as SETS (COMPARE_SEASONS is ascending, SEASONS descending by design),
+    // which is what makes a future re-narrowing a deliberate, visible edit
+    // rather than a silent drift.
+    expect([...COMPARE_SEASONS].sort((a, b) => a - b)).toEqual([...SEASONS].sort((a, b) => a - b));
+    expect(COMPARE_SEASONS).toContain(2019);
+    expect(COMPARE_SEASONS).toContain(2020);
   });
 });
