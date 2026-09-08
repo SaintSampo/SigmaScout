@@ -35,8 +35,21 @@ run () {
 
 # Screen on 2019/2020 -- strictly prior to BOTH origins, so one screen is
 # leak-free for both (the earliest-origin rule from the retune skill).
-run screen --stage screen --seasons 2019,2020 --values 5 --batch 4 \
-  --out "reports/sensitivity-screen-${STAMP}.json"
+#
+# The screen ALREADY RAN 03:39-03:53, and its artifact then had the STANDING
+# carryPriorYearShare override applied by hand (see that file's own
+# survivorOverride block). That knob measures a Brier range of EXACTLY 0 on
+# this window because it is structurally UNREACHABLE here, not inert: this
+# task's own per-origin sweeps put it at 2.07 (2026), 3.26 (2025), 3.36 (2024)
+# span/SE. The retune skill carries the override as a pre-committed rule.
+#
+# DISABLED rather than deleted, and the distinction is load-bearing: re-running
+# the screen REGENERATES the artifact and silently drops the override. That
+# already cost two restarts -- the first joint attempt ran 12 min on the
+# un-overridden 10-knob file, and a second accidental screen run was killed
+# mid-flight before it could overwrite the corrected artifact.
+# DISABLED 2026-09-08 (see note below): run screen --stage screen --seasons 2019,2020 --values 5 --batch 4 \
+#   --out "reports/sensitivity-screen-${STAMP}.json"
 
 for origin in 2023 2024; do
   run "joint-origin${origin}" --stage joint --origin "$origin" \

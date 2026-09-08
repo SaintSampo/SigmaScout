@@ -25,7 +25,7 @@ import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPa
 const INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH = join(
   "data",
   "algorithm-versions",
-  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09e.json`
+  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09f.json`
 );
 
 // The single agreement pin (quick task 260904-2i9): if `promotedVersionPath.ts`
@@ -268,8 +268,19 @@ describe("aggregateScoresForRun", () => {
     // (2022, 2023) even though the run scored one season — reddens if the
     // corpus-season source is narrowed to the run's own scored seasons.
     expect(oprSlice?.headlineEligible).toBe(true);
-    // vpr: 2024 is inside the committed version file's provenance.tuneSeasons
-    // — reddens if the selected-on source is replaced by an all-empty map.
-    expect(vprSlice?.headlineEligible).toBe(false);
+    // vpr on 2024 flipped false -> TRUE on 2026-09-08 (quick task 260907-v1s):
+    // its 2024 parameters were re-fitted from the contaminated 2022/2023/2024
+    // window onto a strictly-prior 2020/2022/2023 one, so 2024 is no longer
+    // inside its own selected-on set.
+    //
+    // NOTE what this costs the test, stated rather than glossed: with both
+    // algorithms now eligible, this assertion no longer distinguishes "the
+    // selected-on source is the registry" from "the selected-on source is an
+    // all-empty map" — an all-empty map would produce eligible-for-both too.
+    // The guard is preserved instead by asserting the resolved set DIRECTLY
+    // below, which an all-empty map fails outright.
+    expect(vprSlice?.headlineEligible).toBe(true);
+    const vprSelectedOn = selectedOnSeasonsFor(["vpr"])["vpr"]?.(2024) ?? [];
+    expect(vprSelectedOn).toEqual([2020, 2022, 2023]);
   });
 });

@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 3 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 4 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -290,8 +290,23 @@ describe("committed baseline fingerprints", () => {
     // had. `rolling-2026-09e` already carries exactly that coverage and
     // supersedes all four, so the honest move was to drop them rather than
     // fabricate provenance.
+    // 2026-09-08 (quick task 260907-v1s) adds the fourth,
+    // `vpr@11.0.0+rolling-2026-09f.json`, and it is a DE-CONTAMINATION rather
+    // than a re-tune in the usual sense. The 2023 and 2024 parameter sets in
+    // `09e` were selected on 2022/2023/2024 — a window CONTAINING both origins
+    // — so every blinded candidate on those seasons had been scored against an
+    // incumbent that already saw the answers. `09f` replaces exactly those two
+    // seasons with sets selected on 2019/2020/2022 and 2020/2022/2023
+    // respectively; the other eight seasons are carried from `09e` untouched.
+    //
+    // 2024's set was promoted DESPITE scoring lower out-of-sample (-0.0044),
+    // because a contaminated fit has no valid claim to the pin regardless of
+    // the number it posts — see the task's RESULTS.md. `09e` is retained
+    // rather than retired: it is the last pin the live site was published
+    // from, so deleting it would break the record of what R2 currently serves.
     ).toEqual([
       "vpr@11.0.0+rolling-2026-09e.json",
+      "vpr@11.0.0+rolling-2026-09f.json",
       "vpr@11.0.0+tracer-check.json",
       "vpr@11.0.0+tuned-2026-08.json",
     ]);

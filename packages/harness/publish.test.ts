@@ -2435,7 +2435,7 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
    * test — a headline-eligibility matrix change must be a deliberate,
    * visible edit, never a silent side effect of a re-promotion.
    */
-  it("2024 (inside vpr's selected-on set) is NOT headline-eligible; 2025 (outside it) IS — both against a corpus that supplies enough priors either way", async () => {
+  it("2024 and 2025 are BOTH headline-eligible now that no season sits inside vpr's own selected-on set", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2022prior", year: 2022 }));
     upsertMatch(db, seasonMatch({ matchKey: "2022prior_qm1", eventKey: "2022prior" }));
 
@@ -2455,7 +2455,21 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
       (s) => s.algorithmId === vpr.id && s.season === 2024 && s.compLevelView === "combined"
     );
     expect(vprCombined2024).toBeDefined();
-    expect(vprCombined2024?.headlineEligible).toBe(false);
+    // CHANGED 2026-09-08 (quick task 260907-v1s, gate 5 de-contamination), and
+    // the change is the RESULT rather than an accommodation of one. This
+    // asserted `false` because vpr's 2024 parameters were selected on
+    // 2022/2023/2024 — a window CONTAINING 2024 — so the season was excluded
+    // from headline comparison on the grounds that the model had seen it.
+    // Those parameters were re-fitted on 2020/2022/2023, strictly prior, so
+    // 2024 is now a season vpr can honestly be headline-scored on for the
+    // first time. After that re-fit NO season sits inside its own selected-on
+    // set (verified across 2022-2026), which is why this test no longer has an
+    // ineligible case to contrast against.
+    //
+    // The ineligible BRANCH is still covered, directly and at unit level, by
+    // `score.test.ts`'s `isHeadlineEligible(2020, [2019, 2020], [])` — so
+    // flipping this expectation loses no coverage of the mechanism itself.
+    expect(vprCombined2024?.headlineEligible).toBe(true);
 
     const artifact2025 = findCompareArtifact(2025);
     const vprCombined2025 = artifact2025.slices.find(
