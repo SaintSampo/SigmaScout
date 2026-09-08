@@ -68,4 +68,40 @@ describe("/methodology/vpr — Intro to VPR", () => {
     const bodyText = (document.body.textContent ?? "").toLowerCase();
     expect(bodyText).not.toMatch(/better than|outperforms|beats (opr|epa)/);
   });
+
+  // Quick task 260908-5wd: Swing Factor moved from "a component of VPR" to
+  // a browser-computed, site-wide bonus stat. These assertions pin the
+  // shipped story, not the retired one.
+  describe("Swing Factor is framed as a site-wide bonus stat, not a part of VPR (quick task 260908-5wd)", () => {
+    it("says the browser computes it for whichever rating is open, not only VPR", async () => {
+      await renderMethodologyVpr();
+      const bodyText = (document.body.textContent ?? "").toLowerCase();
+      expect(bodyText).toMatch(/opr and epa/);
+      expect(bodyText).toMatch(/browser/);
+    });
+
+    it("says VPR's own predictions never use it", async () => {
+      await renderMethodologyVpr();
+      const bodyText = (document.body.textContent ?? "").toLowerCase();
+      expect(bodyText).toMatch(/vpr's own predictions never use it/);
+    });
+
+    it("mentions the ribbon switch that turns every ± off at once", async () => {
+      await renderMethodologyVpr();
+      const bodyText = (document.body.textContent ?? "").toLowerCase();
+      expect(bodyText).toMatch(/switch in the bar at the top/);
+    });
+
+    it("states the honest 0.59 correlation ceiling", async () => {
+      await renderMethodologyVpr();
+      const bodyText = document.body.textContent ?? "";
+      expect(bodyText).toContain("0.59");
+    });
+
+    it("states the Teams-table coverage limit", async () => {
+      await renderMethodologyVpr();
+      const bodyText = document.body.textContent ?? "";
+      expect(bodyText).toContain("Teams table");
+    });
+  });
 });

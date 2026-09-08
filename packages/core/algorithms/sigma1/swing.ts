@@ -84,6 +84,36 @@
  * `e_m` also carries MEAN-MODEL ERROR as well as robot noise, so Y absorbs
  * some of the filter's own inaccuracy — carried forward from the retired
  * decomposition's own caveat list, because it did not stop being true.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SITE NO LONGER READS ITS `±` FROM HERE — AND THIS MODULE IS SCHEDULED
+ * FOR DELETION, BUT NOT YET (quick task 260908-5wd, 2026-09-08)
+ * ---------------------------------------------------------------------------
+ *
+ * As of that task the site computes what it now calls the SWING FACTOR in the
+ * browser, in `apps/web/src/lib/swingFactor.ts`, from whichever algorithm's
+ * artifact is open — so OPR and EPA carry one too, not just VPR. The developer's
+ * framing is that Y stopped being part of VPR's model long ago and is now an
+ * extra metric bolted onto it; the browser is where it belongs.
+ *
+ * THIS MODULE REMAINS THE MEASUREMENT OF RECORD for both constants. The web
+ * copy duplicates their VALUES and cites this file by name for their EVIDENCE —
+ * it does not import them, precisely because this module is scheduled to go and
+ * the web one must outlive it.
+ *
+ * WHY THE DELETION IS DEFERRED TO THE NEXT SIGMA1 PARAMS MAJOR rather than done
+ * with that task. `Sigma1ParamsSchema` is a `z.strictObject`, so dropping
+ * `swingScale`/`swingHalfLifeMatches` forces a params major, which drags in a
+ * new `legacyParams.ts` migration, a `stateSnapshot.ts` shape bump that
+ * INVALIDATES LIVE WORKER D1 STATE, and a migration pass over every promoted
+ * set in `data/algorithm-versions/`. All of that rides a retune and republish;
+ * none of it can ride a web-only change.
+ *
+ * WHAT MAKES THE WAIT FREE, and the reason no interim shim is needed: the web
+ * merge only fills a `spread` the artifact did NOT publish. So on the day a
+ * model version stops publishing one, the browser value takes over on its own,
+ * with no further code change anywhere. Tracked in
+ * `.planning/todos/pending/remove-swing-from-sigma1-core.md`.
  */
 
 /**

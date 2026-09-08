@@ -21,6 +21,15 @@
  *   4. The ± is match-to-match swing, recency-weighted — NOT model
  *      uncertainty about the rating. (sigma1/index.ts "WHAT THE ± IS FOR";
  *      swing.ts header)
+ *   4a. As of quick task 260908-5wd, the ± is a site-wide bonus stat rather
+ *      than a component of VPR: the browser computes it from whichever
+ *      rating's artifact is open, VPR's own predictions never use it (it is
+ *      excluded from the tuning search space and invisible to the accuracy
+ *      objective), and it can be switched off from the ribbon. It is shown
+ *      on a team's own page only, not yet on the Teams table, which carries
+ *      season summaries without the match-by-match detail the estimate
+ *      needs. (`apps/web/src/lib/swingFactor.ts`; `searchSpace.ts`'s
+ *      `SEARCH_EXCLUSIONS.swingScale`/`swingHalfLifeMatches`)
  *   5. Who it helps: a captain picking first wants low ±; a low seed
  *      hunting an upset wants high ±; a mid-quals partner needs to know
  *      which. (swing.ts's three user stories)
@@ -72,8 +81,13 @@ export const VPR_GUIDE_SECTIONS: readonly VprGuideSection[] = [
     id: "swing",
     title: "The ±: how steady, not how sure",
     paragraphs: [
-      "It's tempting to read the ± as \"how sure SigmaScout is about the rating.\" That's not what it measures. The ± is how much a robot's contribution swings from match to match, weighted so recent matches count more than old ones.",
+      "It's tempting to read the ± as \"how sure SigmaScout is about the rating.\" That's not what it measures. The ± is how much a robot's contribution swings from match to match, weighted so recent matches count more than old ones. SigmaScout calls this Swing Factor.",
       "A robot with a small ± plays about the same every match. A robot with a large ± might dominate one match and barely show up in the next. Two robots can carry the exact same rating and a completely different ±.",
+      "Swing Factor isn't a piece of VPR anymore — it's a bonus stat SigmaScout computes for whichever rating you're looking at, VPR or otherwise. Your own browser works it out the moment you open a team's page, from that rating's own match-by-match predicted-versus-actual scores, which is why you'll see a ± next to OPR and EPA numbers too, not just VPR's.",
+      "VPR's own predictions never use it. It doesn't feed the rating, and it's left out entirely when VPR's settings are tuned — the tuning process can't see it at all, so it has no way to chase a better-looking ± the way it might chase a better rating.",
+      "Don't want to see it? There's a ± switch in the bar at the top of every page that turns every ± on the site off at once, from one place.",
+      "One honest limit, stated plainly rather than softened: the best any estimator shaped like this one can do at predicting a team's swing in its very next match tops out around a correlation of 0.59. That isn't a flaw in this particular formula — FRC never records what one robot scored on its own, only what its whole alliance scored, so every per-robot number in this system is inferred from shared results, not measured directly.",
+      "Right now the ± only shows up on a team's own page, where your browser can see that team's whole season of matches. The Teams table shows season summaries only, without the match-by-match detail the estimate needs, so it doesn't show a ± there yet.",
     ],
   },
   {
