@@ -212,6 +212,17 @@ export class BprModel {
     this.logTau = Math.log(params.tau0);
   }
 
+  /**
+   * Diagnostic snapshot of every team's current point rating (slow + fast).
+   * Used to measure how much team strength persists from one season to the
+   * next; never consumed by prediction.
+   */
+  snapshot(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const [k, s] of this.teams) out.set(k, s.muL + s.muS);
+    return out;
+  }
+
   /** Observation variance for an alliance whose predicted output is `mu`. */
   private obsVar(mu: number): number {
     const s = this.p.obsSd * (1 + (this.p.obsSdSlope * (mu - 3)) / 3);
