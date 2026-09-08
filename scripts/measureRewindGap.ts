@@ -645,7 +645,9 @@ export async function runMeasurement(targetEvents: readonly TargetEvent[], draws
         byMatchKey.set(r.match.matchKey, { match: r.match, prediction: r.prediction });
       }
 
-      priorSeasonFinalStates = new Map(records.finalStates);
+      // Quick task 260908-615: the boundary thread reads `carryStates`, so
+      // this diagnostic replays the same carry instant the publisher does.
+      priorSeasonFinalStates = new Map(records.carryStates);
       console.log(`measureRewindGap: season ${season} complete — ${records.length} matches replayed`);
     }
 

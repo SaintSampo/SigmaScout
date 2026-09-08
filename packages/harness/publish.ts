@@ -2616,7 +2616,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const compareKey = artifactKey({ page: "compare", year: season });
     await uploader.publish("compare", compareKey, JSON.stringify(compareArtifact));
 
-    liveStatesAcrossSeasons = new Map(records.finalStates);
+    // Quick task 260908-615: these two lines read DIFFERENT maps, and the
+    // split IS the point — do not collapse them back into one read.
+    //
+    //   `liveStatesAcrossSeasons` feeds the NEXT season's `carrySeason`
+    //   boundary thread, so it takes `carryStates` — for EPA that rewinds to
+    //   the state after this season's last OFFICIAL match, so an exhibition
+    //   result cannot seed next season's prior.
+    //
+    //   `finalSeasonStates` is D-12's D1 seed, which the LIVE Worker resumes
+    //   from. The Worker continues the real, offseason-inclusive season, so
+    //   seeding it from a rewound snapshot would make live and offline
+    //   disagree about the very same season — it must stay `finalStates`.
+    liveStatesAcrossSeasons = new Map(records.carryStates);
     finalSeasonStates = new Map(records.finalStates);
   }
 

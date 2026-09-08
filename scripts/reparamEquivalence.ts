@@ -262,7 +262,11 @@ function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: strin
     const stream: MatchResult[] = buildSeasonStream(db, season, { includeOffseason: false });
     const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
     const records = new WalkForwardSimulator(stream).runAll([algorithm], teams, initialStates);
-    liveState = records.finalStates.get(algorithm.id);
+    // Quick task 260908-615: reads `carryStates` like every other season
+    // boundary. Behavior-identical here today (this script builds its streams
+    // offseason-excluded, and VPR declares no carry instant anyway) and
+    // changed anyway so the six boundary loops cannot drift apart.
+    liveState = records.carryStates.get(algorithm.id);
 
     const seasonRecords: ScoredRecord[] = [];
     for (const r of records) {

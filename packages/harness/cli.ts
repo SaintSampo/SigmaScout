@@ -496,10 +496,23 @@ async function writeReport(outDir: string, artifact: Parameters<typeof renderHtm
   console.log(`Wrote ${htmlPath}`);
 }
 
-/** Result of replaying one season: predictions tagged for scoring, plus every algorithm's state after the season's last match — the value plan 02-03's `runSeasons` threads across the next boundary via `carrySeason`. */
+/**
+ * Result of replaying one season: predictions tagged for scoring, plus the
+ * two as-of state maps `WalkForwardSimulator.runAll` distinguishes.
+ *
+ * `finalStates` is every algorithm's state after the season's LAST REPLAYED
+ * match — the honest end-of-replay value, and what cumulative telemetry
+ * (`reportBreakdownParseFailures`) must read to see the whole season.
+ *
+ * `carryStates` (quick task 260908-615) is what `runSeasons` threads across
+ * the next boundary via `carrySeason`: identical to `finalStates` except for
+ * an algorithm declaring `carryFrom: "last-official-match"` (EPA), whose
+ * entry rewinds to the state after the season's last OFFICIAL match.
+ */
 interface SeasonRunResult {
   predictions: HarnessPredictionInput[];
   finalStates: ReadonlyMap<string, unknown>;
+  carryStates: ReadonlyMap<string, unknown>;
 }
 
 /** Plan 02-05: the two optional sidecar writers a season replay can stream into — both open for the duration of exactly one season, opened/closed by the caller (`runSeasons`) at each season boundary. */
@@ -632,9 +645,13 @@ async function runSeason(
       `Season ${season} [${algorithm.id}]: ${algorithmPredictions.length} matches replayed, ${algorithmPredictions.length - excludedCount} scorable, ${excludedCount} excluded (${carryStatus})`
     );
   }
+  // Deliberately `finalStates`, not `carryStates` (quick task 260908-615):
+  // `breakdownParseFailureCount` is cumulative-since-start, so this reader
+  // must see the whole replayed season including any offseason tail. A
+  // rewound snapshot would under-report parse failures.
   reportBreakdownParseFailures(algorithms, records.finalStates);
 
-  return { predictions, finalStates: records.finalStates };
+  return { predictions, finalStates: records.finalStates, carryStates: records.carryStates };
 }
 
 /**
@@ -729,7 +746,7 @@ export async function runSeasons(
       ? openMetricHistoryWriter(sidecarConfig.metricHistoryOutDir, season, sidecarConfig.secretToScrub)
       : undefined;
 
-    const { predictions, finalStates } = await runSeason(db, season, algorithms, includeOffseason, initialStates, {
+    const { predictions, carryStates } = await runSeason(db, season, algorithms, includeOffseason, initialStates, {
       predictionsWriter,
       metricHistoryWriter,
     });
@@ -738,7 +755,10 @@ export async function runSeasons(
     if (metricHistoryWriter) closeMetricHistoryWriter(metricHistoryWriter);
 
     all.push(...predictions);
-    liveStates = new Map(finalStates);
+    // Quick task 260908-615: the boundary thread reads `carryStates`, so EPA
+    // crosses from its last-official-match state rather than a season-final
+    // state that kept learning through offseason play.
+    liveStates = new Map(carryStates);
   }
   return all;
 }

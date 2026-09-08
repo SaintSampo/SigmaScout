@@ -693,7 +693,11 @@ async function runBoundedSeasons(
     // a smaller per-run scale (fewer simultaneous algorithms) that has not
     // yet tripped it — out of this plan's file scope, logged separately.
     for (const prediction of predictions) all.push(prediction);
-    liveStates = new Map(records.finalStates);
+    // Quick task 260908-615: reads `carryStates` like every other season
+    // boundary. Behavior-identical for tuning today — tune streams are built
+    // offseason-excluded — and changed anyway so the six boundary loops
+    // cannot drift to different carry instants.
+    liveStates = new Map(records.carryStates);
   }
 
   return all;

@@ -14,6 +14,7 @@ import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, TeamMetrics,
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 // Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
 // own `publish.ts` importer now imports the published `vpr` registry entry
 // under its post-rename name.
@@ -3648,5 +3649,131 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
 
     const coldStarts = boundaries.map((b) => b.isColdStart);
     expect(coldStarts).toEqual([true, false, false, false, false, false, false]);
+  });
+});
+
+describe("publishSeasons — EPA carries from the last official match (quick task 260908-615)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-carry-instant-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Season A: one official event, then chronologically LATER an offseason
+   * event whose scores are a lopsided blowout — the exact shape that used to
+   * seed the next season's prior. Season B: one official event.
+   *
+   * The assertion is a real numeric discrimination, not a tautology: both
+   * candidate priors are recomputed here from `WalkForwardSimulator` directly
+   * (one threaded from the post-official-match state, one from the
+   * season-final state), and the published season-B metric must match the
+   * former and NOT the latter.
+   */
+  function seedTwoSeasons(): void {
+    upsertEvent(db, seasonEvent({ eventKey: "2025off1", year: 2025, eventType: 0, name: "Official A" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2025off1_qm1",
+        eventKey: "2025off1",
+        sortTime: 1_000,
+        redScore: 100,
+        blueScore: 80,
+        winner: "red",
+      })
+    );
+
+    upsertEvent(
+      db,
+      seasonEvent({
+        eventKey: "2025ex",
+        year: 2025,
+        eventType: OFFSEASON_EVENT_TYPE,
+        isOffseason: true,
+        name: "Exhibition Blowout",
+      })
+    );
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2025ex_qm1",
+        eventKey: "2025ex",
+        sortTime: 9_000,
+        redScore: 400,
+        blueScore: 5,
+        winner: "red",
+      })
+    );
+
+    upsertEvent(db, seasonEvent({ eventKey: "2026off1", year: 2026, eventType: 0, name: "Official B" }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026off1_qm1",
+        eventKey: "2026off1",
+        sortTime: 20_000,
+        redScore: 90,
+        blueScore: 85,
+        winner: "red",
+      })
+    );
+  }
+
+  /** Replays season B from a prior taken at the given instant, returning frc1's published `total`. */
+  function seasonBTotalFromInstant(instant: "carry" | "final"): number {
+    const streamA = buildSeasonStream(db, 2025, { includeOffseason: true });
+    const teamsA = Array.from(new Set(streamA.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const recordsA = new WalkForwardSimulator(streamA).runAll([epa], teamsA);
+    const priorState = instant === "carry" ? recordsA.carryStates.get(epa.id) : recordsA.finalStates.get(epa.id);
+
+    const boundary = seasonBoundaryFor([2025, 2026], 1);
+    const carried = epa.carrySeason!(priorState as never, boundary);
+
+    const streamB = buildSeasonStream(db, 2026, { includeOffseason: true });
+    const teamsB = Array.from(new Set(streamB.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const recordsB = new WalkForwardSimulator(streamB).runAll([epa], teamsB, new Map([[epa.id, carried]]));
+    return epa.teamMetrics(recordsB.finalStates.get(epa.id) as never)["frc1"]![TOTAL_METRIC_KEY]!.value;
+  }
+
+  it("season B's published EPA matches a replay threaded from the post-official-match state, NOT from the season-final state", async () => {
+    seedTwoSeasons();
+
+    const expectedFromCarry = seasonBTotalFromInstant("carry");
+    const expectedFromFinal = seasonBTotalFromInstant("final");
+
+    // Guard the guard: if the offseason blowout did not actually move the
+    // prior, this test would pass vacuously no matter which instant shipped.
+    expect(
+      Math.abs(expectedFromCarry - expectedFromFinal),
+      "the seeded offseason blowout must move the season-B prior, or this test proves nothing"
+    ).toBeGreaterThan(0.5);
+
+    await publishSeasons(db, {
+      seasons: [2025, 2026],
+      algorithms: [epa],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const artifact = findTeamArtifact("frc1", 2026);
+    const publishedTotal = artifact.seasonStats.metrics[TOTAL_METRIC_KEY]!.value;
+
+    // The published value carries D-06's display rounding, so both candidates
+    // are rounded the same way before comparison — the discrimination above
+    // (> 0.5 apart) is far coarser than this rule's 2 decimals, so rounding
+    // cannot collapse the two instants into each other.
+    expect(publishedTotal).toBe(roundTo(expectedFromCarry, ROUNDING_RULE.metric));
+    expect(publishedTotal).not.toBe(roundTo(expectedFromFinal, ROUNDING_RULE.metric));
   });
 });

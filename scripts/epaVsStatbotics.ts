@@ -137,21 +137,33 @@ function uniqueTeamKeysInOrder(matches: readonly MatchResult[]): string[] {
  * `epa`'s season-FINAL state at EVERY season in the range — the replay is
  * already chronological and visits each boundary, so one pass produces every
  * season's comparison rather than only the last.
+ *
+ * Quick task 260908-615: two as-of instants are now in play here, and this
+ * function deliberately uses BOTH.
+ *
+ *   - The value it RETURNS stays `finalStates` — that is the MEASURED
+ *     quantity this script compares against Statbotics, and the committed
+ *     baseline in `data/baselines/epa-vs-statbotics-2026-09.json` is
+ *     documented as the offseason-inclusive production arm. Rewinding it
+ *     would change what the measurement MEANS, not what the model does.
+ *   - The value it THREADS across each boundary is `carryStates`, matching
+ *     every other season loop, so the replay this script measures is the
+ *     same replay the publisher performs.
  */
 function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boolean): Map<number, EpaState> {
   const finalStatesBySeason = new Map<number, EpaState>();
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    let carriedFinalStates: ReadonlyMap<string, unknown> | undefined;
+    let carriedStates: ReadonlyMap<string, unknown> | undefined;
     for (const [seasonIdx, season] of seasons.entries()) {
       const stream = buildSeasonStream(db, season, { includeOffseason });
       const teams = uniqueTeamKeysInOrder(stream);
 
       const boundary = seasonBoundaryFor(seasons, seasonIdx);
       let initialStates: ReadonlyMap<string, unknown> | undefined;
-      if (!boundary.isColdStart && carriedFinalStates) {
+      if (!boundary.isColdStart && carriedStates) {
         const carried = new Map<string, unknown>();
-        const prior = carriedFinalStates.get(epa.id);
+        const prior = carriedStates.get(epa.id);
         if (epa.carrySeason && prior !== undefined) {
           carried.set(epa.id, epa.carrySeason(prior as EpaState, boundary));
         }
@@ -160,7 +172,7 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
 
       const simulator = new WalkForwardSimulator(stream);
       const records = simulator.runAll([epa], teams, initialStates);
-      carriedFinalStates = records.finalStates;
+      carriedStates = records.carryStates;
       finalStatesBySeason.set(season, records.finalStates.get(epa.id) as EpaState);
       console.log(`epaVsStatbotics: season ${season} replayed — ${stream.length} matches`);
     }
