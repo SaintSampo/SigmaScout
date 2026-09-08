@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { Tier } from "@/lib/tiers";
+import { useDisplaySettingsStore } from "@/stores/displaySettings";
 
 /**
  * The published `TeamMetric` shape (`packages/harness/pageArtifacts.ts`'s
@@ -47,13 +48,21 @@ export interface DisplayMetric {
  * `toFixed(2)` digits, same DOM text content and order as before — this is
  * a presentation-only change over the identical " ± {spread}" string
  * `.text-role-spread-suffix` used to render, so the accessible name/text
- * content read by assistive tech is byte-identical to before this change.
- * See `theme.css`'s own doc comment on `.metric-spread-superscript` for why
+ * content read by assistive tech is byte-identical to before this change —
+ * IN THE ON STATE. Quick task 260908-5wd added the ribbon's Swing Factor
+ * toggle (`displaySettings.ts`'s `showSwingFactor`), read directly from the
+ * store here rather than threaded as a prop, because reading it inside this
+ * one primitive is what makes a single edit gate every ± on the site: with
+ * the toggle off, the byte-identical claim above no longer holds — the
+ * spread span is omitted entirely, and only the bare value renders. See
+ * `theme.css`'s own doc comment on `.metric-spread-superscript` for why
  * this is a NEW class rather than a redefinition of `.text-role-spread-suffix`
  * (that class is also consumed by two match-table surfaces outside this
  * fix's scope).
  */
 export function MetricValue({ metric, tier, className }: { metric?: DisplayMetric; tier?: Tier; className?: string }) {
+  const showSwingFactor = useDisplaySettingsStore((state) => state.showSwingFactor);
+
   if (metric === undefined) {
     // Blank, not an em-dash (2026-09-01 user request: no visible em-dashes
     // anywhere on the site). The span itself stays so the cell keeps its
@@ -62,7 +71,7 @@ export function MetricValue({ metric, tier, className }: { metric?: DisplayMetri
   }
 
   const valueText = metric.value.toFixed(2);
-  const hasSpread = metric.spread !== undefined;
+  const hasSpread = metric.spread !== undefined && showSwingFactor;
   const boxed = tier !== undefined;
 
   return (

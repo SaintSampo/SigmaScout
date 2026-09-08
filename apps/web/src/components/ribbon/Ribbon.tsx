@@ -3,6 +3,7 @@ import { useIsMobile } from "@/lib/breakpoints";
 import { YearSelect } from "./YearSelect.js";
 import { AlgorithmSelect } from "./AlgorithmSelect.js";
 import { SearchBox } from "../search/SearchBox.js";
+import { SwingFactorToggle } from "./SwingFactorToggle.js";
 
 /**
  * NAV-01's persistent top ribbon: wordmark, three nav links in a FIXED
@@ -169,6 +170,7 @@ export function Ribbon() {
         <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           <NavLinks />
           <div className="flex items-center gap-[var(--spacing-sm)]">
+            <SwingFactorToggle />
             <GitHubLink />
             <SearchBox tone="ribbon" />
           </div>
@@ -190,6 +192,7 @@ export function Ribbon() {
             the ribbon's center — it must hug the search box (user request,
             2026-09-04), matching the mobile branch's grouping above. */}
         <div className="flex items-center gap-[var(--spacing-md)]">
+          <SwingFactorToggle />
           <GitHubLink />
           <SearchBox tone="ribbon" />
         </div>

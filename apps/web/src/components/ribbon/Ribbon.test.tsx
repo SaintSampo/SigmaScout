@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
+import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { Ribbon } from "./Ribbon.js";
 
 /**
@@ -55,6 +56,38 @@ describe("Ribbon", () => {
     global.fetch = originalFetch;
     cleanup();
     vi.restoreAllMocks();
+    useDisplaySettingsStore.setState({ showSwingFactor: true });
+    window.localStorage.removeItem("sigmascout-display-settings");
+  });
+
+  it("renders the Swing Factor toggle on desktop, reachable by its accessible name (quick task 260908-5wd)", async () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    await renderRibbonAt("/teams?year=2024&algorithm=vpr");
+
+    expect(screen.getByRole("button", { name: /swing factor/i })).toBeDefined();
+  });
+
+  it("renders the Swing Factor toggle on mobile too, in the same compact second row as GitHubLink/SearchBox", async () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList;
+
+    try {
+      await renderRibbonAt("/teams?year=2024&algorithm=vpr");
+      expect(screen.getByRole("button", { name: /swing factor/i })).toBeDefined();
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it("renders with NO query client data resolved, proving it is not fetch-gated — the algorithms manifest fetch never resolves during this test", async () => {
