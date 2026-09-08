@@ -289,6 +289,37 @@ describe("event_alliances — full-corpus census after the 2022-2026 pass (plan 
     });
   }
 
+  /**
+   * The 2016–2020 alliance backfill (2026-09-08) gets its own sweep rather
+   * than joining SEASONS, whose doc comment scopes it to plan 07-05's five
+   * seasons. Floors sit below the measured figures (2016: 168, 2017: 216,
+   * 2018: 237, 2019: 262 populated events) for the same catch-a-zero reason
+   * as ALLIANCE_EVENT_FLOOR. 2020's floor is far lower and that is honest,
+   * not lenient: COVID cancelled most of the season and 141 of its 196
+   * events returned a null alliances body — 55 populated events is the
+   * full real figure.
+   */
+  const BACKFILL_ALLIANCE_FLOORS: ReadonlyArray<readonly [year: number, floor: number]> = [
+    [2016, 100],
+    [2017, 100],
+    [2018, 100],
+    [2019, 100],
+    [2020, 40],
+  ];
+  for (const [year, floor] of BACKFILL_ALLIANCE_FLOORS) {
+    it(`backfilled season ${year} has at least ${floor} distinct events with event_alliances rows`, () => {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT ea.event_key) AS n
+           FROM event_alliances ea
+           JOIN events e ON e.event_key = ea.event_key
+           WHERE e.year = ?`
+        )
+        .get(year) as { n: number };
+      expect(row.n).toBeGreaterThanOrEqual(floor);
+    });
+  }
+
   for (const eventKey of ABSENT_ALLIANCE_EVENT_KEYS) {
     it(`${eventKey} exists in events and carries exactly zero event_alliances rows`, () => {
       const eventRow = db.prepare(`SELECT event_key FROM events WHERE event_key = ?`).get(eventKey) as

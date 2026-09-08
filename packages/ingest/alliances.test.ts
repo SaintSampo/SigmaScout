@@ -70,9 +70,9 @@ describe("tbaAllianceResponseSchema", () => {
     expect(() => tbaAllianceResponseSchema.parse(drifted)).toThrow();
   });
 
-  it("throws on a drifted payload — picks present but empty (min(1) rejects a zero-pick alliance)", () => {
-    const drifted = [{ ...allianceEntry(), picks: [] }];
-    expect(() => tbaAllianceResponseSchema.parse(drifted)).toThrow();
+  it("parses an entry with picks present but empty — live-observed at 2018mvrc during the 2016–2020 backfill (unfilled trailing alliance slots); normalize drops it, not the parser", () => {
+    const response = [{ ...allianceEntry(), picks: [] }];
+    expect(() => tbaAllianceResponseSchema.parse(response)).not.toThrow();
   });
 
   it("throws on a drifted payload — declines absent entirely (a NOT NULL column cannot honestly absorb a missing required key)", () => {
@@ -127,6 +127,29 @@ describe("normalizeEventAlliances", () => {
   it("a real name string round-trips verbatim", () => {
     const result = normalizeEventAlliances([allianceEntry({ name: "Alliance 7" })]);
     expect(result[0]?.name).toBe("Alliance 7");
+  });
+
+  it("drops zero-pick entries while keeping seed numbers from array position — 2018mvrc's real shape (8 slots, last two unfilled) yields 6 rows numbered 1–6", () => {
+    const entries = [
+      ...[1, 2, 3, 4, 5, 6].map((n) => allianceEntry({ name: `Alliance ${n}` })),
+      allianceEntry({ name: "Alliance 7", picks: [] }),
+      allianceEntry({ name: "Alliance 8", picks: [] }),
+    ];
+    const result = normalizeEventAlliances(entries);
+    expect(result).toHaveLength(6);
+    expect(result.map((r) => r.allianceNumber)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(result.every((r) => r.picks.length > 0)).toBe(true);
+  });
+
+  it("a zero-pick entry mid-array is dropped without renumbering its successors — the real alliances keep TBA's own seed positions", () => {
+    const entries = [
+      allianceEntry({ name: "Alliance 1" }),
+      allianceEntry({ name: "Alliance 2", picks: [] }),
+      allianceEntry({ name: "Alliance 3" }),
+    ];
+    const result = normalizeEventAlliances(entries);
+    expect(result.map((r) => r.allianceNumber)).toEqual([1, 3]);
+    expect(result.map((r) => r.name)).toEqual(["Alliance 1", "Alliance 3"]);
   });
 
   it("a 4-pick alliance normalizes with picks.length === 4 and picks[3] equal to the 4th team key, matching 2022roe's real recorded values", () => {

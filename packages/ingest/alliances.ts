@@ -42,10 +42,16 @@ export interface NormalizedEventAlliance {
  *   Fabricating an `Alliance {n}` label is 07-14's decision to make from
  *   an honest NULL, and is forbidden here.
  * - `picks` and `declines` pass through as the arrays TBA sent, order
- *   intact, with no filtering, de-duplication or length branching.
- *   `picks[0]` is the captain; a 4th team, where one exists, is
- *   `picks[3]`. TBA's response has no separate field for it (D-16), so
- *   neither does this interface.
+ *   intact, with no de-duplication or length branching. `picks[0]` is the
+ *   captain; a 4th team, where one exists, is `picks[3]`. TBA's response
+ *   has no separate field for it (D-16), so neither does this interface.
+ *   The single exception: an entry with ZERO picks is dropped entirely —
+ *   observed live at `2018mvrc` (8 declared slots, the last two unfilled)
+ *   during the 2016–2020 backfill. An unfilled slot is not an alliance,
+ *   and `event_alliances` forbids an empty-picks row; this filter is what
+ *   keeps that contract true now that the schema admits the shape. It runs
+ *   AFTER `allianceNumber` assignment, so real alliances keep TBA's seed
+ *   order even if an unfilled slot ever appeared mid-array.
  * - `statusRaw` is `JSON.stringify` of `status` when present and `null`
  *   when absent — the verbatim provenance 07-02's `status_raw` column
  *   stores. Nothing in Phase 7 reads it; it is kept so a later consumer of
@@ -53,11 +59,13 @@ export interface NormalizedEventAlliance {
  */
 export function normalizeEventAlliances(response: TbaAllianceResponse | null): NormalizedEventAlliance[] {
   if (response === null || response.length === 0) return [];
-  return response.map((entry, i) => ({
-    allianceNumber: i + 1,
-    name: entry.name === undefined || entry.name === null || entry.name === "" ? null : entry.name,
-    picks: entry.picks,
-    declines: entry.declines,
-    statusRaw: entry.status === undefined ? null : JSON.stringify(entry.status),
-  }));
+  return response
+    .map((entry, i) => ({
+      allianceNumber: i + 1,
+      name: entry.name === undefined || entry.name === null || entry.name === "" ? null : entry.name,
+      picks: entry.picks,
+      declines: entry.declines,
+      statusRaw: entry.status === undefined ? null : JSON.stringify(entry.status),
+    }))
+    .filter((alliance) => alliance.picks.length > 0);
 }

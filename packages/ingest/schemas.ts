@@ -204,15 +204,19 @@ export type TbaEventRankingsResponse = z.infer<typeof tbaEventRankingsResponseSc
  *   cosmetic label. A `.default()` of any kind is forbidden here: it would
  *   make an absence indistinguishable from a value at every layer
  *   downstream.
- * - `picks` carries `.min(1)`. An alliance object with zero picks is not
- *   an alliance, was never observed across the 38 populated events
- *   sampled, and could not be stored anyway — `packages/corpus/db.ts`'s
- *   `event_alliances` contract forbids a row with an empty picks array.
- *   Rejecting it at the parse boundary is what makes that contract
- *   structurally true instead of dependent on a downstream skip. The
- *   maximum is deliberately unconstrained: 3 and 4 were both observed, and
- *   a length ceiling would turn a future format change into a parse
- *   failure over something this pipeline does not care about.
+ * - `picks` has NO `.min(1)`, reversing this schema's original stance.
+ *   A zero-pick entry was never observed across the 38 populated events
+ *   originally sampled (all 2022+), but the 2016–2020 backfill
+ *   (2026-09-08) found it live at `2018mvrc`: 8 alliance slots, the last
+ *   two with `picks: []` — an offseason event that declared more slots
+ *   than it filled. That is a real TBA shape, not drift, so the parse
+ *   boundary must admit it. `packages/corpus/db.ts`'s `event_alliances`
+ *   contract still forbids a row with an empty picks array; keeping that
+ *   contract true is now `normalizeEventAlliances`'s job — it drops
+ *   zero-pick entries after assigning seed numbers. The maximum remains
+ *   deliberately unconstrained: 3 and 4 were both observed, and a length
+ *   ceiling would turn a future format change into a parse failure over
+ *   something this pipeline does not care about.
  * - `status` is `z.unknown().optional()`, the same z.unknown() treatment
  *   `tbaMatchSchema.score_breakdown` already gets under D-05, plus
  *   `.optional()`. RESEARCH.md Q2's 40-event sample observed its shape
@@ -240,7 +244,7 @@ export type TbaEventRankingsResponse = z.infer<typeof tbaEventRankingsResponseSc
 export const tbaAllianceEntrySchema = z.object({
   declines: z.array(z.string()),
   name: z.string().nullish(),
-  picks: z.array(z.string()).min(1),
+  picks: z.array(z.string()),
   status: z.unknown().optional(),
 });
 export type TbaAllianceEntry = z.infer<typeof tbaAllianceEntrySchema>;
