@@ -117,12 +117,17 @@ model was frozen.
 
 ## Caveats
 
-- **No head-to-head against VPR, EPA, or OPR.** Running them under this harness
+- ~~**No head-to-head against VPR, EPA, or OPR.**~~ *(Superseded by the addendum:
+  publishing produced one. BPR leads every published season, but VPR is tuned on
+  those seasons and BPR is not, so it is not like-for-like.)* Running them under this harness
   means reading their implementations, which would have broken the firewall this
   task existed to maintain. It also would not be apples-to-apples: those models
   were tuned *on* 2023–2026, and BPR deliberately was not.
-- **Not integrated into the site.** This is a standalone package with its own
-  harness. No artifact publishing, no Worker path, no UI.
+- ~~**Not integrated into the site.**~~ *(Superseded by the addendum: published
+  2026-09-08 and live.)* It was, at the time of the sealed evaluation, a standalone
+  package with its own harness -- no artifact publishing, no Worker path, no UI.
+  There is still no live in-event folding: the Worker's subrequest budget caps that
+  at one algorithm, currently VPR.
 - **78.05% is one number over four differently-hard seasons.** The per-season
   spread of 76.4–80.2% is the more honest summary.
 - The holdout is now spent. Any further tuning against 2023–2026 makes it a
