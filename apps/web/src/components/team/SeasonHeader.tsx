@@ -84,7 +84,23 @@ function withBrowserSwingFactor(
   untilMatchKey?: string
 ): TeamSeasonArtifact["seasonStats"]["metrics"] {
   const totalEntry = metrics[TOTAL_KEY];
-  if (totalEntry === undefined || totalEntry.spread !== undefined) return metrics;
+  if (totalEntry === undefined) return metrics;
+
+  // PUBLISHED SigmaScout-layer Swing Factor wins outright, and it OVERRIDES the
+  // algorithm's own `spread` rather than merely filling a gap (quick task
+  // 260908-5wd). That is the two-level split: `spread` is the ALGORITHM's
+  // uncertainty about its own rating and only some algorithms have one, while
+  // Swing Factor is SigmaScout's scouting heuristic about the robot and every
+  // algorithm has one. The tile shows the latter, so it means the same thing
+  // whichever algorithm is selected.
+  const published = (artifact as { swingFactor?: number }).swingFactor;
+  if (published !== undefined) return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: published } };
+
+  // Pre-republish bridge, deletable once every artifact carries `swingFactor`:
+  // compute it here for algorithms that publish no spread at all (OPR, EPA),
+  // and otherwise leave the algorithm's own spread showing rather than blanking
+  // a number the page has always had.
+  if (totalEntry.spread !== undefined) return metrics;
   const swingFactor = swingFactorForTeam(artifact, artifact.teamKey, { untilMatchKey });
   if (swingFactor === undefined) return metrics;
   return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: swingFactor } };

@@ -382,6 +382,25 @@ describe("SeasonHeader — browser-computed Swing Factor (quick task 260908-5wd)
     expect(totalCell?.textContent).toContain("±");
   });
 
+  // Quick task 260908-5wd: once a republish lands, the tile shows the
+  // SIGMASCOUT-LAYER Swing Factor for every algorithm — including one that
+  // publishes its own `spread`, which is a different quantity at a different
+  // level (the algorithm's uncertainty about its rating, not the robot's swing).
+  it("a published swingFactor OVERRIDES the algorithm's own spread, so the tile means the same thing for every algorithm", () => {
+    const artifact = {
+      ...baseArtifact({
+        seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },
+        events: eventsWithTwoMatches(),
+      }),
+      swingFactor: 41.25,
+    } as unknown as TeamSeasonArtifact;
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+    const totalCell = screen.getAllByTestId("metric-grid-cell").at(-1);
+    expect(totalCell?.textContent).toContain("41.25");
+    expect(totalCell?.textContent).not.toContain("2.50");
+  });
+
   it("a VPR-shaped artifact (Total entry with a published spread) renders that published number unchanged", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },

@@ -43,6 +43,9 @@ export interface EventMatchRow {
   predictedBlueScore: number;
   redScoreVarianceOwn?: number;
   blueScoreVarianceOwn?: number;
+  /** The SigmaScout-layer band (quick task 260908-5wd) — published for every algorithm, unlike the pair above. Absent until a republish lands. */
+  redSwingBandVariance?: number;
+  blueSwingBandVariance?: number;
   sortTime?: number;
   played: boolean;
   actualWinner?: "red" | "blue" | "tie";
@@ -172,6 +175,8 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     predictedBlueScore: match.predictedBlueScore,
     redScoreVarianceOwn: match.redScoreVarianceOwn,
     blueScoreVarianceOwn: match.blueScoreVarianceOwn,
+    redSwingBandVariance: match.redSwingBandVariance,
+    blueSwingBandVariance: match.blueSwingBandVariance,
     sortTime: match.sortTime,
     // Quick 260905-jj8: both source schemas publish the predicted per-bonus
     // marginals; copied verbatim, never defaulted (absent stays absent).
@@ -238,10 +243,25 @@ export function mergeEventMatches(
     const played = playedBands.get(row.matchKey);
     const red = played !== undefined ? played.red : allianceBandVariance(row.redTeams, swingByTeam);
     const blue = played !== undefined ? played.blue : allianceBandVariance(row.blueTeams, swingByTeam);
-    // PUBLISHED WINS; the browser band fills gaps. Reversed 2026-09-08, hours
-    // after this file first dropped the published value, on a requirement that
-    // outranks the tidiness that motivated dropping it: a match must show the
-    // SAME uncertainty on a team page as on an event page.
+    // Precedence, and each step is load-bearing:
+    //
+    //   1. `redSwingBandVariance` — the SIGMASCOUT-LAYER band, published for
+    //      EVERY algorithm since quick task 260908-5wd. Once a republish has
+    //      landed this is always the answer, and because the pipeline attaches
+    //      it to one shared record, the team page publishes the identical
+    //      number for the same match.
+    //   2. `redScoreVarianceOwn` — the ALGORITHM's own predictive variance, a
+    //      different quantity and a different level. Kept ONLY as the
+    //      pre-republish bridge: today's live artifacts have no swing field, and
+    //      dropping to the browser band here while the team page still read this
+    //      would make the two pages disagree during the migration window.
+    //   3. The browser band — what OPR and EPA get before a republish, where
+    //      neither field exists at all.
+    //
+    // Step 2 exists to be DELETED once every artifact carries step 1.
+    //
+    // A match must show the SAME uncertainty on a team page as on an event
+    // page.
     //
     // The team page cannot compute this band. Measured on `frc254`'s 2026
     // artifact, the other teams in its matches appear a median of 2 times and
@@ -261,8 +281,8 @@ export function mergeEventMatches(
     // the event page where they previously had none.
     return {
       ...row,
-      redScoreVarianceOwn: row.redScoreVarianceOwn ?? red,
-      blueScoreVarianceOwn: row.blueScoreVarianceOwn ?? blue,
+      redScoreVarianceOwn: row.redSwingBandVariance ?? row.redScoreVarianceOwn ?? red,
+      blueScoreVarianceOwn: row.blueSwingBandVariance ?? row.blueScoreVarianceOwn ?? blue,
     };
   });
 
