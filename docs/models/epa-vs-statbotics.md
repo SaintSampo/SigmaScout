@@ -417,13 +417,42 @@ or not it matches the prediction.
 
 **Predicted direction: closer agreement.** Statbotics' own priors are championship-frozen, so
 removing an offseason tail from our carry moves the two systems' cross-season seeding toward each
-other. Recorded as a prediction to be checked, never as a result.
+other. Recorded before the run as a prediction to be checked, never as a result.
 
-> **MEASUREMENT PENDING — placeholder, not a verdict.** The `--check` outcome, the PASS/FAIL
-> statement, and any before/after table are deliberately BLANK here. This task shipped the model
-> change; the measurement needs the corpus and (on a cache miss) the Statbotics API, so it runs as a
-> separate main-context step. A reader must not infer from this section's existence that the bands
-> have been verified under 6.0.0 — they have not, until this block is replaced.
+#### Measured result (2026-09-08): PASSED — and the prediction held
+
+`npx tsx scripts/epaVsStatbotics.ts --check` **PASSED**. All 25 gated statistics (5 seasons × 5
+statistics) fall inside their existing committed bands, so
+`data/baselines/epa-vs-statbotics-2026-09.json` is UNCHANGED by this task — no re-measurement of the
+bands was required, and the half-width formula was not touched.
+
+Unlike D-05's elimination discount — whose own before/after table above is honestly reported as
+"mixed, not a clean win" — this change moved agreement with Statbotics **tighter on all three
+statistics in essentially every season**. Min-matches(12) arm, `epa@5.0.0+baseline` (measured
+2026-09-04) vs `epa@6.0.0+baseline` (measured 2026-09-08):
+
+| Season | Slope 5.0.0 → 6.0.0 | Pearson 5.0.0 → 6.0.0 | Mean abs diff 5.0.0 → 6.0.0 |
+|--------|----------------------|------------------------|------------------------------|
+| 2022 | 0.886 → 0.886 (flat) | 0.925 → 0.937 | 2.54 → 2.24 |
+| 2023 | 0.842 → 0.845 | 0.911 → 0.928 | 3.47 → 3.14 |
+| 2024 | 0.818 → 0.823 | 0.904 → 0.918 | 3.09 → 2.94 |
+| 2025 | 0.853 → 0.855 | 0.898 → 0.907 | 5.87 → 5.51 |
+| 2026 | 0.961 → 0.963 | 0.968 → 0.976 | 6.67 → 4.76 |
+
+**No season moved away from Statbotics on any of the three.** Slope rose toward 1.0 in four seasons
+and held flat in the fifth; Pearson rose in all five; mean absolute difference fell in all five, most
+sharply in 2026 (6.67 → 4.76 points). The movements are small in slope terms (≤0.005) but consistent
+in sign across every season and every statistic, which is a different quality of evidence from a
+single large move — a coin-flip effect does not land the same direction fifteen times.
+
+**One further observable change, recorded because it is real and would otherwise puzzle a future
+reader:** our own pre-join team counts DROPPED in the later seasons (2024: 4,036 → 3,987; 2025:
+4,456 → 4,384; 2026: 4,743 → 4,643). That is the carry-instant change working as designed, not
+teams going missing. A team whose only appearance in season N was in that season's offseason tail is
+no longer carried into season N+1's initial state, so it no longer shows up in N+1 with a
+carried-over rating it had not earned in official play. Joined counts are unchanged (Statbotics'
+side is unchanged, and the join is an inner one), so every statistic above is measured over the same
+team population as before.
 
 ## SigmaScout's EPA vs. Statbotics' own win-probability model
 
