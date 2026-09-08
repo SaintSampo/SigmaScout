@@ -6,7 +6,8 @@
  * is inside noise. With ~83k design matches the standard error on accuracy is
  * about 0.17pp, so gaps below ~0.05pp are treated as ties rather than wins.
  */
-import { evalDesign } from "./cli.js";
+import { readFileSync } from "node:fs";
+import { evalDesign, evalYears, LAST_DESIGN_YEAR } from "./cli.js";
 import { DEFAULTS, type BprParams } from "./model.js";
 
 const ACC_NOISE = 0.0005;
@@ -17,8 +18,32 @@ interface Scored {
   brier: number;
 }
 
+/**
+ * BPR_TUNE_YEARS restricts the search to a subset of the design era, e.g.
+ * "2016,2017,2018,2019" to leave 2020+2022 as an internal validation slice.
+ * Unset means the whole design era. It can never name a holdout year: anything
+ * past LAST_DESIGN_YEAR is rejected rather than silently clipped.
+ */
+const TUNE_YEARS: ReadonlySet<number> | null = (() => {
+  const raw = process.env.BPR_TUNE_YEARS;
+  if (raw === undefined || raw.trim() === "") return null;
+  const years = raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n));
+  for (const y of years) {
+    if (y > LAST_DESIGN_YEAR) {
+      throw new Error(`tune: ${y} is a holdout year - tuning may never score it`);
+    }
+  }
+  return new Set(years);
+})();
+
 function score(params: BprParams): Scored {
-  const r = evalDesign(params);
+  const r =
+    TUNE_YEARS === null
+      ? evalDesign(params)
+      : evalYears(params, TUNE_YEARS, Math.max(...TUNE_YEARS));
   return { acc: r.accuracy, logLoss: r.logLoss, brier: r.brier };
 }
 
@@ -34,21 +59,25 @@ type NumericKey = {
 }[keyof BprParams];
 
 const GRID: Array<{ key: NumericKey; values: number[] }> = [
-  { key: "obsSd", values: [0.25, 0.35, 0.45, 0.6, 0.8, 1.0] },
-  { key: "qSlow", values: [0.0002, 0.0005, 0.001, 0.002, 0.004, 0.008] },
-  { key: "rhoFast", values: [0.0, 0.5, 0.75, 0.9, 0.97] },
-  { key: "qFast", values: [0.0, 0.002, 0.006, 0.015, 0.04] },
-  { key: "priorVar", values: [0.1, 0.25, 0.5, 1.0, 2.0] },
-  { key: "fastPriorVar", values: [0.0, 0.02, 0.05, 0.12, 0.3] },
-  { key: "rookieMean", values: [0.4, 0.55, 0.7, 0.85, 1.0] },
-  { key: "seasonShrink", values: [0.3, 0.5, 0.7, 0.85, 1.0] },
-  { key: "seasonVar", values: [0.05, 0.15, 0.3, 0.6, 1.2] },
-  { key: "tauLr", values: [0.0, 0.005, 0.02, 0.05, 0.12] },
-  { key: "foulObsSd", values: [0.15, 0.25, 0.35, 0.5, 0.8] },
-  { key: "foulQ", values: [0.0005, 0.002, 0.006, 0.015] },
-  { key: "foulPriorVar", values: [0.02, 0.08, 0.15, 0.4] },
-  { key: "elimWeight", values: [0.3, 0.6, 1.0, 1.5, 2.5] },
+  { key: "obsSd", values: [0.4, 0.6, 0.8, 1.0, 1.3, 1.7] },
+  { key: "qSlow", values: [0.00002, 0.00005, 0.0002, 0.0008, 0.003] },
+  { key: "rhoFast", values: [0.5, 0.75, 0.9, 0.96, 0.99] },
+  { key: "qFast", values: [0.002, 0.006, 0.015, 0.03, 0.06] },
+  { key: "priorVar", values: [0.02, 0.05, 0.1, 0.25, 0.6] },
+  { key: "fastPriorVar", values: [0.02, 0.06, 0.12, 0.25, 0.5] },
+  { key: "rookieMean", values: [0.25, 0.4, 0.55, 0.7, 0.85] },
+  { key: "seasonShrink", values: [0.7, 0.85, 0.95, 1.0] },
+  { key: "seasonVar", values: [0.01, 0.03, 0.05, 0.12, 0.3] },
+  { key: "tauLr", values: [0.0, 0.002, 0.005, 0.015, 0.04] },
+  { key: "foulObsSd", values: [0.3, 0.5, 0.8, 1.5, 3.0] },
+  { key: "foulQ", values: [0.0001, 0.0005, 0.002, 0.006] },
+  { key: "foulPriorVar", values: [0.005, 0.02, 0.08, 0.2] },
+  { key: "elimWeight", values: [0.0, 0.1, 0.2, 0.3, 0.5, 0.8] },
   { key: "scaleMinLr", values: [0.002, 0.01, 0.03, 0.08] },
+  { key: "w2", values: [0.6, 0.7, 0.85, 1.0, 1.15] },
+  { key: "w3", values: [0.2, 0.35, 0.5, 0.6, 0.75, 1.0] },
+  { key: "defPriorVar", values: [0, 0.005, 0.02, 0.06, 0.15] },
+  { key: "defQ", values: [0, 0.0002, 0.001, 0.004] },
 ];
 
 export function coordinateDescent(start: BprParams, sweeps: number): BprParams {
@@ -87,7 +116,14 @@ export function coordinateDescent(start: BprParams, sweeps: number): BprParams {
 
 function main(): void {
   const sweeps = Number(process.env.BPR_SWEEPS ?? "3");
-  const best = coordinateDescent(DEFAULTS, sweeps);
+  const seedPath = process.env.BPR_SEED;
+  let start: BprParams = DEFAULTS;
+  if (seedPath !== undefined && seedPath !== "") {
+    const raw = JSON.parse(readFileSync(seedPath, "utf8")) as { params?: BprParams };
+    start = { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
+    process.stderr.write(`[tune] seeded from ${seedPath}\n`);
+  }
+  const best = coordinateDescent(start, sweeps);
   const s = score(best);
   console.log(JSON.stringify({ params: best, design: s }, null, 2));
 }

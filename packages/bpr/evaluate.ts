@@ -50,6 +50,8 @@ export interface RunOptions {
   qualsOnly?: boolean;
   /** Stop stepping entirely once past this year (keeps a holdout truly sealed). */
   stopAfterYear?: number;
+  /** Feed the model unadjusted alliance scores instead of foul-adjusted ones. */
+  useRawScore?: boolean;
 }
 
 export function runEval(
@@ -83,8 +85,8 @@ export function runEval(
       m.redTeams,
       m.blueTeams,
       m.year,
-      m.redOut,
-      m.blueOut,
+      opts.useRawScore === true ? m.redRaw : m.redOut,
+      opts.useRawScore === true ? m.blueRaw : m.blueOut,
       m.redFoul,
       m.blueFoul,
       outcome,

@@ -48,6 +48,31 @@ export interface BprParams {
   elimWeight: number;
   /** Adaptation floor for the online season-scale estimate. */
   scaleMinLr: number;
+  /**
+   * Anti-additivity. OPR and EPA both treat an alliance as the plain sum of its
+   * teams. An FRC alliance shares one field and a finite supply of game pieces,
+   * so three elite scorers should not add linearly. Teams are ranked within
+   * their alliance and contribute with weights (1, w2, w3), renormalized to sum
+   * to 3 so the scale-free property is preserved.
+   *
+   * w2 = w3 = 1 reproduces plain additivity exactly, so this knob is inert at
+   * its default and has to earn promotion on the design years.
+   */
+  w2: number;
+  w3: number;
+  /**
+   * Defensive suppression. Each team carries a rating for how much it reduces
+   * the opposing alliance's output, so a match is offense-vs-defense rather
+   * than offense-vs-offense. Identifiable in principle because both alliances
+   * are observed every match, but this is exactly the shape that produced the
+   * project's historical "unidentifiable model" failure, so it stays hard
+   * regularized and must earn promotion.
+   *
+   * defPriorVar = 0 pins every defense rating at 0 forever, reproducing the
+   * no-defense model exactly, so this knob is inert at its default too.
+   */
+  defPriorVar: number;
+  defQ: number;
 }
 
 export const DEFAULTS: BprParams = {
@@ -68,6 +93,10 @@ export const DEFAULTS: BprParams = {
   foulPriorVar: 0.15,
   elimWeight: 1.0,
   scaleMinLr: 0.01,
+  w2: 1.0,
+  w3: 1.0,
+  defPriorVar: 0,
+  defQ: 0,
 };
 
 interface TeamState {
@@ -78,6 +107,9 @@ interface TeamState {
   /** Foul-conceded rate, normalized units. */
   muF: number;
   pF: number;
+  /** Defensive suppression applied to the opposing alliance, normalized units. */
+  muD: number;
+  pD: number;
   lastYear: number;
 }
 
@@ -115,7 +147,12 @@ interface AllianceView {
   pv: number;
   muF: number;
   pF: number;
+  /** Summed defensive suppression this alliance applies to its opponent. */
+  muD: number;
+  pD: number;
   states: TeamState[];
+  /** Contribution weight per team, aligned with `states`. */
+  weights: number[];
 }
 
 export class BprModel {
@@ -142,6 +179,8 @@ export class BprModel {
         pS: this.p.fastPriorVar,
         muF: 0,
         pF: this.p.foulPriorVar,
+        muD: 0,
+        pD: this.p.defPriorVar,
         lastYear: -1,
       };
       this.teams.set(key, s);
@@ -164,26 +203,57 @@ export class BprModel {
       s.muS = 0;
       s.pS = this.p.fastPriorVar;
       s.pF += this.p.foulQ * 20;
+      s.pD += this.p.defQ * 20;
     }
     s.lastYear = year;
   }
 
   private view(keys: readonly string[], year: number): AllianceView {
+    const states: TeamState[] = [];
+    const mus: number[] = [];
+    for (const k of keys) {
+      const s = this.state(k);
+      this.ageIntoSeason(s, year);
+      states.push(s);
+      mus.push(s.muL + s.muS);
+    }
+    const n = states.length;
+
+    // Rank teams within the alliance, strongest first, and hand out the
+    // (1, w2, w3) contribution weights by rank. Weights are renormalized to
+    // sum to 3 so that an average alliance still predicts the season scale
+    // regardless of w2/w3 or of a non-standard alliance size.
+    const base = [1, this.p.w2, this.p.w3];
+    const order = mus.map((_, i) => i).sort((a, b) => (mus[b] ?? 0) - (mus[a] ?? 0) || a - b);
+    let raw = 0;
+    for (let rank = 0; rank < n; rank += 1) raw += base[Math.min(rank, base.length - 1)] ?? 1;
+    const norm = raw > 0 ? 3 / raw : 1;
+
+    const weights = new Array<number>(n).fill(1);
+    for (let rank = 0; rank < n; rank += 1) {
+      const idx = order[rank];
+      if (idx === undefined) continue;
+      weights[idx] = (base[Math.min(rank, base.length - 1)] ?? 1) * norm;
+    }
+
     let mu = 0;
     let pv = 0;
     let muF = 0;
     let pF = 0;
-    const states: TeamState[] = [];
-    for (const k of keys) {
-      const s = this.state(k);
-      this.ageIntoSeason(s, year);
-      mu += s.muL + s.muS;
-      pv += s.pL + s.pS;
+    let muD = 0;
+    let pD = 0;
+    for (let i = 0; i < n; i += 1) {
+      const s = states[i];
+      const w = weights[i];
+      if (s === undefined || w === undefined) continue;
+      mu += w * (mus[i] ?? 0);
+      pv += w * w * (s.pL + s.pS);
       muF += s.muF;
       pF += s.pF;
-      states.push(s);
+      muD += s.muD;
+      pD += s.pD;
     }
-    return { mu, pv, muF, pF, states };
+    return { mu, pv, muF, pF, muD, pD, states, weights };
   }
 
   /** Predict without mutating any rating. Must be called before update(). */
@@ -199,8 +269,11 @@ export class BprModel {
     const foulTerm = this.p.foulOn ? blue.muF - red.muF : 0;
     const foulVar = this.p.foulOn ? red.pF + blue.pF + 2 * this.p.foulObsSd ** 2 : 0;
 
-    const d = red.mu - blue.mu + foulTerm;
-    const v = red.pv + blue.pv + 2 * this.p.obsSd ** 2 + foulVar;
+    // Each alliance's output is its own weighted offense minus the suppression
+    // its opponent applies, so a defensive alliance gains margin twice over.
+    const d = red.mu - blue.muD - (blue.mu - red.muD) + foulTerm;
+    const v =
+      red.pv + blue.pD + blue.pv + red.pD + 2 * this.p.obsSd ** 2 + foulVar;
     const tau = Math.exp(this.logTau);
     const z = d / (tau * Math.sqrt(Math.max(v, 1e-9)));
     const pRed = Math.min(1 - 1e-6, Math.max(1e-6, normCdf(z)));
@@ -250,18 +323,40 @@ export class BprModel {
     const blue = this.view(blueTeams, year);
     const corr: Array<{ s: TeamState; dL: number; dS: number; dPL: number; dPS: number }> = [];
 
-    const sides: Array<readonly [AllianceView, number]> = [
-      [red, redOut],
-      [blue, blueOut],
+    const defCorr: Array<{ s: TeamState; dD: number; dPD: number }> = [];
+    const sides: Array<readonly [AllianceView, AllianceView, number]> = [
+      [red, blue, redOut],
+      [blue, red, blueOut],
     ];
-    for (const [side, out] of sides) {
+    for (const [side, opp, out] of sides) {
       const u = (3 * out) / sc; // observed alliance output, normalized
-      const innov = u - side.mu;
-      const sTot = side.pv + this.p.obsSd ** 2 / Math.max(w, 1e-6);
-      for (const s of side.states) {
-        const kL = s.pL / sTot;
-        const kS = s.pS / sTot;
-        corr.push({ s, dL: kL * innov, dS: kS * innov, dPL: -kL * s.pL, dPS: -kS * s.pS });
+      const innov = u - (side.mu - opp.muD);
+      const sTot = side.pv + opp.pD + this.p.obsSd ** 2 / Math.max(w, 1e-6);
+
+      // The opposing alliance's defenders sit on this observation with H = -1:
+      // an alliance that outscored expectation means its opponents defended
+      // worse than their ratings implied.
+      for (const ds of opp.states) {
+        const kD = ds.pD / sTot;
+        defCorr.push({ s: ds, dD: -kD * innov, dPD: -kD * ds.pD });
+      }
+
+      for (let i = 0; i < side.states.length; i += 1) {
+        const s = side.states[i];
+        const wi = side.weights[i];
+        if (s === undefined || wi === undefined) continue;
+        // Observation row is H_i = wi, so the gain carries the same weight:
+        // a team that the model believes contributes less also absorbs less
+        // of the alliance's surprise.
+        const kL = (wi * s.pL) / sTot;
+        const kS = (wi * s.pS) / sTot;
+        corr.push({
+          s,
+          dL: kL * innov,
+          dS: kS * innov,
+          dPL: -kL * wi * s.pL,
+          dPS: -kS * wi * s.pS,
+        });
       }
     }
 
@@ -293,6 +388,10 @@ export class BprModel {
       c.s.muF += c.dF;
       c.s.pF = Math.max(1e-6, c.s.pF + c.dPF);
     }
+    for (const c of defCorr) {
+      c.s.muD += c.dD;
+      c.s.pD = Math.max(0, c.s.pD + c.dPD);
+    }
 
     // --- process noise / time evolution, per match played ---
     const touched = new Set<TeamState>([...red.states, ...blue.states]);
@@ -301,6 +400,7 @@ export class BprModel {
       s.muS *= this.p.rhoFast;
       s.pS = this.p.rhoFast ** 2 * s.pS + this.p.qFast;
       s.pF += this.p.foulQ;
+      s.pD += this.p.defQ;
     }
   }
 }

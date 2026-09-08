@@ -1,0 +1,10 @@
+{
+  "params": {
+    "obsSd": 1, "qSlow": 0.0002, "rhoFast": 0.9, "qFast": 0.015,
+    "priorVar": 0.05, "fastPriorVar": 0.25, "rookieMean": 0.55,
+    "seasonShrink": 1, "seasonVar": 0.01, "tau0": 1, "tauLr": 0.015,
+    "foulOn": true, "foulObsSd": 0.8, "foulQ": 0.0001, "foulPriorVar": 0.005,
+    "elimWeight": 0.5, "scaleMinLr": 0.01, "w2": 0.85, "w3": 0.6,
+    "defPriorVar": 0, "defQ": 0
+  }
+}

@@ -16,6 +16,9 @@ export interface BprMatch {
   /** Foul-adjusted alliance output: totalPoints - foulPoints. */
   redOut: number;
   blueOut: number;
+  /** Unadjusted alliance score, kept so foul-adjustment itself is ablatable. */
+  redRaw: number;
+  blueRaw: number;
   /** Foul points *awarded to* this alliance, i.e. conceded by the opponent. */
   redFoul: number;
   blueFoul: number;
@@ -84,6 +87,8 @@ export function loadMatches(corpusPath: string): BprMatch[] {
         blueTeams: JSON.parse(r.blue_teams) as string[],
         redOut: r.red_score - redFoul,
         blueOut: r.blue_score - blueFoul,
+        redRaw: r.red_score,
+        blueRaw: r.blue_score,
         redFoul,
         blueFoul,
         winner,
