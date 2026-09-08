@@ -270,4 +270,27 @@ export interface AlgorithmModule<S> {
    * algorithm implements it.
    */
   carrySeason?(state: S, boundary: SeasonBoundary): S;
+  /**
+   * Quick task 260908-615: selects WHICH as-of instant `carrySeason` above
+   * receives at a season boundary. Reads as a pair with it — `carrySeason`
+   * says HOW a rating crosses a boundary, this says FROM WHEN.
+   *
+   *   - `"season-final"` (the default, and what EVERY algorithm did before
+   *     this quick task): the state after the last replayed match of the
+   *     season, whatever kind of event that match belonged to.
+   *   - `"last-official-match"`: the state as it stood immediately after the
+   *     season's last OFFICIAL match (`isOfficialEventType`, i.e. neither
+   *     offseason nor preseason Week 0), so exhibition play cannot seed the
+   *     next season's prior. EPA declares this; VPR, OPR and BPR do not.
+   *
+   * Omitting the field means `"season-final"` — a module that never mentions
+   * it is provably unaffected by this mechanism.
+   *
+   * Only the harness season loops read this: it selects between the two maps
+   * `WalkForwardSimulator.runAll` returns (`carryStates` vs `finalStates`).
+   * An algorithm's own `update`/`predict` never see it, and it is not a
+   * hyperparameter — it is a statement about the replay's plumbing, which is
+   * why it lives on the module contract rather than in a parameter set.
+   */
+  carryFrom?: "season-final" | "last-official-match";
 }

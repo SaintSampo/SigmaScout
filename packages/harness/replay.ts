@@ -23,6 +23,7 @@
  */
 import type { AlgorithmModule, MatchResult, Prediction } from "../core/algorithms/types.js";
 import { toLeakProofUpcoming } from "../core/algorithms/leakProof.js";
+import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { selectMatchesChronological, type Corpus } from "../corpus/db.js";
 
 export { toLeakProofUpcoming, OUTCOME_KEYS } from "../core/algorithms/leakProof.js";
@@ -126,36 +127,82 @@ export class WalkForwardSimulator {
    * seam plan 02-05 uses for D-28's per-match metric-history snapshots;
    * unused by this plan.
    *
-   * The returned array also carries a `finalStates` property (each
-   * algorithm's state after the last replayed match) — an intersection
-   * type rather than a wrapper object, so every existing caller that treats
-   * the return value as a plain `MultiAlgorithmPredictionRecord[]` keeps
-   * working unchanged; only a caller that needs to THREAD state across a
-   * season boundary (plan 02-03's `runSeasons`) reads `.finalStates`.
+   * The returned array also carries TWO state maps — an intersection type
+   * rather than a wrapper object, so every existing caller that treats the
+   * return value as a plain `MultiAlgorithmPredictionRecord[]` keeps working
+   * unchanged. They answer different questions and are NOT interchangeable:
+   *
+   *   - `finalStates` — each algorithm's state after the LAST REPLAYED
+   *     MATCH, whatever kind of event it belonged to. The honest "where this
+   *     replay ended" value: what cumulative telemetry must read (a
+   *     since-start counter has to see the whole season), what the D-12 live
+   *     Worker seed must read (the Worker resumes the real, offseason-
+   *     inclusive season), and what a MEASURED comparison against an
+   *     external reference must read.
+   *   - `carryStates` — the state a season-boundary threading site must
+   *     hand `carrySeason` (quick task 260908-615). Identical to
+   *     `finalStates` for every algorithm except one declaring
+   *     `carryFrom: "last-official-match"`, whose entry is instead the state
+   *     immediately after this stream's last OFFICIAL match
+   *     (`isOfficialEventType` — neither offseason nor preseason Week 0), so
+   *     exhibition play cannot seed the next season's prior.
+   *
+   * Fallback: an algorithm that declares the last-official instant but whose
+   * stream contained no official match at all (an offseason-only slice, a
+   * truncated diagnostic stream) records no snapshot, so its `carryStates`
+   * entry falls back to its final state — never `undefined`.
+   *
+   * Identity: when every replayed match is official, `carryStates` agrees
+   * with `finalStates` entry-for-entry (the same state objects, by
+   * reference), so an all-official run is unchanged by this mechanism.
    */
   runAll(
     algorithms: readonly AlgorithmModule<any>[],
     teams: readonly string[],
     initialStates?: ReadonlyMap<string, unknown>,
     onMatchComplete?: (match: MatchResult, algorithmId: string, state: unknown) => void
-  ): MultiAlgorithmPredictionRecord[] & { finalStates: ReadonlyMap<string, unknown> } {
+  ): MultiAlgorithmPredictionRecord[] & {
+    finalStates: ReadonlyMap<string, unknown>;
+    carryStates: ReadonlyMap<string, unknown>;
+  } {
     const states = new Map<string, unknown>(
       algorithms.map((algorithm) => [algorithm.id, initialStates?.get(algorithm.id) ?? algorithm.initState([...teams])])
     );
     const records: MultiAlgorithmPredictionRecord[] = [];
+    // Quick task 260908-615: post-update state after the most recent
+    // OFFICIAL match, recorded only for algorithms that ask for it. Empty
+    // for every algorithm today except EPA.
+    const lastOfficialStates = new Map<string, unknown>();
+    const wantsLastOfficial = algorithms.some((algorithm) => algorithm.carryFrom === "last-official-match");
 
     for (const result of this.#matches) {
       const upcoming = toLeakProofUpcoming(result);
+      // Officialness is a property of the MATCH, not of any algorithm, so it
+      // is computed once per match rather than once per (match, algorithm) —
+      // keeping the inner loop's shape unchanged for the common case where
+      // no algorithm asks for the last-official instant at all.
+      const isOfficial = wantsLastOfficial && isOfficialEventType(result.eventType);
       for (const algorithm of algorithms) {
         const state = states.get(algorithm.id);
         const prediction = algorithm.predict(state, upcoming);
         records.push({ match: result, algorithmId: algorithm.id, prediction });
         const nextState = algorithm.update(state, result);
         states.set(algorithm.id, nextState);
+        // The stream is chronological, so the LAST write here is by
+        // construction the state immediately after the season's final
+        // official match — no scan back, no second pass.
+        if (isOfficial && algorithm.carryFrom === "last-official-match") {
+          lastOfficialStates.set(algorithm.id, nextState);
+        }
         onMatchComplete?.(result, algorithm.id, nextState);
       }
     }
 
-    return Object.assign(records, { finalStates: states });
+    const carryStates = new Map<string, unknown>(states);
+    for (const [algorithmId, officialState] of lastOfficialStates) {
+      carryStates.set(algorithmId, officialState);
+    }
+
+    return Object.assign(records, { finalStates: states, carryStates });
   }
 }

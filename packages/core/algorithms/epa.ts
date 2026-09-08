@@ -1019,10 +1019,49 @@ export const epa: AlgorithmModule<EpaState> = {
   // elimination discount — the doc's before/after table attributes the
   // movement to all three causes together, not to the elimination discount
   // alone).
-  version: "5.0.0+baseline",
+  //
+  // Bumped 5.0.0 -> 6.0.0 (quick task 260908-615, 2026-09-08): `carrySeason`'s
+  // INPUT changed. A season boundary now hands this function the state as it
+  // stood immediately after that season's last OFFICIAL match, instead of the
+  // season-final state that had kept learning through offseason and preseason
+  // play — declared by the `carryFrom` member below and implemented once, at
+  // the replay layer, in `WalkForwardSimulator.runAll`'s `carryStates`
+  // (`packages/harness/replay.ts`). `carrySeason`'s own body is UNCHANGED;
+  // what moved is which state it is called with. Motivation: an exhibition
+  // blowout in November could seed a team's rating for the following
+  // February, while Statbotics' own priors are championship-frozen.
+  //
+  // MAJOR, not minor, and deliberately so: this is not an edge case. In a
+  // multi-season replay every season after the first now starts from a
+  // different prior, so every published EPA rating from the second replayed
+  // season onward moves — the whole field is re-seeded at every boundary, a
+  // wider blast radius than 5.0.0's elimination discount had. Same D-13
+  // invariant as every bump above: no version string may stand for two
+  // structurally different computations.
+  //
+  // Two limitations, named here rather than left for a reader to discover:
+  //   1. ACCEPTED (CONTEXT.md's locked decision D-CARRY — snapshot at the
+  //      last official match, NOT an exact official-only shadow state):
+  //      unofficial play occurring BEFORE a season's last official match
+  //      still reaches the snapshot. Only the season's TAIL of exhibition
+  //      play is excluded. Closing that would need a second, parallel state
+  //      threaded through every replay — deliberately not built.
+  //   2. An offseason-EXCLUDED run is unchanged by this bump ONLY when its
+  //      stream also carries no preseason Week-0 matches: `buildSeasonStream`'s
+  //      `excludeOffseason` filters the corpus's `is_offseason` column, which
+  //      TBA event type 100 does not set, while `isOfficialEventType` excludes
+  //      both 99 and 100. A `--no-offseason` stream containing Week-0 matches
+  //      now excludes them from the carry instant — correct under the locked
+  //      definition of official, and stated here rather than glossed as "no
+  //      change".
+  version: "6.0.0+baseline",
   initState,
   predict,
   update,
   teamMetrics,
   carrySeason,
+  // Quick task 260908-615 — see the 5.0.0 -> 6.0.0 bump note above. EPA is the
+  // ONLY algorithm that declares this; VPR, OPR and BPR omit it and so keep
+  // carrying from the season-final state exactly as before.
+  carryFrom: "last-official-match",
 };
