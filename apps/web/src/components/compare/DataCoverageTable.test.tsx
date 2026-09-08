@@ -18,6 +18,7 @@ import {
   DataCoverageSection,
   DataCoverageSectionSkeleton,
   DataCoverageTable,
+  COVERAGE_LEAF_COLUMN_COUNT,
 } from "./DataCoverageTable.js";
 import { COVERAGE_EXCLUSION_COLUMNS } from "./coverageRows.js";
 import { COMPARE_SEASONS } from "../../lib/api/compare.js";
@@ -66,7 +67,7 @@ function fullYearArtifact(overrides: Partial<Record<string, Partial<Slice>>> = {
 afterEach(() => cleanup());
 
 describe("DataCoverageTable — header structure", () => {
-  it("renders the fixed two-row grouped header with the right spans and eleven leaf columns", () => {
+  it("renders the fixed two-row grouped header with the right spans and one leaf column per published algorithm", () => {
     render(<DataCoverageTable artifactsByYear={fullYearArtifact()} compLevelView="combined" />);
     const table = screen.getByRole("table");
 
@@ -88,7 +89,7 @@ describe("DataCoverageTable — header structure", () => {
 
     const rows = within(table).getAllByRole("row");
     const firstBodyRow = rows[2]!;
-    expect(within(firstBodyRow).getAllByRole("cell")).toHaveLength(11);
+    expect(within(firstBodyRow).getAllByRole("cell")).toHaveLength(COVERAGE_LEAF_COLUMN_COUNT);
   });
 
   it("a reversed algorithms array and a shuffled slices array leave header order and every cell value unchanged", () => {
@@ -268,7 +269,7 @@ describe("DataCoverageSection — the explainer", () => {
 });
 
 describe("DataCoverageTable — no derived column", () => {
-  it("the rendered row contains exactly eleven cells and none equals the sum of the four exclusion cells, ties+no-calls, or scored-minus-ties-minus-no-calls", () => {
+  it("the rendered row contains exactly COVERAGE_LEAF_COLUMN_COUNT cells and none equals the sum of the four exclusion cells, ties+no-calls, or scored-minus-ties-minus-no-calls", () => {
     const artifactsByYear = fullYearArtifact({
       opr: {
         candidateCount: 1000,
@@ -297,7 +298,7 @@ describe("DataCoverageTable — no derived column", () => {
     const rows = within(table).getAllByRole("row").slice(2);
     const row = rows.find((r) => within(r).getAllByRole("cell")[0]!.textContent === String(YEAR))!;
     const cells = within(row).getAllByRole("cell");
-    expect(cells).toHaveLength(11);
+    expect(cells).toHaveLength(COVERAGE_LEAF_COLUMN_COUNT);
 
     const excludedTotal = 40 + 10 + 20 + 30;
     const tiesPlusNoCalls = 20 + 30;
@@ -310,7 +311,7 @@ describe("DataCoverageTable — no derived column", () => {
 });
 
 describe("DataCoverageSectionSkeleton", () => {
-  it("renders the heading and the real two-row header above SkeletonRows sized for five rows and eleven columns", () => {
+  it("renders the heading and the real two-row header above SkeletonRows sized for five rows and COVERAGE_LEAF_COLUMN_COUNT columns", () => {
     render(<DataCoverageSectionSkeleton />);
     expect(screen.getByText(DATA_COVERAGE_HEADING)).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "Year" })).toBeDefined();
