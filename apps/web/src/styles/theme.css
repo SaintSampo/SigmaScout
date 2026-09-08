@@ -1209,11 +1209,13 @@ body {
  * Compare page: the winning accuracy / Brier value in a season row.
  *
  * Replaces bold (quick task 260908-b4t, user request): with four algorithms the
- * bold cell was hard to pick out of a dense numeric grid. A pill is a SHAPE
- * signal, deliberately not a colour one -- the palette is spent (red/blue is
- * alliances, sky/purple/amber is rarity tier, green/rose is win/loss, accent
- * means interactive) and sketch 007 ruled out a per-algorithm identity hue.
- * So this uses the same neutral inset fill the site's chips already use.
+ * bold cell was hard to pick out of a dense numeric grid.
+ *
+ * Gold, not neutral (user decision, 2026-09-08, overriding the earlier
+ * shape-only pill): the winning figure wears the Legendary amber tier tokens.
+ * The borrowed meaning is deliberate -- "best of the group" is what Legendary
+ * already says elsewhere on the site, and this table has no percentile tiers
+ * of its own to collide with.
  *
  * Emphasis is still WITHHELD entirely on a near-tie (D-11) -- this only
  * restyles the cases that already qualified, it never adds new ones.
@@ -1222,7 +1224,7 @@ body {
   display: inline-block;
   padding: 0.0625rem 0.5rem;
   border-radius: 9999px;
-  background-color: var(--color-bg-inset);
-  box-shadow: inset 0 0 0 1px var(--color-border);
+  background-color: var(--tier-legendary-bg);
+  color: var(--tier-legendary-fg);
   font-variant-numeric: tabular-nums;
 }
