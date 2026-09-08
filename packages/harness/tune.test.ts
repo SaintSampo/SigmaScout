@@ -1054,6 +1054,51 @@ describe("loadSurvivors (D-T3's exclusion enforcement at the artifact boundary)"
   });
 });
 
+describe("planJointCandidates baseParams (quick task 260907-v1s) — non-searched params must not silently revert to defaults", () => {
+  // The bug: every candidate is built from a base plus overrides for the
+  // SURVIVORS only, so a non-survivor takes the BASE's value. That was
+  // harmless while every tuned parameter was searchable, and became a real
+  // defect the moment 11.0.0 moved `linkC` and `covEwmaAlpha` into
+  // SEARCH_EXCLUSIONS: excluding a TUNED parameter threw its tuned value away
+  // rather than freezing it.
+  //
+  // Measured 2026-09-08: origin 2026 ran every candidate at linkC = 1 against
+  // a shipped 0.5225, Brier regressed +0.0094, and Rule A rejected a candidate
+  // that was +2.12 sigma MORE ACCURATE.
+  const SURVIVORS = SEARCHABLE_PARAM_KEYS.slice(0, 3);
+  const BASE: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, linkC: 0.5224524416, covEwmaAlpha: 0.142347036 };
+
+  it("carries a non-searched linkC from baseParams onto EVERY candidate", () => {
+    expect(SURVIVORS).not.toContain("linkC");
+    const plan = planJointCandidates(SURVIVORS, 12, 42, BASE);
+    expect(plan.candidates.length).toBeGreaterThan(1);
+    for (const candidate of plan.candidates) {
+      expect(candidate.params.linkC).toBe(0.5224524416);
+      expect(candidate.params.covEwmaAlpha).toBe(0.142347036);
+    }
+  });
+
+  it("still VARIES the survivors — holding the base constant must not freeze the search itself", () => {
+    const plan = planJointCandidates(SURVIVORS, 12, 42, BASE);
+    const key = SURVIVORS[0]!;
+    const distinct = new Set(plan.candidates.map((c) => (c.params as unknown as Record<string, number>)[key]));
+    expect(distinct.size).toBeGreaterThan(1);
+  });
+
+  it("defaults to DEFAULT_SIGMA1_PARAMS when no base is passed — the pre-existing behaviour, unchanged", () => {
+    const plan = planJointCandidates(SURVIVORS, 12, 42);
+    expect(plan.candidates[0]!.params.linkC).toBe(DEFAULT_SIGMA1_PARAMS.linkC);
+  });
+
+  it("the singleton sweep carries the base too, not just the random path", () => {
+    const plan = planJointCandidates([SEARCHABLE_PARAM_KEYS[0]!], 9, 42, BASE);
+    expect(plan.mode).toBe("singleton");
+    for (const candidate of plan.candidates) {
+      expect(candidate.params.linkC).toBe(0.5224524416);
+    }
+  });
+});
+
 describe("winnerSeparability (quick task 260907-v1s) — a winner is not automatically a signal", () => {
   // The defect: a search artifact reported a winner and nothing else, so
   // "the search found a winner" read as "the search found a signal." On the

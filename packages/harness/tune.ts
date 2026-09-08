@@ -1272,6 +1272,7 @@ const MAX_RESAMPLE_ATTEMPTS = 1000;
 function buildRandomCandidate(
   survivors: readonly SearchableParamKey[],
   rng: () => number,
+  baseParams: Sigma1Params = DEFAULT_SIGMA1_PARAMS,
 ): { params: Sigma1Params; rejected: number } {
   let rejected = 0;
   for (let attempt = 0; attempt < MAX_RESAMPLE_ATTEMPTS; attempt++) {
@@ -1279,7 +1280,7 @@ function buildRandomCandidate(
     for (const key of survivors) {
       (overrides as Record<string, number>)[key] = sampleOnScale(SIGMA1_SEARCH_SPACE[key], rng);
     }
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, ...overrides, rpMonteCarloDraws: 0 };
+    const params: Sigma1Params = { ...baseParams, ...overrides, rpMonteCarloDraws: 0 };
     if (isValidParamSet(params)) return { params, rejected };
     rejected++;
   }
@@ -1341,8 +1342,33 @@ export function planJointCandidates(
   survivors: readonly SearchableParamKey[],
   evalsCount: number,
   seed: number,
+  /**
+   * What every candidate's NON-SEARCHED parameters are held at.
+   *
+   * Defaults to `DEFAULT_SIGMA1_PARAMS`, which is what this function always
+   * did implicitly -- and that was a latent bug the moment 11.0.0 moved
+   * `linkC` and `covEwmaAlpha` out of the search space (quick task
+   * 260907-v1s). A non-survivor silently REVERTS TO ITS DEFAULT here, so
+   * excluding a TUNED parameter does not freeze it at its tuned value, it
+   * throws that value away.
+   *
+   * Measured cost, 2026-09-08: the origin-2026 re-tune ran every candidate at
+   * `linkC = 1` (the default) against a shipped 0.5225. `linkC` provably
+   * cannot change winner ACCURACY, so that half of Rule A stayed valid -- but
+   * it is precisely the calibration constant, so Brier regressed +0.0094 and
+   * Rule A rejected a candidate that was +2.12 sigma MORE ACCURATE. The
+   * artifact of the bug tracked the parameter distance almost exactly: 2022
+   * ships `linkC = 0.9366`, only 0.063 from the default, and its Brier
+   * IMPROVED by 0.0087 in the same run.
+   *
+   * Passing the INCUMBENT's parameters is both the fix and better experimental
+   * hygiene independently: a search should vary what it searches and hold
+   * everything else at what actually ships, so a candidate differs from the
+   * incumbent only along the dimensions under test.
+   */
+  baseParams: Sigma1Params = DEFAULT_SIGMA1_PARAMS,
 ): JointPlan {
-  const defaultCandidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 };
+  const defaultCandidateParams: Sigma1Params = { ...baseParams, rpMonteCarloDraws: 0 };
 
   if (survivors.length === 0) {
     return {
@@ -1366,7 +1392,7 @@ export function planJointCandidates(
     const candidates: { id: string; params: Sigma1Params }[] = [];
     let rejectedCandidates = 0;
     for (const value of values) {
-      const candidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, rpMonteCarloDraws: 0 };
+      const candidateParams: Sigma1Params = { ...baseParams, [key]: value, rpMonteCarloDraws: 0 };
       if (!isValidParamSet(candidateParams)) {
         rejectedCandidates++;
         continue;
@@ -1380,7 +1406,7 @@ export function planJointCandidates(
   const candidates: { id: string; params: Sigma1Params }[] = [{ id: "cand-0", params: defaultCandidateParams }];
   let rejectedCandidates = 0;
   for (let i = 1; i < evalsCount; i++) {
-    const { params, rejected } = buildRandomCandidate(survivors, rng);
+    const { params, rejected } = buildRandomCandidate(survivors, rng, baseParams);
     rejectedCandidates += rejected;
     candidates.push({ id: `cand-${i}`, params });
   }
@@ -1522,7 +1548,24 @@ async function runJointStage(
         `~0.003488 to ~0.003310 at SE 0.001219), for context only.`
     );
 
-    const plan = planJointCandidates(survivors, evalsCount, seed);
+    // Hold every NON-SEARCHED parameter at what the INCUMBENT actually ships
+    // for this origin, not at its default -- see `planJointCandidates`'
+    // `baseParams` doc comment for the bug this closes. Falls back to the
+    // defaults only when no incumbent was named, which is the `--seasons`-mode
+    // exploratory path rather than a real acceptance run.
+    const searchBaseParams = incumbentPath !== undefined
+      ? resolveParamSets(PromotedVersionSchema.parse(JSON.parse(readFileSync(incumbentPath, "utf8")))).forSeason(
+          originSeason ?? Math.max(...seasons) + 1
+        ).params
+      : DEFAULT_SIGMA1_PARAMS;
+    if (incumbentPath !== undefined) {
+      console.log(
+        `Search base: non-searched parameters held at the incumbent's own values for this origin ` +
+          `(e.g. linkC=${searchBaseParams.linkC}), never at DEFAULT_SIGMA1_PARAMS.`
+      );
+    }
+
+    const plan = planJointCandidates(survivors, evalsCount, seed, searchBaseParams);
     let rejectedCandidates = plan.rejectedCandidates;
     const skipped = plan.skipped;
 
