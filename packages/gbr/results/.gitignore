@@ -1,0 +1,7 @@
+# Scratch and smoke output from evaluate.ts/tune.ts stays out of git. The
+# one result file that eventually records the CHOSEN configuration is
+# committed deliberately, under a name that says so — everything else here
+# is disposable and regenerable.
+*
+!.gitignore
+!selected-*.json
