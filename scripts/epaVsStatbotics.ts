@@ -27,8 +27,15 @@
  *
  * Usage:
  *   npx tsx scripts/epaVsStatbotics.ts                                    # full range, offseason-inclusive, writes reports/epa-vs-statbotics/
- *   npx tsx scripts/epaVsStatbotics.ts --seasons 2022-2025 --no-offseason --out reports/epa-vs-statbotics-nooff
+ *   npx tsx scripts/epaVsStatbotics.ts --seasons 2022-2026 --no-offseason --out reports/epa-vs-statbotics-nooff
  *   npx tsx scripts/epaVsStatbotics.ts --check                            # re-measures the default range and checks it against the committed baseline
+ *
+ * The offseason-excluded invocation above names the full 2022-2026 range,
+ * not 2022-2025 — quick task 260908-n5o. The 2022-2025 restriction was
+ * written when 2026 was still in progress; 2026 is now the season the
+ * production tables already report, and the two arms must cover the same
+ * seasons or they are not an A/B at all (`epaVersion` below is the OTHER
+ * half of that same guarantee — see its own doc comment).
  *
  * This script reads the corpus READ-ONLY and touches NO credential of any
  * kind: no network request needs auth (Statbotics is unauthenticated), no
@@ -40,12 +47,14 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
-import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
+import { buildSeasonStream, WalkForwardSimulator, type MultiAlgorithmPredictionRecord } from "../packages/harness/replay.js";
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { epa, type EpaState } from "../packages/core/algorithms/epa.js";
-import { fetchStatboticsTeamYears, type StatboticsTeamYearRow } from "../packages/harness/statbotics.js";
+import { OFFSEASON_EVENT_TYPE } from "../packages/core/algorithms/eventTypes.js";
+import { fetchStatboticsTeamYears, statboticsReference, type StatboticsTeamYearRow } from "../packages/harness/statbotics.js";
 import { isDemoTeamKey, DEMO_PSEUDO_TEAM_KEY } from "../packages/core/algorithms/demoTeams.js";
 import { TOTAL_METRIC_KEY, type MatchResult } from "../packages/core/algorithms/types.js";
+import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput, type ScoreSlice } from "../packages/harness/score.js";
 import {
   compareSeason,
   checkAgainstTolerance,
@@ -58,6 +67,8 @@ import {
 
 export const CORPUS_PATH = join("data", "corpus.sqlite");
 export const STATBOTICS_TEAM_YEARS_CACHE_PATH = join("reports", "epa-vs-statbotics", "statbotics-team-years-cache.json");
+/** Quick task 260908-n5o: a SEPARATE cache from the team-years cache above — a different Statbotics endpoint (`statboticsReference`'s season-level accuracy/Brier, not the per-team `/v3/team_years` rows), so the two caches never collide on one file. */
+export const STATBOTICS_YEAR_REFERENCE_CACHE_PATH = join("reports", "epa-vs-statbotics", "statbotics-year-reference-cache.json");
 export const DEFAULT_BASELINE_PATH = join("data", "baselines", "epa-vs-statbotics-2026-09.json");
 
 const DEFAULT_SEASONS_RANGE = "2022-2026";
@@ -132,26 +143,41 @@ function uniqueTeamKeysInOrder(matches: readonly MatchResult[]): string[] {
 }
 
 /**
+ * One season's replay output this script needs: the season-FINAL `EpaState`
+ * (unchanged contract — see `replayEpaSeasonFinals`'s own doc comment on
+ * `finalStates` vs `carryStates`) PLUS the `PredictionRecord[]` that same
+ * replay already produced and, before quick task 260908-n5o, threw away.
+ * Keeping both off ONE pass is the tracer's whole point (Task 1's own
+ * `<action>`): no second replay, no second corpus read, to get the
+ * win-probability arm this task adds.
+ */
+export interface SeasonReplayResult {
+  readonly finalState: EpaState;
+  readonly records: readonly MultiAlgorithmPredictionRecord[];
+}
+
+/**
  * One threaded, chronological replay across `seasons` (cold-starting
  * positionally at index 0, per `seasonBoundaryFor`'s D-1 contract), capturing
- * `epa`'s season-FINAL state at EVERY season in the range — the replay is
- * already chronological and visits each boundary, so one pass produces every
- * season's comparison rather than only the last.
+ * `epa`'s season-FINAL state AND its per-match prediction records at EVERY
+ * season in the range — the replay is already chronological and visits each
+ * boundary, so one pass produces every season's comparison rather than only
+ * the last.
  *
  * Quick task 260908-615: two as-of instants are now in play here, and this
  * function deliberately uses BOTH.
  *
- *   - The value it RETURNS stays `finalStates` — that is the MEASURED
- *     quantity this script compares against Statbotics, and the committed
- *     baseline in `data/baselines/epa-vs-statbotics-2026-09.json` is
- *     documented as the offseason-inclusive production arm. Rewinding it
+ *   - The value each entry's `finalState` carries is `finalStates` — that is
+ *     the MEASURED quantity this script compares against Statbotics, and the
+ *     committed baseline in `data/baselines/epa-vs-statbotics-2026-09.json`
+ *     is documented as the offseason-inclusive production arm. Rewinding it
  *     would change what the measurement MEANS, not what the model does.
  *   - The value it THREADS across each boundary is `carryStates`, matching
  *     every other season loop, so the replay this script measures is the
  *     same replay the publisher performs.
  */
-function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boolean): Map<number, EpaState> {
-  const finalStatesBySeason = new Map<number, EpaState>();
+function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boolean): Map<number, SeasonReplayResult> {
+  const resultsBySeason = new Map<number, SeasonReplayResult>();
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
     let carriedStates: ReadonlyMap<string, unknown> | undefined;
@@ -173,13 +199,84 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
       const simulator = new WalkForwardSimulator(stream);
       const records = simulator.runAll([epa], teams, initialStates);
       carriedStates = records.carryStates;
-      finalStatesBySeason.set(season, records.finalStates.get(epa.id) as EpaState);
+      const finalState = records.finalStates.get(epa.id) as EpaState;
+      // `records` is an array with two extra properties bolted on
+      // (`finalStates`/`carryStates`, both already read above) — spreading it
+      // here keeps only the plain array this function's own contract needs.
+      resultsBySeason.set(season, { finalState, records: [...records] });
       console.log(`epaVsStatbotics: season ${season} replayed — ${stream.length} matches`);
     }
   } finally {
     db.close();
   }
-  return finalStatesBySeason;
+  return resultsBySeason;
+}
+
+/**
+ * Maps one season's replayed EPA records into `HarnessPredictionInput[]`,
+ * mirroring `packages/harness/publish.ts`'s own field-for-field mapping at
+ * its `harnessPredictions` call site rather than reinventing it. `eventKey`
+ * is carried as a REAL field off the match, never derived by splitting
+ * `matchKey` — matching `HarnessPredictionInput.eventKey`'s own doc comment's
+ * warning against that shortcut.
+ *
+ * `isOffseason` reads `match.eventType` directly rather than joining against
+ * a separately-queried `events.is_offseason` set (`publish.ts`'s own
+ * `offseasonEventKeys`): `packages/corpus/schema.sql` documents
+ * `is_offseason` itself as `-- derived: event_type == 99 (D-06)`, so the two
+ * are the same fact, and this script does not otherwise need a second corpus
+ * query just to restate it.
+ *
+ * Exported and pure — no corpus, no network — so it is unit-testable with a
+ * synthetic record (Task 1's own requirement).
+ */
+export function mapRecordsToHarnessPredictionInput(
+  records: readonly MultiAlgorithmPredictionRecord[],
+  season: number
+): HarnessPredictionInput[] {
+  return records.map((r) => ({
+    matchKey: r.match.matchKey,
+    season,
+    eventKey: r.match.eventKey,
+    compLevel: r.match.compLevel,
+    algorithmId: r.algorithmId,
+    pRedWin: r.prediction.pRedWin,
+    predictedRedScore: r.prediction.redScore,
+    predictedBlueScore: r.prediction.blueScore,
+    actualWinner: r.match.winner,
+    isOffseason: r.match.eventType === OFFSEASON_EVENT_TYPE,
+    isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+  }));
+}
+
+/**
+ * Selects the `"combined"` `compLevelView` slice for one (algorithmId,
+ * season) pair, loudly: a missing combined slice here means `aggregateScores`
+ * was handed the wrong season set or algorithm id, and a silent fallback
+ * (e.g. an empty-figures default) would hide exactly that bug — Task 1's own
+ * requirement that "given none, the failure is loud rather than a silent
+ * null."
+ */
+export function selectCombinedSlice(slices: readonly ScoreSlice[], algorithmId: string, season: number): ScoreSlice {
+  const slice = slices.find((s) => s.algorithmId === algorithmId && s.season === season && s.compLevelView === "combined");
+  if (!slice) {
+    throw new Error(
+      `epaVsStatbotics: no "combined" compLevelView slice for algorithm "${algorithmId}" season ${season} — aggregateScores did not produce one`
+    );
+  }
+  return slice;
+}
+
+/**
+ * The version stamp `main()` writes onto `EpaVsStatboticsReport.epaVersion` —
+ * a named export purely so `scripts/epaVsStatbotics.test.ts` can assert it
+ * against a live `epa.version` import without running `main()`'s own
+ * corpus/network-touching driver. Equality only, never a hand-typed literal
+ * and never a pattern match — a future `epa.ts` version bump must flow
+ * through here automatically.
+ */
+export function currentEpaVersion(): string {
+  return epa.version;
 }
 
 /** Our comparable value per team: `total`, straight from `teamMetrics()` (see file header — EPA's own `total` is now the no-foul figure as of D-01). Demo keys are excluded here too, defensively — `joinTeams` also excludes them, but a caller inspecting `ours` directly should not see them either. */
@@ -209,15 +306,46 @@ export interface SpotCheckRow {
   readonly difference: number;
 }
 
+/**
+ * One season's winner-prediction comparison: our own `aggregateScores`
+ * `"combined"`-view figures alongside Statbotics' own published season
+ * figures (quick task 260908-n5o). `ourWinnerAccuracy`/`ourBrierScore` are
+ * nullable, matching `ScoreSlice`'s own contract (a slice with zero scored
+ * matches carries `null` for both, honestly, rather than a fabricated
+ * number). `statboticsBrierScore` is nullable too, matching
+ * `StatboticsReference.mse`'s own optionality (unreachable in practice today
+ * — every fallback constant this project carries also carries `mse` — but
+ * the type says so rather than assuming it).
+ */
+export interface WinProbabilityComparison {
+  readonly ourWinnerAccuracy: number | null;
+  readonly ourBrierScore: number | null;
+  readonly scoredCount: number;
+  readonly statboticsWinnerAccuracy: number;
+  readonly statboticsBrierScore: number | null;
+  readonly statboticsCapturedAt: string;
+  readonly statboticsFetched: boolean;
+}
+
 export interface SeasonReportEntry {
   readonly season: number;
   readonly allTeams: SeasonComparison;
   readonly minMatchesFiltered: SeasonComparison;
   readonly spotCheck: readonly SpotCheckRow[];
+  readonly winProbability: WinProbabilityComparison;
 }
 
 export interface EpaVsStatboticsReport {
   readonly measuredAt: string;
+  /**
+   * The `epa` algorithm module's OWN `version` field (`epa.ts`'s `version:
+   * "6.0.0+baseline"` today) — never a hand-typed version string. This is
+   * what makes a mixed-model-version publish detectable downstream
+   * (`scripts/publishEpaComparison.ts`'s own version-equality gate): two
+   * report files carrying different `epaVersion` values were measured under
+   * two different models and must never compose into one artifact.
+   */
+  readonly epaVersion: string;
   readonly seasons: readonly number[];
   readonly includeOffseason: boolean;
   readonly minMatches: number;
@@ -287,17 +415,35 @@ function runCheck(seasonEntries: readonly SeasonReportEntry[]): boolean {
 async function main(): Promise<void> {
   const options = parseCliOptions();
 
-  const finalStatesBySeason = replayEpaSeasonFinals(options.seasons, options.includeOffseason);
+  const replayResultsBySeason = replayEpaSeasonFinals(options.seasons, options.includeOffseason);
+
+  // One `aggregateScores` call over EVERY requested season's records at
+  // once — `corpusSeasons` is the run's own full requested season list (per
+  // that option's own contract: a caller must declare its full season set,
+  // never narrow it silently), and `selectedOnSeasons` is the
+  // `ELIGIBILITY_NOT_CLAIMED` sentinel because this measurement makes no
+  // headline-eligibility claim of its own (Task 1's own instruction: the
+  // sentinel is the strictest available answer, not a convenience default).
+  const allPredictions: HarnessPredictionInput[] = options.seasons.flatMap((season) => {
+    const replayed = replayResultsBySeason.get(season);
+    if (!replayed) throw new Error(`epaVsStatbotics: no replayed records for season ${season}`);
+    return mapRecordsToHarnessPredictionInput(replayed.records, season);
+  });
+  const slices = aggregateScores(allPredictions, {
+    corpusSeasons: options.seasons,
+    selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+  });
 
   const statboticsBySeason = new Map<number, StatboticsTeamYearRow[]>();
   for (const season of options.seasons) {
     statboticsBySeason.set(season, await fetchStatboticsTeamYears(season, { cachePath: STATBOTICS_TEAM_YEARS_CACHE_PATH }));
   }
 
-  const seasonEntries: SeasonReportEntry[] = options.seasons.map((season) => {
-    const finalState = finalStatesBySeason.get(season);
-    if (!finalState) throw new Error(`epaVsStatbotics: no replayed state for season ${season}`);
-    const ours = ourTeamValuesFromState(finalState);
+  const seasonEntries: SeasonReportEntry[] = [];
+  for (const season of options.seasons) {
+    const replayed = replayResultsBySeason.get(season);
+    if (!replayed) throw new Error(`epaVsStatbotics: no replayed state for season ${season}`);
+    const ours = ourTeamValuesFromState(replayed.finalState);
     const theirs = theirTeamRowsFromStatbotics(statboticsBySeason.get(season) ?? []);
 
     const allTeams = compareSeason(season, ours, theirs);
@@ -309,13 +455,26 @@ async function main(): Promise<void> {
       difference: pair.ours - pair.theirs,
     }));
 
-    const entry: SeasonReportEntry = { season, allTeams, minMatchesFiltered, spotCheck };
+    const combinedSlice = selectCombinedSlice(slices, epa.id, season);
+    const statboticsRef = await statboticsReference(season, { cachePath: STATBOTICS_YEAR_REFERENCE_CACHE_PATH });
+    const winProbability: WinProbabilityComparison = {
+      ourWinnerAccuracy: combinedSlice.winnerAccuracy,
+      ourBrierScore: combinedSlice.brierScore,
+      scoredCount: combinedSlice.scoredCount,
+      statboticsWinnerAccuracy: statboticsRef.value,
+      statboticsBrierScore: statboticsRef.mse ?? null,
+      statboticsCapturedAt: statboticsRef.capturedAt,
+      statboticsFetched: statboticsRef.fetched,
+    };
+
+    const entry: SeasonReportEntry = { season, allTeams, minMatchesFiltered, spotCheck, winProbability };
     printSeasonRow(entry);
-    return entry;
-  });
+    seasonEntries.push(entry);
+  }
 
   const report: EpaVsStatboticsReport = {
     measuredAt: new Date().toISOString(),
+    epaVersion: currentEpaVersion(),
     seasons: options.seasons,
     includeOffseason: options.includeOffseason,
     minMatches: options.minMatches,
