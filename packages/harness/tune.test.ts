@@ -15,6 +15,7 @@ import {
   assertNoFutureSeasonLeak,
   assertSelectionPrecedesOrigin,
   buildAcceptanceReport,
+  winnerSeparability,
   buildEventAccuracyBlocks,
   buildJointArtifact,
   buildPairedOriginUnits,
@@ -692,7 +693,64 @@ describe("buildAcceptanceReport (Rule A's FOUR outcomes since quick task 260905-
     brierLevelStandardError: 0.00122,
     maeDeltaStandardError: 0.02,
     evaluationCount: 58,
+    // Gate 5 (quick task 260907-v1s): the CLEAN case — the incumbent's own
+    // 2025 parameters were selected strictly before 2025, so no soundness
+    // caveat is appended. The contaminated case has its own tests below.
+    incumbentBlindness: {
+      originSeason: 2025,
+      incumbentSelectionSeasons: [2022, 2023, 2024],
+      inSample: false,
+    } as const,
   };
+
+  // ── D-T5 GATE 5: the incumbent's own blindness (quick task 260907-v1s) ──
+  //
+  // The defect these cover: gates 1-4 all police the CANDIDATE's blindness and
+  // NOTHING ever asked the same question of the incumbent it is measured
+  // against. On the live pinned set the incumbent's 2023 and 2024 parameters
+  // were selected on 2022/2023/2024 -- a window containing both origins -- and
+  // those were the two worst results of the 2026-09-06 ten-arm run.
+  const CONTAMINATED = {
+    originSeason: 2024,
+    incumbentSelectionSeasons: [2022, 2023, 2024],
+    inSample: true,
+    offendingSeasons: [2024],
+  } as const;
+
+  it("gate 5: a KEEP-INCUMBENT verdict against an in-sample incumbent is labelled NOT EVIDENCE", () => {
+    const report = buildAcceptanceReport({
+      ...BASE,
+      incumbentBlindness: CONTAMINATED,
+      units: units(0.6, 0.61, 0.16, 0.159, 20, 20),
+    });
+    expect(report.outcome.decision).toBe("keep-incumbent");
+    expect(report.incumbentBlindness.inSample).toBe(true);
+    expect(report.verdict).toContain("THIS VERDICT IS NOT EVIDENCE");
+    // It must name WHICH seasons, so a reader can check the claim rather than
+    // take it on faith.
+    expect(report.verdict).toContain("2022, 2023, 2024");
+    expect(report.verdict).toContain("offending: 2024");
+  });
+
+  it("gate 5: an ACCEPT against the SAME in-sample incumbent is sound a fortiori, not warned", () => {
+    // The bias has a DIRECTION. An in-sample incumbent is unfairly STRONG, so
+    // clearing it is a stronger result, not a compromised one — the caveat
+    // must not fire symmetrically just because contamination is present.
+    const report = buildAcceptanceReport({
+      ...BASE,
+      incumbentBlindness: CONTAMINATED,
+      units: units(0.61, 0.6, 0.159, 0.16, 20, 20),
+    });
+    expect(report.outcome.decision).toBe("accept");
+    expect(report.verdict).toContain("a fortiori");
+    expect(report.verdict).not.toContain("NOT EVIDENCE");
+  });
+
+  it("gate 5: a clean incumbent appends no caveat at all", () => {
+    const report = buildAcceptanceReport({ ...BASE, units: units(0.6, 0.61, 0.16, 0.159, 20, 20) });
+    expect(report.incumbentBlindness.inSample).toBe(false);
+    expect(report.verdict).not.toContain("gate 5");
+  });
 
   it("accept: accuracy improves ABOVE the noise bar, and Brier improves too — Rule A's both halves satisfied", () => {
     // Bar at N=58, accuracy SE 0.0005 is sqrt(2 ln 58) * 0.0005 ~ 0.00349. Margin 0.01.
@@ -993,5 +1051,45 @@ describe("loadSurvivors (D-T3's exclusion enforcement at the artifact boundary)"
     // Distinctness is the point: an unknown key must NOT be reported as a
     // deliberate exclusion, or a typo would read as a documented decision.
     expect(() => loadSurvivors(path)).not.toThrow(/EXCLUDED from the search space/);
+  });
+});
+
+describe("winnerSeparability (quick task 260907-v1s) — a winner is not automatically a signal", () => {
+  // The defect: a search artifact reported a winner and nothing else, so
+  // "the search found a winner" read as "the search found a signal." On the
+  // 2026-09-06 run, 10 of 67 candidates sat within one paired SE of the
+  // winner on origin 2026. Picking one of ten coin flips is how a search
+  // transfers noise, and the artifact gave no way to see it.
+  const blocks = (correct: number, denominator: number) => [
+    { eventKey: "e1", season: 2026, correct, denominator },
+    { eventKey: "e2", season: 2026, correct, denominator },
+  ];
+  const candidate = (id: string, accuracyObjective: number, correct: number) =>
+    ({
+      id,
+      params: DEFAULT_SIGMA1_PARAMS,
+      perSeason: [],
+      accuracyObjective,
+      brierObjective: 0.15,
+      accuracyBlocks: blocks(correct, 100),
+    }) as never;
+
+  it("flags a winner it cannot separate from an identical-scoring rival", () => {
+    const results = [candidate("w", 0.75, 75), candidate("tie", 0.75, 75), candidate("far", 0.5, 50)];
+    const sep = winnerSeparability(results, 0);
+    expect(sep.evaluated).toBe(3);
+    expect(sep.withinOneSe).toBeGreaterThanOrEqual(1);
+    expect(sep.separable).toBe(false);
+  });
+
+  it("reports separable when every rival is far below the winner", () => {
+    const results = [candidate("w", 0.95, 95), candidate("a", 0.4, 40), candidate("b", 0.35, 35)];
+    const sep = winnerSeparability(results, 0);
+    expect(sep.separable).toBe(true);
+    expect(sep.withinOneSe).toBe(0);
+  });
+
+  it("throws rather than silently reporting on an out-of-range winner index", () => {
+    expect(() => winnerSeparability([candidate("w", 0.7, 70)], 5)).toThrow(/out of range/);
   });
 });

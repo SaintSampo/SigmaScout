@@ -232,7 +232,7 @@ import { SEARCH_OBJECTIVE_DEFINITION, SCREEN_OBJECTIVE_DEFINITION } from "./obje
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-import { makeSeasonalSigma1 } from "./seasonParamSets.js";
+import { makeSeasonalSigma1, resolveParamSets } from "./seasonParamSets.js";
 // D-T5 removed this module's dependence on the fixed split; quick task
 // 260903-krp then deleted `TUNE_SEASONS`/`HOLDOUT_SEASONS`/`seasonSplit`
 // entirely from `score.ts` — there is nothing left to import. See this
@@ -930,6 +930,63 @@ export function determineWinner(results: readonly EvaluatedCandidate[]): { winne
 // ─────────────────────────────────────────────────────────────────────────
 // Stage: tracer (plan 03-01, unchanged)
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * How many evaluated candidates are STATISTICALLY INDISTINGUISHABLE from the
+ * winner, by the same paired event-blocked SE the acceptance bar uses.
+ *
+ * This exists because a search artifact reported a winner and nothing else,
+ * and "the search found a winner" was being read as "the search found a
+ * signal." It is not the same claim. Measured on the 2026-09-06 run (quick
+ * task 260907-v1s): 40 random draws plus coordinate descent over 14
+ * dimensions produced 67 candidates of which **10 sat within one paired SE of
+ * the winner** on origin 2026, and 14 on 2025. Picking one of ten coin flips
+ * and promoting it is exactly how a search transfers noise instead of signal,
+ * and the artifact gave a reader no way to see it happening.
+ *
+ * Reported, never enforced. A tight cluster is not automatically wrong — it
+ * can mean a genuinely flat optimum — so this refuses to guess and instead
+ * makes the ambiguity impossible to miss. `separable` is the honest headline:
+ * false means the winner could not be told apart from at least one rival.
+ *
+ * Cheap by construction: it reuses the `accuracyBlocks` every candidate
+ * already carries, so it costs no additional replay.
+ */
+export interface WinnerSeparability {
+  readonly evaluated: number;
+  /** Rivals (excluding the winner) whose accuracy is within ONE paired SE of the winner's. */
+  readonly withinOneSe: number;
+  /** Rivals within TWO paired SEs — a wider read on how flat the top of the search is. */
+  readonly withinTwoSe: number;
+  /** Largest paired SE observed between the winner and any rival — the scale the counts above are measured in. */
+  readonly maxPairedSe: number;
+  /** `false` when at least one rival sits within one paired SE of the winner. */
+  readonly separable: boolean;
+}
+
+export function winnerSeparability(
+  results: readonly EvaluatedCandidate[],
+  winnerIndex: number
+): WinnerSeparability {
+  const winner = results[winnerIndex];
+  if (winner === undefined) {
+    throw new Error(`winnerSeparability: winnerIndex ${winnerIndex} is out of range for ${results.length} candidates`);
+  }
+  let withinOneSe = 0;
+  let withinTwoSe = 0;
+  let maxPairedSe = 0;
+  for (const [index, rival] of results.entries()) {
+    if (index === winnerIndex) continue;
+    const se = accuracyDeltaStandardError(winner.accuracyBlocks, rival.accuracyBlocks);
+    if (se > maxPairedSe) maxPairedSe = se;
+    // A zero SE means the two prediction streams are identical on every
+    // scored event -- genuinely indistinguishable, so it counts.
+    const gap = winner.accuracyObjective - rival.accuracyObjective;
+    if (gap <= se) withinOneSe++;
+    if (gap <= 2 * se) withinTwoSe++;
+  }
+  return { evaluated: results.length, withinOneSe, withinTwoSe, maxPairedSe, separable: withinOneSe === 0 };
+}
 
 /**
  * The tracer's ONE searched knob (this stage's whole point): the default is
@@ -1654,6 +1711,11 @@ export function buildJointArtifact(input: {
     tieBreak: input.ties.length > 0 ? "accuracy AND brier tied across multiple candidates — lowest candidate index wins" : null,
     ties: input.ties,
     winnerIndex: input.winnerIndex,
+    // How many rivals the search could NOT tell apart from its own winner.
+    // See `winnerSeparability`'s doc comment: a reader of this artifact must
+    // be able to see "winner, but 10 of 67 were within one SE of it" rather
+    // than only "winner".
+    winnerSeparability: winnerSeparability(input.results, input.winnerIndex),
     // How often Brier actually decided a comparison — VISIBLE rather than
     // invisible inside the comparator (OBJ-RANK's own must-have truth).
     noiseBandResolvedCount: input.noiseBandResolvedCount,
@@ -1862,6 +1924,13 @@ export interface OriginAcceptanceReport {
   readonly brierLevelStandardError: number;
   readonly maeDeltaStandardError: number;
   readonly outcome: AcceptanceOutcome;
+  /**
+   * D-T5 GATE 5 (quick task 260907-v1s): whether the INCUMBENT's own
+   * parameters for this origin were selected on a window containing it. When
+   * `inSample` is true a `keep-incumbent` verdict is NOT evidence — see
+   * `assertIncumbentBlindness`.
+   */
+  readonly incumbentBlindness: IncumbentBlindness;
   readonly verdict: string;
 }
 
@@ -1881,6 +1950,7 @@ export interface OriginAcceptanceReport {
 export function buildAcceptanceReport(input: {
   originSeason: number;
   selectionSeasons: readonly number[];
+  incumbentBlindness: IncumbentBlindness;
   incumbentVersionPath: string;
   incumbentVersion: string;
   units: readonly PairedOriginUnit[];
@@ -1950,6 +2020,23 @@ export function buildAcceptanceReport(input: {
     `Origin ${input.originSeason}: the search evaluated ${input.evaluationCount} candidates on ${input.selectionSeasons.join(", ")} ` +
     `and its winner's out-of-sample ACCURACY margin over the incumbent (${input.incumbentVersion}) was ${outcome.accuracyMargin.toFixed(6)}, ` +
     `with a Brier delta of ${outcome.brierDelta.toFixed(6)}, over ${n} matches across ${input.eventCount} events; ${barClause}`;
+  // GATE 5. Appended to the sentence rather than folded into the decision:
+  // the bias only invalidates one DIRECTION of outcome, so the caveat has to
+  // say which, not merely announce contamination.
+  const blindness = input.incumbentBlindness;
+  const soundness = !blindness.inSample
+    ? ""
+    : outcome.decision === "accept"
+      ? ` NOTE (gate 5): the incumbent's own parameters for ${blindness.originSeason} were selected on ` +
+        `${blindness.incumbentSelectionSeasons.join(", ")}, which CONTAINS the origin, so the incumbent saw this season during ` +
+        `its own selection. That makes the bar it set unfairly HIGH, so this ACCEPT is sound a fortiori — the candidate cleared ` +
+        `a bar that should not have been that high.`
+      : ` WARNING (gate 5): THIS VERDICT IS NOT EVIDENCE. The incumbent's own parameters for ${blindness.originSeason} were ` +
+        `selected on ${blindness.incumbentSelectionSeasons.join(", ")}, which CONTAINS the origin (offending: ` +
+        `${(blindness.offendingSeasons ?? []).join(", ")}), so a properly blinded candidate was scored against an incumbent that ` +
+        `had already seen this season. The incumbent is unfairly strong here and the candidate may have lost only to that. ` +
+        `Re-fit the incumbent's ${blindness.originSeason} parameters on strictly-prior seasons before reading this comparison.`;
+
   const verdict =
     outcome.decision === "accept"
       ? `${shared}, so the candidate is ACCEPTED under RULE A (quick task 260905-t88): it improves BOTH accuracy and Brier ` +
@@ -1964,12 +2051,14 @@ export function buildAcceptanceReport(input: {
             `${outcome.maeDelta.toFixed(4)} points, past the guardrail's ${outcome.maeVetoBound.toFixed(4)} bound, so the INCUMBENT ` +
             `STANDS. D-T7's guardrail exists because the vpr@3.0.0 fix shipped a 16% score-MAE regression that Brier and SD(z) both ` +
             `rated equal-or-better.`;
+  const verdictWithSoundness = verdict + soundness;
 
   return {
     originSeason: input.originSeason,
     selectionSeasons: [...input.selectionSeasons],
     incumbentVersionPath: input.incumbentVersionPath,
     incumbentVersion: input.incumbentVersion,
+    incumbentBlindness: blindness,
     matchCount: n,
     eventCount: input.eventCount,
     candidateAccuracy,
@@ -1983,8 +2072,59 @@ export function buildAcceptanceReport(input: {
     brierLevelStandardError: input.brierLevelStandardError,
     maeDeltaStandardError: input.maeDeltaStandardError,
     outcome,
-    verdict,
+    verdict: verdictWithSoundness,
   };
+}
+
+/**
+ * D-T5 GATE 5 — the INCUMBENT's own blindness, which gates 1-4 never checked.
+ *
+ * Gates 1-4 all police the CANDIDATE: its hyperparameters must be selected on
+ * seasons strictly before the origin. Nothing ever asked the same question of
+ * the thing it is measured against, and the omission is not academic.
+ *
+ * Measured 2026-09-07 (quick task 260907-v1s) on the live pinned set: the
+ * incumbent's parameters for 2023 and 2024 were selected on the window
+ * 2022/2023/2024 — a window CONTAINING both origins. So on those two origins a
+ * properly blinded candidate was being scored against an incumbent that had
+ * seen the answers. Those were the two worst results of the ten-arm run
+ * (2024 at -6.1 sigma), while the three origins where BOTH sides were blind
+ * scored +3.5, -0.6 and -1.0 sigma. The gap between those two pictures is the
+ * defect.
+ *
+ * THE BIAS HAS A DIRECTION, and this function encodes it rather than merely
+ * flagging contamination. An in-sample incumbent is unfairly STRONG, so:
+ *
+ *   - an ACCEPT verdict stays sound *a fortiori* — the candidate cleared a bar
+ *     that was set too high, which is a stronger result, not a weaker one;
+ *   - a KEEP-INCUMBENT verdict is NOT evidence — the candidate may have lost
+ *     only to the contamination.
+ *
+ * Deliberately NOT a throw. Throwing would make every 2023/2024 origin
+ * unrunnable until those parameters are re-fitted, which is real work with a
+ * real compute cost and is not this function's decision to force. It returns a
+ * finding; `buildOriginAcceptanceReport` puts it in the verdict sentence so a
+ * contaminated keep-incumbent cannot be read as a clean one.
+ */
+export interface IncumbentBlindness {
+  readonly originSeason: number;
+  /** The seasons the INCUMBENT's parameters for this origin were selected on, as recorded in its own version file. */
+  readonly incumbentSelectionSeasons: readonly number[];
+  /** True when those seasons include the origin itself, or any season after it. */
+  readonly inSample: boolean;
+  /** Present only when `inSample` — the offending seasons, so a reader sees exactly which. */
+  readonly offendingSeasons?: readonly number[];
+}
+
+export function assertIncumbentBlindness(incumbentPath: string, originSeason: number): IncumbentBlindness {
+  const raw: unknown = JSON.parse(readFileSync(incumbentPath, "utf8"));
+  const promoted = PromotedVersionSchema.parse(raw);
+  const entry = resolveParamSets(promoted).forSeason(originSeason);
+  const selected = [...entry.selectedOnSeasons];
+  const offending = selected.filter((season) => season >= originSeason);
+  return offending.length === 0
+    ? { originSeason, incumbentSelectionSeasons: selected, inSample: false }
+    : { originSeason, incumbentSelectionSeasons: selected, inSample: true, offendingSeasons: offending };
 }
 
 /**
@@ -2121,10 +2261,16 @@ async function evaluateOriginSeason(
   // comparing this run's paired SE against D-T6's published level figure.
   const brierLevel = eventBlockedBootstrap(units, (sample) => sample.reduce((sum, u) => sum + u.candidateBrier, 0) / sample.length);
 
+  const incumbentPath = input.incumbentVersionPath ?? INCUMBENT_VERSION_PATH;
+
   return buildAcceptanceReport({
     originSeason: input.originSeason,
     selectionSeasons: input.selectionSeasons,
-    incumbentVersionPath: input.incumbentVersionPath ?? INCUMBENT_VERSION_PATH,
+    // GATE 5 (quick task 260907-v1s): read the INCUMBENT's own selection
+    // window for this origin, from the same file it was loaded from, so the
+    // verdict can say whether the comparison it reports is sound.
+    incumbentBlindness: assertIncumbentBlindness(incumbentPath, input.originSeason),
+    incumbentVersionPath: incumbentPath,
     incumbentVersion: incumbent.version,
     units,
     eventCount: brierDelta.eventCount,
