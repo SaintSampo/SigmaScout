@@ -486,7 +486,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 8, and league rows declaring the LITERAL 3, 4, 5, 6 or 7 all throw (ELIM-OFF, quick task 260904-v9n)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 9, and league rows declaring the LITERAL 3, 4, 5, 6, 7 or 8 all throw (11.0.0 removed innovationStats, quick task 260907-v1s)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -504,9 +504,9 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // `apps/worker/src/stateStore.ts` filters rows by `algorithm_id` only and
     // never by `algorithm_version`, so bumping the algorithm version does not
     // by itself make a stale seeded row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(8);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(9);
 
-    for (const staleVersion of [3, 4, 5, 6, 7]) {
+    for (const staleVersion of [3, 4, 5, 6, 7, 8]) {
       const staleRow: StateRow = StateRowSchema.parse({
         algorithmId: "vpr",
         algorithmVersion: vpr.version,

@@ -364,6 +364,34 @@ const LEGACY_6_VARIANCE_OPR_RIDGE = 2;
 export const SIGMA1_6_TO_7_MIGRATION_TAG = "sigma1-6.0.0-variance-decomposition-to-7.0.0-recency-swing";
 
 /**
+ * The seven `Sigma1Params` keys that 11.0.0 REMOVED (quick task 260907-v1s):
+ * the six-field adaptation family plus `maxTeamKalmanGain`. Listed here rather
+ * than inline in `promote.ts` so the migration and any future reader of the
+ * shape history share ONE list — a second copy is how a migration and its
+ * documentation drift apart.
+ *
+ * There is deliberately NO `Legacy10Sigma1ParamsSchema` beside this. Every
+ * other shape hop in this file needed a frozen schema because it RENAMED or
+ * RESCALED fields, so the old file had to be parsed under its own rules before
+ * it could be mapped. This hop only DELETES keys whose values are discarded, so
+ * stripping them and parsing the remainder under the CURRENT schema is exact —
+ * inventing a frozen 10.x schema would add a second thing to keep in sync for
+ * no additional guarantee.
+ */
+export const SIGMA1_10_TO_11_REMOVED_KEYS = [
+  "adaptationEnabled",
+  "adaptationEwmaAlpha",
+  "adaptationExponent",
+  "adaptationMinFactor",
+  "adaptationMaxFactor",
+  "adaptationMinObservations",
+  "maxTeamKalmanGain",
+] as const;
+
+/** Provenance tag recorded on any parameter set migrated across the 11.0.0 field removal. */
+export const SIGMA1_10_TO_11_MIGRATION_TAG = "sigma1-10.0.0-adaptation-and-gaincap-removed-to-11.0.0";
+
+/**
  * 6.0.0 -> 7.0.0 (D-Y1/D-Y3, quick task 260903-750): drops `varianceOprRidge`
  * and adds the two swing constants.
  *
@@ -375,8 +403,17 @@ export const SIGMA1_6_TO_7_MIGRATION_TAG = "sigma1-6.0.0-variance-decomposition-
  */
 export function migrate6to7(legacy: Legacy6Sigma1Params): Sigma1Params {
   const { varianceOprRidge: _dropped, ...carried } = legacy;
+  // 11.0.0 (quick task 260907-v1s): this is the TERMINAL hop — the one that
+  // parses into the CURRENT `Sigma1Params` — so it is the only place in the
+  // chain that may drop the fields 11.0.0 removed. The earlier hops must keep
+  // emitting them, because each one is validated against its OWN frozen
+  // schema (`Legacy4`/`Legacy6`), and those schemas describe files that
+  // really did carry adaptation. Stripping upstream breaks the chain at the
+  // intermediate parse instead, with an error naming the wrong hop.
+  const stripped = { ...carried } as Record<string, unknown>;
+  for (const key of SIGMA1_10_TO_11_REMOVED_KEYS) delete stripped[key];
   return Sigma1ParamsSchema.parse({
-    ...carried,
+    ...stripped,
     swingHalfLifeMatches: DEFAULT_SIGMA1_PARAMS.swingHalfLifeMatches,
     swingScale: DEFAULT_SIGMA1_PARAMS.swingScale,
   });

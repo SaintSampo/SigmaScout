@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 7 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 3 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -276,14 +276,24 @@ describe("committed baseline fingerprints", () => {
     // 2020, 2023 and 2024 already run. The census COUNT goes 6 -> 7: a
     // promotion adds to this directory whether or not it moves any number,
     // so a coverage-only promotion is counted here exactly like a re-tune.
+    // 2026-09-07 (quick task 260907-v1s, SIGMA1_CODE_VERSION 11.0.0) is the
+    // FIRST entry here that makes the count go DOWN, 7 -> 3, and the reason is
+    // worth stating because every note above describes an addition.
+    //
+    // 11.0.0 DELETES seven `Sigma1Params` fields, and `Sigma1ParamsSchema` is
+    // strict, so a 10.0.0 file no longer parses. Three files migrated forward.
+    // The other four — `rolling-2026-09`, `09b`, `09c`, `09d` — were RETIRED
+    // rather than migrated, and not for tidiness: the corpus gained seasons
+    // 2016/2017/2018 on 2026-09-07, and `--per-season` refuses a map that
+    // does not cover every corpus season. Those four predate that ingest, so
+    // migrating them would have meant INVENTING 2016-2018 coverage they never
+    // had. `rolling-2026-09e` already carries exactly that coverage and
+    // supersedes all four, so the honest move was to drop them rather than
+    // fabricate provenance.
     ).toEqual([
-      "vpr@10.0.0+rolling-2026-09.json",
-      "vpr@10.0.0+rolling-2026-09b.json",
-      "vpr@10.0.0+rolling-2026-09c.json",
-      "vpr@10.0.0+rolling-2026-09d.json",
-      "vpr@10.0.0+rolling-2026-09e.json",
-      "vpr@10.0.0+tracer-check.json",
-      "vpr@10.0.0+tuned-2026-08.json",
+      "vpr@11.0.0+rolling-2026-09e.json",
+      "vpr@11.0.0+tracer-check.json",
+      "vpr@11.0.0+tuned-2026-08.json",
     ]);
   });
 

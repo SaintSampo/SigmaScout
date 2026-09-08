@@ -570,8 +570,79 @@ import { EPA_CARRY_LAST_YEAR_WEIGHT, EPA_CARRY_PRIOR_YEAR_WEIGHT, EPA_MEAN_REVER
  * per-component compounding as explanations. These two knobs are the
  * mechanism that survived, measured at 80% of the pooled gap on a single
  * global configuration with Rule A passing on both legs.
+ *
+ * ## 10.0.0 -> 11.0.0 (quick task 260907-v1s, Stage 2A)
+ *
+ * A DELETION, not an addition: seven fields removed — the six-field
+ * adaptation family (`adaptationEnabled`, `adaptationEwmaAlpha`,
+ * `adaptationExponent`, `adaptationMinFactor`, `adaptationMaxFactor`,
+ * `adaptationMinObservations`) and `maxTeamKalmanGain`. `adaptation.ts`, its
+ * test, and the `innovationStats` field of `Sigma1TeamState` go with them.
+ *
+ * Applying this file's own two triggers:
+ *
+ *   (a) the parameter SHAPE changed such that `z.strictObject` makes an old
+ *       file unparseable — FIRES. Every committed `vpr@10.0.0+*.json` carries
+ *       all seven keys, and a strict object rejects unknown keys outright.
+ *       This is the first time a bump has fired (a) by REMOVING keys rather
+ *       than adding them; `promote.ts`'s `migrateSourceParams` gains a `10.`
+ *       branch that STRIPS them, the mirror of the add-only branches above.
+ *   (b) the observable OUTPUT changed — ALSO FIRES, and the first draft of
+ *       this block claimed it did not. That claim was WRONG and the
+ *       reproducibility gate caught it, which is what the gate is for.
+ *
+ *       The reasoning that failed: "every deleted field sat at its IDENTITY
+ *       value in every promoted set." It does not. `rolling-2026-09e` ships
+ *       `adaptationEnabled: true` for 2022, 2025 and 2026, and
+ *       `maxTeamKalmanGain: 0.959` for 2022 — the mechanisms were LIVE in the
+ *       promoted set, not merely present in the schema. The 2022 digest slice
+ *       is precisely where both were active, so its
+ *       `predictionStreamSha256` moved (24d47e4b -> 75c6d898).
+ *
+ *       What actually moved, measured on that slice (265 matches, 3 events):
+ *       winner accuracy UNCHANGED at 0.720307 to six decimals; Brier
+ *       0.180854 -> 0.180900, i.e. +0.000046. `tracer-check` and
+ *       `tuned-2026-08`, which ship adaptation off, ARE bitwise identical —
+ *       so the change is confined to exactly the sets that had the mechanism
+ *       switched on, which is the correct behaviour rather than a surprise.
+ *
+ * Both triggers firing makes the 11.0.0 bump MORE clearly required than the
+ * original justification claimed, not less. But it also means this is NOT a
+ * zero-cost simplification, and saying so plainly matters: 11.0.0 predicts
+ * DIFFERENTLY from 10.0.0 for the three seasons that shipped adaptation on.
+ * The size of that difference is the measured cost from quick task
+ * 260907-v1s's Stage 1b — at most 1.0 sigma of accuracy on any origin, and
+ * -0.00042 (0.26 sigma) on 2022 specifically. Small, deliberate, and paid for
+ * the reason below rather than free.
+ *
+ * The value bought: the joint search drops from 19 dimensions to 10, which is
+ * what makes a real re-tune tractable at a sane evaluation budget.
+ *
+ * WHY THESE SEVEN, measured rather than assumed (quick task 260907-v1s,
+ * per-origin accuracy sweeps with event-blocked PAIRED standard errors on
+ * 2022-2026): the adaptation family moves 2026 accuracy by at most 0.0013
+ * across its entire bound WHILE ENABLED, and deleting the subsystem costs
+ * <=1.0 sigma on every origin that ships it on. `maxTeamKalmanGain` never
+ * BINDS on any origin measured — values 0.54 through 1.0 are bitwise
+ * identical on 2024, 2025 and 2026 alike, because real alliance-sum gains
+ * never reach 0.54.
+ *
+ * DELIBERATELY NOT DELETED, though a 2026-only reading said otherwise:
+ * `minConsistencyVarianceRel` (0.53 sigma on 2026 but 3.58 on 2024, where it
+ * wants the floor HIGHER) and the three carry-damping fields
+ * (`carryVarianceFactor`/`carryEvidenceRate`/`carryMeanReversion`, free on
+ * four origins but -1.7 sigma on 2022). Both were on the original deletion
+ * list and were removed from it by the multi-season check — recorded here
+ * because "measured free on the season I looked at" is exactly the mistake
+ * this bump's own evidence had to survive.
+ *
+ * `STATE_SNAPSHOT_SHAPE_VERSION` (`packages/harness/stateSnapshot.ts`) goes
+ * 8 -> 9, because removing `innovationStats` IS a `Sigma1State` shape change
+ * and stale live rows would otherwise deserialize into a shape that no longer
+ * exists. A live re-seed is owed. Contrast the CVR/CER entries above, which
+ * deliberately held at 8 because they added no state field.
  */
-export const SIGMA1_CODE_VERSION = "10.0.0";
+export const SIGMA1_CODE_VERSION = "11.0.0";
 
 /**
  * The scale D-T1's five dimensionless hyperparameters are expressed against:
@@ -680,7 +751,7 @@ export const SIGMA1_CONSISTENCY_CARRY_DECAY = 0.5;
 /**
  * Every tunable Sigma1 hyperparameter, as plain data threaded through
  * `makeSigma1` (`sigma1/index.ts`) rather than read as a module constant.
- * Every field is a `readonly number` (bar `adaptationEnabled`) — this is a
+ * Every field is a `readonly number` — this is a
  * data declaration, not behaviour.
  *
  * Since 4.0.0 (D-T1) the interface splits three ways, and the split is worth
@@ -866,55 +937,6 @@ export interface Sigma1Params {
   readonly rpMonteCarloSeed: number;
   /** D-16/D-11: the number of Monte Carlo draws the RP joint model takes (plan 03-03) — versioned alongside the seed for the same reason. */
   readonly rpMonteCarloDraws: number;
-  /**
-   * D-05/D-08 (plan 03-04, `./adaptation.js`): whether within-season
-   * innovation-driven per-team process-noise adaptation is active. Default
-   * `false` — D-08: the default promoted version ships adaptation OFF
-   * unless the measurement (plan 03-05's best-vs-best search) says
-   * otherwise, so `false` is the honest default from the first commit
-   * rather than something flipped back later. This is a MODE, not a
-   * numeric knob, and is therefore deliberately EXCLUDED from the
-   * sensitivity screen's one-at-a-time sweep — plan 03-05 searches it as
-   * two independent optimizer runs per D-06, never as a dimension inside
-   * one run. Since 4.0.0 that exclusion is DATA, not prose: it is a named
-   * entry in `packages/harness/searchSpace.ts`'s `SEARCH_EXCLUSIONS`, with a
-   * test that fails if any parameter lands in neither the search space nor
-   * the exclusion list (D-T3).
-   *
-   * D-T4's MEASUREMENT, and the caveat that is inseparable from it (quick
-   * task 260901-trz). Adaptation-on beat adaptation-off in EVERY arm
-   * measured, and still added **-0.0015 Brier on top of 16x process noise**
-   * (holdout 0.153558 -> 0.152054). That second figure is the load-bearing
-   * one: it means adaptation is NOT merely a slow proxy for process noise,
-   * which was the obvious alternative explanation and would have made it
-   * redundant once D-T1's scale-relative process noise landed.
-   *
-   * THE CAVEAT: adaptation's winning SUB-PARAMETERS (`adaptationEwmaAlpha`,
-   * `adaptationExponent`, the two clamp bounds, `adaptationMinObservations`)
-   * were selected BY LOOKING AT HOLDOUT. A figure whose configuration was
-   * chosen on the same data it is reported against is inflated by an unknown
-   * amount, so -0.0015 is an upper bound on the real effect, not an estimate
-   * of it.
-   *
-   * Consequently D-T4 neither deletes adaptation nor enables it. It enters
-   * the rolling-origin re-tune (D-T5) as two independent optimizer runs per
-   * origin — the D-06 precedent — with its sub-parameters selected on
-   * strictly-prior seasons only, and it SHIPS ONLY IF its arm's winner clears
-   * D-T7's acceptance bar against the incumbent out-of-sample. Quick task
-   * 260901-trz did NOT enable it; see
-   * `.planning/todos/pending/retune-sigma1-rolling-origin.md`.
-   */
-  readonly adaptationEnabled: boolean;
-  /** D-05 (plan 03-04): EWMA rate for `./adaptation.js`'s `foldInnovation` squared-normalized-innovation fold — matches `consistencyEwmaAlpha`'s reasoning: one off match must not swing the factor. Phase 3 hyperparameter, default unverified. */
-  readonly adaptationEwmaAlpha: number;
-  /** D-05 (plan 03-04): exponent applied to a team's mean squared normalized innovation before clamping (`./adaptation.js`'s `adaptationFactor`) — 0.5 scales the factor with the ratio of observed to expected innovation STANDARD deviation rather than variance, a gentler default than the raw variance ratio. Phase 3 hyperparameter, default unverified. */
-  readonly adaptationExponent: number;
-  /** T-03-06 (plan 03-04): lower clamp bound for `./adaptation.js`'s `adaptationFactor`. An unbounded adaptive filter can destabilize — an over-large factor inflates `P`, which inflates the Kalman gain, which produces a larger innovation next match, which inflates the factor again — the clamp is the documented stability bound, not decoration. Phase 3 hyperparameter, default unverified. */
-  readonly adaptationMinFactor: number;
-  /** T-03-06 (plan 03-04): upper clamp bound for `./adaptation.js`'s `adaptationFactor`. Phase 3 hyperparameter, default unverified. */
-  readonly adaptationMaxFactor: number;
-  /** D-05 (plan 03-04): below this many folded observations, `./adaptation.js`'s `adaptationFactor` returns exactly 1 — a team's first match cannot tell you its regime is changing. Phase 3 hyperparameter, default unverified. */
-  readonly adaptationMinObservations: number;
   /**
    * D-4 (`./elim.js`, quick task 260904-v9n, ELIM-R): a DIMENSIONLESS
    * multiplier applied to the measurement noise `R` of an ELIMINATION
@@ -1105,9 +1127,9 @@ export interface Sigma1Params {
    *     uniform_j = (Sum P_i / (Sum P_i + R)) / n
    *     K_j       = (1 - s) * share_j + s * uniform_j
    *
-   * The property that makes this a DIFFERENT mechanism from
-   * `maxTeamKalmanGain` below, rather than a second way to say the same
-   * thing: `Sum_j share_j` and `Sum_j uniform_j` are BOTH exactly
+   * The property that makes this a DIFFERENT mechanism from a gain CEILING
+   * (the retired `maxTeamKalmanGain`, deleted at 11.0.0), rather than a
+   * second way to say the same thing: `Sum_j share_j` and `Sum_j uniform_j` are BOTH exactly
    * `Sum P_i / (Sum P_i + R)`, so `Sum_j K_j` is invariant in `s`. The
    * alliance's TOTAL learning from one observation does not change at any
    * setting — only its distribution across teammates does. This is not a
@@ -1116,8 +1138,9 @@ export interface Sigma1Params {
    * Measured (quick task 260906-8i1, five-season walk-forward replay against
    * `vpr@9.0.0+rolling-2026-09c`): every arm in [0.30, 0.70] passes Rule A on
    * both legs, the pooled curve is FLAT across that band rather than perched
-   * on an optimum, and `s = 0.30` composed with `maxTeamKalmanGain = 0.20`
-   * closed 80% of VPR's pooled winner-accuracy deficit to EPA (-0.204pt to
+   * on an optimum, and `s = 0.30` composed with the since-retired
+   * `maxTeamKalmanGain = 0.20` closed 80% of VPR's pooled winner-accuracy
+   * deficit to EPA (-0.204pt to
    * -0.04pt, +0.17pt accuracy, -0.000640 Brier). The invariance above is
    * load-bearing in that measurement: 2024 — the one season that punishes
    * slower adaptation — lost 0.57 SE to the gain cap alone but only 0.11 SE
@@ -1136,39 +1159,6 @@ export interface Sigma1Params {
    * unattributable to the score components.
    */
   readonly attributionShrinkage: number;
-  /**
-   * D-2 (quick task 260906-7fj, GAINCAP-PARAM): a ceiling on any single
-   * team's alliance-sum Kalman gain, in (0, 1].
-   *
-   * Applied AFTER `attributionShrinkage` above — order is load-bearing and
-   * fixed: capping first would let the uniform blend lift a clipped gain back
-   * over the ceiling, so the cap would not bind at all.
-   *
-   * Unlike `attributionShrinkage`, this DOES reduce `Sum_j K_j` for an
-   * alliance containing a dominant-variance team — it genuinely slows the
-   * filter there, which is why the two compose rather than duplicate
-   * (measured: cap alone +0.52 SE, shrinkage alone +0.83 SE, together
-   * +1.14 SE pooled).
-   *
-   * What the measurement corrected about the motivating story: a green team's
-   * gain does NOT approach 1. `coldStartVariance` (`index.ts`'s
-   * `seedConsistencyFor`) and that team's own contribution to the measurement
-   * noise `R` are seeded from the SAME quantity, so `K` is pinned near 0.5 by
-   * construction — an implicit ceiling nobody designed and, before this
-   * field, one NO parameter could move, because scaling
-   * `coldStartConsistencyVariance` moves numerator and denominator together.
-   * A cap of 0.60 was measurably inert; 0.45 left the cold-start season
-   * bitwise unchanged. The defect is that the early gain is uniformly about
-   * twice what it should be, not that one match overwrites a rating.
-   *
-   * INERT AT 1 BY CONSTRUCTION: `K_j = P_j / (Sum P_i + R) <= 1` whenever
-   * every `P >= 0` and `R >= 0`, so `Math.min(K_j, 1)` returns `K_j` bitwise
-   * unchanged. Verified the same way as the field above — a 2022 replay
-   * sha256-identical to the promoted baseline.
-   *
-   * Score side only, for the identical reason `attributionShrinkage` records.
-   */
-  readonly maxTeamKalmanGain: number;
 }
 
 /**
@@ -1216,12 +1206,6 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   rpColdStartVariance: SIGMA1_COLD_START_CONSISTENCY_VARIANCE,
   rpMonteCarloSeed: 42,
   rpMonteCarloDraws: 2000,
-  adaptationEnabled: false,
-  adaptationEwmaAlpha: 0.2,
-  adaptationExponent: 0.5,
-  adaptationMinFactor: 0.25,
-  adaptationMaxFactor: 4.0,
-  adaptationMinObservations: 3,
   // D-4 (quick task 260904-v9n, ELIM-R): exactly 1 — no elim-specific
   // treatment at all until the re-tune (searchable) says otherwise.
   elimObservationNoiseMultiplier: 1,
@@ -1242,7 +1226,6 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
   // D-2 (quick task 260906-7fj, GAINCAP-PARAM): exactly 1 — no ceiling at
   // all, today's behaviour, until the re-tune says otherwise. Provably inert
   // since the gain can never exceed 1.
-  maxTeamKalmanGain: 1,
 };
 
 /**
@@ -1283,8 +1266,6 @@ export const DEFAULT_SIGMA1_PARAMS: Sigma1Params = {
  *     `rpProcessNoiseWithinEvent`) — a separate predicate because they are
  *     now separate parameters, and the argument for the ordering is
  *     unchanged.
- *   - T-03-06: `adaptationMinFactor` must be strictly less than
- *     `adaptationMaxFactor`, or the stability clamp is degenerate/inverted.
  *   - D-04/D-T2: `carryMeanReversion` and `carryPriorYearShare` are each only
  *     meaningful in the closed interval [0, 1]. The retired
  *     `carryLastYearWeight`/`carryPriorYearWeight` pair had one range check
@@ -1313,12 +1294,6 @@ export const Sigma1ParamsSchema = z
     rpColdStartVariance: z.number().finite(),
     rpMonteCarloSeed: z.number().finite(),
     rpMonteCarloDraws: z.number().finite(),
-    adaptationEnabled: z.boolean(),
-    adaptationEwmaAlpha: z.number().finite(),
-    adaptationExponent: z.number().finite(),
-    adaptationMinFactor: z.number().finite(),
-    adaptationMaxFactor: z.number().finite(),
-    adaptationMinObservations: z.number().finite(),
     // D-4/D-2 (quick task 260904-v9n, ELIM-R/ELIM-WIRE): `.default(1)` is
     // what lets every already-committed `vpr@8.0.0+*.json` file — none of
     // which carries this key — still parse and resolve to the inert value.
@@ -1372,7 +1347,6 @@ export const Sigma1ParamsSchema = z
     // learn at all). `.max(1)` is not decoration: the gain is a SHARE of
     // pooled variance and cannot exceed 1, so a ceiling above 1 would be a
     // no-op dressed as a setting — the value would silently never bind.
-    maxTeamKalmanGain: z.number().finite().positive().max(1).default(1),
   })
   .check((ctx) => {
     const value = ctx.value;
@@ -1391,14 +1365,6 @@ export const Sigma1ParamsSchema = z
         message:
           "D-07/F3: rpProcessNoiseEventBoundary must strictly exceed rpProcessNoiseWithinEvent (the same argument as the score side's pair, applied to the RP threshold variables' own absolute noise)",
         path: ["rpProcessNoiseEventBoundary", "rpProcessNoiseWithinEvent"],
-        input: value,
-      });
-    }
-    if (!(value.adaptationMinFactor < value.adaptationMaxFactor)) {
-      ctx.issues.push({
-        code: "custom",
-        message: "T-03-06: adaptationMinFactor must be strictly less than adaptationMaxFactor (a degenerate or inverted clamp is never valid)",
-        path: ["adaptationMinFactor", "adaptationMaxFactor"],
         input: value,
       });
     }

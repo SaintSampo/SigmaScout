@@ -91,25 +91,9 @@ describe("selectedOnSeasonsFor", () => {
    * `resolveOnSearchWinner`'s sharing guarantees, never a gitignored file's
    * presence.
    */
-  it("vpr-adapt's selected-on set is non-empty IF AND ONLY IF applyPromotedOverrides actually resolves the search winner, not the untuned base", () => {
-    const base = ALGORITHMS["vpr-adapt"];
-    expect(base).toBeDefined();
-    const [resolved] = applyPromotedOverrides([base!]);
-
-    // The search-winner branch always builds with paramSetName
-    // "tune-joint-on-winner" (`cli.ts`'s `applyPromotedOverrides`); the
-    // untuned fallback keeps the base module's own "defaults-adapt" version
-    // untouched. This is the one observable that distinguishes "the search
-    // winner actually runs" from "vpr-adapt degraded to defaults."
-    const isSearchWinnerRunning = resolved?.version === `${SIGMA1_CODE_VERSION}+tune-joint-on-winner`;
-
-    // `season` is arbitrary and ignored by `vprAdaptSelectedOnSeasons` — a
-    // search artifact is one set, selected on one window, not a per-season
-    // governance to resolve.
-    const selectedOnFn = selectedOnSeasonsFor(["vpr-adapt"])["vpr-adapt"];
-    const selectedOn = selectedOnFn ? selectedOnFn(2022) : undefined;
-    expect((selectedOn?.length ?? 0) > 0).toBe(isSearchWinnerRunning);
-  });
+  // The `vpr-adapt` selected-on case was deleted at 11.0.0 (quick task
+  // 260907-v1s): the module is deregistered along with the adaptation
+  // mechanism, so there is no search-winner arm left for it to resolve.
 });
 
 describe("vprSelectedOnSeasonsFromPath — per-season provenance (D-1/D-2, quick task 260904-100)", () => {

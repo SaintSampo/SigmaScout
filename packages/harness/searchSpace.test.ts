@@ -75,7 +75,7 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     }
   });
 
-  it("leaves exactly 15 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
+  it("leaves exactly 11 searchable keys, in SIGMA1_PARAM_KEYS's own sorted order", () => {
     // 29 Sigma1Params fields - 14 exclusions = 15. Pinned as literals so a
     // silent addition or deletion has to be acknowledged here.
     //
@@ -163,9 +163,9 @@ describe("SEARCH_EXCLUSIONS (D-T3)", () => {
     // learning) and is REDUCED by `maxTeamKalmanGain` (it removes learning),
     // which is why the measured sweep found them composing (+0.52 SE and
     // +0.83 SE alone, +1.14 SE together) rather than saturating.
-    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(19);
-    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(14);
-    expect(SIGMA1_PARAM_KEYS).toHaveLength(33);
+    expect(SEARCHABLE_PARAM_KEYS).toHaveLength(11);
+    expect(Object.keys(SEARCH_EXCLUSIONS)).toHaveLength(15);
+    expect(SIGMA1_PARAM_KEYS).toHaveLength(26);
     expect([...SEARCHABLE_PARAM_KEYS].sort()).toEqual([...SEARCHABLE_PARAM_KEYS]);
   });
 
@@ -237,12 +237,12 @@ describe("screenGridFor", () => {
   });
 
   it("throws for valueCount < 3", () => {
-    expect(() => screenGridFor("linkC", 2)).toThrow(/valueCount must be an integer >= 3/);
-    expect(() => screenGridFor("linkC", 0)).toThrow(/valueCount must be an integer >= 3/);
+    expect(() => screenGridFor("consistencyEwmaAlpha", 2)).toThrow(/valueCount must be an integer >= 3/);
+    expect(() => screenGridFor("consistencyEwmaAlpha", 0)).toThrow(/valueCount must be an integer >= 3/);
   });
 
   it("throws for a non-integer valueCount", () => {
-    expect(() => screenGridFor("linkC", 3.5)).toThrow(/valueCount must be an integer/);
+    expect(() => screenGridFor("consistencyEwmaAlpha", 3.5)).toThrow(/valueCount must be an integer/);
   });
 
   it("produces the exact expected geometric (log-scale) grid for processNoiseWithinEventRel", () => {
@@ -296,13 +296,6 @@ describe("isValidParamSet", () => {
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.4, rpProcessNoiseWithinEvent: 0.5 })).toBe(false);
   });
 
-  it("rejects adaptationMinFactor >= adaptationMaxFactor", () => {
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 4, adaptationMaxFactor: 4 };
-    expect(isValidParamSet(params)).toBe(false);
-    const params2: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 5, adaptationMaxFactor: 4 };
-    expect(isValidParamSet(params2)).toBe(false);
-  });
-
   it("rejects carry reversion or share outside [0, 1]", () => {
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: -0.1 })).toBe(false);
     expect(isValidParamSet({ ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 })).toBe(false);
@@ -325,14 +318,11 @@ describe("isValidParamSet", () => {
       { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 4e-4, processNoiseWithinEventRel: 5e-4 },
       { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.5, rpProcessNoiseWithinEvent: 0.5 },
       { ...DEFAULT_SIGMA1_PARAMS, rpProcessNoiseEventBoundary: 0.4, rpProcessNoiseWithinEvent: 0.5 },
-      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 4, adaptationMaxFactor: 4 },
-      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 5, adaptationMaxFactor: 4 },
       { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: -0.1 },
       { ...DEFAULT_SIGMA1_PARAMS, carryMeanReversion: 1.1 },
       { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: -0.1 },
       { ...DEFAULT_SIGMA1_PARAMS, carryPriorYearShare: 1.5 },
       { ...DEFAULT_SIGMA1_PARAMS, processNoiseEventBoundaryRel: 2e-2 },
-      { ...DEFAULT_SIGMA1_PARAMS, adaptationMinFactor: 0.1, adaptationMaxFactor: 8 },
     ];
 
     it.each(CANDIDATES.map((params, i) => [i, params] as const))(

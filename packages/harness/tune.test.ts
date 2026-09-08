@@ -805,16 +805,16 @@ const SOME_SURVIVORS = SEARCHABLE_PARAM_KEYS.slice(0, 4);
 
 describe("planJointCandidates", () => {
   it("zero survivors -> mode 'empty', skipped 'no survivors', one default-only candidate", () => {
-    const plan = planJointCandidates([], 60, 42, false);
+    const plan = planJointCandidates([], 60, 42);
     expect(plan.mode).toBe("empty");
     expect(plan.skipped).toBe("no survivors");
     expect(plan.candidates).toHaveLength(1);
-    expect(plan.candidates[0]!.params).toEqual({ ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: false, rpMonteCarloDraws: 0 });
+    expect(plan.candidates[0]!.params).toEqual({ ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 });
   });
 
   it("one survivor -> mode 'singleton', a one-dimensional sweep (not a random search), always including the default", () => {
     const key = SEARCHABLE_PARAM_KEYS[0]!;
-    const plan = planJointCandidates([key], 60, 42, false);
+    const plan = planJointCandidates([key], 60, 42);
     expect(plan.mode).toBe("singleton");
     expect(plan.skipped).toBeNull();
     expect(plan.candidates.length).toBeGreaterThanOrEqual(3);
@@ -823,44 +823,38 @@ describe("planJointCandidates", () => {
   });
 
   it("2+ survivors -> mode 'random': candidate 0 is always the exact default parameter set", () => {
-    const plan = planJointCandidates(SOME_SURVIVORS, 20, 42, false);
+    const plan = planJointCandidates(SOME_SURVIVORS, 20, 42);
     expect(plan.mode).toBe("random");
     expect(plan.candidates).toHaveLength(20);
-    expect(plan.candidates[0]!.params).toEqual({ ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: false, rpMonteCarloDraws: 0 });
+    expect(plan.candidates[0]!.params).toEqual({ ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 });
   });
 
   it("every generated candidate satisfies isValidParamSet", () => {
-    const plan = planJointCandidates(SOME_SURVIVORS, 30, 7, false);
+    const plan = planJointCandidates(SOME_SURVIVORS, 30, 7);
     for (const candidate of plan.candidates) {
       expect(isValidParamSet(candidate.params)).toBe(true);
     }
   });
 
   it("candidate generation is reproducible: the same seed produces byte-identical parameter sets across two independent calls", () => {
-    const planA = planJointCandidates(SOME_SURVIVORS, 25, 12345, false);
-    const planB = planJointCandidates(SOME_SURVIVORS, 25, 12345, false);
+    const planA = planJointCandidates(SOME_SURVIVORS, 25, 12345);
+    const planB = planJointCandidates(SOME_SURVIVORS, 25, 12345);
     expect(planB.candidates).toEqual(planA.candidates);
   });
 
   it("a different seed produces a different candidate sequence (proves the seed is actually load-bearing, not ignored)", () => {
-    const planA = planJointCandidates(SOME_SURVIVORS, 25, 1, false);
-    const planB = planJointCandidates(SOME_SURVIVORS, 25, 2, false);
+    const planA = planJointCandidates(SOME_SURVIVORS, 25, 1);
+    const planB = planJointCandidates(SOME_SURVIVORS, 25, 2);
     expect(planB.candidates).not.toEqual(planA.candidates);
   });
 
-  it("adaptationEnabled is forced identically onto every candidate, survivor or not", () => {
-    const planOn = planJointCandidates(SOME_SURVIVORS, 10, 42, true);
-    for (const candidate of planOn.candidates) {
-      expect(candidate.params.adaptationEnabled).toBe(true);
-    }
-    const planOff = planJointCandidates(SOME_SURVIVORS, 10, 42, false);
-    for (const candidate of planOff.candidates) {
-      expect(candidate.params.adaptationEnabled).toBe(false);
-    }
-  });
-
+  // "adaptationEnabled is forced identically onto every candidate" was
+  // deleted at 11.0.0 (quick task 260907-v1s). It asserted the two-arm
+  // best-vs-best design's core invariant; the adaptation mechanism is gone,
+  // `planJointCandidates` no longer takes an arm, and `--adaptation on` is
+  // now refused outright by `runJointStage` rather than silently accepted.
   it("every candidate fixes rpMonteCarloDraws to 0 regardless of adaptation mode", () => {
-    const plan = planJointCandidates(SOME_SURVIVORS, 10, 42, true);
+    const plan = planJointCandidates(SOME_SURVIVORS, 10, 42);
     for (const candidate of plan.candidates) {
       expect(candidate.params.rpMonteCarloDraws).toBe(0);
     }
@@ -876,7 +870,7 @@ describe("planJointCandidates singleton mode (D-11 / 03-REVIEW WR-01)", () => {
   it.each(SEARCHABLE_PARAM_KEYS.map((key) => [key] as const))(
     "%s: every generated candidate satisfies the cross-parameter invariants",
     (key) => {
-      const plan = planJointCandidates([key], 9, 42, false);
+      const plan = planJointCandidates([key], 9, 42);
       expect(plan.mode).toBe("singleton");
       expect(plan.candidates.length).toBeGreaterThan(0);
       for (const candidate of plan.candidates) {
@@ -901,14 +895,21 @@ describe("planJointCandidates singleton mode (D-11 / 03-REVIEW WR-01)", () => {
       return {
         ...actual,
         screenGridFor: (key: string, valueCount: number) => {
-          if (key === "adaptationMaxFactor") return [0.1, 1, 4, 16];
+          // 11.0.0 (quick task 260907-v1s): was `adaptationMaxFactor` with a
+          // grid point below `adaptationMinFactor`. That clamp invariant was
+          // deleted with the adaptation family, so this now leans on the
+          // SURVIVING cross-parameter invariant — `processNoiseEventBoundaryRel`
+          // must strictly exceed `processNoiseWithinEventRel` (default
+          // 0.000486…), which the first grid point violates. Same shape: four
+          // points, exactly one invalid.
+          if (key === "processNoiseEventBoundaryRel") return [0.0001, 0.001, 0.01, 0.06];
           return actual.screenGridFor(key as any, valueCount);
         },
       };
     });
     try {
       const { planJointCandidates: mockedPlanJointCandidates } = await import("./tune.js");
-      const plan = mockedPlanJointCandidates(["adaptationMaxFactor"], 9, 42, false);
+      const plan = mockedPlanJointCandidates(["processNoiseEventBoundaryRel"], 9, 42);
       expect(plan.mode).toBe("singleton");
       expect(plan.rejectedCandidates).toBeGreaterThan(0);
       expect(plan.candidates.length).toBe(3);
@@ -929,19 +930,19 @@ function screenRow(value: number, brierScore: number, winnerAccuracy: number | n
 describe("selectBestScreenRow (D-10 / 03-REVIEW WR-02)", () => {
   it("returns the row with the lowest Brier score", () => {
     const rows = [screenRow(1, 0.2), screenRow(2, 0.1), screenRow(3, 0.15)];
-    expect(selectBestScreenRow("linkC", rows)).toEqual(screenRow(2, 0.1));
+    expect(selectBestScreenRow("consistencyEwmaAlpha", rows)).toEqual(screenRow(2, 0.1));
   });
 
   it("on a tie, returns the first such row (matches the existing strictly-less-than comparison's behavior)", () => {
     const rows = [screenRow(1, 0.1), screenRow(2, 0.1), screenRow(3, 0.2)];
-    expect(selectBestScreenRow("linkC", rows)).toEqual(screenRow(1, 0.1));
+    expect(selectBestScreenRow("consistencyEwmaAlpha", rows)).toEqual(screenRow(1, 0.1));
   });
 
   it("throws — rather than returning undefined — on an empty row list, naming the parameter key", () => {
-    expect(() => selectBestScreenRow("linkC", [])).toThrow(/linkC/);
+    expect(() => selectBestScreenRow("consistencyEwmaAlpha", [])).toThrow(/consistencyEwmaAlpha/);
     // The message must also point the reader at the search space, per
     // WR-02's own prescribed fix.
-    expect(() => selectBestScreenRow("linkC", [])).toThrow(/SIGMA1_SEARCH_SPACE/);
+    expect(() => selectBestScreenRow("consistencyEwmaAlpha", [])).toThrow(/SIGMA1_SEARCH_SPACE/);
   });
 });
 

@@ -65,7 +65,6 @@ import {
 } from "../types.js";
 import { type EpaCarryoverPriorRatings } from "../carryover.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "./kalman.js";
-import { adaptationFactor, emptyInnovationStats, foldInnovation, type InnovationStats } from "./adaptation.js";
 import {
   elimNoiseFactor,
   elimScoreOffsetFor,
@@ -208,8 +207,6 @@ export interface Sigma1TeamState extends RpTeamState {
   readonly matchCount: number;
   /** D-07: the `eventKey` of the last match this team was observed in, for cross-event process-noise detection. `null` for a team never yet observed. */
   readonly lastEventKey: string | null;
-  /** D-05/D-07 (plan 03-04, `./adaptation.js`): this team's own recency-weighted innovation history, scaling `applyTeamProcessNoise`'s `q` via `adaptationFactor`. ONE scalar-producing statistic per team (D-07's granularity), never one per component. */
-  readonly innovationStats: InnovationStats;
   /**
    * D-Y1/D-Y3 (quick task 260903-750): this team's recency-weighted swing
    * accumulator (`./swing.js`), keyed by PUBLISHED METRIC KEY — every learned
@@ -427,10 +424,6 @@ function coldStartTeamState(
     consistency,
     matchCount: 0,
     lastEventKey: null,
-    // D-05/D-07 (plan 03-04): a brand-new team's adaptation history starts
-    // at the cold-start "assume correctly specified" prior — see
-    // `emptyInnovationStats`'s own doc comment for why that is 1.0, not 0.
-    innovationStats: emptyInnovationStats(),
     // D-Y2 (quick task 260903-750): a brand-new team has NO swing observation
     // yet, and that is the ONE state in which `teamMetrics` publishes no `±`.
     // Empty is not a zero-valued accumulator: "never observed" and "observed a
@@ -455,16 +448,12 @@ function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, par
     teamState.lastEventKey === null || teamState.lastEventKey === eventKey
       ? params.processNoiseWithinEvent
       : params.processNoiseEventBoundary;
-  // D-05 (plan 03-04): BOTH the within-event and event-boundary magnitudes
-  // are scaled by this team's own adaptationFactor — a factor that applied
-  // to only one of the two would make adaptation's effect depend on the
-  // event calendar, not on the team's actual innovation history.
-  // `adaptationFactor` returns exactly 1 when adaptation is off
-  // (`params.adaptationEnabled === false`), so `scaledQ === q` bitwise on
-  // the disabled path — this is what keeps adaptation-off byte-identical
-  // to the pre-adaptation module (`params.test.ts`'s identity test proves
-  // this end to end, plan 03-04 Task 2).
-  const scaledQ = q * adaptationFactor(teamState.innovationStats, params);
+  // 11.0.0 (quick task 260907-v1s): `q` is applied directly. It was
+  // previously scaled by a per-team `adaptationFactor`; that mechanism was
+  // deleted after measuring it move 2026 accuracy by at most 0.0013 across
+  // its entire bound WHILE ENABLED, and cost <=1.0 sigma to remove on every
+  // origin that shipped it on. The factor returned a literal `1` whenever
+  // adaptation was off, so this is bitwise identical for every promoted set.
   const beliefs: Record<string, TeamComponentBelief> = {};
   for (const [name, belief] of Object.entries(teamState.beliefs)) {
     // D-5 Sigma1 seam 4 (quick task 260904-6a1): `adjust`'s mean never
@@ -472,7 +461,7 @@ function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, par
     // inflate `allianceComponentVarianceSum` — and through that,
     // `predict()`'s reported variance and the published `±` — for a
     // quantity that carries no uncertainty at all.
-    beliefs[name] = name === ADJUST_COMPONENT ? belief : applyProcessNoise(belief, scaledQ);
+    beliefs[name] = name === ADJUST_COMPONENT ? belief : applyProcessNoise(belief, q);
   }
   return { ...teamState, beliefs };
 }
@@ -490,13 +479,12 @@ function applyTeamProcessNoise(teamState: Sigma1TeamState, eventKey: string, par
 function componentGains(
   teammates: readonly TeamComponentBelief[],
   measurementNoise: number,
-  attributionShrinkage: number = 0,
-  maxTeamKalmanGain: number = 1
+  attributionShrinkage: number = 0
 ): number[] {
   const pooled = teammates.reduce((sum, t) => sum + t.variance, 0) + measurementNoise;
   if (pooled === 0) return teammates.map(() => 0);
-  // Must mirror `updateAllianceSum`'s gain EXACTLY, including the
-  // shrink-then-clip order: this function's output attributes the per-team
+  // Must mirror `updateAllianceSum`'s gain EXACTLY: this function's output
+  // attributes the per-team
   // residual that `covariance.ts` and the consistency estimator fold, so a
   // gain here that disagreed with the one the filter actually applied would
   // silently corrupt both.
@@ -508,7 +496,7 @@ function componentGains(
       attributionShrinkage === 0
         ? shareGain
         : (1 - attributionShrinkage) * shareGain + attributionShrinkage * uniformGain;
-    return Math.min(blended, maxTeamKalmanGain);
+    return blended;
   });
 }
 
@@ -702,16 +690,9 @@ function applyAllianceUpdate(
 
   const nextBeliefsByTeam = new Map<string, Record<string, TeamComponentBelief>>();
   const residualsByTeam = new Map<string, number[]>();
-  // D-05/D-07 (plan 03-04): one per-component normalized-innovation array
-  // per team, folded down to a single RMS-aggregate scalar per team AFTER
-  // this alliance-component loop completes (see the `nextTeams` build
-  // below) — never a second loop over the alliance, per the plan's own
-  // "no second loop" instruction.
-  const normalizedInnovationsByTeam = new Map<string, number[]>();
   for (const team of allianceTeams) {
     nextBeliefsByTeam.set(team, { ...workingTeams.get(team)!.beliefs });
     residualsByTeam.set(team, new Array(componentOrder.length).fill(0));
-    normalizedInnovationsByTeam.set(team, new Array(componentOrder.length).fill(0));
   }
 
   let nextComponentMean = { ...league.componentMean };
@@ -777,15 +758,9 @@ function applyAllianceUpdate(
       teammateBeliefs,
       observedSum,
       measurementNoise,
-      params.attributionShrinkage,
-      params.maxTeamKalmanGain
+      params.attributionShrinkage
     );
-    const gains = componentGains(
-      teammateBeliefs,
-      measurementNoise,
-      params.attributionShrinkage,
-      params.maxTeamKalmanGain
-    );
+    const gains = componentGains(teammateBeliefs, measurementNoise, params.attributionShrinkage);
     const predictedSum = teammateBeliefs.reduce((sum, t) => sum + t.mean, 0);
     const innovation = observedSum - predictedSum;
     const observedShare = observedSum / allianceTeams.length;
@@ -817,35 +792,16 @@ function applyAllianceUpdate(
     // diagonal rather than recomputing it from `d`.
     innovationScaledByComponent[componentIndex] = innovation / Math.sqrt(allianceTeams.length);
 
-    // D-05/D-07 (plan 03-04, T-03-12): this alliance-component's normalized
-    // innovation — `innovation / sqrt(pooledVariance)`, the classical
-    // adaptive-Kalman quantity with unit variance under a correctly
-    // specified filter. `pooledVariance` here is the exact quantity
-    // `updateAllianceSum` (kalman.ts) already computed internally from
-    // these same `teammateBeliefs`/`measurementNoise` — an ALLIANCE-level
-    // quantity, shared across every teammate on this component, so every
-    // teammate is credited the SAME per-component value: there is no way
-    // to recover a team-differentiated innovation from a shared
-    // alliance-sum observation, the identical limitation
-    // `componentGains`/`residualsByTeam` already documents for the
-    // score-side residual attribution above. The degenerate
-    // `pooledVariance === 0` case (kalman.ts's own zero-gain branch: no
-    // uncertainty anywhere for an observation to correct) reports exactly
-    // `0` here rather than a `0/0` division — never NaN/Infinity reaching
-    // `foldInnovation`, which refuses non-finite input by throwing.
-    // D-6 (quick task 260904-v9n): the normalized innovation DOES see
-    // `elimNoiseFactor` here, via `measurementNoise`, and that is correct —
-    // `pooledVariance` is the filter's own consistency check against its OWN
-    // uncertainty claim, so a filter claiming more noise should expect
-    // proportionally smaller normalized innovations. Inert at the default
-    // `elimObservationNoiseMultiplier = 1`.
-    const pooledVariance = sumP + measurementNoise;
-    const normalizedInnovation = pooledVariance > 0 ? innovation / Math.sqrt(pooledVariance) : 0;
+    // 11.0.0 (quick task 260907-v1s): the per-component NORMALIZED innovation
+    // (`innovation / sqrt(pooledVariance)`) was computed here and folded into
+    // each team's `innovationStats` for the adaptive-Kalman process-noise
+    // scaler. That mechanism is deleted, and it was this quantity's ONLY
+    // consumer, so the computation goes with it. `sumP` below is still needed
+    // for the covariance/consistency folds.
 
     allianceTeams.forEach((team, i) => {
       nextBeliefsByTeam.get(team)![name] = updated[i]!;
       residualsByTeam.get(team)![componentIndex] = gains[i]! * innovation;
-      normalizedInnovationsByTeam.get(team)![componentIndex] = normalizedInnovation;
     });
 
     let meanStats = nextComponentMean[name] ?? emptyExpandingStats();
@@ -974,19 +930,6 @@ function applyAllianceUpdate(
         params.consistencyEwmaAlpha
       );
     });
-    // D-05/D-07 (plan 03-04): this match's AGGREGATE normalized innovation
-    // for this team — the root-mean-square of its per-component normalized
-    // innovations, iterating `state.componentOrder` (the fixed array
-    // parameter to this function, never a freshly enumerated key list) —
-    // folded once into `innovationStats` (D-07's "one scalar per team"
-    // granularity, never per-component).
-    const normalizedInnovationVector = normalizedInnovationsByTeam.get(team)!;
-    const meanSquaredNormalizedInnovation =
-      normalizedInnovationVector.length > 0
-        ? normalizedInnovationVector.reduce((sum, v) => sum + v * v, 0) / normalizedInnovationVector.length
-        : 0;
-    const aggregateNormalizedInnovation = Math.sqrt(meanSquaredNormalizedInnovation);
-
     nextTeams.set(team, {
       // `...working` first so this alliance-update pass never touches RP
       // fields (`rpBeliefs`/`rpCovariance`/`rpCrossCovariance`, D-09) —
@@ -998,7 +941,6 @@ function applyAllianceUpdate(
       consistency: nextConsistency,
       matchCount: working.matchCount + 1,
       lastEventKey: eventKey,
-      innovationStats: foldInnovation(working.innovationStats, aggregateNormalizedInnovation, params.adaptationEwmaAlpha),
       // D-Y1/D-Y3: the published `±`'s only input, folded in the loop that is
       // already running rather than in a second pass over the alliance.
       swing: foldSwingObservation(working.swing, squaredDeviationByKey, params.swingHalfLifeMatches),
@@ -1647,10 +1589,11 @@ function update(state: Sigma1State, result: MatchResult, params: Sigma1Params): 
  *
  * D-01's ACCEPTED COST STAYS UNDONE. D-01 recorded, as a real consequence, that
  * "an adaptation on/off comparison can no longer attribute the published `±`
- * independently of the tuning parameter" — because `applyTeamProcessNoise`'s
- * `scaledQ = q * adaptationFactor(...)` moves P and P was published. The
- * published number contains no P, so an adaptation comparison can attribute the
- * `±` independently again.
+ * independently of the tuning parameter" — because `applyTeamProcessNoise`
+ * scaled `q` by a per-team adaptation factor, which moved P, and P was
+ * published. The published number contains no P, so that attribution was
+ * already independent again; as of 11.0.0 the adaptation mechanism is deleted
+ * outright, so the cost is doubly undone.
  *
  * THE ALLIANCE-ADDITIVITY IDENTITY IS STILL GONE, AND IT IS STILL A REAL COST.
  * Under D-01 the three teammates' TOTAL spreads summed in quadrature to exactly
@@ -1975,7 +1918,6 @@ function carrySeason(state: Sigma1State, boundary: SeasonBoundary, params: Sigma
       // `carrySeason`'s posterior-variance re-inflation already applies one
       // level up. Every team resets to the cold-start "assume correctly
       // specified" prior, never carries a converged factor forward.
-      innovationStats: emptyInnovationStats(),
       ...emptyRpTeamState(toRpVariableCount, toComponentOrder.length),
     });
   }
@@ -2089,21 +2031,3 @@ export const vprNormalCdf = makeSigma1({ id: "vpr-normalcdf", linkMode: "normal-
  * tuning actually bought.
  */
 export const vprDefaults = makeSigma1({ id: "vpr-defaults", linkMode: "predictive-variance", paramSetName: "defaults" });
-/**
- * D-05/D-06/D-08 (plan 03-04 Task 2): the adaptation-ON counterpart to
- * `vpr`/`vprDefaults`, registered under the `vpr-adapt` harness id
- * so `pnpm harness --algorithm vpr,vpr-adapt` scores both variants in
- * ONE pass over one shared match stream — the same objects, the same order,
- * so any difference between the two is the adaptation and nothing else.
- * `paramSetName: "defaults-adapt"` keeps its version identity distinct from
- * the off variant's `"defaults"` (D-13). The default `vpr` module itself
- * is UNCHANGED — `adaptationEnabled: false` — D-08: the code stays in the
- * tree behind its flag, and the default promoted version has adaptation off
- * until a measurement (plan 03-05's best-vs-best search) says otherwise.
- */
-export const vprAdaptive = makeSigma1({
-  id: "vpr-adapt",
-  linkMode: "predictive-variance",
-  paramSetName: "defaults-adapt",
-  params: { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true },
-});

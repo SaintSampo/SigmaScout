@@ -26,7 +26,6 @@ import { distributeResidual, FALLBACK_NOISE_MULTIPLIER } from "../breakdown/fall
 import { ADJUST_COMPONENT, COMPONENT_GROUP_METRIC_KEYS, FOULS_COMMITTED_COMPONENT, componentGroupsForSeason } from "../breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../types.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
-import { emptyInnovationStats } from "./adaptation.js";
 import { emptyElimScoreOffset } from "./elim.js";
 import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
@@ -601,7 +600,6 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
         consistency: { autoLeave: 2 },
         matchCount,
         lastEventKey: null,
-        innovationStats: emptyInnovationStats(),
         rpBeliefs: {},
         rpCovariance: [],
         rpCrossCovariance: [],
@@ -1296,7 +1294,6 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
-            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],
@@ -1319,7 +1316,6 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
             consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
-            innovationStats: emptyInnovationStats(),
             rpBeliefs: {},
             rpCovariance: [],
             rpCrossCovariance: [],

@@ -18,7 +18,6 @@ import {
   Sigma1ParamsSchema,
   type Sigma1Params,
 } from "./params.js";
-import { emptyInnovationStats } from "./adaptation.js";
 import { emptyElimScoreOffset } from "./elim.js";
 import { SIGMA1_PROCESS_NOISE_EVENT_BOUNDARY, SIGMA1_PROCESS_NOISE_WITHIN_EVENT } from "./kalman.js";
 import { SIGMA1_CONSISTENCY_EWMA_ALPHA, SIGMA1_MIN_CONSISTENCY_VARIANCE } from "./consistency.js";
@@ -380,16 +379,6 @@ describe("Sigma1ParamsSchema", () => {
       expect(messages.some((m) => m.includes("processNoiseEventBoundary") && m.includes("processNoiseWithinEvent"))).toBe(true);
     });
 
-    it("rejects adaptationMinFactor >= adaptationMaxFactor, naming both fields", () => {
-      const result = Sigma1ParamsSchema.safeParse({
-        ...DEFAULT_SIGMA1_PARAMS,
-        adaptationMinFactor: 4,
-        adaptationMaxFactor: 4,
-      });
-      expect(result.success).toBe(false);
-      const messages = result.success ? [] : result.error.issues.map((i) => i.message);
-      expect(messages.some((m) => m.includes("adaptationMinFactor") && m.includes("adaptationMaxFactor"))).toBe(true);
-    });
 
     it.each([
       ["carryMeanReversion", -0.1] as const,
@@ -506,15 +495,20 @@ describe("fields observable only through teamMetrics (D-27's display contract)",
 
 /**
  * A longer same-alliance sequence (T1/T2/T3 vs T4/T5/T6, one event) with a
- * deliberately SWINGING per-component value — large, small, large again —
- * so each team crosses `adaptationMinObservations` (3) with a genuinely
- * non-unit mean squared normalized innovation, giving `adaptationFactor`
- * room to diverge from exactly 1 once adaptation is enabled. Six matches:
- * long enough for that divergence to feed back into a LATER match's Kalman
- * gain (not just a single process-noise bump `predict()` alone would show —
- * `applyProcessNoise` only ever changes `belief.variance`, never
- * `belief.mean` directly; the mean only diverges once a later
- * `updateAllianceSum` reads that different variance as part of its own gain).
+ * deliberately SWINGING per-component value — large, small, large again.
+ * Six matches: long enough for a perturbation to feed back into a LATER
+ * match's Kalman gain (not just a single process-noise bump `predict()`
+ * alone would show — `applyProcessNoise` only ever changes
+ * `belief.variance`, never `belief.mean` directly; the mean only diverges
+ * once a later `updateAllianceSum` reads that different variance as part of
+ * its own gain).
+ *
+ * Originally shaped so each team crossed `adaptationMinObservations` with a
+ * non-unit mean squared normalized innovation. That mechanism was deleted at
+ * 11.0.0 (quick task 260907-v1s); the fixture stays UNCHANGED because five
+ * other inertness groups (elim-R, elim-offset, carryVarianceFactor,
+ * carryEvidenceRate) now depend on its exact byte output, and moving it would
+ * silently invalidate all of them.
  */
 function swingingSequence(): MatchResult[] {
   const values = [10, 10, 80, 5, 80, 5];
@@ -542,43 +536,6 @@ function swingingObservables(params: Sigma1Params): unknown {
   }
   return predictions;
 }
-
-describe("adaptation-off is bitwise identical to the pre-adaptation module (D-08, plan 03-04 Task 2)", () => {
-  // Every OTHER adaptation field perturbed to an extreme value alongside
-  // `adaptationEnabled: false` — proving `adaptationFactor`'s disabled
-  // branch is checked BEFORE any of these fields is ever read, not merely
-  // that the defaults happen to be inert.
-  const EXTREME_OFF_PARAMS: Sigma1Params = {
-    ...DEFAULT_SIGMA1_PARAMS,
-    adaptationEnabled: false,
-    adaptationEwmaAlpha: 0.999,
-    adaptationExponent: 10,
-    adaptationMinFactor: 0.0001,
-    adaptationMaxFactor: 10000,
-    adaptationMinObservations: 0,
-  };
-
-  it("DEFAULT_SIGMA1_PARAMS and an adaptation-off params object with every other adaptation field perturbed produce byte-identical prediction streams", () => {
-    const defaultRun = swingingObservables(DEFAULT_SIGMA1_PARAMS);
-    const offRun = swingingObservables(EXTREME_OFF_PARAMS);
-    expect(JSON.stringify(offRun)).toBe(JSON.stringify(defaultRun));
-  });
-
-  it("adaptationEnabled: true produces a stream that DIFFERS from the off stream for at least one match — the mechanism is wired, not decorative", () => {
-    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true };
-    const onRun = swingingObservables(onParams);
-    const offRun = swingingObservables(DEFAULT_SIGMA1_PARAMS);
-    expect(JSON.stringify(onRun)).not.toBe(JSON.stringify(offRun));
-  });
-
-  it("both the on and off streams are individually reproducible — running each twice gives byte-identical output", () => {
-    const onParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled: true };
-    expect(JSON.stringify(swingingObservables(onParams))).toBe(JSON.stringify(swingingObservables(onParams)));
-    expect(JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))).toBe(
-      JSON.stringify(swingingObservables(DEFAULT_SIGMA1_PARAMS))
-    );
-  });
-});
 
 describe("Sigma1ParamsSchema — elimObservationNoiseMultiplier (D-2, ELIM-WIRE)", () => {
   it("parses an object omitting the field and defaults it to exactly 1 — the executable proof every committed vpr@8.0.0+*.json file still parses unchanged", () => {
@@ -994,7 +951,6 @@ function stateForCarryVarianceProbe(): Sigma1State {
           consistency,
           matchCount: 3,
           lastEventKey: "2024eventa",
-          innovationStats: emptyInnovationStats(),
           rpBeliefs: {},
           rpCovariance: [],
           rpCrossCovariance: [],
@@ -1207,7 +1163,6 @@ function stateForCarryEvidenceProbe(): Sigma1State {
       consistency,
       matchCount,
       lastEventKey: "2024eventa",
-      innovationStats: emptyInnovationStats(),
       rpBeliefs: {},
       rpCovariance: [],
       rpCrossCovariance: [],
@@ -1354,7 +1309,6 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               consistency: { autoLeave: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
-              innovationStats: emptyInnovationStats(),
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],
@@ -1369,7 +1323,6 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
               consistency: { autoLeave: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
-              innovationStats: emptyInnovationStats(),
               rpBeliefs: {},
               rpCovariance: [],
               rpCrossCovariance: [],

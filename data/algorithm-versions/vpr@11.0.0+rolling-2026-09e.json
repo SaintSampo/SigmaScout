@@ -1,9 +1,153 @@
 {
   "id": "vpr",
-  "codeVersion": "10.0.0",
-  "paramSetName": "rolling-2026-09c",
-  "version": "10.0.0+rolling-2026-09c",
+  "codeVersion": "11.0.0",
+  "paramSetName": "rolling-2026-09e",
+  "version": "11.0.0+rolling-2026-09e",
   "paramSetsBySeason": {
+    "2016": {
+      "params": {
+        "processNoiseWithinEventRel": 0.00014123880999220739,
+        "processNoiseEventBoundaryRel": 0.0009725587575408342,
+        "consistencyEwmaAlpha": 0.03444905576109887,
+        "swingHalfLifeMatches": 6,
+        "swingScale": 1.92,
+        "minConsistencyVarianceRel": 0.0009725587575408342,
+        "covEwmaAlpha": 0.2600009894482791,
+        "covShrinkage": 0.3,
+        "linkC": 0.5,
+        "coldStartTeamTotalRel": 0.6237174865404478,
+        "coldStartConsistencyVarianceRel": 0.016294455300514255,
+        "fallbackScoreSd": 25,
+        "consistencyCarryDecay": 0.4142244359478354,
+        "carryMeanReversion": 0.06930459369905292,
+        "carryPriorYearShare": 0.3,
+        "rpProcessNoiseWithinEvent": 0.14522393520915602,
+        "rpProcessNoiseEventBoundary": 1,
+        "rpColdStartVariance": 16.75421168559074,
+        "rpMonteCarloSeed": 42,
+        "rpMonteCarloDraws": 2000,
+        "elimObservationNoiseMultiplier": 1,
+        "elimScoreOffsetEnabled": false,
+        "elimScoreOffsetEwmaAlpha": 0.05,
+        "carryVarianceFactor": 1,
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0
+      },
+      "selectedOnSeasons": [
+        2022,
+        2023,
+        2024
+      ],
+      "sourceKind": "carried-version",
+      "sourceArtifact": "reports/tune-joint-off.json",
+      "sourceArtifactSha256": "d08926da7c0d7362efbb87b856ef1617453653d3614ca4fdfd506d230b0dd991",
+      "objective": 0.17076606538105618,
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "off",
+      "paramOverrides": {
+        "linkC": 0.5,
+        "covShrinkage": 0.3,
+        "varianceOprRidge": 2
+      },
+      "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
+    },
+    "2017": {
+      "params": {
+        "processNoiseWithinEventRel": 0.00014123880999220739,
+        "processNoiseEventBoundaryRel": 0.0009725587575408342,
+        "consistencyEwmaAlpha": 0.03444905576109887,
+        "swingHalfLifeMatches": 6,
+        "swingScale": 1.92,
+        "minConsistencyVarianceRel": 0.0009725587575408342,
+        "covEwmaAlpha": 0.2600009894482791,
+        "covShrinkage": 0.3,
+        "linkC": 0.5,
+        "coldStartTeamTotalRel": 0.6237174865404478,
+        "coldStartConsistencyVarianceRel": 0.016294455300514255,
+        "fallbackScoreSd": 25,
+        "consistencyCarryDecay": 0.4142244359478354,
+        "carryMeanReversion": 0.06930459369905292,
+        "carryPriorYearShare": 0.3,
+        "rpProcessNoiseWithinEvent": 0.14522393520915602,
+        "rpProcessNoiseEventBoundary": 1,
+        "rpColdStartVariance": 16.75421168559074,
+        "rpMonteCarloSeed": 42,
+        "rpMonteCarloDraws": 2000,
+        "elimObservationNoiseMultiplier": 1,
+        "elimScoreOffsetEnabled": false,
+        "elimScoreOffsetEwmaAlpha": 0.05,
+        "carryVarianceFactor": 1,
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0
+      },
+      "selectedOnSeasons": [
+        2022,
+        2023,
+        2024
+      ],
+      "sourceKind": "carried-version",
+      "sourceArtifact": "reports/tune-joint-off.json",
+      "sourceArtifactSha256": "d08926da7c0d7362efbb87b856ef1617453653d3614ca4fdfd506d230b0dd991",
+      "objective": 0.17076606538105618,
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "off",
+      "paramOverrides": {
+        "linkC": 0.5,
+        "covShrinkage": 0.3,
+        "varianceOprRidge": 2
+      },
+      "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
+    },
+    "2018": {
+      "params": {
+        "processNoiseWithinEventRel": 0.00014123880999220739,
+        "processNoiseEventBoundaryRel": 0.0009725587575408342,
+        "consistencyEwmaAlpha": 0.03444905576109887,
+        "swingHalfLifeMatches": 6,
+        "swingScale": 1.92,
+        "minConsistencyVarianceRel": 0.0009725587575408342,
+        "covEwmaAlpha": 0.2600009894482791,
+        "covShrinkage": 0.3,
+        "linkC": 0.5,
+        "coldStartTeamTotalRel": 0.6237174865404478,
+        "coldStartConsistencyVarianceRel": 0.016294455300514255,
+        "fallbackScoreSd": 25,
+        "consistencyCarryDecay": 0.4142244359478354,
+        "carryMeanReversion": 0.06930459369905292,
+        "carryPriorYearShare": 0.3,
+        "rpProcessNoiseWithinEvent": 0.14522393520915602,
+        "rpProcessNoiseEventBoundary": 1,
+        "rpColdStartVariance": 16.75421168559074,
+        "rpMonteCarloSeed": 42,
+        "rpMonteCarloDraws": 2000,
+        "elimObservationNoiseMultiplier": 1,
+        "elimScoreOffsetEnabled": false,
+        "elimScoreOffsetEwmaAlpha": 0.05,
+        "carryVarianceFactor": 1,
+        "carryEvidenceRate": 0,
+        "attributionShrinkage": 0
+      },
+      "selectedOnSeasons": [
+        2022,
+        2023,
+        2024
+      ],
+      "sourceKind": "carried-version",
+      "sourceArtifact": "reports/tune-joint-off.json",
+      "sourceArtifactSha256": "d08926da7c0d7362efbb87b856ef1617453653d3614ca4fdfd506d230b0dd991",
+      "objective": 0.17076606538105618,
+      "objectiveAppliesToPromotedParams": false,
+      "adaptationMode": "off",
+      "paramOverrides": {
+        "linkC": 0.5,
+        "covShrinkage": 0.3,
+        "varianceOprRidge": 2
+      },
+      "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
+    },
     "2019": {
       "params": {
         "processNoiseWithinEventRel": 0.00014123880999220739,
@@ -26,19 +170,12 @@
         "rpColdStartVariance": 16.75421168559074,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": false,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2022,
@@ -57,7 +194,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2020": {
       "params": {
@@ -81,19 +218,12 @@
         "rpColdStartVariance": 16.75421168559074,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": false,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2022,
@@ -112,55 +242,48 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2022": {
       "params": {
-        "processNoiseWithinEventRel": 0.000020955113465842406,
-        "processNoiseEventBoundaryRel": 0.005657570025846487,
+        "processNoiseWithinEventRel": 0.0005199782255614745,
+        "processNoiseEventBoundaryRel": 0.0011820468859125347,
         "consistencyEwmaAlpha": 0.02,
         "swingHalfLifeMatches": 6,
         "swingScale": 1.92,
-        "minConsistencyVarianceRel": 0.006437947807721378,
-        "covEwmaAlpha": 0.3837867335183546,
+        "minConsistencyVarianceRel": 0.03,
+        "covEwmaAlpha": 0.3376408316409215,
         "covShrinkage": 0.3,
-        "linkC": 0.4860596918864535,
+        "linkC": 0.9365693620017962,
         "coldStartTeamTotalRel": 0.6237174865404478,
-        "coldStartConsistencyVarianceRel": 0.5,
+        "coldStartConsistencyVarianceRel": 0.006994833294149669,
         "fallbackScoreSd": 25,
-        "consistencyCarryDecay": 0.4450794941745698,
-        "carryMeanReversion": 0.5260936686303467,
-        "carryPriorYearShare": 0.9089464477729052,
+        "consistencyCarryDecay": 0.11997009292244912,
+        "carryMeanReversion": 0.22933135144412517,
+        "carryPriorYearShare": 0.8446698528714478,
         "rpProcessNoiseWithinEvent": 0.5,
         "rpProcessNoiseEventBoundary": 8,
         "rpColdStartVariance": 25,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": false,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
-        "carryVarianceFactor": 1,
-        "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "carryVarianceFactor": 0.07874067750387675,
+        "carryEvidenceRate": 0.01877822807058692,
+        "attributionShrinkage": 0.8437785745365546
       },
       "selectedOnSeasons": [
         2019,
         2020
       ],
       "sourceKind": "carried-version",
-      "sourceArtifact": "reports/tune-joint-off-origin2022.json",
-      "sourceArtifactSha256": "bd92b5f43526f47d74bc6814762e9cc44afcfef25c7a287c5434e38fb199c645",
-      "objective": 0.19181991400536338,
+      "sourceArtifact": "reports/tune-joint-on-origin2022-260906.json",
+      "sourceArtifactSha256": "f2c0098acf9b2730966f954b8ed6ef818cfd6be5f117ab93279857dd976d749e",
+      "objective": 0.6987058188539176,
       "objectiveAppliesToPromotedParams": false,
-      "adaptationMode": "off",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "adaptationMode": "on",
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2023": {
       "params": {
@@ -184,19 +307,12 @@
         "rpColdStartVariance": 16.75421168559074,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": false,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2022,
@@ -215,7 +331,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2024": {
       "params": {
@@ -239,19 +355,12 @@
         "rpColdStartVariance": 16.75421168559074,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": false,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2022,
@@ -270,7 +379,7 @@
         "varianceOprRidge": 2
       },
       "note": "linkC re-selected post-estimator-change (D-Q2, quick task 260901-is2): coarse grid 0.2/0.3/0.4/0.5/0.7/1.0/1.24/1.5/2/3 selected on TUNE seasons 2022-2024 only, exactly how the promoted set was chosen; holdout quals Brier equal (0.1551), holdout elims Brier better (0.1596 -> 0.1580). Every OTHER parameter in this set was tuned against the RETIRED residual-history R estimator and is stale. A full re-tune under the innovation-based estimator is DEFERRED; the recorded objective describes the search winner, not this set.\n\ncovShrinkage restored to its documented constant 0.3 (D-T3, quick task 260901-trz). It is the PSD safeguard for subsetVariance's group-spread quadratic form, not a modelling knob: the sensitivity screen's optimum for it sat AT THE 0 BOUND, i.e. the search was trading the positive-semi-definiteness guarantee away for roughly 0.0005 Brier, an objective that is structurally blind to the failure the safeguard prevents. It is now named in searchSpace.ts's SEARCH_EXCLUSIONS with that reasoning, so this value is FIXED rather than tuned. Lineage note, since derivedFromVersion below is same-version and therefore records only this step: this parameter set descends from vpr@3.0.0+tuned-2026-08 via the sigma1-3.0.0-absolute-to-4.0.0-scale-relative shape migration (D-T1/D-T2). Every OTHER parameter here was searched under the retired ABSOLUTE parameterization and is stale pending the rolling-origin re-tune (D-T5).\n\nvarianceOprRidge corrected 10 -> 2 (260902-varopr Task 6): 10 was selected on the FULL-SEASON recovery table while the solve is EVENT-scoped, and at event scope implied an effective league weight of 0.502 - HEAVIER than the 0.400 empirical-Bayes blend the user rejected. 2 holds league weight to 0.174 and maximises slope (0.785). Display-only: the prediction stream is unchanged.",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2025": {
       "params": {
@@ -294,19 +403,12 @@
         "rpColdStartVariance": 25,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": true,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 0.8448855225401831,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2022,
@@ -319,7 +421,7 @@
       "objective": 0.7521005106168218,
       "objectiveAppliesToPromotedParams": false,
       "adaptationMode": "on",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     },
     "2026": {
       "params": {
@@ -343,19 +445,12 @@
         "rpColdStartVariance": 25,
         "rpMonteCarloSeed": 42,
         "rpMonteCarloDraws": 2000,
-        "adaptationEnabled": true,
-        "adaptationEwmaAlpha": 0.2,
-        "adaptationExponent": 0.5,
-        "adaptationMinFactor": 0.25,
-        "adaptationMaxFactor": 4,
-        "adaptationMinObservations": 3,
         "elimObservationNoiseMultiplier": 1,
         "elimScoreOffsetEnabled": false,
         "elimScoreOffsetEwmaAlpha": 0.05,
         "carryVarianceFactor": 1,
         "carryEvidenceRate": 0,
-        "attributionShrinkage": 0,
-        "maxTeamKalmanGain": 1
+        "attributionShrinkage": 0
       },
       "selectedOnSeasons": [
         2023,
@@ -368,12 +463,12 @@
       "objective": 0.7477613912012019,
       "objectiveAppliesToPromotedParams": false,
       "adaptationMode": "on",
-      "derivedFromVersion": "9.0.0+rolling-2026-09c"
+      "derivedFromVersion": "11.0.0+rolling-2026-09e"
     }
   },
   "provenance": {
     "corpusIdentity": "data/corpus.sqlite",
-    "promotedAt": "2026-09-06T20:54:36.981Z",
+    "promotedAt": "2026-09-08T04:27:52.642Z",
     "objectiveDefinition": "each season's own paramSetsBySeason entry's `objective` number is that entry's SOURCE search's PRIMARY objective value AT THE TIME that search ran — see objectiveDefinition.ts's SEARCH_OBJECTIVE_DEFINITION for the current (accuracy-primary/Brier-secondary) rule, and that entry's own selectedOnSeasons/sourceArtifact for which seasons and which search produced it"
   },
   "digest": {
@@ -384,12 +479,12 @@
       "2022azva"
     ],
     "sliceMatchCount": 265,
-    "predictionStreamSha256": "cf54fc21ef18d8f7f5c6d13c6bd97aa8189349cedfc81e151ae920d8188f8d87",
+    "predictionStreamSha256": "75c6d898ce58316a76e75309779b23a340ba34a14981ba73c0f6c5d1bb092ec5",
     "headlineMetrics": [
       {
         "season": 2022,
-        "brierScore": 0.1709575817843338,
-        "winnerAccuracy": 0.7126436781609196
+        "brierScore": 0.18090013256101542,
+        "winnerAccuracy": 0.7203065134099617
       }
     ]
   }

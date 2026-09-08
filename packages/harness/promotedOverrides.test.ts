@@ -403,7 +403,7 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
     );
   });
 
-  it("leaves every non-vpr/non-vpr-adapt module referentially identical", () => {
+  it("leaves every non-vpr module referentially identical", () => {
     const opr = ALGORITHMS["opr"] as AlgorithmModule<unknown>;
     const epa = ALGORITHMS["epa"] as AlgorithmModule<unknown>;
     const defaults = ALGORITHMS["vpr-defaults"] as AlgorithmModule<unknown>;
@@ -415,17 +415,12 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
     expect(result[2]).toBe(defaults);
   });
 
-  it("falls back to the passed-in vpr-adapt module when the on-search artifact is absent, preserving pre-override behaviour", () => {
-    // reports/ is gitignored; when it is absent the adapt entry must survive
-    // untouched. When it IS present the override fires and the module is
-    // rebuilt — both are correct, so assert the invariant true either way:
-    // the id is preserved and a module is always returned.
-    const adapt = ALGORITHMS["vpr-adapt"] as AlgorithmModule<unknown>;
-    const [result] = applyPromotedOverrides([adapt]);
-
-    expect(result).toBeDefined();
-    expect(result?.id).toBe("vpr-adapt");
-  });
+  // The `vpr-adapt` cases below were deleted at 11.0.0 (quick task
+  // 260907-v1s). They asserted that `vpr-adapt` and `vpr-defaults` were
+  // genuinely distinct modules producing different streams — a real guarantee
+  // while the adaptation mechanism existed. It does not, the module is
+  // deregistered from ALGORITHMS, and an assertion about a module that cannot
+  // be constructed is not a weaker test but a false one.
 
   // Test 5 (plan 07-16 Task 1, T-07-16-05): adjacency — `vpr` and
   // `vpr-adapt` do not collide. Applied to a registry containing BOTH, each
@@ -433,21 +428,6 @@ describe("applyPromotedOverrides (ALGO-06 / D-13 / D-14)", () => {
   // file, the variant to the search-artifact loader), asserted by reading
   // each returned module's `.id` back rather than trusting call order or a
   // `startsWith`/substring test, which would resolve one into the other.
-  it("routes vpr and vpr-adapt to their own distinct override branches without collision", () => {
-    const baseVpr = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
-    const baseAdapt = makeSigma1({ id: "vpr-adapt", linkMode: "predictive-variance" });
-
-    const [overriddenVpr, overriddenAdapt] = applyPromotedOverrides([baseVpr, baseAdapt]);
-
-    expect(overriddenVpr?.id).toBe("vpr");
-    expect(overriddenAdapt?.id).toBe("vpr-adapt");
-    // The published entry resolves the committed version pin (a real,
-    // different version string); the adaptation entry either falls back to
-    // its passed-in module (reports/ absent in CI) or resolves its own
-    // search-artifact loader — never the published version's identity.
-    expect(overriddenVpr?.version).toBe(PROMOTED_VERSION_IDENTITY);
-    expect(overriddenAdapt?.version).not.toBe(PROMOTED_VERSION_IDENTITY);
-  });
 
   it("is a pure mapping: it returns a new array and never mutates the one it was given", () => {
     const untuned = makeSigma1({ id: "vpr", linkMode: "predictive-variance" });
@@ -471,7 +451,8 @@ describe("ALGORITHMS registry wiring (ALGO-05)", () => {
     "vpr-defaults",
     "vpr-seasonsd",
     "vpr-normalcdf",
-    "vpr-adapt",
+    // `vpr-adapt` was removed from this list at 11.0.0 (quick task
+    // 260907-v1s) along with the adaptation mechanism it existed to score.
   ] as const;
 
   it.each(REQUIRED_IDS)("registers %s", (id) => {
@@ -484,27 +465,6 @@ describe("ALGORITHMS registry wiring (ALGO-05)", () => {
     }
   });
 
-  it("vpr-defaults and vpr-adapt carry EXACTLY distinct version identities (D-13)", () => {
-    // Exact equality, not `toContain`: "defaults-adapt" contains "defaults",
-    // so a substring check would pass even if both ids resolved to the same
-    // adaptation-on module — precisely the regression this test exists for.
-    expect(ALGORITHMS["vpr-defaults"]?.version).toBe(DEFAULTS_VERSION_IDENTITY);
-    expect(ALGORITHMS["vpr-adapt"]?.version).toBe(ADAPT_VERSION_IDENTITY);
-    expect(ALGORITHMS["vpr-defaults"]?.version).not.toBe(ALGORITHMS["vpr-adapt"]?.version);
-  });
 
-  it("the registered vpr-adapt and vpr-defaults modules produce GENUINELY different prediction streams over one shared fixture — the on/off comparison is not scoring the same module twice", () => {
-    const off = ALGORITHMS["vpr-defaults"] as AlgorithmModule<Sigma1State>;
-    const on = ALGORITHMS["vpr-adapt"] as AlgorithmModule<Sigma1State>;
 
-    expect(predictionStream(on)).not.toBe(predictionStream(off));
-  });
-
-  it("both registered modules are individually reproducible — a differing stream above is adaptation, never run-to-run noise", () => {
-    const off = ALGORITHMS["vpr-defaults"] as AlgorithmModule<Sigma1State>;
-    const on = ALGORITHMS["vpr-adapt"] as AlgorithmModule<Sigma1State>;
-
-    expect(predictionStream(off)).toBe(predictionStream(off));
-    expect(predictionStream(on)).toBe(predictionStream(on));
-  });
 });

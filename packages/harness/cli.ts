@@ -46,7 +46,6 @@ import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import {
   vpr,
-  vprAdaptive,
   vprDefaults,
   vprNormalCdf,
   vprSeasonSd,
@@ -112,7 +111,6 @@ export const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   "vpr-defaults": vprDefaults,
   "vpr-seasonsd": vprSeasonSd,
   "vpr-normalcdf": vprNormalCdf,
-  "vpr-adapt": vprAdaptive,
 };
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -274,9 +272,6 @@ export function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): Algo
       // deliberately excluded from this staleness check.
       warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
       return loadPromotedVpr("vpr", PROMOTED_VPR_VERSION_PATH) ?? algorithm;
-    }
-    if (algorithm.id === "vpr-adapt") {
-      return loadSearchWinnerVpr("vpr-adapt", ON_SEARCH_ARTIFACT_PATH, "tune-joint-on-winner") ?? algorithm;
     }
     return algorithm;
   });

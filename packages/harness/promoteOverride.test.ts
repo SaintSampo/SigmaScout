@@ -117,15 +117,12 @@ describe("applyParamOverrides", () => {
     expect(() => applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["linkC="])).toThrow(/empty value/);
   });
 
-  it("accepts only true/false for the one boolean parameter", () => {
-    expect(applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["adaptationEnabled=true"]).adaptationEnabled).toBe(true);
-    expect(applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["adaptationEnabled=false"]).adaptationEnabled).toBe(false);
-    // `1` is the coercion that would quietly turn a MODE into a number —
-    // `Sigma1ParamsSchema` would catch it downstream, but the operator
-    // deserves the error at the flag, naming the flag.
-    expect(() => applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["adaptationEnabled=1"])).toThrow(/boolean parameter/);
-    expect(() => applyParamOverrides(DEFAULT_SIGMA1_PARAMS, ["adaptationEnabled=yes"])).toThrow(/boolean parameter/);
-  });
+  // The "accepts only true/false for the one boolean parameter" case was
+  // deleted at 11.0.0 (quick task 260907-v1s): `adaptationEnabled` was the
+  // ONLY boolean in `Sigma1Params` apart from `elimScoreOffsetEnabled`, and
+  // the adaptation family was removed after being measured inert. The
+  // boolean-coercion guard it exercised still exists in
+  // `applyParamOverrides`; it is covered by the elimScoreOffsetEnabled cases.
 
   it("reads boolean-ness from DEFAULT_SIGMA1_PARAMS rather than a hand-typed list, so a second boolean parameter cannot be left behind", () => {
     // Not a restatement of the implementation: it pins the FACT the
@@ -136,7 +133,7 @@ describe("applyParamOverrides", () => {
     // anticipated — and `SIGMA1_PARAM_KEYS`'s own sorted order is what fixes
     // this list's order rather than insertion order.
     const booleanKeys = SIGMA1_PARAM_KEYS.filter((key) => typeof DEFAULT_SIGMA1_PARAMS[key] === "boolean");
-    expect(booleanKeys).toEqual(["adaptationEnabled", "elimScoreOffsetEnabled"]);
+    expect(booleanKeys).toEqual(["elimScoreOffsetEnabled"]);
   });
 
   it("accepts only true/false for elimScoreOffsetEnabled too, the second boolean parameter (ELIM-OFF, quick task 260904-v9n)", () => {
@@ -168,7 +165,7 @@ describe("applyParamOverrides + Sigma1ParamsSchema (the invariant boundary)", ()
 
 describe("parseParamOverrides (the provenance record)", () => {
   it("returns the same values it applies, typed as number or boolean", () => {
-    expect(parseParamOverrides(["linkC=0.5", "adaptationEnabled=true"])).toEqual({ linkC: 0.5, adaptationEnabled: true });
+    expect(parseParamOverrides(["linkC=0.5", "elimScoreOffsetEnabled=true"])).toEqual({ linkC: 0.5, elimScoreOffsetEnabled: true });
   });
 
   it("returns an empty record for no specs", () => {

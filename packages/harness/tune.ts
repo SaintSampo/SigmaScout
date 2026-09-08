@@ -1211,7 +1211,6 @@ const MAX_RESAMPLE_ATTEMPTS = 1000;
 function buildRandomCandidate(
   survivors: readonly SearchableParamKey[],
   rng: () => number,
-  adaptationEnabled: boolean
 ): { params: Sigma1Params; rejected: number } {
   let rejected = 0;
   for (let attempt = 0; attempt < MAX_RESAMPLE_ATTEMPTS; attempt++) {
@@ -1219,7 +1218,7 @@ function buildRandomCandidate(
     for (const key of survivors) {
       (overrides as Record<string, number>)[key] = sampleOnScale(SIGMA1_SEARCH_SPACE[key], rng);
     }
-    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, ...overrides, adaptationEnabled, rpMonteCarloDraws: 0 };
+    const params: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, ...overrides, rpMonteCarloDraws: 0 };
     if (isValidParamSet(params)) return { params, rejected };
     rejected++;
   }
@@ -1281,9 +1280,8 @@ export function planJointCandidates(
   survivors: readonly SearchableParamKey[],
   evalsCount: number,
   seed: number,
-  adaptationEnabled: boolean
 ): JointPlan {
-  const defaultCandidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, adaptationEnabled, rpMonteCarloDraws: 0 };
+  const defaultCandidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 };
 
   if (survivors.length === 0) {
     return {
@@ -1307,7 +1305,7 @@ export function planJointCandidates(
     const candidates: { id: string; params: Sigma1Params }[] = [];
     let rejectedCandidates = 0;
     for (const value of values) {
-      const candidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, adaptationEnabled, rpMonteCarloDraws: 0 };
+      const candidateParams: Sigma1Params = { ...DEFAULT_SIGMA1_PARAMS, [key]: value, rpMonteCarloDraws: 0 };
       if (!isValidParamSet(candidateParams)) {
         rejectedCandidates++;
         continue;
@@ -1321,7 +1319,7 @@ export function planJointCandidates(
   const candidates: { id: string; params: Sigma1Params }[] = [{ id: "cand-0", params: defaultCandidateParams }];
   let rejectedCandidates = 0;
   for (let i = 1; i < evalsCount; i++) {
-    const { params, rejected } = buildRandomCandidate(survivors, rng, adaptationEnabled);
+    const { params, rejected } = buildRandomCandidate(survivors, rng);
     rejectedCandidates += rejected;
     candidates.push({ id: `cand-${i}`, params });
   }
@@ -1419,10 +1417,17 @@ async function runJointStage(
   outPath: string,
   incumbentPath?: string
 ): Promise<void> {
-  if (adaptationSpec !== "on" && adaptationSpec !== "off") {
-    throw new Error(`--adaptation must be "on" or "off", got "${adaptationSpec}"`);
+  // 11.0.0 (quick task 260907-v1s): the adaptation mechanism is DELETED, so
+  // the two-arm best-vs-best design it existed for has exactly one arm now.
+  // The flag is kept and REFUSED rather than silently accepted: a stale
+  // `--adaptation on` in a script or a runbook must fail loudly, because
+  // quietly treating it as "off" would report an arm comparison that never
+  // ran. `"off"` is tolerated so existing invocations keep working.
+  if (adaptationSpec !== "off") {
+    throw new Error(
+      `--adaptation is retired: the adaptation mechanism was deleted at SIGMA1_CODE_VERSION 11.0.0 (quick task 260907-v1s) after measuring it inert, so there is no "on" arm to run. Got "${adaptationSpec}". Drop the flag, or pass "off".`
+    );
   }
-  const adaptationEnabled = adaptationSpec === "on";
 
   const survivors = loadSurvivors(survivorsPath);
 
@@ -1456,7 +1461,7 @@ async function runJointStage(
         `~0.003488 to ~0.003310 at SE 0.001219), for context only.`
     );
 
-    const plan = planJointCandidates(survivors, evalsCount, seed, adaptationEnabled);
+    const plan = planJointCandidates(survivors, evalsCount, seed);
     let rejectedCandidates = plan.rejectedCandidates;
     const skipped = plan.skipped;
 

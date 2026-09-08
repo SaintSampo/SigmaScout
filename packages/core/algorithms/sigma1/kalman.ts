@@ -118,8 +118,7 @@ export function updateAllianceSum(
   teammates: readonly TeamComponentBelief[],
   observedSum: number,
   measurementNoise: number,
-  attributionShrinkage: number = 0,
-  maxTeamKalmanGain: number = 1
+  attributionShrinkage: number = 0
 ): TeamComponentBelief[] {
   if (teammates.length === 0) {
     return [];
@@ -133,10 +132,12 @@ export function updateAllianceSum(
     return teammates.map((t) => ({ mean: t.mean, variance: t.variance }));
   }
 
-  // D-1/D-2 (quick tasks 260906-8i1 / 260906-7fj). ORDER IS LOAD-BEARING:
-  // shrink the attribution vector toward uniform FIRST, then clip. Capping
-  // first would let the uniform blend lift a clipped gain back over the
-  // ceiling, so `maxTeamKalmanGain` would silently never bind.
+  // D-1 (quick task 260906-8i1). The gain CEILING that used to clip this
+  // result (`maxTeamKalmanGain`, 260906-7fj) was deleted at 11.0.0: quick
+  // task 260907-v1s measured it never binding on ANY origin — gains of 0.54
+  // through 1.0 produce bitwise-identical predictions on 2024, 2025 and 2026,
+  // because a real alliance-sum gain never reaches 0.54. The clip was a
+  // no-op wearing a parameter.
   //
   // `uniformGain` is the pooled gain `Sum P_i / (Sum P_i + R)` divided evenly
   // across teammates, so `Sum_j uniform_j === Sum_j share_j` and the blend
@@ -154,7 +155,7 @@ export function updateAllianceSum(
       attributionShrinkage === 0
         ? shareGain
         : (1 - attributionShrinkage) * shareGain + attributionShrinkage * uniformGain;
-    const gain = Math.min(blended, maxTeamKalmanGain);
+    const gain = blended;
     return {
       mean: t.mean + gain * innovation,
       variance: t.variance * (1 - gain),

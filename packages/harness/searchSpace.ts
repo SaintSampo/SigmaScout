@@ -71,8 +71,10 @@ export const SEARCH_EXCLUSIONS = {
     "A DISPLAY quantity, and the objective is STRUCTURALLY BLIND to it — more completely than to any other entry here. D-01's objective is Brier over the predicted WIN PROBABILITY, which reads `predict()` alone; this parameter is read only by `teamMetrics` (via `sigma1/swing.ts`, D-Y1), and `teamMetrics` cannot move a prediction by construction. It was instead selected against the only instrument that can answer it: how well the estimate predicts a team's ACTUAL next-match deviation, swept walk-forward over 275,172 team-matches, where 6 matches wins (r = 0.5930) against a flat no-decay control at 0.5794. It stays a VERSIONED parameter (D-16's 'unchanged means bitwise identical' requires it in the committed set, the same argument `rpMonteCarloSeed` carries) and a never-searched one.",
   swingScale:
     "A DISPLAY quantity, search-excluded for the identical reason as `swingHalfLifeMatches`. Its value is the multiplier that puts the published `±` into true points, measured non-circularly against OBSERVABLE alliance residuals over 86,844 alliance-observations (1.92, against the independence-assumption prediction of sqrt(3) = 1.73 — the excess is D-06's independent-teams assumption failing). Brier cannot see it at all, so a search over it would be optimising noise.",
-  adaptationEnabled:
-    "A MODE, not a numeric knob (D-06 / D-T4). It is searched as TWO INDEPENDENT OPTIMIZER RUNS at identical budgets (`--adaptation on|off`), never as a dimension inside one run: a boolean has no bound, no scale and no meaningful neighbour, so a coordinate-descent step over it is undefined. D-T4's measured -0.0015 Brier for adaptation-on was selected by looking at holdout and is therefore inflated; it ships only if its arm clears the D-T7 bar out-of-sample.",
+  linkC:
+    "PROVABLY INCAPABLE OF CHANGING WINNER ACCURACY, and therefore not a model parameter at all (quick task 260907-v1s). `linkFunctions.ts`'s predictive-variance link is `logistic(margin / (c * sqrt(predictiveVariance)))`; `logistic(x) > 0.5` exactly when `x > 0`, and both `c` and `sqrt(predictiveVariance)` are strictly positive, so the SIGN of that argument IS the sign of `margin` for any positive `c`. Measured to confirm the algebra: sweeping it across its full 16x bound [0.25, 4] moved 2026 Brier 0.14316 -> 0.21217 with winner accuracy BITWISE IDENTICAL at every point and a paired SE of exactly 0 -- and the same +0.00000/SE-0 result on all five origins 2022-2026. It is a CALIBRATION constant: it sets how confident the published probability is, which the site renders, so it is fitted in a separate 1-D pass against Brier AFTER the accuracy search rather than deleted. Note it was the TOP-RANKED survivor of the Brier-based sensitivity screen -- the instrument that chose which knobs are live ranked first a knob that cannot flip a single call, which is why the screen's objective was the problem, not its threshold.",
+  covEwmaAlpha:
+    "PROVABLY INCAPABLE OF CHANGING WINNER ACCURACY, by the same argument as `linkC` above (quick task 260907-v1s). The folded covariance reaches a prediction ONLY through `predictiveVariance` (`sigma1/index.ts`'s `allianceTotalPredictiveVariance`); `margin = redScore - blueScore` is computed from the belief MEANS alone, and the Kalman update's `R` comes from the consistency estimator, never from the covariance. So this parameter can move the published spread but never which side of 0.5 the probability lands on. Confirmed at exactly 0.00000 accuracy span with a paired SE of exactly 0 on every origin. Fitted alongside `linkC` in the post-hoc calibration pass. (`covShrinkage` is excluded separately above as a numerical safeguard and belongs to this same variance-only class.)",
   elimScoreOffsetEnabled:
     "D-12 (quick task 260904-v9n, ELIM-OFF). A MODE, not a numeric knob — the same `adaptationEnabled` argument applies verbatim: a boolean has no bound, no scale and no meaningful neighbour, so a coordinate-descent step over it is undefined. INDEPENDENTLY excluded besides: this offset is added SYMMETRICALLY to both alliances' predicted scores, so it CANCELS in the margin and cannot move `pRedWin` at all — the accuracy-primary objective is structurally blind to whether it is on, exactly the argument `swingHalfLifeMatches`/`swingScale` carry for a display-only quantity.",
   elimScoreOffsetEwmaAlpha:
@@ -130,8 +132,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // almost entirely to the last observation" — the full plausible range for
   // a within-season residual/innovation fold.
   consistencyEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
-  covEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
-  adaptationEwmaAlpha: { min: 0.02, max: 0.6, scale: "linear" },
   // D-11's `shrinkagePriorMatches` bound was REMOVED at `SIGMA1_CODE_VERSION`
   // 5.0.0 (D-V4, quick task 260902-varopr) along with the parameter itself:
   // the published `±` is the per-team variance decomposition, so nothing
@@ -153,7 +153,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // logistic saturates to near-certain outcomes on almost every margin
   // (overconfident by construction); above 4 it barely distinguishes a
   // blowout from a coin flip (underconfident by construction).
-  linkC: { min: 0.25, max: 4, scale: "log" },
   // D-T1: the cold-start consistency VARIANCE, as a fraction of the season's
   // alliance-score variance. The UPPER bound is deliberately generous, and
   // for a specific documented reason: `params.ts` records
@@ -185,18 +184,14 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // effectively inert even when enabled); 1.5 already reacts
   // super-linearly to the innovation ratio, which is already a fairly
   // aggressive response curve for a per-match scalar.
-  adaptationExponent: { min: 0, max: 1.5, scale: "linear" },
   // The clamp bounds themselves. `isValidParamSet` enforces
   // `adaptationMinFactor < adaptationMaxFactor` as a hard constraint — a
   // degenerate or inverted clamp is never a valid candidate.
-  adaptationMinFactor: { min: 0.05, max: 1, scale: "linear" },
-  adaptationMaxFactor: { min: 1, max: 16, scale: "log" },
   // Below 1 observation a team's adaptation history is vacuous by
   // definition (there is nothing folded yet); above 12 (roughly a full
   // qualification round) the floor would keep every team at the
   // disabled-equivalent factor of exactly 1 for essentially its whole
   // event.
-  adaptationMinObservations: { min: 1, max: 12, scale: "linear" },
   // `elimObservationNoiseMultiplier`'s bound was REMOVED one day after it was
   // added (quick task 260904-v9n registered it; the 2026-09-05 re-tune closed
   // it negative) — see its `SEARCH_EXCLUSIONS` entry above for the six
@@ -306,7 +301,6 @@ export const SIGMA1_SEARCH_SPACE: Readonly<Record<SearchableParamKey, SearchBoun
   // inert (0.60 changed nothing at all), so the upper half of this range is
   // cheap for the search to cross but is deliberately not fenced off: the
   // inert end IS the incumbent, and the search must be able to return to it.
-  maxTeamKalmanGain: { min: 0.08, max: 1, scale: "linear" },
 };
 
 /**
@@ -476,15 +470,13 @@ export function screenGridFor(key: SearchableParamKey, valueCount: number): numb
 export function isValidParamSet(params: Sigma1Params): boolean {
   if (!(params.processNoiseEventBoundaryRel > params.processNoiseWithinEventRel)) return false;
   if (!(params.rpProcessNoiseEventBoundary > params.rpProcessNoiseWithinEvent)) return false;
-  if (!(params.adaptationMinFactor < params.adaptationMaxFactor)) return false;
   if (!(params.carryMeanReversion >= 0 && params.carryMeanReversion <= 1)) return false;
   if (!(params.carryPriorYearShare >= 0 && params.carryPriorYearShare <= 1)) return false;
-  // D-1/D-2 (quick tasks 260906-8i1 / 260906-7fj). These mirror
-  // `Sigma1ParamsSchema`'s own bounds rather than the search bounds, because
-  // this predicate also guards `--set-param` and hand-edited version files,
-  // which never pass through the search at all. `maxTeamKalmanGain` must
-  // exclude 0 outright: a zero ceiling freezes every belief permanently.
+  // D-1 (quick task 260906-8i1). Mirrors `Sigma1ParamsSchema`'s own bound
+  // rather than the search bound, because this predicate also guards
+  // `--set-param` and hand-edited version files, which never pass through the
+  // search at all. The companion `maxTeamKalmanGain` guard went with that
+  // field at 11.0.0 (260907-v1s: the ceiling never bound on any origin).
   if (!(params.attributionShrinkage >= 0 && params.attributionShrinkage <= 0.9)) return false;
-  if (!(params.maxTeamKalmanGain > 0 && params.maxTeamKalmanGain <= 1)) return false;
   return true;
 }

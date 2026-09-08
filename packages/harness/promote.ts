@@ -118,6 +118,8 @@ import {
   SIGMA1_3_TO_4_MIGRATION_TAG,
   SIGMA1_4_TO_5_MIGRATION_TAG,
   SIGMA1_6_TO_7_MIGRATION_TAG,
+  SIGMA1_10_TO_11_MIGRATION_TAG,
+  SIGMA1_10_TO_11_REMOVED_KEYS,
 } from "./legacyParams.js";
 import { openCorpusReadOnly, selectCorpusSeasons, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { SEARCH_OBJECTIVE_DEFINITION } from "./objectiveDefinition.js";
@@ -715,11 +717,61 @@ function buildSearchWinnerSeasonParamSet(path: string): SeasonParamSet {
  * file can never need that fallback: the shape did not exist before 7.0.0,
  * so every file carrying it is already current-shape.
  */
+/**
+ * Strips the 11.0.0-removed keys from every season's params in a PER-SEASON
+ * source file whose `codeVersion` predates the removal. Returns the input
+ * unchanged for anything that is not a recognisably older per-season file, so
+ * a malformed source still fails the real schema rather than being silently
+ * repaired here.
+ */
+function stripRemovedKeysFromPerSeasonSource(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const file = raw as Record<string, unknown>;
+  const codeVersion = file["codeVersion"];
+  if (typeof codeVersion !== "string" || codeVersion === SIGMA1_CODE_VERSION) return raw;
+  const bySeason = file["paramSetsBySeason"];
+  if (typeof bySeason !== "object" || bySeason === null) return raw;
+
+  const migratedBySeason: Record<string, unknown> = {};
+  for (const [season, entry] of Object.entries(bySeason as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) {
+      migratedBySeason[season] = entry;
+      continue;
+    }
+    const entryRecord = entry as Record<string, unknown>;
+    const params = entryRecord["params"];
+    if (typeof params !== "object" || params === null) {
+      migratedBySeason[season] = entry;
+      continue;
+    }
+    const strippedParams = { ...(params as Record<string, unknown>) };
+    for (const key of SIGMA1_10_TO_11_REMOVED_KEYS) delete strippedParams[key];
+    migratedBySeason[season] = { ...entryRecord, params: strippedParams };
+  }
+  return { ...file, paramSetsBySeason: migratedBySeason };
+}
+
 function buildCarriedVersionSeasonParamSets(path: string, seasons: readonly number[]): Map<number, SeasonParamSet> {
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
   const result = new Map<number, SeasonParamSet>();
 
-  const asCurrentShape = PromotedVersionSchema.safeParse(raw);
+  // 11.0.0 (quick task 260907-v1s). `PromotedVersionSchema` is strict, so a
+  // PER-SEASON source file written at an older code version no longer parses
+  // as the current shape once a bump REMOVES keys — every season's params
+  // carries the seven deleted fields. Without this the parse below fails, the
+  // function falls through to the legacy single-`params` `SourceVersionSchema`,
+  // and the operator sees `params: expected nonoptional, received undefined`,
+  // which names the wrong problem entirely.
+  //
+  // `migrateSourceParams` cannot be reused directly: it takes a
+  // `SourceVersion` (top-level `params`), which is exactly the shape a
+  // per-season file does not have. So the same removal list is applied here,
+  // per season, and the result is then parsed by the current schema — the
+  // strictness is preserved rather than bypassed, because anything OTHER than
+  // these seven keys still fails the parse.
+  const normalized = stripRemovedKeysFromPerSeasonSource(raw);
+
+  const asCurrentShape = PromotedVersionSchema.safeParse(normalized);
   if (asCurrentShape.success) {
     const resolved = resolveParamSets(asCurrentShape.data);
     for (const season of seasons) {
@@ -915,13 +967,52 @@ export function migrateSourceParams(
   // season at the default and confirming a sha256-identical predictions
   // stream, so "fills in inert" here is measured rather than argued.
   // Shared-shape ASSERTION, not a migration — do not invent one.
-  if (
-    sourceVersion.codeVersion === SIGMA1_CODE_VERSION ||
+  if (sourceVersion.codeVersion === SIGMA1_CODE_VERSION) {
+    return { params: Sigma1ParamsSchema.parse(sourceVersion.params), paramShapeMigration: undefined };
+  } else if (
+    sourceVersion.codeVersion.startsWith("10.") ||
     sourceVersion.codeVersion.startsWith("9.") ||
     sourceVersion.codeVersion.startsWith("8.") ||
     sourceVersion.codeVersion.startsWith("7.")
   ) {
-    return { params: Sigma1ParamsSchema.parse(sourceVersion.params), paramShapeMigration: undefined };
+    // 10.0.0 -> 11.0.0 (quick task 260907-v1s): the FIRST bump in this
+    // function's history that REMOVES fields rather than adding them, so it is
+    // the first that cannot be a shared-shape assertion. `Sigma1ParamsSchema`
+    // is `z.strictObject`, so a 7.x-10.x file — every one of which carries the
+    // six adaptation keys, and a 9.x/10.x file `maxTeamKalmanGain` besides —
+    // is now REJECTED rather than filled in. The keys are stripped here.
+    //
+    // Stripping DISCARDS INFORMATION, and unlike the 8./9. fill-in notes above
+    // this migration is NOT output-preserving. `rolling-2026-09e` ships
+    // `adaptationEnabled: true` for 2022/2025/2026 and
+    // `maxTeamKalmanGain: 0.959` for 2022, so those mechanisms were live and
+    // dropping them moves the prediction stream. Measured on the 2022 digest
+    // slice: winner accuracy unchanged at 0.720307, Brier 0.180854 ->
+    // 0.180900. Sets that shipped adaptation OFF (`tracer-check`,
+    // `tuned-2026-08`) migrate bitwise identically.
+    //
+    // That is the intended, measured cost (quick task 260907-v1s: at most 1.0
+    // sigma on any origin), not an accident — but a reader must not mistake
+    // this for the shared-shape assertions above. `digest.test.ts` still
+    // pins every committed file's recomputed digest to its stored one, so an
+    // UNEXPECTED movement is still caught; what changed is that the stored
+    // digests were legitimately re-derived at this bump.
+    //
+    // A `paramShapeMigration` TAG IS RECORDED on THIS path (`--from-version`,
+    // a legacy single-`params` source), following the 6->7 branch's own rule
+    // below: the tag must be TRUE, and this hop genuinely drops seven fields.
+    // The PER-SEASON path does not route through here at all — see
+    // `stripRemovedKeysFromPerSeasonSource`, which records lineage per season
+    // via `derivedFromVersion` instead. The earlier 7./8./9. hops recorded none because they moved no
+    // field; folding them into this branch does not retroactively give them
+    // one, because a 7.x file reaching here is being migrated by the same
+    // real removal.
+    const stripped = { ...(sourceVersion.params as Record<string, unknown>) };
+    for (const key of SIGMA1_10_TO_11_REMOVED_KEYS) delete stripped[key];
+    return {
+      params: Sigma1ParamsSchema.parse(stripped),
+      paramShapeMigration: SIGMA1_10_TO_11_MIGRATION_TAG,
+    };
   } else if (sourceVersion.codeVersion.startsWith("6.") || sourceVersion.codeVersion.startsWith("5.")) {
     // D-Y1/D-Y3 (quick task 260903-750): 6.0.0 -> 7.0.0 DROPS
     // `varianceOprRidge` and ADDS `swingHalfLifeMatches`/`swingScale`, because

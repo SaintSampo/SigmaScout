@@ -178,8 +178,27 @@ export class MissingLeagueRowError extends Error {
  * The bump costs a Worker re-seed from a fresh publish run, exactly like
  * every bump above it — `readScopedState`'s version-blindness makes that
  * true regardless of whether the shape change itself was urgent.
+ *
+ * ## 8 -> 9 (quick task 260907-v1s, SIGMA1_CODE_VERSION 11.0.0)
+ *
+ * A REMOVAL, the first one here: `innovationStats` is gone from
+ * `Sigma1TeamState` because the whole adaptive-process-noise mechanism was
+ * deleted after measuring it inert (at most 0.0013 accuracy across its entire
+ * bound on 2026 while ENABLED, and <=1.0 sigma to remove on every origin that
+ * shipped it on).
+ *
+ * The hazard this bump exists to stop runs in the opposite direction from
+ * every bump above. Those guarded against a stale row LACKING a newly-added
+ * field; this one guards against a stale row CARRYING a field the current
+ * shape no longer declares. `readScopedState` is version-blind, so without
+ * the bump a live row written at shape 8 would deserialize into a
+ * `Sigma1TeamState` with an extra property that nothing reads and no
+ * validator rejects — silent, and therefore worse than a throw.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 8;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 9;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -274,7 +293,6 @@ interface SerializedSigma1TeamState {
   consistency: Record<string, number>;
   matchCount: number;
   lastEventKey: string | null;
-  innovationStats: Sigma1TeamState["innovationStats"];
   rpBeliefs: Sigma1TeamState["rpBeliefs"];
   rpCovariance: number[][];
   rpCrossCovariance: number[][];
@@ -339,7 +357,6 @@ function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState
     consistency: team.consistency,
     matchCount: team.matchCount,
     lastEventKey: team.lastEventKey,
-    innovationStats: team.innovationStats,
     rpBeliefs: team.rpBeliefs,
     rpCovariance: team.rpCovariance,
     rpCrossCovariance: team.rpCrossCovariance,
