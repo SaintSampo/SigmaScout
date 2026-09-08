@@ -32,7 +32,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
-import type { BprState, BprTeamState } from "../core/algorithms/bpr.js";
+import type { BprPhaseRecord, BprState, BprTeamState } from "../core/algorithms/bpr.js";
+import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
@@ -626,10 +627,28 @@ interface SerializedBprLeague {
   logTau: number;
   scale: number;
   scaleCount: number;
+  /** Display-only per-phase point scales (quick task 260908-pcm). */
+  phaseScale: Record<string, number>;
+  phaseScaleCount: Record<string, number>;
 }
 
 /** One team's whole BPR state: slow talent (L) and fast form (S), each a mean and a variance. */
 interface SerializedBprTeamRow {
+  muL: number;
+  pL: number;
+  muS: number;
+  pS: number;
+  /**
+   * Display-only per-phase filters (quick task 260908-pcm), keyed by group id.
+   * Absent on a row written before that task, which `deserializeBprState`
+   * restores as a fresh phase filter rather than throwing -- a resumed
+   * pre-existing snapshot loses only the phase history it never had, and the
+   * PREDICTOR half above resumes exactly.
+   */
+  phases?: Record<string, SerializedBprPhase>;
+}
+
+interface SerializedBprPhase {
   muL: number;
   pL: number;
   muS: number;
@@ -647,13 +666,21 @@ function serializeBprState(algorithmId: string, algorithmVersion: string, state:
     logTau: state.logTau,
     scale: state.scale,
     scaleCount: state.scaleCount,
+    phaseScale: { ...state.phaseScale },
+    phaseScaleCount: { ...state.phaseScaleCount },
   };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
   for (const teamKey of [...state.teams.keys()].sort()) {
     const team = state.teams.get(teamKey);
     if (team === undefined) continue;
-    const teamJson: SerializedBprTeamRow = { muL: team.muL, pL: team.pL, muS: team.muS, pS: team.pS };
+    const phases: Record<string, SerializedBprPhase> = {};
+    for (const phase of COMPONENT_GROUP_IDS) {
+      const ps = state.phaseTeams[phase].get(teamKey);
+      if (ps === undefined) continue;
+      phases[phase] = { muL: ps.muL, pL: ps.pL, muS: ps.muS, pS: ps.pS };
+    }
+    const teamJson: SerializedBprTeamRow = { muL: team.muL, pL: team.pL, muS: team.muS, pS: team.pS, phases };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
   return rows;
@@ -665,11 +692,27 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedBprLeague;
 
   const teams = new Map<string, BprTeamState>();
+  const phaseTeams: Record<ComponentGroupId, Map<string, BprTeamState>> = {
+    auto: new Map(),
+    teleop: new Map(),
+    endgame: new Map(),
+  };
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
     const t = JSON.parse(row.stateJson) as SerializedBprTeamRow;
     teams.set(row.scopeKey, { muL: t.muL, pL: t.pL, muS: t.muS, pS: t.pS });
+    for (const phase of COMPONENT_GROUP_IDS) {
+      const ps = t.phases?.[phase];
+      if (ps === undefined) continue;
+      phaseTeams[phase].set(row.scopeKey, { muL: ps.muL, pL: ps.pL, muS: ps.muS, pS: ps.pS });
+    }
   }
+
+  const phaseNumbers = (source: Record<string, number> | undefined): BprPhaseRecord<number> => ({
+    auto: source?.auto ?? 0,
+    teleop: source?.teleop ?? 0,
+    endgame: source?.endgame ?? 0,
+  });
 
   return {
     season: leagueJson.season,
@@ -677,6 +720,9 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
     logTau: leagueJson.logTau,
     scale: leagueJson.scale,
     scaleCount: leagueJson.scaleCount,
+    phaseTeams,
+    phaseScale: phaseNumbers(leagueJson.phaseScale),
+    phaseScaleCount: phaseNumbers(leagueJson.phaseScaleCount),
   };
 }
 

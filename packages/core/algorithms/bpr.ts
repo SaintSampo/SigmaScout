@@ -37,6 +37,13 @@
  * simulation. That is a deliberate scope boundary, not an omission.
  */
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type SeasonBoundary, type TeamMetrics, type UpcomingMatch } from "./types.js";
+import {
+  COMPONENT_GROUP_IDS,
+  COMPONENT_GROUP_METRIC_KEYS,
+  componentsInGroup,
+  tryParseBreakdownPair,
+  type ComponentGroupId,
+} from "./breakdown/index.js";
 
 export interface BprParams {
   /** Observation noise sd on alliance output, normalized units. */
@@ -109,6 +116,15 @@ export interface BprTeamState {
   readonly pS: number;
 }
 
+/** Per-phase quantities, keyed by the shared `auto`/`teleop`/`endgame` group ids. */
+export type BprPhaseRecord<T> = Readonly<Record<ComponentGroupId, T>>;
+
+function phaseRecord<T>(make: (phase: ComponentGroupId) => T): BprPhaseRecord<T> {
+  const out = {} as Record<ComponentGroupId, T>;
+  for (const phase of COMPONENT_GROUP_IDS) out[phase] = make(phase);
+  return out;
+}
+
 export interface BprState {
   readonly season: number | null;
   readonly teams: ReadonlyMap<string, BprTeamState>;
@@ -117,6 +133,24 @@ export interface BprState {
   /** Online estimate of mean foul-adjusted alliance output, in points. */
   readonly scale: number;
   readonly scaleCount: number;
+  /**
+   * DISPLAY ONLY. Three independent filters per team -- auto, teleop, endgame --
+   * kept in their OWN map, deliberately not inside `teams`. `predict` reads
+   * `teams` and never touches anything below this line, so the structural
+   * isolation is visible in the type rather than resting on a convention;
+   * `bpr.test.ts` pins it with a bit-identity check against the pre-component
+   * model.
+   *
+   * Why this is display-only and not a prediction input: a component split has
+   * to read per-season `score_breakdown` field names, and for 2023-2026 those
+   * were holdout schema. Feeding them into `predict` would make the sealed
+   * 78.05% stop describing the shipped predictor. See this task's PLAN.md
+   * (`.planning/quick/260908-pcm-bpr-display-only-phase-components/`).
+   */
+  readonly phaseTeams: BprPhaseRecord<ReadonlyMap<string, BprTeamState>>;
+  /** Each phase's own online point scale — auto and endgame are worth far fewer points than teleop, so they cannot share the total's. */
+  readonly phaseScale: BprPhaseRecord<number>;
+  readonly phaseScaleCount: BprPhaseRecord<number>;
 }
 
 const SQRT2PI = Math.sqrt(2 * Math.PI);
@@ -190,12 +224,16 @@ interface AllianceView {
  * within their alliance and contribute with weights (1, w2, w3), renormalized
  * to sum to 3 so the scale-free property survives any alliance size.
  */
-function viewOf(state: BprState, keys: readonly string[], p: BprParams): AllianceView {
+function viewOfMap(
+  teams: ReadonlyMap<string, BprTeamState>,
+  keys: readonly string[],
+  p: BprParams,
+): AllianceView {
   const states: BprTeamState[] = [];
   const mus: number[] = [];
   const kept: string[] = [];
   for (const k of keys) {
-    const s = state.teams.get(k) ?? freshTeam(p);
+    const s = teams.get(k) ?? freshTeam(p);
     states.push(s);
     kept.push(k);
     mus.push(s.muL + s.muS);
@@ -226,16 +264,29 @@ function viewOf(state: BprState, keys: readonly string[], p: BprParams): Allianc
   return { mu, pv, keys: kept, states, weights };
 }
 
-function initState(teams: string[]): BprState {
+function freshTeamMap(teams: readonly string[]): Map<string, BprTeamState> {
   const map = new Map<string, BprTeamState>();
   for (const t of teams) map.set(t, freshTeam(BPR_PARAMS));
-  return { season: null, teams: map, logTau: Math.log(BPR_PARAMS.tau0), scale: 0, scaleCount: 0 };
+  return map;
+}
+
+function initState(teams: string[]): BprState {
+  return {
+    season: null,
+    teams: freshTeamMap(teams),
+    logTau: Math.log(BPR_PARAMS.tau0),
+    scale: 0,
+    scaleCount: 0,
+    phaseTeams: phaseRecord(() => freshTeamMap(teams)),
+    phaseScale: phaseRecord(() => 0),
+    phaseScaleCount: phaseRecord(() => 0),
+  };
 }
 
 function predict(state: BprState, match: UpcomingMatch): Prediction {
   const p = BPR_PARAMS;
-  const red = viewOf(state, match.redTeams, p);
-  const blue = viewOf(state, match.blueTeams, p);
+  const red = viewOfMap(state.teams, match.redTeams, p);
+  const blue = viewOfMap(state.teams, match.blueTeams, p);
 
   const d = red.mu - blue.mu;
   const v = red.pv + blue.pv + 2 * p.obsSd ** 2;
@@ -258,41 +309,42 @@ function predict(state: BprState, match: UpcomingMatch): Prediction {
   };
 }
 
-function update(state: BprState, result: MatchResult): BprState {
-  const p = BPR_PARAMS;
+/**
+ * One step of the online point-scale estimate. Extracted verbatim from the
+ * total path so the phase filters use the SAME rule rather than a second
+ * transcription of it.
+ */
+function stepScale(
+  prevScale: number,
+  prevCount: number,
+  obsMean: number,
+  p: BprParams,
+): { scale: number; count: number } {
+  const count = prevCount + 1;
+  const seed = prevCount === 0 ? Math.max(obsMean, 1) : prevScale;
+  const lr = Math.max(p.scaleMinLr, 1 / (count + 1));
+  return { scale: seed + lr * (obsMean - seed), count };
+}
 
-  const redFoul = foulPointsOf(result.scoreBreakdownRaw, "red");
-  const blueFoul = foulPointsOf(result.scoreBreakdownRaw, "blue");
-  const redOut = result.redScore - redFoul;
-  const blueOut = result.blueScore - blueFoul;
-
-  // --- online season scale, in points ---
-  const obsMean = (redOut + blueOut) / 2;
-  const scaleCount = state.scaleCount + 1;
-  const seed = state.scaleCount === 0 ? Math.max(obsMean, 1) : state.scale;
-  const lr = Math.max(p.scaleMinLr, 1 / (scaleCount + 1));
-  const scale = seed + lr * (obsMean - seed);
-  const sc = Math.max(scale, 1e-6);
-
-  const red = viewOf(state, result.redTeams, p);
-  const blue = viewOf(state, result.blueTeams, p);
-
-  // --- link temperature: online gradient descent on log loss ---
-  const d = red.mu - blue.mu;
-  const v = red.pv + blue.pv + 2 * p.obsSd ** 2;
-  const tau = Math.exp(state.logTau);
-  const z = d / (tau * Math.sqrt(Math.max(v, 1e-9)));
-  const pRed = Math.min(1 - 1e-6, Math.max(1e-6, normCdf(z)));
-  const outcome = result.winner === "red" ? 1 : result.winner === "blue" ? 0 : 0.5;
-  const grad = ((pRed - outcome) * normPdf(z) * z) / Math.max(pRed * (1 - pRed), 1e-6);
-  const logTau = Math.min(
-    Math.log(5),
-    Math.max(Math.log(0.2), state.logTau + p.tauLr * grad),
-  );
-
-  // --- rating update; both alliances scored against the PRE-match state, so
-  // the two observations within one match cannot inform each other ---
-  const next = new Map(state.teams);
+/**
+ * The rank-weighted Kalman fold for ONE match, over one team map. Both
+ * alliances are scored against the PRE-match state, so the two observations
+ * within a match cannot inform each other.
+ *
+ * Shared by the total filter and the three phase filters. Extracted rather
+ * than copied specifically so a phase can never drift onto slightly different
+ * math than the quantity it decomposes.
+ */
+function foldRatings(
+  teams: ReadonlyMap<string, BprTeamState>,
+  red: AllianceView,
+  blue: AllianceView,
+  redOut: number,
+  blueOut: number,
+  sc: number,
+  p: BprParams,
+): Map<string, BprTeamState> {
+  const next = new Map(teams);
   const corrections = new Map<string, BprTeamState>();
 
   for (const [side, out] of [
@@ -330,8 +382,109 @@ function update(state: BprState, result: MatchResult): BprState {
       pS: p.rhoFast ** 2 * s.pS + p.qFast,
     });
   }
+  return next;
+}
 
-  return { season: state.season, teams: next, logTau, scale, scaleCount };
+/** One alliance's output in one phase: its group components, summed. */
+function phaseOutput(components: Readonly<Record<string, number>>, season: number, phase: ComponentGroupId): number {
+  let total = 0;
+  for (const name of componentsInGroup(season, phase)) total += components[name] ?? 0;
+  return total;
+}
+
+/**
+ * DISPLAY ONLY (see `BprState.phaseTeams`). Folds this match into the three
+ * phase filters and returns the replacement phase state.
+ *
+ * Returns the state UNCHANGED, rather than folding zeros, whenever the phase
+ * observation is not genuinely available: no season yet, no breakdown on the
+ * match, or a breakdown that fails its season schema (measured at ~21% of
+ * offseason matches carrying one). A zero here would publish as "this team
+ * scores nothing in auto", which is a different and false claim from "not
+ * measured".
+ */
+function foldPhases(
+  state: BprState,
+  result: MatchResult,
+  p: BprParams,
+): Pick<BprState, "phaseTeams" | "phaseScale" | "phaseScaleCount"> {
+  const unchanged = {
+    phaseTeams: state.phaseTeams,
+    phaseScale: state.phaseScale,
+    phaseScaleCount: state.phaseScaleCount,
+  };
+  const season = state.season;
+  if (season === null) return unchanged;
+
+  const parsed = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
+  if (parsed.kind !== "parsed") return unchanged;
+
+  const teams: Record<ComponentGroupId, ReadonlyMap<string, BprTeamState>> = { ...state.phaseTeams };
+  const scales: Record<ComponentGroupId, number> = { ...state.phaseScale };
+  const counts: Record<ComponentGroupId, number> = { ...state.phaseScaleCount };
+
+  for (const phase of COMPONENT_GROUP_IDS) {
+    const redOut = phaseOutput(parsed.red, season, phase);
+    const blueOut = phaseOutput(parsed.blue, season, phase);
+
+    const stepped = stepScale(scales[phase], counts[phase], (redOut + blueOut) / 2, p);
+    scales[phase] = stepped.scale;
+    counts[phase] = stepped.count;
+
+    const current = teams[phase];
+    // Ranked WITHIN the phase, deliberately: the best auto robot on an
+    // alliance is not necessarily its best robot overall, so reusing the
+    // total's ordering here would misattribute a specialist.
+    const red = viewOfMap(current, result.redTeams, p);
+    const blue = viewOfMap(current, result.blueTeams, p);
+    teams[phase] = foldRatings(current, red, blue, redOut, blueOut, Math.max(stepped.scale, 1e-6), p);
+  }
+
+  return { phaseTeams: teams, phaseScale: scales, phaseScaleCount: counts };
+}
+
+function update(state: BprState, result: MatchResult): BprState {
+  const p = BPR_PARAMS;
+
+  const redFoul = foulPointsOf(result.scoreBreakdownRaw, "red");
+  const blueFoul = foulPointsOf(result.scoreBreakdownRaw, "blue");
+  const redOut = result.redScore - redFoul;
+  const blueOut = result.blueScore - blueFoul;
+
+  // --- online season scale, in points ---
+  const { scale, count: scaleCount } = stepScale(state.scale, state.scaleCount, (redOut + blueOut) / 2, p);
+  const sc = Math.max(scale, 1e-6);
+
+  const red = viewOfMap(state.teams, result.redTeams, p);
+  const blue = viewOfMap(state.teams, result.blueTeams, p);
+
+  // --- link temperature: online gradient descent on log loss ---
+  const d = red.mu - blue.mu;
+  const v = red.pv + blue.pv + 2 * p.obsSd ** 2;
+  const tau = Math.exp(state.logTau);
+  const z = d / (tau * Math.sqrt(Math.max(v, 1e-9)));
+  const pRed = Math.min(1 - 1e-6, Math.max(1e-6, normCdf(z)));
+  const outcome = result.winner === "red" ? 1 : result.winner === "blue" ? 0 : 0.5;
+  const grad = ((pRed - outcome) * normPdf(z) * z) / Math.max(pRed * (1 - pRed), 1e-6);
+  const logTau = Math.min(
+    Math.log(5),
+    Math.max(Math.log(0.2), state.logTau + p.tauLr * grad),
+  );
+
+  // --- rating update; both alliances scored against the PRE-match state, so
+  // the two observations within one match cannot inform each other ---
+  const next = foldRatings(state.teams, red, blue, redOut, blueOut, sc, p);
+
+  return {
+    season: state.season,
+    teams: next,
+    logTau,
+    scale,
+    scaleCount,
+    // Display-only, and deliberately last: everything above this line is the
+    // frozen predictor, byte-for-byte what produced the sealed 78.05%.
+    ...foldPhases(state, result, p),
+  };
 }
 
 /**
@@ -345,17 +498,30 @@ function update(state: BprState, result: MatchResult): BprState {
 function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
   const p = BPR_PARAMS;
   if (boundary.isColdStart) {
-    return { season: boundary.toSeason, teams: new Map(), logTau: Math.log(p.tau0), scale: 0, scaleCount: 0 };
+    return {
+      season: boundary.toSeason,
+      teams: new Map(),
+      logTau: Math.log(p.tau0),
+      scale: 0,
+      scaleCount: 0,
+      phaseTeams: phaseRecord(() => new Map()),
+      phaseScale: phaseRecord(() => 0),
+      phaseScaleCount: phaseRecord(() => 0),
+    };
   }
-  const carried = new Map<string, BprTeamState>();
-  for (const [key, s] of state.teams) {
-    carried.set(key, {
-      muL: p.seasonShrink * s.muL + (1 - p.seasonShrink) * 1.0,
-      pL: s.pL + p.seasonVar,
-      muS: 0,
-      pS: p.fastPriorVar,
-    });
-  }
+  const carryTeams = (teams: ReadonlyMap<string, BprTeamState>): Map<string, BprTeamState> => {
+    const out = new Map<string, BprTeamState>();
+    for (const [key, s] of teams) {
+      out.set(key, {
+        muL: p.seasonShrink * s.muL + (1 - p.seasonShrink) * 1.0,
+        pL: s.pL + p.seasonVar,
+        muS: 0,
+        pS: p.fastPriorVar,
+      });
+    }
+    return out;
+  };
+  const carried = carryTeams(state.teams);
   // The point scale carries too: a new season's scoring level is unknown until
   // its first matches land, and last season's level is the best available
   // starting guess.
@@ -372,6 +538,11 @@ function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
     logTau: state.logTau,
     scale: state.scale,
     scaleCount: state.scaleCount,
+    // Phases carry on exactly the total's rule, including the deliberate
+    // non-reset of the scale counter documented above.
+    phaseTeams: phaseRecord((phase) => carryTeams(state.phaseTeams[phase])),
+    phaseScale: state.phaseScale,
+    phaseScaleCount: state.phaseScaleCount,
   };
 }
 
@@ -382,12 +553,29 @@ function teamMetrics(state: BprState, teams?: readonly string[]): TeamMetrics {
   for (const key of keys) {
     const s = state.teams.get(key);
     if (s === undefined) continue;
-    out[key] = {
+    const metrics: TeamMetrics[string] = {
       [TOTAL_METRIC_KEY]: {
         value: (s.muL + s.muS) * unit,
         spread: Math.sqrt(Math.max(s.pL + s.pS, 0)) * unit,
       },
     };
+
+    // Display-only phase roll-ups. A phase is emitted only once its own scale
+    // has been established by at least one parsed breakdown; before that the
+    // key is ABSENT, never 0 -- "not measured" and "scores nothing in auto"
+    // are different claims and the client renders them differently.
+    for (const phase of COMPONENT_GROUP_IDS) {
+      if (state.phaseScaleCount[phase] === 0) continue;
+      const ps = state.phaseTeams[phase].get(key);
+      if (ps === undefined) continue;
+      const phaseUnit = state.phaseScale[phase] / 3;
+      metrics[COMPONENT_GROUP_METRIC_KEYS[phase]] = {
+        value: (ps.muL + ps.muS) * phaseUnit,
+        spread: Math.sqrt(Math.max(ps.pL + ps.pS, 0)) * phaseUnit,
+      };
+    }
+
+    out[key] = metrics;
   }
   return out;
 }
