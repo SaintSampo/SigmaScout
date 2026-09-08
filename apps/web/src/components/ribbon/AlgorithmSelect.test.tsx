@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testin
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AlgorithmSelect, algorithmDisplayLabel, useAlgorithmOptions } from "./AlgorithmSelect.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 const mockNavigate = vi.fn();
 let mockSearch: Record<string, unknown> = { year: 2024, algorithm: "vpr" };
@@ -51,7 +52,7 @@ describe("useAlgorithmOptions", () => {
   it("MANIFEST PENDING: all three options render with static labels (never empty, never blocked on the fetch)", () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // never resolves
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-    expect(result.current.map((o) => o.id)).toEqual(["opr", "epa", "vpr"]);
+    expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(result.current.map((o) => o.label)).toEqual(["OPR", "EPA", "VPR"]);
   });
 
@@ -59,7 +60,7 @@ describe("useAlgorithmOptions", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
     // Give the (single, non-retried) failed query a tick to settle.
-    await waitFor(() => expect(result.current).toHaveLength(3));
+    await waitFor(() => expect(result.current).toHaveLength(PUBLISHED_ALGORITHM_IDS.length));
     expect(result.current.map((o) => o.label)).toEqual(["OPR", "EPA", "VPR"]);
   });
 
@@ -67,7 +68,7 @@ describe("useAlgorithmOptions", () => {
     global.fetch = vi.fn().mockResolvedValue(manifestResponse());
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
     await waitFor(() => expect(result.current.find((o) => o.id === "vpr")?.label).toContain("2.0.0+tuned-2026-08"));
-    expect(result.current.map((o) => o.id)).toEqual(["opr", "epa", "vpr"]);
+    expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(result.current.some((o) => (o as { id: string }).id === "not-a-published-id")).toBe(false);
   });
 
@@ -97,7 +98,7 @@ describe("useAlgorithmOptions", () => {
     );
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
     await waitFor(() => expect(result.current.every((o) => o.label.includes("+"))).toBe(true));
-    expect(result.current.map((o) => o.id)).toEqual(["opr", "epa", "vpr"]);
+    expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
   // Test 7 (plan 07-18 Task 1): algorithmDisplayLabel is the single source —

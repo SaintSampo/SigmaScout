@@ -241,9 +241,9 @@ describe("AccuracyTable — header structure and Copywriting Contract strings", 
     }
 
     const accuracyHeaders = screen.getAllByRole("columnheader", { name: WINNER_ACCURACY_HEADER_LABEL });
-    expect(accuracyHeaders).toHaveLength(3);
+    expect(accuracyHeaders).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
     const brierHeaders = screen.getAllByRole("columnheader", { name: BRIER_HEADER_LABEL });
-    expect(brierHeaders).toHaveLength(3);
+    expect(brierHeaders).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
 
     // Exactly 7 leaf columns in the body: Year + 3 algorithms x 2 metrics.
     const table = screen.getByRole("table");
@@ -493,7 +493,7 @@ describe("AccuracyTableSkeleton", () => {
     render(<AccuracyTableSkeleton />);
     expect(screen.getByRole("columnheader", { name: "Year" })).toBeDefined();
     const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
-    expect(groupHeaders).toHaveLength(3);
+    expect(groupHeaders).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
 
     const table = screen.getByRole("table");
     const bodyRows = within(table).getAllByRole("row").slice(2);

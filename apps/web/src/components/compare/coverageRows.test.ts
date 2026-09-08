@@ -192,29 +192,33 @@ describe("buildCoverageRows", () => {
     for (const entry of row.noCalls) expect(entry.count).toBe(0);
   });
 
-  it("noCallCount is returned per algorithm, in PUBLISHED_ALGORITHM_IDS order, and is NEVER collapsed — even when all three happen to be equal", () => {
+  it("noCallCount is returned per algorithm, in PUBLISHED_ALGORITHM_IDS order, and is NEVER collapsed — even when every algorithm happens to be equal", () => {
+    // Counts are generated per published id rather than written out, so
+    // adding an algorithm does not silently leave a hole here (the fixture
+    // used to name three ids literally, and a fourth arrived as `undefined`).
+    const distinctCounts = PUBLISHED_ALGORITHM_IDS.map((_, i) => 10 * (i + 1));
     const artifactsByYear = new Map<number, CompareArtifact>();
     artifactsByYear.set(
       YEAR,
-      artifactWith([
-        makeSlice({ algorithmId: "opr", season: YEAR, compLevelView: "combined", noCallCount: 10 }),
-        makeSlice({ algorithmId: "epa", season: YEAR, compLevelView: "combined", noCallCount: 20 }),
-        makeSlice({ algorithmId: "vpr", season: YEAR, compLevelView: "combined", noCallCount: 30 }),
-      ]),
+      artifactWith(
+        PUBLISHED_ALGORITHM_IDS.map((algorithmId, i) =>
+          makeSlice({ algorithmId, season: YEAR, compLevelView: "combined", noCallCount: distinctCounts[i]! }),
+        ),
+      ),
     );
     let rows = buildCoverageRows(artifactsByYear, "combined");
     let row = rows.find((r) => r.season === YEAR)!;
     expect(row.noCalls.map((e) => e.algorithmId)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
-    expect(row.noCalls.map((e) => e.count)).toEqual([10, 20, 30]);
+    expect(row.noCalls.map((e) => e.count)).toEqual(distinctCounts);
 
-    // All three equal: still three entries, never one collapsed value.
+    // Every algorithm equal: still one entry each, never one collapsed value.
     artifactsByYear.set(
       YEAR,
       artifactWith(PUBLISHED_ALGORITHM_IDS.map((algorithmId) => makeSlice({ algorithmId, season: YEAR, compLevelView: "combined", noCallCount: 15 }))),
     );
     rows = buildCoverageRows(artifactsByYear, "combined");
     row = rows.find((r) => r.season === YEAR)!;
-    expect(row.noCalls).toHaveLength(3);
+    expect(row.noCalls).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
     expect(row.noCalls.every((e) => e.count === 15)).toBe(true);
   });
 

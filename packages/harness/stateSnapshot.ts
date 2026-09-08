@@ -32,6 +32,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
+import type { BprState, BprTeamState } from "../core/algorithms/bpr.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
@@ -616,6 +617,70 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
 }
 
 // ---------------------------------------------------------------------------
+// BPR (quick task 260908-b4t)
+// ---------------------------------------------------------------------------
+
+interface SerializedBprLeague {
+  snapshotShapeVersion: number;
+  season: number | null;
+  logTau: number;
+  scale: number;
+  scaleCount: number;
+}
+
+/** One team's whole BPR state: slow talent (L) and fast form (S), each a mean and a variance. */
+interface SerializedBprTeamRow {
+  muL: number;
+  pL: number;
+  muS: number;
+  pS: number;
+}
+
+function serializeBprState(algorithmId: string, algorithmVersion: string, state: BprState, stamp: StateStamp): StateRow[] {
+  const leagueJson: SerializedBprLeague = {
+    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
+    season: state.season,
+    // All three are genuine league-level state, not derived: logTau is the
+    // online link temperature, and scale/scaleCount are the online estimate of
+    // the season's point level that BPR's scale-free ratings are denominated
+    // against. Dropping any of them would silently reset a resumed model.
+    logTau: state.logTau,
+    scale: state.scale,
+    scaleCount: state.scaleCount,
+  };
+
+  const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
+  for (const teamKey of [...state.teams.keys()].sort()) {
+    const team = state.teams.get(teamKey);
+    if (team === undefined) continue;
+    const teamJson: SerializedBprTeamRow = { muL: team.muL, pL: team.pL, muS: team.muS, pS: team.pS };
+    rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
+  }
+  return rows;
+}
+
+function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): BprState {
+  const leagueRow = rows.find((r) => r.scopeKind === "league");
+  if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
+  const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedBprLeague;
+
+  const teams = new Map<string, BprTeamState>();
+  for (const row of rows) {
+    if (row.scopeKind !== "team") continue;
+    const t = JSON.parse(row.stateJson) as SerializedBprTeamRow;
+    teams.set(row.scopeKey, { muL: t.muL, pL: t.pL, muS: t.muS, pS: t.pS });
+  }
+
+  return {
+    season: leagueJson.season,
+    teams,
+    logTau: leagueJson.logTau,
+    scale: leagueJson.scale,
+    scaleCount: leagueJson.scaleCount,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Public dispatch
 // ---------------------------------------------------------------------------
 
@@ -625,22 +690,31 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
  * event-scoped (D-09), `"epa"` is team-scoped, and every other id (`vpr`
  * and its four harness-only siblings, renamed by plan 07-16, D-04/D-05)
  * shares Sigma1State's exact shape.
+ *
+ * HAZARD for a future algorithm: the final line is a FALLTHROUGH, not a
+ * lookup, so an id with no branch here is silently reinterpreted as
+ * Sigma1-shaped rather than rejected. That is how `bpr` first failed, with
+ * "state.componentOrder is not iterable" from deep inside the Sigma1
+ * serializer rather than a message naming the real problem. Add a branch
+ * when adding an algorithm.
  */
 export function serializeState(
   algorithmId: string,
   algorithmVersion: string,
-  state: Sigma1State | EpaState | OprState,
+  state: Sigma1State | EpaState | OprState | BprState,
   stamp: StateStamp
 ): StateRow[] {
   if (algorithmId === "opr") return serializeOprState(algorithmId, algorithmVersion, state as OprState, stamp);
   if (algorithmId === "epa") return serializeEpaState(algorithmId, algorithmVersion, state as EpaState, stamp);
+  if (algorithmId === "bpr") return serializeBprState(algorithmId, algorithmVersion, state as BprState, stamp);
   return serializeSigma1State(algorithmId, algorithmVersion, state as Sigma1State, stamp);
 }
 
 /** The inverse of `serializeState` — reconstructs a state whose `predict()`/`update()` behavior is identical to the state it came from, for a matching (possibly partial, D-13) set of rows. Throws `MissingLeagueRowError` when no `scopeKind: "league"` row is present. */
-export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState {
+export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState | BprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
+  if (algorithmId === "bpr") return deserializeBprState(algorithmId, rows);
   return deserializeSigma1State(algorithmId, rows);
 }
 
