@@ -1,4 +1,5 @@
 import { padAxisDomain, type AxisDomain } from "../team/matchAxis.js";
+import { allianceBandVariance, teamSwingFactorsFromMatches, walkForwardBandVariances } from "../../lib/allianceBand.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -222,7 +223,41 @@ export function mergeEventMatches(
     byMatchKey.set(match.matchKey, toRow(match, true));
   }
 
-  return [...byMatchKey.values()].sort(compareEventMatchRows);
+  // Quick task 260908-5wd: the band becomes a property of the SITE rather than
+  // of VPR. Both maps are built from the UNFILTERED `matches` array on purpose
+  // — an Elims tab estimating swing from elimination matches alone would draw
+  // a different quantity than the Quals tab beside it. See
+  // `lib/allianceBand.ts` for the construction and its calibration.
+  //
+  // A PLAYED row gets its walk-forward band (only what was known before that
+  // match); an UPCOMING row gets the full played history, which is walk-forward
+  // for it by definition.
+  const playedBands = walkForwardBandVariances(matches);
+  const swingByTeam = teamSwingFactorsFromMatches(matches);
+  const rows = [...byMatchKey.values()].map((row) => {
+    const played = playedBands.get(row.matchKey);
+    const red = played !== undefined ? played.red : allianceBandVariance(row.redTeams, swingByTeam);
+    const blue = played !== undefined ? played.blue : allianceBandVariance(row.blueTeams, swingByTeam);
+    // The published variance is DROPPED, not used as a fallback, and that is
+    // the point rather than an oversight. Only VPR publishes one, so falling
+    // back to it would restore exactly the algorithm-dependent behaviour this
+    // change exists to remove — and it would put two different constructions in
+    // one table, VPR's model variance on the opening rows and the browser band
+    // on the rest, under a single unlabelled `±`.
+    //
+    // So an early row where no team yet has two observations renders NO band,
+    // for every algorithm alike. "We do not know yet" is a true statement and a
+    // blank is how this site says it. Measured on `2026casnv`, that is 41 of
+    // 222 predicted cells — all of them in the opening rounds, and all of them
+    // filled in as the event plays out.
+    return {
+      ...row,
+      redScoreVarianceOwn: red,
+      blueScoreVarianceOwn: blue,
+    };
+  });
+
+  return rows.sort(compareEventMatchRows);
 }
 
 /**

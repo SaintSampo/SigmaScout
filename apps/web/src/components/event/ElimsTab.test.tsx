@@ -35,6 +35,24 @@ function makePlayedMatch(overrides: Record<string, unknown> = {}): EventMatch {
   } as unknown as EventMatch;
 }
 
+/**
+ * Quick task 260908-5wd: the match band is no longer read from the artifact's
+ * `redScoreVarianceOwn` — it is computed in the browser as √(Σ the three
+ * teams' Swing Factors²), walk-forward, so it exists for EVERY algorithm
+ * rather than VPR alone (`lib/allianceBand.ts`). A band therefore needs the
+ * rostered teams to have at least two EARLIER played matches; a lone fixture
+ * row legitimately has none.
+ *
+ * These two prior matches give `frc118`/`frc254` differing residuals so their
+ * centred swing is positive, which is what makes a band render at all.
+ */
+function priorPlay(): EventMatch[] {
+  return [
+    makePlayedMatch({ matchKey: "2022ilpe_qm1", compLevel: "qm", setNumber: 1, matchNumber: 1, actualRedScore: 150, actualBlueScore: 80 }),
+    makePlayedMatch({ matchKey: "2022ilpe_qm2", compLevel: "qm", setNumber: 1, matchNumber: 2, actualRedScore: 95, actualBlueScore: 115 }),
+  ];
+}
+
 function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomingMatch {
   return {
     matchKey: "2022ilpe_qf1m2",
@@ -319,7 +337,7 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
 describe("Unplayed and absent-variance rows", () => {
   it("an unplayed elimination row renders both alliance bands and ticks and NO actual dot for either alliance; Actual and Call cells render an em-dash", () => {
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 16 })];
-    renderWithRouter(<ElimsTab artifact={makeArtifact({ upcoming })} algorithmId="vpr" season={2022} />);
+    renderWithRouter(<ElimsTab artifact={makeArtifact({ matches: priorPlay(), upcoming })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m2-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-red-tick")).toBeDefined();
@@ -339,11 +357,27 @@ describe("Unplayed and absent-variance rows", () => {
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 
-  it("a row carrying only the red variance field renders a red band and no blue band", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: undefined })];
+  // Quick task 260908-5wd: this used to assert that a PUBLISHED
+  // `redScoreVarianceOwn` drew the band. It no longer does, and the
+  // replacement pins the reason rather than deleting the coverage — only VPR
+  // ever published that field, so honouring it would have kept the band an
+  // algorithm-dependent privilege.
+  it("IGNORES a published variance: a lone row carrying redScoreVarianceOwn draws no band, because no team has two prior matches yet", () => {
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 25 })];
+    renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
+    expect(screen.queryByTestId("alliance-mark-qf1m1-red-band")).toBeNull();
+    expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
+  });
+
+  it("draws both bands once the rostered teams have two earlier played matches, with no published variance anywhere in the fixture", () => {
+    const matches = [
+      ...priorPlay(),
+      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined }),
+    ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
-    expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
+    expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
   });
 });
 
@@ -417,6 +451,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
   it("two alliance bands whose predicted intervals exactly touch both render, each keeping its own colour and its own tick", () => {
     // Red predicted 100 ± 10 (band [90,110]); blue predicted 130 ± 20 (band [110,150]) — touching at 110.
     const matches = [
+      ...priorPlay(),
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
@@ -434,6 +469,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
 
   it("two alliance bands whose predicted intervals exactly COINCIDE both render, with two ticks", () => {
     const matches = [
+      ...priorPlay(),
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
@@ -449,8 +485,17 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
   });
 
-  it("a row whose variance fields are both exactly 0 still renders both ticks and both bands — a zero-width band is a real state, not an absent one", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 0, blueScoreVarianceOwn: 0 })];
+  it("a row whose computed band is exactly 0 still renders both ticks and both bands — a zero-width band is a real state, not an absent one", () => {
+    // Quick task 260908-5wd: a zero band is now REACHABLE rather than merely
+    // asserted. Two earlier matches missed by the IDENTICAL amount give a
+    // centred swing of exactly 0 — a robot the model is consistently wrong
+    // about has no swing, and the constant is the model's problem. Both prior
+    // rows use the helper's default scores, so both deviations are the same.
+    const matches = [
+      makePlayedMatch({ matchKey: "2022ilpe_qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 }),
+      makePlayedMatch({ matchKey: "2022ilpe_qm2", compLevel: "qm", setNumber: 1, matchNumber: 2 }),
+      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined }),
+    ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
