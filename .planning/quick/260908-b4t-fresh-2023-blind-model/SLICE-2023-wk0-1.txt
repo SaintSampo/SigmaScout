@@ -1,0 +1,50 @@
+BPR slice analysis - 2023 weeks 0,1
+  params:  packages/bpr/frozen-params.json
+  events:  52
+  matches: 4400
+  OVERALL  acc  76.35%   brier 0.1590   logloss 0.4905
+
+By week
+  group                 n     acc%    exp%     gap    brier
+  week 0              2354   77.73   76.46   +1.27  0.1543
+  week 1              2046   74.78   74.99   -0.21  0.1643
+
+By competition level
+  group                 n     acc%    exp%     gap    brier
+  qualification       3603   76.48   75.94   +0.54  0.1573
+  elimination          797   75.79   75.02   +0.77  0.1665
+
+By matches already played at that event
+  group                 n     acc%    exp%     gap    brier
+  0-19 (early)        1040   74.24   73.85   +0.39  0.1663
+  20-39               1040   75.75   76.04   -0.28  0.1634
+  40-59               1037   78.48   77.08   +1.40  0.1463
+  60+ (late)          1283   76.82   76.06   +0.76  0.1597
+
+By least-experienced team on the field (matches this season)
+  group                 n     acc%    exp%     gap    brier
+  0 (a debut)          348   72.89   72.43   +0.46  0.1815
+  1-3                  943   74.89   75.02   -0.13  0.1626
+  4-7                 1263   76.70   76.46   +0.25  0.1575
+  8+                  1846   77.51   76.32   +1.19  0.1539
+
+Calibration (confidence in the favoured alliance)
+  bucket        n   predicted   actual    gap
+  0.50-0.55    423    52.50%    52.48%  -0.02
+  0.55-0.60    398    57.47%    60.55%  +3.08
+  0.60-0.65    437    62.62%    61.56%  -1.06
+  0.65-0.70    426    67.30%    66.67%  -0.64
+  0.70-0.75    432    72.40%    73.61%  +1.21
+  0.75-0.80    403    77.53%    79.90%  +2.37
+  0.80-0.85    448    82.56%    84.82%  +2.26
+  0.85-0.90    406    87.56%    89.66%  +2.09
+  0.90-0.95    426    92.59%    91.78%  -0.81
+  0.95-1.00    557    97.77%    96.05%  -1.72
+
+Score margin (foul-adjusted, red minus blue)
+  mean predicted 2.24   mean actual 2.98
+  MAE 20.11 points   sd of actual margin 37.03
+
+Confidence profile
+  near coin-flip (<55%): 9.8%
+  confident (>=75%):     51.2%

@@ -9,6 +9,7 @@ function match(over: Partial<BprMatch> & Pick<BprMatch, "matchKey">): BprMatch {
     year: 2016,
     compLevel: "qm",
     sortTime: 0,
+    week: 0,
     redTeams: ["frc1", "frc2", "frc3"],
     blueTeams: ["frc4", "frc5", "frc6"],
     redOut: 60,

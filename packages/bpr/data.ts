@@ -11,6 +11,8 @@ export interface BprMatch {
   year: number;
   compLevel: string;
   sortTime: number;
+  /** TBA competition week, 0-indexed (week 0 is "Week 1"); null for champs. */
+  week: number | null;
   redTeams: string[];
   blueTeams: string[];
   /** Foul-adjusted alliance output: totalPoints - foulPoints. */
@@ -31,6 +33,7 @@ interface RawRow {
   year: number;
   comp_level: string;
   sort_time: number;
+  week: number | null;
   red_teams: string;
   blue_teams: string;
   red_score: number;
@@ -57,7 +60,7 @@ export function loadMatches(corpusPath: string): BprMatch[] {
   try {
     const rows = db
       .prepare<[], RawRow>(
-        `select m.match_key, m.event_key, e.year, m.comp_level, m.sort_time,
+        `select m.match_key, m.event_key, e.year, m.comp_level, m.sort_time, e.week,
                 m.red_teams, m.blue_teams, m.red_score, m.blue_score, m.winner,
                 m.score_breakdown_raw as sb
            from matches m
@@ -83,6 +86,7 @@ export function loadMatches(corpusPath: string): BprMatch[] {
         year: r.year,
         compLevel: r.comp_level,
         sortTime: r.sort_time,
+        week: r.week,
         redTeams: JSON.parse(r.red_teams) as string[],
         blueTeams: JSON.parse(r.blue_teams) as string[],
         redOut: r.red_score - redFoul,
