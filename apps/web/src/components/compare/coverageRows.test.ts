@@ -222,15 +222,23 @@ describe("buildCoverageRows", () => {
     expect(row.noCalls.every((e) => e.count === 15)).toBe(true);
   });
 
-  it("every other coverage field IS collapsed — disagreeing candidateCounts yield the disagreed variant naming all three, and the row's other cells are unaffected", () => {
+  it("every other coverage field IS collapsed — disagreeing candidateCounts yield the disagreed variant naming every algorithm, and the row's other cells are unaffected", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
+    // One algorithm (epa) disagrees; the rest agree. Built from the registry so
+    // a newly published algorithm joins the majority instead of going missing.
     artifactsByYear.set(
       YEAR,
-      artifactWith([
-        makeSlice({ algorithmId: "opr", season: YEAR, compLevelView: "combined", candidateCount: 100, tieCount: 4 }),
-        makeSlice({ algorithmId: "epa", season: YEAR, compLevelView: "combined", candidateCount: 101, tieCount: 4 }),
-        makeSlice({ algorithmId: "vpr", season: YEAR, compLevelView: "combined", candidateCount: 100, tieCount: 4 }),
-      ]),
+      artifactWith(
+        PUBLISHED_ALGORITHM_IDS.map((algorithmId) =>
+          makeSlice({
+            algorithmId,
+            season: YEAR,
+            compLevelView: "combined",
+            candidateCount: algorithmId === "epa" ? 101 : 100,
+            tieCount: 4,
+          }),
+        ),
+      ),
     );
     const rows = buildCoverageRows(artifactsByYear, "combined");
     const row = rows.find((r) => r.season === YEAR)!;
@@ -313,7 +321,7 @@ describe("candidate/scored/exclusion identity guard (fixture-based, labelled as 
     2026: compare2026 as unknown as { slices: Slice[] },
   };
 
-  it("over all ten committed fixtures and all three views, candidateCount equals scoredCount plus the four exclusion counts — 90 of 90 after the 2016-2020 floor move (was 45 of 45 over five)", () => {
+  it("over all ten committed fixtures and all three views, candidateCount equals scoredCount plus the four exclusion counts — one check per season, view and published algorithm", () => {
     let checked = 0;
     for (const season of COMPARE_SEASONS) {
       for (const slice of FIXTURES[season]!.slices) {
@@ -323,6 +331,7 @@ describe("candidate/scored/exclusion identity guard (fixture-based, labelled as 
         checked += 1;
       }
     }
-    expect(checked).toBe(90);
+    // 10 seasons x 3 views x one slice per published algorithm.
+    expect(checked).toBe(COMPARE_SEASONS.length * 3 * PUBLISHED_ALGORITHM_IDS.length);
   });
 });

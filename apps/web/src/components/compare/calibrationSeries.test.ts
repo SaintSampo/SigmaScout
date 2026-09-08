@@ -38,22 +38,36 @@ describe("validCalibrationPoints", () => {
     }
   });
 
-  it("2024 EPA elimination: drops exactly the two zero-count bins and keeps both one-match bins (sparse kept, empty dropped)", () => {
-    const slice = sliceFor(fixture2024, "epa", "elimination");
-    expect(slice.calibrationBins).toHaveLength(10);
+  it("keeps sparse bins and drops empty ones — asserted over every committed fixture, and the sparse case is proven to occur", () => {
+    // Was pinned to "2024 EPA elimination drops exactly two zero-count bins
+    // and keeps both one-match bins". That slice no longer has ANY one-match
+    // bin (quick task 260908-b4t refetched the fixtures after publishing BPR,
+    // which also brought newer EPA data), so the pinned numbers described data
+    // that had ceased to exist. Re-pinning to another slice would just defer
+    // the same breakage to the next publish, so this asserts the INVARIANT
+    // instead: a bin is kept iff it has a positive count, count === 1
+    // included.
+    let oneMatchBinsSeen = 0;
+    for (const fixture of [fixture2024, fixture2026]) {
+      for (const slice of fixture.slices) {
+        const points = validCalibrationPoints(slice);
+        const kept = new Set(points.map((p) => p.binStart));
 
-    const points = validCalibrationPoints(slice);
-    expect(points).toHaveLength(8);
-
-    const droppedBins = slice.calibrationBins.filter((b) => !points.some((p) => p.binStart === b.binStart));
-    expect(droppedBins).toHaveLength(2);
-    expect(droppedBins.every((b) => b.count === 0)).toBe(true);
-
-    const oneMatchBinStarts = slice.calibrationBins.filter((b) => b.count === 1).map((b) => b.binStart);
-    expect(oneMatchBinStarts.length).toBeGreaterThan(0);
-    for (const binStart of oneMatchBinStarts) {
-      expect(points.some((p) => p.binStart === binStart)).toBe(true);
+        for (const bin of slice.calibrationBins) {
+          const hasBothFigures = bin.meanPredicted !== null && bin.observedFrequency !== null;
+          if (bin.count === 0) {
+            expect(kept.has(bin.binStart), `empty bin ${bin.binStart} must be dropped`).toBe(false);
+          } else if (hasBothFigures) {
+            expect(kept.has(bin.binStart), `bin ${bin.binStart} with count ${bin.count} must be kept`).toBe(true);
+            if (bin.count === 1) oneMatchBinsSeen += 1;
+          }
+        }
+      }
     }
+
+    // Guards the premise: if no sparse bin exists anywhere, the loop above
+    // would pass vacuously on the very case this test is named for.
+    expect(oneMatchBinsSeen).toBeGreaterThan(0);
   });
 
   it("carries a signed gap = meanPredicted - observedFrequency for every kept point", () => {

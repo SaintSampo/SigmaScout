@@ -17,15 +17,24 @@
  * key stripped rather than rejected. That fails if anyone makes this schema
  * `.strict()`, which is exactly the regression this suite exists to catch.
  *
- * The fixture is a REAL committed `compare-*.json`, never a hand-built object
+ * The fixture is a REAL published artifact, never a hand-built object
  * — a hand-built object would prove nothing about bytes that actually shipped.
  * Per the original guardrail, this file must never cause
  * `apps/web/src/routes/__fixtures__/compare-*.json` to be regenerated — it
- * only reads that fixture, never writes it.
+ * only reads its fixture, never writes it.
+ *
+ * IMPORTANT (quick task 260908-b4t): it reads a DEDICATED FROZEN COPY,
+ * `compare-2022-legacy-seasonLabel.json`, not the live `compare-2022.json`.
+ * The live fixtures are refetched from R2 whenever a publish changes them, and
+ * the publisher stopped emitting `seasonLabel` long ago — so regenerating them
+ * silently destroyed the only committed example of the retired shape this test
+ * exists to guard. That is exactly what happened when BPR was published. The
+ * frozen copy is a real published artifact captured before that regeneration
+ * and must never be refreshed.
  */
 import { describe, expect, it } from "vitest";
 import { CompareArtifactSchema, type CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import compare2022 from "../../routes/__fixtures__/compare-2022.json";
+import compare2022 from "../../routes/__fixtures__/compare-2022-legacy-seasonLabel.json";
 
 describe("CompareArtifactSchema — retired seasonLabel key tolerance", () => {
   it("the committed pre-deletion fixture really does carry the retired key on every slice (guards the premise, not the schema)", () => {

@@ -96,7 +96,9 @@ describe("DataCoverageTable — header structure", () => {
     const orderedSlices = PUBLISHED_ALGORITHM_IDS.map((algorithmId, index) =>
       makeSlice({ algorithmId, season: YEAR, compLevelView: "combined", candidateCount: 100 + index }),
     );
-    const shuffled = [orderedSlices[2]!, orderedSlices[0]!, orderedSlices[1]!];
+    // Rotate rather than index literally: a hand-written [2],[0],[1] silently
+    // drops every slice past the third the moment an algorithm is added.
+    const shuffled = [orderedSlices[orderedSlices.length - 1]!, ...orderedSlices.slice(0, -1)];
     const artifactsByYear = new Map<number, CompareArtifact>();
     artifactsByYear.set(YEAR, artifactWith(shuffled, [...PUBLISHED_ALGORITHM_IDS].reverse()));
 
@@ -185,11 +187,12 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
   });
 
   it("every numeric cell carries the numeric-cell class, and a five-digit count renders as bare digits with no thousands separator", () => {
-    const artifactsByYear = fullYearArtifact({
-      opr: { candidateCount: 12345 },
-      epa: { candidateCount: 12345 },
-      vpr: { candidateCount: 12345 },
-    });
+    // Every published algorithm agrees, so the shared cell collapses to one
+    // number. Built from the registry: a missing algorithm leaves the cell
+    // uncollapsed and the assertion fails for the wrong reason.
+    const artifactsByYear = fullYearArtifact(
+      Object.fromEntries(PUBLISHED_ALGORITHM_IDS.map((id) => [id, { candidateCount: 12345 }])),
+    );
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const cell = screen.getByTestId(coverageCellTestId(YEAR, "candidateCount"));
     expect(cell.className).toContain("numeric-cell");

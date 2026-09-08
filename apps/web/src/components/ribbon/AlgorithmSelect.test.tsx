@@ -91,6 +91,7 @@ describe("useAlgorithmOptions", () => {
             { id: "vpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
             { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },
             { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
+            { id: "bpr", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
           ],
         }),
         { status: 200 }

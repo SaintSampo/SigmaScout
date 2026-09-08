@@ -226,15 +226,25 @@ describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", (
   });
 });
 
+/**
+ * Matches exactly the published algorithms' group headers. Derived, because a
+ * literal /^(OPR|EPA|VPR)$/ cannot see a newly published algorithm at all -- the
+ * query silently returns the old count and the assertion "fails" as if the
+ * component were wrong.
+ */
+const ALGORITHM_HEADER_PATTERN = new RegExp(
+  `^(${PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()).join("|")})$`,
+);
+
 describe("AccuracyTable — header structure and Copywriting Contract strings", () => {
-  it("renders a row-label header 'Year' spanning two rows, three algorithm-group headers spanning two columns each in PUBLISHED_ALGORITHM_IDS order, and a second header row of three metric-header pairs", () => {
+  it("renders a row-label header 'Year' spanning two rows, one algorithm-group header spanning two columns per published algorithm in PUBLISHED_ALGORITHM_IDS order, and a second header row of matching metric-header pairs", () => {
     const artifactsByYear = fullArtifactsByYear();
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
 
     const yearHeader = screen.getByRole("columnheader", { name: "Year" });
     expect(yearHeader.getAttribute("rowspan")).toBe("2");
 
-    const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
+    const groupHeaders = screen.getAllByRole("columnheader", { name: ALGORITHM_HEADER_PATTERN });
     expect(groupHeaders.map((h) => h.textContent)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
     for (const header of groupHeaders) {
       expect(header.getAttribute("colspan")).toBe("2");
@@ -245,7 +255,7 @@ describe("AccuracyTable — header structure and Copywriting Contract strings", 
     const brierHeaders = screen.getAllByRole("columnheader", { name: BRIER_HEADER_LABEL });
     expect(brierHeaders).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
 
-    // Exactly 7 leaf columns in the body: Year + 3 algorithms x 2 metrics.
+    // Year + two metrics per published algorithm.
     const table = screen.getByRole("table");
     const bodyRows = within(table).getAllByRole("row").slice(2); // 2 header rows precede
     expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(1 + PUBLISHED_ALGORITHM_IDS.length * 2);
@@ -269,7 +279,7 @@ describe("AccuracyTable — ordering (COMP-01)", () => {
       });
     }
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
-    const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
+    const groupHeaders = screen.getAllByRole("columnheader", { name: ALGORITHM_HEADER_PATTERN });
     expect(groupHeaders.map((h) => h.textContent)).toEqual(PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()));
   });
 
@@ -492,7 +502,7 @@ describe("AccuracyTableSkeleton", () => {
   it("renders the real two-row header followed by SkeletonRows sized for five rows and seven columns — never a spinner, never headerless", () => {
     render(<AccuracyTableSkeleton />);
     expect(screen.getByRole("columnheader", { name: "Year" })).toBeDefined();
-    const groupHeaders = screen.getAllByRole("columnheader", { name: /^(OPR|EPA|VPR)$/ });
+    const groupHeaders = screen.getAllByRole("columnheader", { name: ALGORITHM_HEADER_PATTERN });
     expect(groupHeaders).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
 
     const table = screen.getByRole("table");
