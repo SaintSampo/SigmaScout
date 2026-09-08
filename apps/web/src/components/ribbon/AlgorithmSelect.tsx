@@ -18,11 +18,11 @@ import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../
  * literal, so a future rename needs no second edit anywhere in that list.
  *
  * D-03 (quick task 260904-5px) narrows this: the RIBBON OPTION for EPA is
- * the one exception, reading `EPA_STATBOTICS_FULL_NAME` below instead of
- * this short label, but only while the manifest confirms EPA 5.x is what is
- * actually served. Every other render everywhere else in the app keeps the
- * short `EPA` from this constant, unconditionally — the full name is scoped
- * to the ribbon dropdown alone.
+ * the one exception, reading the manifest-derived `epaStatboticsLabel` below
+ * instead of this short label, whenever the served EPA version is at or above
+ * `EPA_STATBOTICS_LABEL_MIN_MAJOR`. Every other render everywhere else in the
+ * app keeps the short `EPA` from this constant, unconditionally — the full
+ * name is scoped to the ribbon dropdown alone.
  */
 const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> = {
   opr: "OPR",
@@ -52,41 +52,52 @@ const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> =
  * `${baseLabel} ${entry.version}` suffix is not appended a second time on
  * this branch.
  *
- * The name deliberately still says "5.0" under `epa@6.0.0+baseline`: it
- * names the STATBOTICS model this reimplementation tracks, not our own
- * version string. See `EPA_STATBOTICS_FAMILY_MIN_MAJOR` below.
+ * **The trailing number is OUR OWN `epa` code version, not a Statbotics
+ * release.** Quick task 260904-5px shipped this label as "EPA Statbotics 3.0"
+ * and then updated it to "5.0" mid-task "once the final version was known" —
+ * it has always tracked whatever `epa.version` ships. It is therefore DERIVED
+ * from the manifest here (`epaStatboticsLabel`), never written out as a
+ * literal, so it cannot go stale behind a version bump again.
+ *
+ * That derivation is also what keeps 5px's own threat model honest: its
+ * T-5px-04 row names "the UI claiming `EPA Statbotics 3.0` while R2 still
+ * serves `epa@2.0.0+baseline`" as a SPOOFING threat, mitigated precisely by
+ * naming the version actually being served. A hardcoded number under a bumped
+ * model re-opens that threat, which is what quick task 260908-615 initially
+ * did (holding the label at "5.0" while shipping 6.0.0) and then corrected.
  */
-const EPA_STATBOTICS_FULL_NAME = "EPA Statbotics 5.0";
+const EPA_STATBOTICS_LABEL_PREFIX = "EPA Statbotics";
 
 /**
- * The lowest `epa` code-version major that counts as the Statbotics-EPA-5.0
- * model family for the label above.
+ * The lowest `epa` code-version major that gets the full Statbotics-parity
+ * name at all. Below it, the option falls back to the ordinary
+ * `${baseLabel} ${entry.version}` form.
  *
- * Quick task 260908-615 is why this is a threshold rather than the literal
- * major-5 prefix test it replaced. That task bumped EPA to
- * `6.0.0+baseline` (the season-boundary carry instant), and a
- * `version.startsWith("5.")` gate would have silently stopped matching the
- * moment the republish landed — the ribbon would have quietly fallen back to
- * a version-suffixed short label, a UI regression with no test to catch it
- * and no error to notice. A `>=` comparison means the next EPA bump needs no
- * edit here at all.
- *
- * Raising this constant is a deliberate act: do it only if EPA ever stops
- * tracking Statbotics' 5.0-era model, which is a modelling decision, not a
- * version-number one.
+ * This is a FLOOR on the label's applicability, not a claim about which
+ * Statbotics release is tracked: EPA's Statbotics-parity work landed across
+ * 3.0.0 (no-foul `total_points`) and 5.0.0 (the elimination discount), and
+ * this repo has used the full name since 5.x. Versions at or above it name
+ * themselves; versions below it read the honest older version string, which
+ * is the behavior the existing pre-5.0 test has always pinned.
  */
-export const EPA_STATBOTICS_FAMILY_MIN_MAJOR = 5;
+export const EPA_STATBOTICS_LABEL_MIN_MAJOR = 5;
 
 /**
- * The leading integer of a `{codeVersion}+{paramSetName}` version string's
- * code-version segment, or `null` when it does not parse. Deliberately
- * strict: a manifest value this function cannot read falls through to the
- * honest `${baseLabel} ${entry.version}` branch rather than being assumed
- * new enough for the full name.
+ * `"6.0.0+baseline"` -> `"EPA Statbotics 6.0"`; `null` when the version does
+ * not parse or predates `EPA_STATBOTICS_LABEL_MIN_MAJOR`, in which case the
+ * caller falls through to the honest `${baseLabel} ${entry.version}` branch
+ * rather than assuming a version is new enough to claim the parity name.
+ *
+ * Renders MAJOR.MINOR — the same shape the hand-written literal always had
+ * ("3.0", "5.0"), dropping the patch segment and the `+paramSetName` suffix.
  */
-function codeVersionMajor(version: string): number | null {
-  const major = Number.parseInt(version.split("+")[0]!.split(".")[0]!, 10);
-  return Number.isInteger(major) ? major : null;
+function epaStatboticsLabel(version: string): string | null {
+  const [major, minor] = version.split("+")[0]!.split(".");
+  const majorNumber = Number.parseInt(major ?? "", 10);
+  const minorNumber = Number.parseInt(minor ?? "", 10);
+  if (!Number.isInteger(majorNumber) || !Number.isInteger(minorNumber)) return null;
+  if (majorNumber < EPA_STATBOTICS_LABEL_MIN_MAJOR) return null;
+  return `${EPA_STATBOTICS_LABEL_PREFIX} ${majorNumber}.${minorNumber}`;
 }
 
 interface AlgorithmOption {
@@ -117,19 +128,18 @@ export function useAlgorithmOptions(): AlgorithmOption[] {
     const entry = data?.algorithms.find((candidate) => candidate.id === id);
     const baseLabel = ALGORITHM_DISPLAY_LABELS[id];
     // D-03 (quick task 260904-5px): EPA gets its full Statbotics-parity name
-    // ONLY when the manifest confirms the SERVED artifacts are in that model
-    // family — every other id/version keeps today's
-    // `${baseLabel} ${entry.version}` branch, including a pre-5.0 EPA (which
-    // still reads the honest older version string).
+    // ONLY when the manifest says so, and that name NAMES THE SERVED VERSION
+    // — every other id/version keeps today's `${baseLabel} ${entry.version}`
+    // branch, including a pre-5.0 EPA (which still reads the honest older
+    // version string).
     //
-    // Quick task 260908-615 widened the test from a major-5 prefix to a
-    // family MINIMUM, so the 6.0.0 carry-instant bump does not silently drop
-    // the label. See `EPA_STATBOTICS_FAMILY_MIN_MAJOR`.
+    // Quick task 260908-615: the number is now derived from the manifest
+    // rather than hardcoded, so a version bump updates the label instead of
+    // leaving it claiming a version R2 is not serving. See
+    // `EPA_STATBOTICS_LABEL_PREFIX`.
     if (id === "epa" && entry !== undefined) {
-      const major = codeVersionMajor(entry.version);
-      if (major !== null && major >= EPA_STATBOTICS_FAMILY_MIN_MAJOR) {
-        return { id, label: EPA_STATBOTICS_FULL_NAME };
-      }
+      const label = epaStatboticsLabel(entry.version);
+      if (label !== null) return { id, label };
     }
     return { id, label: entry === undefined ? baseLabel : `${baseLabel} ${entry.version}` };
   });

@@ -40,9 +40,13 @@
  *      events and predictions, and SigmaScout follows that shape.
  *      (`.planning/PROJECT.md` line 5.)
  *   2. EPA, Statbotics' rating, is one of the algorithms a visitor can
- *      select on SigmaScout; the picker names it "EPA Statbotics 5.0".
+ *      select on SigmaScout; the picker names it "EPA Statbotics" plus the
+ *      version being served. Deliberately NOT a version literal here: the
+ *      trailing number is our own `epa` code version and it moves with every
+ *      bump (quick task 260908-615), so a hardcoded copy on this page would
+ *      go stale behind the picker it describes.
  *      (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`'s
- *      `EPA_STATBOTICS_FULL_NAME`.)
+ *      `EPA_STATBOTICS_LABEL_PREFIX`.)
  *   3. SigmaScout's EPA is a from-scratch reimplementation over TBA data,
  *      not Statbotics' own code, so EPA can be replayed walk-forward at any
  *      point in a season; any place the two disagree is SigmaScout's
@@ -117,7 +121,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     href: "https://www.statbotics.io/",
     paragraphs: [
       "Statbotics established the way an FRC stats site presents teams, events and predictions, and SigmaScout follows that shape.",
-      "EPA, Statbotics' rating, is one of the algorithms a visitor can select on SigmaScout; the picker names it \"EPA Statbotics 5.0\".",
+      "EPA, Statbotics' rating, is one of the algorithms a visitor can select on SigmaScout; the picker names it \"EPA Statbotics\" followed by the version currently being served.",
       "SigmaScout's EPA is a from-scratch reimplementation over TBA data, not Statbotics' own code — done that way so EPA can be replayed walk-forward at any point in a season. Any place the two disagree is SigmaScout's reimplementation drifting, not a fault of Statbotics'; those differences are measured and written down.",
       "Statbotics' own published season accuracy is carried as a clearly-labelled reference figure inside SigmaScout's accuracy reporting, so SigmaScout's numbers are always shown next to the number they are trying to beat.",
     ],
