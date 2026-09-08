@@ -1,0 +1,53 @@
+{
+  "frozenAt": "2026-09-08",
+  "selectionRule": "highest mean winner accuracy across rolling origins 2022,2023,2024,2025 (each trained only on earlier design years), tie-break lower mean Brier — pre-committed in 260908-3k5-PLAN.md",
+  "search": {
+    "totalConfigs": 48,
+    "chunkSeeds": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208
+    ],
+    "configsPerChunk": 6,
+    "heads": "win"
+  },
+  "selectedObjective": {
+    "meanWinnerAccuracy": 0.7526639512939319,
+    "meanBrier": 0.1662462528042638,
+    "perOrigin": {
+      "2022": {
+        "winnerAccuracy": 0.7690177461286312,
+        "brier": 0.1587431159119106
+      },
+      "2023": {
+        "winnerAccuracy": 0.7396455645363723,
+        "brier": 0.1716224644821066
+      },
+      "2024": {
+        "winnerAccuracy": 0.7423914544868548,
+        "brier": 0.1735849675661681
+      },
+      "2025": {
+        "winnerAccuracy": 0.7596010400238694,
+        "brier": 0.16103446325686982
+      }
+    }
+  },
+  "params": {
+    "nTrees": 170,
+    "maxDepth": 4,
+    "learningRate": 0.0498206537099654,
+    "minChildWeight": 1.3290037980297296,
+    "lambda": 1.6531708176240278,
+    "subsample": 0.8535781612619757,
+    "colsampleByTree": 0.7240939705632627,
+    "seed": 207003,
+    "halflife": 20,
+    "prevSeasonDecay": 0.9
+  }
+}
