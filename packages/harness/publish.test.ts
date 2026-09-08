@@ -3939,3 +3939,113 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
     expect(publishedTotal).not.toBe(roundTo(expectedFromFinal, ROUNDING_RULE.metric));
   });
 });
+
+describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
+  // The guarantee this task exists to provide: one match, ONE shared
+  // PredictionRecord, and therefore the SAME band on an event page and a team
+  // page. Both builders are handed the identical object here, exactly as
+  // publishSeasons hands them the identical object.
+  it("publishes a byte-identical band on the event artifact and the team artifact from one shared record", () => {
+    const match = fixtureMatch();
+    const prediction = fixturePrediction();
+    const shared: PredictionRecord = { match, prediction, swingBand: { red: 812.3456789, blue: 640.1234567 } };
+
+    const eventArtifact = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "4.0.0+baseline",
+      predictions: [shared],
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+    const teamArtifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "4.0.0+baseline",
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      events: [{ eventKey: "2026casj", eventName: "2026casj", startDate: "2026-03-01", matches: [shared] }],
+      metricHistory: [],
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+
+    const eventRow = eventArtifact.matches[0];
+    const teamRow = teamArtifact.events[0]?.matches[0];
+    expect(eventRow?.redSwingBandVariance).toBe(teamRow?.redSwingBandVariance);
+    expect(eventRow?.blueSwingBandVariance).toBe(teamRow?.blueSwingBandVariance);
+    // Rounded once, at ROUNDING_RULE.variance (4dp), on both surfaces.
+    expect(eventRow?.redSwingBandVariance).toBe(812.3457);
+    expect(eventRow?.blueSwingBandVariance).toBe(640.1235);
+  });
+
+  it("omits the band keys entirely for a record with no swingBand — absent on the wire, never present-and-undefined", () => {
+    const artifact = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "4.0.0+baseline",
+      predictions: [{ match: fixtureMatch(), prediction: fixturePrediction() }],
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+    expect(artifact.matches[0]).not.toHaveProperty("redSwingBandVariance");
+    expect(artifact.matches[0]).not.toHaveProperty("blueSwingBandVariance");
+  });
+
+  it("builds an upcoming row's band from the season-final swing map, and omits it when a roster member has none", () => {
+    const upcomingMatch = fixtureUpcoming();
+    const full = new Map([...upcomingMatch.redTeams, ...upcomingMatch.blueTeams].map((t) => [t, 10] as const));
+    const withBand = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "4.0.0+baseline",
+      predictions: [],
+      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction() }],
+      swingByTeam: full,
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+    // Three members at 10 each -> variance 300.
+    expect(withBand.upcoming[0]?.redSwingBandVariance).toBe(300);
+
+    const partial = new Map(full);
+    partial.delete(upcomingMatch.redTeams[0] as string);
+    const withoutBand = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "4.0.0+baseline",
+      predictions: [],
+      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction() }],
+      swingByTeam: partial,
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+    expect(withoutBand.upcoming[0]).not.toHaveProperty("redSwingBandVariance");
+    // The blue alliance is untouched by red's gap.
+    expect(withoutBand.upcoming[0]?.blueSwingBandVariance).toBe(300);
+  });
+
+  it("publishes the per-team Swing Factor on the team artifact, rounded once, absent when the team has none", () => {
+    const base = {
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "opr" as const,
+      algorithmVersion: "4.0.0+baseline",
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      events: [],
+      metricHistory: [],
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    };
+    expect(buildTeamSeasonArtifact({ ...base, swingFactor: 12.3456 }).swingFactor).toBe(12.35);
+    expect(buildTeamSeasonArtifact(base)).not.toHaveProperty("swingFactor");
+  });
+});

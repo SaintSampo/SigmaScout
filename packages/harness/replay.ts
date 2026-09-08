@@ -31,6 +31,21 @@ export { toLeakProofUpcoming, OUTCOME_KEYS } from "../core/algorithms/leakProof.
 export interface PredictionRecord {
   match: MatchResult;
   prediction: Prediction;
+  /**
+   * The SigmaScout-layer match band for this match (quick task 260908-5wd) —
+   * each alliance's variance as `Σ its three teams' Swing Factor²`, walk-forward
+   * as of this match. Optional because it is attached by `publish.ts` AFTER the
+   * replay, not produced by any algorithm: see `swingFactor.ts`'s header for the
+   * two-level split this field belongs to (a scouting heuristic layered on top
+   * of whatever the algorithm predicted, computed identically for OPR, EPA, BPR
+   * and VPR alike).
+   *
+   * Attached to the ONE record object that both the event-artifact builder and
+   * the team-artifact builder read, which is what makes a match's band
+   * byte-identical on an event page and a team page rather than merely intended
+   * to be.
+   */
+  swingBand?: { red?: number; blue?: number };
 }
 
 /** D-22: one (match, algorithm) prediction from a multi-algorithm shared-stream run. */
