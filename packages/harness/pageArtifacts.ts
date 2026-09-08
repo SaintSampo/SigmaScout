@@ -1847,3 +1847,106 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   );
 
 export type PreScheduleArtifact = z.infer<typeof PreScheduleArtifactSchema>;
+
+// ---------------------------------------------------------------------------
+// EPA vs Statbotics comparison — v1/methodology/epa-vs-statbotics.json
+// (quick task 260908-n5o)
+// ---------------------------------------------------------------------------
+
+/**
+ * `epaComparisonKey` is declared as its OWN exported function and
+ * deliberately NOT added to `PageKind`/`ArtifactKeyParams` above — following
+ * `districtsIndexKey`/`districtDetailKey`/`preScheduleKey`'s precedent
+ * earlier in this file. Two reasons fall out of that one choice: the Worker
+ * never writes this artifact (an offline re-measurement, published manually,
+ * exactly like the districts artifacts and unlike anything the live cron
+ * touches), so widening `PageKind` would force a Worker change for a key it
+ * must never address; and this measurement is a single CROSS-SEASON document
+ * (2022-2026 in one object, not year-scoped), so
+ * `packages/harness/payloadBudget.test.ts`'s per-season size budget does not
+ * apply to it — it has no "season" of its own to budget against.
+ *
+ * This function is the ONE spelling of the key, imported by BOTH
+ * `scripts/publishEpaComparison.ts` (the writer) and
+ * `apps/web/src/lib/api/epaComparison.ts` (the reader) — two spellings would
+ * be a silent permanent 404, exactly as `preScheduleKey`'s own doc comment
+ * warns.
+ */
+export function epaComparisonKey(): string {
+  return "v1/methodology/epa-vs-statbotics.json";
+}
+
+/**
+ * One season's per-team agreement statistics between our EPA and Statbotics'
+ * own, for ONE offseason arm. `includeOffseason` distinguishes the two arms
+ * sharing this one array (`EpaComparisonArtifactSchema.agreement` below) —
+ * a season appears twice, once per arm, rather than the artifact carrying
+ * two separate arrays.
+ */
+const EpaComparisonAgreementRowSchema = z.object({
+  season: z.number().int(),
+  includeOffseason: z.boolean(),
+  joinedCount: z.number().int().nonnegative(),
+  ordinaryLeastSquaresSlope: z.number(),
+  pearson: z.number(),
+  meanAbsoluteDifference: z.number(),
+});
+
+/**
+ * One season's winner-prediction head-to-head: our own figures next to
+ * Statbotics' own published season figures. `ourWinnerAccuracy`/
+ * `ourBrierScore` are nullable, mirroring `packages/harness/score.ts`'s
+ * `ScoreSlice` contract; `statboticsBrierScore` is nullable too, mirroring
+ * `packages/harness/statbotics.ts`'s `StatboticsReference.mse` optionality.
+ */
+const EpaComparisonHeadToHeadRowSchema = z.object({
+  season: z.number().int(),
+  ourWinnerAccuracy: z.number().nullable(),
+  ourBrierScore: z.number().nullable(),
+  scoredCount: z.number().int().nonnegative(),
+  statboticsWinnerAccuracy: z.number(),
+  statboticsBrierScore: z.number().nullable(),
+  statboticsCapturedAt: z.string().min(1),
+  statboticsFetched: z.boolean(),
+});
+
+/**
+ * `v1/methodology/epa-vs-statbotics.json` — the EPA-vs-Statbotics explainer
+ * page's one published artifact (quick task 260908-n5o). Deliberately NOT
+ * algorithm-scoped (extends `PagePreambleSchema`, not
+ * `AlgorithmScopedPreambleSchema`) — there is no algorithm SEGMENT here (this
+ * document measures exactly one algorithm, EPA, always), matching
+ * `CompareArtifactSchema`'s and `DistrictsIndexArtifactSchema`'s own
+ * reasoning for the identical choice. `epaVersion` below carries the version
+ * identity instead, at the object level — the field
+ * `scripts/publishEpaComparison.ts`'s own composition gate checks for
+ * equality across both arm reports before ever composing this object, which
+ * is what makes a mixed-model-version publish impossible rather than merely
+ * discouraged.
+ *
+ * `agreement` is ONE array covering BOTH offseason arms, distinguished by
+ * each row's own `includeOffseason` flag — not two separate arrays — so the
+ * two arms structurally cannot originate from two different documents, and a
+ * reader pairs a season's two arms by filtering one array rather than
+ * zipping two.
+ *
+ * `measuredAt`/`epaVersion`/`minMatches` are the provenance stamp:
+ * `measuredAt` is when the underlying harness run was measured (distinct
+ * from the inherited `computedAt`, which is when THIS publish composed the
+ * object), `epaVersion` is what makes a mixed-version publish detectable,
+ * and `minMatches` records which min-matches arm `agreement`'s figures were
+ * filtered to.
+ *
+ * `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped — this file's established
+ * convention (the districts/pre-schedule notes above) is that an additive
+ * new artifact kind never bumps it.
+ */
+export const EpaComparisonArtifactSchema = PagePreambleSchema.extend({
+  measuredAt: z.string().min(1),
+  epaVersion: z.string().min(1),
+  minMatches: z.number().int().positive(),
+  agreement: z.array(EpaComparisonAgreementRowSchema),
+  headToHead: z.array(EpaComparisonHeadToHeadRowSchema),
+});
+
+export type EpaComparisonArtifact = z.infer<typeof EpaComparisonArtifactSchema>;
