@@ -177,6 +177,35 @@ lie.
 3. **Findings B, C and E are untouched** — the conservatism (~76% coverage where 1σ claims
    68.3%), the +8.92-point centring bias, and the asymmetric-band question.
 
+## 2026-09-08 UPDATE — BPR changes most of this, because BPR publishes properly
+
+The developer is retiring VPR and moving to BPR. Measured against the live artifacts the same
+day, `bpr@1.0.0+baseline`:
+
+| check | BPR | VPR | OPR / EPA |
+|---|---|---|---|
+| alliance variance on EVENT match rows | **89 / 89** | 89 / 89 | 0 / 89 |
+| alliance variance on TEAM match rows | **71 / 71** | 71 / 71 | 0 / 71 |
+| per-team season `spread` | **yes (12.46 for frc254)** | yes | no |
+| published variance ÷ Σ team spread² | **median 1.02** | median 0.837 | n/a |
+
+**Finding A largely retires with VPR.** The additivity identity the schema claims is close to
+true for BPR (median 1.02; the remaining dispersion is the season-final-vs-as-of-match confound
+this file already names). The badly-broken case was VPR's.
+
+**`a2ea9425` reversed this task's own event-page override** for the reason above plus the
+requirement that a match read the same on both pages. The team page cannot compute the browser
+band — `frc254`'s teammates appear a median of 2 times, only 52.6% twice — so overriding on the
+event page created a page disagreement rather than removing one: BPR read ±139 on the event page
+against ±76 on the team page, median ratio 1.65 over 150 observations.
+
+**The one gap left, and it needs the pipeline, not the browser:** OPR and EPA publish no variance
+at either level, so they now show a browser band on the event page and NO band on a team page.
+Closing it means publishing a derived per-alliance variance for every algorithm — the same
+`√(Σ team swing²)` quantity, computed pipeline-side where the full match history is available.
+That would make every algorithm identical on both pages by construction and would let
+`lib/allianceBand.ts` be deleted.
+
 ## Suggested order if this is picked up
 
 1. Correct `pageArtifacts.ts`'s header and `uncertainty-display.md` — they are false TODAY and
