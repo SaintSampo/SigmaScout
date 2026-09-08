@@ -4,7 +4,9 @@ D-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md`): "Faithf
 
 Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics` during this phase's research (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`, fetched 2026-08-13): `backend/src/models/epa/{math,main,init,constants,breakdown}.py`, `backend/src/breakdown.py`.
 
-**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the newly-measured offseason-population effect. That document is the committed, re-runnable per-team comparison (SC-2); its re-measured slope under `epa@5.0.0+baseline` (derived from `data/baselines/epa-vs-statbotics-2026-09.json`'s min-matches-arm band centres) is 0.80-0.96, offseason-inclusive — the offseason-excluded figure (0.95-1.01) is retained from the `epa@2.0.0+baseline` measurement and was not re-run under `5.0.0+baseline`.
+**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the offseason-population effect (§7, NARROWED as of `epa@6.0.0+baseline`). That document is the committed, re-runnable per-team comparison (SC-2).
+
+**Version status of the quoted figures.** The slope figures below (0.80-0.96 offseason-inclusive, derived from `data/baselines/epa-vs-statbotics-2026-09.json`'s min-matches-arm band centres; 0.95-1.01 offseason-excluded, retained from the `epa@2.0.0+baseline` measurement) were measured under **`epa@5.0.0+baseline`**. The shipped version is now `epa@6.0.0+baseline` (quick task 260908-615, 2026-09-08 — §7). Those figures are therefore **PENDING RE-MEASUREMENT** and are deliberately still attributed to 5.0.0 rather than silently re-labelled: attributing an unmeasured number to a new version is precisely the documentation-describes-a-deleted-model failure this file exists to prevent. Re-measure with `npx tsx scripts/epaVsStatbotics.ts --check` and record the outcome in `epa-vs-statbotics.md`'s own §"Carry-instant change (`epa@6.0.0+baseline`)".
 
 ## 1. Elimination matches — CLOSED as of `epa@5.0.0+baseline` (was D-08: full weight and counted, not discounted)
 
@@ -81,7 +83,30 @@ agreement with Statbotics got tighter or looser as a result.
 
 **Why:** D-02 requires per-season, data-driven component maps (never hardcoded branches); each season's map is built and Zod-validated against this project's own corpus (T-02-01/ASVS V5 — every read field asserted finite, unknown fields stripped rather than passed through). Divergent granularity from Statbotics' own table is an accepted consequence of independent re-derivation, not a defect — the harness's own accuracy measurement (this phase's `reports/full-v2/artifact.json`) is what would surface a granularity choice that costs accuracy, not a requirement to match Statbotics' table exactly.
 
+## 7. Data population — offseason play. NARROWED (not closed) as of `epa@6.0.0+baseline`
+
+Unlike §§1-6, this is not a rating-mechanics divergence at all: it is a difference in *which matches each system's rating has ever seen*. It was measured rather than assumed (quick task 260904-4aa; see `docs/models/offseason-inclusion-remeasurement.md` and `epa-vs-statbotics.md`'s own offseason A/B table), and on the offseason-inclusive production arm it is the single largest contributor to residual per-team disagreement.
+
+**Statbotics:** its published team-year EPA reflects the OFFICIAL season only, through championships. Verified live 2026-09-08: `/v3/events?year=2025` returns 203 events, **none** flagged offseason, and `team_year` carries no offseason field. Statbotics does not ingest offseason matches at any layer — no event pages, no rating updates, no predictions, no accuracy scoring.
+
+**This project:** production publishes with `--include-offseason`, so offseason matches are replayed and DO move ratings within the season they occur in. Scoring has always excluded them on both sides, so the published accuracy comparison was never affected by this.
+
+### What quick task 260908-615 changed (2026-09-08)
+
+**NARROWED, not closed.** EPA's cross-season prior is now taken at the season's **last OFFICIAL match** (`AlgorithmModule.carryFrom: "last-official-match"` → `WalkForwardSimulator.runAll`'s `carryStates`), instead of the season-final state that had kept learning through offseason and preseason play. An exhibition result in November can no longer seed a team's rating for the following February.
+
+**What remains divergent, stated precisely:**
+
+1. **Within-season offseason play still moves ratings.** Under `--include-offseason` an offseason match is still replayed and still updates the rating, inside the season it occurs in. Only the CARRY across the boundary is rewound.
+2. **Unofficial play BEFORE a season's last official match still reaches the snapshot.** This is the accepted limitation of the locked decision (snapshot-at-last-official-match, not an exact official-only shadow state — CONTEXT.md's D-CARRY). Only the season's tail of exhibition play is excluded. Closing it would require threading a second, parallel state through every replay; deliberately not built.
+3. **Preseason Week-0 nuance.** `buildSeasonStream`'s `excludeOffseason` filters the corpus's `is_offseason` column, which TBA event type 100 does not set, while `isOfficialEventType` excludes both 99 and 100. So an offseason-EXCLUDED run is unchanged by 6.0.0 only when its stream also carries no Week-0 matches.
+
+**Predicted direction against Statbotics: closer agreement.** Statbotics' own priors are championship-frozen, so removing an offseason tail from ours moves the two systems' cross-season seeding toward each other. **No magnitude is asserted here** — that number requires running `npx tsx scripts/epaVsStatbotics.ts --check` against the corpus, and writing an unmeasured figure into this file would be the exact defect the header's "version status" note above guards against. `epa-vs-statbotics.md` carries the placeholder that measurement fills.
+
+**Display-layer note (same quick task, separate concern).** The team page header and the Teams list now show W-L-T, `matchCount` and `eventCount` over official play only, matching what Statbotics' comparable surfaces count. This changes no rating and no prediction; offseason matches remain fully visible in each team's match table, event sections and metric-history chart.
+
 ---
 
 *Phase: 02-prediction-models-epa-sigma1 (plan 02-06)*
 *Statbotics source citations verified 2026-08-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`).*
+*§7 added and the header's version status updated by quick task 260908-615, 2026-09-08; Statbotics' offseason absence re-verified live the same day.*

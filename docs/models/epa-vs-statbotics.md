@@ -390,6 +390,41 @@ The 2026 row is a named, deliberate exception to "the corpus is deterministic": 
 progress, so its baseline band will need re-measuring (and likely widening or replacing) as more
 of that season is played — see the baseline's own `rationale` field.
 
+### Carry-instant change (`epa@6.0.0+baseline`, quick task 260908-615, 2026-09-08)
+
+**What changed.** EPA's cross-season prior is now taken at a season's last OFFICIAL match rather
+than at its season-final state (`carryFrom: "last-official-match"` →
+`WalkForwardSimulator.runAll`'s `carryStates`). See `epa-divergences.md` §7. Every season after the
+first in a multi-season replay therefore starts from a different prior, so the per-team figures the
+bands above gate CAN move — this is a genuine model change, not measurement noise, and it is the
+same class of change as D-05's elimination discount, which also required a re-measurement.
+
+**Why a `--check` run is required rather than optional.** The committed bands in
+`data/baselines/epa-vs-statbotics-2026-09.json` were centred on freshly measured
+`epa@5.0.0+baseline` values. They have NOT been re-measured for 6.0.0. Until the command below has
+been run, the band file describes a model that is no longer the one shipping.
+
+```
+npx tsx scripts/epaVsStatbotics.ts --check
+```
+
+**Procedure if `--check` FAILS**, following the 2026-09-04 re-measurement note above exactly: re-run
+the script without `--check`, rebuild the bands with the **UNCHANGED half-width formula**
+(slope/Pearson ±0.05, mean absolute difference ±1.0, both standard deviations ±max(1.5, 10%)) recentred
+on the freshly measured values, commit the refreshed baseline, and record a per-season before/after
+slope table in the same shape as the 2026-09-04 one — including an honest direction verdict, whether
+or not it matches the prediction.
+
+**Predicted direction: closer agreement.** Statbotics' own priors are championship-frozen, so
+removing an offseason tail from our carry moves the two systems' cross-season seeding toward each
+other. Recorded as a prediction to be checked, never as a result.
+
+> **MEASUREMENT PENDING — placeholder, not a verdict.** The `--check` outcome, the PASS/FAIL
+> statement, and any before/after table are deliberately BLANK here. This task shipped the model
+> change; the measurement needs the corpus and (on a cache miss) the Statbotics API, so it runs as a
+> separate main-context step. A reader must not infer from this section's existence that the bands
+> have been verified under 6.0.0 — they have not, until this block is replaced.
+
 ## SigmaScout's EPA vs. Statbotics' own win-probability model
 
 Now that `metrics.win_prob.season.{acc,mse}` parses correctly (see "The schema fix" below), a
