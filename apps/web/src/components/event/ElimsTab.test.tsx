@@ -357,16 +357,14 @@ describe("Unplayed and absent-variance rows", () => {
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 
-  // Quick task 260908-5wd: this used to assert that a PUBLISHED
-  // `redScoreVarianceOwn` drew the band. It no longer does, and the
-  // replacement pins the reason rather than deleting the coverage — only VPR
-  // ever published that field, so honouring it would have kept the band an
-  // algorithm-dependent privilege.
-  it("IGNORES a published variance: a lone row carrying redScoreVarianceOwn draws no band, because no team has two prior matches yet", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 25 })];
+  // Quick task 260908-5wd: PUBLISHED WINS. An algorithm that publishes its own
+  // alliance variance (VPR, BPR) keeps it here, so the band on this page is the
+  // byte-identical number the TEAM page shows for the same match — the team
+  // page cannot compute the browser band and always reads the published field.
+  it("a row carrying only the red variance field renders a red band and no blue band — the published value is honoured, not overridden", () => {
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: undefined })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
-    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
-    expect(screen.queryByTestId("alliance-mark-qf1m1-red-band")).toBeNull();
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 

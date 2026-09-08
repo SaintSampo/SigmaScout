@@ -238,22 +238,31 @@ export function mergeEventMatches(
     const played = playedBands.get(row.matchKey);
     const red = played !== undefined ? played.red : allianceBandVariance(row.redTeams, swingByTeam);
     const blue = played !== undefined ? played.blue : allianceBandVariance(row.blueTeams, swingByTeam);
-    // The published variance is DROPPED, not used as a fallback, and that is
-    // the point rather than an oversight. Only VPR publishes one, so falling
-    // back to it would restore exactly the algorithm-dependent behaviour this
-    // change exists to remove — and it would put two different constructions in
-    // one table, VPR's model variance on the opening rows and the browser band
-    // on the rest, under a single unlabelled `±`.
+    // PUBLISHED WINS; the browser band fills gaps. Reversed 2026-09-08, hours
+    // after this file first dropped the published value, on a requirement that
+    // outranks the tidiness that motivated dropping it: a match must show the
+    // SAME uncertainty on a team page as on an event page.
     //
-    // So an early row where no team yet has two observations renders NO band,
-    // for every algorithm alike. "We do not know yet" is a true statement and a
-    // blank is how this site says it. Measured on `2026casnv`, that is 41 of
-    // 222 predicted cells — all of them in the opening rounds, and all of them
-    // filled in as the event plays out.
+    // The team page cannot compute this band. Measured on `frc254`'s 2026
+    // artifact, the other teams in its matches appear a median of 2 times and
+    // only 52.6% appear even twice, so per-team swing is not estimable there —
+    // it reads the published field and always will. Overriding the published
+    // value HERE therefore does not remove a disagreement, it creates one: for
+    // BPR the same match read ±139 on the event page against ±76 on the team
+    // page, a median ratio of 1.65 across 150 alliance-observations.
+    //
+    // The original reason for overriding was that VPR's published variance did
+    // not reconcile with its teams' spreads (median 0.837). BPR's does — median
+    // 1.02 — so with VPR retiring, the defect that justified the override is
+    // retiring with it.
+    //
+    // Net effect: BPR and VPR show their published band on both pages, and OPR
+    // and EPA — which publish nothing at either level — gain a browser band on
+    // the event page where they previously had none.
     return {
       ...row,
-      redScoreVarianceOwn: red,
-      blueScoreVarianceOwn: blue,
+      redScoreVarianceOwn: row.redScoreVarianceOwn ?? red,
+      blueScoreVarianceOwn: row.blueScoreVarianceOwn ?? blue,
     };
   });
 
