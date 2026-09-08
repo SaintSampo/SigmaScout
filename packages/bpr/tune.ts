@@ -78,7 +78,21 @@ const GRID: Array<{ key: NumericKey; values: number[] }> = [
   { key: "w3", values: [0.2, 0.35, 0.5, 0.6, 0.75, 1.0] },
   { key: "defPriorVar", values: [0, 0.005, 0.02, 0.06, 0.15] },
   { key: "defQ", values: [0, 0.0002, 0.001, 0.004] },
+  { key: "huberK", values: [1e9, 4, 3, 2.5, 2, 1.5, 1.2] },
+  { key: "biasLr", values: [0, 0.001, 0.004, 0.015, 0.05] },
 ];
+
+/**
+ * BPR_SKIP_KEYS removes knobs from the search entirely, so the parsimonious
+ * model can be re-tuned with its dropped components genuinely absent rather
+ * than merely disabled at settings chosen for a richer configuration.
+ */
+const SKIP = new Set(
+  (process.env.BPR_SKIP_KEYS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== ""),
+);
 
 export function coordinateDescent(start: BprParams, sweeps: number): BprParams {
   let best = { ...start };
@@ -90,6 +104,7 @@ export function coordinateDescent(start: BprParams, sweeps: number): BprParams {
   for (let sweep = 1; sweep <= sweeps; sweep += 1) {
     let improvedThisSweep = false;
     for (const { key, values } of GRID) {
+      if (SKIP.has(key)) continue;
       const current = best[key];
       for (const v of values) {
         if (v === current) continue;

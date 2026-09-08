@@ -66,7 +66,8 @@ export function runEval(
   for (const m of matches) {
     if (opts.stopAfterYear !== undefined && m.year > opts.stopAfterYear) break;
 
-    const pred = model.predict(m.redTeams, m.blueTeams, m.year);
+    const isElim = m.compLevel !== "qm";
+    const pred = model.predict(m.redTeams, m.blueTeams, m.year, isElim);
     const outcome = m.winner === "red" ? 1 : m.winner === "blue" ? 0 : 0.5;
 
     const scored =
@@ -90,7 +91,7 @@ export function runEval(
       m.redFoul,
       m.blueFoul,
       outcome,
-      m.compLevel !== "qm",
+      isElim,
       pred,
     );
   }

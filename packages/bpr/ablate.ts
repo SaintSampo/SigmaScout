@@ -35,6 +35,28 @@ function main(): void {
       raw: true,
     },
     { name: "no defensive suppression term", params: { ...base, defPriorVar: 0, defQ: 0 } },
+    { name: "no robustness (huber off)", params: { ...base, huberK: 1e9 } },
+    {
+      // Everything distinctive switched off at once: a plain additive
+      // single-timescale filter with no cross-season memory. This is roughly
+      // the shape of a textbook OPR/Elo-style rating, and is the reference
+      // point for what the structural work above actually bought.
+      name: "naive additive baseline (all extras off)",
+      params: {
+        ...base,
+        w2: 1,
+        w3: 1,
+        qFast: 0,
+        fastPriorVar: 0,
+        rhoFast: 0,
+        seasonShrink: 0,
+        defPriorVar: 0,
+        defQ: 0,
+        foulOn: false,
+        elimWeight: 1,
+        huberK: 1e9,
+      },
+    },
   ];
 
   const rows: string[] = ["  variant                                        acc%    logloss    d(acc)"];

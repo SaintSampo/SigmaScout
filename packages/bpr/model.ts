@@ -73,6 +73,31 @@ export interface BprParams {
    */
   defPriorVar: number;
   defQ: number;
+  /**
+   * Huber clip on the standardized innovation. A Gaussian filter treats a
+   * blown-out residual as strong evidence, but in FRC the fat tail is mostly
+   * mechanical: a robot loses comms, never leaves the wall, or tips over. Those
+   * matches say little about a team's true scoring ability, and letting them
+   * move a rating at full weight is how a good team gets wrongly downgraded.
+   *
+   * Innovations beyond huberK standard deviations are scaled back to huberK.
+   * A very large value disables clipping, so this knob is inert at default.
+   */
+  huberK: number;
+  /**
+   * Online learning rate for a red-side margin bias, fitted separately for
+   * qualification and elimination matches.
+   *
+   * Design-year evidence: quals are balanced (49.2-50.3% red across 2016-2022)
+   * but eliminations run 63-78% red, because the higher-seeded alliance is
+   * conventionally placed on red. Seeding therefore carries information beyond
+   * what the ratings alone express. Learning the offset online, rather than
+   * hardcoding "red is the better seed", means the model simply tracks whatever
+   * the convention turns out to be - including it changing or disappearing.
+   *
+   * biasLr = 0 pins both offsets at zero, so this knob is inert at default.
+   */
+  biasLr: number;
 }
 
 export const DEFAULTS: BprParams = {
@@ -97,6 +122,8 @@ export const DEFAULTS: BprParams = {
   w3: 1.0,
   defPriorVar: 0,
   defQ: 0,
+  huberK: 1e9,
+  biasLr: 0,
 };
 
 interface TeamState {
@@ -163,6 +190,8 @@ export class BprModel {
   private scale = 0;
   private scaleCount = 0;
   private year = -1;
+  /** Red-side margin offsets, index 0 = qualification, 1 = elimination. */
+  private readonly bias = [0, 0];
 
   constructor(params: BprParams) {
     this.p = params;
@@ -256,14 +285,23 @@ export class BprModel {
     return { mu, pv, muF, pF, muD, pD, states, weights };
   }
 
-  /** Predict without mutating any rating. Must be called before update(). */
+  /**
+   * Must be called before update() for the same match.
+   *
+   * This does touch state: it applies each team's lazy season transition and
+   * materializes unseen teams. Neither step can leak, because both depend only
+   * on the match's year and team list - information available before the match
+   * is played - and never on its result. No rating is moved by evidence here.
+   */
   predict(
     redTeams: readonly string[],
     blueTeams: readonly string[],
     year: number,
+    isElim: boolean,
   ): Prediction {
     const red = this.view(redTeams, year);
     const blue = this.view(blueTeams, year);
+    const bias = this.bias[isElim ? 1 : 0] ?? 0;
 
     // Red's foul points are conceded by blue, and vice versa.
     const foulTerm = this.p.foulOn ? blue.muF - red.muF : 0;
@@ -271,7 +309,7 @@ export class BprModel {
 
     // Each alliance's output is its own weighted offense minus the suppression
     // its opponent applies, so a defensive alliance gains margin twice over.
-    const d = red.mu - blue.muD - (blue.mu - red.muD) + foulTerm;
+    const d = red.mu - blue.muD - (blue.mu - red.muD) + foulTerm + bias;
     const v =
       red.pv + blue.pD + blue.pv + red.pD + 2 * this.p.obsSd ** 2 + foulVar;
     const tau = Math.exp(this.logTau);
@@ -311,11 +349,20 @@ export class BprModel {
     const tau = Math.exp(this.logTau);
     const z = pred.d / (tau * Math.sqrt(Math.max(pred.v, 1e-9)));
     const p = pred.pRed;
-    const grad = ((p - outcome) * normPdf(z) * z) / Math.max(p * (1 - p), 1e-6);
+    const dLdp = (p - outcome) / Math.max(p * (1 - p), 1e-6);
+    const grad = dLdp * normPdf(z) * z;
     this.logTau = Math.min(
       Math.log(5),
       Math.max(Math.log(0.2), this.logTau + this.p.tauLr * grad),
     );
+
+    // Red-side offset, same online log-loss gradient. dz/dbias = 1/(tau*sd).
+    if (this.p.biasLr > 0) {
+      const idx = isElim ? 1 : 0;
+      const dz = 1 / (tau * Math.sqrt(Math.max(pred.v, 1e-9)));
+      const gBias = dLdp * normPdf(z) * dz;
+      this.bias[idx] = Math.min(3, Math.max(-3, (this.bias[idx] ?? 0) - this.p.biasLr * gBias));
+    }
 
     // --- rating update, both alliances against the pre-match state ---
     const w = isElim ? this.p.elimWeight : 1.0;
@@ -330,8 +377,13 @@ export class BprModel {
     ];
     for (const [side, opp, out] of sides) {
       const u = (3 * out) / sc; // observed alliance output, normalized
-      const innov = u - (side.mu - opp.muD);
       const sTot = side.pv + opp.pD + this.p.obsSd ** 2 / Math.max(w, 1e-6);
+
+      // Huber-clip the innovation so a mechanical blowout moves ratings like a
+      // large-but-bounded surprise rather than like overwhelming evidence.
+      const rawInnov = u - (side.mu - opp.muD);
+      const zr = Math.abs(rawInnov) / Math.sqrt(Math.max(sTot, 1e-9));
+      const innov = zr > this.p.huberK ? (rawInnov * this.p.huberK) / zr : rawInnov;
 
       // The opposing alliance's defenders sit on this observation with H = -1:
       // an alliance that outscored expectation means its opponents defended
