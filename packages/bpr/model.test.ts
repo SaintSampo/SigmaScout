@@ -125,6 +125,7 @@ describe("knobs are inert at their defaults", () => {
     ["defensive suppression", { defPriorVar: 0, defQ: 0 }],
     ["huber clip", { huberK: 1e9 }],
     ["side bias", { biasLr: 0 }],
+    ["heteroscedastic noise", { obsSdSlope: 0 }],
   ];
 
   for (const [name, patch] of cases) {

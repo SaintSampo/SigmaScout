@@ -1,0 +1,32 @@
+{
+  "_note": "FROZEN 2026-09-08. Chosen by the pre-committed rule in .planning/quick/260908-b4t-fresh-2023-blind-model/DECISION.md, using ONLY seasons 2016-2022. Do not retune against 2023-2026.",
+  "_model": "BPR (Bayesian Power Rating)",
+  "_design_accuracy_2016_2022": 0.7308105075733554,
+  "_design_logloss_2016_2022": 0.5288535686362619,
+  "_selected": "parsimonious variant; full 23-knob variant scored 0.73319, a 0.238pp gap, inside the pre-registered 0.31pp (2 s.e.) threshold, so the simpler model wins",
+  "params": {
+    "obsSd": 1,
+    "qSlow": 0.00002,
+    "rhoFast": 0.9,
+    "qFast": 0.015,
+    "priorVar": 0.1,
+    "fastPriorVar": 0.25,
+    "rookieMean": 0.55,
+    "seasonShrink": 1,
+    "seasonVar": 0.03,
+    "tau0": 1,
+    "tauLr": 0.005,
+    "foulOn": false,
+    "foulObsSd": 1.5,
+    "foulQ": 0.0001,
+    "foulPriorVar": 0.02,
+    "elimWeight": 1,
+    "scaleMinLr": 0.01,
+    "w2": 0.7,
+    "w3": 0.5,
+    "defPriorVar": 0,
+    "defQ": 0,
+    "huberK": 1e9,
+    "biasLr": 0
+  }
+}

@@ -98,6 +98,19 @@ export interface BprParams {
    * biasLr = 0 pins both offsets at zero, so this knob is inert at default.
    */
   biasLr: number;
+  /**
+   * Heteroscedastic observation noise. Observation sd becomes
+   * `obsSd * (1 + obsSdSlope * (mu - 3) / 3)`, so a strong alliance is treated
+   * as noisier than a weak one. At slope 0 this is exactly the constant-noise
+   * model, so the knob is inert at default.
+   *
+   * Motivated by innovation diagnostics rather than by a search: sd(z) rises
+   * monotonically with predicted alliance strength in every season measured
+   * (2023 weeks 0-1: 0.543 -> 0.716 across quintiles; 2022: 0.547 -> 1.001).
+   * A single constant obsSd cannot express that, which is why the model comes
+   * out under-confident on even matchups and over-confident on lopsided ones.
+   */
+  obsSdSlope: number;
 }
 
 export const DEFAULTS: BprParams = {
@@ -124,6 +137,7 @@ export const DEFAULTS: BprParams = {
   defQ: 0,
   huberK: 1e9,
   biasLr: 0,
+  obsSdSlope: 0,
 };
 
 interface TeamState {
@@ -196,6 +210,12 @@ export class BprModel {
   constructor(params: BprParams) {
     this.p = params;
     this.logTau = Math.log(params.tau0);
+  }
+
+  /** Observation variance for an alliance whose predicted output is `mu`. */
+  private obsVar(mu: number): number {
+    const s = this.p.obsSd * (1 + (this.p.obsSdSlope * (mu - 3)) / 3);
+    return Math.max(0.05, s) ** 2;
   }
 
   private state(key: string): TeamState {
@@ -286,6 +306,20 @@ export class BprModel {
   }
 
   /**
+   * Diagnostic hook: the model's forecast for ONE alliance, in normalized
+   * units, plus the live season scale. Exposed so an analysis script can form
+   * standardized innovations z = (observed - mu) / sqrt(v) and check whether
+   * the filter's own variance claim is honest. sd(z) should be 1.
+   *
+   * Read-only in spirit; it shares view()'s lazy season transition and nothing
+   * else. Must be called before update() for the same match.
+   */
+  forecast(keys: readonly string[], year: number): { mu: number; v: number; scale: number } {
+    const a = this.view(keys, year);
+    return { mu: a.mu, v: a.pv + this.obsVar(a.mu), scale: this.scale };
+  }
+
+  /**
    * Must be called before update() for the same match.
    *
    * This does touch state: it applies each team's lazy season transition and
@@ -311,7 +345,13 @@ export class BprModel {
     // its opponent applies, so a defensive alliance gains margin twice over.
     const d = red.mu - blue.muD - (blue.mu - red.muD) + foulTerm + bias;
     const v =
-      red.pv + blue.pD + blue.pv + red.pD + 2 * this.p.obsSd ** 2 + foulVar;
+      red.pv +
+      blue.pD +
+      blue.pv +
+      red.pD +
+      this.obsVar(red.mu) +
+      this.obsVar(blue.mu) +
+      foulVar;
     const tau = Math.exp(this.logTau);
     const z = d / (tau * Math.sqrt(Math.max(v, 1e-9)));
     const pRed = Math.min(1 - 1e-6, Math.max(1e-6, normCdf(z)));
@@ -377,7 +417,7 @@ export class BprModel {
     ];
     for (const [side, opp, out] of sides) {
       const u = (3 * out) / sc; // observed alliance output, normalized
-      const sTot = side.pv + opp.pD + this.p.obsSd ** 2 / Math.max(w, 1e-6);
+      const sTot = side.pv + opp.pD + this.obsVar(side.mu) / Math.max(w, 1e-6);
 
       // Huber-clip the innovation so a mechanical blowout moves ratings like a
       // large-but-bounded surprise rather than like overwhelming evidence.

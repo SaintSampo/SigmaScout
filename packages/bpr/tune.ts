@@ -59,7 +59,7 @@ type NumericKey = {
 }[keyof BprParams];
 
 const GRID: Array<{ key: NumericKey; values: number[] }> = [
-  { key: "obsSd", values: [0.4, 0.6, 0.8, 1.0, 1.3, 1.7] },
+  { key: "obsSd", values: [0.4, 0.55, 0.7, 0.85, 1.0, 1.2, 1.5] },
   { key: "qSlow", values: [0.00002, 0.00005, 0.0002, 0.0008, 0.003] },
   { key: "rhoFast", values: [0.5, 0.75, 0.9, 0.96, 0.99] },
   { key: "qFast", values: [0.002, 0.006, 0.015, 0.03, 0.06] },
@@ -80,6 +80,7 @@ const GRID: Array<{ key: NumericKey; values: number[] }> = [
   { key: "defQ", values: [0, 0.0002, 0.001, 0.004] },
   { key: "huberK", values: [1e9, 4, 3, 2.5, 2, 1.5, 1.2] },
   { key: "biasLr", values: [0, 0.001, 0.004, 0.015, 0.05] },
+  { key: "obsSdSlope", values: [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1.0] },
 ];
 
 /**

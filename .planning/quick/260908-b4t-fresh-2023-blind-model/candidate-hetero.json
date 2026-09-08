@@ -1,0 +1,12 @@
+{
+  "_note": "Candidate: frozen model + heteroscedastic observation noise. Tuned on 2016-2022 ONLY; the IDEA came from 2023 wk0-1 innovation diagnostics.",
+  "params": {
+    "obsSd": 1, "qSlow": 0.00002, "rhoFast": 0.9, "qFast": 0.015,
+    "priorVar": 0.05, "fastPriorVar": 0.12, "rookieMean": 0.55,
+    "seasonShrink": 1, "seasonVar": 0.03, "tau0": 1, "tauLr": 0.005,
+    "foulOn": false, "foulObsSd": 1.5, "foulQ": 0.0001, "foulPriorVar": 0.02,
+    "elimWeight": 1, "scaleMinLr": 0.01, "w2": 0.7, "w3": 0.5,
+    "defPriorVar": 0, "defQ": 0, "huberK": 1e9, "biasLr": 0,
+    "obsSdSlope": 0.35
+  }
+}
