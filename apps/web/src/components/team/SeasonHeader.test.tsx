@@ -315,6 +315,79 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
+describe("SeasonHeader — browser-computed Swing Factor (quick task 260908-5wd)", () => {
+  afterEach(() => cleanup());
+
+  function eventsWithOneMatch(overrides: Partial<TeamSeasonArtifact["events"][number]["matches"][number]> = {}) {
+    return [
+      {
+        eventKey: "2026miket",
+        eventName: "Kettering",
+        startDate: "2026-03-01",
+        matches: [
+          {
+            matchKey: "2026miket_qm1",
+            season: 2026,
+            eventKey: "2026miket",
+            compLevel: "qm" as const,
+            algorithmId: "opr",
+            algorithmVersion: "1.0.0",
+            predictedWinner: "red" as const,
+            pRedWin: 0.5,
+            predictedRedScore: 100,
+            predictedBlueScore: 90,
+            actualRedScore: 130,
+            actualBlueScore: 90,
+            redTeams: ["frc1114", "frc254", "frc2056"],
+            blueTeams: ["frc118", "frc971", "frc148"],
+            ...overrides,
+          },
+        ],
+      },
+    ];
+  }
+
+  it("an OPR-shaped artifact (Total entry with no spread) renders a browser-computed ± on the Total tile", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 42.1 } } },
+      events: eventsWithOneMatch(),
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="opr" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [totalCell] = cells;
+    expect(totalCell?.textContent).toContain("±");
+  });
+
+  it("a VPR-shaped artifact (Total entry with a published spread) renders that published number unchanged", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },
+      events: eventsWithOneMatch(),
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    // VPR always shows four tiles (Auto/Teleop/Endgame/Total); Total is last.
+    const totalCell = cells.at(-1);
+    expect(totalCell?.textContent).toContain("60.50 ± 2.50");
+  });
+
+  it("a team with no played matches renders the Total tile with no ± and no crash", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 0 } } },
+      events: [],
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="opr" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [totalCell] = cells;
+    expect(totalCell?.textContent?.includes("±")).toBe(false);
+  });
+});
+
 describe("SeasonHeader — rank cards render inside the header (quick task 260905-ttv)", () => {
   afterEach(() => cleanup());
 

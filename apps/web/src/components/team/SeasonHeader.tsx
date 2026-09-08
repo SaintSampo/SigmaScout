@@ -2,6 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
+import { swingFactorForTeam } from "@/lib/swingFactor";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -47,6 +48,27 @@ function formatWinRate(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+/**
+ * Browser-computed Swing Factor merge (quick task 260908-5wd) — the same
+ * published-wins discipline `lib/metricGroups.ts`'s `withDerivedGroupMetrics`
+ * already uses for phase groups, applied to Total's `spread`: fills the
+ * `TOTAL_KEY` entry's `spread` ONLY when the entry exists and no `spread` was
+ * published for it — VPR's own published spread is never touched. Consequence:
+ * VPR renders exactly what it rendered before this task; OPR and EPA gain a
+ * Swing Factor they never had; and the two can never disagree because they
+ * never both exist for the same team at once.
+ */
+function withBrowserSwingFactor(
+  metrics: TeamSeasonArtifact["seasonStats"]["metrics"],
+  artifact: TeamSeasonArtifact
+): TeamSeasonArtifact["seasonStats"]["metrics"] {
+  const totalEntry = metrics[TOTAL_KEY];
+  if (totalEntry === undefined || totalEntry.spread !== undefined) return metrics;
+  const swingFactor = swingFactorForTeam(artifact, artifact.teamKey);
+  if (swingFactor === undefined) return metrics;
+  return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: swingFactor } };
+}
+
 /** A rate over zero matches is undefined, never a coerced zero — same rule `teams-table/rowModel.ts`'s own `winRate()` applies. */
 function winRateOf(record: { wins: number; losses: number; ties: number }): number | null {
   const totalMatches = record.wins + record.losses + record.ties;
@@ -89,7 +111,15 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // through this identical call, so the snapshot caption above stays
   // truthful either way. See lib/metricGroups.ts's header for the full
   // honesty argument.
-  const metrics = withDerivedGroupMetrics(metricsOverride ?? artifact.seasonStats.metrics, season);
+  // Swing Factor merge runs BEFORE withDerivedGroupMetrics and ONLY when
+  // metricsOverride is absent — the observation window swingFactorForTeam
+  // reads (this artifact's WHOLE season of matches) must match the metrics
+  // being displayed. A scoped snapshot (metricsOverride present) describes a
+  // different window than the team's whole season, and pairing one with the
+  // other would print a number that means neither.
+  const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
+  const metricsWithSwingFactor = metricsOverride === undefined ? withBrowserSwingFactor(resolvedMetrics, artifact) : resolvedMetrics;
+  const metrics = withDerivedGroupMetrics(metricsWithSwingFactor, season);
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
   // renders a BLANK cell and the cell never disappears (D-17/E2 empty).
