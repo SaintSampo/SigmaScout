@@ -42,12 +42,20 @@ Three vocabulary rules, now enforced in code:
 
 ---
 
-## 1. Finish the deploy — BPR does not fold live yet
+## 1. ~~Seed and deploy~~ — DONE 2026-09-09
 
-D1 still holds VPR's state. BPR's rows do not exist until `seed-bpr.sql` is applied, so the live
-tier is configured for BPR but cannot fold. **Seed first, deploy second.**
+BPR now folds live. Seed generation `a4a700dc` matched the live manifest exactly and its league row
+declared `snapshotShapeVersion: 9`, matching the code, before anything was applied. **6,549 BPR rows
+seeded** (1 league + 6,548 team); opr/epa/vpr row counts unchanged. Worker deployed with
+`LIVE_ALGORITHM_IDS = "bpr"`, startup 72 ms, version `67590821`.
 
-This is the shortest item on the list and the only one blocking live behaviour.
+Verified by watching two consecutive cron ticks, both `ok:true` (1835 ms cold start then 341 ms,
+1 subrequest each, zero errors).
+
+**Not yet exercised, and honestly so: the BPR FOLD path.** There are zero live windows in September,
+so every tick is idle (`eventsConsidered: 0`). The deploy is healthy and the state is loadable, but
+no match has actually been folded through BPR in production. First live event is the real test —
+watch a tick then, and check `event_cursor` advances.
 
 ## 2. Per-component Swing Score — the visible gap
 
@@ -137,17 +145,14 @@ measure a real fold before trusting it. Detail in `vpr-retirement-make-features-
 
 All measured and detailed in `match-band-calibration-and-the-broken-additivity-identity.md`.
 
-## 7. BPR itself
+## 7. BPR — the one open question
 
-- **It has never been tuned and there is no path to tune it.** 14 hardcoded constants,
-  `paramSetName: "baseline"`, and **no `bpr` entry in the tuning search space at all**. Deliberate
-  and honest — frozen on 2016-2022, evaluated once on a sealed 2023-2026 holdout — but the numbers
-  are a single frozen guess and the headroom is unmeasured. VPR's whole tuning apparatus now
-  serves nothing.
-- **Do components improve prediction?** Testable on **2016-2022** — the window BPR's parameters
-  were frozen on — **without spending the holdout**. Worth settling empirically before anyone
-  argues for feeding components into `predict`. Note BPR's own type warns why not: component
-  splits read per-season breakdown fields, and for 2023-2026 those were holdout schema.
+**Do components improve prediction?** Testable on **2016-2022**, the window BPR's parameters were
+frozen on, **without spending the sealed 2023-2026 holdout**. Worth settling empirically before
+anyone argues for feeding components into `predict`. BPR's own type warns why not: component splits
+read per-season breakdown fields, and for 2023-2026 those were holdout schema.
+
+BPR's constants are settled and are not to be revisited.
 
 ## 8. Cleanup left by the retirement
 
@@ -169,10 +174,13 @@ full-run failure as a defect**.
 
 ## Suggested order
 
-1. **Seed and deploy** (item 1) — nothing live works without it.
-2. **Item 4's shape bump rides that same re-seed**, so do the Worker accumulator with it.
-3. **Ranking points for BPR** (item 3) — biggest user-visible win, and everything downstream is
-   already written and tested.
-4. **Per-component Swing Score** (item 2) — unblocks two dormant displays at once.
-5. **Algorithm rotation** (item 5), measured on a real fold.
-6. Calibration, docs and BPR tuning questions (items 6–7) as separate, evidence-first pieces.
+1. **Ranking points for BPR** (item 3) — biggest user-visible win, and everything downstream is
+   already written and tested without an algorithm attached. Restores the Simulation tab and the
+   bonus-RP dots.
+2. **The Worker's swing accumulator** (item 4) — needs a shape bump that forces a re-seed, so batch
+   it with the next re-seed rather than making it its own outage.
+3. **Per-component Swing Score** (item 2) — unblocks two dormant displays at once.
+4. **Algorithm rotation** (item 5), measured on a real fold.
+5. Calibration and docs (item 6) as separate, evidence-first pieces.
+
+Watch the first live event of the season: it is the first real exercise of BPR's fold path.
