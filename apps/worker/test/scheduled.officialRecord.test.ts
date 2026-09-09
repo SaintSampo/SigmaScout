@@ -144,3 +144,82 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
     expect(merged.metricHistory).toHaveLength(2);
   });
 });
+
+/**
+ * Quick task 260908-5wd: the live merge must PRESERVE every field the offline
+ * publisher wrote and this tick does not own.
+ *
+ * Before this, `mergeTeamSeasonArtifact` constructed a fresh object naming
+ * twelve fields, so the first live tick touching a team silently deleted its
+ * rank cards, its robot photo, its active-years list and its Swing Factor —
+ * for the rest of the event, until the next offline publish restored them.
+ * There was no error and no log line; the team page simply got worse mid-event.
+ */
+describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick task 260908-5wd)", () => {
+  function existingArtifact(): TeamSeasonArtifact {
+    return {
+      schemaVersion: 1,
+      generation: "offline-generation",
+      computedAt: "2026-09-01T00:00:00.000Z",
+      algorithmId: "vpr",
+      algorithmVersion: "11.0.0+rolling-2026-09e",
+      teamKey: TEAM,
+      teamNumber: 1,
+      nickname: "Offline Nickname",
+      season: SEASON,
+      seasonStats: { record: { wins: 5, losses: 1, ties: 0 }, metrics: { total: { value: 40 } } },
+      events: [],
+      metricHistory: [],
+      // The publisher-owned fields a tick must not touch:
+      swingFactor: 33.25,
+      robotImageUrl: "https://example.test/robot.jpg",
+      activeYears: [2024, 2025, 2026],
+      ranks: { world: { rank: 7, total: 3706 } },
+    } as unknown as TeamSeasonArtifact;
+  }
+
+  function mergeOnto(existing: TeamSeasonArtifact): TeamSeasonArtifact {
+    const match = makeMatch();
+    return mergeTeamSeasonArtifact({
+      existing,
+      teamKey: TEAM,
+      season: SEASON,
+      algorithmId: "vpr",
+      algorithmVersion: "11.0.0+rolling-2026-09e",
+      eventKey: match.eventKey,
+      matches: [match],
+      predictions: new Map([[match.matchKey, makePrediction()]]),
+      metrics: METRICS,
+      matchIndexByKey: new Map([[match.matchKey, 0]]),
+      stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
+    }) as TeamSeasonArtifact;
+  }
+
+  it("keeps the Swing Factor a live tick does not compute", () => {
+    expect(mergeOnto(existingArtifact()).swingFactor).toBe(33.25);
+  });
+
+  it("keeps the robot photo, the active-years list and the rank scopes", () => {
+    const merged = mergeOnto(existingArtifact()) as TeamSeasonArtifact & { activeYears?: readonly number[] };
+    expect(merged.robotImageUrl).toBe("https://example.test/robot.jpg");
+    expect(merged.activeYears).toEqual([2024, 2025, 2026]);
+    expect(merged.ranks).toEqual({ world: { rank: 7, total: 3706 } });
+  });
+
+  it("still OVERRIDES every field the tick genuinely owns, so the spread cannot mask stale data", () => {
+    const merged = mergeOnto(existingArtifact());
+    // Stamp and record advance; the offline values must not survive.
+    expect(merged.generation).toBe("live-generation");
+    expect(merged.computedAt).toBe("2026-09-08T00:00:00.000Z");
+    expect(merged.seasonStats.record).toEqual({ wins: 6, losses: 1, ties: 0 });
+    expect(merged.seasonStats.metrics.total?.value).toBe(42);
+    expect(merged.events).toHaveLength(1);
+    expect(merged.metricHistory).toHaveLength(1);
+  });
+
+  it("is unchanged for a first-ever artifact, where there is nothing to preserve", () => {
+    const artifact = mergeOne(makeMatch());
+    expect(artifact).not.toHaveProperty("swingFactor");
+    expect(artifact.teamNumber).toBe(1);
+  });
+});

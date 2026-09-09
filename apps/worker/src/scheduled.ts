@@ -649,7 +649,27 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     metrics: roundTeamMetricRecord(metrics),
   }));
 
+  // The leading spread is load-bearing, not tidiness (quick task 260908-5wd).
+  //
+  // This function used to construct a fresh object naming twelve fields, which
+  // meant every OTHER field the offline publisher wrote was DROPPED the first
+  // time a live tick touched a team. Measured against the schema, a touched
+  // team was silently losing `ranks` (its rank cards), `robotImageUrl` (its
+  // photo, replaced by the no-photo tile), `activeYears` (narrowing its year
+  // dropdown) and, as of this task, `swingFactor` (its ±) — for the rest of the
+  // event, until the next offline publish put them back.
+  //
+  // `existing` has already been through `TeamSeasonArtifactSchema.parse`, which
+  // strips unknown keys, so this spread carries exactly the schema's own
+  // optional fields and cannot smuggle anything else onto the wire.
+  //
+  // EVERY field this tick genuinely recomputes is still listed explicitly
+  // BELOW the spread, and must stay listed: a reader has to be able to see what
+  // a tick owns without diffing against the schema. Adding a field here is how
+  // the drop happens again — if a future field is tick-owned, name it; if it is
+  // publisher-owned, the spread already handles it.
   return {
+    ...existing,
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: stamp.generation,
     computedAt: stamp.computedAt,
@@ -1085,7 +1105,14 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
       ...existingRows.filter((row) => !touchedKeys.has(row.teamKey)),
       ...[...teamInfos.entries()].map(([teamKey, info]) => {
         const prior = existingRows.find((row) => row.teamKey === teamKey);
+        // Leading spread for the same reason as `mergeTeamSeasonArtifact`'s
+        // (quick task 260908-5wd): this row used to be constructed field-by-
+        // field, so a touched team silently lost every optional field the
+        // offline publisher wrote — `country`, `stateProv`, `districtKey`
+        // (its region, and with it its district/state rank scopes) and, as of
+        // this task, `swingFactor`. Tick-owned fields stay listed below.
         return {
+          ...prior,
           teamKey,
           teamNumber: prior?.teamNumber ?? fallbackTeamNumber(teamKey),
           nickname: prior?.nickname ?? "",

@@ -845,6 +845,77 @@ describe("runTick — global rebuild (D-16)", () => {
       expect(written.teams.some((t) => t.teamKey === teamKey)).toBe(true);
     }
   });
+
+  /**
+   * Quick task 260908-5wd: a TOUCHED row must keep the fields the offline
+   * publisher owns. The test above proves an UNTOUCHED row survives; this one
+   * covers the case that was actually broken — the rebuild rebuilt each touched
+   * row field-by-field, so a team that played a match silently lost its region
+   * (and with it its district/state rank scopes) and its Swing Factor until the
+   * next offline publish.
+   */
+  it("260908-5wd: a TOUCHED team's row keeps its offline-published swingFactor and region fields", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+
+    const teamsKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    await r2.put(
+      teamsKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "gen-0",
+        computedAt: "2026-08-01T00:00:00.000Z",
+        algorithmId: "opr",
+        algorithmVersion: opr.version,
+        season: SEASON,
+        teams: [
+          {
+            // frc1 is in RED_TEAMS, so this tick TOUCHES it.
+            teamKey: "frc1",
+            teamNumber: 1,
+            nickname: "Touched Team",
+            record: { wins: 2, losses: 0, ties: 0 },
+            metrics: { total: { value: 10, spread: 1 } },
+            eventCount: 1,
+            matchCount: 2,
+            swingFactor: 27.5,
+            country: "USA",
+            stateProv: "CA",
+            districtKey: "2026fim",
+          },
+        ],
+      })
+    );
+
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.globalRebuildRan).toBe(true);
+
+    const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
+    const written = JSON.parse(teamsPut!.body) as {
+      teams: { teamKey: string; swingFactor?: number; country?: string; stateProv?: string; districtKey?: string; matchCount: number }[];
+    };
+    const touched = written.teams.find((t) => t.teamKey === "frc1");
+    expect(touched).toBeDefined();
+
+    // Publisher-owned: preserved through the tick.
+    expect(touched!.swingFactor, "a live tick must not delete a published Swing Factor").toBe(27.5);
+    expect(touched!.country).toBe("USA");
+    expect(touched!.stateProv).toBe("CA");
+    expect(touched!.districtKey).toBe("2026fim");
+
+    // Tick-owned: still advanced, so the spread cannot be masking stale data.
+    expect(touched!.matchCount).toBe(3);
+  });
 });
 
 describe("runTick — official-play scope on the global rebuild feed (quick task 260904-586)", () => {
