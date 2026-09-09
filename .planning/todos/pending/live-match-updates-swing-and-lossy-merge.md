@@ -8,6 +8,13 @@ priority: high
 
 # Plan: make live match updates carry the SigmaScout layer
 
+> **STATUS 2026-09-09 — defects 1 and 3 are FIXED; defect 2 remains.**
+> Defect 1 (live ticks deleting offline-published fields) shipped in `94b4ccd3`, with three tests
+> confirmed to fail with the fix reverted. Defect 3 (the silent Sigma1 fallthrough that would have
+> folded live events with the wrong model under BPR's id, plus BPR's missing shape guard) shipped
+> in `e50bacd5`. **Defect 2 — the Worker's swing accumulator and the shape bump 9 → 10 — is the
+> only part left, and it should ride the BPR re-seed.** See `00-sigmascout-layer-roadmap.md`.
+
 Investigated 2026-09-08 against the live Worker. **Three separate defects**, only one of which is
 the feature request. They are ordered below by urgency, not by size, because the first one starts
 destroying published data the moment the in-flight republish lands.

@@ -8,6 +8,13 @@ priority: high
 
 # Making VPR's three privileges algorithm-agnostic
 
+> **STATUS 2026-09-09.** VPR is REMOVED from the site (`eae2defb`) — not offered, not folding
+> live, not in the methodology; BPR is the premier algorithm. The ranking-point machinery was
+> lifted out of `sigma1/` into `packages/core/rankingPoints/` (`708ab089`) before it could be
+> deleted with the retired algorithm, so privilege 3 is now an adapter away rather than a rewrite.
+> Privilege 1 (live updates for every algorithm) is unchanged and still blocked by the subrequest
+> arithmetic below. See `00-sigmascout-layer-roadmap.md` for the sequenced list.
+
 The developer's framing from the Swing Factor work applies here too: there is the ALGORITHM
 (level 1, predicts scores) and there are SIGMASCOUT'S FEATURES (level 2, built on top and computed
 identically for every algorithm). VPR is currently special in three ways, and each is a level-2
