@@ -44,10 +44,10 @@
  * asserts that absence.
  */
 
-export const SWING_PAGE_TITLE = "Swing Factor and the match band";
+export const SWING_PAGE_TITLE = "Swing Score and the match band";
 
 export const SWING_LEAD =
-  "Ratings on this site can carry a grey number after a ± sign, and match rows can carry two coloured bars. Both come from one idea: how much does a robot's contribution move from one match to the next. This page shows how that number is worked out, what it tells you, and where it runs out.";
+  "Teams on this site carry a number called Swing, and match rows carry two coloured bars. Both come from one idea: how much does a robot's contribution move from one match to the next. This page shows how that number is worked out, what it tells you, and where it runs out.";
 
 export const SWING_FIGURE_IDS = ["even-split", "deviations", "same-rating", "squares-add", "match-band"] as const;
 export type SwingFigureId = (typeof SWING_FIGURE_IDS)[number];
@@ -80,7 +80,7 @@ export const SWING_FIGURES: readonly SwingFigure[] = [
     id: "deviations",
     title: "One team's misses across ten matches, with the newest matches counting most",
     caption:
-      "Example misses for one team, oldest at the left. Darker dots count more, because recent matches carry more weight. The dashed line is that team's own average miss. The shaded band is one Swing Factor either side of it.",
+      "Example misses for one team, oldest at the left. Darker dots count more, because recent matches carry more weight. The dashed line is that team's own average miss. The shaded band is one Swing Score either side of it.",
     illustrative: true,
   },
   {
@@ -146,9 +146,9 @@ export const SWING_SECTIONS: readonly SwingSection[] = [
       "Recent matches count more. Each match further back counts about 0.89 as much as the one after it. Stack that up and a match 6 back counts half as much as the newest one, which is why 6 is called the half life.",
       "Then measure how spread out those misses are around the team's own average miss, not around zero. That step is called centring, and it is what turns this into a number about the robot.",
       "Here is why. A model that misses a team by the same amount in every single match has shown no swing at all. The steady gap is the model's problem, not the robot's. Measured on OPR before centring, one team came out at ±298.92 against a rating of 322.42, and almost all of that was steady bias rather than anything the robot did.",
-      "Multiply the spread by 1.92 so the answer reads in points. That is the Swing Factor.",
-      "It needs at least two played matches. One match cannot tell a steady bias apart from a real swing, so a team with a single match gets no Swing Factor at all.",
-      "A Swing Factor of exactly 0 is a real answer, not a bug. A robot the model misses by the same amount every time is perfectly consistent.",
+      "Multiply the spread by 1.92 so the answer reads in points. That is the Swing Score.",
+      "It needs at least two played matches. One match cannot tell a steady bias apart from a real swing, so a team with a single match gets no Swing Score at all.",
+      "A Swing Score of exactly 0 is a real answer, not a bug. A robot the model misses by the same amount every time is perfectly consistent.",
       "All of this happens once, when the site publishes its data. Your browser never runs the calculation, so the same number shows up on a team page and on an event page.",
     ],
   },
@@ -157,11 +157,11 @@ export const SWING_SECTIONS: readonly SwingSection[] = [
     heading: "What a big swing means",
     figureId: "same-rating",
     paragraphs: [
-      "The ± is not how sure the site is about the rating. It is how much a robot's contribution moves from match to match.",
-      "A robot with a small ± plays about the same every match. A robot with a large ± might dominate one match and barely show up in the next. Two robots can carry the exact same rating and a completely different ±.",
-      "Which one you want depends on where you are sitting. A top seed picking first usually wants a low ±, a partner that turns up the same every match. A low seed hunting an upset wants a high ±, because it needs the variance to have any shot at all. Halfway through quals it is how you judge whether the partner you drew can be relied on.",
-      "You see it today as a grey ± beside the Total at the top of a team page, and in the Total column of the Teams list, to two decimals. The ± toggle in the ribbon at the top of the site turns every ± off at once.",
-      "It is worked out for every algorithm the site publishes, OPR, EPA and BPR, from nothing but the predicted score, the actual score and the roster. The same robot carries a different ± under each one, because each one misses by a different amount.",
+      "Swing Score is not how sure the site is about a rating. It is how much a robot's contribution moves from match to match.",
+      "A robot with a small Swing Score plays about the same every match. A robot with a large one might dominate one match and barely show up in the next. Two robots can carry the exact same rating and completely different Swing Scores.",
+      "Which one you want depends on where you are sitting. A top seed picking first usually wants a low Swing Score, a partner that turns up the same every match. A low seed hunting an upset wants a high one, because it needs the variance to have any shot at all. Halfway through quals it is how you judge whether the partner you drew can be relied on.",
+      "It has its own column in the Teams list and its own tile at the top of a team page, both labelled Swing, to two decimals. It is one number per team rather than something printed after a rating. The ± switch in the ribbon at the top of the site hides it everywhere at once.",
+      "It is worked out for every algorithm the site publishes, OPR, EPA and BPR, from nothing but the predicted score, the actual score and the roster. The same robot carries a different Swing Score under each one, because each one misses by a different amount.",
     ],
   },
   {
@@ -171,7 +171,7 @@ export const SWING_SECTIONS: readonly SwingSection[] = [
     paragraphs: [
       "An alliance is three robots, and their swings do not simply add up. Square each one, add the squares, then take the square root.",
       "Three robots at ±10 give ±17.32, not ±30. They do not all swing the same way in the same match, so some of the swing cancels itself out.",
-      "It is all or nothing. If any robot on the alliance has no Swing Factor yet, that alliance gets no band at all. Better no band than a band that is too tight, because a band drawn from part of the picture reads as confidence the site has not earned.",
+      "It is all or nothing. If any robot on the alliance has no Swing Score yet, that alliance gets no band at all. Better no band than a band that is too tight, because a band drawn from part of the picture reads as confidence the site has not earned.",
     ],
   },
   {
@@ -183,7 +183,7 @@ export const SWING_SECTIONS: readonly SwingSection[] = [
       "The soft bar covers one standard deviation either side of the predicted score, which is the range you would expect most results to land in. The solid tick inside the bar is the prediction itself. The ringed dot is what the alliance actually scored.",
       "The overlap between the two bars is the win probability, drawn instead of asserted. Heavy overlap means the match is close to a coin flip. Clean separation means a strong favourite.",
       "The band on any match uses only the matches played before it, never anything from later in the season, so it shows what was knowable at the time. It does not reset when a team travels to its second event.",
-      "A missing band is missing on purpose. One robot with no Swing Factor yet means no band for that whole alliance.",
+      "A missing band is missing on purpose. One robot with no Swing Score yet means no band for that whole alliance.",
     ],
   },
   {
@@ -195,7 +195,7 @@ export const SWING_SECTIONS: readonly SwingSection[] = [
       "Weighting recent matches beats a flat average by only 2.3%, and the code says so out loud instead of overselling it.",
       "The 1.92 scale came from 86,844 alliance observations. It checks how far alliances actually landed from their predictions against the three robots' own unscaled swing, which is a comparison against something the field really records.",
       "The first attempt at that scale was circular. It compared a team's miss against that same team's past misses and duly recovered about 1.0, which is what a circular test always does. That mistake is written into the code so nobody repeats it.",
-      "Both numbers are permanently shut out of parameter tuning. The tuner scores predictions and is blind to a display number, so letting it near these two could only ever chase a better looking ±.",
+      "Both numbers are permanently shut out of parameter tuning. The tuner scores predictions and is blind to a display number, so letting it near these two could only ever chase a better looking Swing Score.",
     ],
   },
   {

@@ -62,8 +62,8 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   },
   {
     to: "/methodology/swing",
-    title: "Swing Factor and the match band",
-    blurb: "What the grey ± beside a rating means, and how to read the coloured bars on a match row.",
+    title: "Swing Score and the match band",
+    blurb: "What a team's Swing number means, and how to read the coloured bars on a match row.",
     testId: "methodology-card-swing",
   },
   {

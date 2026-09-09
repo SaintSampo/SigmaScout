@@ -34,7 +34,7 @@ describe("METHODOLOGY_CARDS", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the Swing Factor card third and Acknowledgments last", () => {
+  it("keeps the Swing Score card third and Acknowledgments last", () => {
     expect(METHODOLOGY_CARDS[2]?.to).toBe("/methodology/swing");
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
@@ -58,7 +58,7 @@ describe("METHODOLOGY_CARDS", () => {
     }
   });
 
-  it("keeps the Swing Factor card's own copy free of all three dash characters", () => {
+  it("keeps the Swing Score card's own copy free of all three dash characters", () => {
     const swingCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/swing");
     expect(swingCard, "the swing card is gone from the hub").toBeDefined();
     for (const text of [swingCard?.title ?? "", swingCard?.blurb ?? ""]) {

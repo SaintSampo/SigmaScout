@@ -409,7 +409,7 @@ function SameRatingRow({
       <GutterLabel y={rowY - 10}>{teamLabel}</GutterLabel>
       <GutterLabel y={rowY + 4}>{`Total ${F3_EXAMPLE_TOTAL}`}</GutterLabel>
       <text x={GUTTER_TEXT_X} y={rowY + 20} textAnchor="end" fontSize={ANNOTATION_FONT} fill="var(--color-text-primary)">
-        {`±${swing.toFixed(2)}`}
+        {`Swing ${swing.toFixed(2)}`}
       </text>
       {misses.map((miss, index) => (
         <circle
