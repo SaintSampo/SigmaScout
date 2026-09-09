@@ -315,7 +315,7 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
-describe("SeasonHeader — browser-computed Swing Factor (quick task 260908-5wd)", () => {
+describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () => {
   afterEach(() => cleanup());
 
   function eventsWithOneMatch(overrides: Partial<TeamSeasonArtifact["events"][number]["matches"][number]> = {}) {
@@ -369,11 +369,14 @@ describe("SeasonHeader — browser-computed Swing Factor (quick task 260908-5wd)
     ] as TeamSeasonArtifact["events"];
   }
 
-  it("an OPR-shaped artifact (Total entry with no spread) renders a browser-computed ± on the Total tile", () => {
-    const artifact = baseArtifact({
-      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 42.1 } } },
-      events: eventsWithTwoMatches(),
-    });
+  it("an OPR-shaped artifact (Total entry with no spread) renders the PUBLISHED Swing Factor on the Total tile", () => {
+    const artifact = {
+      ...baseArtifact({
+        seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 42.1 } } },
+        events: eventsWithTwoMatches(),
+      }),
+      swingFactor: 18.5,
+    } as unknown as TeamSeasonArtifact;
 
     render(<SeasonHeader artifact={artifact} algorithmId="opr" season={2026} teamNumber={1114} />);
 

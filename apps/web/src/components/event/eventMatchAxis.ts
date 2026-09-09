@@ -1,5 +1,4 @@
 import { padAxisDomain, type AxisDomain } from "../team/matchAxis.js";
-import { allianceBandVariance, teamSwingFactorsFromMatches, walkForwardBandVariances } from "../../lib/allianceBand.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -228,63 +227,25 @@ export function mergeEventMatches(
     byMatchKey.set(match.matchKey, toRow(match, true));
   }
 
-  // Quick task 260908-5wd: the band becomes a property of the SITE rather than
-  // of VPR. Both maps are built from the UNFILTERED `matches` array on purpose
-  // — an Elims tab estimating swing from elimination matches alone would draw
-  // a different quantity than the Quals tab beside it. See
-  // `lib/allianceBand.ts` for the construction and its calibration.
+  // Quick task 260908-5wd: the band is a SIGMASCOUT-LAYER quantity published for
+  // EVERY algorithm — `√(Σ the three teams' Swing Factor²)`, computed once at
+  // publish time and attached to the one record both the event artifact and the
+  // team artifact are built from. So this reads it rather than deriving it, and
+  // a match's band is byte-identical on both pages by construction.
   //
-  // A PLAYED row gets its walk-forward band (only what was known before that
-  // match); an UPCOMING row gets the full played history, which is walk-forward
-  // for it by definition.
-  const playedBands = walkForwardBandVariances(matches);
-  const swingByTeam = teamSwingFactorsFromMatches(matches);
-  const rows = [...byMatchKey.values()].map((row) => {
-    const played = playedBands.get(row.matchKey);
-    const red = played !== undefined ? played.red : allianceBandVariance(row.redTeams, swingByTeam);
-    const blue = played !== undefined ? played.blue : allianceBandVariance(row.blueTeams, swingByTeam);
-    // Precedence, and each step is load-bearing:
-    //
-    //   1. `redSwingBandVariance` — the SIGMASCOUT-LAYER band, published for
-    //      EVERY algorithm since quick task 260908-5wd. Once a republish has
-    //      landed this is always the answer, and because the pipeline attaches
-    //      it to one shared record, the team page publishes the identical
-    //      number for the same match.
-    //   2. `redScoreVarianceOwn` — the ALGORITHM's own predictive variance, a
-    //      different quantity and a different level. Kept ONLY as the
-    //      pre-republish bridge: today's live artifacts have no swing field, and
-    //      dropping to the browser band here while the team page still read this
-    //      would make the two pages disagree during the migration window.
-    //   3. The browser band — what OPR and EPA get before a republish, where
-    //      neither field exists at all.
-    //
-    // Step 2 exists to be DELETED once every artifact carries step 1.
-    //
-    // A match must show the SAME uncertainty on a team page as on an event
-    // page.
-    //
-    // The team page cannot compute this band. Measured on `frc254`'s 2026
-    // artifact, the other teams in its matches appear a median of 2 times and
-    // only 52.6% appear even twice, so per-team swing is not estimable there —
-    // it reads the published field and always will. Overriding the published
-    // value HERE therefore does not remove a disagreement, it creates one: for
-    // BPR the same match read ±139 on the event page against ±76 on the team
-    // page, a median ratio of 1.65 across 150 alliance-observations.
-    //
-    // The original reason for overriding was that VPR's published variance did
-    // not reconcile with its teams' spreads (median 0.837). BPR's does — median
-    // 1.02 — so with VPR retiring, the defect that justified the override is
-    // retiring with it.
-    //
-    // Net effect: BPR and VPR show their published band on both pages, and OPR
-    // and EPA — which publish nothing at either level — gain a browser band on
-    // the event page where they previously had none.
-    return {
-      ...row,
-      redScoreVarianceOwn: row.redSwingBandVariance ?? row.redScoreVarianceOwn ?? red,
-      blueScoreVarianceOwn: row.blueSwingBandVariance ?? row.blueScoreVarianceOwn ?? blue,
-    };
-  });
+  // The browser-side estimator this file briefly carried is GONE (verified
+  // 2026-09-08: every season 2016-2026 publishes `swingFactor` for ~100% of
+  // teams, the residue being teams with fewer than two played matches, which
+  // correctly have none). `redScoreVarianceOwn` is deliberately NOT consulted as
+  // a fallback — it is the ALGORITHM's own predictive variance, a different
+  // quantity at a different level, published only by the algorithms that model
+  // one. Reading it here is what made the band a VPR privilege in the first
+  // place.
+  const rows = [...byMatchKey.values()].map((row) => ({
+    ...row,
+    redScoreVarianceOwn: row.redSwingBandVariance,
+    blueScoreVarianceOwn: row.blueSwingBandVariance,
+  }));
 
   return rows.sort(compareEventMatchRows);
 }

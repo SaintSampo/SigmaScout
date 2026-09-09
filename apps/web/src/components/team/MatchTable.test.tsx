@@ -133,8 +133,13 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     predictedBlueScore: 220,
     redTeams: ["frc118", "frc254", "frc971"],
     blueTeams: ["frc604", "frc1678", "frc2056"],
+    // Quick task 260908-5wd: the band is read from the SigmaScout-layer field,
+    // published for every algorithm. `*ScoreVarianceOwn` is kept in the fixture
+    // and deliberately NOT read — reading it is what made the band VPR-only.
     redScoreVarianceOwn: 100,
     blueScoreVarianceOwn: 64,
+    redSwingBandVariance: 100,
+    blueSwingBandVariance: 64,
     redRpPmf: [0.2, 0.5, 0.3],
     blueRpPmf: [0.5, 0.4, 0.1],
     ...overrides,
@@ -292,6 +297,8 @@ describe("MatchTable", () => {
             algorithmId: "opr",
             redScoreVarianceOwn: undefined,
             blueScoreVarianceOwn: undefined,
+            redSwingBandVariance: undefined,
+            blueSwingBandVariance: undefined,
             redRpPmf: undefined,
             blueRpPmf: undefined,
           }),

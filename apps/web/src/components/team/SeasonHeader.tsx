@@ -2,7 +2,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
-import { swingFactorForTeam } from "@/lib/swingFactor";
 import { tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -58,50 +57,31 @@ function formatWinRate(value: number | null): string {
 }
 
 /**
- * Browser-computed Swing Factor merge (quick task 260908-5wd) — the same
- * published-wins discipline `lib/metricGroups.ts`'s `withDerivedGroupMetrics`
- * already uses for phase groups, applied to Total's `spread`: fills the
- * `TOTAL_KEY` entry's `spread` ONLY when the entry exists and no `spread` was
- * published for it — VPR's own published spread is never touched. Consequence:
- * VPR renders exactly what it rendered before this task; OPR and EPA gain a
- * Swing Factor they never had; and the two can never disagree because they
- * never both exist for the same team at once.
+ * Shows the SIGMASCOUT-LAYER Swing Factor on the Total tile (quick task
+ * 260908-5wd), published for every algorithm since generation `40e7277d`.
  *
- * `untilMatchKey` carries the header's as-of instant down into the estimator.
- * This merge originally ran ONLY when no snapshot was in play, on the reasoning
- * that a whole-season `±` must not sit beside an as-of-then value. That
- * reasoning was right and the remedy was wrong: verified against live 2026 data
- * (2026-09-08), a real team's header almost always DOES resolve a snapshot, so
- * skipping meant OPR and EPA never showed a Swing Factor at all and the feature
- * was invisible in production while every unit test passed. Bounding the window
- * to the snapshot's own match satisfies the same honesty requirement without
- * costing the feature — the `±` and the value beside it now describe the same
- * span.
+ * It OVERRIDES the algorithm's own `spread` rather than filling a gap, and that
+ * is the point rather than an accident. The two are different levels: `spread`
+ * is the ALGORITHM's uncertainty about its own rating, which only some
+ * algorithms model at all, while Swing Factor is SigmaScout's scouting
+ * heuristic about how much the ROBOT varies match to match. The tile shows the
+ * latter, so it answers the same question whichever algorithm is selected —
+ * BPR publishes a `spread` of 12.46 for frc254 and the tile shows its Swing
+ * Factor of 76.42 instead.
+ *
+ * The browser-side estimator this once carried is gone, along with
+ * `lib/swingFactor.ts` and `lib/allianceBand.ts`. Verified before deleting:
+ * every season 2016-2026 publishes `swingFactor` for ~100% of teams, the
+ * residue being teams with fewer than two played matches, which correctly have
+ * none and render a bare value.
  */
-function withBrowserSwingFactor(
+function withPublishedSwingFactor(
   metrics: TeamSeasonArtifact["seasonStats"]["metrics"],
-  artifact: TeamSeasonArtifact,
-  untilMatchKey?: string
+  artifact: TeamSeasonArtifact
 ): TeamSeasonArtifact["seasonStats"]["metrics"] {
   const totalEntry = metrics[TOTAL_KEY];
   if (totalEntry === undefined) return metrics;
-
-  // PUBLISHED SigmaScout-layer Swing Factor wins outright, and it OVERRIDES the
-  // algorithm's own `spread` rather than merely filling a gap (quick task
-  // 260908-5wd). That is the two-level split: `spread` is the ALGORITHM's
-  // uncertainty about its own rating and only some algorithms have one, while
-  // Swing Factor is SigmaScout's scouting heuristic about the robot and every
-  // algorithm has one. The tile shows the latter, so it means the same thing
-  // whichever algorithm is selected.
-  const published = (artifact as { swingFactor?: number }).swingFactor;
-  if (published !== undefined) return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: published } };
-
-  // Pre-republish bridge, deletable once every artifact carries `swingFactor`:
-  // compute it here for algorithms that publish no spread at all (OPR, EPA),
-  // and otherwise leave the algorithm's own spread showing rather than blanking
-  // a number the page has always had.
-  if (totalEntry.spread !== undefined) return metrics;
-  const swingFactor = swingFactorForTeam(artifact, artifact.teamKey, { untilMatchKey });
+  const swingFactor = (artifact as { swingFactor?: number }).swingFactor;
   if (swingFactor === undefined) return metrics;
   return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: swingFactor } };
 }
@@ -156,7 +136,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // the snapshot's own match when `snapshotMatchKey` is supplied. See
   // `withBrowserSwingFactor` for why bounding replaced the original skip.
   const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
-  const metricsWithSwingFactor = withBrowserSwingFactor(resolvedMetrics, artifact, metricsOverride === undefined ? undefined : snapshotMatchKey);
+  const metricsWithSwingFactor = withPublishedSwingFactor(resolvedMetrics, artifact);
   const metrics = withDerivedGroupMetrics(metricsWithSwingFactor, season);
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component

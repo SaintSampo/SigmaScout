@@ -347,7 +347,7 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
             matchKey={match.matchKey}
             side="red"
             predicted={match.predictedRedScore}
-            sd={swingBandSd(match.redSwingBandVariance, match.redScoreVarianceOwn)}
+            sd={swingBandSd(match.redSwingBandVariance)}
             actual={match.actualRedScore}
             yBand={MATCH_GEOMETRY.Y_RED}
             domain={domain}
@@ -358,7 +358,7 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
             matchKey={match.matchKey}
             side="blue"
             predicted={match.predictedBlueScore}
-            sd={swingBandSd(match.blueSwingBandVariance, match.blueScoreVarianceOwn)}
+            sd={swingBandSd(match.blueSwingBandVariance)}
             actual={match.actualBlueScore}
             yBand={MATCH_GEOMETRY.Y_BLUE}
             domain={domain}
@@ -375,8 +375,8 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redSwingBandVariance ?? match.redScoreVarianceOwn} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueSwingBandVariance ?? match.blueScoreVarianceOwn} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redSwingBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueSwingBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
@@ -406,21 +406,18 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
 
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
 /**
- * The band's standard deviation, preferring the SIGMASCOUT-LAYER
- * `*SwingBandVariance` (quick task 260908-5wd) over the ALGORITHM's own
- * `*ScoreVarianceOwn`.
+ * The band's standard deviation, from the SIGMASCOUT-LAYER
+ * `*SwingBandVariance` published for every algorithm (quick task 260908-5wd).
  *
- * The two are different levels, not two spellings of one thing: the swing band
- * is `√(Σ the three teams' Swing Factor²)` and exists for EVERY algorithm,
- * while the algorithm variance is published only by the algorithms that model
- * one. The fallback is the pre-republish bridge and is meant to be deleted once
- * every artifact carries the swing band — the event page's own precedence
- * comment in `eventMatchAxis.ts` says the same, and the two must agree or a
- * match reads differently on the two pages.
+ * Deliberately does NOT fall back to the algorithm's own `*ScoreVarianceOwn`:
+ * that is a different quantity at a different level, published only by the
+ * algorithms that model their own predictive variance, and reading it is what
+ * made the band a VPR privilege before this task. Absent means absent — the
+ * opening matches of a team's season, where no roster member yet has the two
+ * observations a centred swing needs.
  */
-function swingBandSd(swingBandVariance: number | undefined, algorithmVariance: number | undefined): number | undefined {
-  const variance = swingBandVariance ?? algorithmVariance;
-  return variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
+function swingBandSd(swingBandVariance: number | undefined): number | undefined {
+  return swingBandVariance === undefined ? undefined : Math.sqrt(Math.max(0, swingBandVariance));
 }
 
 export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps) {

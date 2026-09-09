@@ -35,23 +35,6 @@ function makePlayedMatch(overrides: Record<string, unknown> = {}): EventMatch {
   } as unknown as EventMatch;
 }
 
-/**
- * Quick task 260908-5wd: the match band is no longer read from the artifact's
- * `redScoreVarianceOwn` — it is computed in the browser as √(Σ the three
- * teams' Swing Factors²), walk-forward, so it exists for EVERY algorithm
- * rather than VPR alone (`lib/allianceBand.ts`). A band therefore needs the
- * rostered teams to have at least two EARLIER played matches; a lone fixture
- * row legitimately has none.
- *
- * These two prior matches give `frc118`/`frc254` differing residuals so their
- * centred swing is positive, which is what makes a band render at all.
- */
-function priorPlay(): EventMatch[] {
-  return [
-    makePlayedMatch({ matchKey: "2022ilpe_qm1", compLevel: "qm", setNumber: 1, matchNumber: 1, actualRedScore: 150, actualBlueScore: 80 }),
-    makePlayedMatch({ matchKey: "2022ilpe_qm2", compLevel: "qm", setNumber: 1, matchNumber: 2, actualRedScore: 95, actualBlueScore: 115 }),
-  ];
-}
 
 function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomingMatch {
   return {
@@ -65,6 +48,10 @@ function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomi
     pRedWin: 0.55,
     predictedRedScore: 115,
     predictedBlueScore: 105,
+    // Quick task 260908-5wd: an upcoming row carries a published band too,
+    // built at publish time from every team's play so far.
+    redSwingBandVariance: 144,
+    blueSwingBandVariance: 169,
     ...overrides,
   } as unknown as EventUpcomingMatch;
 }
@@ -337,7 +324,7 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
 describe("Unplayed and absent-variance rows", () => {
   it("an unplayed elimination row renders both alliance bands and ticks and NO actual dot for either alliance; Actual and Call cells render an em-dash", () => {
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 16 })];
-    renderWithRouter(<ElimsTab artifact={makeArtifact({ matches: priorPlay(), upcoming })} algorithmId="vpr" season={2022} />);
+    renderWithRouter(<ElimsTab artifact={makeArtifact({ upcoming })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m2-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m2-red-tick")).toBeDefined();
@@ -349,7 +336,7 @@ describe("Unplayed and absent-variance rows", () => {
   });
 
   it("a row carrying neither variance field renders both ticks and no band for either alliance and does not throw", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined })];
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: undefined, blueSwingBandVariance: undefined })];
     expect(() => renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />)).not.toThrow();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
@@ -362,20 +349,20 @@ describe("Unplayed and absent-variance rows", () => {
   // byte-identical number the TEAM page shows for the same match — the team
   // page cannot compute the browser band and always reads the published field.
   it("a row carrying only the red variance field renders a red band and no blue band — the published value is honoured, not overridden", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 25, blueScoreVarianceOwn: undefined })];
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: 25, blueSwingBandVariance: undefined })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 
-  it("draws both bands once the rostered teams have two earlier played matches, with no published variance anywhere in the fixture", () => {
+  it("IGNORES the algorithm's own redScoreVarianceOwn — reading it is what made the band a VPR privilege", () => {
     const matches = [
-      ...priorPlay(),
-      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined }),
+      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 900, blueScoreVarianceOwn: 900, redSwingBandVariance: undefined, blueSwingBandVariance: undefined }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
-    expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
-    expect(screen.getByTestId("alliance-mark-qf1m1-blue-band")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
+    expect(screen.queryByTestId("alliance-mark-qf1m1-red-band")).toBeNull();
+    expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 });
 
@@ -449,13 +436,12 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
   it("two alliance bands whose predicted intervals exactly touch both render, each keeping its own colour and its own tick", () => {
     // Red predicted 100 ± 10 (band [90,110]); blue predicted 130 ± 20 (band [110,150]) — touching at 110.
     const matches = [
-      ...priorPlay(),
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
-        redScoreVarianceOwn: 100,
+        redSwingBandVariance: 100,
         predictedBlueScore: 130,
-        blueScoreVarianceOwn: 400,
+        blueSwingBandVariance: 400,
       }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
@@ -467,13 +453,12 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
 
   it("two alliance bands whose predicted intervals exactly COINCIDE both render, with two ticks", () => {
     const matches = [
-      ...priorPlay(),
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
-        redScoreVarianceOwn: 100,
+        redSwingBandVariance: 100,
         predictedBlueScore: 100,
-        blueScoreVarianceOwn: 100,
+        blueSwingBandVariance: 100,
       }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
@@ -484,16 +469,10 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
   });
 
   it("a row whose computed band is exactly 0 still renders both ticks and both bands — a zero-width band is a real state, not an absent one", () => {
-    // Quick task 260908-5wd: a zero band is now REACHABLE rather than merely
-    // asserted. Two earlier matches missed by the IDENTICAL amount give a
-    // centred swing of exactly 0 — a robot the model is consistently wrong
-    // about has no swing, and the constant is the model's problem. Both prior
-    // rows use the helper's default scores, so both deviations are the same.
-    const matches = [
-      makePlayedMatch({ matchKey: "2022ilpe_qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 }),
-      makePlayedMatch({ matchKey: "2022ilpe_qm2", compLevel: "qm", setNumber: 1, matchNumber: 2 }),
-      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined }),
-    ];
+    // A published zero is a REAL state — every rostered robot missed by the
+    // identical amount, so the centred swing is exactly 0 and the model's
+    // constant error is the model's problem, not the robot's.
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: 0, blueSwingBandVariance: 0 })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="vpr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
