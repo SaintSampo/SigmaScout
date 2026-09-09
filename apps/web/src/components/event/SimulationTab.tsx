@@ -81,23 +81,23 @@ export interface SimulationTabProps {
  * Whether ANY published algorithm can drive the rank simulation.
  *
  * Was `SIMULATION_ALGORITHM_ID = "vpr"` until 2026-09-09, when VPR left the
- * published set. It is now a capability question rather than an identity one,
- * which is the honest shape: the simulation needs per-match ranking-point
- * distributions (`redRpPmf`/`blueRpPmf`), and VPR was simply the only algorithm
- * that modelled them — measured 2026-09-09, BPR emits none and its presim
- * sidecar 404s where VPR's returned 200.
+ * published set and took ranking points with it — the tab went dark for every
+ * algorithm. It is a CAPABILITY question rather than an identity one, which is
+ * what let it come back for everyone at once rather than for a favoured id.
  *
- * So TODAY this is `false` and the Simulation trigger is disabled for every
- * algorithm. That is a real capability loss, recorded rather than hidden, and
- * the tab keeps its existing plain-disabled state rather than breaking.
+ * TRUE as of 2026-09-09: ranking points are now a SigmaScout-layer feature
+ * (`packages/core/rankingPoints/`), computed at publish time from observed
+ * results for EVERY algorithm — played rows, upcoming rows, and the
+ * pre-schedule sidecar alike. The simulation needs per-match RP distributions
+ * and every published artifact now carries them.
  *
- * It is deliberately a constant and NOT a hardcoded `false` inline: when
- * ranking points are rebuilt as a SigmaScout-layer feature (see
- * `.planning/todos/pending/vpr-retirement-make-features-algorithm-agnostic.md`),
- * this is the single place that flips, and the tab lights up for every
- * algorithm at once rather than for a favoured one.
+ * Still a constant rather than an inlined `true`: it is the one place to flip
+ * if RP ever stops being published, and the per-event/per-algorithm question
+ * ("does THIS artifact carry pmfs?") is answered separately and honestly by
+ * `hasSimulatableRankInputs` below, which reads the artifact rather than
+ * assuming.
  */
-export const SIMULATION_AVAILABLE = false;
+export const SIMULATION_AVAILABLE = true;
 
 /**
  * 08-UI-SPEC.md's Copywriting Contract, verbatim — the event genuinely has
