@@ -1,0 +1,32 @@
+TUNE LOGS - the ladder, every rung re-tuned with the 13 shared knobs UNLOCKED
+task: 260909-3oe    sweeps: 3 (tune.ts default)    design era 2016-2022 only
+
+Reference level: L0 = packages/bpr/frozen-params.json = 72.871% design accuracy.
+
+Note on tune.ts's acceptance rule, because it explains several lines below that
+otherwise look like regressions: better() has an ACC_NOISE deadband of 0.05pp.
+Inside that band it falls through to a LOG LOSS tiebreak, so the search will
+accept a move that lowers accuracy by up to 0.05pp if log loss improves. Every
+"-> acc=" line below that appears to go down is such a move.
+
+================================================================================
+L1 = L0 + side bias, re-tuned
+  BPR_SEED=packages/bpr/frozen-params.json
+  BPR_SKIP_KEYS=obsSdSlope,foulObsSd,foulQ,foulPriorVar,elimWeight,defPriorVar,defQ,huberK
+  unlocked: the 13 shared knobs + biasLr
+================================================================================
+[tune] seeded from packages/bpr/frozen-params.json
+[bpr] loaded 152757 matches in 2734ms
+[tune] start acc=72.871 ll=0.5295
+[tune] sweep1 biasLr=0.001 -> acc=73.035 ll=0.5293
+[tune] sweep2 priorVar=0.05 -> acc=73.030 ll=0.5293
+[tune] sweep2 seasonVar=0.01 -> acc=73.108 ll=0.5291
+[tune] sweep3 qSlow=0.00005 -> acc=73.086 ll=0.5291
+FINAL: acc=73.086  ll=0.52907  brier=0.17537   biasLr=0.001
+
+  START 72.871 -> FINAL 73.086 = +0.215pp on the LEVEL.
+  biasLr alone bought +0.164pp of that in sweep 1, reproducing 260909-25z's
+  decomposition exactly. The shared knobs then re-fit around it (priorVar
+  0.1->0.05, seasonVar 0.03->0.01, qSlow 0.00002->0.00005) for the remainder.
+  That re-fit is the F-23 fix doing its job: the side bias was measured with
+  the rest of the model free to move, not pinned at another model's optimum.

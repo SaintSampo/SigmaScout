@@ -1,0 +1,137 @@
+[bpr] loaded 152757 matches in 3251ms
+=== CONTRAST C1 ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: packages/bpr/frozen-params.json
+  CANDIDATE: .planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: full
+  paired units: 82735   jsonl: reports/260909-3oe/C1.jsonl
+
+INCUMBENT packages/bpr/frozen-params.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146     269   70.46  0.1845  0.5533
+  2017   15364   15103    261       1   67.24  0.2036  0.6016
+  2018   16889   16861     28       0   74.40  0.1716  0.5140
+  2019   17972   17664    308       0   73.24  0.1750  0.5333
+  2020    4644    4618     26       0   72.76  0.1766  0.5287
+  2022   14603   14427    176       0   78.75  0.1429  0.4457
+  TOTAL  82735   81790    945     270   72.87  0.1756  0.5295
+
+CANDIDATE .planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+  LEVELS  incumbent acc 72.871%  brier 0.17559  ll 0.52954
+          candidate acc 73.086%  brier 0.17537  ll 0.52907
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.215pp SE 0.0644 95% [0.091, 0.340] excl0 YES  |  dBrier  -0.00022 95% [-0.00040, -0.00006] excl0 YES
+  ex-no-call             n= 82465 events= 911  dAcc   +0.063pp SE 0.0591 95% [-0.049, 0.177] excl0 no   |  dBrier  -0.00022 95% [-0.00040, -0.00006] excl0 YES
+  ex-2016                n= 69472 events= 775  dAcc   +0.064pp SE 0.0669 95% [-0.070, 0.194] excl0 no   |  dBrier  -0.00033 95% [-0.00052, -0.00015] excl0 YES
+  champs (type 2,3,4)    n= 11728 events= 108  dAcc   -0.009pp SE 0.1515 95% [-0.308, 0.288] excl0 no   |  dBrier  +0.00046 95% [0.00005, 0.00088] excl0 YES
+  non-champs             n= 71007 events= 803  dAcc   +0.252pp SE 0.0699 95% [0.116, 0.391] excl0 YES  |  dBrier  -0.00033 95% [-0.00052, -0.00015] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 270
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     270
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=  268  candidate correct   125 ( 46.64%)  red won   132 ( 49.25%)  best deterministic   136 ( 50.75%, always-BLUE)
+  quals (compLevel=qm)           n=  268  candidate correct   125 ( 46.64%)  red won   132 ( 49.25%)  best deterministic   136 ( 50.75%, always-BLUE)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=269  2017=1
+
+================================================================================
+STEP 4 - THE DETERMINISTIC TIE-BREAK QUESTION, SETTLED
+================================================================================
+
+Accuracy denominator = 82,735 paired units - 945 ties = 81,790.
+
+THE ARITHMETIC, and it reconciles exactly.
+
+  Incumbent (L0) no-calls 268 DECIDED matches. Under D-Q3 an exact-0.5
+  prediction on a decided match is a MISS, so the incumbent scores 0 of 268.
+
+  L1 calls 125 of those 268 correctly            = 46.64%
+  A deterministic ALWAYS-RED rule would score 132 = 49.25%   (the red-win rate)
+  A deterministic ALWAYS-BLUE rule would score 136 = 50.75%  (its complement)
+  Best zero-parameter tie-break                   = 50.75%
+
+  Contribution to the paired accuracy delta:
+    L1's no-call resolution      125 / 81,790 = +0.1528pp
+    best deterministic tie-break 136 / 81,790 = +0.1663pp
+
+  Cross-check against the measured rows, which closes exactly:
+    as-scored delta   +0.215pp x 81,790 / 100 = 175.8 matches
+    minus no-call units                          -125.0 matches
+    leaves                                        =  50.8 matches
+    50.8 / (81,790 - 268) = +0.0623pp, and the measured ex-no-call row is
+    +0.063pp. The decomposition is arithmetically closed, not approximate.
+
+THE ANSWER, in one line:
+
+  A zero-parameter deterministic tie-break BEATS the learned side bias on
+  exactly the units where the side bias earns its margin - 50.75% versus
+  46.64%, 136 matches versus 125, worth +0.1663pp versus +0.1528pp.
+
+  The learned side bias is WORSE THAN A COIN FLIP on these units (46.64%). It
+  is not extracting a signal from them; it is converting a guaranteed miss into
+  a slightly-worse-than-even guess, and being credited for the conversion.
+
+QUALS AND ELIMS, KEPT APART as model.ts:88-100 requires:
+
+  quals (compLevel=qm): n=268 - ALL of them.
+  elims (compLevel!=qm): n=0 - NONE.
+
+  Every single no-call unit in the design era is a QUALIFICATION match. The
+  elimination seeding signal that model.ts documents (elims run 63-78% red
+  because the higher seed is placed on red) contributes NOTHING to the no-call
+  block, because there are no elimination no-calls to contribute to. Cold-start
+  tie-breaking and elimination seeding are therefore fully separated here by
+  the data itself, not by an analytical choice:
+
+    - the COLD-START effect is 100% of the no-call block, all quals, and it is
+      the effect a zero-parameter rule beats;
+    - the ELIMINATION SEEDING effect, whatever it is worth, lives entirely
+      OUTSIDE the no-call block, in the ex-no-call rows.
+
+  So the ex-no-call row (+0.063pp, 95% [-0.049, 0.177]) is where the
+  elimination seeding signal would have to show up if it were paying for
+  itself. Its interval includes zero.
+
+SEASON CONCENTRATION: incumbent no-calls by season 2016=269, 2017=1, and zero
+in 2018, 2019, 2020, 2022. The phenomenon is a first-season cold-start artifact
+and it vanishes the moment the model is warm.
+
+L1 PROMOTION SCORECARD (LADDER-RULE.md item 9, combined/as-scored):
+  (i)   Rule A: dAcc +0.215pp > 0 AND dBrier -0.00022 < 0        PASS
+  (ii)  Signal: 95% [0.091, 0.340] excludes zero                  PASS
+  (iii) Bar:    +0.215pp >= 0.169pp                               PASS
+  => L1 EARNS ITS PLACE on design data.
+
+L1 FIRE SCORECARD (LADDER-RULE.md item 12, vs frozen-params.json):
+  (i)   Rule A on as-scored                                       PASS
+  (ii)  Signal on as-scored                                       PASS
+  (iii) Persistence on EX-NO-CALL: +0.063pp, 95% [-0.049, 0.177]
+        INCLUDES ZERO                                             FAIL
+  => DO NOT FIRE on L1.
+
+Note the champs slice: dAcc -0.009pp and dBrier +0.00046 (interval excludes
+zero in the WRONG direction). L1 is very slightly worse at champs on Brier.
+Recorded, not weighted - the promotion rule reads the combined pairing.

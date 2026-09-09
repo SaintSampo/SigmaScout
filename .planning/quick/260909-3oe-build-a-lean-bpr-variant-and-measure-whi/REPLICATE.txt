@@ -1,0 +1,81 @@
+[bpr] loaded 152757 matches in 3005ms
+=== CONTRAST REPLICATE ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: packages/bpr/frozen-params.json
+  CANDIDATE: .planning/quick/260909-25z-re-bootstrap-the-full-23-knob-vs-parsimo/retune-full.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: full
+  paired units: 82735   jsonl: reports/260909-3oe/REPLICATE.jsonl
+
+INCUMBENT packages/bpr/frozen-params.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146     269   70.46  0.1845  0.5533
+  2017   15364   15103    261       1   67.24  0.2036  0.6016
+  2018   16889   16861     28       0   74.40  0.1716  0.5140
+  2019   17972   17664    308       0   73.24  0.1750  0.5333
+  2020    4644    4618     26       0   72.76  0.1766  0.5287
+  2022   14603   14427    176       0   78.75  0.1429  0.4457
+  TOTAL  82735   81790    945     270   72.87  0.1756  0.5295
+
+CANDIDATE .planning/quick/260909-25z-re-bootstrap-the-full-23-knob-vs-parsimo/retune-full.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.56  0.1839  0.5517
+  2017   15364   15103    261       0   67.28  0.2032  0.6004
+  2018   16889   16861     28       0   74.85  0.1696  0.5095
+  2019   17972   17664    308       0   73.47  0.1744  0.5320
+  2020    4644    4618     26       0   73.06  0.1766  0.5287
+  2022   14603   14427    176       0   79.20  0.1420  0.4435
+  TOTAL  82735   81790    945       1   73.29  0.1747  0.5275
+
+  LEVELS  incumbent acc 72.871%  brier 0.17559  ll 0.52954
+          candidate acc 73.291%  brier 0.17470  ll 0.52745
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.421pp SE 0.0760 95% [0.270, 0.569] excl0 YES  |  dBrier  -0.00089 95% [-0.00114, -0.00063] excl0 YES
+  ex-no-call             n= 82465 events= 911  dAcc   +0.277pp SE 0.0707 95% [0.139, 0.419] excl0 YES  |  dBrier  -0.00089 95% [-0.00114, -0.00064] excl0 YES
+  ex-2016                n= 69472 events= 775  dAcc   +0.291pp SE 0.0815 95% [0.138, 0.452] excl0 YES  |  dBrier  -0.00095 95% [-0.00124, -0.00066] excl0 YES
+  champs (type 2,3,4)    n= 11728 events= 108  dAcc   +0.587pp SE 0.2386 95% [0.132, 1.061] excl0 YES  |  dBrier  -0.00187 95% [-0.00280, -0.00096] excl0 YES
+  non-champs             n= 71007 events= 803  dAcc   +0.393pp SE 0.0783 95% [0.243, 0.545] excl0 YES  |  dBrier  -0.00073 95% [-0.00099, -0.00047] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 270
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     270
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=  268  candidate correct   118 ( 44.03%)  red won   132 ( 49.25%)  best deterministic   136 ( 50.75%, always-BLUE)
+  quals (compLevel=qm)           n=  268  candidate correct   118 ( 44.03%)  red won   132 ( 49.25%)  best deterministic   136 ( 50.75%, always-BLUE)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=269  2017=1
+
+================================================================================
+REPLICATION VERDICT: PASS. The instrument is proven before use.
+================================================================================
+
+Target (260909-25z Arm B, the governing arm of the predecessor):
+  dAcc +0.421pp   95% [0.270, 0.569]   dBrier -0.00089   n=82,735   events=911
+
+Measured here by the copied script:
+  dAcc +0.421pp   95% [0.270, 0.569]   dBrier -0.00089   n=82,735   events=911
+
+Exact agreement to the printed precision on every field. Same seed, same
+statistics, same scoring path - it is a copy, so it had to agree, and it does.
+Every rung measured after this point is measured by a proven instrument.
+
+TWO FREE CORROBORATIONS. The predecessor stated in prose, without printing the
+intervals, that dropping no-calls takes the gap 0.421 -> 0.277 and dropping 2016
+takes it to 0.291. Both reproduce exactly, now WITH intervals:
+  ex-no-call  +0.277pp  95% [0.139, 0.419]  excludes zero
+  ex-2016     +0.291pp  95% [0.138, 0.452]  excludes zero
+
+These are the L0->L3 rows Task 4's residual accounting needs, obtained at no
+extra cost.
