@@ -19,7 +19,11 @@
  * this reason; this file follows that same established convention.
  */
 export interface MethodologyCardDescriptor {
-  readonly to: "/methodology/epa-vs-statbotics" | "/methodology/compare" | "/methodology/acknowledgments";
+  readonly to:
+    | "/methodology/epa-vs-statbotics"
+    | "/methodology/compare"
+    | "/methodology/swing"
+    | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
   readonly testId: string;
@@ -28,8 +32,20 @@ export interface MethodologyCardDescriptor {
 /**
  * The first card's slot (quick task 260908-n5o) previously held the former
  * Intro to VPR page, retired and purged as part of this same task. This
- * card takes its place, in the same first position — the hub still shows
- * exactly three cards.
+ * card takes its place, in the same first position.
+ *
+ * The hub shows FOUR cards as of quick task 260909-3fj, which added the Swing
+ * Factor page in third position and left Acknowledgments last.
+ *
+ * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
+ * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
+ * for the typed-search reason), so reordering these entries without also
+ * reordering that destructure would render the wrong blurb under the wrong
+ * title while every existing test stayed green. `methodologyCardData.test.ts`
+ * pins the order by equality for exactly that reason.
+ *
+ * A card's `title` must contain no regular expression metacharacter:
+ * `methodology.index.test.tsx` builds a `RegExp` straight from it.
  */
 export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
@@ -43,6 +59,12 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Algorithm accuracy",
     blurb: "How BPR's predictions score against OPR and EPA, season by season.",
     testId: "methodology-card-compare",
+  },
+  {
+    to: "/methodology/swing",
+    title: "Swing Factor and the match band",
+    blurb: "What the grey ± beside a rating means, and how to read the coloured bars on a match row.",
+    testId: "methodology-card-swing",
   },
   {
     to: "/methodology/acknowledgments",

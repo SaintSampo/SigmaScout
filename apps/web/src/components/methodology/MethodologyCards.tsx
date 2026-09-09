@@ -15,7 +15,8 @@ function preserveSearch(prev: Record<string, unknown>): never {
 
 /**
  * The `/methodology` hub's card grid (quick task 260905-phf Task 1; widened
- * to a third card by quick task 260905-tor).
+ * to a third card by quick task 260905-tor, and to a fourth — the Swing
+ * Factor page — by quick task 260909-3fj).
  *
  * Explicit `<Link>` elements — one per card — rather than a `.map()` over
  * `METHODOLOGY_CARDS` — same reasoning `Ribbon.tsx`'s `NavLinks` already
@@ -25,18 +26,33 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * resolution. `METHODOLOGY_CARDS` stays the single source of titles, blurbs
  * and order regardless.
  *
+ * BECAUSE the destructure below is POSITIONAL, `METHODOLOGY_CARDS`' order is
+ * load bearing: swapping two entries there without swapping the names here
+ * would render the wrong blurb under the wrong title with every existing test
+ * still green. `methodologyCardData.test.ts` pins that order by equality.
+ *
  * Whole-card links wearing `.event-card` (this app's shared card treatment,
  * `CalibrationSection.tsx`'s `.event-card ... shadow-sm` pattern) with a
  * border/shadow-only hover — no green fill, per the sketch-findings skill's
- * green-is-ink-not-paint rule. Grid is `md:grid-cols-3` (three cards, one
- * row on desktop); mobile stays a single column via the unprefixed `grid`.
+ * green-is-ink-not-paint rule. Grid is a ladder now that there are four
+ * cards: one column on mobile, two from `sm`, four in one row from `lg`.
+ * Deliberately NOT `md:grid-cols-4` — four cards across a ~768px tablet
+ * leaves each blurb about 24 characters wide, so the two-up step carries the
+ * middle of the range.
  */
 export function MethodologyCards() {
-  const [epaVsStatboticsCard, compareCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
-  if (epaVsStatboticsCard === undefined || compareCard === undefined || acknowledgmentsCard === undefined) return null;
+  const [epaVsStatboticsCard, compareCard, swingCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  if (
+    epaVsStatboticsCard === undefined ||
+    compareCard === undefined ||
+    swingCard === undefined ||
+    acknowledgmentsCard === undefined
+  ) {
+    return null;
+  }
 
   return (
-    <div className="grid gap-[var(--spacing-md)] md:grid-cols-3">
+    <div className="grid gap-[var(--spacing-md)] sm:grid-cols-2 lg:grid-cols-4">
       <Link
         to={epaVsStatboticsCard.to}
         search={preserveSearch}
@@ -54,6 +70,15 @@ export function MethodologyCards() {
       >
         <span className="text-role-heading text-[var(--color-text-primary)]">{compareCard.title}</span>
         <span className="text-role-body text-[var(--color-text-muted)]">{compareCard.blurb}</span>
+      </Link>
+      <Link
+        to={swingCard.to}
+        search={preserveSearch}
+        data-testid={swingCard.testId}
+        className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
+      >
+        <span className="text-role-heading text-[var(--color-text-primary)]">{swingCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{swingCard.blurb}</span>
       </Link>
       <Link
         to={acknowledgmentsCard.to}
