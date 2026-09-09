@@ -1,0 +1,65 @@
+GUARD PROOF - holdout unreachable paths, re-proved by RUNNING them
+date: 2026-09-09T17:05:53Z   HEAD: ae9e8e7d
+task: 260909-3oe (lean BPR ladder)
+
+=== GUARD 1: score.ts refuses a holdout year ===
+$ npx tsx packages/bpr/score.ts packages/bpr/frozen-params.json 2023
+      throw new Error(`score: ${y} is a holdout year - use holdout.ts, deliberately`);
+Error: score: 2023 is a holdout year - use holdout.ts, deliberately
+exit: 1
+
+=== GUARD 2: tune.ts refuses BPR_TUNE_YEARS=2023 (at module load, before any eval) ===
+$ BPR_TUNE_YEARS=2023 npx tsx packages/bpr/tune.ts
+      throw new Error(`tune: ${y} is a holdout year - tuning may never score it`);
+Error: tune: 2023 is a holdout year - tuning may never score it
+
+=== GUARD 3: holdout.ts refuses without --break-seal ===
+$ npx tsx packages/bpr/holdout.ts packages/bpr/frozen-params.json
+    throw new Error(
+Error: holdout: refusing to run without --break-seal.
+This evaluation is single-shot by design. Every extra run costs a
+little of the holdout's independence, so it must be deliberate.
+
+=== GUARD 4: slice.ts refuses a holdout season without --allow-holdout ===
+$ npx tsx packages/bpr/slice.ts packages/bpr/frozen-params.json 2023
+    throw new Error(`slice: ${year} is a holdout season; pass --allow-holdout to inspect`);
+Error: slice: 2023 is a holdout season; pass --allow-holdout to inspect
+
+=== GUARD 5: equivalence.ts halts after 2022 by default (grepped, not run - it is a long port-parity sweep) ===
+13: * HALTS at the end of 2022 unless `--include-holdout` is passed explicitly, so
+38:const LAST_DESIGN_YEAR = 2022;
+41:  const includeHoldout = process.argv.includes("--include-holdout");
+49:    if (!includeHoldout && m.year > LAST_DESIGN_YEAR) break;
+116:  console.log(`  scope: ${includeHoldout ? "2016-2026 (HOLDOUT INCLUDED)" : "design era only, halted after 2022"}`);
+129:  if (includeHoldout) {
+
+ALL FIVE GUARDS ARMED. The two holdout-read paths 260909-03b closed
+(equivalence.ts include-holdout default, slice.ts year default) are STILL closed.
+No 2023+ accuracy, Brier or log loss was produced or read by any command above.
+
+=== SEAL INVARIANTS ===
+
+$ git log --oneline -- packages/bpr/frozen-params.json
+a66688af freeze(bpr): seal parameters chosen on 2016-2022 only
+count = 1   (exactly one commit; the seal has never been rewritten)
+
+$ test -f reports/bpr-2023-test.jsonl
+absent (correct) - the single-shot 2023 test has not been run
+
+$ git status --porcelain -- packages/bpr/model.ts packages/core/algorithms/bpr.ts
+(empty) - the model and its shipped port are byte-identical to HEAD
+
+$ test -d reports/260909-3oe
+does not exist - no number produced by this task exists yet, which is what
+makes the LADDER-RULE.md commit provably a PRE-registration
+
+=== TEST SUITE (also the check that 260909-25z's deferred red is resolved) ===
+
+$ npx vitest run packages/bpr packages/harness
+ Test Files  47 passed (47)
+      Tests  1122 passed (1122)
+   Duration  14.37s
+
+The stale `sigma1/rp` import in packages/harness/browserSafeSchemas.test.ts that
+made this suite RED during 260909-25z is gone (708ab089 landed). Re-proved by
+running, not assumed.
