@@ -95,6 +95,16 @@ import {
 } from "./pageArtifacts.js";
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator } from "./swingFactor.js";
+import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
+
+/**
+ * Monte Carlo settings for the SigmaScout-layer RP draw. Explicit here rather
+ * than inherited from any algorithm's tuned parameter set — `moments.ts`
+ * requires a caller to choose its own. 4000 draws over ~19k qualification
+ * matches per season is cheap offline and well inside pmf rounding.
+ */
+const RP_MONTE_CARLO = { rpMonteCarloSeed: 0x5163_5f52, rpMonteCarloDraws: 4000 } as const;
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
@@ -2300,6 +2310,26 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const swingAccumulators = new Map<string, SwingFactorAccumulator>();
     for (const algorithm of options.algorithms) swingAccumulators.set(algorithm.id, new SwingFactorAccumulator());
 
+    // RANKING POINTS, likewise a SigmaScout-layer feature and likewise computed
+    // here rather than by any algorithm (quick task 260909, after VPR's
+    // retirement took RP with it). `RpMomentsAccumulator` learns each team's
+    // threshold-variable beliefs from OBSERVED results alone, so every
+    // algorithm gets ranking points — including OPR and EPA, which model no
+    // uncertainty at all.
+    //
+    // The score variance it needs is the SWING BAND computed just above: the
+    // one per-alliance variance every algorithm now has. That is the whole
+    // reason RP is reachable at all now and was not before.
+    //
+    // An algorithm that models its own RP (Sigma1 did) keeps whatever it
+    // produced — `prediction.redRpPmf` wins below — so this fills a gap rather
+    // than overriding a model.
+    const rpRuleModule = RP_RULE_MODULES[season];
+    const rpAccumulators = new Map<string, RpMomentsAccumulator>();
+    if (rpRuleModule !== undefined) {
+      for (const algorithm of options.algorithms) rpAccumulators.set(algorithm.id, new RpMomentsAccumulator(rpRuleModule));
+    }
+
     for (const r of records) {
       const swing = swingAccumulators.get(r.algorithmId)!;
       const redBandVariance = swing.bandVarianceFor(r.match.redTeams);
@@ -2307,12 +2337,53 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       swing.fold(r.match.redTeams, r.match.redScore, r.prediction.redScore);
       swing.fold(r.match.blueTeams, r.match.blueScore, r.prediction.blueScore);
 
+      // Predict-before-update again: read this match's pmf from history so far,
+      // then fold this match's observed threshold variables in.
+      const rpAccumulator = rpAccumulators.get(r.algorithmId);
+      let derivedRp: { redRpPmf?: readonly number[]; blueRpPmf?: readonly number[]; redBonusRp?: readonly number[]; blueBonusRp?: readonly number[] } = {};
+      if (rpAccumulator !== undefined && rpRuleModule !== undefined && isRpEligibleEventType(r.match.eventType)) {
+        if (redBandVariance !== undefined && blueBandVariance !== undefined) {
+          const pmf = rpPmfForMatch({
+            red: rpAccumulator.momentsFor(r.match.redTeams, r.prediction.redScore, redBandVariance),
+            blue: rpAccumulator.momentsFor(r.match.blueTeams, r.prediction.blueScore, blueBandVariance),
+            ruleModule: rpRuleModule,
+            eventType: r.match.eventType,
+            matchKey: r.match.matchKey,
+            compLevel: r.match.compLevel,
+            params: RP_MONTE_CARLO,
+          });
+          derivedRp = {
+            redRpPmf: pmf.redPmf,
+            blueRpPmf: pmf.bluePmf,
+            ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+            ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+          };
+        }
+        if (r.match.hasScoreBreakdown && r.match.scoreBreakdownRaw !== null) {
+          for (const side of ["red", "blue"] as const) {
+            try {
+              const parsed = rpRuleModule.parse(JSON.parse(r.match.scoreBreakdownRaw), side, r.match.eventType);
+              rpAccumulator.fold(side === "red" ? r.match.redTeams : r.match.blueTeams, parsed.thresholdVariables);
+            } catch {
+              // A breakdown this season's module cannot parse contributes
+              // nothing rather than aborting the publish — the same
+              // degrade-to-a-counted-skip discipline `parseBreakdown` uses.
+            }
+          }
+        }
+      }
+
       const pr: PredictionRecord = {
         match: r.match,
-        prediction: r.prediction,
         // One object, both maps below — the event page and the team page
         // cannot show different numbers for this match because there is only
         // one number.
+        //
+        // An algorithm that produced its own RP keeps it; ours fills the gap.
+        prediction:
+          r.prediction.redRpPmf !== undefined
+            ? r.prediction
+            : { ...r.prediction, ...derivedRp },
         ...(redBandVariance !== undefined || blueBandVariance !== undefined
           ? {
               swingBand: {
