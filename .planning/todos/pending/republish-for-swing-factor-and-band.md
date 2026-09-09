@@ -50,7 +50,7 @@ Do this only after confirming no artifact anywhere still lacks the fields (older
 
 See `live-match-updates-swing-and-lossy-merge.md`. Defect 1 there (live ticks deleting
 offline-published fields, which would have eaten `swingFactor` on any touched team) is **fixed**
-in `e50c7869`. Defects 2 and 3 remain.
+in `94b4ccd3`. Defects 2 and 3 remain.
 
 ---
 
