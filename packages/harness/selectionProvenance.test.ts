@@ -25,7 +25,7 @@ import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPa
 const INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH = join(
   "data",
   "algorithm-versions",
-  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09f.json`
+  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09g.json`
 );
 
 // The single agreement pin (quick task 260904-2i9): if `promotedVersionPath.ts`

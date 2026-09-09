@@ -216,7 +216,7 @@ describe("committed baseline fingerprints", () => {
     }
   });
 
-  it("data/algorithm-versions/ contains exactly the 4 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
+  it("data/algorithm-versions/ contains exactly the 5 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
     // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
     // against the live rolling-2026-09 set) added the fourth:
     // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
@@ -304,9 +304,28 @@ describe("committed baseline fingerprints", () => {
     // the number it posts — see the task's RESULTS.md. `09e` is retained
     // rather than retired: it is the last pin the live site was published
     // from, so deleting it would break the record of what R2 currently serves.
+    // 2026-09-08 adds the fifth, `vpr@11.0.0+rolling-2026-09g.json`, and it
+    // completes what `09f` started. `09f` re-fitted 2023 and 2024, the two
+    // seasons whose parameters had been selected IN-SAMPLE; `09g` re-fits the
+    // remaining three acceptance origins, which were blind but had been fitted
+    // to machinery 11.0.0 deleted — 2022 with a `maxTeamKalmanGain` selected
+    // jointly alongside its `attributionShrinkage`, 2025 and 2026 with
+    // adaptation enabled.
+    //
+    // 2022 is the substantive one: re-fitting without the deleted cap moved
+    // its shrinkage 0.844 -> 0.566 and gained +0.0172 accuracy at 6.1 sigma,
+    // Brier also better. 2025 and 2026 accepted on gains of 0.51 and 0.32
+    // sigma — statistically empty, and promoted for CONSISTENCY (every origin
+    // fitted to the model that actually ships) rather than for accuracy. Rule
+    // A has no magnitude requirement, so an empty gain passes it; saying so
+    // here keeps the census from reading as three wins.
+    //
+    // After `09g`, all five acceptance origins are blind (gate 5 reports
+    // inSample=false for 2022-2026) AND fitted under 11.0.0.
     ).toEqual([
       "vpr@11.0.0+rolling-2026-09e.json",
       "vpr@11.0.0+rolling-2026-09f.json",
+      "vpr@11.0.0+rolling-2026-09g.json",
       "vpr@11.0.0+tracer-check.json",
       "vpr@11.0.0+tuned-2026-08.json",
     ]);
