@@ -1436,6 +1436,27 @@ event rank/total) — no other change landed on the per-team artifact this phase
 `packages/harness/payloadBudget.test.ts` passed against this unmodified document (10/10) with this
 projection in hand; no budget ceiling line was touched by this task.
 
+## Ceiling change 2026-09-09: `team` raised 400,000 -> 500,000
+
+**Raised on Jacob's explicit instruction, 2026-09-09.** This document carries a standing rule
+against widening a ceiling to make a run pass (see the 2026-08-27 and 2026-09-02 entries, both of
+which left an overage red rather than move the line). This entry is a deliberate override of that
+rule, recorded rather than quietly applied, because a ceiling that moves without a reason attached
+is exactly how a budget stops meaning anything.
+
+**Why now.** The last measured `team` max was 392,088 bytes against the old 400,000 ceiling —
+98.0%, with 7,912 bytes of headroom. That is not enough room to absorb an ordinary re-fit: the
+figure had just moved 377,250 -> 392,088 on the `vpr@11.0.0+rolling-2026-09g` re-fit alone, a
+jump larger than the remaining headroom. The ceiling was going to fail on model movement rather
+than on structural growth, which is the opposite of what it exists to catch.
+
+**What did NOT change.** `TEAM_PAGE_ABSOLUTE_MAX_BYTES` in `packages/harness/payloadBudget.test.ts`
+stays at 600,000. The new 500,000 sits below it, so the structural backstop is untouched and still
+fires first on genuine bloat. No other page kind's ceiling moved.
+
+**What to watch.** The largest `team` object is VPR's own `frc3538/2024`. Retiring VPR removes it
+outright, at which point this ceiling is worth re-measuring downward rather than left wide.
+
 ## The machine-readable block
 
 `packages/harness/payloadBudget.test.ts` parses this exact block — the tables above are the human
@@ -1459,7 +1480,7 @@ rendering of these same numbers, not a second source.
       "medianBytes": 30775,
       "p95Bytes": 93872,
       "maxBytes": 392088,
-      "budgetMaxBytes": 400000,
+      "budgetMaxBytes": 500000,
       "largestKey": "v1/team/frc3538/2024/vpr@11.0.0+rolling-2026-09g.json"
     },
     "events": {
