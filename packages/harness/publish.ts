@@ -97,6 +97,7 @@ import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type Team
 import { allianceSwingBandVariance, SwingFactorAccumulator } from "./swingFactor.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
+import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 
 /**
  * Monte Carlo settings for the SigmaScout-layer RP draw. Explicit here rather
@@ -651,6 +652,52 @@ function eventMatchBonusRpFields(
  * (T-04-22) — a validation failure throws here, before any caller could
  * possibly reach a `putObject` call.
  */
+/**
+ * Builds the `fillRankingPoints` wrapper a pre-schedule sidecar needs, or
+ * `undefined` when this season/algorithm has nothing to add (no rule module,
+ * or an algorithm that already models its own RP).
+ *
+ * `buildPreScheduleArtifact` probes its injected `predict` for a pmf and
+ * returns `null` without one, which is exactly why the sidecar was VPR-only.
+ * Wrapping at the seam rather than inside `preSchedule.ts` keeps that module
+ * owning no pricing math — it still sees one `predict`, whose RP is now filled
+ * the same way every real match's is.
+ *
+ * The synthetic matches a sidecar prices have no history of their own, so the
+ * moments come from every team's play SO FAR and the score variance from the
+ * same swing band the real matches use.
+ */
+function makeRankingPointFiller(
+  accumulator: RpMomentsAccumulator | undefined,
+  ruleModule: RpRuleModule | undefined,
+  swingByTeam: ReadonlyMap<string, number>
+): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
+  if (accumulator === undefined || ruleModule === undefined) return undefined;
+  return (match, prediction) => {
+    if (prediction.redRpPmf !== undefined) return prediction;
+    if (!isRpEligibleEventType(match.eventType)) return prediction;
+    const red = allianceSwingBandVariance(match.redTeams, swingByTeam);
+    const blue = allianceSwingBandVariance(match.blueTeams, swingByTeam);
+    if (red === undefined || blue === undefined) return prediction;
+    const pmf = rpPmfForMatch({
+      red: accumulator.momentsFor(match.redTeams, prediction.redScore, red),
+      blue: accumulator.momentsFor(match.blueTeams, prediction.blueScore, blue),
+      ruleModule,
+      eventType: match.eventType,
+      matchKey: match.matchKey,
+      compLevel: match.compLevel,
+      params: RP_MONTE_CARLO,
+    });
+    return {
+      ...prediction,
+      redRpPmf: pmf.redPmf,
+      blueRpPmf: pmf.bluePmf,
+      ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+      ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+    };
+  };
+}
+
 /**
  * One upcoming row's SigmaScout band as a SPREADABLE object, rounded once at
  * the publish boundary. Returns `{}` when any roster member has no Swing Factor
@@ -1535,6 +1582,18 @@ interface PreScheduleSidecarArgs {
   readonly hasCompletedMatches: boolean;
   /** Whether a season-final state exists for this algorithm — C-07's current-state pricing source for scheduleless events. */
   readonly hasSeasonFinalState: boolean;
+  /**
+   * Fills SigmaScout-layer ranking points onto a synthetic match's prediction
+   * when the algorithm itself models none (quick task 260909).
+   *
+   * `buildPreScheduleArtifact` probes the injected `predict` for a pmf and
+   * returns `null` without one, which is why the sidecar was VPR-only. The
+   * wrapper is applied at the seam below rather than inside `preSchedule.ts`,
+   * so that module still owns no pricing math and still sees exactly one
+   * `predict` — it simply gets one whose RP is filled the same way every real
+   * match's now is.
+   */
+  readonly fillRankingPoints?: (match: UpcomingMatch, prediction: Prediction) => Prediction;
   readonly seasonFinalState: unknown;
   readonly generation: string;
   readonly computedAt: string;
@@ -1643,7 +1702,10 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
       // so every published pmf is produced by the SAME `algorithm.predict()`
       // joint-covariance RP path real matches use — this module owns no
       // pricing math and no independence approximation can exist in it.
-      predict: (match) => args.algorithm.predict(pricingState, match),
+      predict: (match) => {
+        const prediction = args.algorithm.predict(pricingState, match);
+        return args.fillRankingPoints === undefined ? prediction : args.fillRankingPoints(match, prediction);
+      },
     });
   } catch (err) {
     if (err instanceof ScheduleTemplateUnavailableError) {
@@ -2556,9 +2618,46 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             matchesForEvent.map((match) => {
               const red = allianceSwingBandVariance(match.redTeams, swingByTeamForAlgo);
               const blue = allianceSwingBandVariance(match.blueTeams, swingByTeamForAlgo);
+              const prediction = algorithm.predict(state, match);
+
+              // RANKING POINTS for a NOT-YET-PLAYED match. This is the case the
+              // rank simulation actually consumes: it simulates the REMAINING
+              // schedule, so a pmf on played rows alone would enable the tab
+              // and give it nothing to draw. Built from every team's play so
+              // far, which is walk-forward for a match that has not happened.
+              //
+              // An algorithm that models its own RP keeps it, exactly as on
+              // the played path.
+              let upcomingRp: Partial<Prediction> = {};
+              const rpForAlgo = rpAccumulators.get(algorithm.id);
+              if (
+                prediction.redRpPmf === undefined &&
+                rpForAlgo !== undefined &&
+                rpRuleModule !== undefined &&
+                isRpEligibleEventType(match.eventType) &&
+                red !== undefined &&
+                blue !== undefined
+              ) {
+                const pmf = rpPmfForMatch({
+                  red: rpForAlgo.momentsFor(match.redTeams, prediction.redScore, red),
+                  blue: rpForAlgo.momentsFor(match.blueTeams, prediction.blueScore, blue),
+                  ruleModule: rpRuleModule,
+                  eventType: match.eventType,
+                  matchKey: match.matchKey,
+                  compLevel: match.compLevel,
+                  params: RP_MONTE_CARLO,
+                });
+                upcomingRp = {
+                  redRpPmf: pmf.redPmf,
+                  blueRpPmf: pmf.bluePmf,
+                  ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+                  ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+                };
+              }
+
               return {
                 match,
-                prediction: algorithm.predict(state, match),
+                prediction: { ...prediction, ...upcomingRp },
                 // One record object, shared by the event `upcoming` array and
                 // the per-team grouping below — so both carry the same band.
                 ...(red !== undefined || blue !== undefined
@@ -2806,6 +2905,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               seasonFinalState: state,
               generation,
               computedAt,
+              fillRankingPoints: makeRankingPointFiller(rpAccumulators.get(algorithm.id), rpRuleModule, swingByTeamForAlgo),
             })
           : undefined;
         if (sidecar !== undefined) {
