@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
 import { BonusRpDots } from "./BonusRpDots.js";
+import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
 // G-06.1-26 (plan 06.1-08, PD-19): imported directly from core rather than
@@ -28,6 +30,8 @@ export interface MatchTableProps {
   teamKey: string;
   /** Selects the season's bonus-RP set for the per-match dots — two bonuses for 2022–2024, three for 2025–2026. */
   season: number;
+  /** Carried onto each roster-number link so the destination keeps the reader's algorithm, exactly as `EventMatchTable` does. */
+  algorithm: PublishedAlgorithmId;
 }
 
 const COMP_LEVEL_LABELS: Record<TeamSeasonMatch["compLevel"], string> = {
@@ -269,7 +273,7 @@ function ActualScoreLine({
   );
 }
 
-function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string; tinted: boolean; season: number }) {
+function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match: TeamSeasonMatch; domain: AxisDomain; teamKey: string; tinted: boolean; season: number; algorithm: PublishedAlgorithmId }) {
   const played = match.actualWinner !== undefined;
   const teamIsRed = match.redTeams.includes(teamKey);
   const teamIsBlue = match.blueTeams.includes(teamKey);
@@ -324,18 +328,38 @@ function MatchRow({ match, domain, teamKey, tinted, season }: { match: TeamSeaso
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             <span className={cn("match-alliance-nums", teamIsRed && "match-alliance-nums--mine match-alliance-nums--red")}>
               {match.redTeams.map((key) => (
-                <span key={key} className={cn("match-alliance-num", key === teamKey && "match-alliance-num--own")}>
+                /* 2026-09-08: every roster number is the way to that team's
+                   page — the same link `EventMatchTable` already renders.
+                   The ground pill stays on the anchor itself, so linking
+                   changes nothing about sketch 010-C's two-tint anatomy. */
+                <Link
+                  key={key}
+                  to="/team/$teamNumber"
+                  params={{ teamNumber: teamNumberLabel(key) }}
+                  search={{ year: season, algorithm, tab: "overview" }}
+                  className={cn("match-alliance-num hover:underline", key === teamKey && "match-alliance-num--own")}
+                >
                   {teamNumberLabel(key)}
-                </span>
+                </Link>
               ))}
             </span>
           </span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             <span className={cn("match-alliance-nums", teamIsBlue && "match-alliance-nums--mine match-alliance-nums--blue")}>
               {match.blueTeams.map((key) => (
-                <span key={key} className={cn("match-alliance-num", key === teamKey && "match-alliance-num--own")}>
+                /* 2026-09-08: every roster number is the way to that team's
+                   page — the same link `EventMatchTable` already renders.
+                   The ground pill stays on the anchor itself, so linking
+                   changes nothing about sketch 010-C's two-tint anatomy. */
+                <Link
+                  key={key}
+                  to="/team/$teamNumber"
+                  params={{ teamNumber: teamNumberLabel(key) }}
+                  search={{ year: season, algorithm, tab: "overview" }}
+                  className={cn("match-alliance-num hover:underline", key === teamKey && "match-alliance-num--own")}
+                >
                   {teamNumberLabel(key)}
-                </span>
+                </Link>
               ))}
             </span>
           </span>
@@ -420,7 +444,7 @@ function swingBandSd(swingBandVariance: number | undefined): number | undefined 
   return swingBandVariance === undefined ? undefined : Math.sqrt(Math.max(0, swingBandVariance));
 }
 
-export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps) {
+export function MatchTable({ matches, domain, teamKey, season, algorithm }: MatchTableProps) {
   return (
     <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
@@ -446,7 +470,7 @@ export function MatchTable({ matches, domain, teamKey, season }: MatchTableProps
       </thead>
       <tbody>
         {matches.map((match, index) => (
-          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} tinted={index % 2 === 1} season={season} />
+          <MatchRow key={match.matchKey} match={match} domain={domain} teamKey={teamKey} tinted={index % 2 === 1} season={season} algorithm={algorithm} />
         ))}
       </tbody>
     </table>

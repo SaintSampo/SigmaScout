@@ -226,13 +226,18 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         <div className="flex min-w-0 flex-col gap-[1px]">
           <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(row)}</span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {row.redTeams.map((rosterKey, index) => (
-              <span key={rosterKey}>
-                {index > 0 ? " " : ""}
-                {/* 2026-09-01 (user request): every roster number is the way
-                    to that team's page. Plain ink (the alliance rows already
-                    carry colour); underline on hover marks it interactive. */}
+            {/* 2026-09-08: `.match-alliance-nums--even` (theme.css) fixes the
+                line's width and distributes the leftover space, so red and
+                blue occupy the same box no matter how many digits each roster
+                carries — replacing the text-node space that made every line a
+                different width. */}
+            <span className="match-alliance-nums match-alliance-nums--even">
+              {row.redTeams.map((rosterKey) => (
+                /* 2026-09-01 (user request): every roster number is the way
+                   to that team's page. Plain ink (the alliance rows already
+                   carry colour); underline on hover marks it interactive. */
                 <Link
+                  key={rosterKey}
                   to="/team/$teamNumber"
                   params={{ teamNumber: rosterNumberLabel(rosterKey) }}
                   search={{ year: season, algorithm, tab: "overview" }}
@@ -240,17 +245,22 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
                 >
                   {rosterNumberLabel(rosterKey)}
                 </Link>
-              </span>
-            ))}
+              ))}
+            </span>
           </span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {row.blueTeams.map((rosterKey, index) => (
-              <span key={rosterKey}>
-                {index > 0 ? " " : ""}
-                {/* 2026-09-01 (user request): every roster number is the way
-                    to that team's page. Plain ink (the alliance rows already
-                    carry colour); underline on hover marks it interactive. */}
+            {/* 2026-09-08: `.match-alliance-nums--even` (theme.css) fixes the
+                line's width and distributes the leftover space, so red and
+                blue occupy the same box no matter how many digits each roster
+                carries — replacing the text-node space that made every line a
+                different width. */}
+            <span className="match-alliance-nums match-alliance-nums--even">
+              {row.blueTeams.map((rosterKey) => (
+                /* 2026-09-01 (user request): every roster number is the way
+                   to that team's page. Plain ink (the alliance rows already
+                   carry colour); underline on hover marks it interactive. */
                 <Link
+                  key={rosterKey}
                   to="/team/$teamNumber"
                   params={{ teamNumber: rosterNumberLabel(rosterKey) }}
                   search={{ year: season, algorithm, tab: "overview" }}
@@ -258,8 +268,8 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
                 >
                   {rosterNumberLabel(rosterKey)}
                 </Link>
-              </span>
-            ))}
+              ))}
+            </span>
           </span>
         </div>
       </td>

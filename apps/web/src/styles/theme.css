@@ -927,6 +927,25 @@ body {
   display: inline-flex;
   gap: 10px;
 }
+/*
+ * Even-width roster lines (2026-09-08, user report: event-page alliances had
+ * ragged, inconsistent spacing). The event table lays three roster numbers of
+ * 1–5 digits on each of two stacked lines; a plain gap made every line a
+ * different width, so red and blue never agreed on where they ended. Fixing
+ * the LINE's width and letting `space-between` absorb the difference makes
+ * both alliances occupy exactly the same box, with the inter-number space
+ * scaling to whatever the digits leave over.
+ *
+ * 17ch, with `.numeric-cell`'s tabular figures making a `ch` an exact digit:
+ * three 5-digit numbers (15ch) still leave 1ch per gap, and the common 3- and
+ * 4-digit rosters spread comfortably rather than crowding one edge. The 4px
+ * `gap` is the floor `space-between` starts from, not the resting spacing.
+ */
+.match-alliance-nums--even {
+  width: 17ch;
+  gap: 4px;
+  justify-content: space-between;
+}
 .match-alliance-num {
   /* Horizontal padding only, on EVERY number (marked line or not) — so the
      own number's own ground (below) does not shift its neighbours' spacing

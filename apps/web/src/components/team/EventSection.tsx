@@ -150,7 +150,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       )}
 
       <div data-testid={`match-table-scroll-${event.eventKey}`} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-        <MatchTable matches={event.matches} domain={domain} teamKey={teamKey} season={season} />
+        <MatchTable matches={event.matches} domain={domain} teamKey={teamKey} season={season} algorithm={algorithmId as PublishedAlgorithmId} />
       </div>
     </section>
   );

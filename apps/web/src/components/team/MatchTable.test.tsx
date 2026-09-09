@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { renderWithRouter } from "@/test/routerHarness";
 import { MatchTable, matchLabel } from "./MatchTable.js";
 import type { TeamSeasonMatch } from "./matchAxis.js";
 
@@ -74,6 +75,17 @@ describe("theme.css alliance ground tint tokens & rule block (sketch 010-C, quic
     expect(body, "expected a bare `.match-alliance-nums { ... }` rule").not.toBeNull();
     expect(body).toMatch(/display:\s*inline-flex\s*;/);
     expect(body).toMatch(/gap:\s*10px\s*;/);
+  });
+
+  it("declares .match-alliance-nums--even as a fixed-width line whose leftover space is distributed", () => {
+    // 2026-09-08 fix: event-page alliance lines were ragged because a text-node
+    // space made each line as wide as its own digits happened to be. Fixing the
+    // width and distributing the remainder is what makes red and blue agree.
+    const css = readThemeCss();
+    const body = findRuleBody(css, /^\.match-alliance-nums--even$/);
+    expect(body, "expected a `.match-alliance-nums--even { ... }` rule").not.toBeNull();
+    expect(body).toMatch(/width:\s*17ch\s*;/);
+    expect(body).toMatch(/justify-content:\s*space-between\s*;/);
   });
 
   it("declares .match-alliance-nums--mine as a horizontal-only 999px pill (no vertical rhythm change)", () => {
@@ -165,13 +177,32 @@ describe("matchLabel", () => {
 });
 
 describe("MatchTable", () => {
+  it("links every roster number on both alliances to that team's page, carrying year and algorithm", () => {
+    // 2026-09-08 fix: team-page roster numbers were plain text, so the one
+    // place a reader most wants to jump from was a dead end.
+    renderWithRouter(
+      <MatchTable
+        matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc1690", "frc10935"], blueTeams: ["frc254", "frc33", "frc111"] })]}
+        domain={DOMAIN}
+        teamKey="frc118"
+        season={2024}
+        algorithm="vpr"
+      />,
+    );
+    for (const number of ["118", "1690", "10935", "254", "33", "111"]) {
+      const link = screen.getByRole("link", { name: number });
+      expect(link.getAttribute("href")).toBe(`/team/${number}?year=2024&algorithm=vpr&tab=overview`);
+    }
+  });
+
   it("renders six alliance marks for a played VPR row (band+tick+dot per alliance), dots carrying alliance colour classes with no loser-ink token", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200, actualRedRp: 2, actualBlueRp: 0 })]}
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
@@ -201,7 +232,7 @@ describe("MatchTable", () => {
    */
   describe("Result chip roster-participation gate (WR-02)", () => {
     it("renders an empty Result cell for a played match whose rosters exclude the page's team (letter-suffixed B-team roster)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -216,6 +247,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc5199"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const resultCell = screen.getByTestId("result-m1");
@@ -224,7 +256,7 @@ describe("MatchTable", () => {
     });
 
     it("still renders a Win chip when the page's team is genuinely on the winning roster (companion positive case)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -239,6 +271,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const resultCell = screen.getByTestId("result-m1");
@@ -247,12 +280,13 @@ describe("MatchTable", () => {
   });
 
   it("greys the losing number in the Actual column and leaves the winning number ungreyed", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     const winner = screen.getByTestId("actual-m1-red");
@@ -264,8 +298,9 @@ describe("MatchTable", () => {
   it("renders a scheduled row with four marks, zero dots, a weekday/time string in Actual, and an em-dash in Call", () => {
     // 2026-01-03 is a Saturday.
     const sortTime = Math.floor(new Date("2026-01-03T18:30:00Z").getTime() / 1000);
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1", sortTime })]} domain={DOMAIN} teamKey="frc118"
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1", sortTime })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />);
 
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
@@ -289,7 +324,7 @@ describe("MatchTable", () => {
   });
 
   it("renders ticks but zero band elements, and a bare whole-number predicted score, for an OPR row (no own-variance, no pmf)", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[
           makeMatch({
@@ -306,6 +341,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
@@ -326,7 +362,7 @@ describe("MatchTable", () => {
   });
 
   it("positions red's marks above blue's in every row, regardless of which alliance this team is on", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[
           makeMatch({ matchKey: "m1", redTeams: ["frc118"], blueTeams: ["frc254"] }),
@@ -335,6 +371,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     for (const matchKey of ["m1", "m2"]) {
@@ -352,12 +389,13 @@ describe("MatchTable", () => {
    */
   describe("alliance ground tint (sketch 010-C, quick 260906-80e)", () => {
     it("marks the red-alliance team's own line as a red pill, its own number as --own, and leaves the opposing line unmarked", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -381,12 +419,13 @@ describe("MatchTable", () => {
     });
 
     it("carries no bold weight and no alliance-coloured text on any roster number", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -405,12 +444,13 @@ describe("MatchTable", () => {
     });
 
     it("separates the roster numbers by layout gap, not a literal space character", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -419,12 +459,13 @@ describe("MatchTable", () => {
     });
 
     it("marks the blue-alliance team's own line as a blue pill and leaves the red line unmarked", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] })]}
           domain={DOMAIN}
           teamKey="frc604"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -439,7 +480,7 @@ describe("MatchTable", () => {
     });
 
     it("marks neither roster --mine nor any number --own for the WR-02 letter-suffixed-second-robot case", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -451,6 +492,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc5199"
           season={2024}
+        algorithm="vpr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -464,8 +506,9 @@ describe("MatchTable", () => {
   });
 
   it("renders the axis header exactly once, with at least two labelled ticks, and never labels the lowest tick 0 for a 180-floor fixture", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={{ min: 180, max: 300 }} teamKey="frc118"
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={{ min: 180, max: 300 }} teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />);
     const axes = screen.getAllByTestId("axis-ticks");
     expect(axes).toHaveLength(1);
@@ -475,19 +518,21 @@ describe("MatchTable", () => {
   });
 
   it("still renders the full labelled axis for a single-match event", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118"
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />);
     expect(screen.getAllByTestId("axis-tick").length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders alternating row tints — adjacent rows carry differing background classes (06-09-PLAN.md Task 3 polish pass)", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" }), makeMatch({ matchKey: "m3" })]}
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -509,12 +554,13 @@ describe("MatchTable", () => {
    * sharing this exact CSS class without that ancestor.
    */
   it("the untinted row carries its own explicit match-row-untinted class, not a bare transparent background", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" })]}
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -529,8 +575,9 @@ describe("MatchTable", () => {
   });
 
   it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {
-    render(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118"
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />);
     const confidence = screen.getByTestId("confidence-m1");
     const chip = within(confidence).getByText("Blue");
@@ -538,12 +585,13 @@ describe("MatchTable", () => {
   });
 
   it("renders matches in the exact order passed, never re-sorted", () => {
-    render(
+    renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "z-last" }), makeMatch({ matchKey: "a-first" })]}
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
+        algorithm="vpr"
       />,
     );
     const rows = screen.getAllByTestId(/^match-row-/);
@@ -563,7 +611,7 @@ describe("MatchTable", () => {
     }
 
     it("resolves every predicted and every actual dot to earned or missed — none unknown — for a two-bonus season (2024)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -580,6 +628,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
 
@@ -599,7 +648,7 @@ describe("MatchTable", () => {
     });
 
     it("resolves every predicted and every actual dot to earned or missed — none unknown — for a three-bonus season (2025)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -617,6 +666,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2025}
+        algorithm="vpr"
         />,
       );
 
@@ -636,7 +686,7 @@ describe("MatchTable", () => {
     });
 
     it("renders every actual dot unknown when actual bonus arrays are null, while predicted dots still resolve", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -653,6 +703,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
 
@@ -668,7 +719,7 @@ describe("MatchTable", () => {
     });
 
     it("renders every dot unknown when a match carries none of the four bonus fields (pre-phase behaviour preserved)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -685,6 +736,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
 
@@ -700,7 +752,7 @@ describe("MatchTable", () => {
     });
 
     it("reads each alliance's own data only — red and blue never cross-read, given deliberately different arrays", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -717,6 +769,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
 
@@ -736,7 +789,7 @@ describe("MatchTable", () => {
      * republish.
      */
     it("greys every dot to unknown for a played sf row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2024 two-bonus season)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -754,6 +807,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
+        algorithm="vpr"
         />,
       );
 
@@ -769,7 +823,7 @@ describe("MatchTable", () => {
     });
 
     it("greys every dot to unknown for a played f row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2026 three-bonus season)", () => {
-      render(
+      renderWithRouter(
         <MatchTable
           matches={[
             makeMatch({
@@ -788,6 +842,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2026}
+        algorithm="vpr"
         />,
       );
 

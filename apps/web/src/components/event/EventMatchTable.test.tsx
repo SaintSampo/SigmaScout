@@ -41,6 +41,21 @@ describe("Structure and the dropped highlight rule", () => {
     expect(new Set(classLists).size).toBe(1);
   });
 
+  it("wraps each alliance's roster numbers in one even-width line, with no text-node space between them", () => {
+    // 2026-09-08 fix: the roster numbers were separated by a literal " " text
+    // node, so a 3-digit alliance and a 5-digit alliance rendered at different
+    // widths and the two stacked lines never lined up.
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    const row = screen.getByTestId("match-row-m1");
+    const lines = row.querySelectorAll(".match-alliance-nums.match-alliance-nums--even");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.childNodes).toHaveLength(3);
+      // Every child is the link itself — no interleaved whitespace text nodes.
+      for (const child of line.childNodes) expect(child.nodeName).toBe("A");
+    }
+  });
+
   it("the header row exposes exactly EVENT_MATCH_TABLE_COLUMN_COUNT column headers, and the axis header renders exactly once for a multi-row table", () => {
     renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
     expect(screen.getAllByRole("columnheader")).toHaveLength(EVENT_MATCH_TABLE_COLUMN_COUNT);
