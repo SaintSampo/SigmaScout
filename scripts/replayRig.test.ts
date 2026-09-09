@@ -24,8 +24,12 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 // imported constant, never a re-typed array literal, so a future rename of
 // the constant's members is caught here without editing this test.
 describe("replayRig's default --algorithm list (plan 07-16/07-18)", () => {
-  it("PUBLISHED_ALGORITHM_IDS resolves to the renamed triple, in publish order", () => {
-    expect([...PUBLISHED_ALGORITHM_IDS]).toEqual(["opr", "epa", "vpr", "bpr"]);
+  // VPR left this list on 2026-09-09 (`eae2defb`) and this pin was not
+  // updated with it, so it sat red. An equality pin is the right shape here —
+  // it fails loudly on a membership change, which is exactly what happened —
+  // it just has to be maintained when the membership changes on purpose.
+  it("PUBLISHED_ALGORITHM_IDS resolves to the published triple, in publish order", () => {
+    expect([...PUBLISHED_ALGORITHM_IDS]).toEqual(["opr", "epa", "bpr"]);
   });
 });
 

@@ -365,7 +365,9 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
   it("the marker-exempted line count is at most the cap — the escape hatch cannot be widened quietly", () => {
     const { markerExemptedCount } = runSweep();
     expect(markerExemptedCount).toBeLessThanOrEqual(MARKER_CAP);
-  });
+    // 30s, not vitest's 5s default — `runSweep()` reads every source file in
+    // the repo. Same reason as `seasonParamSets.test.ts`'s own raise.
+  }, 30_000);
 
   it("IDENTITY_SWEEP_EXCLUSIONS has exactly the length it was seeded with — an added exclusion is a deliberate, reviewed edit", () => {
     // Decremented from 8 to 7 by plan 07-18 Task 3, which deleted the
