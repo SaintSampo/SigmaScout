@@ -17,7 +17,7 @@ Three vocabulary rules, now enforced in code:
 
 | term | what it is | who sees it |
 |---|---|---|
-| **Swing Score** | per team, per metric — how much a robot's contribution varies match to match | users |
+| **Swing Score** | ONE number per team — its total consistency estimate for its NEXT match | users |
 | **Match Band** | per alliance, per match — `√(Σ the three robots' Swing Scores²)` | users |
 | **spread** | the ALGORITHM's own confidence in a number | **nobody — never rendered** |
 
@@ -57,22 +57,30 @@ so every tick is idle (`eventsConsidered: 0`). The deploy is healthy and the sta
 no match has actually been folded through BPR in production. First live event is the real test —
 watch a tick then, and check `event_cursor` advances.
 
-## 2. Per-component Swing Score — the visible gap
+## 2. Swing Score gets its OWN COLUMN
 
-Swing Score is computed from TOTAL-score residuals only, so the Auto/Teleop/Endgame tiles, the
-event metric cells and the Teams table's component columns render **bare values**. That is honest
-(there is no per-component number to show) but it is a real loss versus what VPR displayed.
+Developer decision, 2026-09-09: **per-component Swing Scores are not being built.** Swing Score is
+one number per team — its total consistency estimate for its next match — and it gets its own
+column rather than riding along as a `±` suffix on another metric.
 
-Needs per-component residuals: actual minus predicted per phase, which needs per-phase
-PREDICTIONS. BPR already keeps display-only phase filters (`phaseTeams`), so the work is to emit
-per-match phase predictions from that isolated track and fold them the same way the total is
-folded. Publish-layer work plus a republish.
+What changes:
 
-Two things unblock automatically when it lands:
-- the **Alliances tab's combined ±**, removed with the spread leak — its replacement is the same
-  `√(Σ Swing Score²)` the match band already uses (`AlliancesTab.tsx` names this in place)
-- the **metric-history chart band**, whose code is intact and dormant behind a single flag in
-  `MetricHistoryChart.tsx` and needs per-MATCH Swing Scores
+- **Teams table** — a dedicated Swing column. Total goes back to a bare value.
+- **Team page** — Swing Score as its own tile, not a suffix on the Total tile.
+- **Phase tiles / event metric cells** — bare values, permanently. This is now the intended design
+  rather than a gap waiting on per-component work.
+- **Ribbon `±` toggle** — should hide the Swing column/tile, since that is now the thing it names.
+- **Match Band is unchanged.** It stays `√(Σ the three robots' Swing Scores²)` — an alliance
+  quantity built from the per-team one.
+
+Consequently the two displays previously listed as "waiting on per-component Swing Scores" need
+re-deciding rather than un-blocking:
+
+- the **Alliances tab's combined ±** — the honest replacement is the Match Band formula over the
+  three picks, which needs no per-component anything and could be done now
+- the **metric-history chart band** — it plotted a per-match spread. There is no per-match Swing
+  Score, so either publish one or leave the band off for good. Its code is dormant behind a single
+  flag in `MetricHistoryChart.tsx`.
 
 ## 3. Ranking points — ADAPTER BUILT 2026-09-09, awaiting a republish
 
@@ -187,7 +195,7 @@ full-run failure as a defect**.
 2. **Fix `--event`** (item 5b) before anyone uses it — it is a live footgun today.
 3. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
    re-seed.
-4. **Per-component Swing Score** (item 2) — unblocks two dormant displays.
+4. **Swing Score's own column** (item 2) — and re-decide the two dormant displays.
 5. **Algorithm rotation** (item 5), measured on a real fold.
 6. Calibration and docs (item 6).
 
