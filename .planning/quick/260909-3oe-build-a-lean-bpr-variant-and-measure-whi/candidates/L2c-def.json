@@ -1,0 +1,33 @@
+{
+  "params": {
+    "obsSd": 1,
+    "qSlow": 0.00005,
+    "rhoFast": 0.9,
+    "qFast": 0.015,
+    "priorVar": 0.1,
+    "fastPriorVar": 0.25,
+    "rookieMean": 0.4,
+    "seasonShrink": 1,
+    "seasonVar": 0.03,
+    "tau0": 1,
+    "tauLr": 0.005,
+    "foulOn": false,
+    "foulObsSd": 1.5,
+    "foulQ": 0.0001,
+    "foulPriorVar": 0.02,
+    "elimWeight": 1,
+    "scaleMinLr": 0.01,
+    "w2": 0.7,
+    "w3": 0.5,
+    "defPriorVar": 0.005,
+    "defQ": 0,
+    "huberK": 1000000000,
+    "biasLr": 0.001,
+    "obsSdSlope": 0
+  },
+  "design": {
+    "acc": 0.7324122753392835,
+    "logLoss": 0.5278640058346251,
+    "brier": 0.17490680527375937
+  }
+}

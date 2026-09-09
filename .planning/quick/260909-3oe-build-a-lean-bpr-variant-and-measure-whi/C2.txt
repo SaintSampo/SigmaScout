@@ -1,0 +1,307 @@
+================================================================================
+C2 - THE RESIDUAL DECOMPOSED, EVERY COMPONENT RE-TUNED (the F-23 fix)
+================================================================================
+Each rung = L1 + ONE component, re-tuned with the 13 shared knobs AND biasLr
+still unlocked. Incumbent for every contrast below is candidates/L1-bias.json.
+Slices: core (combined + ex-no-call), per LADDER-RULE.md - the promotion rule
+reads only those two.
+
+
+########## C2a : L1 + foul-submodel ##########
+[bpr] loaded 152757 matches in 4370ms
+=== CONTRAST C2a ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  CANDIDATE: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2a-foul.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: core
+  paired units: 82735   jsonl: reports/260909-3oe/C2a.jsonl
+
+INCUMBENT C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+CANDIDATE C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2a-foul.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.43  0.1851  0.5550
+  2017   15364   15103    261       0   67.33  0.2035  0.6014
+  2018   16889   16861     28       0   74.59  0.1708  0.5124
+  2019   17972   17664    308       0   73.23  0.1749  0.5333
+  2020    4644    4618     26       0   73.02  0.1762  0.5280
+  2022   14603   14427    176       0   79.11  0.1433  0.4472
+  TOTAL  82735   81790    945       1   73.16  0.1755  0.5297
+
+  LEVELS  incumbent acc 73.086%  brier 0.17537  ll 0.52907
+          candidate acc 73.159%  brier 0.17550  ll 0.52965
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.073pp SE 0.0520 95% [-0.032, 0.174] excl0 no   |  dBrier  +0.00013 95% [0.00001, 0.00027] excl0 YES
+  ex-no-call             n= 82734 events= 911  dAcc   +0.073pp SE 0.0520 95% [-0.032, 0.174] excl0 no   |  dBrier  +0.00013 95% [0.00001, 0.00027] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 1
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     1
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  quals (compLevel=qm)           n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=1
+
+########## C2b : L1 + elim-down-weighting ##########
+[bpr] loaded 152757 matches in 4399ms
+=== CONTRAST C2b ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  CANDIDATE: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2b-elim.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: core
+  paired units: 82735   jsonl: reports/260909-3oe/C2b.jsonl
+
+INCUMBENT C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+CANDIDATE C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2b-elim.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.59  0.1840  0.5521
+  2017   15364   15103    261       0   67.10  0.2033  0.6009
+  2018   16889   16861     28       0   74.79  0.1693  0.5080
+  2019   17972   17664    308       0   73.38  0.1750  0.5331
+  2020    4644    4618     26       0   72.69  0.1775  0.5307
+  2022   14603   14427    176       0   78.97  0.1423  0.4440
+  TOTAL  82735   81790    945       1   73.17  0.1749  0.5278
+
+  LEVELS  incumbent acc 73.086%  brier 0.17537  ll 0.52907
+          candidate acc 73.170%  brier 0.17492  ll 0.52775
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.084pp SE 0.0481 95% [-0.011, 0.177] excl0 no   |  dBrier  -0.00045 95% [-0.00058, -0.00031] excl0 YES
+  ex-no-call             n= 82734 events= 911  dAcc   +0.084pp SE 0.0481 95% [-0.011, 0.177] excl0 no   |  dBrier  -0.00045 95% [-0.00058, -0.00031] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 1
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     1
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  quals (compLevel=qm)           n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=1
+
+########## C2c : L1 + defensive-suppression ##########
+[bpr] loaded 152757 matches in 4479ms
+=== CONTRAST C2c ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  CANDIDATE: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2c-def.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: core
+  paired units: 82735   jsonl: reports/260909-3oe/C2c.jsonl
+
+INCUMBENT C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+CANDIDATE C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2c-def.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.57  0.1845  0.5531
+  2017   15364   15103    261       0   67.20  0.2032  0.6006
+  2018   16889   16861     28       0   74.76  0.1697  0.5092
+  2019   17972   17664    308       0   73.45  0.1746  0.5323
+  2020    4644    4618     26       0   72.93  0.1768  0.5292
+  2022   14603   14427    176       0   79.14  0.1423  0.4442
+  TOTAL  82735   81790    945       1   73.24  0.1749  0.5279
+
+  LEVELS  incumbent acc 73.086%  brier 0.17537  ll 0.52907
+          candidate acc 73.241%  brier 0.17491  ll 0.52786
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.155pp SE 0.0626 95% [0.033, 0.278] excl0 YES  |  dBrier  -0.00046 95% [-0.00063, -0.00027] excl0 YES
+  ex-no-call             n= 82734 events= 911  dAcc   +0.155pp SE 0.0626 95% [0.033, 0.278] excl0 YES  |  dBrier  -0.00046 95% [-0.00063, -0.00027] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 1
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     1
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  quals (compLevel=qm)           n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=1
+
+########## C2d : L1 + Huber-clip ##########
+[bpr] loaded 152757 matches in 4385ms
+=== CONTRAST C2d ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  CANDIDATE: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2d-huber.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: core
+  paired units: 82735   jsonl: reports/260909-3oe/C2d.jsonl
+
+INCUMBENT C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+CANDIDATE C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L2d-huber.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.48  0.1848  0.5543
+  2017   15364   15103    261       0   67.19  0.2034  0.6010
+  2018   16889   16861     28       0   74.74  0.1701  0.5101
+  2019   17972   17664    308       0   73.38  0.1749  0.5331
+  2020    4644    4618     26       0   72.72  0.1772  0.5300
+  2022   14603   14427    176       0   78.76  0.1429  0.4455
+  TOTAL  82735   81790    945       1   73.12  0.1753  0.5288
+
+  LEVELS  incumbent acc 73.086%  brier 0.17537  ll 0.52907
+          candidate acc 73.123%  brier 0.17529  ll 0.52880
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.037pp SE 0.0322 95% [-0.026, 0.100] excl0 no   |  dBrier  -0.00007 95% [-0.00014, -0.00001] excl0 YES
+  ex-no-call             n= 82734 events= 911  dAcc   +0.037pp SE 0.0322 95% [-0.026, 0.100] excl0 no   |  dBrier  -0.00007 95% [-0.00014, -0.00001] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 1
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     1
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  quals (compLevel=qm)           n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=1
+
+
+================================================================================
+PROMOTION RULE APPLIED (LADDER-RULE.md item 9), verbatim as committed
+================================================================================
+
+A component earns its place iff ALL THREE hold on the combined/as-scored pairing
+against L1: (i) Rule A - dAcc > 0 AND dBrier < 0; (ii) Signal - the dAcc 95%
+interval excludes zero; (iii) Bar - dAcc >= 0.169pp (BAR.md's standing paired
+two-sigma bar, quoted, not re-derived).
+
+| rung | component  | dAcc pp | 95% interval      | dBrier    | (i) Rule A | (ii) Signal | (iii) Bar | VERDICT |
+|------|------------|---------|-------------------|-----------|------------|-------------|-----------|---------|
+| C2a  | foul       | +0.073  | [-0.032, 0.174]   | +0.00013  | FAIL       | FAIL        | FAIL      | FAIL    |
+| C2b  | elim       | +0.084  | [-0.011, 0.177]   | -0.00045  | pass       | FAIL        | FAIL      | FAIL    |
+| C2c  | defensive  | +0.155  | [ 0.033, 0.278]   | -0.00046  | pass       | pass        | FAIL      | FAIL    |
+| C2d  | Huber      | +0.037  | [-0.026, 0.100]   | -0.00007  | pass       | FAIL        | FAIL      | FAIL    |
+
+ZERO of the four components earns its place. Notes on each, none of them
+smoothed toward a nicer answer:
+
+- C2a FOUL fails Rule A outright, and it is the only rung that does: its Brier
+  gets WORSE (+0.00013, and that interval EXCLUDES zero, so the degradation is
+  real rather than noise). It buys a little accuracy by making its probabilities
+  worse. Rule A exists precisely to catch that trade and it catches it here.
+  LADDER-RULE.md item 7's foulOn handicap does NOT apply - L2a started ABOVE L1
+  (73.164 vs 73.086), so this failure is on the component's own merits with no
+  structural excuse available to it.
+
+- C2b ELIM passes Rule A but its interval includes zero and it is less than half
+  the bar. See the cross-algorithm note in LADDER.md: this is the direction the
+  standing VPR negative result predicted, arrived at independently on BPR.
+
+- C2c DEFENSIVE is the near miss and it must be reported as a miss. +0.155pp
+  against a 0.169pp bar - short by 0.014pp, about one part in twelve. It clears
+  Rule A and Signal cleanly. It is the single most interesting failure on the
+  ladder and the one most worth revisiting if the bar is ever re-derived on a
+  larger design population - but the bar is a STANDING pre-existing constant and
+  this task does not move it. Moving a threshold by 0.014pp to admit the
+  component it was being applied to is the exact forking-paths move the
+  predecessor named and refused, and refusing it here costs nothing that a
+  future honest re-derivation could not recover.
+
+- C2d HUBER is a calibration knob, as DECISION.md's ~0.00pp accuracy ablation
+  said. Its Brier interval excludes zero in its favour, but the promotion rule
+  is accuracy-gated and it is nowhere near the bar.
+
+AN OBSERVATION THAT SUPPORTS THE EX-NO-CALL REASONING, obtained for free:
+
+  In all four C2 contrasts the as-scored row and the ex-no-call row are
+  IDENTICAL to the printed precision, and only ONE unit is dropped between them
+  (n=82,735 -> 82,734). Both sides of these contrasts are built on L1, which has
+  already broken the cold-start ties, so there is no no-call population left for
+  the two numbers to disagree about.
+
+  That is the whole ex-no-call argument, visible as a measurement rather than
+  asserted: the as-scored/ex-no-call divergence is a property of the L0 baseline
+  specifically, not a general property of the pairing. It appears ONLY where the
+  incumbent is the frozen model with biasLr=0, and it vanishes the moment the
+  incumbent can break a tie. A 2023 replay is warm-started and can always break
+  a tie, so it is in the regime where the two numbers coincide.
+
+ITEM 10 - THE COMBINED RUNG WAS NOT BUILT.
+
+  It requires two or more components to pass promotion. Zero passed. The
+  pre-registered consequence is that no combined rung is constructed, and it was
+  not. Recorded here rather than left as a silent omission.
+
+ITEM 10 fallback, applied: "If none passes, the top candidate is L1 if L1 itself
+passes promotion against L0, otherwise L0." L1 passes promotion against L0
+(+0.215pp, [0.091, 0.340], >= 0.169pp - see C1.txt). So the top candidate is L1.

@@ -30,3 +30,113 @@ FINAL: acc=73.086  ll=0.52907  brier=0.17537   biasLr=0.001
   0.1->0.05, seasonVar 0.03->0.01, qSlow 0.00002->0.00005) for the remainder.
   That re-fit is the F-23 fix doing its job: the side bias was measured with
   the rest of the model free to move, not pinned at another model's optimum.
+
+================================================================================
+L2a = L1 + foul submodel, re-tuned
+  BPR_SEED=candidates/seed-L2a-foul.json  (L1's params with foulOn:true, and
+    NOTHING else changed - verified: exactly one differing key. This seed file
+    exists only because tune.ts's GRID is numeric-only and cannot flip a boolean.)
+  BPR_SKIP_KEYS=obsSdSlope,elimWeight,defPriorVar,defQ,huberK
+  unlocked: 13 shared + biasLr + foulObsSd,foulQ,foulPriorVar
+================================================================================
+[tune] seeded from candidates/seed-L2a-foul.json
+[bpr] loaded 152757 matches in 2812ms
+[tune] start acc=73.164 ll=0.5301
+[tune] sweep1 tauLr=0.015 -> acc=73.159 ll=0.5297
+[tune] converged after sweep 2
+FINAL: acc=73.159  ll=0.52965  brier=0.17550   foulOn=true   differs from seed: tauLr only
+
+  THE foulOn HANDICAP DID NOT MATERIALISE. LADDER-RULE.md item 7 pre-registered
+  the case where L2a STARTS below L1 and cannot recover. It does not apply:
+  L2a starts at 73.164, ABOVE L1's 73.086, so turning the foul submodel on at
+  L1's other settings is immediately favourable on the level. The pre-registered
+  handicap disclosure is therefore NOT invoked, and L2a's result stands on its
+  own with no asymmetry to discount. Recording this explicitly because item 7
+  was written expecting the opposite.
+
+  The three foul knobs stayed at their seed values through all sweeps - the
+  search was free to move foulObsSd, foulQ and foulPriorVar and declined to.
+
+================================================================================
+L2b = L1 + elim down-weighting, re-tuned
+  BPR_SEED=candidates/L1-bias.json
+  BPR_SKIP_KEYS=obsSdSlope,foulObsSd,foulQ,foulPriorVar,defPriorVar,defQ,huberK
+  unlocked: 13 shared + biasLr + elimWeight
+================================================================================
+[tune] seeded from candidates/L1-bias.json
+[bpr] loaded 152757 matches in 3414ms
+[tune] start acc=73.086 ll=0.5291
+[tune] sweep1 elimWeight=0.1 -> acc=73.070 ll=0.5290
+[tune] sweep1 elimWeight=0.2 -> acc=73.076 ll=0.5282
+[tune] sweep1 elimWeight=0.3 -> acc=73.143 ll=0.5278
+[tune] sweep1 elimWeight=0.5 -> acc=73.170 ll=0.5278
+[tune] converged after sweep 2
+FINAL: acc=73.170  ll=0.52780  brier=0.17492   elimWeight=0.5
+
+  NOT bit-identical to its seed. LADDER-RULE.md item 8 pre-registered the case
+  where elimWeight cannot return to its inert 1.0 because the grid
+  [0.0,0.1,0.2,0.3,0.5,0.8] does not contain it - that case does NOT apply
+  either: the search found 0.5 a genuine strict improvement and moved there.
+  So L2b is a real rung and gets a real contrast, not an INERT-AT-OPTIMUM zero.
+
+================================================================================
+L2c = L1 + defensive suppression, re-tuned
+  BPR_SEED=candidates/L1-bias.json
+  BPR_SKIP_KEYS=obsSdSlope,foulObsSd,foulQ,foulPriorVar,elimWeight,huberK
+  unlocked: 13 shared + biasLr + defPriorVar,defQ
+================================================================================
+[tune] seeded from candidates/L1-bias.json
+[bpr] loaded 152757 matches in 3423ms
+[tune] start acc=73.086 ll=0.5291
+[tune] sweep1 defPriorVar=0.005 -> acc=73.230 ll=0.5285
+[tune] sweep2 qSlow=0.0002 -> acc=73.219 ll=0.5284
+[tune] sweep2 priorVar=0.1 -> acc=73.194 ll=0.5282
+[tune] sweep2 rookieMean=0.4 -> acc=73.167 ll=0.5281
+[tune] sweep2 seasonVar=0.03 -> acc=73.236 ll=0.5279
+[tune] sweep3 qSlow=0.00002 -> acc=73.205 ll=0.5279
+[tune] sweep3 qSlow=0.00005 -> acc=73.241 ll=0.5279
+FINAL: acc=73.241  ll=0.52793  brier=0.17491   defPriorVar=0.005, defQ=0
+
+  The largest level gain of the four (+0.155pp over L1), and note WHERE it comes
+  from: defPriorVar bought +0.144pp in sweep 1, then four shared knobs re-fit
+  around it. defQ stayed 0 - only half the component actually turned on.
+  This is the clearest single case of the F-23 fix mattering: DECISION.md's
+  ablation valued defensive suppression at ~+0.09pp in the WRONG direction
+  (removing it was believed to HELP), measured with everything else pinned.
+
+================================================================================
+L2d = L1 + Huber clip, re-tuned
+  BPR_SEED=candidates/L1-bias.json
+  BPR_SKIP_KEYS=obsSdSlope,foulObsSd,foulQ,foulPriorVar,elimWeight,defPriorVar,defQ
+  unlocked: 13 shared + biasLr + huberK
+================================================================================
+[tune] seeded from candidates/L1-bias.json
+[bpr] loaded 152757 matches in 3393ms
+[tune] start acc=73.086 ll=0.5291
+[tune] sweep1 huberK=4 -> acc=73.087 ll=0.5290
+[tune] sweep1 huberK=3 -> acc=73.095 ll=0.5289
+[tune] sweep1 huberK=2.5 -> acc=73.095 ll=0.5289
+[tune] sweep1 huberK=2 -> acc=73.088 ll=0.5288
+[tune] sweep2 qSlow=0.00002 -> acc=73.123 ll=0.5288
+[tune] converged after sweep 3
+FINAL: acc=73.123  ll=0.52877  brier=0.17529   huberK=2
+
+  Every huberK move was accepted on the LOG LOSS tiebreak inside the 0.05pp
+  accuracy deadband, not on accuracy. The accuracy level barely moves
+  (73.086 -> 73.088 across the whole huberK sweep). This is a calibration knob
+  behaving exactly as DECISION.md's ~0.00pp accuracy ablation said it would.
+
+================================================================================
+LEVEL SUMMARY (design accuracy, 2016-2022)
+================================================================================
+  L0  frozen incumbent            72.871%
+  L1  + side bias                 73.086%   (+0.215 over L0)
+  L2a + foul submodel             73.159%   (+0.073 over L1)
+  L2b + elim down-weighting       73.170%   (+0.084 over L1)
+  L2c + defensive suppression     73.241%   (+0.155 over L1)
+  L2d + Huber clip                73.123%   (+0.037 over L1)
+  L3  full variant (all five)     73.291%   (+0.205 over L1)
+
+  Levels are NOT the decision quantity - they carry no interval and the paired
+  contrast is a strictly better instrument. They are recorded because the tune
+  logs report them and the ladder should be readable without the contrasts.

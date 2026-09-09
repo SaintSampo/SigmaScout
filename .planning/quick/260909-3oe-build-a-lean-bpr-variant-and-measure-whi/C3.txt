@@ -1,0 +1,156 @@
+================================================================================
+C3 - CLOSING THE LADDER: L1 vs L3 (the full 23-knob variant)
+================================================================================
+This is the residual measured DIRECTLY. Whatever the four components do not
+individually account for is an interaction none of them owns, and this
+contrast is what quantifies it. Full slice set.
+
+[bpr] loaded 152757 matches in 4383ms
+=== CONTRAST C3 ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  CANDIDATE: C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-25z-re-bootstrap-the-full-23-knob-vs-parsimo/retune-full.json
+  orientation: delta = CANDIDATE - INCUMBENT
+  resamples: 2000   seed: eventBootstrap default (42)   slices: full
+  paired units: 82735   jsonl: reports/260909-3oe/C3.jsonl
+
+INCUMBENT C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-3oe-build-a-lean-bpr-variant-and-measure-whi/candidates/L1-bias.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.46  0.1848  0.5544
+  2017   15364   15103    261       0   67.19  0.2034  0.6012
+  2018   16889   16861     28       0   74.67  0.1702  0.5103
+  2019   17972   17664    308       0   73.31  0.1751  0.5335
+  2020    4644    4618     26       0   72.59  0.1770  0.5296
+  2022   14603   14427    176       0   78.78  0.1431  0.4462
+  TOTAL  82735   81790    945       1   73.09  0.1754  0.5291
+
+CANDIDATE C:/Users/Jacob/Documents/GitHub/SigmaScout/.planning/quick/260909-25z-re-bootstrap-the-full-23-knob-vs-parsimo/retune-full.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.56  0.1839  0.5517
+  2017   15364   15103    261       0   67.28  0.2032  0.6004
+  2018   16889   16861     28       0   74.85  0.1696  0.5095
+  2019   17972   17664    308       0   73.47  0.1744  0.5320
+  2020    4644    4618     26       0   73.06  0.1766  0.5287
+  2022   14603   14427    176       0   79.20  0.1420  0.4435
+  TOTAL  82735   81790    945       1   73.29  0.1747  0.5275
+
+  LEVELS  incumbent acc 73.086%  brier 0.17537  ll 0.52907
+          candidate acc 73.291%  brier 0.17470  ll 0.52745
+
+PAIRED  CANDIDATE - INCUMBENT  (event-blocked, same matches both models)
+  combined (as-scored)   n= 82735 events= 911  dAcc   +0.205pp SE 0.0750 95% [0.059, 0.353] excl0 YES  |  dBrier  -0.00067 95% [-0.00093, -0.00039] excl0 YES
+  ex-no-call             n= 82734 events= 911  dAcc   +0.205pp SE 0.0751 95% [0.059, 0.353] excl0 YES  |  dBrier  -0.00067 95% [-0.00093, -0.00039] excl0 YES
+  ex-2016                n= 69472 events= 775  dAcc   +0.227pp SE 0.0838 95% [0.059, 0.390] excl0 YES  |  dBrier  -0.00062 95% [-0.00091, -0.00033] excl0 YES
+  champs (type 2,3,4)    n= 11728 events= 108  dAcc   +0.595pp SE 0.2297 95% [0.159, 1.047] excl0 YES  |  dBrier  -0.00233 95% [-0.00328, -0.00140] excl0 YES
+  non-champs             n= 71007 events= 803  dAcc   +0.141pp SE 0.0801 95% [-0.014, 0.291] excl0 no   |  dBrier  -0.00039 95% [-0.00066, -0.00014] excl0 YES
+
+  Reading: dAcc POSITIVE => candidate better. dBrier NEGATIVE => candidate better.
+  ex-no-call drops units where EITHER side predicts exactly 0.5 (symmetric).
+  Per LADDER-RULE.md item 6, ex-no-call is the estimate of a 2023 result.
+
+NO-CALL BLOCK  (exact-0.5 predictions; D-Q3 scores an abstention on a decided match as a miss)
+  incumbent exact-0.5 units: 1
+  candidate exact-0.5 units: 1
+  dropped by ex-no-call:     1
+
+  On the units where the INCUMBENT predicts exactly 0.5:
+  all                            n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  quals (compLevel=qm)           n=    1  candidate correct     0 (  0.00%)  red won     1 (100.00%)  best deterministic     1 (100.00%, always-RED)
+  elims (compLevel!=qm)          (no decided units)
+
+  A zero-parameter tie-break scores the 'best deterministic' column. The
+  learned side bias scores the 'candidate correct' column. Compare those two.
+  model.ts:88-100: quals run 49.2-50.3% red but elims run 63-78% red, so the
+  quals and elims rows measure two DIFFERENT effects and must not be merged.
+
+  incumbent no-calls by season: 2016=1
+
+
+================================================================================
+RESIDUAL ACCOUNTING - and it does NOT sum, which is the finding
+================================================================================
+
+THE LADDER DECOMPOSES CLEANLY AT THE L1 HINGE:
+
+  L0 -> L1   +0.215pp
+  L1 -> L3   +0.205pp
+  sum        +0.420pp
+  L0 -> L3   +0.421pp  (measured directly in REPLICATE.txt)
+  discrepancy 0.001pp - rounding at the printed precision, nothing more.
+
+THE FOUR COMPONENTS DO NOT SUM TO THEIR OWN BUNDLE:
+
+  foul       +0.073pp
+  elim       +0.084pp
+  defensive  +0.155pp
+  Huber      +0.037pp
+  ------------------
+  sum        +0.349pp   of individually-measured, individually-re-tuned credits
+  bundle     +0.205pp   measured directly as L1 -> L3
+  ------------------
+  INTERACTION  -0.144pp
+
+  The interaction is NEGATIVE and it is large - 41% of the summed credits
+  disappear when the four components are combined. Stated plainly rather than
+  smoothed: THE FOUR COMPONENTS ARE PARTIAL SUBSTITUTES FOR ONE ANOTHER, NOT
+  COMPLEMENTS. Each one, given the 13 shared knobs free to re-fit around it,
+  captures some of the same residual structure the others capture. Adding all
+  four buys materially less than adding any one of them would suggest.
+
+  This is the honest opposite of the convenient result. A tidy table would have
+  had the four credits summing to the bundle and each component owning a clean
+  slice of the residual. They do not, and the arithmetic is reported as it fell.
+
+WHY THIS MATTERS MORE THAN THE INDIVIDUAL FAILURES:
+
+  Each of the four components fails promotion on its own (C2.txt). But the
+  BUNDLE passes promotion against L1:
+
+    L3 vs L1: dAcc +0.205pp, 95% [0.059, 0.353] excludes zero;
+              dBrier -0.00067, 95% [-0.00093, -0.00039] excludes zero;
+              +0.205pp >= the 0.169pp bar.
+    ALL THREE PROMOTION CONDITIONS PASS.
+
+  So the residual is real and it is measurable, but it is NOT ATTRIBUTABLE to
+  any single one of these four components. That is precisely the "unidentifiable
+  model" shape this project's failure log already records once, and it is what
+  F-23's upper-bound caveat was protecting against in the other direction.
+
+  The four components jointly hold ~0.205pp that none of them individually can
+  claim. A ladder built one component at a time cannot recover it, because the
+  effect only exists in combination.
+
+SLICE NOTE, recorded not weighted: on the non-champs slice the L1->L3 accuracy
+interval INCLUDES zero (+0.141pp, [-0.014, 0.291]) while the champs slice is
+strongly positive (+0.595pp, [0.159, 1.047]). The full variant's advantage over
+L1 is concentrated at championship events. The promotion rule reads the combined
+pairing, so this changes no verdict, but it is where the bundle's value lives.
+
+================================================================================
+ITEM 5 - THE ADOPTION CONTRAST
+================================================================================
+
+LADDER-RULE.md item 11 (parsimony) names the RECOMMENDED CANDIDATE as the rung
+with the fewest COMPONENTS among those satisfying promotion.
+
+  Rungs satisfying promotion:  L1 (1 component)   and   L3 (5 components).
+  Fewest components           ->  L1.
+  RECOMMENDED CANDIDATE = L1.
+
+Task 3 step 5: "If the recommended candidate is L1, C1 already is that contrast
+and no run is needed." The recommended candidate IS L1, so no additional
+adoption contrast was run. C1.txt is the incumbent-versus-candidate pairing the
+fire rule reads.
+
+FIRE RULE (item 12) applied to L1 vs packages/bpr/frozen-params.json:
+  (i)   Rule A on as-scored:     +0.215pp, -0.00022            PASS
+  (ii)  Signal on as-scored:     [0.091, 0.340] excludes zero   PASS
+  (iii) Persistence ex-no-call:  +0.063pp, [-0.049, 0.177]
+                                 INCLUDES ZERO                  FAIL
+  => DO NOT FIRE.
+
+DISCLOSED TENSION, recorded here and carried into LADDER.md rather than buried:
+L3 would PASS the fire rule (vs L0: as-scored +0.421pp [0.270, 0.569]; ex-no-call
++0.277pp [0.139, 0.419], excludes zero). The pre-registered parsimony rule
+selects L1, and the fire rule is then evaluated on L1 and fails. A differently
+written rule - "fire on the best rung that passes the fire rule" - would fire on
+L3. The rule as committed is honoured; the alternative is disclosed, not taken.
