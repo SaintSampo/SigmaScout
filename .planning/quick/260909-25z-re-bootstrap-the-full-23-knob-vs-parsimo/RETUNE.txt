@@ -1,0 +1,89 @@
+RETUNE - symmetric post-P3 re-tune of BOTH sides
+date: 2026-09-09T06:12:59Z   HEAD at run: c7f15202
+
+Why BOTH sides. Re-tuning only the full variant and comparing it against the
+pre-P3-tuned frozen-params.json is exactly the F-23 asymmetry - one side fitted
+to the new scoring path, the other not - and it inflates the full side. Symmetry
+is the requirement, not a nicety. Each side seeds from its OWN recorded pre-P3
+optimum, which mirrors what DECISION.md rule 4 did within a single objective.
+
+================================ FULL 23-KNOB =================================
+  seed:       .planning/quick/260908-b4t-fresh-2023-blind-model/round5-full.json
+  BPR_SKIP_KEYS: obsSdSlope
+  BPR_SWEEPS: 3
+  why skipped: obsSdSlope was diagnosed from 2023 wk0-1 (F-16, a disclosed
+               holdout glance) and added to GRID AFTER the seal. Searching it
+               would stop this being the 23-knob variant AND import a
+               holdout-motivated knob into a design-era decision.
+
+  --- trajectory (stderr) ---
+  [tune] seeded from .planning/quick/260908-b4t-fresh-2023-blind-model/round5-full.json
+  [bpr] loaded 152757 matches in 3299ms
+  [tune] start acc=73.250 ll=0.5276
+  [tune] sweep1 priorVar=0.1 -> acc=73.304 ll=0.5276
+  [tune] sweep1 seasonVar=0.03 -> acc=73.318 ll=0.5275
+  [tune] sweep1 huberK=3 -> acc=73.327 ll=0.5275
+  [tune] sweep2 qSlow=0.00002 -> acc=73.311 ll=0.5275
+  [tune] sweep2 qSlow=0.00005 -> acc=73.291 ll=0.5275
+  [tune] converged after sweep 3
+
+  --- final design block ---
+  {"acc":0.7329135591148062,"logLoss":0.5274523869356759,"brier":0.17469917426155332}
+
+  --- diff: output vs its own seed (what the objective change actually moved) ---
+  qSlow         seed=0.0002        -> retuned=0.00005
+  priorVar      seed=0.05          -> retuned=0.1
+  seasonVar     seed=0.01          -> retuned=0.03
+  huberK        seed=2.5           -> retuned=3
+
+  Note on the trajectory: accuracy peaks at 73.327 in sweep 1 and the two
+  accepted sweep-2 qSlow moves LOWER it to 73.291. That is tune.ts working as
+  documented, not a bug: better() treats accuracy gaps inside ACC_NOISE
+  (0.05pp) as ties and breaks them on log loss, so it traded 0.036pp of
+  accuracy for log loss. The full side's reported advantage is therefore if
+  anything UNDERSTATED by its own tuner's tiebreak.
+
+=============================== PARSIMONIOUS ==================================
+  seed:       packages/bpr/frozen-params.json  (READ as a seed, never written)
+  BPR_SKIP_KEYS: foulObsSd,foulQ,foulPriorVar,elimWeight,defPriorVar,defQ,huberK,biasLr,obsSdSlope
+  BPR_SWEEPS: 3
+  why skipped: the whole dropped-component set is genuinely ABSENT from the
+               search rather than merely disabled at settings chosen for a
+               richer configuration - DECISION.md rule 4's own standard.
+
+  --- trajectory (stderr) ---
+  [tune] seeded from packages/bpr/frozen-params.json
+  [bpr] loaded 152757 matches in 3325ms
+  [tune] start acc=72.871 ll=0.5295
+  [tune] converged after sweep 1
+
+  --- final design block ---
+  {"acc":0.7287076659738354,"logLoss":0.5295370080109939,"brier":0.17558883157872696}
+
+  --- diff: output vs its own seed ---
+  ZERO differing keys - the re-tune returned its seed unchanged.
+
+  THIS IS THE LOAD-BEARING RESULT OF TASK 2. The parsimonious side converged
+  after sweep 1 with no accepted move at all: frozen-params.json was ALREADY at
+  a coordinate-descent optimum under the post-P3 objective, over the 13 knobs
+  its skip list leaves searchable. Consequences:
+    - Arm B's incumbent is the same parameter vector as Arm A's incumbent.
+    - Arm C (mixed-objective) is therefore bit-identical to Arm B, and the
+      F-23 inflation it exists to quarantine does not arise: there is no
+      un-re-tuned side to inflate against.
+    - The full side's post-P3 gain over its own pre-P3 seed (73.250 -> 73.291)
+      is not matched by any parsimonious gain, so the widening of the gap from
+      Arm A (0.379pp) to Arm B (0.421pp) is entirely the full side moving.
+
+================================ ASSERTIONS ===================================
+  full  obsSdSlope        = 0   (must be 0/absent)
+  parsi obsSdSlope        = 0   (must be 0/absent)
+  parsi foulOn            = false  (must be false - foulOn is a boolean, not in GRID,
+                                    so it is pinned by the seed and never searched)
+  parsi elimWeight        = 1      (inert)
+  parsi defPriorVar       = 0      (inert)
+  parsi huberK            = 1000000000  (inert)
+  parsi biasLr            = 0      (inert)
+  full  knob count        = 24 (23 + obsSdSlope pinned at 0 by DEFAULTS)
+
+  SEEDS-AND-PINS-OK

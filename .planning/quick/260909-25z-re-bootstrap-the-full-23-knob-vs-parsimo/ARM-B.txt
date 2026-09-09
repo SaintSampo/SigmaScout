@@ -1,0 +1,58 @@
+[bpr] loaded 152757 matches in 3216ms
+=== ARM B ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT (parsimonious side): reports/260909-25z/retune-parsimonious.json
+  CANDIDATE (full side):         reports/260909-25z/retune-full.json
+  orientation: delta = FULL - PARSIMONIOUS
+  resamples: 2000   seed: eventBootstrap default (42)
+  paired units: 82735   jsonl: reports/260909-25z/B.jsonl
+
+INCUMBENT (parsimonious) reports/260909-25z/retune-parsimonious.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146     269   70.46  0.1845  0.5533
+  2017   15364   15103    261       1   67.24  0.2036  0.6016
+  2018   16889   16861     28       0   74.40  0.1716  0.5140
+  2019   17972   17664    308       0   73.24  0.1750  0.5333
+  2020    4644    4618     26       0   72.76  0.1766  0.5287
+  2022   14603   14427    176       0   78.75  0.1429  0.4457
+  TOTAL  82735   81790    945     270   72.87  0.1756  0.5295
+
+CANDIDATE (full) reports/260909-25z/retune-full.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.56  0.1839  0.5517
+  2017   15364   15103    261       0   67.28  0.2032  0.6004
+  2018   16889   16861     28       0   74.85  0.1696  0.5095
+  2019   17972   17664    308       0   73.47  0.1744  0.5320
+  2020    4644    4618     26       0   73.06  0.1766  0.5287
+  2022   14603   14427    176       0   79.20  0.1420  0.4435
+  TOTAL  82735   81790    945       1   73.29  0.1747  0.5275
+
+  LEVELS  parsimonious acc 72.871%  brier 0.17559  ll 0.52954
+          full         acc 73.291%  brier 0.17470  ll 0.52745
+
+PAIRED  FULL - PARSIMONIOUS  (event-blocked, same matches both models)
+  combined               n= 82735 events= 911  dAcc   +0.421pp SE 0.0760 95% [0.270, 0.569] excl0 YES  |  dBrier  -0.00089 95% [-0.00114, -0.00063] excl0 YES
+  champs (type 2,3,4)    n= 11728 events= 108  dAcc   +0.587pp SE 0.2386 95% [0.132, 1.061] excl0 YES  |  dBrier  -0.00187 95% [-0.00280, -0.00096] excl0 YES
+  non-champs             n= 71007 events= 803  dAcc   +0.393pp SE 0.0783 95% [0.243, 0.545] excl0 YES  |  dBrier  -0.00073 95% [-0.00099, -0.00047] excl0 YES
+
+  Reading: dAcc POSITIVE => full better. dBrier NEGATIVE => full better.
+
+================================================================================
+ARM C - MIXED-OBJECTIVE DIAGNOSTIC ONLY. NOT THE GOVERNING ARM.
+================================================================================
+incumbent packages/bpr/frozen-params.json (tuned pre-P3), candidate
+reports/260909-25z/retune-full.json (tuned post-P3). One side fitted to the
+scoring path and one side not - the same inflation pattern F-23 names for
+un-re-tuned ablations. Reported for completeness, never quoted as the answer.
+
+  LEVELS  parsimonious acc 72.871%  brier 0.17559  ll 0.52954
+          full         acc 73.291%  brier 0.17470  ll 0.52745
+  combined               n= 82735 events= 911  dAcc   +0.421pp SE 0.0760 95% [0.270, 0.569] excl0 YES  |  dBrier  -0.00089 95% [-0.00114, -0.00063] excl0 YES
+
+AND IT IS BIT-IDENTICAL TO ARM B. That is not a coincidence and it is the
+most useful thing this arm produced: the post-P3 re-tune of the parsimonious
+side returned its seed UNCHANGED (zero differing keys against
+frozen-params.json - see RETUNE.txt), so Arm C's incumbent and Arm B's
+incumbent are the same parameter vector. The MIXED-OBJECTIVE asymmetry this
+arm exists to quarantine therefore does not arise at all here: there is no
+un-re-tuned side to inflate against, because the parsimonious optimum did not
+move when the objective changed. Arm B's number carries no F-23 discount.
