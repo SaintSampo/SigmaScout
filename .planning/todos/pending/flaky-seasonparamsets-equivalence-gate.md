@@ -61,3 +61,28 @@ got heavier, which is consistent with hypothesis (2).
 2. If it is a real byte difference, diff the two streams and find the first differing record.
 3. If it is a timeout, raise this test's own timeout or mark the file to run serially rather
    than widening a global timeout.
+
+---
+
+## A SECOND full-run-only flake, observed 2026-09-08: `algorithmIdentity.test.ts`
+
+Same signature, different test. `packages/harness/algorithmIdentity.test.ts` passes in isolation
+(6/6, repeatedly) but fails intermittently in a full `npx vitest run`, and **a different assertion
+fails each time** — once "finds zero identity-shaped occurrences of the retired id", once "the
+marker-exempted line count is at most the cap".
+
+That pattern — isolation-green, full-run-red, varying assertion — points at the sweep reading files
+that change underneath it. It walks the WHOLE repo from the root with `readdirSync`
+(`algorithmIdentity.test.ts:271`), skipping only `node_modules`, `.git`, `dist`, `reports`,
+`corpus`, `.wrangler`, `test-results`, `playwright-report`. Anything else another process writes
+during the run is in scope, including `.planning/`.
+
+**Ruled out on 2026-09-08:** it was not the swing-factor work — that change added zero
+`[pre-rename]` markers (`git diff HEAD~2 HEAD | grep -c '^+.*\[pre-rename\]'` → 0) — and there were
+no git worktrees to double-count. An untracked, un-ignored empty `scratch_probe/` directory exists
+at the repo root and is NOT in the skip list; worth watching as a candidate if it ever has content
+during a run.
+
+Concurrent sessions are the likeliest cause, since this repo is routinely worked by several at once.
+**Do not treat a full-run failure here as a code defect without first re-running the file in
+isolation.**
