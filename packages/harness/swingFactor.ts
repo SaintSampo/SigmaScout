@@ -92,6 +92,82 @@ export function swingDecayFor(halfLifeMatches: number): number {
   return 0.5 ** (1 / halfLifeMatches);
 }
 
+const SWING_DECAY = swingDecayFor(SWING_FACTOR_HALF_LIFE_MATCHES);
+
+/**
+ * One team's running Swing Factor state — FOUR NUMBERS, no deviation list.
+ *
+ * This shape is the reason the live Worker can produce a band at all. The
+ * Worker holds algorithm state and nothing else; it has no room to carry every
+ * team's deviation history, and re-deriving one per tick is not affordable
+ * against a 10 ms CPU budget. Four floats per team, updated in O(1) per match,
+ * fit inside the team row it already reads and writes.
+ *
+ * `weightSquares` is carried solely for the effective-sample denominator that
+ * makes a one-observation team return nothing rather than a fake `0`.
+ */
+export interface SwingBelief {
+  /** Σ of decayed weights. */
+  weight: number;
+  /** Σ of decayed weights SQUARED — the effective-sample correction. */
+  weightSquares: number;
+  /** Weighted mean of the deviations so far. */
+  mean: number;
+  /** Weighted sum of squares about that running mean. */
+  m2: number;
+}
+
+/** A team that has been seen zero times. */
+export function emptySwingBelief(): SwingBelief {
+  return { weight: 0, weightSquares: 0, mean: 0, m2: 0 };
+}
+
+/**
+ * West's weighted incremental update, decaying every prior weight first.
+ *
+ * This is the ONE arithmetic path for Swing Factor — offline publish and live
+ * Worker both run exactly this, which is what lets the live/offline replay
+ * digest assert bit-equality on the band rather than merely intend it. Two
+ * algebraically-equal-but-differently-rounded implementations would agree to
+ * about twelve digits and disagree on the thirteenth, which is precisely what
+ * that contract exists to catch.
+ *
+ * Numerically stable: it never subtracts two large nearly-equal numbers, which
+ * is the failure the naive `E[x²] − E[x]²` form suffers exactly where this
+ * estimator spends its time. A biased model's deviations are large and nearly
+ * equal, so both terms are big and their difference is tiny — measured, five
+ * identical deviations of 3 returned 9.05e-8 instead of 0 through that form.
+ *
+ * Identical deviations still return EXACTLY 0 here, not nearly 0: the running
+ * mean lands exactly on the repeated value, so `delta` is exactly zero and `m2`
+ * never leaves zero.
+ */
+export function foldSwingDeviation(belief: SwingBelief, deviation: number): void {
+  const decayedWeight = SWING_DECAY * belief.weight;
+  const decayedM2 = SWING_DECAY * belief.m2;
+  const weight = decayedWeight + 1;
+  const delta = deviation - belief.mean;
+  const mean = belief.mean + delta / weight;
+  belief.weight = weight;
+  belief.weightSquares = SWING_DECAY * SWING_DECAY * belief.weightSquares + 1;
+  belief.mean = mean;
+  belief.m2 = decayedM2 + delta * (deviation - mean);
+}
+
+/**
+ * A belief's Swing Factor, or `undefined` when it cannot honestly produce one.
+ *
+ * The effective-sample denominator `W − W2/W` is exactly 0 after a single
+ * observation (`W = W2 = 1`), so the below-two-observations rule falls out of
+ * the arithmetic rather than needing a separate counter.
+ */
+export function swingFactorFromBelief(belief: SwingBelief): number | undefined {
+  if (belief.weight <= 0) return undefined;
+  const denominator = belief.weight - belief.weightSquares / belief.weight;
+  if (denominator <= 0) return undefined;
+  return SWING_FACTOR_SCALE * Math.sqrt(Math.max(0, belief.m2 / denominator));
+}
+
 /**
  * Folds a chronologically ordered (oldest first) deviation list into one Swing
  * Factor, or `undefined` when it cannot honestly produce one.
@@ -107,15 +183,20 @@ export function swingDecayFor(halfLifeMatches: number): number {
  * degenerate case: a robot the model misses by a CONSTANT is perfectly
  * consistent, and the constant is the model's problem, not the robot's.
  *
- * TWO passes, not the algebraic `E[x²] − E[x]²` one-pass form, which cancels
- * catastrophically exactly where this estimator spends its time — a biased
- * model's deviations are large and nearly equal, so both terms are big and
- * their difference is tiny. Measured: five identical deviations of 3 returned
- * 9.05e-8 instead of 0 through the one-pass form.
+ * A THIN WRAPPER over `foldSwingDeviation` since 2026-09-09, not an
+ * independent implementation. It used to run its own exact two-pass pass over
+ * the list; that was replaced when the live Worker needed the same estimator
+ * from four running numbers, because two algebraically-equal implementations
+ * would have agreed to about twelve digits and disagreed on the thirteenth —
+ * and the live/offline contract is bit-equality. One arithmetic path, so there
+ * is nothing to diverge. See `foldSwingDeviation` for the stability argument
+ * that made this safe to collapse.
  *
  * Throws on a non-finite deviation rather than skipping or coercing it: that is
  * an upstream bug, and a coerced zero would publish "perfectly consistent" for
- * corrupt data.
+ * corrupt data. This is a deliberate contract difference from
+ * `SwingFactorAccumulator.fold`, which ignores a malformed row — a caller
+ * handing over an explicit list is asserting the list is good.
  */
 export function swingFactorFromDeviations(deviations: readonly number[]): number | undefined {
   for (const deviation of deviations) {
@@ -127,32 +208,9 @@ export function swingFactorFromDeviations(deviations: readonly number[]): number
   }
   if (deviations.length < 2) return undefined;
 
-  const decay = swingDecayFor(SWING_FACTOR_HALF_LIFE_MATCHES);
-  const lastIndex = deviations.length - 1;
-  const weights = deviations.map((_, index) => decay ** (lastIndex - index));
-
-  let weight = 0;
-  let weightSquares = 0;
-  let weightedSum = 0;
-  for (const [index, w] of weights.entries()) {
-    weight += w;
-    weightSquares += w * w;
-    weightedSum += w * (deviations[index] as number);
-  }
-  if (weight <= 0) return undefined;
-
-  // Effective-sample-size denominator — exactly 0 at k = 1, which the guard
-  // above has already handled, and positive thereafter.
-  const denominator = weight - weightSquares / weight;
-  if (denominator <= 0) return undefined;
-
-  const mean = weightedSum / weight;
-  let centredSumOfSquares = 0;
-  for (const [index, w] of weights.entries()) {
-    const centred = (deviations[index] as number) - mean;
-    centredSumOfSquares += w * centred * centred;
-  }
-  return SWING_FACTOR_SCALE * Math.sqrt(centredSumOfSquares / denominator);
+  const belief = emptySwingBelief();
+  for (const deviation of deviations) foldSwingDeviation(belief, deviation);
+  return swingFactorFromBelief(belief);
 }
 
 /**
@@ -200,18 +258,30 @@ export function allianceSwingBandVariance(
  * what makes an early-event band possible at all.
  */
 export class SwingFactorAccumulator {
-  private readonly deviationsByTeam = new Map<string, number[]>();
+  /**
+   * Four running numbers per team, NOT a deviation list. Reading a team's Swing
+   * Factor is now O(1) rather than O(its matches so far), which matters because
+   * the publish path asks for one on every alliance of every match — but the
+   * real reason for the shape is that the live Worker carries exactly this and
+   * must produce bit-identical numbers from it.
+   */
+  private readonly beliefByTeam = new Map<string, SwingBelief>();
 
   /** This team's Swing Factor from everything folded so far, or `undefined` before two observations. */
   swingFor(teamKey: string): number | undefined {
-    const deviations = this.deviationsByTeam.get(teamKey);
-    return deviations === undefined ? undefined : swingFactorFromDeviations(deviations);
+    const belief = this.beliefByTeam.get(teamKey);
+    return belief === undefined ? undefined : swingFactorFromBelief(belief);
+  }
+
+  /** This team's raw running state, for a caller that must persist it (the Worker). Undefined if the team has never been folded. */
+  beliefFor(teamKey: string): SwingBelief | undefined {
+    return this.beliefByTeam.get(teamKey);
   }
 
   /** Every team with enough history to have one — the map `allianceSwingBandVariance` consumes. */
   swingByTeam(): ReadonlyMap<string, number> {
     const swings = new Map<string, number>();
-    for (const teamKey of this.deviationsByTeam.keys()) {
+    for (const teamKey of this.beliefByTeam.keys()) {
       const swing = this.swingFor(teamKey);
       if (swing !== undefined) swings.set(teamKey, swing);
     }
@@ -241,9 +311,12 @@ export class SwingFactorAccumulator {
     if (!Number.isFinite(actualScore) || !Number.isFinite(predictedScore)) return;
     const deviation = (actualScore - predictedScore) / roster.length;
     for (const teamKey of roster) {
-      const existing = this.deviationsByTeam.get(teamKey);
-      if (existing === undefined) this.deviationsByTeam.set(teamKey, [deviation]);
-      else existing.push(deviation);
+      let belief = this.beliefByTeam.get(teamKey);
+      if (belief === undefined) {
+        belief = emptySwingBelief();
+        this.beliefByTeam.set(teamKey, belief);
+      }
+      foldSwingDeviation(belief, deviation);
     }
   }
 }
