@@ -320,7 +320,7 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
-describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () => {
+describe("SeasonHeader — Swing Score has its OWN tile (developer decision 2026-09-09)", () => {
   afterEach(() => cleanup());
 
   function eventsWithOneMatch(overrides: Partial<TeamSeasonArtifact["events"][number]["matches"][number]> = {}) {
@@ -374,7 +374,7 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
     ] as TeamSeasonArtifact["events"];
   }
 
-  it("an OPR-shaped artifact (Total entry with no spread) renders the PUBLISHED Swing Factor on the Total tile", () => {
+  it("renders the published Swing Score in its own tile, NOT as a ± on Total", () => {
     const artifact = {
       ...baseArtifact({
         seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 42.1 } } },
@@ -385,16 +385,19 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
 
     render(<SeasonHeader artifact={artifact} algorithmId="opr" season={2026} teamNumber={1114} />);
 
-    const cells = screen.getAllByTestId("metric-grid-cell");
-    const [totalCell] = cells;
-    expect(totalCell?.textContent).toContain("±");
+    const swingTile = screen.getByTestId("swing-score-tile");
+    expect(swingTile.textContent).toContain("18.50");
+    // No metric tile carries a ± any more — Swing Score is its own quantity.
+    for (const cell of screen.getAllByTestId("metric-grid-cell")) {
+      expect(cell.textContent).not.toContain("±");
+    }
   });
 
   // Quick task 260908-5wd: once a republish lands, the tile shows the
   // SIGMASCOUT-LAYER Swing Factor for every algorithm — including one that
   // publishes its own `spread`, which is a different quantity at a different
   // level (the algorithm's uncertainty about its rating, not the robot's swing).
-  it("a published swingFactor OVERRIDES the algorithm's own spread, so the tile means the same thing for every algorithm", () => {
+  it("shows the Swing Score and never the algorithm's own spread, for an algorithm that publishes both", () => {
     const artifact = {
       ...baseArtifact({
         seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },
@@ -404,9 +407,21 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
     } as unknown as TeamSeasonArtifact;
 
     render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+    expect(screen.getByTestId("swing-score-tile").textContent).toContain("41.25");
     const totalCell = screen.getAllByTestId("metric-grid-cell").at(-1);
-    expect(totalCell?.textContent).toContain("41.25");
+    expect(totalCell?.textContent).toContain("60.50");
+    // BPR's own spread of 2.50 must not appear anywhere.
     expect(totalCell?.textContent).not.toContain("2.50");
+    expect(totalCell?.textContent).not.toContain("±");
+  });
+
+  it("shows NO swing tile for a team with fewer than two played matches", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      events: [],
+    });
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+    expect(screen.queryByTestId("swing-score-tile")).toBeNull();
   });
 
   it("an artifact whose Total carries a published spread renders NO plus-minus from it", () => {

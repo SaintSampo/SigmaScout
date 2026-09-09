@@ -333,7 +333,15 @@ function formatRecord(record: TeamRow["record"]): string {
  * sizes are UNCHANGED (96/88), so wide-viewport rendering is byte-for-byte
  * identical to before this fix.
  */
-export function buildColumns(algorithmId: string, season: number, isNarrow: boolean, metricFirst: boolean = isNarrow, view: TeamsTableView = "grouped") {
+export function buildColumns(
+  algorithmId: string,
+  season: number,
+  isNarrow: boolean,
+  metricFirst: boolean = isNarrow,
+  view: TeamsTableView = "grouped",
+  /** Whether the ribbon's `±` control is on. Passed in rather than read from the store here, because this is a plain builder and not a component. */
+  showSwingScore: boolean = true,
+) {
   const metricKeys = displayedMetricKeys(algorithmId, season, view);
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
@@ -374,17 +382,11 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       // tradeoff — a small, temporary, wrong claim beats the Teams table
       // showing Common bare while every other tiered surface on the site
       // shows it outlined.
-      // SWING SCORE on the Total column only — it is computed from TOTAL-score
-      // residuals, so there is no per-component equivalent for the other metric
-      // columns, and they render a bare value rather than borrowing the
-      // algorithm's spread (which must never reach the screen).
-      cell: (info) => (
-        <MetricValue
-          metric={info.getValue()}
-          tier={info.getValue()?.tier ?? "common"}
-          swingScore={key === TOTAL_KEY ? info.row.original.swingScore : undefined}
-        />
-      ),
+      // No metric column carries a `±` any more (developer decision,
+      // 2026-09-09): Swing Score is ONE number per team, not a suffix on
+      // another metric, and it has its own column below. The algorithm's own
+      // spread is never rendered here either.
+      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />,
     }),
   );
 
@@ -410,6 +412,27 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     header: "Record",
     size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
     cell: (info) => formatRecord(info.getValue()),
+  });
+
+  /**
+   * SWING SCORE, its own column (developer decision, 2026-09-09): a team's
+   * total consistency estimate for its NEXT match — how much its contribution
+   * is expected to vary, not how good it is and not how sure the model is.
+   *
+   * A column rather than a `±` on Total because it answers a different
+   * question from every metric beside it. Absent for a team with fewer than
+   * two played matches, which renders blank rather than a fabricated zero.
+   *
+   * Hidden by the ribbon's `±` control, which is what that control now names.
+   */
+  const swingColumn = columnHelper.accessor("swingScore", {
+    id: "swingScore",
+    header: "Swing",
+    size: 84,
+    cell: (info) => {
+      const value = info.getValue();
+      return <span className="numeric-cell whitespace-nowrap">{value === undefined ? "" : value.toFixed(2)}</span>;
+    },
   });
 
   const winRateColumn = columnHelper.accessor("winRate", {
@@ -511,6 +534,7 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
     ...(isNarrow ? [recordColumn] : []),
     ...(metricFirst ? restMetricColumns : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
+    ...(showSwingScore ? [swingColumn] : []),
     winRateColumn,
   ]);
 }

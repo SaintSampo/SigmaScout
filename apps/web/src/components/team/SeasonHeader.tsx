@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
+import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
@@ -54,6 +55,23 @@ function formatRecord(record: { wins: number; losses: number; ties: number }): s
 function formatWinRate(value: number | null): string {
   if (value === null) return "";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+/**
+ * The Swing Score tile. Hidden entirely by the ribbon's `±` control, which is
+ * what that control now names, and absent for a team with fewer than two played
+ * matches — one observation cannot separate model bias from robot swing, so the
+ * tile shows nothing rather than a fabricated zero.
+ */
+function SwingScoreTile({ swingScore }: { swingScore?: number }) {
+  const show = useDisplaySettingsStore((state) => state.showSwingFactor);
+  if (!show || swingScore === undefined) return null;
+  return (
+    <div data-testid="swing-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
+      <span className="text-role-label text-[var(--color-text-muted)]">Swing</span>
+      <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{swingScore.toFixed(2)}</span>
+    </div>
+  );
 }
 
 /** A rate over zero matches is undefined, never a coerced zero — same rule `teams-table/rowModel.ts`'s own `winRate()` applies. */
@@ -130,17 +148,16 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // `tierForPercentile(undefined)` below yields no tier for a derived tile —
   // the honest outcome for stale data, never worked around by inventing a
   // percentile from the single team in view.
-  // SWING SCORE, per tile. Only `total` has one today: it is computed from a
-  // team's share of its alliance's TOTAL-score residuals, so there is no
-  // per-component equivalent to show on the phase tiles yet, and those render
-  // a bare value rather than borrowing the algorithm's spread. The algorithm's
-  // spread is never a fallback here (developer rule, 2026-09-09) — see
-  // `MetricValue`'s own `swingScore` prop comment.
+  // SWING SCORE is its OWN TILE (developer decision, 2026-09-09), not a `±`
+  // suffix on Total. It is one number per team — its total consistency
+  // estimate for its NEXT match — which is a different question from every
+  // metric beside it, so it reads as its own quantity rather than an
+  // annotation on another one. No metric tile carries a `±` any more.
   const swingScore = (artifact as { swingFactor?: number }).swingFactor;
   const groupTiles = publishesComponents
-    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey], swingScore: undefined as number | undefined }))
+    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
-  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY], swingScore }];
+  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] }];
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -254,9 +271,15 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           {tiles.map((tile) => (
             <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
               <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} swingScore={tile.swingScore} />
+              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
             </div>
           ))}
+          {/* Swing Score's own tile — see `swingScore`'s derivation above for
+              why it is not a suffix on Total. Rendered through the same
+              `numeric-cell` box as every other value so the row stays aligned,
+              but deliberately unboxed by tier: a consistency estimate has no
+              percentile pool behind it. */}
+          <SwingScoreTile swingScore={swingScore} />
         </div>
       </div>
     </div>
