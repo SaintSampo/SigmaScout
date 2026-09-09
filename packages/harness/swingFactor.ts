@@ -51,6 +51,8 @@
  * ±298.92 against a rating of 322.42, almost all of it Einstein bias.
  */
 
+import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
+
 /**
  * Half-life in matches: a deviation six matches old counts half as much as the
  * newest. MEASURED, not chosen — swept walk-forward over 275,172 team-matches
@@ -267,6 +269,21 @@ export class SwingFactorAccumulator {
    */
   private readonly beliefByTeam = new Map<string, SwingBelief>();
 
+  /**
+   * Resumes from persisted beliefs — the live Worker's entry point (shape 10).
+   *
+   * Copies each belief rather than aliasing it, so folding here cannot mutate
+   * the caller's map. The resumed accumulator is indistinguishable from one
+   * that folded the whole history itself, which is the entire point: a live
+   * tick continues the offline publisher's accumulator rather than starting a
+   * second, shorter one.
+   */
+  static fromBeliefs(beliefs: ReadonlyMap<string, SwingBelief>): SwingFactorAccumulator {
+    const accumulator = new SwingFactorAccumulator();
+    for (const [teamKey, belief] of beliefs) accumulator.beliefByTeam.set(teamKey, { ...belief });
+    return accumulator;
+  }
+
   /** This team's Swing Factor from everything folded so far, or `undefined` before two observations. */
   swingFor(teamKey: string): number | undefined {
     const belief = this.beliefByTeam.get(teamKey);
@@ -276,6 +293,18 @@ export class SwingFactorAccumulator {
   /** This team's raw running state, for a caller that must persist it (the Worker). Undefined if the team has never been folded. */
   beliefFor(teamKey: string): SwingBelief | undefined {
     return this.beliefByTeam.get(teamKey);
+  }
+
+  /**
+   * Every team's raw running state, for the D1 seed.
+   *
+   * Includes teams with a SINGLE observation, which `swingByTeam` deliberately
+   * omits — that team has no publishable Swing Factor yet but does have
+   * history, and dropping it from a seed would silently restart its
+   * accumulator on the first live match.
+   */
+  beliefsByTeam(): ReadonlyMap<string, SwingBelief> {
+    return new Map([...this.beliefByTeam].map(([teamKey, belief]) => [teamKey, { ...belief }]));
   }
 
   /** Every team with enough history to have one — the map `allianceSwingBandVariance` consumes. */
@@ -306,6 +335,38 @@ export class SwingFactorAccumulator {
    * or malformed row simply contributes nothing and does not consume a decay
    * step.
    */
+  /**
+   * Folds a whole MATCH — both alliances — applying the fully-demo rule once.
+   *
+   * Every algorithm's `update` returns state unchanged when either alliance is
+   * fully demo (`opr.ts:379`, `epa.ts:619`): a real alliance "beating" three
+   * placeholders is not evidence of anything. A band is a claim about how
+   * unsure we were, built from residuals, so a residual that is not evidence
+   * about the robots must not widen or narrow it either.
+   *
+   * This lives here, at match level, rather than in each caller, because there
+   * are two callers — the offline publisher and the live Worker — and a rule
+   * applied in one and not the other is precisely how live and offline drift
+   * apart while both look healthy.
+   *
+   * A MIXED alliance is folded normally, deliberately: a demo robot filling one
+   * slot beside two real robots really did occupy that slot and really did
+   * contribute to the observed score, so the residual is genuine evidence about
+   * its teammates. That is the same split `demoTeams.ts` documents.
+   */
+  foldMatch(
+    redTeams: readonly string[],
+    redActual: number,
+    redPredicted: number,
+    blueTeams: readonly string[],
+    blueActual: number,
+    bluePredicted: number
+  ): void {
+    if (isFullyDemoAlliance(redTeams) || isFullyDemoAlliance(blueTeams)) return;
+    this.fold(redTeams, redActual, redPredicted);
+    this.fold(blueTeams, blueActual, bluePredicted);
+  }
+
   fold(roster: readonly string[], actualScore: number, predictedScore: number): void {
     if (roster.length === 0) return;
     if (!Number.isFinite(actualScore) || !Number.isFinite(predictedScore)) return;

@@ -72,6 +72,8 @@ function mergeOne(match: MatchResult): TeamSeasonArtifact {
     predictions: new Map([[match.matchKey, makePrediction()]]),
     metrics: METRICS,
     matchIndexByKey: new Map([[match.matchKey, 0]]),
+    bands: new Map(),
+    swingFactor: undefined,
     stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
   }) as TeamSeasonArtifact;
 }
@@ -133,6 +135,8 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
       predictions: new Map([["2026ex_qm1", makePrediction()]]),
       metrics: METRICS,
       matchIndexByKey: new Map([["2026ex_qm1", 1]]),
+      bands: new Map(),
+      swingFactor: undefined,
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
 
@@ -191,6 +195,8 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
       predictions: new Map([[match.matchKey, makePrediction()]]),
       metrics: METRICS,
       matchIndexByKey: new Map([[match.matchKey, 0]]),
+      bands: new Map(),
+      swingFactor: undefined,
       stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
   }

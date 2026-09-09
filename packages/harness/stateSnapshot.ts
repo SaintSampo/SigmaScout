@@ -37,6 +37,7 @@ import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/b
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
+import type { SwingBelief } from "./swingFactor.js";
 
 // ---------------------------------------------------------------------------
 // The row shape
@@ -199,8 +200,39 @@ export class MissingLeagueRowError extends Error {
  *
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it.
+ *
+ * ## 9 -> 10 (2026-09-09, the live Swing Factor)
+ *
+ * Every `scopeKind: "team"` row gains `sigmascoutSwing` — four running numbers
+ * (`weight`, `weightSquares`, `mean`, `m2`) carrying that team's Swing Factor
+ * belief under `swingFactor.ts`'s incremental estimator.
+ *
+ * This bump guards the SAME failure mode as 6 -> 7, and it is worth naming
+ * because that one is described above as the sharpest of its group: a stale
+ * row simply has no `sigmascoutSwing`, and "never folded" is a LEGAL state
+ * meaning "a team with too little play to have a Swing Factor". So a shape-9
+ * row read under shape 10 would deserialize into a team that looks brand new
+ * rather than into anything that looks broken — every band quietly narrower or
+ * absent, no error, no NaN, no malformed row to find. Worse here than in the
+ * 6 -> 7 case, because the offline publisher WOULD have a band for those same
+ * matches, so live and offline would disagree while both looked healthy.
+ *
+ * Note what this field is NOT: it is not algorithm state. It is a level-2
+ * SigmaScout quantity riding in a level-1 row, and it is written and read by
+ * `withSwingBeliefs`/`readSwingBeliefs` below rather than by any algorithm's
+ * serializer, so no algorithm knows it exists. It lives here anyway because
+ * `state_json` is the only per-team row the Worker reads and writes, and it
+ * does so in ONE subrequest each way regardless of payload — a separate table
+ * would double the subrequest cost of every tick against a budget where three
+ * algorithms already overflow. The key is deliberately `sigmascoutSwing` and
+ * not `swing`, both to read as a passenger and to avoid colliding with the
+ * unrelated `swing` key in Sigma1's own team state.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it. Seed first, deploy second: a deploy carrying shape 10 against
+ * un-re-seeded rows takes live folding down until the seed runs.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 9;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 10;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -732,6 +764,79 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
     phaseScale: phaseNumbers(leagueJson.phaseScale),
     phaseScaleCount: phaseNumbers(leagueJson.phaseScaleCount),
   };
+}
+
+// ---------------------------------------------------------------------------
+// The SigmaScout-layer passenger (shape 10)
+// ---------------------------------------------------------------------------
+
+/**
+ * The key every `scopeKind: "team"` row carries its Swing Factor belief under.
+ *
+ * `sigmascoutSwing`, never `swing`: Sigma1's own team state already has an
+ * unrelated `swing` key, and the longer name says out loud that this is a
+ * level-2 passenger rather than part of the model.
+ */
+const SWING_BELIEF_KEY = "sigmascoutSwing";
+
+/**
+ * Reads every team's Swing Factor belief out of a set of state rows.
+ *
+ * Deliberately standalone rather than folded into `deserializeState`: this is
+ * NOT algorithm state, and threading it through the four per-algorithm
+ * deserializers would make every one of them know about a heuristic none of
+ * them may depend on. They ignore the key entirely — each parses its own named
+ * fields and an extra property is invisible to it — which is exactly the
+ * separation this project's two-level split asks for.
+ *
+ * A team row with no belief yields no entry, which the caller must treat as
+ * "no history", not as zero. Under shape 10 that can only mean a team the
+ * publisher had never seen play; a row genuinely written at an older shape is
+ * rejected upstream by `LeagueRowShapeVersionError` before reaching here.
+ */
+export function readSwingBeliefs(rows: readonly StateRow[]): Map<string, SwingBelief> {
+  const beliefs = new Map<string, SwingBelief>();
+  for (const row of rows) {
+    if (row.scopeKind !== "team") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const raw = parsed[SWING_BELIEF_KEY] as Partial<SwingBelief> | undefined;
+    if (raw === undefined) continue;
+    const { weight, weightSquares, mean, m2 } = raw;
+    // All four or none. A partially-written belief would produce a plausible
+    // but wrong band rather than no band, which is the failure this whole
+    // shape bump exists to prevent.
+    if (![weight, weightSquares, mean, m2].every((v) => typeof v === "number" && Number.isFinite(v))) continue;
+    beliefs.set(row.scopeKey, { weight: weight!, weightSquares: weightSquares!, mean: mean!, m2: m2! });
+  }
+  return beliefs;
+}
+
+/**
+ * Injects each team's Swing Factor belief into the rows `serializeState`
+ * produced, returning new rows rather than mutating them.
+ *
+ * Only `scopeKind: "team"` rows are touched. The league row is left alone on
+ * purpose — `MAX_LEAGUE_ROW_BYTES` caps it at 16 KB precisely because nothing
+ * in it may scale with team count, and a per-team belief is the definition of
+ * something that does.
+ *
+ * A team with no belief gets no key, which round-trips through
+ * `readSwingBeliefs` as "no history" — the same state a team that has played
+ * once is in, and the honest one.
+ */
+export function withSwingBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, SwingBelief>): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "team") return row;
+    const belief = beliefs.get(row.scopeKey);
+    if (belief === undefined) return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [SWING_BELIEF_KEY]: belief }) };
+  });
 }
 
 // ---------------------------------------------------------------------------

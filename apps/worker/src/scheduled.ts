@@ -123,7 +123,8 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 // zero runtime imports) — the same direct-from-core precedent
 // apps/web/src/components/event/EventMatchTable.tsx already cites.
 import { isBonusRpCompLevel } from "../../../packages/core/rankingPoints/constants.js";
-import { deserializeState, serializeState } from "../../../packages/harness/stateSnapshot.js";
+import { deserializeState, readSwingBeliefs, serializeState, withSwingBeliefs } from "../../../packages/harness/stateSnapshot.js";
+import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
 import {
   artifactKey,
   deriveMetricKeyOrder,
@@ -480,7 +481,42 @@ function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Pred
   };
 }
 
-function buildEventMatchRow(match: MatchResult, prediction: Prediction) {
+/**
+ * One alliance-pair's Match Band for one match — each side's variance as
+ * `Sigma its three robots' Swing Factors squared`, walk-forward as of that
+ * match. A side is absent when any of its robots has too little play to have a
+ * Swing Factor; `allianceSwingBandVariance`'s all-or-nothing rule is what keeps
+ * a partial sum from rendering as a confident-looking narrow band.
+ */
+interface MatchBand {
+  readonly red?: number;
+  readonly blue?: number;
+}
+
+/** Emits the band fields exactly as `publish.ts` does, so a live row and an offline row for the same match are byte-identical. */
+function swingBandFields(band: MatchBand | undefined) {
+  if (band === undefined) return {};
+  return {
+    ...(band.red !== undefined ? { redSwingBandVariance: roundTo(band.red, ROUNDING_RULE.variance) } : {}),
+    ...(band.blue !== undefined ? { blueSwingBandVariance: roundTo(band.blue, ROUNDING_RULE.variance) } : {}),
+  };
+}
+
+/** What Phase A hands Phase B for one algorithm. */
+interface PerAlgorithmFold {
+  readonly algorithm: AlgorithmModule<any>;
+  readonly newPredictions: Map<string, Prediction>;
+  readonly upcomingPredictions: Map<string, Prediction>;
+  readonly touchedMetrics: Record<string, Record<string, TeamMetric>>;
+  /** Match Band per newly-folded match key (shape 10). */
+  readonly newBands: ReadonlyMap<string, MatchBand>;
+  /** Match Band per still-upcoming match key (shape 10). */
+  readonly upcomingBands: ReadonlyMap<string, MatchBand>;
+  /** Per-team Swing Factor after this tick's folds — the team artifact's own field. */
+  readonly swingByTeam: ReadonlyMap<string, number>;
+}
+
+function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: MatchBand | undefined) {
   return {
     matchKey: match.matchKey,
     compLevel: match.compLevel,
@@ -493,13 +529,14 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction) {
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
     ...liveBonusRpFields(match.compLevel, prediction),
+    ...swingBandFields(band),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
   };
 }
 
-function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction) {
+function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, band: MatchBand | undefined) {
   return {
     matchKey: match.matchKey,
     compLevel: match.compLevel,
@@ -514,6 +551,7 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction) {
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
     ...liveBonusRpFields(match.compLevel, prediction),
+    ...swingBandFields(band),
   };
 }
 
@@ -529,18 +567,20 @@ interface MergeEventArtifactParams {
   readonly upcomingPredictions: ReadonlyMap<string, Prediction>;
   readonly touchedTeams: readonly string[];
   readonly touchedMetrics: Readonly<Record<string, Record<string, TeamMetric>>>;
+  readonly newBands: ReadonlyMap<string, MatchBand>;
+  readonly upcomingBands: ReadonlyMap<string, MatchBand>;
   readonly stamp: Stamp;
 }
 
 /** Read-modify-write merge: replaces newly-folded matches (removing them from `upcoming`), refreshes touched teams' standings rows, and preserves everything else from `existing` unchanged. Bootstraps a schema-valid (but degraded — no history this Worker cannot see) artifact when `existing` is `undefined`. */
 function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, newlyFolded, newPredictions, stillUpcoming, upcomingPredictions, touchedTeams, touchedMetrics, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, newlyFolded, newPredictions, stillUpcoming, upcomingPredictions, touchedTeams, touchedMetrics, newBands, upcomingBands, stamp } = params;
 
   const newMatchKeys = new Set(newlyFolded.map((m) => m.matchKey));
   const preservedMatches = (existing?.matches ?? []).filter((m) => !newMatchKeys.has(m.matchKey));
-  const matches = [...preservedMatches, ...newlyFolded.map((m) => buildEventMatchRow(m, newPredictions.get(m.matchKey)!))];
+  const matches = [...preservedMatches, ...newlyFolded.map((m) => buildEventMatchRow(m, newPredictions.get(m.matchKey)!, newBands.get(m.matchKey)))];
 
-  const upcoming = stillUpcoming.map((m) => buildEventUpcomingRow(m, upcomingPredictions.get(m.matchKey)!));
+  const upcoming = stillUpcoming.map((m) => buildEventUpcomingRow(m, upcomingPredictions.get(m.matchKey)!, upcomingBands.get(m.matchKey)));
 
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
@@ -571,7 +611,7 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   };
 }
 
-function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, season: number, algorithmId: string, algorithmVersion: string) {
+function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, season: number, algorithmId: string, algorithmVersion: string, band: MatchBand | undefined) {
   return {
     matchKey: match.matchKey,
     season,
@@ -586,6 +626,7 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
     variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    ...swingBandFields(band),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -630,6 +671,10 @@ interface MergeTeamSeasonArtifactParams {
   readonly predictions: ReadonlyMap<string, Prediction>;
   readonly metrics: Readonly<Record<string, TeamMetric>>;
   readonly matchIndexByKey: ReadonlyMap<string, number>;
+  /** Match Band per newly-folded match key (shape 10). */
+  readonly bands: ReadonlyMap<string, MatchBand>;
+  /** This team's Swing Factor after the tick's folds, or `undefined` below two played matches. */
+  readonly swingFactor: number | undefined;
   readonly stamp: Stamp;
 }
 
@@ -646,12 +691,12 @@ interface MergeTeamSeasonArtifactParams {
  * D1/R2/KV fake rig to prove a property of ten lines of pure merge logic.
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
-  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, stamp } = params;
+  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, swingFactor, stamp } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
   for (const match of matches) record = incrementRecord(record, teamKey, match);
 
-  const newRows = matches.map((m) => buildTeamSeasonMatchRow(m, predictions.get(m.matchKey)!, season, algorithmId, algorithmVersion));
+  const newRows = matches.map((m) => buildTeamSeasonMatchRow(m, predictions.get(m.matchKey)!, season, algorithmId, algorithmVersion, bands.get(m.matchKey)));
   const existingEvents = existing?.events ?? [];
   const eventIndex = existingEvents.findIndex((e) => e.eventKey === eventKey);
   const events =
@@ -700,6 +745,13 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     nickname: existing?.nickname ?? "",
     season,
     seasonStats: { record, metrics: roundTeamMetricRecord(metrics) },
+    // Tick-owned as of shape 10, so it is named here rather than left to the
+    // spread. When this tick cannot produce one (a team below two played
+    // matches), the published value is preserved instead of being overwritten
+    // with nothing — the spread above already carries it, and clobbering a good
+    // offline Swing Factor with `undefined` would be the very data loss the
+    // spread was introduced to stop.
+    ...(swingFactor !== undefined ? { swingFactor: roundMetric(swingFactor) } : {}),
     events,
     metricHistory: [...(existing?.metricHistory ?? []), ...newMetricHistoryRows],
   };
@@ -915,7 +967,7 @@ async function processEvent(
 
       // PHASE A — every algorithm reads, folds, and writes state. ALL must
       // succeed before ANY artifact write (see this module's header).
-      const perAlgorithm = new Map<string, { readonly algorithm: AlgorithmModule<any>; readonly newPredictions: Map<string, Prediction>; readonly upcomingPredictions: Map<string, Prediction>; readonly touchedMetrics: Record<string, Record<string, TeamMetric>> }>();
+      const perAlgorithm = new Map<string, PerAlgorithmFold>();
 
       for (const [algorithmId, algorithm] of algorithmModules) {
         // `realTouchedTeams` (demo keys stripped) — see this module's header
@@ -927,27 +979,57 @@ async function processEvent(
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
 
         let state = initialState;
+        // The level-2 Swing accumulator, RESUMED from the beliefs seeded into
+        // these very rows (shape 10) rather than started fresh. A fresh one
+        // would produce a band from this event's matches alone while the
+        // offline publisher's came from the whole season — live and offline
+        // disagreeing with both sides looking healthy, which is exactly what
+        // the shape bump exists to prevent.
+        const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(rows));
+        const newBands = new Map<string, { red?: number; blue?: number }>();
         const newPredictions = new Map<string, Prediction>();
         for (const result of newlyFoldedResults) {
           const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
           newPredictions.set(result.matchKey, prediction);
+          // Read the band BEFORE folding this match in, in the same place
+          // `predict` already happens — predict-before-update, for the same
+          // reason: a band says how unsure we were when we predicted this, and
+          // this match's own result is not an admissible input to that.
+          newBands.set(result.matchKey, {
+            ...(swing.bandVarianceFor(result.redTeams) !== undefined ? { red: swing.bandVarianceFor(result.redTeams) } : {}),
+            ...(swing.bandVarianceFor(result.blueTeams) !== undefined ? { blue: swing.bandVarianceFor(result.blueTeams) } : {}),
+          });
           state = algorithm.update(state, result);
+          swing.foldMatch(result.redTeams, result.redScore, prediction.redScore, result.blueTeams, result.blueScore, prediction.blueScore);
         }
 
         const upcomingPredictions = new Map<string, Prediction>();
+        const upcomingBands = new Map<string, { red?: number; blue?: number }>();
         for (const match of stillUpcomingViews) {
           upcomingPredictions.set(match.matchKey, algorithm.predict(state, match));
+          // Read only — an unplayed match has no residual of its own, so its
+          // band is built from everything played so far.
+          upcomingBands.set(match.matchKey, {
+            ...(swing.bandVarianceFor(match.redTeams) !== undefined ? { red: swing.bandVarianceFor(match.redTeams) } : {}),
+            ...(swing.bandVarianceFor(match.blueTeams) !== undefined ? { blue: swing.bandVarianceFor(match.blueTeams) } : {}),
+          });
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
+        const swingByTeam = swing.swingByTeam();
 
-        const candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
+        // The belief rides back into the TEAM rows after the algorithm
+        // serializer has run, so no algorithm's serializer knows it exists.
+        const candidateRows = withSwingBeliefs(
+          serializeState(algorithmId, algorithm.version, state, stamp),
+          swing.beliefsByTeam()
+        );
         const changedRows = selectChangedRows(rows, candidateRows);
 
         budget.consume(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands, swingByTeam });
       }
 
       return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
@@ -1007,7 +1089,7 @@ async function runPhaseBAndReport(
   touchedTeams: readonly string[],
   realTouchedTeams: readonly string[],
   matchIndexByKey: ReadonlyMap<string, number>,
-  perAlgorithm: ReadonlyMap<string, { readonly algorithm: AlgorithmModule<any>; readonly newPredictions: Map<string, Prediction>; readonly upcomingPredictions: Map<string, Prediction>; readonly touchedMetrics: Record<string, Record<string, TeamMetric>> }>,
+  perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
   stamp: Stamp,
   eventComplete: boolean
@@ -1026,6 +1108,8 @@ async function runPhaseBAndReport(
         newPredictions: info.newPredictions,
         stillUpcoming: stillUpcomingViews,
         upcomingPredictions: info.upcomingPredictions,
+        newBands: info.newBands,
+        upcomingBands: info.upcomingBands,
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         stamp,
@@ -1056,6 +1140,12 @@ async function runPhaseBAndReport(
           predictions: info.newPredictions,
           metrics: info.touchedMetrics[teamKey] ?? {},
           matchIndexByKey,
+          bands: info.newBands,
+          // Shape 10: recomputed this tick, so a live-updated team's tile
+          // carries a current Swing Factor rather than the one frozen at the
+          // last full publish. `undefined` below two played matches, which the
+          // merge below preserves as absent rather than writing a fake 0.
+          swingFactor: info.swingByTeam.get(teamKey),
           stamp,
         });
         await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);

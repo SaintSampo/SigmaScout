@@ -52,7 +52,7 @@ import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
-import { allianceSwingBandVariance, SwingFactorAccumulator } from "./swingFactor.js";
+import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 
 /**
  * Monte Carlo settings for the level-2 RP draw. Explicit here rather than
@@ -101,6 +101,21 @@ export class SigmaScoutLayer {
     return this.#swing.swingByTeam();
   }
 
+  /**
+   * Every team's RAW running Swing state, for the D1 seed the live Worker
+   * resumes from (shape 10).
+   *
+   * Distinct from `swingByTeam()` and not interchangeable with it: that
+   * returns finished Swing Factors and DROPS any team below two observations,
+   * which is right for publishing and wrong for seeding. A team with exactly
+   * one observation must carry that observation forward, or its first live
+   * match would fold against an empty belief and the live band would diverge
+   * from what the offline publisher would have produced.
+   */
+  swingBeliefs(): ReadonlyMap<string, SwingBelief> {
+    return this.#swing.beliefsByTeam();
+  }
+
   /** The RP beliefs learned so far, or `undefined` for a season with no registered rules. */
   get rpAccumulator(): RpMomentsAccumulator | undefined {
     return this.#rp;
@@ -122,8 +137,7 @@ export class SigmaScoutLayer {
   foldPlayed(match: MatchResult, prediction: Prediction): PredictionRecord {
     const redBandVariance = this.#swing.bandVarianceFor(match.redTeams);
     const blueBandVariance = this.#swing.bandVarianceFor(match.blueTeams);
-    this.#swing.fold(match.redTeams, match.redScore, prediction.redScore);
-    this.#swing.fold(match.blueTeams, match.blueScore, prediction.blueScore);
+    this.#swing.foldMatch(match.redTeams, match.redScore, prediction.redScore, match.blueTeams, match.blueScore, prediction.blueScore);
 
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     this.#foldObservedThresholds(match);

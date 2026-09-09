@@ -94,7 +94,7 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
-import { allianceSwingBandVariance } from "./swingFactor.js";
+import { allianceSwingBandVariance, type SwingBelief } from "./swingFactor.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
@@ -113,7 +113,7 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
-import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
+import { emitSeedSql, serializeState, withSwingBeliefs, type StateStamp } from "./stateSnapshot.js";
 import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
 import type { MetricHistoryRow } from "./metricHistory.js";
@@ -2154,6 +2154,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
 
   let liveStatesAcrossSeasons = new Map<string, unknown>();
   let finalSeasonStates = new Map<string, unknown>();
+  // Shape 10 (2026-09-09): the per-team Swing Factor beliefs that ride the
+  // same seed, keyed by algorithm id. Populated from the same final season
+  // `finalSeasonStates` is.
+  let finalSeasonSwing = new Map<string, ReadonlyMap<string, SwingBelief>>();
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -2935,6 +2939,18 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     //   disagree about the very same season — it must stay `finalStates`.
     liveStatesAcrossSeasons = new Map(records.carryStates);
     finalSeasonStates = new Map(records.finalStates);
+    // Shape 10: the D1 seed carries each team's Swing Factor belief alongside
+    // the algorithm state, so a resumed live tick continues the SAME
+    // accumulator this publish ran rather than cold-starting it.
+    //
+    // Read from `layers`, which walked this season's offseason-INCLUSIVE
+    // record stream — deliberately the same population `finalSeasonStates`
+    // takes, and for the same reason given just above: the Worker continues
+    // the real season, so seeding it from a rewound snapshot would make live
+    // and offline disagree about that season.
+    finalSeasonSwing = new Map(
+      options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.swingBeliefs()])
+    );
   }
 
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
@@ -2966,7 +2982,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     for (const algorithm of options.algorithms) {
       const state = finalSeasonStates.get(algorithm.id);
       if (state === undefined) continue;
-      const rows = serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp);
+      // Shape 10: the level-2 Swing belief rides into each TEAM row after the
+      // algorithm serializer has run, so no algorithm's serializer knows it
+      // exists — see `withSwingBeliefs`. Without this the seeded Worker would
+      // cold-start every band while the artifacts it serves already carry one.
+      const rows = withSwingBeliefs(
+        serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
+        finalSeasonSwing.get(algorithm.id) ?? new Map()
+      );
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });
       seedFiles.push(outPath);

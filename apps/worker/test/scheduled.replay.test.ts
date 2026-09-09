@@ -30,7 +30,8 @@ import { bpr } from "../../../packages/core/algorithms/bpr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
-import { roundMetric, roundProbability } from "../../../packages/harness/rounding.js";
+import { roundMetric, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
+import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
 import type { AlgorithmModule, MatchResult, Prediction } from "../../../packages/core/algorithms/types.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -70,6 +71,23 @@ function runOfflineWalkForward(matches: readonly MatchResult[], algorithm: Algor
 function computePredictionStreamDigestLocal(records: readonly OfflinePredictionRecord[]): string {
   const lines = records.map((r) => JSON.stringify([r.match.matchKey, r.prediction.pRedWin, r.prediction.redScore, r.prediction.blueScore]));
   return createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+
+
+/**
+ * The SigmaScout-layer counterpart of the prediction digest above (shape 10).
+ *
+ * Kept SEPARATE rather than folded into `computePredictionStreamDigestLocal`,
+ * which is pinned byte-for-byte to `promote.ts`'s own function and must not
+ * drift from it. This one exists because the prediction digest covers only
+ * `pRedWin`/`redScore`/`blueScore` and would therefore not notice a live/offline
+ * divergence in the Match Band AT ALL — the field the whole shape-10 bump was
+ * made for. Asserting bit-equality on an estimator while testing three fields
+ * that do not include it is the shape of claim this project's failure log is
+ * about.
+ */
+function computeBandStreamDigestLocal(rows: readonly { matchKey: string; red: number | undefined; blue: number | undefined }[]): string {
+  return createHash("sha256").update(rows.map((r) => JSON.stringify([r.matchKey, r.red ?? null, r.blue ?? null])).join("\n")).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +479,7 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         const key = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId, version: offlineModule.version });
         const publishedText = await r2.get(key);
         expect(publishedText, `no published event artifact found at ${key} for algorithm "${algorithmId}"`).not.toBeNull();
-        const published = JSON.parse(await publishedText!.text()) as { matches: { matchKey: string; pRedWin: number; predictedRedScore: number; predictedBlueScore: number }[] };
+        const published = JSON.parse(await publishedText!.text()) as { matches: { matchKey: string; pRedWin: number; predictedRedScore: number; predictedBlueScore: number; redSwingBandVariance?: number; blueSwingBandVariance?: number }[] };
         expect(published.matches).toHaveLength(MATCH_FIXTURES.length);
 
         // Order both streams identically (chronological match order, the
@@ -476,6 +494,35 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         const onlineDigest = computePredictionStreamDigestLocal(onlineDigestInput);
 
         expect(onlineDigest, `algorithm "${algorithmId}": online (deployed-tick) and offline (WalkForwardSimulator) prediction-stream digests diverged`).toBe(offlineDigest);
+
+        // THE MATCH BAND, on the same two streams (shape 10). Built offline
+        // exactly as `publish.ts` builds it: read each alliance's band from
+        // history so far, THEN fold the match in, so a match never informs its
+        // own band.
+        const swing = new SwingFactorAccumulator();
+        const offlineBands = offlineRecords.map((r) => {
+          const red = swing.bandVarianceFor(r.match.redTeams);
+          const blue = swing.bandVarianceFor(r.match.blueTeams);
+          swing.foldMatch(r.match.redTeams, r.match.redScore, r.prediction.redScore, r.match.blueTeams, r.match.blueScore, r.prediction.blueScore);
+          return {
+            matchKey: r.match.matchKey,
+            red: red === undefined ? undefined : roundTo(red, ROUNDING_RULE.variance),
+            blue: blue === undefined ? undefined : roundTo(blue, ROUNDING_RULE.variance),
+          };
+        });
+        const onlineBands = onlineOrdered.map((row) => ({ matchKey: row.matchKey, red: row.redSwingBandVariance, blue: row.blueSwingBandVariance }));
+
+        // Non-vacuity: a fixture where no team ever reaches two played matches
+        // would make both sides all-undefined and the digest comparison would
+        // pass while proving nothing.
+        expect(
+          offlineBands.filter((b) => b.red !== undefined || b.blue !== undefined).length,
+          `algorithm "${algorithmId}": the fixture produced no band at all, so the band digest below would be vacuous`
+        ).toBeGreaterThan(0);
+        expect(
+          computeBandStreamDigestLocal(onlineBands),
+          `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`
+        ).toBe(computeBandStreamDigestLocal(offlineBands));
       }
     },
     60_000

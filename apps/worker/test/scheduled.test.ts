@@ -432,7 +432,14 @@ describe("runTick — one live event, one new match", () => {
     for (const teamKey of RED_TEAMS) {
       const row = d1.algorithmState.get(`opr::team::${teamKey}`);
       expect(row).toBeDefined();
-      expect(JSON.parse(row!.state_json)).toEqual({ lastEventKey: "2026casj" });
+      // Shape 10: the row carries OPR's own `lastEventKey` AND the level-2
+      // `sigmascoutSwing` passenger, which no algorithm serializer knows about
+      // (`withSwingBeliefs`). One observation so far, hence weight 1 and no
+      // spread yet — an effective sample of one cannot support one.
+      expect(JSON.parse(row!.state_json)).toEqual({
+        lastEventKey: "2026casj",
+        sigmascoutSwing: { weight: 1, weightSquares: 1, mean: 40, m2: 0 },
+      });
     }
     expect(d1.algorithmState.get("opr::event::2026casj")).toBeDefined();
 
