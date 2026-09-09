@@ -690,6 +690,14 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedBprLeague;
+  // Quick task 260908-5wd: BPR was the ONE algorithm missing this check, so a
+  // stale BPR row would be read and silently cold-start the live tier against
+  // a shape it no longer matches. `readScopedState` filters on `algorithm_id`
+  // alone and never on `algorithm_version` (see this file's header), so this
+  // guard is the only thing standing between an old row and a live fold.
+  if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
+    throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
+  }
 
   const teams = new Map<string, BprTeamState>();
   const phaseTeams: Record<ComponentGroupId, Map<string, BprTeamState>> = {

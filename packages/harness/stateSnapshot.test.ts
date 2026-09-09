@@ -983,3 +983,47 @@ describe("emitSeedSql", () => {
     }
   });
 });
+
+describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", () => {
+  // BPR was the one algorithm skipping the check every other algorithm makes,
+  // so a stale row would have been READ rather than rejected. `readScopedState`
+  // filters on algorithm_id alone and never on algorithm_version, so this guard
+  // is the only thing between an old row and a live fold.
+  it("throws LeagueRowShapeVersionError for a BPR league row declaring an older shape", () => {
+    const rows = [
+      {
+        scopeKind: "league" as const,
+        scopeKey: "league",
+        stateJson: JSON.stringify({
+          snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION - 1,
+          season: 2026,
+          logTau: 0,
+          scale: 1,
+          scaleCount: 1,
+          phaseScale: {},
+          phaseScaleCount: {},
+        }),
+      },
+    ];
+    expect(() => deserializeState("bpr", rows)).toThrow(LeagueRowShapeVersionError);
+  });
+
+  it("accepts a BPR league row declaring the current shape", () => {
+    const rows = [
+      {
+        scopeKind: "league" as const,
+        scopeKey: "league",
+        stateJson: JSON.stringify({
+          snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
+          season: 2026,
+          logTau: 0,
+          scale: 1,
+          scaleCount: 1,
+          phaseScale: {},
+          phaseScaleCount: {},
+        }),
+      },
+    ];
+    expect(() => deserializeState("bpr", rows)).not.toThrow();
+  });
+});

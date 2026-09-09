@@ -108,6 +108,7 @@
  * match/alliance record stays visible).
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
+import { bpr } from "../../../packages/core/algorithms/bpr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -284,11 +285,26 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
       modules.set(entry.id, epa);
       continue;
     }
-    // Every published VPR entry uses the "predictive-variance" link mode
-    // (the `vpr` id's own default — the manifest schema rejects the four
-    // harness-only link-mode ids by name, so this branch is only ever
-    // reached for `id === "vpr"`).
-    modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
+    if (entry.id === "bpr") {
+      modules.set(entry.id, bpr);
+      continue;
+    }
+    // VPR, and ONLY VPR. Every published VPR entry uses the
+    // "predictive-variance" link mode (the `vpr` id's own default — the
+    // manifest schema rejects the four harness-only link-mode ids by name).
+    //
+    // This is an explicit equality test rather than a fallthrough (quick task
+    // 260908-5wd). It used to be `else`, which meant any id not named above
+    // was constructed as a SIGMA1 MODULE WEARING THAT ID: setting
+    // LIVE_ALGORITHM_IDS to "bpr" would have folded live events with the wrong
+    // model and written the results to BPR's artifacts, silently — nothing
+    // would throw, because `serializeState` has a real `bpr` branch and the
+    // state would round-trip. An unknown id must be loud, not plausible.
+    if (entry.id === "vpr") {
+      modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
+      continue;
+    }
+    throw new UnknownLiveAlgorithmIdError(entry.id);
   }
   if (modules.size === 0) {
     throw new EmptyLiveAlgorithmTierError();

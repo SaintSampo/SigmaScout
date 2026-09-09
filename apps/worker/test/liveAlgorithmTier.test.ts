@@ -35,6 +35,9 @@ import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveW
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { SIGMA1_CODE_VERSION } from "../../../packages/core/algorithms/sigma1/params.js";
+import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { opr } from "../../../packages/core/algorithms/opr.js";
+import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -541,5 +544,44 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
   it("a live id absent from the algorithms manifest, leaving the filtered module map empty, throws EmptyLiveAlgorithmTierError", () => {
     const manifest = AlgorithmsManifestSchema.parse(JSON.parse(algorithmsManifest(["opr"]))); // manifest publishes ONLY opr
     expect(() => buildAlgorithmModules(manifest, ["vpr"])).toThrow(EmptyLiveAlgorithmTierError);
+  });
+});
+
+/**
+ * Quick task 260908-5wd: `buildAlgorithmModules` used to END in an unguarded
+ * `else` that constructed a Sigma1 module for any id it did not recognise.
+ * Setting the live tier to `bpr` would therefore have folded live events with
+ * the WRONG MODEL and written the results to BPR's artifacts — silently,
+ * because `serializeState` has a real `bpr` branch so the state round-trips and
+ * nothing throws. These pin the two halves of the fix: bpr builds a real BPR
+ * module, and an unknown id is loud rather than plausible.
+ */
+describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260908-5wd)", () => {
+  function manifestOf(ids: readonly string[]) {
+    return {
+      schemaVersion: 1,
+      generation: "g",
+      computedAt: "2026-09-08T00:00:00.000Z",
+      algorithms: ids.map((id) => ({ id, version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" })),
+    } as unknown as Parameters<typeof buildAlgorithmModules>[0];
+  }
+
+  it("builds a REAL BPR module for a bpr live tier, not a Sigma1 module wearing BPR's id", () => {
+    const modules = buildAlgorithmModules(manifestOf(["bpr"]), ["bpr"]);
+    const module = modules.get("bpr");
+    expect(module).toBeDefined();
+    expect(module).toBe(bpr);
+    expect(module!.id).toBe("bpr");
+  });
+
+  it("throws on an id it does not recognise rather than constructing something plausible", () => {
+    expect(() => buildAlgorithmModules(manifestOf(["mystery"]), ["mystery"])).toThrow(UnknownLiveAlgorithmIdError);
+  });
+
+  it("still builds opr, epa and vpr as their own modules", () => {
+    const modules = buildAlgorithmModules(manifestOf(["opr", "epa", "vpr"]), ["opr", "epa", "vpr"]);
+    expect(modules.get("opr")).toBe(opr);
+    expect(modules.get("epa")).toBe(epa);
+    expect(modules.get("vpr")?.id).toBe("vpr");
   });
 });
