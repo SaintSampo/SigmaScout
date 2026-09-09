@@ -4,8 +4,10 @@
  * hyperparameter search, so a knob that merely tuned itself into inertness is
  * visible as such.
  */
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { evalDesign } from "./cli.js";
+import type { BprMatch } from "./data.js";
 import { DEFAULTS, type BprParams } from "./model.js";
 
 function load(path: string): BprParams {
@@ -13,9 +15,22 @@ function load(path: string): BprParams {
   return { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
 }
 
+/** Filesystem-safe name for a variant, so a jsonl file is traceable to its row. */
+function slug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function main(): void {
   const path = process.argv[2];
-  if (path === undefined) throw new Error("usage: ablate.ts <params.json>");
+  if (path === undefined) throw new Error("usage: ablate.ts <params.json> [--emit <dir>]");
+  const emitIndex = process.argv.indexOf("--emit");
+  const emitDir = emitIndex >= 0 ? process.argv[emitIndex + 1] : undefined;
+  if (emitIndex >= 0 && emitDir === undefined) {
+    throw new Error("ablate: --emit needs a directory");
+  }
   const base = load(path);
 
   const variants: Array<{ name: string; params: BprParams; raw?: boolean }> = [
@@ -62,7 +77,32 @@ function main(): void {
   const rows: string[] = ["  variant                                        acc%    logloss    d(acc)"];
   let baseAcc = 0;
   for (const v of variants) {
-    const r = evalDesign(v.params, { useRawScore: v.raw === true });
+    // Per-match emission exists so an ablation delta can be bootstrapped
+    // PAIRED on matchKey. Ablation deltas are differences between two models
+    // scored on the SAME matches, so a marginal (unpaired) SE is the wrong
+    // quantity for a bar built on them - see eventBootstrap.ts's own header.
+    const lines: string[] = [];
+    const onScored =
+      emitDir === undefined
+        ? undefined
+        : (m: BprMatch, pRed: number): void => {
+            lines.push(
+              JSON.stringify({
+                matchKey: m.matchKey,
+                eventKey: m.eventKey,
+                season: m.year,
+                compLevel: m.compLevel,
+                eventType: m.eventType,
+                pRed,
+                actualWinner: m.winner,
+              }),
+            );
+          };
+    const r = evalDesign(v.params, { useRawScore: v.raw === true, onScored });
+    if (emitDir !== undefined) {
+      mkdirSync(emitDir, { recursive: true });
+      writeFileSync(join(emitDir, `${slug(v.name)}.jsonl`), `${lines.join("\n")}\n`);
+    }
     if (v.name.startsWith("full model")) baseAcc = r.accuracy;
     const d = 100 * (r.accuracy - baseAcc);
     rows.push(

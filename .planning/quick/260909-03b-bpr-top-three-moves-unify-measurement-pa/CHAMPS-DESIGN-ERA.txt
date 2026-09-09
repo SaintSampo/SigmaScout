@@ -1,0 +1,31 @@
+GATE B evidence - captured 2026-09-09T04:46:47Z, HEAD d4c63be73e4740e50a03f872c135fadac7bcd339
+
+reading design-era four-way predictions (2016-2022 ONLY)
+  read 2016 (13302 matches so far)
+  read 2017 (28742 matches so far)
+  read 2018 (45704 matches so far)
+  read 2019 (63755 matches so far)
+  read 2020 (68418 matches so far)
+  read 2022 (83095 matches so far)
+GATE B - does the champs deficit reproduce on the DESIGN ERA (2016-2022)?
+  matches: 83095   events: 911
+  (holdout reference, NOT re-measured here: champs n=5,820, BPR 74.67 vs EPA 76.51 = -1.84pp)
+
+  champs {3,4}                       n=  6774  BPR 71.97 EPA 71.91 VPR 71.02  |  brier B 0.1832 E 0.1994 V 0.1887
+      BPR-EPA paired event-blocked:  +0.060pp [-0.877, 1.041] SE 0.4997 events 58  <- includes 0
+  champs {2,3,4}                     n= 11789  BPR 70.76 EPA 71.00 VPR 70.24  |  brier B 0.1882 E 0.2045 V 0.1937
+      BPR-EPA paired event-blocked:  -0.240pp [-1.014, 0.528] SE 0.3842 events 108  <- includes 0
+  size proxy 121-200 matches/event   n=  9561  BPR 70.82 EPA 70.98 VPR 70.32  |  brier B 0.1873 E 0.2035 V 0.1929
+      BPR-EPA paired event-blocked:  -0.159pp [-0.977, 0.708] SE 0.4309 events 71  <- includes 0
+  everything else (contrast)         n= 71306  BPR 73.21 EPA 70.12 VPR 69.72  |  brier B 0.1735 E 0.2051 V 0.1961
+      BPR-EPA paired event-blocked:  +3.088pp [2.644, 3.545] SE 0.2291 events 803  <- positive, excludes 0
+
+  event-type composition of the design era:
+    type   0: 29384 matches
+    type   1: 39449 matches
+    type   2: 5015 matches
+    type   3: 6634 matches
+    type   4: 140 matches
+    type   5: 2319 matches
+    type   6: 5 matches
+    type 100: 149 matches

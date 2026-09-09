@@ -1,0 +1,37 @@
+PAIRED event-clustered selection bar - DESIGN ERA 2016-2022
+  full-model file: full-model-tuned.jsonl  (82735 scored matches)
+  resamples: 2000
+
+LEVEL (one model's own accuracy) - the marginal quantity the review used
+  accuracy        72.871%   n(den) 81790   events 911
+  clustered SE    0.2223pp
+  naive binomial  0.1555pp
+  DESIGN EFFECT   1.430x  (review measured 1.45x)
+  => a LEVEL two-sigma bar would be 0.445pp
+
+=== FULL DESIGN ERA ===
+  variant                                        dAcc(pp)  pairedSE  2sigma   95% interval          excl.0
+  naive-additive-baseline-all-extras-off          -3.849    0.1635   0.327      [-4.175, -3.530]  YES
+  no-defensive-suppression-term                   +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-elim-down-weighting                          +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-fast-form-component-single-timescale         -1.140    0.1097   0.219      [-1.353, -0.925]  YES
+  no-foul-submodel                                +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-online-link-calibration-taulr-0              +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-robustness-huber-off                         +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-season-carryover-reset-each-year             -2.325    0.1227   0.245      [-2.557, -2.086]  YES
+  purely-additive-alliances-w2-w3-1               -0.503    0.0845   0.169      [-0.666, -0.342]  YES
+  raw-score-no-foul-adjustment-at-all             -0.334    0.0784   0.157      [-0.491, -0.186]  YES
+
+=== CHAMPS (type 2,3,4) ===
+  variant                                        dAcc(pp)  pairedSE  2sigma   95% interval          excl.0
+  naive-additive-baseline-all-extras-off          -1.337    0.3327   0.665      [-2.004, -0.677]  YES
+  no-defensive-suppression-term                   +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-elim-down-weighting                          +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-fast-form-component-single-timescale         -0.880    0.3462   0.692      [-1.542, -0.185]  YES
+  no-foul-submodel                                +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-online-link-calibration-taulr-0              +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-robustness-huber-off                         +0.000    0.0000   0.000        [0.000, 0.000]  no
+  no-season-carryover-reset-each-year             -0.414    0.2306   0.461       [-0.877, 0.017]  no
+  purely-additive-alliances-w2-w3-1               -0.104    0.1820   0.364       [-0.471, 0.252]  no
+  raw-score-no-foul-adjustment-at-all             +0.155    0.1935   0.387       [-0.233, 0.515]  no
+

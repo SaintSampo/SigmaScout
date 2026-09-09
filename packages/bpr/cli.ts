@@ -33,6 +33,14 @@ export function matches(): BprMatch[] {
 export interface EvalExtra {
   qualsOnly?: boolean;
   useRawScore?: boolean;
+  /**
+   * Per-SCORED-match hook, forwarded to `runEval`. Lets an ablation or a
+   * candidate comparison emit per-match predictions for a PAIRED bootstrap
+   * without every caller reimplementing the replay loop. Observational only:
+   * it is called after the prediction and before the update, and cannot
+   * influence either.
+   */
+  onScored?: (m: BprMatch, pRed: number) => void;
 }
 
 export function evalYears(
