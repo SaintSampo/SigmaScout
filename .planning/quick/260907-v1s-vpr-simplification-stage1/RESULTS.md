@@ -512,6 +512,95 @@ Stated explicitly so none of the above gets over-read:
 5. Rebuild the incumbent before any acceptance comparison — the current one is
    in-sample on 2023/2024 and self-declared stale.
 
+## Stage 2B — the two promotions that followed (09f, 09g)
+
+Added 2026-09-09, after both landed. **Every number below is transcribed from
+the promotion commits and the committed version files, not re-measured here** —
+`e8590b5c` and `620f831d`, and `data/algorithm-versions/vpr@11.0.0+rolling-2026-09{e,f,g}.json`.
+
+### 09f — de-contaminating 2023 and 2024 (`e8590b5c`, promoted 2026-09-08T17:47:33Z)
+
+Closes the defect gate 5 was built to detect. The pinned set's 2023 and 2024
+parameters had been selected on the window 2022/2023/2024 — a window CONTAINING
+both origins — so every properly blinded candidate on those seasons was scored
+against an incumbent that had already seen the answers.
+
+Re-fitted on strictly-prior windows. This is visible directly in the artifacts:
+
+| season | 09e selected-on | 09f selected-on |
+|---|---|---|
+| 2023 | `[2022, 2023, 2024]` ← contains itself | `[2019, 2020, 2022]` |
+| 2024 | `[2022, 2023, 2024]` ← contains itself | `[2020, 2022, 2023]` |
+
+The other eight seasons carry from 09e untouched.
+
+**The two origins landed on opposite sides.**
+
+- **2023** — the blinded candidate BEAT the contaminated incumbent, +0.002478
+  accuracy (+1.45σ), Brier also better. An a-fortiori result: it cleared a bar
+  set unfairly high.
+- **2024** — the blinded candidate scored −0.004355 (−2.66σ), and gate 5
+  labelled the keep-incumbent verdict NOT EVIDENCE, exactly as designed.
+
+2024's blinded set was promoted anyway, by operator decision. The comparison
+cannot adjudicate which model is better — that is what gate 5 says — but a
+contaminated fit has no valid claim to the pin regardless of the score it posts.
+Published 2024 accuracy fell 0.7440 → 0.7397: in-sample flattery coming off,
+not a regression.
+
+**The side effect worth more than the accuracy number:** 2024 became
+headline-eligible for the first time. It had been excluded precisely because its
+parameters had seen it, and after this re-fit NO season sits inside its own
+selected-on set.
+
+### 09g — re-fitting the remaining three origins (`620f831d`, promoted 2026-09-09T00:50:45Z)
+
+09f re-fitted the two seasons selected in-sample. 09g re-fits the remaining
+three acceptance origins, which were blind but had been fitted to machinery
+11.0.0 deleted. After it, all five origins are BOTH blind and current.
+
+**Not three equal wins, and the census says so rather than letting five files
+read as five wins:**
+
+| origin | accuracy | sigma | Brier | reading |
+|---|---|---|---|---|
+| 2022 | **+0.017190** | 6.10σ | −0.010691 | the result |
+| 2025 | +0.000622 | 0.51σ | −0.000081 | statistically empty |
+| 2026 | +0.000328 | 0.32σ | −0.000571 | statistically empty |
+
+2022 is the whole story: it had been shipping `attributionShrinkage` 0.844
+selected JOINTLY with a `maxTeamKalmanGain` 0.959 that 11.0.0 deleted — half of
+an optimised pair. Re-fitting without the cap moves shrinkage to 0.566 and
+recovers 1.72 accuracy points. Its selected-on window also widened
+`[2019, 2020]` → `[2018, 2019, 2020]`.
+
+2025 and 2026 were promoted for CONSISTENCY, not accuracy — the stated purpose
+of the run. Rule A has no magnitude requirement (the noise bar has been
+diagnostic-only since 2026-09-05), so an empty gain passes it.
+
+### One thing left open, recorded rather than resolved
+
+The stored objective for **2025 fell** 0.7521005 → 0.7515852 under an UNCHANGED
+selected-on window `[2022, 2023, 2024]`, while 2026 rose 0.7477614 → 0.7489315
+under its own unchanged window. A same-window objective moving the wrong way is
+not explained by anything in the promotion commit, which reports 2025 as
++0.000622 accuracy.
+
+The likely reconciliation is that the two quantities are not the same thing —
+the commit reports an acceptance-comparison accuracy delta, the artifact stores
+the source search's own primary objective at the time that search ran (see
+`objectiveDefinition.ts`), and 09g's searches ran under a smaller post-Stage-2A
+parameter space. That would make the comparison invalid rather than the result
+wrong. **It is recorded here as unverified**, because whoever re-opens this
+should check it rather than inherit an assumption.
+
+### Live as of 2026-09-09
+
+09g is published: generation `40e7277d-aee1-42cf-82df-82587b67bc7e`. R2 had been
+serving 09e, two promotions behind, until that run. Seasons 2016–2020 still
+carry the shared legacy entry (objective 0.17076607, selected on
+`[2022, 2023, 2024]`) and were not re-fitted by either promotion.
+
 ## Artifacts
 
 - `probe.ts` — the measurement script (sweep + combos modes)
