@@ -106,12 +106,54 @@ still in progress and its offseason population was not yet meaningfully comparab
 2026-09-08 re-measurement it is included, and it behaves like every other season: the excluded arm
 lands at a slope of 0.999 and a Pearson of 0.993, against 0.963 and 0.972 on the inclusive arm.
 
-**This comparison is the live source for the site's own explainer.** The same two arms, plus the
-head-to-head win-probability figures below, are published as a single artifact at
-`v1/methodology/epa-vs-statbotics.json` and rendered on `/methodology/epa-vs-statbotics`
-(`scripts/publishEpaComparison.ts`, which refuses to publish a pair of arms whose `epaVersion` or
-season set disagree). Both arms in the published object therefore always carry one model version,
-which is the property this section's own history shows is easy to lose.
+**Neither arm above is what the site publishes, and the A/B is no longer on the explainer page.**
+Kept here as measurement history, because it is the evidence that offseason inclusion is the
+dominant term in the residual. See the next section for the quantity the site actually shows.
+
+### The published quantity: each team's rating at its own last official match
+
+**Added 2026-09-08 (quick task 260908-n5o), after checking the page against live artifacts.** Both
+arms above measure a team's SEASON-FINAL rating. No surface on this site displays that number. The
+Teams list publishes `publish.ts`'s `lastOfficialMetricsByTeam` and the team-page header renders
+`apps/web/src/lib/officialSnapshot.ts`'s `officialSnapshotRow` — both the team's rating as of its
+own LAST OFFICIAL MATCH. Measured live on `epa@6.0.0+baseline`, 2026:
+
+| Team | Teams list (published) | Season-final (`seasonStats.metrics.total`) |
+|------|------------------------:|--------------------------------------------:|
+| frc7769 | 313.95 | 251.37 |
+| frc88 | 155.96 | 182.75 |
+| frc2056 | 302.03 | 277.79 |
+| frc254 | 328.39 | 328.39 |
+
+Teams with no offseason play agree exactly; every team with offseason play splits. So the
+offseason-inclusive arm was scoring a quantity no visitor is shown, and it understated agreement
+with Statbotics substantially.
+
+`scripts/epaVsStatbotics.ts` now measures a third arm, `officialOnly`, inside the same replay pass
+via an `onMatchComplete` callback that mirrors `lastOfficialMetricsByTeam`'s rule rather than
+restating it. min-matches(12), `epa@6.0.0+baseline`:
+
+| Season | Joined | OLS slope | Pearson | Mean abs diff |
+|--------|--------|-----------|---------|----------------|
+| 2022 | 2,574 | 0.981 | 0.998 | 0.55 pts |
+| 2023 | 2,796 | 0.970 | 0.998 | 0.68 pts |
+| 2024 | 2,895 | 1.014 | 0.995 | 0.75 pts |
+| 2025 | 3,051 | 1.007 | 0.993 | 2.75 pts |
+| 2026 | 3,100 | 0.998 | 0.998 | 1.31 pts |
+
+**Validated against the live published artifacts, not just against itself** — the check that would
+have caught the original mistake. Measured against published Teams-list totals for 2026: frc7769
+313.91 vs 313.95, frc88 155.97 vs 155.96, frc2056 302.06 vs 302.03, frc254 328.40 vs 328.39.
+Residuals of 0.01-0.04 are rounding plus a different replay start season (this script starts at
+2022; `publish:seasons` starts at 2016), not a rule mismatch.
+
+**This is the live source for the site's own explainer.** This arm, plus the head-to-head
+win-probability figures below, is published as a single artifact at
+`v1/methodology/epa-vs-statbotics.json` and rendered on `/methodology/epa-vs-statbotics`. Each row
+carries `basis: "last-official-match"` so the object names the quantity it measures, and
+`scripts/publishEpaComparison.ts` throws `MissingOfficialOnlyArmError` rather than publish a report
+that lacks the arm. The offseason-inclusive arm keeps gating the committed tolerance bands via
+`--check` and is unchanged; it is simply no longer the number on the page.
 
 ## Per-season measured table (production arm: offseason-inclusive, 2022-2026)
 
