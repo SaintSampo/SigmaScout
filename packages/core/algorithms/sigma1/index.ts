@@ -100,8 +100,8 @@ import { winProbability, type WinProbMode } from "./linkFunctions.js";
 import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Sigma1Params } from "./params.js";
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 import { sigma1Carryover } from "./carryover.js";
-import { rpRuleModuleForSeason } from "./rp/rules.js";
-import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "./rp/constants.js";
+import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
+import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "../../rankingPoints/constants.js";
 import {
   emptyRpTeamState,
   foldRpObservation,
@@ -109,7 +109,7 @@ import {
   type RpLeague,
   type RpTeamState,
 } from "./rp/state.js";
-import { rpPmfForMatch } from "./rp/distribution.js";
+import { rpPmfForMatch } from "../../rankingPoints/distribution.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";

@@ -25,7 +25,7 @@ export interface BonusRpDotsProps {
   /**
    * REQUIRED (G-06.1-26, plan 06.1-08, PD-18): whether bonus RP can exist at
    * all for this match's `compLevel` — the caller passes
-   * `isBonusRpCompLevel(match.compLevel)` (`packages/core/algorithms/sigma1/rp/constants.ts`).
+   * `isBonusRpCompLevel(match.compLevel)` (`packages/core/rankingPoints/constants.ts`).
    * When `false`, every dot renders `unknown` REGARDLESS of `states` — this
    * is the client-side defence-in-depth guard against the ~54,671
    * already-published artifacts that still carry actual per-bonus arrays on

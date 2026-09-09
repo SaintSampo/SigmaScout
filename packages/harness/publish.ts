@@ -57,8 +57,8 @@ import { bpr } from "../core/algorithms/bpr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
-import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
-import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
+import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
+import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,

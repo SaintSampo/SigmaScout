@@ -29,7 +29,7 @@
 /**
  * Deterministic PRNG (Mulberry32), copied verbatim a THIRD time — the
  * existing two copies are `packages/harness/identifiability.ts` and
- * `packages/core/algorithms/sigma1/rp/distribution.ts`, both citing the
+ * `packages/core/rankingPoints/distribution.ts`, both citing the
  * same source and both documenting this as the established convention for
  * this primitive (`rp/distribution.ts`'s own file header: "cite, don't
  * rederive"). Not imported from `rp/distribution.ts` because that module

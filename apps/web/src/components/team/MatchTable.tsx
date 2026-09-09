@@ -13,7 +13,7 @@ import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } 
 // `packages/core/algorithms/breakdown/index.ts`. Guarded as a browser-safe
 // entry point by `packages/harness/browserSafeSchemas.test.ts` (plan 06.1-08
 // Task 3).
-import { isBonusRpCompLevel } from "../../../../../packages/core/algorithms/sigma1/rp/constants.js";
+import { isBonusRpCompLevel } from "../../../../../packages/core/rankingPoints/constants.js";
 
 /**
  * The band/tick/dot row anatomy on one shared axis, drawn once per event

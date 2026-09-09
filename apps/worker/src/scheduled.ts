@@ -122,7 +122,7 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 // Quick 260905-jj8: dependency-free comp-level predicate (rp/constants.ts has
 // zero runtime imports) — the same direct-from-core precedent
 // apps/web/src/components/event/EventMatchTable.tsx already cites.
-import { isBonusRpCompLevel } from "../../../packages/core/algorithms/sigma1/rp/constants.js";
+import { isBonusRpCompLevel } from "../../../packages/core/rankingPoints/constants.js";
 import { deserializeState, serializeState } from "../../../packages/harness/stateSnapshot.js";
 import {
   artifactKey,

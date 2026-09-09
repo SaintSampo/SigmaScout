@@ -75,12 +75,17 @@
  * module has no opinion on that decision; it is made by the caller, which
  * simply does not invoke this module's fold function for such a match.
  */
-import type { RpRuleModule } from "./constants.js";
-import { assertFiniteThresholdVariables } from "./constants.js";
+import type { RpRuleModule } from "../../../rankingPoints/constants.js";
+import { assertFiniteThresholdVariables } from "../../../rankingPoints/constants.js";
 import { applyProcessNoise, updateAllianceSum, type TeamComponentBelief } from "../kalman.js";
 import { emptyCovariance, ewmaCovariance } from "../covariance.js";
 import { emptyExpandingStats, foldObservation, type ExpandingStats } from "../../../scoring/expandingStats.js";
 import type { Sigma1ResolvedParams } from "../scale.js";
+// The RP moments contract moved to `packages/core/rankingPoints/moments.ts` on
+// 2026-09-09: it is the seam every algorithm fills in, not a Sigma1 type.
+// Re-exported so this module's existing consumers keep their import path.
+import type { AllianceRpMoments } from "../../../rankingPoints/moments.js";
+export type { AllianceRpMoments };
 
 /**
  * Per-team RP state (D-09), kept OUT of `Sigma1TeamState.covariance` (see
@@ -366,21 +371,6 @@ export function foldRpObservation(input: RpFoldInput): RpFoldResult {
   return { teams: resultTeams, league: { rpVariableMean: nextRpVariableMean } };
 }
 
-/** For one alliance: predicted RP-relevant moments, ready for `rp/distribution.ts`'s joint Monte Carlo draw. */
-export interface AllianceRpMoments {
-  /** Threshold-variable names, in `ruleModule.thresholdVariables` order — every other array/matrix here is indexed against this order. */
-  readonly variableNames: readonly string[];
-  /** Alliance-level mean vector over threshold variables (sum across teammates, D-06's independent-teams assumption). */
-  readonly meanVector: readonly number[];
-  /** T x T alliance-level variance block over threshold variables (sum across teammates' own `rpCovariance`). */
-  readonly varianceBlock: readonly (readonly number[])[];
-  /** The alliance's predicted SCORE mean — taken from the value `sigma1/index.ts`'s `predict` already computes, passed in, never recomputed here. */
-  readonly scoreMean: number;
-  /** The alliance's predicted SCORE variance (this alliance's own posterior + covariance sum, NOT the combined-both-alliances `Prediction.variance`) — also passed in, never recomputed here. */
-  readonly scoreVariance: number;
-  /** Length-T cross-covariance vector between the alliance's total score and each threshold variable — D-11's correlation, read from the data (`rpCrossCovariance`'s learned structure) rather than asserted. */
-  readonly scoreCrossCovariance: readonly number[];
-}
 
 /**
  * Builds one alliance's `AllianceRpMoments` from its teammates' current RP

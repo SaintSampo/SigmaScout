@@ -30,7 +30,7 @@ export interface UpcomingMatch {
    * 1=District, 2=District Championship, 3=Championship Division,
    * 4=Championship Finals, 5=District Championship Division,
    * 99=Offseason, 100=Preseason — see
-   * `packages/core/algorithms/sigma1/rp/constants.ts`'s `EVENT_TYPE_TIERS`
+   * `packages/core/rankingPoints/constants.ts`'s `EVENT_TYPE_TIERS`
    * for the RP-relevant tier mapping). REQUIRED, not optional: an optional
    * field with a silent default is the failure mode this plan exists to
    * prevent (plan 03-03 Task 1 — RESEARCH.md Open Question 2). NOT
@@ -138,7 +138,7 @@ export interface Prediction {
    * standing in for "this algorithm does not model RP"), following the
    * existing optional-field convention above (`variance`, `redComponents`).
    * Mean and standard deviation are DERIVED from this array at read time
-   * (`packages/core/algorithms/sigma1/rp/distribution.ts`'s `pmfMean`/
+   * (`packages/core/rankingPoints/distribution.ts`'s `pmfMean`/
    * `pmfStandardDeviation`) and never stored alongside it — one
    * representation of one fact (D-10, mirrors D-21's raw-numbers-only
    * artifact rule).

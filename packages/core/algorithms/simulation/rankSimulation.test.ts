@@ -1,7 +1,7 @@
 /**
  * Pure unit tests for the phase 8 rank-distribution simulation core
  * (`simulateRanks`, `drawCategorical`, `mulberry32`). Fixtures build real
- * pipeline-produced pmfs via `rpPmfForMatch` (`sigma1/rp/distribution.js`),
+ * pipeline-produced pmfs via `rpPmfForMatch` (`rankingPoints/distribution.js`),
  * matching `rp/distribution.test.ts`'s pure-unit shape — no corpus access,
  * no network, in-process only.
  */
@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../sigma1/params.js";
 import { resolveSigma1Params } from "../sigma1/scale.js";
 import { emptyExpandingStats } from "../../scoring/expandingStats.js";
-import { rpPmfForMatch, type RpPmfInput } from "../sigma1/rp/distribution.js";
-import { rpRuleModuleForSeason } from "../sigma1/rp/rules.js";
+import { rpPmfForMatch, type RpPmfInput } from "../../rankingPoints/distribution.js";
+import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
 import type { AllianceRpMoments } from "../sigma1/rp/state.js";
 import {
   drawCategorical,

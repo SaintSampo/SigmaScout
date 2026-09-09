@@ -20,7 +20,7 @@
  * `.totalPoints`, despite being numerically identical in sampled data).
  */
 
-import type { CompLevel } from "../../types.js";
+import type { CompLevel } from "../algorithms/types.js";
 
 /**
  * One named scalar a season's RP rules threshold on, tracked in its own

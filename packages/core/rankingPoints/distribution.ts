@@ -38,10 +38,9 @@
  * `CholeskyDecomposition` handles that half).
  */
 import { CholeskyDecomposition, Matrix } from "ml-matrix";
-import type { CompLevel } from "../../types.js";
+import type { CompLevel } from "../algorithms/types.js";
 import { isBonusRpCompLevel, type RpRuleModule } from "./constants.js";
-import type { AllianceRpMoments } from "./state.js";
-import type { Sigma1ResolvedParams } from "../scale.js";
+import type { AllianceRpMoments, RpMonteCarloConfig } from "./moments.js";
 
 /**
  * Deterministic PRNG (Mulberry32), copied verbatim from
@@ -190,7 +189,7 @@ export interface RpPmfInput {
   readonly eventType: number;
   readonly matchKey: string;
   readonly compLevel: CompLevel;
-  readonly params: Sigma1ResolvedParams;
+  readonly params: RpMonteCarloConfig;
 }
 
 export interface RpPmfResult {

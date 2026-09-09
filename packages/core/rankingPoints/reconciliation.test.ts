@@ -47,7 +47,7 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { openCorpusReadOnly } from "../../../../corpus/db.js";
+import { openCorpusReadOnly } from "../../corpus/db.js";
 import { eventTierFor, type EventTier } from "./constants.js";
 import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "./rules.js";
 

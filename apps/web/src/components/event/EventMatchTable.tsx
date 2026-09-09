@@ -14,7 +14,7 @@ import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, 
 // importing it does not drag the Sigma1 RP implementation into the browser
 // bundle.
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { isBonusRpCompLevel } from "../../../../../packages/core/algorithms/sigma1/rp/constants.js";
+import { isBonusRpCompLevel } from "../../../../../packages/core/rankingPoints/constants.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 /**

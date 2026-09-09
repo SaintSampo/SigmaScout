@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RP_RULE_MODULES } from "../../../../packages/core/algorithms/sigma1/rp/rules.js";
+import { RP_RULE_MODULES } from "../../../../packages/core/rankingPoints/rules.js";
 import {
   BONUS_RP_BY_SEASON,
   bonusDotLabel,

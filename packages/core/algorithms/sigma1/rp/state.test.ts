@@ -10,7 +10,7 @@ import { teamTotalVariance } from "../covariance.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../params.js";
 import { resolveSigma1Params } from "../scale.js";
 import { emptyExpandingStats, foldObservation } from "../../../scoring/expandingStats.js";
-import { rpRuleModuleForSeason } from "./rules.js";
+import { rpRuleModuleForSeason } from "../../../rankingPoints/rules.js";
 import { emptyRpTeamState, foldRpObservation, predictAllianceRpMoments, type RpFoldableTeamState, type RpLeague } from "./state.js";
 
 /**

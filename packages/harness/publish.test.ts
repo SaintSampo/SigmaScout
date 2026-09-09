@@ -62,7 +62,7 @@ import { artifactKey, decodeTeamsRowMetrics, preScheduleKey, PreScheduleArtifact
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
-import { RP_RULE_MODULES } from "../core/algorithms/sigma1/rp/rules.js";
+import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { HISTORY_PERCENTILE_METRIC_KEYS, percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
 

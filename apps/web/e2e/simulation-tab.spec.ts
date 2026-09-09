@@ -175,7 +175,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
  * S1 — the picker at its real maximum (PD-01, Task 2). The outline named
  * `2024wvrox` (135 quals, the corpus maximum) as the picker's overflow
  * target, but that event is TBA `event_type` 99 (offseason) and
- * `EVENT_TYPE_TIERS` (`packages/core/algorithms/sigma1/rp/constants.ts`)
+ * `EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`)
  * deliberately omits type 99, so the RP algorithm emits no pmf there — confirmed
  * live in this task's own precondition fetch: 0 of 135 `qm` rows carry
  * `redRpPmf`/`blueRpPmf`. `2022oncmp` (134 rows, 67 teams, TBA type 2,

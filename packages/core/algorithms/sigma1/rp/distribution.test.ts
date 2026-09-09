@@ -11,10 +11,10 @@ import { emptyExpandingStats } from "../../../scoring/expandingStats.js";
 import { makeSigma1, type Sigma1State } from "../index.js";
 import { opr } from "../../opr.js";
 import { epa } from "../../epa.js";
-import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "./rules.js";
-import type { RpRuleModule } from "./constants.js";
+import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "../../../rankingPoints/rules.js";
+import type { RpRuleModule } from "../../../rankingPoints/constants.js";
 import type { AllianceRpMoments } from "./state.js";
-import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "./distribution.js";
+import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "../../../rankingPoints/distribution.js";
 
 /**
  * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the

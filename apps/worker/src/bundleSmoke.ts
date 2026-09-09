@@ -1,7 +1,7 @@
 /**
  * Answers 04-RESEARCH.md's Assumption A1 BEFORE anything depends on it: does
  * `ml-matrix` (the linear-algebra dependency `packages/core/algorithms/
- * opr.ts` uses for its SVD solve and `sigma1/rp/distribution.ts` uses for its
+ * opr.ts` uses for its SVD solve and `rankingPoints/distribution.ts` uses for its
  * Cholesky decomposition) bundle and EXECUTE inside the actual Workers
  * runtime — not just under Node/Vitest, where `packages/core/isomorphic
  * .test.ts` only proves the import specifiers are clean, never that the
@@ -20,16 +20,16 @@
  *
  * `opr.initState`/`opr.predict`/`opr.update` exercise `ml-matrix`'s
  * `SingularValueDecomposition` (opr.ts line 25); `rpPmfForMatch` exercises
- * `ml-matrix`'s `CholeskyDecomposition` (sigma1/rp/distribution.ts). Both
+ * `ml-matrix`'s `CholeskyDecomposition` (rankingPoints/distribution.ts). Both
  * fixtures below are hand-built minimal data, not read from any real corpus
  * — this Worker never imports `better-sqlite3` or the corpus (that boundary
  * is what `packages/core/isomorphic.test.ts` already enforces).
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { MatchResult, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
-import { rpPmfForMatch } from "../../../packages/core/algorithms/sigma1/rp/distribution.js";
+import { rpPmfForMatch } from "../../../packages/core/rankingPoints/distribution.js";
 import type { AllianceRpMoments } from "../../../packages/core/algorithms/sigma1/rp/state.js";
-import { rpRuleModuleForSeason } from "../../../packages/core/algorithms/sigma1/rp/rules.js";
+import { rpRuleModuleForSeason } from "../../../packages/core/rankingPoints/rules.js";
 import { DEFAULT_SIGMA1_PARAMS } from "../../../packages/core/algorithms/sigma1/params.js";
 import { resolveSigma1Params } from "../../../packages/core/algorithms/sigma1/scale.js";
 import { emptyExpandingStats } from "../../../packages/core/scoring/expandingStats.js";

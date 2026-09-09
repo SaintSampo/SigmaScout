@@ -52,8 +52,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly, type Corpus } from "../corpus/db.js";
-import { isRpEligibleEventType } from "../core/algorithms/sigma1/rp/constants.js";
-import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "../core/algorithms/sigma1/rp/rules.js";
+import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
+import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "../core/rankingPoints/rules.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_OUT_PATH = join("reports", "rpConservativeBranch.json");

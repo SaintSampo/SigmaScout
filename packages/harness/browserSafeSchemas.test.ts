@@ -23,7 +23,7 @@
  * confusing bundler error far from its cause.
  *
  * Plan 06.1-08 Task 3 (G-06.1-26) extends this with a FOURTH entry point:
- * `packages/core/algorithms/sigma1/rp/constants.ts` —
+ * `packages/core/rankingPoints/constants.ts` —
  * `apps/web/src/components/team/MatchTable.tsx` now imports
  * `isBonusRpCompLevel` from it directly (PD-19), so the client bundles this
  * module too. Like the breakdown entry point, this one legitimately LIVES
@@ -66,7 +66,7 @@ import { describe, expect, it } from "vitest";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts")];
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
-const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "sigma1", "rp", "constants.ts");
+const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "constants.ts");
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
 const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
@@ -172,12 +172,12 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/core/algorithms/sigma1/rp/constants.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/, plan 06.1-08 Task 3, G-06.1-26)", () => {
+  it("never reaches a Node built-in import from packages/core/rankingPoints/constants.ts (checked for Node built-ins only — as of 2026-09-09 this entry point lives in packages/core/rankingPoints/, outside algorithms/ entirely, plan 06.1-08 Task 3, G-06.1-26)", () => {
     const { nodeBuiltinViolations, visited } = scan([RP_CONSTANTS_ENTRY_POINT]);
     expect(visited.has(RP_CONSTANTS_ENTRY_POINT)).toBe(true);
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
-      expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/sigma1/rp/constants.ts: ${detail}`);
+      expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/constants.ts: ${detail}`);
     }
   });
 

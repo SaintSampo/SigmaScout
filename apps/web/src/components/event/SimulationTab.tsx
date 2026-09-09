@@ -168,7 +168,7 @@ export const SIMULATION_SKELETON_PICKER_HEIGHT_PX = 320;
  * does not have to rediscover it: `packages/core/algorithms/sigma1/index.ts`
  * (~line 748) gates pmf production on `isRpEligibleEventType(match.eventType)`;
  * TBA event type `99` (Offseason) is deliberately absent from
- * `EVENT_TYPE_TIERS` (`packages/core/algorithms/sigma1/rp/constants.ts`,
+ * `EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`,
  * ~line 54); and the publisher's conditional spread then OMITS the
  * `redRpPmf`/`blueRpPmf` keys entirely rather than writing an empty array —
  * `{ redPmf: [], bluePmf: [] }` on the RP-ineligible branch, never a
