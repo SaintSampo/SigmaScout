@@ -39,6 +39,10 @@ Three vocabulary rules, now enforced in code:
   (`ac4e79e6`).
 - Ranking points lifted out of `sigma1/` into `packages/core/rankingPoints/` before it could be
   deleted with the retired algorithm (`708ab089`).
+- BPR seeded into D1 and folding live; worker deployed (2026-09-09).
+- Swing Score given its own column and tile (`1e89f6dd`).
+- **Ranking points and the rank simulation are LIVE for every algorithm** — generation `511137fd`,
+  108,805 objects. `054c8da1` turned the tab back on.
 
 ---
 
@@ -82,31 +86,25 @@ re-deciding rather than un-blocking:
   Score, so either publish one or leave the band off for good. Its code is dormant behind a single
   flag in `MetricHistoryChart.tsx`.
 
-## 3. Ranking points — ADAPTER BUILT 2026-09-09, awaiting a republish
+## 3. ~~Ranking points and simulation~~ — DONE 2026-09-09
 
-`RpMomentsAccumulator` (`packages/core/rankingPoints/empiricalMoments.ts`) learns each team's
-threshold-variable beliefs from observed results alone and produces `AllianceRpMoments` for ANY
-algorithm — the score variance it needs is the swing band, which is why RP is reachable now and was
-not before. Wired into `publishSeasons`' walk-forward loop beside the band, predict-before-update.
-An algorithm that models its own RP keeps it.
+Live at generation `511137fd`. Verified per algorithm on `2026casnv`, identically for opr, epa and
+bpr: **74 of 89** played matches carry `redRpPmf`, **59** carry `redBonusRp`, and the pre-schedule
+sidecar is **HTTP 200** where it was 404 for everything but VPR (`presim: count=641`). The tab
+renders real rank distributions under BPR and OPR — medians, 10th–90th bands, the match slider,
+over 20 synthetic schedules and 1000 draws.
 
-Measured over the same 216 events of 2026 for `bpr`: median event artifact **57,555 → 68,112 bytes**
-(+18%), payload-budget gate still green. 149 tests in the package, including the end-to-end path
-for all ten seasons with no algorithm involved.
+**OPR now has a rank simulation.** It models no ranking points and never will; it gets them from
+the SigmaScout layer. That was the point of moving RP out of the algorithm.
 
-**Still to do, in order:**
+Two things carried forward rather than closed:
 
-1. **Republish** — nothing is live until then. `pnpm publish:seasons`.
-2. **Flip `SIMULATION_AVAILABLE`** in `SimulationTab.tsx` once artifacts carry `redRpPmf`. It is a
-   single constant, and the tab lights up for every algorithm at once.
-3. **Verify the presim sidecar builds for BPR** — it 404s today. `preSchedule.ts` is already
-   generic and should just work once RP exists, but confirm rather than assume.
-4. **Check the bonus-RP dots** return in the match tables (`redBonusRp` is emitted now).
-
-**Known bias, stated rather than discovered later:** the covariance block is diagonal and the score
-cross-covariance is zero, so the joint draw understates how often an alliance clears both 2026
-thresholds together. Narrower and less correlated than reality, pushing bonus probabilities toward
-the extremes. Documented in `empiricalMoments.ts`'s header with the reasoning.
+- **The known bias.** The covariance block is diagonal and the score cross-covariance zero, so the
+  joint draw understates how often an alliance clears both 2026 thresholds together — narrower and
+  less correlated than reality, pushing bonus probabilities toward the extremes. Documented in
+  `empiricalMoments.ts`'s header. Worth measuring against actual RP outcomes now that it ships.
+- **Presim storage roughly tripled** — median 184 KB per sidecar, now for three algorithms instead
+  of VPR's one. Comfortable against R2's free tier today; check it at the next budget review.
 
 ## 4. Live match updates carry no band — and the shape bump they need
 
@@ -190,13 +188,14 @@ full-run failure as a defect**.
 
 ## Suggested order
 
-1. **Republish**, then flip `SIMULATION_AVAILABLE` and verify the presim sidecar and bonus dots
-   (item 3's remaining four steps). This is the payoff for everything above it.
-2. **Fix `--event`** (item 5b) before anyone uses it — it is a live footgun today.
-3. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
+1. **Fix `publish.ts --event`** (item 5b) — a live footgun: it strips bands, and now RP, from any
+   event it republishes.
+2. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
    re-seed.
-4. **Swing Score's own column** (item 2) — and re-decide the two dormant displays.
-5. **Algorithm rotation** (item 5), measured on a real fold.
-6. Calibration and docs (item 6).
+3. **Measure the RP bias** from item 3 against real outcomes, now that pmfs are published and every
+   season's actual bonus flags are in the corpus to compare against.
+4. **Algorithm rotation** (item 5), measured on a real fold.
+5. **Calibration and docs** (item 6), and re-decide the two dormant displays from item 2.
 
-Watch the first live event of the season: it is the first real exercise of BPR's fold path.
+Watch the first live event of the season: it is the first real exercise of BPR's fold path AND of
+the live RP path.
