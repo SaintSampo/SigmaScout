@@ -9,7 +9,7 @@
  * population, or lets the D-07 surrogate exclusion touch the state stream fails
  * here rather than in a published number.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../corpus/db.js";
 import { isSurrogateAffected, loadMatches, type BprMatch } from "./data.js";
 import { runEval } from "./evaluate.js";
@@ -162,8 +162,15 @@ describe("the loaded population", () => {
     available = false;
   }
 
+  // Loaded ONCE for the whole block. Each of these cases used to call
+  // loadMatches itself, which reads all ~152k matches (~3s alone, and well past
+  // the 5s default timeout when the rest of the suite is running in parallel).
+  let loaded: BprMatch[] = [];
+  beforeAll(() => {
+    if (available) loaded = loadMatches(CORPUS);
+  }, 120_000);
+
   it.runIf(available)("excludes offseason matches altogether", () => {
-    const loaded = loadMatches(CORPUS);
     const keys = new Set(loaded.map((m) => m.matchKey));
     const db = openCorpusReadOnly(CORPUS);
     try {
@@ -183,7 +190,6 @@ describe("the loaded population", () => {
   it.runIf(available)("keeps event_type 100 matches the shared harness keeps", () => {
     // The retired private SQL dropped these — F-12's "~37/season the harness
     // keeps" half. This asserts the filter is genuinely gone.
-    const loaded = loadMatches(CORPUS);
     expect(loaded.some((m) => m.eventType === 100)).toBe(true);
   });
 
@@ -201,7 +207,6 @@ describe("the loaded population", () => {
     // (2018ncwin_qm12/qm32), so a tiebreak assertion would be vacuous. The
     // ordering change from the retired private SQL is immaterial on this
     // corpus; the POPULATION change is what moved the design-era figure.
-    const loaded = loadMatches(CORPUS);
     let regressions = 0;
     for (let i = 1; i < loaded.length; i += 1) {
       if (loaded[i]!.sortTime < loaded[i - 1]!.sortTime) regressions += 1;
