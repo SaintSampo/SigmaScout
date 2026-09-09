@@ -64,23 +64,33 @@ enforced structurally in `epaStatboticsCompare.ts`'s `joinTeams`/the script's ow
 Production's own replay stream (`publish:seasons`, and every figure this quick task's default run
 produces) is **offseason-inclusive**. Whether Statbotics' team-year EPA reflects offseason events
 was an open comparability question this task settled empirically by running BOTH arms against the
-identical 2022-2025 seasons:
+identical seasons.
+
+**Both arms re-measured under `epa@6.0.0+baseline` on 2026-09-08 (quick task 260908-n5o), and the
+season set widened to 2022-2026.** The table below previously carried the retired
+`epa@2.0.0+baseline` measurement over 2022-2025 only, which meant the published A/B compared one
+model version against itself across a narrower season set than the production table above. Two
+model versions in one A/B is not a controlled comparison, and neither is two season sets, so both
+arms were re-run together against the shipping model. This is the "all-teams" arm, matching the
+column shape this table has always used; the min-matches(12) arm is in the per-season table above.
 
 | Season | Arm | Joined | OLS slope | Pearson | Mean abs diff |
 |--------|-----|--------|-----------|---------|----------------|
-| 2022 | offseason-inclusive | 3,053 | 0.866 | 0.929 | 2.38 pts |
-| 2022 | offseason-excluded | 3,053 | 0.947 | 0.993 | 0.96 pts |
-| 2023 | offseason-inclusive | 3,284 | 0.854 | 0.921 | 3.21 pts |
-| 2023 | offseason-excluded | 3,284 | 0.978 | 0.995 | 1.03 pts |
-| 2024 | offseason-inclusive | 3,474 | 0.803 | 0.906 | 2.87 pts |
-| 2024 | offseason-excluded | 3,474 | 0.998 | 0.988 | 1.11 pts |
-| 2025 | offseason-inclusive | 3,687 | 0.865 | 0.907 | 5.35 pts |
-| 2025 | offseason-excluded | 3,687 | 1.012 | 0.991 | 2.87 pts |
+| 2022 | offseason-inclusive | 3,053 | 0.877 | 0.940 | 2.12 pts |
+| 2022 | offseason-excluded | 3,053 | 0.972 | 0.997 | 0.65 pts |
+| 2023 | offseason-inclusive | 3,284 | 0.852 | 0.936 | 2.90 pts |
+| 2023 | offseason-excluded | 3,284 | 0.976 | 0.998 | 0.71 pts |
+| 2024 | offseason-inclusive | 3,474 | 0.806 | 0.918 | 2.75 pts |
+| 2024 | offseason-excluded | 3,474 | 0.994 | 0.991 | 0.89 pts |
+| 2025 | offseason-inclusive | 3,687 | 0.856 | 0.916 | 5.03 pts |
+| 2025 | offseason-excluded | 3,687 | 1.014 | 0.993 | 2.62 pts |
+| 2026 | offseason-inclusive | 3,714 | 0.963 | 0.972 | 5.01 pts |
+| 2026 | offseason-excluded | 3,714 | 0.999 | 0.993 | 1.95 pts |
 
 **The delta is large, not negligible.** Excluding offseason matches from our own replay moves
-Pearson from the 0.90-0.93 range to 0.99+ and mean absolute difference down by roughly 2-2.5
-points every season, with the OLS slope moving from a 0.80-0.87 compression toward ~1.0 (2024
-offseason-excluded lands at 0.998 — almost exactly Statbotics' own scale). This is strong evidence
+Pearson from the 0.92-0.97 range to 0.99+ and mean absolute difference down by 1.5 to 3 points
+every season, with the OLS slope moving from a 0.81-0.96 compression to 0.97-1.01 (2026
+offseason-excluded lands at 0.999, and 2024 at 0.994 — essentially Statbotics' own scale). This is strong evidence
 that **Statbotics' `epa.total_points` reflects the official season only** (through
 championships), while our production figures also fold in offseason events (post-championship
 scrimmages, exhibition brackets, etc.) that genuinely move a team's rating but that Statbotics'
@@ -91,8 +101,17 @@ arm. `epa-divergences.md` §4 (win-probability scale, expanding-window SD) and �
 already document two *rating-mechanics* divergences; this is a third, *data-population*
 divergence, newly measured rather than assumed.
 
-The offseason-excluded arm was run for 2022-2025 only (`--seasons 2022-2025`); 2026 is still in
-progress as of this measurement and its offseason population is not yet meaningfully comparable.
+2026 was excluded from this table when it was first measured, on the grounds that the season was
+still in progress and its offseason population was not yet meaningfully comparable. As of the
+2026-09-08 re-measurement it is included, and it behaves like every other season: the excluded arm
+lands at a slope of 0.999 and a Pearson of 0.993, against 0.963 and 0.972 on the inclusive arm.
+
+**This comparison is the live source for the site's own explainer.** The same two arms, plus the
+head-to-head win-probability figures below, are published as a single artifact at
+`v1/methodology/epa-vs-statbotics.json` and rendered on `/methodology/epa-vs-statbotics`
+(`scripts/publishEpaComparison.ts`, which refuses to publish a pair of arms whose `epaVersion` or
+season set disagree). Both arms in the published object therefore always carry one model version,
+which is the property this section's own history shows is easy to lose.
 
 ## Per-season measured table (production arm: offseason-inclusive, 2022-2026)
 
@@ -473,6 +492,37 @@ discount's own contribution.
 | 2024 | 0.7627 | 0.7356 | 0.7338 | 0.1620 | 0.1870 | 0.1874 |
 | 2025 | 0.7839 | 0.7739 | 0.7742 | 0.1537 | 0.1593 | 0.1599 |
 | 2026 | 0.7978 | 0.7953 | 0.7942 | 0.1483 | 0.1430 | 0.1434 |
+
+### Re-measured under `epa@6.0.0+baseline` (quick task 260908-n5o, 2026-09-08) — and this is what the site publishes
+
+The three columns above were measured under `2.0.0` and `5.0.0` via
+`packages/harness/cli.ts`. The table below is the `6.0.0+baseline` figure, measured by
+`scripts/epaVsStatbotics.ts`'s own win-probability arm, which is the exact quantity published to
+`v1/methodology/epa-vs-statbotics.json` and rendered on `/methodology/epa-vs-statbotics`.
+
+**These are not a drop-in continuation of the columns above and must not be read as one.** They
+come from a different harness path over a different match population (this script's own
+chronological replay, `scoredCount` 14,603 to 18,337 per season), so a cell-by-cell delta against
+the `5.0.0` column mixes a model change with a measurement-path change. Stated here rather than
+quietly appended to the table above, which is what would have made it look controlled.
+
+| Season | EPA accuracy (`6.0.0`) | Statbotics accuracy | EPA Brier (`6.0.0`) | Statbotics Brier | Scored |
+|--------|------------------------:|---------------------:|---------------------:|------------------:|--------:|
+| 2022 | 0.7602 | 0.7815 | 0.1609 | 0.1502 | 14,603 |
+| 2023 | 0.7621 | 0.7647 | 0.1633 | 0.1608 | 16,290 |
+| 2024 | 0.7328 | 0.7627 | 0.1862 | 0.1620 | 16,958 |
+| 2025 | 0.7767 | 0.7839 | 0.1586 | 0.1537 | 17,815 |
+| 2026 | 0.7937 | 0.7978 | 0.1428 | 0.1483 | 18,337 |
+
+**Statbotics has the higher winner accuracy in all five seasons.** Our EPA wins on Brier in 2026
+only (0.1428 against 0.1483). That is the same standing verdict the `5.0.0` table above reports,
+and the published page states it in those terms rather than selecting the one season we lead.
+
+**The Statbotics columns here are dated reference figures, not live ones.** `/v3/year/{season}`
+returned HTTP 200 with an empty JSON body when this was measured on 2026-09-08, so
+`statboticsReference` fell back to its constants captured 2026-09-04. The published artifact
+carries a per-season `statboticsFetched: false` for exactly this reason and the page renders those
+cells marked `(dated)`, so a stale figure is visible as stale instead of passing as current.
 
 **Reported plainly, as measured: the movement is small and mixed, not a clean improvement or a
 clean degradation.** Accuracy improved in 2022 and 2025 (by ~0.02-0.03 points), and degraded
