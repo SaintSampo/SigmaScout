@@ -5,16 +5,24 @@ import {
   EPA_COMPARISON_LEAD,
   EPA_DIFFERENCE_ENTRIES,
   EPA_HEAD_TO_HEAD_BLOCK_INTRO,
-  EPA_OFFSEASON_ARM_BLOCK_INTRO,
   headToHeadSummarySentence,
 } from "./epaComparisonContent.js";
 import type { EpaComparisonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The `/methodology/epa-vs-statbotics` page body (quick task 260908-n5o
- * Task 3). Takes the already-parsed artifact as a PROP — never fetches,
- * never declares its own query — matching `AcknowledgmentsPage.tsx`'s own
- * "content component takes data, route owns the query" split.
+ * Task 3; revised same day after reviewing the shipped page). Takes the
+ * already-parsed artifact as a PROP — never fetches, never declares its own
+ * query — matching `AcknowledgmentsPage.tsx`'s own "content component takes
+ * data, route owns the query" split.
+ *
+ * Revision: the "offseason matches in versus out" A/B section is REMOVED.
+ * It compared the same quantity (`minMatchesFiltered`, season-final,
+ * offseason-inclusive) that the agreement table itself used to compare —
+ * a number nobody is shown anywhere on this site. `artifact.agreement` now
+ * carries one row per season, each measured against a team's rating as of
+ * its own last official match (the number the Teams list and a team page's
+ * header actually show), so there is no second arm left to pair.
  *
  * Every number rendered here comes from `artifact` — no slope, correlation,
  * mean absolute difference, accuracy or Brier value is a literal anywhere in
@@ -24,7 +32,6 @@ import type { EpaComparisonArtifact } from "../../../../../packages/harness/page
  */
 
 const AGREEMENT_TABLE_TESTID = "epa-comparison-agreement-table";
-const OFFSEASON_ARM_TABLE_TESTID = "epa-comparison-offseason-arm-table";
 const HEAD_TO_HEAD_TABLE_TESTID = "epa-comparison-head-to-head-table";
 const HEAD_TO_HEAD_SUMMARY_TESTID = "epa-comparison-head-to-head-summary";
 const PROVENANCE_TESTID = "epa-comparison-provenance";
@@ -47,20 +54,9 @@ export interface EpaComparisonPageProps {
 }
 
 export function EpaComparisonPage({ artifact }: EpaComparisonPageProps) {
-  const inclusiveRows = artifact.agreement
-    .filter((row) => row.includeOffseason)
-    .slice()
-    .sort((a, b) => a.season - b.season);
+  const agreementRows = artifact.agreement.slice().sort((a, b) => a.season - b.season);
 
-  const pairedSeasons = Array.from(new Set(artifact.agreement.map((row) => row.season))).sort((a, b) => a - b);
-  const rowsBySeasonAndArm = new Map<string, (typeof artifact.agreement)[number]>();
-  for (const row of artifact.agreement) {
-    rowsBySeasonAndArm.set(`${row.season}:${row.includeOffseason}`, row);
-  }
-
-  const headToHeadRows = artifact.headToHead
-    .slice()
-    .sort((a, b) => a.season - b.season);
+  const headToHeadRows = artifact.headToHead.slice().sort((a, b) => a.season - b.season);
   const comparableRows = headToHeadRows.filter((row) => row.ourWinnerAccuracy !== null);
   const statboticsAheadCount = comparableRows.filter(
     (row) => row.statboticsWinnerAccuracy > (row.ourWinnerAccuracy as number)
@@ -100,7 +96,7 @@ export function EpaComparisonPage({ artifact }: EpaComparisonPageProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {inclusiveRows.map((row) => (
+              {agreementRows.map((row) => (
                 <TableRow key={row.season}>
                   <TableCell className="numeric-cell">{row.season}</TableCell>
                   <TableCell className="numeric-cell">{row.joinedCount}</TableCell>
@@ -109,60 +105,6 @@ export function EpaComparisonPage({ artifact }: EpaComparisonPageProps) {
                   <TableCell className="numeric-cell">{formatMeanAbsoluteDifference(row.meanAbsoluteDifference)}</TableCell>
                 </TableRow>
               ))}
-            </TableBody>
-          </table>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-[var(--spacing-sm)]">
-        <h2 className="text-role-heading text-[var(--color-text-primary)]">Offseason matches in versus out</h2>
-        <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{EPA_OFFSEASON_ARM_BLOCK_INTRO}</p>
-        <div data-testid={OFFSEASON_ARM_TABLE_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-          <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
-            <TableHeader>
-              <TableRow>
-                <TableHead rowSpan={2} className="text-role-label align-bottom">
-                  Season
-                </TableHead>
-                <TableHead colSpan={2} className="text-role-label border-l text-center">
-                  OLS slope
-                </TableHead>
-                <TableHead colSpan={2} className="text-role-label border-l text-center">
-                  Pearson correlation
-                </TableHead>
-                <TableHead colSpan={2} className="text-role-label border-l text-center">
-                  Mean absolute difference
-                </TableHead>
-              </TableRow>
-              <TableRow>
-                <TableHead className="text-role-label border-l">Offseason in</TableHead>
-                <TableHead className="text-role-label">Offseason out</TableHead>
-                <TableHead className="text-role-label border-l">Offseason in</TableHead>
-                <TableHead className="text-role-label">Offseason out</TableHead>
-                <TableHead className="text-role-label border-l">Offseason in</TableHead>
-                <TableHead className="text-role-label">Offseason out</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pairedSeasons.map((season) => {
-                const inclusive = rowsBySeasonAndArm.get(`${season}:true`);
-                const excluded = rowsBySeasonAndArm.get(`${season}:false`);
-                return (
-                  <TableRow key={season}>
-                    <TableCell className="numeric-cell">{season}</TableCell>
-                    <TableCell className="numeric-cell border-l">
-                      {inclusive ? formatSlopeOrCorrelation(inclusive.ordinaryLeastSquaresSlope) : "—"}
-                    </TableCell>
-                    <TableCell className="numeric-cell">{excluded ? formatSlopeOrCorrelation(excluded.ordinaryLeastSquaresSlope) : "—"}</TableCell>
-                    <TableCell className="numeric-cell border-l">{inclusive ? formatSlopeOrCorrelation(inclusive.pearson) : "—"}</TableCell>
-                    <TableCell className="numeric-cell">{excluded ? formatSlopeOrCorrelation(excluded.pearson) : "—"}</TableCell>
-                    <TableCell className="numeric-cell border-l">
-                      {inclusive ? formatMeanAbsoluteDifference(inclusive.meanAbsoluteDifference) : "—"}
-                    </TableCell>
-                    <TableCell className="numeric-cell">{excluded ? formatMeanAbsoluteDifference(excluded.meanAbsoluteDifference) : "—"}</TableCell>
-                  </TableRow>
-                );
-              })}
             </TableBody>
           </table>
         </div>
@@ -221,16 +163,15 @@ export function EpaComparisonPage({ artifact }: EpaComparisonPageProps) {
 
 /**
  * The pending branch's shape-preserving placeholder: the lead paragraph and
- * the four difference headings are text-only chrome, so they render for
- * real even while the artifact is in flight (the same "gate content, never
- * the element's own existence" rule the rest of this app follows) — only
- * the three data-bearing sections below get a skeleton in their place.
+ * the difference headings are text-only chrome, so they render for real
+ * even while the artifact is in flight (the same "gate content, never the
+ * element's own existence" rule the rest of this app follows) — only the
+ * two data-bearing sections below get a skeleton in their place.
  */
 export function EpaComparisonPageSkeleton() {
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <Skeleton className="h-9 w-64" />
-      <Skeleton className="h-24 w-full" />
       <Skeleton className="h-24 w-full" />
       <Skeleton className="h-24 w-full" />
     </div>
@@ -239,7 +180,6 @@ export function EpaComparisonPageSkeleton() {
 
 export {
   AGREEMENT_TABLE_TESTID as EPA_COMPARISON_AGREEMENT_TABLE_TESTID,
-  OFFSEASON_ARM_TABLE_TESTID as EPA_COMPARISON_OFFSEASON_ARM_TABLE_TESTID,
   HEAD_TO_HEAD_TABLE_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   HEAD_TO_HEAD_SUMMARY_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   PROVENANCE_TESTID as EPA_COMPARISON_PROVENANCE_TESTID,

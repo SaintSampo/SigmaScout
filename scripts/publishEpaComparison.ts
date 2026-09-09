@@ -13,14 +13,25 @@
  * and prints the composed object's byte size without ever calling
  * `putObject`.
  *
- * The composition below is where this task's anti-drift gates live, and
- * they are the point of this file rather than a nicety: two arm reports
- * that disagree on `epaVersion`, on their season set, or on which slot
- * (`--inclusive`/`--excluded`) their own `includeOffseason` flag actually
- * belongs to each throw a NAMED error and publish nothing. A silent version
- * mix or a silently swapped arm here is precisely the documentation-drift
- * failure this whole task exists to close (see this quick task's own
- * `<threat_model>` T-n5o-01).
+ * Revision, same day, after reviewing the shipped page: this used to take
+ * TWO report files, `--inclusive`/`--excluded`, and compose them into a
+ * two-arm agreement table (offseason included vs excluded, both against
+ * each team's season-final total). That table measured a quantity nobody is
+ * shown anywhere on this site — see `EpaComparisonAgreementRowSchema`'s own
+ * doc comment in `packages/harness/pageArtifacts.ts` for the measurement
+ * that caught it. This publisher now takes ONE report file, `--report`,
+ * which carries the `officialOnly` arm `scripts/epaVsStatbotics.ts` now
+ * measures, and composes `agreement` from that arm alone.
+ * `MismatchedEpaVersionError`, `MismatchedSeasonSetError` and
+ * `MislabelledArmError` existed to stop two arm reports disagreeing with
+ * each other or landing in the wrong CLI slot; with one report file there is
+ * no second arm and no slot to mislabel, so all three are gone. The
+ * anti-drift gate that remains, `MissingOfficialOnlyArmError`, is in the
+ * same spirit: a report produced by a stale copy of `epaVsStatbotics.ts`
+ * (one that predates the `officialOnly` arm) throws a NAMED error and
+ * publishes nothing, rather than silently composing an artifact against the
+ * wrong quantity all over again (this quick task's own `<threat_model>`
+ * T-n5o-01).
  */
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -37,38 +48,17 @@ import type { EpaVsStatboticsReport } from "./epaVsStatbotics.js";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
 
 // ---------------------------------------------------------------------------
-// Composition gates — named errors, never a console warning or a best-effort merge
+// Composition gate — a named error, never a console warning or a best-effort merge
 // ---------------------------------------------------------------------------
 
-export class MismatchedEpaVersionError extends Error {
-  constructor(inclusiveVersion: string, excludedVersion: string) {
+export class MissingOfficialOnlyArmError extends Error {
+  constructor(season: number) {
     super(
-      `publishEpaComparison: --inclusive report's epaVersion "${inclusiveVersion}" does not match ` +
-        `--excluded report's epaVersion "${excludedVersion}" — refusing to publish a comparison that ` +
-        `mixes two model versions in one table`
+      `publishEpaComparison: the report's season ${season} entry carries no officialOnly arm — refusing to ` +
+        `publish a comparison against the wrong quantity (re-run scripts/epaVsStatbotics.ts to produce a report ` +
+        `that carries it)`
     );
-    this.name = "MismatchedEpaVersionError";
-  }
-}
-
-export class MismatchedSeasonSetError extends Error {
-  constructor(inclusiveSeasons: readonly number[], excludedSeasons: readonly number[]) {
-    super(
-      `publishEpaComparison: --inclusive report's seasons [${inclusiveSeasons.join(", ")}] do not match ` +
-        `--excluded report's seasons [${excludedSeasons.join(", ")}] — both arms must cover the identical ` +
-        `season set or they are not an A/B at all`
-    );
-    this.name = "MismatchedSeasonSetError";
-  }
-}
-
-export class MislabelledArmError extends Error {
-  constructor(slot: "inclusive" | "excluded", expected: boolean, actual: boolean) {
-    super(
-      `publishEpaComparison: the report passed as --${slot} carries includeOffseason=${actual}, expected ` +
-        `${expected} — this report does not belong in the --${slot} slot`
-    );
-    this.name = "MislabelledArmError";
+    this.name = "MissingOfficialOnlyArmError";
   }
 }
 
@@ -78,68 +68,38 @@ export interface ComposeEpaComparisonOptions {
 }
 
 /**
- * Composes the one `EpaComparisonArtifact` from both arm reports. Pure with
- * respect to I/O — the caller reads both report files and passes the parsed
- * objects in; this function performs no `fs`/`fetch` of its own, which is
- * what makes every mismatch case here unit-testable with small, hand-built
- * fixtures and no network (`scripts/publishEpaComparison.test.ts`).
- *
- * Gate order matters for a clear error on a doubly-wrong input: arm identity
- * first (a report in the wrong slot is the most basic mistake), then version
- * equality, then season-set equality — each gate throws its own named error
- * and none falls through to composing a partial object.
+ * Composes the one `EpaComparisonArtifact` from a single report. Pure with
+ * respect to I/O — the caller reads the report file and passes the parsed
+ * object in; this function performs no `fs`/`fetch` of its own, which is
+ * what makes the missing-arm case here unit-testable with a small,
+ * hand-built fixture and no network (`scripts/publishEpaComparison.test.ts`).
  */
-export function composeEpaComparisonArtifact(
-  inclusiveReport: EpaVsStatboticsReport,
-  excludedReport: EpaVsStatboticsReport,
-  options: ComposeEpaComparisonOptions
-): EpaComparisonArtifact {
-  if (inclusiveReport.includeOffseason !== true) {
-    throw new MislabelledArmError("inclusive", true, inclusiveReport.includeOffseason);
-  }
-  if (excludedReport.includeOffseason !== false) {
-    throw new MislabelledArmError("excluded", false, excludedReport.includeOffseason);
+export function composeEpaComparisonArtifact(report: EpaVsStatboticsReport, options: ComposeEpaComparisonOptions): EpaComparisonArtifact {
+  for (const entry of report.seasonEntries) {
+    if (!entry.officialOnly) {
+      throw new MissingOfficialOnlyArmError(entry.season);
+    }
   }
 
-  if (inclusiveReport.epaVersion !== excludedReport.epaVersion) {
-    throw new MismatchedEpaVersionError(inclusiveReport.epaVersion, excludedReport.epaVersion);
-  }
+  // Stat block one reads the officialOnly arm — each team's rating as of
+  // its own last official match, the exact number the Teams list and the
+  // team-page header show a visitor. This is the whole reason this
+  // revision exists: `minMatchesFiltered` is season-final and is never the
+  // number anyone sees.
+  const agreement: EpaComparisonArtifact["agreement"] = report.seasonEntries.map((entry) => ({
+    season: entry.season,
+    basis: "last-official-match",
+    joinedCount: entry.officialOnly.joinedCount,
+    ordinaryLeastSquaresSlope: entry.officialOnly.ordinaryLeastSquaresSlope,
+    pearson: entry.officialOnly.pearson,
+    meanAbsoluteDifference: entry.officialOnly.meanAbsoluteDifference,
+  }));
 
-  const inclusiveSeasons = [...inclusiveReport.seasons].sort((a, b) => a - b);
-  const excludedSeasons = [...excludedReport.seasons].sort((a, b) => a - b);
-  const sameSeasons =
-    inclusiveSeasons.length === excludedSeasons.length && inclusiveSeasons.every((season, index) => season === excludedSeasons[index]);
-  if (!sameSeasons) {
-    throw new MismatchedSeasonSetError(inclusiveSeasons, excludedSeasons);
-  }
-
-  // Stat block one reads the min-matches(12) arm — the same arm
-  // `docs/models/epa-vs-statbotics.md`'s own committed baseline is built
-  // from (low-match teams are noisy on both sides), never the all-teams arm.
-  const agreement: EpaComparisonArtifact["agreement"] = [
-    ...inclusiveReport.seasonEntries.map((entry) => ({
-      season: entry.season,
-      includeOffseason: true,
-      joinedCount: entry.minMatchesFiltered.joinedCount,
-      ordinaryLeastSquaresSlope: entry.minMatchesFiltered.ordinaryLeastSquaresSlope,
-      pearson: entry.minMatchesFiltered.pearson,
-      meanAbsoluteDifference: entry.minMatchesFiltered.meanAbsoluteDifference,
-    })),
-    ...excludedReport.seasonEntries.map((entry) => ({
-      season: entry.season,
-      includeOffseason: false,
-      joinedCount: entry.minMatchesFiltered.joinedCount,
-      ordinaryLeastSquaresSlope: entry.minMatchesFiltered.ordinaryLeastSquaresSlope,
-      pearson: entry.minMatchesFiltered.pearson,
-      meanAbsoluteDifference: entry.minMatchesFiltered.meanAbsoluteDifference,
-    })),
-  ];
-
-  // Head-to-head accuracy always reads the offseason-INCLUSIVE arm — the
+  // Head-to-head accuracy always reads the offseason-INCLUSIVE report — the
   // production arm the live site actually serves. Scoring excludes offseason
-  // matches on both arms regardless (`aggregateScores`' own default), so
-  // this is "the arm the site runs", not "the arm with different scoring".
-  const headToHead: EpaComparisonArtifact["headToHead"] = inclusiveReport.seasonEntries.map((entry) => ({
+  // matches regardless (`aggregateScores`' own default), so this is "the arm
+  // the site runs", not "the arm with different scoring".
+  const headToHead: EpaComparisonArtifact["headToHead"] = report.seasonEntries.map((entry) => ({
     season: entry.season,
     ourWinnerAccuracy: entry.winProbability.ourWinnerAccuracy,
     ourBrierScore: entry.winProbability.ourBrierScore,
@@ -154,16 +114,16 @@ export function composeEpaComparisonArtifact(
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: options.generation,
     computedAt: options.computedAt,
-    measuredAt: inclusiveReport.measuredAt,
-    epaVersion: inclusiveReport.epaVersion,
-    minMatches: inclusiveReport.minMatches,
+    measuredAt: report.measuredAt,
+    epaVersion: report.epaVersion,
+    minMatches: report.minMatches,
     agreement,
     headToHead,
   });
 }
 
 // ---------------------------------------------------------------------------
-// I/O — report reads, R2 write
+// I/O — report read, R2 write
 // ---------------------------------------------------------------------------
 
 function readReport(path: string): EpaVsStatboticsReport {
@@ -171,8 +131,7 @@ function readReport(path: string): EpaVsStatboticsReport {
 }
 
 interface CliOptions {
-  readonly inclusivePath: string;
-  readonly excludedPath: string;
+  readonly reportPath: string;
   readonly bucket: string;
   readonly dryRun: boolean;
 }
@@ -181,41 +140,37 @@ function parseOptions(argv: readonly string[]): CliOptions {
   const { values } = parseArgs({
     args: [...argv],
     options: {
-      inclusive: { type: "string" },
-      excluded: { type: "string" },
+      report: { type: "string" },
       bucket: { type: "string" },
       "dry-run": { type: "boolean" },
     },
   });
 
-  if (values.inclusive === undefined) {
-    throw new Error("publishEpaComparison: --inclusive <path> is required (the offseason-inclusive report JSON)");
-  }
-  if (values.excluded === undefined) {
-    throw new Error("publishEpaComparison: --excluded <path> is required (the offseason-excluded report JSON)");
+  if (values.report === undefined) {
+    throw new Error("publishEpaComparison: --report <path> is required (the report JSON carrying the officialOnly arm)");
   }
 
   return {
-    inclusivePath: values.inclusive,
-    excludedPath: values.excluded,
+    reportPath: values.report,
     bucket: values.bucket ?? DEFAULT_BUCKET,
     dryRun: values["dry-run"] === true,
   };
 }
 
 export async function run(options: CliOptions): Promise<void> {
-  const inclusiveReport = readReport(options.inclusivePath);
-  const excludedReport = readReport(options.excludedPath);
+  const report = readReport(options.reportPath);
 
   const generation = new Date().toISOString();
-  const artifact = composeEpaComparisonArtifact(inclusiveReport, excludedReport, {
+  const artifact = composeEpaComparisonArtifact(report, {
     generation,
     computedAt: generation,
   });
 
   const key = epaComparisonKey();
   const body = JSON.stringify(artifact);
-  console.log(`publishEpaComparison: composed "${key}" (${body.length} bytes, epaVersion ${artifact.epaVersion}, ${artifact.agreement.length} agreement rows, ${artifact.headToHead.length} head-to-head rows)`);
+  console.log(
+    `publishEpaComparison: composed "${key}" (${body.length} bytes, epaVersion ${artifact.epaVersion}, ${artifact.agreement.length} agreement rows, ${artifact.headToHead.length} head-to-head rows)`
+  );
 
   if (options.dryRun) {
     console.log("publishEpaComparison: --dry-run — nothing published.");

@@ -1,19 +1,16 @@
 /**
  * Behavior coverage for `scripts/publishEpaComparison.ts` (quick task
- * 260908-n5o Task 2). Every test builds small, hand-built fixture reports
- * inline and calls `composeEpaComparisonArtifact` directly — no `fs`, no
- * network, no `putObject`. The mismatch cases are the tests that matter
- * most: each asserts the specific named error class AND that nothing about
- * the (would-be) upload was ever attempted (this function performs no I/O
- * of its own, so a thrown error IS "nothing was uploaded").
+ * 260908-n5o Task 2; revised same day to take one report file instead of
+ * two — see the module's own header comment). Every test builds a small,
+ * hand-built fixture report inline and calls `composeEpaComparisonArtifact`
+ * directly — no `fs`, no network, no `putObject`. The missing-arm case is
+ * the test that matters most: it asserts the specific named error class AND
+ * that nothing about the (would-be) upload was ever attempted (this
+ * function performs no I/O of its own, so a thrown error IS "nothing was
+ * uploaded").
  */
 import { describe, expect, it } from "vitest";
-import {
-  composeEpaComparisonArtifact,
-  MislabelledArmError,
-  MismatchedEpaVersionError,
-  MismatchedSeasonSetError,
-} from "./publishEpaComparison.js";
+import { composeEpaComparisonArtifact, MissingOfficialOnlyArmError } from "./publishEpaComparison.js";
 import { EpaComparisonArtifactSchema } from "../packages/harness/pageArtifacts.js";
 import type { EpaVsStatboticsReport, SeasonReportEntry } from "./epaVsStatbotics.js";
 
@@ -38,13 +35,26 @@ function buildSeasonEntry(season: number, overrides: Partial<SeasonReportEntry> 
       ourCount: 80,
       theirCount: 80,
       joinedCount: 80,
-      ordinaryLeastSquaresSlope: 0.92,
-      pearson: 0.96,
-      meanAbsoluteDifference: 2.8,
+      ordinaryLeastSquaresSlope: 0.86,
+      pearson: 0.92,
+      meanAbsoluteDifference: 4.5,
       ourStandardDeviation: 9,
       theirStandardDeviation: 10,
       pairs: [],
     } as unknown as SeasonReportEntry["minMatchesFiltered"],
+    officialOnly: {
+      season,
+      minMatches: 12,
+      ourCount: 75,
+      theirCount: 80,
+      joinedCount: 75,
+      ordinaryLeastSquaresSlope: 0.99,
+      pearson: 0.98,
+      meanAbsoluteDifference: 2.1,
+      ourStandardDeviation: 11,
+      theirStandardDeviation: 10,
+      pairs: [],
+    } as unknown as SeasonReportEntry["officialOnly"],
     spotCheck: [],
     winProbability: {
       ourWinnerAccuracy: 0.72,
@@ -75,73 +85,48 @@ function buildReport(overrides: Partial<EpaVsStatboticsReport> = {}): EpaVsStatb
 const COMPOSE_OPTIONS = { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" };
 
 describe("composeEpaComparisonArtifact", () => {
-  it("composes one artifact from two arm reports carrying the same epaVersion, and the result parses against the schema", () => {
-    const inclusive = buildReport({ includeOffseason: true });
-    const excluded = buildReport({ includeOffseason: false });
+  it("composes one artifact from one report, one agreement row per season, and the result parses against the schema", () => {
+    const report = buildReport();
 
-    const artifact = composeEpaComparisonArtifact(inclusive, excluded, COMPOSE_OPTIONS);
+    const artifact = composeEpaComparisonArtifact(report, COMPOSE_OPTIONS);
 
     expect(() => EpaComparisonArtifactSchema.parse(artifact)).not.toThrow();
     expect(artifact.epaVersion).toBe("6.0.0+baseline");
-    expect(artifact.agreement).toHaveLength(4); // 2 seasons x 2 arms
-    expect(artifact.agreement.filter((row) => row.includeOffseason)).toHaveLength(2);
-    expect(artifact.agreement.filter((row) => !row.includeOffseason)).toHaveLength(2);
+    expect(artifact.agreement).toHaveLength(2); // one row per season, not two arms
+    expect(artifact.agreement.every((row) => row.basis === "last-official-match")).toBe(true);
     expect(artifact.headToHead).toHaveLength(2);
   });
 
-  it("throws MismatchedEpaVersionError and composes nothing when the two reports carry different epaVersion values", () => {
-    const inclusive = buildReport({ includeOffseason: true, epaVersion: "6.0.0+baseline" });
-    const excluded = buildReport({ includeOffseason: false, epaVersion: "2.0.0+baseline" });
+  it("reads agreement figures from the officialOnly arm, not minMatchesFiltered", () => {
+    const report = buildReport({ seasons: [2026], seasonEntries: [buildSeasonEntry(2026)] });
+
+    const artifact = composeEpaComparisonArtifact(report, COMPOSE_OPTIONS);
+
+    const [row] = artifact.agreement;
+    expect(row!.ordinaryLeastSquaresSlope).toBe(0.99); // officialOnly's slope, not minMatchesFiltered's 0.86
+    expect(row!.joinedCount).toBe(75); // officialOnly's joinedCount, not minMatchesFiltered's 80
+  });
+
+  it("throws MissingOfficialOnlyArmError and composes nothing when a season entry carries no officialOnly arm", () => {
+    const report = buildReport();
+    const seasonEntries = report.seasonEntries.map((entry, index) => {
+      if (index !== 0) return entry;
+      const stale = { ...entry } as Record<string, unknown>;
+      delete stale.officialOnly;
+      return stale as unknown as SeasonReportEntry;
+    });
+    const staleReport: EpaVsStatboticsReport = { ...report, seasonEntries };
 
     let thrown: unknown;
     try {
-      composeEpaComparisonArtifact(inclusive, excluded, COMPOSE_OPTIONS);
+      composeEpaComparisonArtifact(staleReport, COMPOSE_OPTIONS);
     } catch (err) {
       thrown = err;
     }
-    expect(thrown).toBeInstanceOf(MismatchedEpaVersionError);
+    expect(thrown).toBeInstanceOf(MissingOfficialOnlyArmError);
   });
 
-  it("throws MismatchedSeasonSetError and composes nothing when the two reports cover different season sets", () => {
-    const inclusive = buildReport({ includeOffseason: true, seasons: [2022, 2023, 2024] });
-    const excluded = buildReport({ includeOffseason: false, seasons: [2022, 2023] });
-
-    let thrown: unknown;
-    try {
-      composeEpaComparisonArtifact(inclusive, excluded, COMPOSE_OPTIONS);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(MismatchedSeasonSetError);
-  });
-
-  it("throws MislabelledArmError when the --inclusive report itself carries includeOffseason: false", () => {
-    const inclusive = buildReport({ includeOffseason: false });
-    const excluded = buildReport({ includeOffseason: false });
-
-    let thrown: unknown;
-    try {
-      composeEpaComparisonArtifact(inclusive, excluded, COMPOSE_OPTIONS);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(MislabelledArmError);
-  });
-
-  it("throws MislabelledArmError when the --excluded report itself carries includeOffseason: true", () => {
-    const inclusive = buildReport({ includeOffseason: true });
-    const excluded = buildReport({ includeOffseason: true });
-
-    let thrown: unknown;
-    try {
-      composeEpaComparisonArtifact(inclusive, excluded, COMPOSE_OPTIONS);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(MislabelledArmError);
-  });
-
-  it("--dry-run's own composition path (this function) never calls putObject — proven structurally: this function imports no r2Client binding at all", async () => {
+  it("this function's own module imports no r2Client binding — composing an artifact touches no network", async () => {
     // This is a structural proof rather than a mock-call assertion: the
     // module under test here (`composeEpaComparisonArtifact`) has no
     // dependency on `r2Client.js` — only `run()` in the CLI wrapper does,

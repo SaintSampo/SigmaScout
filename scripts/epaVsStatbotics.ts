@@ -37,6 +37,20 @@
  * seasons or they are not an A/B at all (`epaVersion` below is the OTHER
  * half of that same guarantee — see its own doc comment).
  *
+ * Revision, same day, after reviewing the shipped page: the published
+ * agreement table compared `minMatchesFiltered` — each team's SEASON-FINAL
+ * total, offseason play included — against Statbotics. That is not the
+ * number anyone sees on this site. The Teams list and the team-page header
+ * both show a team's total as of its own LAST OFFICIAL match
+ * (`packages/harness/publish.ts`'s `lastOfficialMetricsByTeam`), and that
+ * quantity agrees with Statbotics far more closely than the season-final one
+ * does. This script now also measures a THIRD arm, `officialOnly`, computed
+ * by the SAME rule, so the published comparison measures the number a
+ * visitor actually sees. `allTeams`, `minMatchesFiltered`, and
+ * `includeOffseason` are UNCHANGED — they still gate `--check` against the
+ * committed baseline exactly as before; this is a strict addition, not a
+ * replacement.
+ *
  * This script reads the corpus READ-ONLY and touches NO credential of any
  * kind: no network request needs auth (Statbotics is unauthenticated), no
  * environment variable is read, and its `package.json` entry deliberately
@@ -50,7 +64,7 @@ import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator, type MultiAlgorithmPredictionRecord } from "../packages/harness/replay.js";
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { epa, type EpaState } from "../packages/core/algorithms/epa.js";
-import { OFFSEASON_EVENT_TYPE } from "../packages/core/algorithms/eventTypes.js";
+import { OFFSEASON_EVENT_TYPE, isOfficialEventType } from "../packages/core/algorithms/eventTypes.js";
 import { fetchStatboticsTeamYears, statboticsReference, type StatboticsTeamYearRow } from "../packages/harness/statbotics.js";
 import { isDemoTeamKey, DEMO_PSEUDO_TEAM_KEY } from "../packages/core/algorithms/demoTeams.js";
 import { TOTAL_METRIC_KEY, type MatchResult } from "../packages/core/algorithms/types.js";
@@ -154,6 +168,18 @@ function uniqueTeamKeysInOrder(matches: readonly MatchResult[]): string[] {
 export interface SeasonReplayResult {
   readonly finalState: EpaState;
   readonly records: readonly MultiAlgorithmPredictionRecord[];
+  /**
+   * Revision 260908-n5o: each involved team's `total` value as of its own
+   * LAST OFFICIAL match within this season's replay — the exact rule
+   * `packages/harness/publish.ts`'s `lastOfficialMetricsByTeam` already
+   * establishes for the Teams-list snapshot and the team-page header ("As of
+   * last official match"), mirrored here via `onMatchComplete` rather than
+   * reinvented. A team's entry is overwritten only on an official-event
+   * match, so a team with no official match this season is simply ABSENT
+   * from this map — never zero, and never carried forward from offseason
+   * play alone.
+   */
+  readonly officialTotals: ReadonlyMap<string, number>;
 }
 
 /**
@@ -196,14 +222,26 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
         initialStates = carried;
       }
 
+      const officialTotals = new Map<string, number>();
+      const onMatchComplete = (match: MatchResult, algorithmId: string, state: unknown): void => {
+        if (algorithmId !== epa.id || !isOfficialEventType(match.eventType)) return;
+        const involvedTeams = [...match.redTeams, ...match.blueTeams];
+        const metrics = epa.teamMetrics(state as EpaState, involvedTeams);
+        for (const teamKey of involvedTeams) {
+          if (isDemoTeamKey(teamKey) || teamKey === DEMO_PSEUDO_TEAM_KEY) continue;
+          const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+          if (total !== undefined) officialTotals.set(teamKey, total);
+        }
+      };
+
       const simulator = new WalkForwardSimulator(stream);
-      const records = simulator.runAll([epa], teams, initialStates);
+      const records = simulator.runAll([epa], teams, initialStates, onMatchComplete);
       carriedStates = records.carryStates;
       const finalState = records.finalStates.get(epa.id) as EpaState;
       // `records` is an array with two extra properties bolted on
       // (`finalStates`/`carryStates`, both already read above) — spreading it
       // here keeps only the plain array this function's own contract needs.
-      resultsBySeason.set(season, { finalState, records: [...records] });
+      resultsBySeason.set(season, { finalState, records: [...records], officialTotals });
       console.log(`epaVsStatbotics: season ${season} replayed — ${stream.length} matches`);
     }
   } finally {
@@ -295,6 +333,16 @@ function theirTeamRowsFromStatbotics(rows: readonly StatboticsTeamYearRow[]): Th
   return rows.map((row) => ({ teamKey: `frc${row.team}`, value: row.totalPoints, matchCount: row.matchCount }));
 }
 
+/**
+ * Converts a season's LAST-OFFICIAL-MATCH totals map
+ * (`SeasonReplayResult.officialTotals`) into the same `OurTeamValue[]` shape
+ * `compareSeason` already accepts for every other arm. Pure and exported so
+ * the shape is unit-testable without a replay, the corpus, or the network.
+ */
+export function officialOnlyTeamValues(officialTotals: ReadonlyMap<string, number>): OurTeamValue[] {
+  return [...officialTotals.entries()].map(([teamKey, value]) => ({ teamKey, value }));
+}
+
 // ---------------------------------------------------------------------------
 // Report shape
 // ---------------------------------------------------------------------------
@@ -331,6 +379,16 @@ export interface SeasonReportEntry {
   readonly season: number;
   readonly allTeams: SeasonComparison;
   readonly minMatchesFiltered: SeasonComparison;
+  /**
+   * Revision 260908-n5o: the same `compareSeason` join and the same
+   * min-matches(12) filter as `minMatchesFiltered`, but against each team's
+   * `officialOnlyTeamValues` — its rating as of its own last official match,
+   * rather than the season-final total. This is the arm the published
+   * comparison page reads: it is the number the Teams list and the
+   * team-page header actually show a visitor, and `minMatchesFiltered` is
+   * not.
+   */
+  readonly officialOnly: SeasonComparison;
   readonly spotCheck: readonly SpotCheckRow[];
   readonly winProbability: WinProbabilityComparison;
 }
@@ -355,8 +413,9 @@ export interface EpaVsStatboticsReport {
 function printSeasonRow(entry: SeasonReportEntry): void {
   const a = entry.allTeams;
   const f = entry.minMatchesFiltered;
+  const o = entry.officialOnly;
   console.log(
-    `season ${entry.season}: all-teams joined=${a.joinedCount} (our=${a.ourCount} their=${a.theirCount}) slope=${a.ordinaryLeastSquaresSlope.toFixed(3)} pearson=${a.pearson.toFixed(3)} mad=${a.meanAbsoluteDifference.toFixed(2)} ourSD=${a.ourStandardDeviation?.toFixed(2)} theirSD=${a.theirStandardDeviation?.toFixed(2)} | min-matches(${entry.minMatchesFiltered.minMatches}) joined=${f.joinedCount} slope=${f.ordinaryLeastSquaresSlope.toFixed(3)} pearson=${f.pearson.toFixed(3)} mad=${f.meanAbsoluteDifference.toFixed(2)}`
+    `season ${entry.season}: all-teams joined=${a.joinedCount} (our=${a.ourCount} their=${a.theirCount}) slope=${a.ordinaryLeastSquaresSlope.toFixed(3)} pearson=${a.pearson.toFixed(3)} mad=${a.meanAbsoluteDifference.toFixed(2)} ourSD=${a.ourStandardDeviation?.toFixed(2)} theirSD=${a.theirStandardDeviation?.toFixed(2)} | min-matches(${entry.minMatchesFiltered.minMatches}) joined=${f.joinedCount} slope=${f.ordinaryLeastSquaresSlope.toFixed(3)} pearson=${f.pearson.toFixed(3)} mad=${f.meanAbsoluteDifference.toFixed(2)} | official-only(${o.minMatches}) joined=${o.joinedCount} slope=${o.ordinaryLeastSquaresSlope.toFixed(3)} pearson=${o.pearson.toFixed(3)} mad=${o.meanAbsoluteDifference.toFixed(2)}`
   );
 }
 
@@ -448,6 +507,8 @@ async function main(): Promise<void> {
 
     const allTeams = compareSeason(season, ours, theirs);
     const minMatchesFiltered = compareSeason(season, ours, theirs, { minMatches: options.minMatches });
+    const officialOnlyOurs = officialOnlyTeamValues(replayed.officialTotals);
+    const officialOnly = compareSeason(season, officialOnlyOurs, theirs, { minMatches: options.minMatches });
     const spotCheck: SpotCheckRow[] = selectSpotCheckTeams(allTeams.pairs, { seed: SPOT_CHECK_SEED }).map((pair) => ({
       teamKey: pair.teamKey,
       theirs: pair.theirs,
@@ -467,7 +528,7 @@ async function main(): Promise<void> {
       statboticsFetched: statboticsRef.fetched,
     };
 
-    const entry: SeasonReportEntry = { season, allTeams, minMatchesFiltered, spotCheck, winProbability };
+    const entry: SeasonReportEntry = { season, allTeams, minMatchesFiltered, officialOnly, spotCheck, winProbability };
     printSeasonRow(entry);
     seasonEntries.push(entry);
   }

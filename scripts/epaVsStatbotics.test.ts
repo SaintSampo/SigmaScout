@@ -12,7 +12,7 @@ import { epa } from "../packages/core/algorithms/epa.js";
 import type { MatchResult, Prediction } from "../packages/core/algorithms/types.js";
 import type { MultiAlgorithmPredictionRecord } from "../packages/harness/replay.js";
 import type { ScoreSlice } from "../packages/harness/score.js";
-import { currentEpaVersion, mapRecordsToHarnessPredictionInput, selectCombinedSlice } from "./epaVsStatbotics.js";
+import { currentEpaVersion, mapRecordsToHarnessPredictionInput, officialOnlyTeamValues, selectCombinedSlice } from "./epaVsStatbotics.js";
 
 function buildMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   return {
@@ -147,5 +147,22 @@ describe("selectCombinedSlice", () => {
 describe("currentEpaVersion", () => {
   it("equals the epa module's own version field, by equality, never by pattern match", () => {
     expect(currentEpaVersion()).toBe(epa.version);
+  });
+});
+
+describe("officialOnlyTeamValues", () => {
+  it("converts a last-official-match totals map into OurTeamValue pairs", () => {
+    const totals = new Map([
+      ["frc254", 100],
+      ["frc971", 80],
+    ]);
+    expect(officialOnlyTeamValues(totals)).toEqual([
+      { teamKey: "frc254", value: 100 },
+      { teamKey: "frc971", value: 80 },
+    ]);
+  });
+
+  it("returns an empty array for a team with no official match this season (absent from the map)", () => {
+    expect(officialOnlyTeamValues(new Map())).toEqual([]);
   });
 });

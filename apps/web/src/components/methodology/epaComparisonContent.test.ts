@@ -1,10 +1,12 @@
 /**
  * Content coverage for `epaComparisonContent.ts` (quick task 260908-n5o
- * Task 3): the pinned four-entry id set (by equality, not iteration — an
- * added fifth entry must fail this test loudly) and the em dash voice gate,
- * asserted at runtime over the exported string VALUES rather than grepped
- * from the source text (this file's own header comments legitimately use an
- * em dash, so a whole-file grep would false-positive on them).
+ * Task 3; revised same day to drop the offseason-matches entry — see the
+ * module's own header comment): the pinned three-entry id set (by equality,
+ * not iteration — an added fourth entry must fail this test loudly) and the
+ * em dash voice gate, asserted at runtime over the exported string VALUES
+ * rather than grepped from the source text (this file's own header comments
+ * legitimately use an em dash, so a whole-file grep would false-positive on
+ * them).
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -13,20 +15,14 @@ import {
   EPA_DIFFERENCE_ENTRIES,
   EPA_DIFFERENCE_IDS,
   EPA_HEAD_TO_HEAD_BLOCK_INTRO,
-  EPA_OFFSEASON_ARM_BLOCK_INTRO,
   headToHeadSummarySentence,
 } from "./epaComparisonContent.js";
 
 const EM_DASH = "—";
 
 describe("EPA_DIFFERENCE_ENTRIES", () => {
-  it("exports exactly the four locked difference ids, in order, by equality", () => {
-    expect(EPA_DIFFERENCE_ENTRIES.map((entry) => entry.id)).toEqual([
-      "offseason-matches",
-      "win-probability-scale",
-      "component-maps",
-      "no-per-year-tweaks",
-    ]);
+  it("exports exactly the three locked difference ids, in order, by equality", () => {
+    expect(EPA_DIFFERENCE_ENTRIES.map((entry) => entry.id)).toEqual(["win-probability-scale", "component-maps", "no-per-year-tweaks"]);
   });
 
   it("EPA_DIFFERENCE_IDS matches EPA_DIFFERENCE_ENTRIES' own ids exactly", () => {
@@ -59,7 +55,7 @@ describe("voice gate — no em dash in any exported string", () => {
   });
 
   it("every stat-block intro sentence carries no em dash", () => {
-    for (const intro of [EPA_AGREEMENT_BLOCK_INTRO, EPA_OFFSEASON_ARM_BLOCK_INTRO, EPA_HEAD_TO_HEAD_BLOCK_INTRO]) {
+    for (const intro of [EPA_AGREEMENT_BLOCK_INTRO, EPA_HEAD_TO_HEAD_BLOCK_INTRO]) {
       expect(intro).not.toContain(EM_DASH);
     }
   });

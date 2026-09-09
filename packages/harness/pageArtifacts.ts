@@ -1878,14 +1878,28 @@ export function epaComparisonKey(): string {
 
 /**
  * One season's per-team agreement statistics between our EPA and Statbotics'
- * own, for ONE offseason arm. `includeOffseason` distinguishes the two arms
- * sharing this one array (`EpaComparisonArtifactSchema.agreement` below) —
- * a season appears twice, once per arm, rather than the artifact carrying
- * two separate arrays.
+ * own. `basis` names the ONE quantity this row measures rather than the row
+ * disappearing into an unlabelled number: a reader of the raw artifact can
+ * tell what it measures without consulting a doc.
+ *
+ * Revision 260908-n5o (same-day, post-ship): this replaced a two-arm design
+ * — `includeOffseason: true/false`, one row per season per arm — measured
+ * against each team's SEASON-FINAL total. That design was retired because
+ * it measured a quantity nobody is shown anywhere on this site. Every
+ * visible surface (the Teams list, the top of a team page) shows a team's
+ * total as of its own LAST OFFICIAL match
+ * (`packages/harness/publish.ts`'s `lastOfficialMetricsByTeam`), and
+ * `frc7769`/2026/`epa@6.0.0+baseline` is the measurement that caught it:
+ * that quantity was 313.95 everywhere a visitor sees it, while the
+ * season-final, offseason-inclusive total this schema used to carry was
+ * 251.37 — a materially different number for any team with offseason play.
+ * `basis: "last-official-match"` is the ONE literal this field can carry
+ * today; a future second basis would be a deliberate, separate decision,
+ * not a silent second arm sharing this array again.
  */
 const EpaComparisonAgreementRowSchema = z.object({
   season: z.number().int(),
-  includeOffseason: z.boolean(),
+  basis: z.literal("last-official-match"),
   joinedCount: z.number().int().nonnegative(),
   ordinaryLeastSquaresSlope: z.number(),
   pearson: z.number(),
@@ -1924,11 +1938,9 @@ const EpaComparisonHeadToHeadRowSchema = z.object({
  * is what makes a mixed-model-version publish impossible rather than merely
  * discouraged.
  *
- * `agreement` is ONE array covering BOTH offseason arms, distinguished by
- * each row's own `includeOffseason` flag — not two separate arrays — so the
- * two arms structurally cannot originate from two different documents, and a
- * reader pairs a season's two arms by filtering one array rather than
- * zipping two.
+ * `agreement` is ONE row per season, each carrying its own `basis` (see
+ * `EpaComparisonAgreementRowSchema`'s own doc comment for why this is a
+ * revision away from an earlier two-arm design, not the original shape).
  *
  * `measuredAt`/`epaVersion`/`minMatches` are the provenance stamp:
  * `measuredAt` is when the underlying harness run was measured (distinct

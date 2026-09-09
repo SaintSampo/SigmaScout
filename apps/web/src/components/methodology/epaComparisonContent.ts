@@ -1,10 +1,13 @@
 /**
  * Content-as-data for `/methodology/epa-vs-statbotics` (quick task
- * 260908-n5o Task 3), the same discipline `acknowledgmentsContent.ts`
- * already established: this module is the single source of every prose
- * string the page renders, so `epaComparisonContent.test.ts` can pin the
- * exact set of differences and check every string for voice violations
- * without a second hand-typed copy anywhere.
+ * 260908-n5o Task 3; revised same day after reviewing the shipped page —
+ * see `packages/harness/pageArtifacts.ts`'s `EpaComparisonAgreementRowSchema`
+ * doc comment for the measurement that prompted it), the same discipline
+ * `acknowledgmentsContent.ts` already established: this module is the
+ * single source of every prose string the page renders, so
+ * `epaComparisonContent.test.ts` can pin the exact set of differences and
+ * check every string for voice violations without a second hand-typed copy
+ * anywhere.
  *
  * Audience: the same FRC community (students, mentors, scouts) the rest of
  * the site is written for. Voice rules, binding on every string here: no em
@@ -13,15 +16,18 @@
  * previous one in different words, neutral between the two ratings, and a
  * term is explained the first time it appears, in the same sentence.
  *
- * Source material for the four entries below is `docs/models/
- * epa-divergences.md` sections 7, 4, 6 and 3 — reworded here from scratch
- * for a student audience rather than pasted, since that document is written
- * for a maintainer. The four EXCLUDED differences (fouls handling, EPA
- * carrying no plus-or-minus of its own, the now-closed elimination-match
- * divergence, and the rebuilt-from-scratch framing — the acknowledgments
- * page already owns that last one) are deliberately absent. Do not add a
- * fifth entry for completeness; that reviewer instinct is exactly what this
- * task's locked decisions rule out.
+ * Source material for the three entries below is `docs/models/
+ * epa-divergences.md` sections 4, 6 and 3 — reworded here from scratch for a
+ * student audience rather than pasted, since that document is written for a
+ * maintainer. The offseason-matches difference (section 7) was DROPPED in
+ * this revision, not merely reworded: it explained an "offseason on versus
+ * off" stat table that measured a quantity nobody is shown anywhere on this
+ * site. The other four EXCLUDED differences (fouls handling, EPA carrying no
+ * plus-or-minus of its own, the now-closed elimination-match divergence, and
+ * the rebuilt-from-scratch framing — the acknowledgments page already owns
+ * that last one) remain deliberately absent. Do not add a fourth entry for
+ * completeness; that reviewer instinct is exactly what this task's locked
+ * decisions rule out.
  */
 export interface EpaDifferenceEntry {
   readonly id: string;
@@ -31,25 +37,16 @@ export interface EpaDifferenceEntry {
 
 /**
  * The pinned id set (order is the page's own display order). A future
- * difference gets a fifth id here only by a deliberate, separate decision —
+ * difference gets a fourth id here only by a deliberate, separate decision —
  * `epaComparisonContent.test.ts` asserts this exact array by equality, not
  * by iteration, so a silently-added or silently-removed entry fails loudly.
  */
-export const EPA_DIFFERENCE_IDS = ["offseason-matches", "win-probability-scale", "component-maps", "no-per-year-tweaks"] as const;
+export const EPA_DIFFERENCE_IDS = ["win-probability-scale", "component-maps", "no-per-year-tweaks"] as const;
 
 export const EPA_COMPARISON_LEAD =
-  "SigmaScout and Statbotics both publish a rating called EPA for every FRC team. The two numbers do not always match. This page explains the four biggest reasons why, and shows real measured numbers instead of a guess.";
+  "SigmaScout and Statbotics both publish a rating called EPA for every FRC team. The two numbers do not always match. This page explains the three biggest reasons why, and shows real measured numbers instead of a guess.";
 
 export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
-  {
-    id: "offseason-matches",
-    heading: "Offseason matches",
-    paragraphs: [
-      "An offseason event is a competition played outside the official FIRST season, often over the summer or in the fall. SigmaScout replays offseason matches and lets them move a team's rating. Statbotics never sees an offseason match at all: no event page, no rating update, no prediction.",
-      "This is the single biggest reason the two ratings disagree. A team that plays a lot of offseason events can end up rated differently on SigmaScout than on Statbotics, simply because SigmaScout has seen more of that team's play.",
-      "As of September 2026 this gap narrowed. A team's rating now carries into the next season from its last official match, not its last match of any kind, so an exhibition result in November can no longer change a rating in February. Offseason matches still move a rating within the season they happen in.",
-    ],
-  },
   {
     id: "win-probability-scale",
     heading: "How win probability is scaled",
@@ -80,10 +77,7 @@ export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
 ];
 
 export const EPA_AGREEMENT_BLOCK_INTRO =
-  "This table compares SigmaScout's EPA to Statbotics' EPA for every team with at least 12 matches in a season, offseason matches included. A slope below 1 means SigmaScout's numbers are more compressed than Statbotics' numbers. A correlation near 1 means the two ratings agree on which teams are strong, even when the exact numbers differ. Mean absolute difference is measured in points: the average size of the gap between the two ratings for one team.";
-
-export const EPA_OFFSEASON_ARM_BLOCK_INTRO =
-  "These are the same three statistics from the table above, measured twice: once with offseason matches included, and once with them excluded. Comparing the two arms shows how much of the disagreement above comes from offseason matches alone.";
+  "This table compares SigmaScout's EPA to Statbotics' EPA for every team with at least 12 matches in a season. The SigmaScout number is each team's rating as of its own last official match, the same number shown on the Teams list and at the top of a team page. A slope below 1 means SigmaScout's numbers are more compressed than Statbotics' numbers. A correlation near 1 means the two ratings agree on which teams are strong, even when the exact numbers differ. Mean absolute difference is measured in points: the average size of the gap between the two ratings for one team.";
 
 export const EPA_HEAD_TO_HEAD_BLOCK_INTRO =
   "This table compares how often each rating correctly predicted the winner of a match, and each rating's Brier score. A Brier score measures how well a predicted probability matched what actually happened. Lower is better, and a score of 0 would mean a perfect prediction every time.";

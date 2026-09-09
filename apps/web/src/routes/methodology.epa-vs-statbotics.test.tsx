@@ -1,7 +1,10 @@
 /**
  * Route-level coverage for `/methodology/epa-vs-statbotics` (quick task
- * 260908-n5o Task 3). Builds a small, self-contained route tree the same
- * way `methodology.compare.test.tsx`/`methodology.index.test.tsx` do — the
+ * 260908-n5o Task 3; revised same day — the agreement fixture now carries
+ * one `basis: "last-official-match"` row per season, not two offseason
+ * arms, and the offseason A/B table is gone from the page it renders). Builds
+ * a small, self-contained route tree the same way
+ * `methodology.compare.test.tsx`/`methodology.index.test.tsx` do — the
  * REAL exported `Route` object is under test, with `fetch` mocked.
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,7 +17,6 @@ import {
   EPA_COMPARISON_AGREEMENT_TABLE_TESTID,
   EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
-  EPA_COMPARISON_OFFSEASON_ARM_TABLE_TESTID,
 } from "../components/methodology/EpaComparisonPage.js";
 import { Route as EpaComparisonRouteImport } from "./methodology.epa-vs-statbotics.js";
 
@@ -28,10 +30,14 @@ function fixtureArtifact() {
     measuredAt: "2026-09-08T00:00:00.000Z",
     epaVersion: "6.0.0+baseline",
     minMatches: 12,
-    agreement: SEASONS.flatMap((season) => [
-      { season, includeOffseason: true, joinedCount: 300, ordinaryLeastSquaresSlope: 0.9, pearson: 0.95, meanAbsoluteDifference: 3 },
-      { season, includeOffseason: false, joinedCount: 280, ordinaryLeastSquaresSlope: 0.97, pearson: 0.99, meanAbsoluteDifference: 1.5 },
-    ]),
+    agreement: SEASONS.map((season) => ({
+      season,
+      basis: "last-official-match" as const,
+      joinedCount: 300,
+      ordinaryLeastSquaresSlope: 0.98,
+      pearson: 0.99,
+      meanAbsoluteDifference: 1.8,
+    })),
     // Statbotics leads in exactly THREE of the five seasons (2022, 2023,
     // 2024) — 2025 and 2026 SigmaScout leads or ties. The summary sentence
     // must render "3", derived from these rows, never a hardcoded number.
@@ -111,19 +117,6 @@ describe("/methodology/epa-vs-statbotics route", () => {
       expect(rows).toHaveLength(SEASONS.length);
     });
 
-    it("renders both offseason arms paired per season in the offseason arm table", async () => {
-      mockFetch();
-      renderEpaComparisonRoute();
-      const table = await screen.findByTestId(EPA_COMPARISON_OFFSEASON_ARM_TABLE_TESTID);
-      const rows = within(table).getAllByRole("row").slice(2); // skip two header rows
-      expect(rows).toHaveLength(SEASONS.length);
-      // The first data row (2022) carries six numeric cells beyond season —
-      // slope in/out, pearson in/out, MAD in/out — proving both arms are
-      // present in the SAME row, visually adjacent.
-      const firstRowCells = within(rows[0]!).getAllByRole("cell");
-      expect(firstRowCells).toHaveLength(7);
-    });
-
     it("renders one head-to-head row per season", async () => {
       mockFetch();
       renderEpaComparisonRoute();
@@ -140,11 +133,10 @@ describe("/methodology/epa-vs-statbotics route", () => {
       expect(summary.textContent).toContain("3 of 5");
     });
 
-    it("renders every one of the four difference headings", async () => {
+    it("renders every one of the three difference headings", async () => {
       mockFetch();
       renderEpaComparisonRoute();
       await screen.findByTestId(EPA_COMPARISON_AGREEMENT_TABLE_TESTID);
-      expect(screen.getByText("Offseason matches")).toBeDefined();
       expect(screen.getByText("How win probability is scaled")).toBeDefined();
       expect(screen.getByText("How a match score is split into pieces")).toBeDefined();
       expect(screen.getByText("No per-year adjustments")).toBeDefined();
