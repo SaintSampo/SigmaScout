@@ -1,0 +1,57 @@
+GUARDS PROOF - quick task 260909-03b (P3 part 2)
+captured: 2026-09-09T04:42:25Z
+HEAD: d5898e8aa57f19176f5fc06b3bdacb7499e6541b
+sealed-path cleanliness at capture time:
+  (empty above = all five sealed code paths clean)
+
+==============================================================
+DEMO 1 - refusal: --break-seal absent
+$ npx tsx packages/bpr/holdout.ts packages/bpr/frozen-params.json
+--------------------------------------------------------------
+    throw new Error(
+Error: holdout: refusing to run without --break-seal.
+This evaluation is single-shot by design. Every extra run costs a
+little of the holdout's independence, so it must be deliberate.
+
+==============================================================
+DEMO 2 - refusal: a DESIGN year named on the holdout entry point
+$ npx tsx packages/bpr/holdout.ts packages/bpr/frozen-params.json --years 2022 --break-seal
+--------------------------------------------------------------
+Error: holdout: 2022 is not a holdout year - use packages/bpr/score.ts for design years (2016-2022)
+
+==============================================================
+DEMO 3 - refusal: a sealed CODE path dirty (F-15 - the seal now
+         covers the model, not just the parameters)
+$ (temporarily touch packages/bpr/model.ts, then run --dry-run)
+--------------------------------------------------------------
+Error: holdout: packages/bpr/model.ts has uncommitted changes (M packages/bpr/model.ts).
+Commit it first - the seal must predate the evaluation, and it covers
+the MODEL as well as the parameters (260908-vqr F-15).
+  (model.ts restored: 0 modified lines)
+
+==============================================================
+DEMO 4 - plan resolution: --dry-run resolves and evaluates NOTHING
+$ npx tsx packages/bpr/holdout.ts packages/bpr/frozen-params.json --years 2023 --break-seal --dry-run
+--------------------------------------------------------------
+BPR holdout evaluation
+  HEAD:          d5898e8a
+  sealed paths:
+    add3cc64042b44d016931cd1110a0a6382114e4f  packages/bpr/model.ts
+    84e8f0f0ce2bdd18948e26888078103af6c2dd80  packages/bpr/evaluate.ts
+    7ec2890b00c0e26e9bff2bc83fdc116d000bef6e  packages/bpr/data.ts
+    32ebbf8f23133e03c297b5c50f18dfcb5516fd6f  packages/bpr/cli.ts
+    567a2cf641497e8e88f53983799d0a4e10cdb27c  packages/core/algorithms/bpr.ts
+    bd2f058f5f8c348c1c7ceb42fe39796fd6633cb9  packages/bpr/frozen-params.json
+  incumbent:     packages/bpr/frozen-params.json
+  candidate:     (none - incumbent only)
+  seasons:       2023
+  halt after:    2023  (no match from a later season is stepped)
+  out:           (none)
+
+  --dry-run: plan resolved, NOTHING evaluated. No holdout season was read.
+--------------------------------------------------------------
+ASSERTIONS on DEMO 4 output:
+  halt-after year is 2023:            1 (expect 1)
+  sealed paths printed with blob sha: 6 (expect 6 = 5 code + 1 params)
+  no accuracy/Brier/logloss figure:   0 (expect 0)
+  corpus never even loaded:           0 (expect 0)

@@ -88,7 +88,15 @@ function table(title: string, groups: Array<[string, Rec[]]>): void {
 
 function main(): void {
   const paramsPath = process.argv[2] ?? "packages/bpr/frozen-params.json";
-  const year = Number(process.argv[3] ?? "2023");
+  // Defaults to a DESIGN year, and a holdout season needs an explicit override
+  // — the same guard `innovations.ts` already carries. This used to default to
+  // 2023, so the bare command `npx tsx packages/bpr/slice.ts` read the holdout
+  // (quick task 260909-03b, T-03b-01).
+  const year = Number(process.argv[3] ?? "2022");
+  const allowHoldout = process.argv.includes("--allow-holdout");
+  if (year > 2022 && !allowHoldout) {
+    throw new Error(`slice: ${year} is a holdout season; pass --allow-holdout to inspect`);
+  }
   // "champs" selects the championship, whose events carry week = null. Without
   // it a "rest of season" slice would silently drop the biggest event of the year.
   const weekArgs = (process.argv[4] ?? "0,1").split(",").map((s) => s.trim());
