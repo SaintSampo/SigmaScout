@@ -19,6 +19,11 @@ function match(over: Partial<BprMatch> & Pick<BprMatch, "matchKey">): BprMatch {
     redFoul: 0,
     blueFoul: 0,
     winner: "red",
+    redSurrogates: [],
+    blueSurrogates: [],
+    redDqs: [],
+    blueDqs: [],
+    eventType: 0,
     ...over,
   };
 }

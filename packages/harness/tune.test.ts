@@ -36,7 +36,7 @@ import {
   type ScreenRow,
 } from "./tune.js";
 import { scoreSet } from "../core/scoring/brier.js";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
+import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, type Sigma1Params } from "../core/algorithms/sigma1/params.js";
 import { isValidParamSet, SEARCHABLE_PARAM_KEYS, SEARCH_EXCLUSIONS } from "./searchSpace.js";
 import type { ScoreSlice } from "./score.js";
 

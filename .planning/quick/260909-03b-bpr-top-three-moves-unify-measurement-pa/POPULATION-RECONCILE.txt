@@ -1,0 +1,34 @@
+BPR population reconciliation vs 260908-vqr-REVIEW.md Angle A
+
+[bpr] loaded 152757 matches in 3382ms
+(a) loaded population per season - counts only, no model involved
+  year   loaded_n  review_n   d_n  loaded_den  review_den  d_den  loaded_ties  review_ties  d_ties
+  2016      13263     13263     +0       13117       13117      +0          146          146       +0
+  2017      15364     15364     +0       15103       15103      +0          261          261       +0
+  2018      16889     16889     +0       16861       16861      +0           28           28       +0
+  2019      17972     17972     +0       17664       17664      +0          308          308       +0
+  2020       4644      4644     +0        4618        4618      +0           26           26       +0
+  2022      14603     14603     +0       14427       14427      +0          176          176       +0
+  2023      16290     16290     +0       16144       16144      +0          146          146       +0
+  2024      16958     16958     +0       16764       16764      +0          194          194       +0
+  2025      17815     17815     +0       17692       17692      +0          123          123       +0
+  2026      18337     18337     +0       18292       18292      +0           45           45       +0
+
+  PER-SEASON MISMATCHES: 0 (target: 0, across all ten seasons)
+  design-era denominator: 81790 vs review 81790 (delta 0)
+  rows with a winner but a null score (counted, never filtered): 0 (expected 0)
+
+(b) design-era evaluation on the frozen parameters, halted after 2022
+  accuracy: 72.871%
+  brier:    0.17559
+  logloss:  0.52954
+  scored n: 82735   accDen: 81790   ties: 945   noCall: 270
+
+  pre-P3 value under the retired convention: 73.081%
+  review's shared-harness figure:            72.87%
+
+---
+HEAD at measurement: eae2defb90cf0b2c741878018916e1d9ca37e0dc
+captured: 2026-09-09T04:38:56Z
+P3 DELTA: 73.081 (pre, retired convention) -> 72.871 (post, shared path) = -0.210pp
+This is the honest number replacing a flattering one, not a regression.

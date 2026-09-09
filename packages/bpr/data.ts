@@ -1,9 +1,24 @@
 /**
- * BPR data loading. Reads raw TBA facts out of the corpus and nothing else —
- * deliberately independent of packages/harness so this model's design stays
- * uncontaminated by parameters fitted on the 2023-2026 holdout.
+ * BPR data loading.
+ *
+ * Reads the match stream through `packages/corpus/db.ts`'s
+ * `selectMatchesChronological` — the SAME selector, the SAME exclusions and
+ * the SAME total order that produce every historical OPR/EPA/VPR figure.
+ *
+ * This file used to run its own SQL, and the divergence was real rather than
+ * cosmetic (quick task 260908-vqr, F-12): the private query dropped
+ * `event_type = 100` and any row with a null score, so BPR was scored on a
+ * population no other algorithm was scored on and its numbers were not
+ * comparable to anything. Measured 2026-09-09: six design-era events and five
+ * holdout-era events carry `event_type = 100` while `is_offseason = 0`, worth
+ * 149 and 151 matches respectively — matches the shared harness KEEPS.
+ *
+ * The model's DESIGN still stays independent of `packages/harness`: nothing
+ * fitted on the 2023-2026 holdout is imported here. `packages/corpus` is a
+ * parameterless reader of raw TBA facts, so pointing at it contaminates
+ * nothing — it removes a private population, it does not add a tuned one.
  */
-import Database from "better-sqlite3";
+import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
 
 export interface BprMatch {
   matchKey: string;
@@ -25,21 +40,19 @@ export interface BprMatch {
   redFoul: number;
   blueFoul: number;
   winner: "red" | "blue" | "tie";
-}
-
-interface RawRow {
-  match_key: string;
-  event_key: string;
-  year: number;
-  comp_level: string;
-  sort_time: number;
-  week: number | null;
-  red_teams: string;
-  blue_teams: string;
-  red_score: number;
-  blue_score: number;
-  winner: string;
-  sb: string | null;
+  /**
+   * D-07 surrogate slots, carried straight through from the corpus. A match
+   * with a surrogate on either alliance is excluded from SCORING by
+   * `evaluate.ts` (the shared harness's own rule) while still being predicted
+   * and updated on, so the exclusion moves the scoreboard and never the state.
+   */
+  redSurrogates: string[];
+  blueSurrogates: string[];
+  /** TBA `dq_team_keys`, carried through so a DQ policy stays expressible. */
+  redDqs: string[];
+  blueDqs: string[];
+  /** TBA event type. 2/3/4 are the championship levels; carried for slicing. */
+  eventType: number;
 }
 
 function foulOf(breakdown: unknown, side: "red" | "blue"): number {
@@ -50,56 +63,123 @@ function foulOf(breakdown: unknown, side: "red" | "blue"): number {
   return typeof fp === "number" && Number.isFinite(fp) ? fp : 0;
 }
 
+interface EventRow {
+  event_key: string;
+  year: number;
+  week: number | null;
+}
+
+interface SortRow {
+  match_key: string;
+  sort_time: number;
+}
+
 /**
- * Every played, non-offseason match in global chronological order. Ordering is
- * by sort_time across all events at once (events overlap in the calendar), with
- * match_key as a deterministic tiebreak so a run is reproducible.
+ * Rows the shared selector KEEPS but whose score columns are null, so
+ * `selectMatchesChronological`'s `?? 0` would silently feed the model a
+ * zero-point alliance. Reported by `loadMatches` rather than filtered, because
+ * a nonzero count is a corpus finding to explain, not a row to hide.
+ */
+export interface LoadDiagnostics {
+  /** Matches with a winner but a null red or blue score. Expected: 0. */
+  nullScoreWithWinner: number;
+}
+
+let lastDiagnostics: LoadDiagnostics = { nullScoreWithWinner: 0 };
+
+/** Diagnostics from the most recent `loadMatches` call. */
+export function loadDiagnostics(): LoadDiagnostics {
+  return lastDiagnostics;
+}
+
+/**
+ * Every played, non-offseason match in the shared total order (sort time, then
+ * event key, then competition-level play order, then set, then match number).
+ *
+ * The ordering is the selector's, not this file's: a lexicographic match-key
+ * tiebreak — which is what this file used to apply — can place `qm10` before
+ * `qm9`, so the two orderings genuinely differ on any event that reaches a
+ * two-digit match number.
  */
 export function loadMatches(corpusPath: string): BprMatch[] {
-  const db = new Database(corpusPath, { readonly: true, fileMustExist: true });
+  const db = openCorpusReadOnly(corpusPath);
   try {
-    const rows = db
-      .prepare<[], RawRow>(
-        `select m.match_key, m.event_key, e.year, m.comp_level, m.sort_time, e.week,
-                m.red_teams, m.blue_teams, m.red_score, m.blue_score, m.winner,
-                m.score_breakdown_raw as sb
-           from matches m
-           join events e using(event_key)
-          where e.is_offseason = 0
-            and e.event_type <> 100
-            and m.winner is not null
-            and m.red_score is not null
-            and m.blue_score is not null
-          order by m.sort_time asc, m.match_key asc`,
-      )
-      .all();
+    const rows = selectMatchesChronological(db, { excludeOffseason: true });
+
+    const events = new Map<string, { year: number; week: number | null }>();
+    for (const e of db
+      .prepare<[], EventRow>(`select event_key, year, week from events`)
+      .all()) {
+      events.set(e.event_key, { year: e.year, week: e.week });
+    }
+
+    const sortTimes = new Map<string, number>();
+    for (const s of db
+      .prepare<[], SortRow>(`select match_key, sort_time from matches`)
+      .all()) {
+      sortTimes.set(s.match_key, s.sort_time);
+    }
+
+    // Counted, never filtered — see LoadDiagnostics.
+    const nullScoreWithWinner = (
+      db
+        .prepare<[], { c: number }>(
+          `select count(*) as c
+             from matches m
+             join events e using(event_key)
+            where e.is_offseason = 0
+              and m.winner is not null
+              and (m.red_score is null or m.blue_score is null)`,
+        )
+        .get() ?? { c: 0 }
+    ).c;
+    lastDiagnostics = { nullScoreWithWinner };
 
     const out: BprMatch[] = [];
     for (const r of rows) {
-      const breakdown: unknown = r.sb === null ? null : JSON.parse(r.sb);
+      const meta = events.get(r.eventKey);
+      if (meta === undefined) {
+        // Unreachable: the selector inner-joins events, so every row has one.
+        throw new Error(`bpr/data: no events row for ${r.eventKey}`);
+      }
+      const breakdown: unknown =
+        r.scoreBreakdownRaw === null ? null : JSON.parse(r.scoreBreakdownRaw);
       const redFoul = foulOf(breakdown, "red");
       const blueFoul = foulOf(breakdown, "blue");
-      const winner = r.winner === "red" || r.winner === "blue" ? r.winner : "tie";
       out.push({
-        matchKey: r.match_key,
-        eventKey: r.event_key,
-        year: r.year,
-        compLevel: r.comp_level,
-        sortTime: r.sort_time,
-        week: r.week,
-        redTeams: JSON.parse(r.red_teams) as string[],
-        blueTeams: JSON.parse(r.blue_teams) as string[],
-        redOut: r.red_score - redFoul,
-        blueOut: r.blue_score - blueFoul,
-        redRaw: r.red_score,
-        blueRaw: r.blue_score,
+        matchKey: r.matchKey,
+        eventKey: r.eventKey,
+        year: meta.year,
+        compLevel: r.compLevel,
+        sortTime: sortTimes.get(r.matchKey) ?? 0,
+        week: meta.week,
+        redTeams: [...r.redTeams],
+        blueTeams: [...r.blueTeams],
+        redOut: r.redScore - redFoul,
+        blueOut: r.blueScore - blueFoul,
+        redRaw: r.redScore,
+        blueRaw: r.blueScore,
         redFoul,
         blueFoul,
-        winner,
+        winner: r.winner,
+        redSurrogates: [...r.redSurrogates],
+        blueSurrogates: [...r.blueSurrogates],
+        redDqs: [...r.redDqs],
+        blueDqs: [...r.blueDqs],
+        eventType: r.eventType,
       });
     }
     return out;
   } finally {
     db.close();
   }
+}
+
+/**
+ * The shared harness's D-07 rule: a match with a surrogate on either alliance
+ * is excluded from SCORING. Exported so `evaluate.ts`, the reconciliation
+ * script and any slicing analysis apply one definition rather than three.
+ */
+export function isSurrogateAffected(m: BprMatch): boolean {
+  return m.redSurrogates.length > 0 || m.blueSurrogates.length > 0;
 }

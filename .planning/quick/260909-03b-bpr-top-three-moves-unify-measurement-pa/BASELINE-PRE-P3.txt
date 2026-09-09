@@ -1,0 +1,21 @@
+BASELINE PRE-P3 - BPR design-era under the RETIRED measurement path
+captured: 2026-09-09T04:24:40Z
+command: npx tsx packages/bpr/score.ts packages/bpr/frozen-params.json 2016,2017,2018,2019,2020,2022
+---
+[bpr] loaded 152457 matches in 1928ms
+packages/bpr/frozen-params.json on 2016+2017+2018+2019+2020+2022
+  year      n   acc%    brier   logloss
+  2016   13286   71.48  0.1845  0.5533
+  2017   15429   67.27  0.2035  0.6013
+  2018   16930   74.45  0.1713  0.5131
+  2019   18022   73.41  0.1745  0.5320
+  2020    4634   72.89  0.1763  0.5286
+  2022   14645   78.71  0.1426  0.4447
+  TOTAL  82946   73.08  0.1753  0.5289
+---
+HEAD: d82f78609db4dd0b430e3137f132df882c0ee75b
+frozen-params.json commit count: 1
+frozen-params.json blob sha: bd2f058f5f8c348c1c7ceb42fe39796fd6633cb9
+frozen-params.json worktree status: 0 modified lines (0 = clean)
+sealed _design_accuracy_2016_2022: "_design_accuracy_2016_2022": 0.7308105075733554
+AGREEMENT: measured TOTAL 73.08 == sealed 0.7308105 -> OK
