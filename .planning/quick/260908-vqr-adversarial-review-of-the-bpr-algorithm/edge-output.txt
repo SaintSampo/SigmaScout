@@ -1,0 +1,35 @@
+=== per season (decided matches, all comp levels) ===
+2016                           n= 13156  opr 63.41  epa 70.48  vpr 70.15  bpr 70.45   | BPR-VPR   0.30pp  BPR-EPA  -0.04pp   | brier bpr 0.1862 vpr 0.1888 epa 0.1889
+2017                           n= 15177  opr 57.85  epa 66.78  vpr 62.73  bpr 67.25   | BPR-VPR   4.53pp  BPR-EPA   0.47pp   | brier bpr 0.2067 vpr 0.2329 epa 0.2077
+2018                           n= 16934  opr 61.59  epa 73.34  vpr 71.73  bpr 74.40   | BPR-VPR   2.68pp  BPR-EPA   1.06pp   | brier bpr 0.1719 vpr 0.1870 epa 0.1802
+2019                           n= 17741  opr 61.69  epa 64.24  vpr 68.60  bpr 73.16   | BPR-VPR   4.57pp  BPR-EPA   8.92pp   | brier bpr 0.1774 vpr 0.2046 epa 0.2350
+2020                           n=  4636  opr 62.49  epa 71.05  vpr 69.46  bpr 72.63   | BPR-VPR   3.17pp  BPR-EPA   1.57pp   | brier bpr 0.1777 vpr 0.1960 epa 0.2177
+2022                           n= 14501  opr 69.27  epa 77.12  vpr 76.19  bpr 78.82   | BPR-VPR   2.62pp  BPR-EPA   1.70pp   | brier bpr 0.1439 vpr 0.1728 epa 0.2173
+2023                           n= 16207  opr 66.34  epa 76.18  vpr 75.28  bpr 76.34   | BPR-VPR   1.06pp  BPR-EPA   0.15pp   | brier bpr 0.1580 vpr 0.1846 epa 0.2096
+2024                           n= 16835  opr 65.51  epa 73.45  vpr 73.25  bpr 76.83   | BPR-VPR   3.58pp  BPR-EPA   3.37pp   | brier bpr 0.1584 vpr 0.1968 epa 0.2203
+2025                           n= 17754  opr 67.66  epa 77.70  vpr 76.74  bpr 78.33   | BPR-VPR   1.59pp  BPR-EPA   0.63pp   | brier bpr 0.1459 vpr 0.1581 epa 0.1965
+2026                           n= 18358  opr 69.95  epa 79.41  vpr 79.01  bpr 80.09   | BPR-VPR   1.08pp  BPR-EPA   0.68pp   | brier bpr 0.1371 vpr 0.1470 epa 0.1552
+
+=== holdout era, by qualification-match number (how far into the event) ===
+qm 1-12                        n=  9221  opr 29.19  epa 73.22  vpr 73.01  bpr 74.71   | BPR-VPR   1.70pp  BPR-EPA   1.49pp   | brier bpr 0.1667 vpr 0.1880 epa 0.2046
+qm 13-24                       n=  9182  opr 63.70  epa 75.89  vpr 74.67  bpr 77.29   | BPR-VPR   2.62pp  BPR-EPA   1.40pp   | brier bpr 0.1538 vpr 0.1817 epa 0.2001
+qm 25-36                       n=  9154  opr 70.99  epa 77.54  vpr 76.64  bpr 78.99   | BPR-VPR   2.35pp  BPR-EPA   1.45pp   | brier bpr 0.1451 vpr 0.1702 epa 0.1938
+qm 37-48                       n=  9129  opr 75.30  epa 77.57  vpr 76.28  bpr 79.03   | BPR-VPR   2.75pp  BPR-EPA   1.47pp   | brier bpr 0.1427 vpr 0.1680 epa 0.1922
+qm 49-60                       n=  8677  opr 77.87  epa 79.20  vpr 78.66  bpr 80.12   | BPR-VPR   1.46pp  BPR-EPA   0.92pp   | brier bpr 0.1356 vpr 0.1574 epa 0.1873
+qm 61-end                      n= 11882  opr 77.74  epa 79.16  vpr 78.67  bpr 79.28   | BPR-VPR   0.61pp  BPR-EPA   0.12pp   | brier bpr 0.1409 vpr 0.1586 epa 0.1865
+
+=== holdout era, by competition level ===
+qualification                  n= 57245  opr 66.22  epa 77.17  vpr 76.41  bpr 78.27   | BPR-VPR   1.86pp  BPR-EPA   1.10pp   | brier bpr 0.1473 vpr 0.1702 epa 0.1938
+elimination                    n= 11909  opr 73.28  epa 74.82  vpr 74.89  bpr 76.51   | BPR-VPR   1.62pp  BPR-EPA   1.70pp   | brier bpr 0.1597 vpr 0.1736 epa 0.1974
+
+=== holdout era, events by size (a proxy for district vs regional vs champs) ===
+event size 0-80                n= 15497  opr 68.61  epa 77.47  vpr 76.82  bpr 78.82   | BPR-VPR   2.00pp  BPR-EPA   1.36pp   | brier bpr 0.1443 vpr 0.1661 epa 0.1914
+event size 81-120              n= 47837  opr 67.55  epa 76.57  vpr 76.05  bpr 78.09   | BPR-VPR   2.04pp  BPR-EPA   1.52pp   | brier bpr 0.1494 vpr 0.1724 epa 0.1965
+event size 121-200             n=  5820  opr 63.32  epa 76.51  vpr 75.21  bpr 74.67   | BPR-VPR  -0.53pp  BPR-EPA  -1.84pp   | brier bpr 0.1634 vpr 0.1700 epa 0.1855
+
+=== 2024 alone, by competition level (the season that carries the pooled lead) ===
+2024 qualification             n= 13974  opr 64.54  epa 73.92  vpr 73.70  bpr 77.37   | BPR-VPR   3.67pp  BPR-EPA   3.45pp   | brier bpr 0.1547 vpr 0.1953 epa 0.2192
+2024 elimination               n=  2861  opr 70.22  epa 71.16  vpr 71.06  bpr 74.17   | BPR-VPR   3.11pp  BPR-EPA   3.01pp   | brier bpr 0.1763 vpr 0.2043 epa 0.2259
+
+=== holdout era EXCLUDING 2024 ===
+2023+2025+2026                 n= 52319  opr 68.06  epa 77.83  vpr 77.08  bpr 78.33   | BPR-VPR   1.25pp  BPR-EPA   0.50pp   | brier bpr 0.1465 vpr 0.1624 epa 0.1861

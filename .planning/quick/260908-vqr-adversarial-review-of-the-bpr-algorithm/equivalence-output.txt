@@ -1,0 +1,15 @@
+Ported module (packages/core/algorithms/bpr.ts) vs frozen research model
+  year      acc%
+  2016    71.492
+  2017    67.269
+  2018    74.454
+  2019    73.421
+  2020    72.889
+  2022    78.838
+  2023    76.433
+  2024    76.846
+  2025    78.440
+  2026    80.166
+
+  design 2016-2022  port 73.113  research 73.081  delta +0.032pp
+  holdout 2023-2026 port 78.040  research 78.05   delta -0.010pp
