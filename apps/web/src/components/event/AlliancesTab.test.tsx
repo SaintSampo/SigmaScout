@@ -76,7 +76,7 @@ function makeArtifact(teams: ArtifactTeam[], alliances: ArtifactAlliance[] | und
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -96,7 +96,7 @@ const FOUR_TEAMS: ArtifactTeam[] = [
   team({ teamKey: "frc4", teamNumber: 4, nickname: "Delta" }),
 ];
 
-function renderAlliances(artifact: EventArtifact, algorithmId = "vpr", season = 2024) {
+function renderAlliances(artifact: EventArtifact, algorithmId = "bpr", season = 2024) {
   return render(
     <TestHarness>
       <AlliancesTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -158,7 +158,7 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
       alliance({ allianceNumber: 1, picks: ["frc2"] }),
       alliance({ allianceNumber: 2, picks: ["frc3"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "vpr");
+    const rows = buildAllianceRows(artifact, "bpr");
     expect(rows.map((row) => row.allianceNumber)).toEqual([1, 2, 3]);
   });
 
@@ -170,13 +170,13 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
     ];
     const a = makeArtifact(FOUR_TEAMS, alliances);
     const b = makeArtifact(FOUR_TEAMS, [...alliances].reverse());
-    expect(buildAllianceRows(a, "vpr").map((r) => r.allianceNumber)).toEqual(buildAllianceRows(b, "vpr").map((r) => r.allianceNumber));
+    expect(buildAllianceRows(a, "bpr").map((r) => r.allianceNumber)).toEqual(buildAllianceRows(b, "bpr").map((r) => r.allianceNumber));
   });
 });
 
 describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G-8)", () => {
   it("renders exactly SIX column headers (no Pick 3) for a vpr/2024 fixture where no alliance has a backup pick (Task 2, 260902-ixg: measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows)", async () => {
-    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "vpr", 2024);
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "bpr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Alliance #",
@@ -354,11 +354,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
   });
 
   it("a pick's team number links to /team/{number} with year/algorithm/tab=overview, matching the sibling tables", async () => {
-    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]), "vpr", 2024);
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]), "bpr", 2024);
     const cell = await screen.findByTestId("alliances-cell-pick0");
     const link = within(cell).getByRole("link");
     await waitFor(() => expect(link.getAttribute("href")).toContain("/team/1"));
-    expect(link.getAttribute("href")).toContain("algorithm=vpr");
+    expect(link.getAttribute("href")).toContain("algorithm=bpr");
     expect(link.getAttribute("href")).toContain("year=2024");
   });
 
@@ -471,22 +471,22 @@ describe("AlliancesTab — the incomplete-combination notice (Claude's Discretio
       alliance({ allianceNumber: 7, picks: ["frc1", "frc2", "frc9"] }), // frc9 unresolvable
       alliance({ allianceNumber: 8, picks: ["frc1", "frc2", "frc3"] }),
     ];
-    renderAlliances(makeArtifact(teams, alliances), "vpr");
+    renderAlliances(makeArtifact(teams, alliances), "bpr");
     const notice = await screen.findByTestId("alliances-incomplete-notice");
     expect(screen.getAllByTestId("alliances-incomplete-notice")).toHaveLength(1);
     expect(notice.textContent).toContain("2");
     expect(notice.textContent).toContain("8");
-    expect(notice.textContent).toContain("VPR");
+    expect(notice.textContent).toContain("BPR");
   });
 
   it("exactly one incomplete alliance renders the singular form; eight with two incomplete renders the plural form", () => {
-    expect(alliancesIncompleteNotice(1, 5, "VPR")).toBe(
-      "1 of 5 alliances is missing a combined value because one of its first three picks has no published VPR total.",
+    expect(alliancesIncompleteNotice(1, 5, "BPR")).toBe(
+      "1 of 5 alliances is missing a combined value because one of its first three picks has no published BPR total.",
     );
-    expect(alliancesIncompleteNotice(2, 8, "VPR")).toBe(
-      "2 of 8 alliances are missing a combined value because one of their first three picks has no published VPR total.",
+    expect(alliancesIncompleteNotice(2, 8, "BPR")).toBe(
+      "2 of 8 alliances are missing a combined value because one of their first three picks has no published BPR total.",
     );
-    expect(alliancesIncompleteNotice(1, 5, "VPR")).not.toBe(alliancesIncompleteNotice(2, 8, "VPR"));
+    expect(alliancesIncompleteNotice(1, 5, "BPR")).not.toBe(alliancesIncompleteNotice(2, 8, "BPR"));
   });
 
   it("the notice's icon is aria-hidden, the notice carries no role attribute, and its subtree contains no button", async () => {
@@ -513,7 +513,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
       alliance({ allianceNumber: 1, picks: ["frc3"] }),
       alliance({ allianceNumber: 1, picks: ["frc1"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "vpr");
+    const rows = buildAllianceRows(artifact, "bpr");
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.allianceNumber)).toEqual([1, 1]);
     expect(rows.map((row) => row.picks[0]?.teamKey)).toEqual(["frc1", "frc3"]);
@@ -524,7 +524,7 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
       alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3"] }),
       alliance({ allianceNumber: 2, picks: ["frc1", "frc2", "frc3"] }),
     ]);
-    const rows = buildAllianceRows(artifact, "vpr");
+    const rows = buildAllianceRows(artifact, "bpr");
     expect(rows).toHaveLength(2);
     expect(rows[0]?.combined?.value).toBe(rows[1]?.combined?.value);
   });
@@ -600,13 +600,13 @@ describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
 
   it("buildAllianceRows carries the alliance's record straight through onto the row model, keyed by row not recomputed", () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"], record: { wins: 4, losses: 3, ties: 0 } })]);
-    const rows = buildAllianceRows(artifact, "vpr");
+    const rows = buildAllianceRows(artifact, "bpr");
     expect(rows[0]?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
   });
 
   it("a row with no published record carries record: undefined on the row model, never a fabricated zero triple", () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]);
-    const rows = buildAllianceRows(artifact, "vpr");
+    const rows = buildAllianceRows(artifact, "bpr");
     expect(rows[0]?.record).toBeUndefined();
   });
 });

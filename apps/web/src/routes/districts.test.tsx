@@ -37,7 +37,7 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-09-05T00:00:00.000Z",
-      algorithms: [{ id: "vpr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" }],
+      algorithms: [{ id: "bpr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" }],
     }),
     { status: 200 },
   );
@@ -50,7 +50,7 @@ function teamsArtifactResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-09-05T00:00:00.000Z",
-      algorithmId: "vpr",
+      algorithmId: "bpr",
       algorithmVersion: "2.0.0+tuned-2026-09",
       season: 2026,
       teams: [
@@ -175,7 +175,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
       return new Promise<Response>(() => {}); // detail fetch must never fire
     });
-    renderDistrictsRoute("/districts?algorithm=vpr");
+    renderDistrictsRoute("/districts?algorithm=bpr");
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
     expect(screen.getByText("Pick a district")).toBeDefined();
@@ -188,7 +188,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    const router = renderDistrictsRoute("/districts?algorithm=vpr");
+    const router = renderDistrictsRoute("/districts?algorithm=bpr");
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
     const trigger = screen.getByRole("combobox", { name: "District" });
@@ -208,7 +208,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=vpr&district=2026fnc&tab=champ-locks");
+    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc&tab=champ-locks");
 
     await waitFor(() => expect(screen.getByTestId("champ-locks-panel")).toBeDefined());
     expect(screen.getByTestId("champ-locks-panel").hasAttribute("hidden")).toBe(false);
@@ -224,7 +224,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=vpr&district=2026fnc");
+    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc");
 
     // Never the old district-points summary tiles/top-N table this tab used
     // to render — revision R3 replaces that content outright. This exact
@@ -262,7 +262,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=vpr&district=2026fnc");
+    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc");
 
     const rows = await screen.findAllByTestId("district-insights-row");
     const missingRow = rows.find((row) => row.getAttribute("data-team-number") === "4562");

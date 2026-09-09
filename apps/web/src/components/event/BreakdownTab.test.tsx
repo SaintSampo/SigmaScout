@@ -67,7 +67,7 @@ function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> =
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -93,7 +93,7 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     eventKey: "2024casf",
     season: 2024,
@@ -106,13 +106,13 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
 /** A metrics record carrying every vpr/2024 declared key, so the column-set tests have real data behind every column. */
 function fullVPRMetrics2024(): ArtifactTeam["metrics"] {
   const record: ArtifactTeam["metrics"] = {};
-  for (const key of metricKeysFor("vpr", 2024)) {
+  for (const key of metricKeysFor("bpr", 2024)) {
     record[key] = { value: 10, spread: 1 };
   }
   return record;
 }
 
-function renderBreakdown(artifact: EventArtifact, algorithmId = "vpr", season = 2024) {
+function renderBreakdown(artifact: EventArtifact, algorithmId = "bpr", season = 2024) {
   return render(
     <TestHarness>
       <BreakdownTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -133,12 +133,12 @@ function headerIds(): string[] {
 describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009-A)", () => {
   it("vpr/2024 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed — no Rank column, no wall of components", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
     expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
     // Same set through the exported derivation the columns are actually built from.
-    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)]);
+    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("bpr", 2024, NO_GROUPS_EXPANDED)]);
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
     // Phase headers read through the sitewide label map — "Auto", never the raw "phaseAuto".
     expect(screen.getByTestId("breakdown-header-phaseAuto").textContent).toContain(metricLabel("phaseAuto"));
@@ -158,7 +158,7 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
 
   it("clicking a phase toggle swaps that phase's column for its component columns in place; clicking again collapses it back", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     const toggle = await screen.findByTestId("breakdown-group-toggle-teleop");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -183,14 +183,14 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
 
   it("the visible column set is visibleMetricKeys' own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
     const reversedMetrics: ArtifactTeam["metrics"] = {};
-    for (const key of [...metricKeysFor("vpr", 2024)].reverse()) {
+    for (const key of [...metricKeysFor("bpr", 2024)].reverse()) {
       reversedMetrics[key] = { value: 5 };
     }
     const artifact = makeArtifact([team({ metrics: reversedMetrics })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
-    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)]);
+    expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("bpr", 2024, NO_GROUPS_EXPANDED)]);
   });
 });
 
@@ -199,7 +199,7 @@ describe("BreakdownTab — partial data (EVNT-03)", () => {
     const metrics = fullVPRMetrics2024();
     delete metrics.endGamePark;
     const artifact = makeArtifact([team({ metrics })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-endgame"));
     await waitFor(() => expect(screen.getByTestId("breakdown-header-endGamePark")).toBeDefined());
@@ -274,12 +274,12 @@ describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
 describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () => {
   it("TierKeyRow renders exactly once, and the caption renders exactly once naming the selected algorithm and the per-alliance framing", async () => {
     const artifact = makeArtifact([team()]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     await waitFor(() => expect(screen.getAllByTestId("tier-key-row")).toHaveLength(1));
     const captions = screen.getAllByText(/per alliance, not per team/);
     expect(captions).toHaveLength(1);
-    expect(captions[0]?.textContent).toContain("VPR");
+    expect(captions[0]?.textContent).toContain("BPR");
   });
 
   // 260904-7rt (sketch 008 winner C): the key row's own Common swatch must
@@ -287,7 +287,7 @@ describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () 
   // the cells it explains could disagree.
   it("TierKeyRow's Common swatch carries the common tier ring, same as every other band", async () => {
     const artifact = makeArtifact([team()]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     const keyRow = await screen.findByTestId("tier-key-row");
     expect(keyRow.querySelector(".metric-tier--common")).not.toBeNull();
@@ -308,7 +308,7 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
 
   it("a one-team artifact renders the same header row and exactly one body row, same table path as a many-team artifact", async () => {
     const oneTeamArtifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    const { unmount } = renderBreakdown(oneTeamArtifact, "vpr", 2024);
+    const { unmount } = renderBreakdown(oneTeamArtifact, "bpr", 2024);
     await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(1));
     const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     unmount();
@@ -317,7 +317,7 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
       team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, nickname: `Team ${index + 1}`, metrics: fullVPRMetrics2024() }),
     );
     const manyTeamsArtifact = makeArtifact(manyTeams);
-    renderBreakdown(manyTeamsArtifact, "vpr", 2024);
+    renderBreakdown(manyTeamsArtifact, "bpr", 2024);
     await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(43));
     const manyTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     expect(manyTeamHeaders).toEqual(oneTeamHeaders);
@@ -340,7 +340,7 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
 describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () => {
   it("Team # and Team Name header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
     expect(screen.getByTestId("breakdown-header-teamNumber").getAttribute("data-pinned")).toBe("true");
@@ -348,7 +348,7 @@ describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () =
     expect(screen.getByTestId("breakdown-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
     expect(screen.getByTestId("breakdown-cell-nickname").getAttribute("data-pinned")).toBe("true");
 
-    for (const key of visibleMetricKeys("vpr", 2024, NO_GROUPS_EXPANDED)) {
+    for (const key of visibleMetricKeys("bpr", 2024, NO_GROUPS_EXPANDED)) {
       expect(screen.getByTestId(`breakdown-header-${key}`).getAttribute("data-pinned")).toBe("false");
       expect(screen.getByTestId(`breakdown-cell-${key}`).getAttribute("data-pinned")).toBe("false");
     }
@@ -358,7 +358,7 @@ describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () =
 describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache shape)", () => {
   it("a row with components but no published phase entries renders an honest value-only phase cell: summed value, no ±, no tier box", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
     // 2024 auto = autoLeave + autoAmpNote + autoSpeakerNote, 10 each in the fixture.
@@ -370,7 +370,7 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
     const metrics = fullVPRMetrics2024();
     metrics.phaseAuto = { value: 28.5, spread: 2.1, percentile: 80 };
     const artifact = makeArtifact([team({ metrics })]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
     expect(cell.textContent).toContain("28.50");
@@ -393,13 +393,13 @@ describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => 
   }
 
   it("lands sorted by Total descending, with aria-sort=descending on the Total header", async () => {
-    renderBreakdown(makeSortableArtifact(), "vpr", 2024);
+    renderBreakdown(makeSortableArtifact(), "bpr", 2024);
     await waitFor(() => expect(rowNumbers()).toEqual([1, 2, 3]));
     expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("descending");
   });
 
   it("clicking another metric header sorts by it descending; clicking it again flips to ascending", async () => {
-    renderBreakdown(makeSortableArtifact(), "vpr", 2024);
+    renderBreakdown(makeSortableArtifact(), "bpr", 2024);
     const header = await screen.findByTestId("breakdown-header-phaseAuto");
     fireEvent.click(within(header).getByRole("button"));
 
@@ -416,7 +416,7 @@ describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => 
       team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleopAmpNote: { value: 1 } } }),
       team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleopAmpNote: { value: 9 } } }),
     ]);
-    renderBreakdown(artifact, "vpr", 2024);
+    renderBreakdown(artifact, "bpr", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
     const header = await screen.findByTestId("breakdown-header-teleopAmpNote");
@@ -459,7 +459,7 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc2", teamNumber: 2, nickname: "High", metrics: { [TOTAL_KEY]: { value: 30 } } }),
       team({ teamKey: "frc3", teamNumber: 3, nickname: "Mid", metrics: { [TOTAL_KEY]: { value: 20 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "vpr");
+    const rows = buildBreakdownRows(artifact, "bpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([2, 3, 1]);
   });
 
@@ -468,7 +468,7 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc9", teamNumber: 9, nickname: "Nine", metrics: { [TOTAL_KEY]: { value: 15 } } }),
       team({ teamKey: "frc3", teamNumber: 3, nickname: "Three", metrics: { [TOTAL_KEY]: { value: 15 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "vpr");
+    const rows = buildBreakdownRows(artifact, "bpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([3, 9]);
   });
 
@@ -479,8 +479,8 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 40 } } }),
     ];
     const teamsB = [teamsA[2] as ArtifactTeam, teamsA[0] as ArtifactTeam, teamsA[1] as ArtifactTeam];
-    const rowsA = buildBreakdownRows(makeArtifact(teamsA), "vpr");
-    const rowsB = buildBreakdownRows(makeArtifact(teamsB), "vpr");
+    const rowsA = buildBreakdownRows(makeArtifact(teamsA), "bpr");
+    const rowsB = buildBreakdownRows(makeArtifact(teamsB), "bpr");
     expect(rowsA.map((row) => row.teamNumber)).toEqual(rowsB.map((row) => row.teamNumber));
     expect(rowsA.map((row) => row.teamNumber)).toEqual([5, 3, 9]);
   });
@@ -490,13 +490,13 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
       team({ teamKey: "frc1", teamNumber: 1, metrics: {} }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: -50 } } }),
     ]);
-    const rows = buildBreakdownRows(artifact, "vpr");
+    const rows = buildBreakdownRows(artifact, "bpr");
     expect(rows.map((row) => row.teamNumber)).toEqual([2, 1]);
   });
 
   it("falls back to the team key's digits and a Team {number} nickname when teamNumber/nickname are absent", () => {
     const artifact = makeArtifact([{ teamKey: "frc42", metrics: { [TOTAL_KEY]: { value: 10 } } }]);
-    const row = buildBreakdownRows(artifact, "vpr")[0] as BreakdownRow;
+    const row = buildBreakdownRows(artifact, "bpr")[0] as BreakdownRow;
     expect(row.teamNumber).toBe(42);
     expect(row.nickname).toBe("Team 42");
   });

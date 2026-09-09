@@ -353,7 +353,7 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
     await waitFor(() => expect(readCellText(2022, "opr", "accuracy")).not.toBe(""));
     expect(readCellIsBold(2022, "opr", "accuracy")).toBe(false);
     expect(readCellIsBold(2022, "epa", "accuracy")).toBe(false);
-    expect(readCellIsBold(2022, "vpr", "accuracy")).toBe(false);
+    expect(readCellIsBold(2022, "bpr", "accuracy")).toBe(false);
   });
 });
 
@@ -380,7 +380,7 @@ describe("/compare route — switching view re-renders structurally (C1 overflow
     expect(screen.getAllByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     const columnCountAfter = within(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).getAllByRole("row")[2]!.querySelectorAll('[role="cell"], td').length;
     expect(columnCountAfter).toBe(columnCountBefore);
@@ -410,7 +410,7 @@ describe("/compare route — MethodologyNote (D-08, D-11)", () => {
     // (where MethodologyNote mounts) isn't proven until a REAL cell's text
     // has landed, matching every other test in this file's established
     // double-wait discipline.
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     const artifactsByYear = new Map<number, CompareArtifact>();
     for (const season of COMPARE_SEASONS) artifactsByYear.set(season, FIXTURES_BY_YEAR[season] as unknown as CompareArtifact);
@@ -422,7 +422,7 @@ describe("/compare route — MethodologyNote (D-08, D-11)", () => {
     for (const brier of figures.seasonBriers) expect(textBefore).toContain(brier.text);
 
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("elimination")));
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).toBe(FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "vpr" && s.compLevelView === "elimination")!.brierScore!.toFixed(4)));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).toBe(FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "elimination")!.brierScore!.toFixed(4)));
 
     const textAfter = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
     expect(textAfter).toBe(textBefore);
@@ -431,7 +431,7 @@ describe("/compare route — MethodologyNote (D-08, D-11)", () => {
   it("the note block is a DOM sibling of the accuracy table's scroll region, not a descendant of it", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     const scrollRegion = screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID);
     const note = screen.getByTestId(METHODOLOGY_NOTE_TESTID);
@@ -541,7 +541,7 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   it("default render: EVERY card carries its own fixture-recomputed 2026 combined-view headline sentence", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
       await waitFor(() =>
@@ -555,7 +555,7 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   it("switching the page compLevelView to Qualification re-derives every card from the qualification slices", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId("qualification")));
 
@@ -567,15 +567,15 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   it("changing the year Select to 2024 re-derives the cards from the 2024 artifact with zero additional fetches", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
-    await waitFor(() => expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(screen.getByTestId(calibrationCardSentenceTestId("bpr")).textContent).not.toBe(""));
     const fetchCallCountBefore = calibrationFetchCalls.length;
 
     fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
     fireEvent.click(await screen.findByRole("option", { name: "2024" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).toContain(expectedSentence(2024, "vpr", "combined")),
+      expect(screen.getByTestId(calibrationCardSentenceTestId("bpr")).textContent).toContain(expectedSentence(2024, "bpr", "combined")),
     );
     expect(calibrationFetchCalls.length).toBe(fetchCallCountBefore);
   });
@@ -583,11 +583,11 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   it("every published bin renders as a row — populated rows as \"predicted → actual\" with counts, empty bins as the verbatim empty-range sentence, never hidden", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
-    const slice = calibrationSliceFor(2026, "vpr", "combined");
+    const slice = calibrationSliceFor(2026, "bpr", "combined");
     const card = buildCalibrationCard(slice);
-    const cardEl = await screen.findByTestId(calibrationCardTestId("vpr"));
+    const cardEl = await screen.findByTestId(calibrationCardTestId("bpr"));
     const emptyCount = card.rows.filter((r) => r.point === null).length;
     expect(within(cardEl).queryAllByText(CALIBRATION_EMPTY_RANGE_TEXT)).toHaveLength(emptyCount);
     // Ten published bins, ten rows — the sparse-honesty rule made structural.
@@ -599,7 +599,7 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
   it("renders the corrected orientation explainer; the inverted form does not appear", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     expect(screen.getByText(CALIBRATION_EXPLAINER)).toBeDefined();
     expect(CALIBRATION_EXPLAINER).toContain("below the zero line means the algorithm was more confident");
@@ -653,8 +653,8 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
   async function selectView(view: CompareCompLevelView) {
     if (view === "combined") return;
     fireEvent.click(screen.getByTestId(compLevelSegmentTestId(view)));
-    const expectedText = FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "vpr" && s.compLevelView === view)!.brierScore!.toFixed(4);
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).toBe(expectedText));
+    const expectedText = FIXTURES_BY_YEAR[2022]!.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === view)!.brierScore!.toFixed(4);
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).toBe(expectedText));
   }
 
   for (const view of COMP_LEVEL_VIEWS) {
@@ -662,7 +662,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
       it(`${view} ${season}: all eleven coverage leaf cells equal the committed fixture's own ${view}-view slice`, async () => {
         mockFetch();
         renderCompareRoute();
-        await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+        await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
         await selectView(view);
 
         const entries = slicesFor(season, view);
@@ -710,7 +710,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
   it("published zeros render the digit zero, never the em-dash — derived from the fixture rather than hardcoded coordinates (COMP-01 empty)", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
 
     let assertedAtLeastOneZero = false;
 
@@ -817,7 +817,7 @@ describe("/compare route — four-section pending and error branches (08-12, UI-
   it("the coverage section is a DOM sibling of the calibration section and the last of the four sections, matching UI-SPEC's layout order", async () => {
     mockFetch();
     renderCompareRoute();
-    await waitFor(() => expect(readCellText(2022, "vpr", "brier")).not.toBe(""));
+    await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
     await waitFor(() => expect(screen.getByTestId(CALIBRATION_SECTION_TESTID)).toBeDefined());
 
     const calibration = screen.getByTestId(CALIBRATION_SECTION_TESTID);

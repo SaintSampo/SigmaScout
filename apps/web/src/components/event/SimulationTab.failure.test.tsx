@@ -83,7 +83,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
   it("A: construction failure — inline error AND Retry AND no progress bar AND the rank table stays in its pre-run placeholder, together", async () => {
     const handle = installMockWorker({ failOnConstruct: new Error("no module workers here") });
     try {
-      render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
+      render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="bpr" season={2024} />);
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await expectErrorStateWithNoPartialTable();
     } finally {
@@ -99,7 +99,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     };
     const handle = installMockWorker({ script: throwingScript });
     try {
-      render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
+      render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="bpr" season={2024} />);
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await expectErrorStateWithNoPartialTable();
     } finally {
@@ -116,7 +116,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     try {
       render(
         <RouterTestHarness>
-          <SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />
+          <SimulationTab artifact={failureFixtureArtifact()} algorithmId="bpr" season={2024} />
         </RouterTestHarness>
       );
       await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
@@ -147,7 +147,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     };
     const handle = installMockWorker({ script: throwingScript });
     try {
-      const { unmount } = render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="vpr" season={2024} />);
+      const { unmount } = render(<SimulationTab artifact={failureFixtureArtifact()} algorithmId="bpr" season={2024} />);
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByText(RUN_ERROR_BODY)).toBeDefined());
 

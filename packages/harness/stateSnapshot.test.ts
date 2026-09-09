@@ -992,6 +992,10 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
   it("throws LeagueRowShapeVersionError for a BPR league row declaring an older shape", () => {
     const rows = [
       {
+        algorithmId: "bpr",
+        algorithmVersion: "1.0.0+baseline",
+        generation: "g",
+        computedAt: "2026-09-08T00:00:00.000Z",
         scopeKind: "league" as const,
         scopeKey: "league",
         stateJson: JSON.stringify({
@@ -1011,6 +1015,10 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
   it("accepts a BPR league row declaring the current shape", () => {
     const rows = [
       {
+        algorithmId: "bpr",
+        algorithmVersion: "1.0.0+baseline",
+        generation: "g",
+        computedAt: "2026-09-08T00:00:00.000Z",
         scopeKind: "league" as const,
         scopeKey: "league",
         stateJson: JSON.stringify({

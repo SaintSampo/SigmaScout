@@ -52,7 +52,7 @@ describe("buildTeamRows drops non-real teams BEFORE ranking", () => {
       teams: [team("frc1690", 1690, "Orbit", 60), team("frc5199B", 5199, "", 55), team("frc5199", 5199, "Robot Dolphins From Outer Space", 34)],
     } as TeamsArtifact;
 
-    const rows = buildTeamRows(artifact, "vpr");
+    const rows = buildTeamRows(artifact, "bpr");
 
     expect(rows.map((row) => row.teamKey)).toEqual(["frc1690", "frc5199"]);
     // The real 5199 takes rank 2 — it is NOT left at 3 with a hole above it.

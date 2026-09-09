@@ -29,12 +29,12 @@ describe("Structure and the dropped highlight rule", () => {
   it("EventMatchTableProps has exactly the keys rows, domain and season — a team key can never be threaded back in", () => {
     type Keys = keyof EventMatchTableProps;
     expectTypeOf<Exclude<Keys, "rows" | "domain" | "season" | "algorithm">>().toEqualTypeOf<never>();
-    const probe = { rows: [], domain: DOMAIN, season: 2024, algorithm: "vpr" as const } satisfies EventMatchTableProps;
+    const probe = { rows: [], domain: DOMAIN, season: 2024, algorithm: "bpr" as const } satisfies EventMatchTableProps;
     expect(probe).toBeDefined();
   });
 
   it("every team-number element inside one row's Match column carries an identical class list", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const row = screen.getByTestId("match-row-m1");
     const numbers = ["118", "254", "971", "604", "1678", "2056"].map((n) => within(row).getByText(n));
     const classLists = numbers.map((el) => el.className);
@@ -45,7 +45,7 @@ describe("Structure and the dropped highlight rule", () => {
     // 2026-09-08 fix: the roster numbers were separated by a literal " " text
     // node, so a 3-digit alliance and a 5-digit alliance rendered at different
     // widths and the two stacked lines never lined up.
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const row = screen.getByTestId("match-row-m1");
     const lines = row.querySelectorAll(".match-alliance-nums.match-alliance-nums--even");
     expect(lines).toHaveLength(2);
@@ -57,7 +57,7 @@ describe("Structure and the dropped highlight rule", () => {
   });
 
   it("the header row exposes exactly EVENT_MATCH_TABLE_COLUMN_COUNT column headers, and the axis header renders exactly once for a multi-row table", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getAllByRole("columnheader")).toHaveLength(EVENT_MATCH_TABLE_COLUMN_COUNT);
     expect(screen.getAllByTestId("axis-ticks")).toHaveLength(1);
   });
@@ -77,7 +77,7 @@ describe("Structure and the dropped highlight rule", () => {
         rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" }), makeRow({ matchKey: "m3" })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -109,7 +109,7 @@ describe("Played rows", () => {
         rows={[makeRow({ matchKey: "m1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     for (const side of ["red", "blue"]) {
@@ -125,7 +125,7 @@ describe("Played rows", () => {
         rows={[makeRow({ matchKey: "m1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     const winner = screen.getByTestId("actual-m1-red");
@@ -140,7 +140,7 @@ describe("Played rows", () => {
         rows={[makeRow({ matchKey: "m1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     const redDot = screen.getByTestId("alliance-mark-m1-red-dot");
@@ -160,7 +160,7 @@ describe("Played rows", () => {
         ]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     expect(within(screen.getByTestId("call-correct")).getByLabelText("Prediction correct")).toBeDefined();
@@ -173,7 +173,7 @@ describe("Played rows", () => {
         rows={[makeRow({ matchKey: "m1", predictedWinner: "red", played: true, actualWinner: "tie", actualRedScore: 200, actualBlueScore: 200 })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     expect(within(screen.getByTestId("call-m1")).getByLabelText("Prediction incorrect")).toBeDefined();
@@ -183,14 +183,14 @@ describe("Played rows", () => {
 
   it("the Confidence cell renders the predicted winner's chip and the winner-side probability as a whole percentage", () => {
     renderWithRouter(
-      <EventMatchTable rows={[makeRow({ matchKey: "m1", predictedWinner: "red", pRedWin: 0.62 }), makeRow({ matchKey: "m2", predictedWinner: "blue", pRedWin: 0.38 })]} domain={DOMAIN} season={2024} algorithm="vpr" />,
+      <EventMatchTable rows={[makeRow({ matchKey: "m1", predictedWinner: "red", pRedWin: 0.62 }), makeRow({ matchKey: "m2", predictedWinner: "blue", pRedWin: 0.38 })]} domain={DOMAIN} season={2024} algorithm="bpr" />,
     );
     expect(within(screen.getByTestId("confidence-m1")).getByText("62%")).toBeDefined();
     expect(within(screen.getByTestId("confidence-m2")).getByText("62%")).toBeDefined();
   });
 
   it("the Predicted Score cell rounds each alliance's score with a plus-minus suffix equal to the rounded sqrt of its variance", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", predictedRedScore: 250.4, redScoreVarianceOwn: 100, predictedBlueScore: 220.6, blueScoreVarianceOwn: 64 })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", predictedRedScore: 250.4, redScoreVarianceOwn: 100, predictedBlueScore: 220.6, blueScoreVarianceOwn: 64 })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const red = screen.getByTestId("predicted-score-m1-red");
     const blue = screen.getByTestId("predicted-score-m1-blue");
     expect(red.textContent).toContain("250");
@@ -202,7 +202,7 @@ describe("Played rows", () => {
 
 describe("Unplayed rows", () => {
   it("renders both bands and both ticks and no dot for either alliance", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-m1-blue-band")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
@@ -214,12 +214,12 @@ describe("Unplayed rows", () => {
   it("renders the scheduled time when the row carries sortTime, matching the shipped formatter's output for that instant", async () => {
     const { formatScheduledTime } = await import("../team/MatchTable.js");
     const sortTime = Math.floor(new Date("2026-01-03T18:30:00Z").getTime() / 1000);
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, sortTime })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, sortTime })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getByTestId("actual-m1").textContent).toBe(formatScheduledTime(sortTime));
   });
 
   it("renders an em-dash when the row carries no sortTime — never '0' and never a 1970 date", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, sortTime: undefined })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, sortTime: undefined })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const actual = screen.getByTestId("actual-m1");
     expect(actual.textContent).toBe("");
     expect(actual.textContent).not.toBe("0");
@@ -227,7 +227,7 @@ describe("Unplayed rows", () => {
   });
 
   it("the Call cell renders an em-dash carrying no correct/incorrect accessible label", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const call = screen.getByTestId("call-m1");
     expect(call.textContent).toBe("");
     expect(screen.queryByLabelText("Prediction correct")).toBeNull();
@@ -235,14 +235,14 @@ describe("Unplayed rows", () => {
   });
 
   it("the Predicted Score cell renders normally for an unplayed row", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, predictedRedScore: 240, redScoreVarianceOwn: 81 })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, predictedRedScore: 240, redScoreVarianceOwn: 81 })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getByTestId("predicted-score-m1-red").textContent).toContain("240");
   });
 });
 
 describe("Absent variance (OPR/EPA and pre-republish state)", () => {
   it("a row with neither variance field renders both ticks and no band, and a bare predicted score with no suffix", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-m1-blue-tick")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-m1-red-band")).toBeNull();
@@ -251,7 +251,7 @@ describe("Absent variance (OPR/EPA and pre-republish state)", () => {
   });
 
   it("a row with only redScoreVarianceOwn renders a red band and no blue band, and a suffix on red only", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: 100, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: 100, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-m1-blue-band")).toBeNull();
     expect(screen.getByTestId("predicted-score-m1-red").textContent).toContain("±");
@@ -271,7 +271,7 @@ describe("Bonus-RP dots", () => {
         rows={[makeRow({ matchKey: "m1", compLevel: "qm", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     const groups = ["bonus-rp-predicted-m1-red", "bonus-rp-predicted-m1-blue", "bonus-rp-actual-m1-red", "bonus-rp-actual-m1-blue"];
@@ -302,7 +302,7 @@ describe("Bonus-RP dots", () => {
         ]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "missed"]);
@@ -330,7 +330,7 @@ describe("Bonus-RP dots", () => {
         ]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["unknown", "unknown"]);
@@ -340,11 +340,11 @@ describe("Bonus-RP dots", () => {
   });
 
   it("a 2024 row renders two dots per group and a 2025 row renders three", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(collectDotStates("bonus-rp-predicted-m1-red")).toHaveLength(2);
     expect(collectDotStates("bonus-rp-predicted-m1-red")).toHaveLength(2);
 
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m2" })]} domain={DOMAIN} season={2025} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m2" })]} domain={DOMAIN} season={2025} algorithm="bpr" />);
     expect(collectDotStates("bonus-rp-predicted-m2-red")).toHaveLength(3);
   });
 
@@ -367,7 +367,7 @@ describe("Bonus-RP dots", () => {
         ]}
         domain={DOMAIN}
         season={2024}
-        algorithm="vpr"
+        algorithm="bpr"
       />,
     );
     const groups = ["bonus-rp-predicted-m1-red", "bonus-rp-predicted-m1-blue", "bonus-rp-actual-m1-red", "bonus-rp-actual-m1-blue"];
@@ -402,7 +402,7 @@ describe("Row count conservation", () => {
         blueScoreVarianceOwn: i % 2 === 0 ? 64 : undefined,
       }),
     );
-    renderWithRouter(<EventMatchTable rows={rows} domain={DOMAIN} season={2024} algorithm="vpr" />);
+    renderWithRouter(<EventMatchTable rows={rows} domain={DOMAIN} season={2024} algorithm="bpr" />);
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(n);
   });
 });

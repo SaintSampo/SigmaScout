@@ -125,7 +125,7 @@ describe("TeamsTable", () => {
         <TeamsTable
           status="success"
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 }, hubShift1: { value: 4 } } })]}
-          algorithmId="vpr"
+          algorithmId="bpr"
           season={2026}
           view="components"
           sortKey={TOTAL_KEY}
@@ -144,7 +144,7 @@ describe("TeamsTable", () => {
         <TeamsTable
           status="success"
           rows={[row({ metrics: { [TOTAL_KEY]: { value: 50 } } })]}
-          algorithmId="vpr"
+          algorithmId="bpr"
           season={2026}
           view="components"
           sortKey={TOTAL_KEY}
@@ -349,20 +349,20 @@ describe("TeamsTable", () => {
     try {
       render(
         <TestHarness>
-          <TeamsTable status="success" rows={[row()]} algorithmId="vpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+          <TeamsTable status="success" rows={[row()]} algorithmId="bpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
         </TestHarness>,
       );
       const header = await screen.findByTestId("teams-header-rank");
 
       // Visible text: the bare "Rank" — G-2's narrow width no longer
-      // truncates away the one informative half of "VPR Rank".
+      // truncates away the one informative half of "BPR Rank".
       expect(header.textContent).toBe("Rank");
 
       // Accessible name: still the full, algorithm-derived string — D-20's
       // provenance disclosure, reachable via a legal `aria-label` carrier
       // (the `<th>`'s own `columnheader` role), not a bare `<span>` (the
       // CR-02 bug this must not reintroduce).
-      const fullLabel = `${algorithmDisplayLabel("vpr")} Rank`;
+      const fullLabel = `${algorithmDisplayLabel("bpr")} Rank`;
       expect(header.getAttribute("aria-label")).toBe(fullLabel);
       expect(header.getAttribute("title")).toBe(fullLabel);
       expect(header.tagName).toBe("TH");
@@ -373,7 +373,7 @@ describe("TeamsTable", () => {
 
       // A real accessible-name query (not just "the attribute exists in the
       // DOM") finds this header by its full, algorithm-derived name.
-      expect(screen.getByRole("columnheader", { name: /VPR Rank/ })).toBe(header);
+      expect(screen.getByRole("columnheader", { name: /BPR Rank/ })).toBe(header);
     } finally {
       restoreMatchMedia();
     }
@@ -382,11 +382,11 @@ describe("TeamsTable", () => {
   it("wide mode: the rank header's visible text IS the full accessible name — no aria-label/title needed", async () => {
     render(
       <TestHarness>
-        <TeamsTable status="success" rows={[row()]} algorithmId="vpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
+        <TeamsTable status="success" rows={[row()]} algorithmId="bpr" season={2026} view="components" sortKey={TOTAL_KEY} sortDirection="desc" onSortChange={noop} onRetry={noop} />
       </TestHarness>,
     );
     const header = await screen.findByTestId("teams-header-rank");
-    const fullLabel = `${algorithmDisplayLabel("vpr")} Rank`;
+    const fullLabel = `${algorithmDisplayLabel("bpr")} Rank`;
     expect(header.textContent).toBe(fullLabel);
     expect(header.getAttribute("aria-label")).toBeNull();
     expect(header.getAttribute("title")).toBeNull();

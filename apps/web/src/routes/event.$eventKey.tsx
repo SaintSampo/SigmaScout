@@ -15,7 +15,7 @@ import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTa
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
-import { SimulationTab, SimulationTabSkeleton, SIMULATION_ALGORITHM_ID } from "../components/event/SimulationTab.js";
+import { SimulationTab, SimulationTabSkeleton, SIMULATION_AVAILABLE } from "../components/event/SimulationTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -180,7 +180,7 @@ function EventPage() {
   // published id set before this component ever reads it. Gating it on
   // query state would make a nav element's state wait on a fetch for no
   // reason, and would blur two genuinely different rules into one shape.
-  const isSimulationDisabled = algorithm !== SIMULATION_ALGORITHM_ID;
+  const isSimulationDisabled = !SIMULATION_AVAILABLE;
   const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
 
   /**

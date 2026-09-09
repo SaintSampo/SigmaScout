@@ -39,7 +39,7 @@ function sliceFor(artifact: CompareArtifact, algorithmId: string, view: string) 
 
 describe("calibrationCards — the pure model", () => {
   it("picks the valid bin nearest 70% mean-predicted as the headline", () => {
-    const slice = sliceFor(ARTIFACT_2026, "vpr", "combined");
+    const slice = sliceFor(ARTIFACT_2026, "bpr", "combined");
     const card = buildCalibrationCard(slice);
     expect(card.headline).not.toBeNull();
     const distances = card.rows
@@ -79,8 +79,8 @@ describe("CalibrationSection — sketch 006-C cards", () => {
 
   it("bin rows: populated rows print predicted → actual with the count; empty bins print the verbatim empty-range sentence; sparse rows carry the tag", () => {
     render(<CalibrationSection artifactsByYear={ARTIFACTS} compLevelView="combined" />);
-    const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, "vpr", "combined"));
-    const cardEl = screen.getByTestId(calibrationCardTestId("vpr"));
+    const card = buildCalibrationCard(sliceFor(ARTIFACT_2026, "bpr", "combined"));
+    const cardEl = screen.getByTestId(calibrationCardTestId("bpr"));
 
     const emptyCount = card.rows.filter((r) => r.point === null).length;
     expect(within(cardEl).queryAllByText(CALIBRATION_EMPTY_RANGE_TEXT)).toHaveLength(emptyCount);
@@ -111,9 +111,9 @@ describe("CalibrationSection — sketch 006-C cards", () => {
     fireEvent.click(screen.getByTestId(CALIBRATION_YEAR_SELECT_TESTID));
     fireEvent.click(await screen.findByRole("option", { name: "2022" }));
 
-    const card = buildCalibrationCard(sliceFor(ARTIFACT_2022, "vpr", "combined"));
-    expect(screen.getByTestId(calibrationCardSentenceTestId("vpr")).textContent).toContain(
-      cardHeadlineSentence(algorithmDisplayLabel("vpr"), card.headline!),
+    const card = buildCalibrationCard(sliceFor(ARTIFACT_2022, "bpr", "combined"));
+    expect(screen.getByTestId(calibrationCardSentenceTestId("bpr")).textContent).toContain(
+      cardHeadlineSentence(algorithmDisplayLabel("bpr"), card.headline!),
     );
     cleanup();
   });

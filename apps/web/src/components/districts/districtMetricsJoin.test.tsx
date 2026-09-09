@@ -16,7 +16,7 @@ function makeTeamsArtifact(teams: Record<string, unknown>[]): TeamsArtifact {
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-09",
     season: 2026,
     teams,

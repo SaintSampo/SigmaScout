@@ -10,11 +10,11 @@ import { GROUP_METRIC_KEYS, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 
 describe("displayedMetricKeys (decision T1, D-5 Total-leads order per 260904-5zg)", () => {
   it("VPR grouped view shows exactly Total then Auto/Teleop/Endgame", () => {
-    expect(displayedMetricKeys("vpr", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
+    expect(displayedMetricKeys("bpr", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
   });
 
   it("VPR components view shows the full declared component set", () => {
-    expect(displayedMetricKeys("vpr", 2026, "components")).toEqual(metricKeysFor("vpr", 2026));
+    expect(displayedMetricKeys("bpr", 2026, "components")).toEqual(metricKeysFor("bpr", 2026));
   });
 
   it("EPA now has a real grouped view too (D-2, 260904-5zg): Total then Auto/Teleop/Endgame, derived from published components", () => {
@@ -31,8 +31,8 @@ describe("displayedMetricKeys (decision T1, D-5 Total-leads order per 260904-5zg
   });
 
   it("sortable ids track the DISPLAYED view, so a grouped sort key is never offered while components are shown", () => {
-    expect(sortableColumnIds("vpr", 2026, "grouped")).toContain("phaseAuto");
-    expect(sortableColumnIds("vpr", 2026, "components")).not.toContain("phaseAuto");
+    expect(sortableColumnIds("bpr", 2026, "grouped")).toContain("phaseAuto");
+    expect(sortableColumnIds("bpr", 2026, "components")).not.toContain("phaseAuto");
   });
 
   it("EPA's grouped sortable ids also contain phaseAuto now that EPA has a grouped view", () => {

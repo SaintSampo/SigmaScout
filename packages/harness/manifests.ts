@@ -246,43 +246,31 @@ export interface BuildAlgorithmsManifestOptions {
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
   const { generation, computedAt, paramsSeason } = options;
 
-  // D-12 / 03-REVIEW WR-03: the same staleness check `applyPromotedOverrides`
-  // runs before reading the pinned file — a newer committed version must be
-  // exactly as loud here as it is in a harness run.
-  warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
-  const promotedRaw: unknown = JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8"));
-  const promoted = PromotedVersionSchema.parse(promotedRaw);
-  const vprSplit = splitManifestVersion(promoted.id, promoted.version);
-  // D-2: resolved for `paramsSeason` rather than read off `promoted.params`
-  // directly — `promoted.params` is schema-optional (absent for a
-  // `paramSetsBySeason` file), so a direct read would silently publish
-  // `undefined` for the Worker's only tunable-parameter source the moment
-  // the pinned file becomes a per-season one.
-  const paramsForManifest = resolveParamSets(promoted).forSeason(paramsSeason).params;
-
+  // VPR's retirement (2026-09-09) removed the ONE promoted-version entry this
+  // builder had. Every published algorithm now carries its version on its own
+  // module, so the whole pinned-file path — `warnIfNewerPromotedVpr`, the
+  // `PROMOTED_VPR_VERSION_PATH` read, `PromotedVersionSchema.parse` and the
+  // per-season `resolveParamSets` resolution — is gone from here rather than
+  // left reading a retired algorithm's file on every publish. It was not
+  // merely dead: a `readFileSync` on a file nothing else needs any more would
+  // have taken manifest building down the day that file was tidied away.
+  //
+  // `applyPromotedOverrides` in `cli.ts` still owns that machinery for the
+  // harness's own tuning runs, which are a different consumer with a different
+  // lifetime; this function no longer shares it.
+  //
   // Derived from PUBLISHED_ALGORITHM_IDS rather than written out, so adding an
   // algorithm is a registry edit rather than an edit here that someone has to
   // remember. The lookup throws on an unregistered id instead of silently
   // emitting a short manifest -- a missing entry would make the algorithm
   // invisible to the browser while every test still passed.
-  const untunedModules: Record<string, { id: string; version: string }> = { opr, epa, bpr };
+  const modules: Record<string, { id: string; version: string }> = { opr, epa, bpr };
 
   const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
-    if (id === promoted.id) {
-      return {
-        id: promoted.id,
-        version: promoted.version,
-        codeVersion: vprSplit.codeVersion,
-        paramSetName: vprSplit.paramSetName,
-        params: paramsForManifest,
-        paramsSeason,
-      };
-    }
-    const mod = untunedModules[id];
+    const mod = modules[id];
     if (!mod) {
       throw new Error(
-        `buildAlgorithmsManifest: no module registered for published id "${id}" ` +
-          `(known: ${Object.keys(untunedModules).join(", ")}, plus the promoted "${promoted.id}")`,
+        `buildAlgorithmsManifest: no module registered for published id "${id}" (known: ${Object.keys(modules).join(", ")})`,
       );
     }
     const split = splitManifestVersion(mod.id, mod.version);

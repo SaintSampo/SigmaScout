@@ -7,7 +7,7 @@
  * History: the retired fixed tune/holdout split's `seasonLabel` was carried as
  * an OPTIONAL field (D-4, quick task 260903-krp) while live 5.0.0 artifacts
  * still carried the key, and this file proved the schema parsed both shapes.
- * The 2026-09-04 republish (epa@5.0.0 / vpr@8.0.0+rolling-2026-09b) removed
+ * The 2026-09-04 republish (epa@5.0.0 / bpr@8.0.0+rolling-2026-09b) removed
  * the last producer, and the field was then DELETED from `CompareSliceSchema`
  * outright, per the D-1 rule that the deletion rides the republish.
  *

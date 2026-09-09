@@ -55,14 +55,14 @@ describe("collapseSharedCount", () => {
     const result = collapseSharedCount([
       { algorithmId: "opr", value: 5 },
       { algorithmId: "epa", value: 5 },
-      { algorithmId: "vpr", value: 5 },
+      { algorithmId: "bpr", value: 5 },
     ]);
     expect(result).toEqual({ kind: "agreed", value: 5 });
   });
 
   it("three values where one differs return the disagreed variant carrying every supplied algorithm and its own value, in PUBLISHED_ALGORITHM_IDS order regardless of input order", () => {
     const result = collapseSharedCount([
-      { algorithmId: "vpr", value: 7 },
+      { algorithmId: "bpr", value: 7 },
       { algorithmId: "opr", value: 5 },
       { algorithmId: "epa", value: 5 },
     ]);
@@ -71,7 +71,7 @@ describe("collapseSharedCount", () => {
       values: [
         { algorithmId: "opr", value: 5 },
         { algorithmId: "epa", value: 5 },
-        { algorithmId: "vpr", value: 7 },
+        { algorithmId: "bpr", value: 7 },
       ],
     });
   });
@@ -81,13 +81,13 @@ describe("collapseSharedCount", () => {
   });
 
   it("a single supplied value returns the agreed variant — one algorithm agreeing with itself is agreement, not disagreement", () => {
-    expect(collapseSharedCount([{ algorithmId: "vpr", value: 9 }])).toEqual({ kind: "agreed", value: 9 });
+    expect(collapseSharedCount([{ algorithmId: "bpr", value: 9 }])).toEqual({ kind: "agreed", value: 9 });
   });
 
   it("two equal values plus one absent algorithm return the agreed variant — an algorithm with no slice never forces a disagreement", () => {
     const result = collapseSharedCount([
       { algorithmId: "opr", value: 3 },
-      { algorithmId: "vpr", value: 3 },
+      { algorithmId: "bpr", value: 3 },
     ]);
     expect(result).toEqual({ kind: "agreed", value: 3 });
   });
@@ -156,11 +156,11 @@ describe("buildCoverageRows", () => {
 
   it("a season carrying slices for only one algorithm yields agreed shared cells from that algorithm and absent no-call entries for the other two", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
-    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "vpr", season: YEAR, compLevelView: "combined", candidateCount: 42, noCallCount: 6 })]));
+    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "bpr", season: YEAR, compLevelView: "combined", candidateCount: 42, noCallCount: 6 })]));
     const rows = buildCoverageRows(artifactsByYear, "combined");
     const row = rows.find((r) => r.season === YEAR)!;
     expect(row.candidateCount).toEqual({ kind: "agreed", value: 42 });
-    const vprEntry = row.noCalls.find((e) => e.algorithmId === "vpr")!;
+    const vprEntry = row.noCalls.find((e) => e.algorithmId === "bpr")!;
     expect(vprEntry.count).toBe(6);
     const oprEntry = row.noCalls.find((e) => e.algorithmId === "opr")!;
     const epaEntry = row.noCalls.find((e) => e.algorithmId === "epa")!;
@@ -325,6 +325,13 @@ describe("candidate/scored/exclusion identity guard (fixture-based, labelled as 
     let checked = 0;
     for (const season of COMPARE_SEASONS) {
       for (const slice of FIXTURES[season]!.slices) {
+        // The committed fixtures still carry `vpr` slices for the seasons it
+        // was published on, and that is correct — the compare artifact is a
+        // historical record and VPR's retirement (2026-09-09) removed it from
+        // the SITE, not from data already written. This guard is about the
+        // algorithms the site publishes, so a retired id is skipped rather
+        // than counted.
+        if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(slice.algorithmId)) continue;
         const excludedTotal =
           slice.exclusionCounts.offseason + slice.exclusionCounts.surrogateAffected + slice.exclusionCounts.missingResult + slice.exclusionCounts.quarantined;
         expect(slice.candidateCount, `season ${season} algorithm ${slice.algorithmId} view ${slice.compLevelView}`).toBe(slice.scoredCount + excludedTotal);

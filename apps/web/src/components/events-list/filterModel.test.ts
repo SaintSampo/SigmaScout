@@ -12,7 +12,7 @@ function makeArtifact(events: EventsArtifact["events"]): EventsArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2025,
     events,
@@ -50,7 +50,7 @@ const FIXTURE_EVENTS: EventRow[] = makeArtifact([
 /**
  * WR-01 (review 260902). The three REAL 2026 events the defect was found on,
  * pinned with their raw published `week` values as verified against
- * `v1/events/2026/vpr@2.1.0+tuned-2026-08.json`:
+ * `v1/events/2026/bpr@2.1.0+tuned-2026-08.json`:
  *
  *   2026isde1  week 16  eventType 1  69 played  ISR District Event #1
  *   2026isde2  week 17  eventType 1  64 played  ISR District Event #2

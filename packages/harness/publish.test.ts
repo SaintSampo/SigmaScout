@@ -320,9 +320,13 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
   // the renamed segment, and none carries the retired one — across all four
   // algorithm-scoped page kinds (`compare` carries no algorithm segment by
   // design, so it is excluded here).
-  it("every artifact key built for the published algorithm carries the vpr@{version} segment, never the retired sigma1@ segment", () => {
-    const [, , vprModule] = resolvePublishAlgorithms(undefined);
-    const module = vprModule!;
+  // 2026-09-09: the third published module is BPR, not VPR — VPR was retired
+  // from the published set. The claim is unchanged in substance: whatever sits
+  // in that position, every artifact key carries ITS id, never the long-retired
+  // `sigma1@` segment.
+  it("every artifact key built for the premier algorithm carries the bpr@{version} segment, never the retired sigma1@ segment", () => {
+    const [, , premierModule] = resolvePublishAlgorithms(undefined);
+    const module = premierModule!;
     const keys = [
       artifactKey({ page: "teams", year: 2026, algorithmId: module.id, version: module.version }),
       artifactKey({ page: "team", teamKey: "frc118", year: 2026, algorithmId: module.id, version: module.version }),
@@ -330,7 +334,7 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
       artifactKey({ page: "event", eventKey: "2026casj", algorithmId: module.id, version: module.version }),
     ];
     for (const key of keys) {
-      expect(key).toContain(`vpr@${module.version}`);
+      expect(key).toContain(`bpr@${module.version}`);
       expect(key).not.toContain("sigma1@");
     }
   });

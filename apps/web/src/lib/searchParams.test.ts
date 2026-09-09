@@ -10,15 +10,15 @@ import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, R
 describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
   // Test 1 — the default algorithm.
   it("defaults to vpr when algorithm is absent", () => {
-    expect(RootSearchSchema.parse({}).algorithm).toBe("vpr");
+    expect(RootSearchSchema.parse({}).algorithm).toBe("bpr");
   });
 
   // Test 2 — the empty-input path on every schema that extends the root.
   it("every schema extending RootSearchSchema resolves the same empty-input algorithm default", () => {
-    expect(TeamsSearchSchema.parse({}).algorithm).toBe("vpr");
-    expect(EventsSearchSchema.parse({}).algorithm).toBe("vpr");
-    expect(TeamSearchSchema.parse({}).algorithm).toBe("vpr");
-    expect(EventSearchSchema.parse({}).algorithm).toBe("vpr");
+    expect(TeamsSearchSchema.parse({}).algorithm).toBe("bpr");
+    expect(EventsSearchSchema.parse({}).algorithm).toBe("bpr");
+    expect(TeamSearchSchema.parse({}).algorithm).toBe("bpr");
+    expect(EventSearchSchema.parse({}).algorithm).toBe("bpr");
   });
 
   // Test 3 — the adjacency case, D-05's safety argument made executable: the
@@ -32,13 +32,13 @@ describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)"
   // to a path-segment case), and this file carries no exemption of its own.
   it("the retired pre-rename id falls back to vpr via .catch(); the renamed id parses directly", () => {
     const retiredAlgorithmId = "sigma" + "1";
-    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("vpr");
-    expect(RootSearchSchema.parse({ algorithm: "vpr" }).algorithm).toBe("vpr");
+    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("bpr");
+    expect(RootSearchSchema.parse({ algorithm: "bpr" }).algorithm).toBe("bpr");
   });
 
   // Test 4 — an unrelated garbage value still falls back, unchanged behavior.
   it("a garbage algorithm value falls back to the default", () => {
-    expect(RootSearchSchema.parse({ algorithm: "not-a-real-algorithm" }).algorithm).toBe("vpr");
+    expect(RootSearchSchema.parse({ algorithm: "not-a-real-algorithm" }).algorithm).toBe("bpr");
   });
 });
 
@@ -58,7 +58,7 @@ describe("TeamSearchSchema", () => {
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = TeamSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("vpr");
+    expect(parsed.algorithm).toBe("bpr");
   });
 });
 
@@ -99,7 +99,7 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = EventSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("vpr");
+    expect(parsed.algorithm).toBe("bpr");
   });
 
   // New case, 08-09-PLAN.md Task 1: the separation plan 07-18 already

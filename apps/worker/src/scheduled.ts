@@ -202,7 +202,11 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * again as of plan 07-18's collapse (07-16's transitional publisher/Worker-
  * write tier existed only through waves 11-12 and no longer exists).
  */
-export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["vpr"];
+// 2026-09-09: `vpr` -> `bpr` on VPR's retirement. A fallback naming a
+// retired id would make an unset LIVE_ALGORITHM_IDS throw
+// UnknownLiveAlgorithmIdError on every tick — the misconfiguration this
+// default exists to avoid.
+export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["bpr"];
 
 /** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {

@@ -63,7 +63,7 @@ export interface SimulationTabProps {
 
 /**
  * D-04's one spelling of "which algorithm this tab needs" — the route
- * imports this for its disabled boolean (`algorithmId !== SIMULATION_ALGORITHM_ID`)
+ * imports this for its disabled boolean (`!SIMULATION_AVAILABLE`)
  * rather than hardcoding the string `"vpr"` a second time. This component
  * does not use `algorithmId` to decide reachability itself (PD-03) — Radix
  * keeps this panel mounted-but-hidden on every event page regardless of the
@@ -72,11 +72,32 @@ export interface SimulationTabProps {
  * that decides reachability. `season` (08-14, Task 3) and `algorithmId`
  * (08-14, typecheck fix) ARE now read and threaded straight through to
  * `RankDistributionTable`'s own Team #/Nickname links, which need both for
- * their `TeamSearchSchema` search params — the tab is VPR-only per D-04,
- * but the actual selected `algorithmId` is carried rather than assumed, the
- * same discipline `InsightsTab.tsx`/`BreakdownTab.tsx` already apply.
+ * their `TeamSearchSchema` search params — the tab is unavailable to every
+ * algorithm since VPR's retirement, but the selected `algorithmId` is still
+ * carried rather than assumed, the same discipline `InsightsTab.tsx` and
+ * `BreakdownTab.tsx` already apply.
  */
-export const SIMULATION_ALGORITHM_ID: PublishedAlgorithmId = "vpr";
+/**
+ * Whether ANY published algorithm can drive the rank simulation.
+ *
+ * Was `SIMULATION_ALGORITHM_ID = "vpr"` until 2026-09-09, when VPR left the
+ * published set. It is now a capability question rather than an identity one,
+ * which is the honest shape: the simulation needs per-match ranking-point
+ * distributions (`redRpPmf`/`blueRpPmf`), and VPR was simply the only algorithm
+ * that modelled them — measured 2026-09-09, BPR emits none and its presim
+ * sidecar 404s where VPR's returned 200.
+ *
+ * So TODAY this is `false` and the Simulation trigger is disabled for every
+ * algorithm. That is a real capability loss, recorded rather than hidden, and
+ * the tab keeps its existing plain-disabled state rather than breaking.
+ *
+ * It is deliberately a constant and NOT a hardcoded `false` inline: when
+ * ranking points are rebuilt as a SigmaScout-layer feature (see
+ * `.planning/todos/pending/vpr-retirement-make-features-algorithm-agnostic.md`),
+ * this is the single place that flips, and the tab lights up for every
+ * algorithm at once rather than for a favoured one.
+ */
+export const SIMULATION_AVAILABLE = false;
 
 /**
  * 08-UI-SPEC.md's Copywriting Contract, verbatim — the event genuinely has

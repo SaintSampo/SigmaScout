@@ -58,7 +58,7 @@ function baseArtifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonAr
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     teamKey: "frc1114",
     teamNumber: 1114,
@@ -75,7 +75,7 @@ describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
   afterEach(() => cleanup());
 
   it("renders the fallback tile with role=img and a team-number-bearing accessible name when robotImageUrl is absent", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const fallback = screen.getByRole("img", { name: /1114/ });
     expect(fallback).toBeDefined();
@@ -85,7 +85,7 @@ describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
 
   it("renders a real <img> with the published src when robotImageUrl is present", async () => {
     const artifact = baseArtifact({ robotImageUrl: "https://i.imgur.com/A0CFArb.jpeg" });
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     await waitFor(() => {
       const img = document.querySelector("img[src]");
@@ -99,7 +99,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
   afterEach(() => cleanup());
 
   it("renders 'Team 1114' when nickname is empty", () => {
-    render(<SeasonHeader artifact={baseArtifact({ nickname: "" })} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact({ nickname: "" })} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Team 1114");
   });
@@ -109,7 +109,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
     expect(longNickname.length).toBeGreaterThanOrEqual(90);
     const trimmed = longNickname.slice(0, 90);
 
-    render(<SeasonHeader artifact={baseArtifact({ nickname: trimmed })} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact({ nickname: trimmed })} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading.getAttribute("title")).toBe(trimmed);
@@ -117,7 +117,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
   });
 
   it("renders an anchor to the TBA page opening in a new tab with rel=noopener", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const link = screen.getByRole("link", { name: "View on TBA" });
     expect(link.getAttribute("href")).toBe("https://www.thebluealliance.com/team/1114");
@@ -141,7 +141,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
@@ -161,7 +161,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     const autoCell = cells.at(0);
@@ -182,7 +182,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   it("renders four label-only tiles, each with a BLANK value, when metrics is empty", () => {
     const artifact = baseArtifact({ seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
@@ -228,7 +228,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     };
     const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     const [autoCell] = cells;
@@ -290,7 +290,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   });
 
   it("does not render the TierKeyRow — it lives at the foot of the Overview panel, not in the header", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });
@@ -301,13 +301,13 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
 
   it("labels the tiles 'As of last official match' when metricsOverride is supplied", () => {
     const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 50, spread: 3, percentile: 60 } };
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} />);
 
     expect(screen.getByTestId("season-header-as-of").textContent).toBe("As of last official match");
   });
 
   it("labels the tiles season-final, never the official-match label, when metricsOverride is absent", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const asOf = screen.getByTestId("season-header-as-of");
     expect(asOf.textContent).not.toContain("official match");
@@ -410,7 +410,7 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
       events: eventsWithOneMatch(),
     });
 
-    render(<SeasonHeader artifact={artifact} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     // VPR always shows four tiles (Auto/Teleop/Endgame/Total); Total is last.
@@ -437,14 +437,14 @@ describe("SeasonHeader — rank cards render inside the header (quick task 26090
 
   it("renders the rank cards inside the header when ranks is supplied", () => {
     const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 12, total: 3481 }];
-    renderWithRouter(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} ranks={ranks} />);
+    renderWithRouter(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} ranks={ranks} />);
 
     expect(screen.getByTestId("rank-cards")).toBeDefined();
     expect(screen.getByTestId("rank-card").textContent).toContain("World");
   });
 
   it("renders nothing extra when ranks is absent -- no rank-cards element, and every other assertion in this file is unaffected", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     expect(screen.queryByTestId("rank-cards")).toBeNull();
   });
@@ -454,13 +454,13 @@ describe("SeasonHeader — record basis caption (quick task 260908-615)", () => 
   afterEach(() => cleanup());
 
   it("names the official-only population beside the record", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     expect(screen.getByTestId("team-record-basis").textContent).toBe("Official events only");
   });
 
   it("still renders the record itself unchanged — the caption describes it, it does not replace it", () => {
-    render(<SeasonHeader artifact={baseArtifact()} algorithmId="vpr" season={2026} teamNumber={1114} />);
+    render(<SeasonHeader artifact={baseArtifact()} algorithmId="bpr" season={2026} teamNumber={1114} />);
 
     expect(screen.getByTestId("team-record").textContent).toContain("35");
     expect(screen.getByTestId("team-record").textContent).toContain("28");

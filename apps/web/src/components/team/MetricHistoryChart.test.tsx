@@ -9,7 +9,7 @@ function row(overrides: { matchKey: string; eventKey: string; matchIndex: number
     matchKey: overrides.matchKey,
     season: 2024,
     eventKey: overrides.eventKey,
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     teamKey: "frc1114",
     matchIndex: overrides.matchIndex,
     metrics: hasMetric ? { total: { value: overrides.value ?? 100, spread: overrides.spread } } : {},
@@ -27,7 +27,7 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     expect(container.querySelectorAll(".recharts-area").length).toBeGreaterThan(0);
   });
@@ -46,7 +46,7 @@ describe("MetricHistoryChart", () => {
 
   it("renders a single point with no line segment for a one-match team-season (E9 zero-one-many)", () => {
     const rows = [row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 4 })];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     // Recharts never draws a curve path for a single-point Line series —
     // only the dot renders. Zero curve elements IS "no line path with more
@@ -61,13 +61,13 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
       row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: 105, spread: 5 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     expect(container.querySelectorAll(".recharts-line-curve").length).toBe(1);
   });
 
   it("renders a plain labelled axis and zero line elements for a zero-match team-season (E9 empty)", () => {
-    const { container } = render(<MetricHistoryChart rows={[]} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={[]} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     expect(container.querySelectorAll(".recharts-cartesian-axis").length).toBe(2);
     expect(container.querySelectorAll(".recharts-line").length).toBe(0);
@@ -77,7 +77,7 @@ describe("MetricHistoryChart", () => {
     // A structural proxy for the source-file grep acceptance criterion —
     // confirms no rendered fill/stroke attribute is a bare hex literal.
     const rows = [row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 })];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
     const hexLike = /#[0-9A-Fa-f]{6}/;
     for (const el of Array.from(container.querySelectorAll("[fill], [stroke]"))) {
       expect(el.getAttribute("fill") ?? "").not.toMatch(hexLike);
@@ -91,7 +91,7 @@ describe("MetricHistoryChart", () => {
     // exceed even that to exercise the ellipsis path.
     const longName = "Very Long Championship Sub-Division Event Name 2024 With An Additional Ceremonial Suffix Attached For Good Measure And Then Some";
     const rows = Array.from({ length: 4 }, (_, i) => row({ matchKey: `m${i}`, eventKey: "2024long", matchIndex: i, value: 100 + i, spread: 4 }));
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={{ "2024long": longName }} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={{ "2024long": longName }} />);
 
     const titles = Array.from(container.querySelectorAll("title")).map((t) => t.textContent);
     expect(titles).toContain(longName);
@@ -106,7 +106,7 @@ describe("MetricHistoryChart", () => {
     const rows = Array.from({ length: 62 }, (_, i) =>
       row({ matchKey: `m${i}`, eventKey: eventKeys[Math.floor(i / 16)] ?? "2024casj", matchIndex: i * 3, value: 100 + i, spread: 4 }),
     );
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     // Four distinct events -> four alternating ReferenceArea bands, one
     // continuous line/band across all 62 points, no thrown error.
@@ -124,7 +124,7 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, spread: 5 }),
       row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: -700, spread: 30 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     const ticks = Array.from(container.querySelectorAll(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value"));
     expect(ticks.length).toBeGreaterThan(0);
@@ -146,8 +146,8 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
     ];
 
-    const { container: extremeContainer } = render(<MetricHistoryChart rows={extremeRows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
-    const { container: normalContainer } = render(<MetricHistoryChart rows={normalRows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container: extremeContainer } = render(<MetricHistoryChart rows={extremeRows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container: normalContainer } = render(<MetricHistoryChart rows={normalRows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     const extremeWidth = Number(extremeContainer.querySelector(".recharts-yAxis .recharts-cartesian-axis-line")?.getAttribute("width"));
     const normalWidth = Number(normalContainer.querySelector(".recharts-yAxis .recharts-cartesian-axis-line")?.getAttribute("width"));
@@ -179,7 +179,7 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 118, spread: 4 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 124, spread: 5 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     const ticks = tickValues(container);
     expect(ticks.length).toBeGreaterThan(0);
@@ -196,7 +196,7 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -80, spread: 5 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: -40, spread: 5 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     const ticks = tickValues(container);
     expect(ticks.length).toBeGreaterThan(0);
@@ -211,7 +211,7 @@ describe("MetricHistoryChart", () => {
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 100 }),
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     const ticks = tickValues(container);
     expect(Math.min(...ticks)).toBe(0);
@@ -220,9 +220,9 @@ describe("MetricHistoryChart", () => {
 
   it("plots only the Total metric — never a component key — for a mixed metrics payload", () => {
     const rows: MetricHistoryRow[] = [
-      { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "vpr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 200, spread: 8 }, autoPoints: { value: 20, spread: 2 } } },
+      { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "bpr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 200, spread: 8 }, autoPoints: { value: 20, spread: 2 } } },
     ];
-    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="vpr" season={2024} eventNameByKey={EVENT_NAMES} />);
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     // A single point still renders (Total exists on the row); no assertion
     // needs a second series — MetricHistoryChart has no per-component Line

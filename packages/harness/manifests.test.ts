@@ -13,6 +13,7 @@ import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { bpr } from "../core/algorithms/bpr.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
@@ -455,39 +456,32 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // construction site — a future literal reintroduced there fails THIS case
   // specifically, because it compares against the file's own parsed field
   // rather than the string "vpr".
-  it("the published entry's id strictly equals the id parsed from the committed promoted version file (read, not written)", () => {
-    const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
+  // 2026-09-09, VPR's retirement: four cases here described the PROMOTED-VERSION
+  // entry — its id read from the committed pinned file, its version, its params,
+  // and `paramsSeason` round-tripping onto it alone. VPR was the only
+  // promoted-version algorithm, so that path is gone from
+  // `buildAlgorithmsManifest` entirely rather than left reading a retired
+  // algorithm's file on every publish. These replace them with the contract
+  // that is now true.
+  it("builds EVERY entry from its own module — no entry is read from a pinned version file", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
-    const vprEntry = manifest.algorithms[2]!;
-    expect(vprEntry.id).toBe(committed.id);
+    expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+    expect(manifest.algorithms.find((a) => a.id === "opr")!.version).toBe(opr.version);
+    expect(manifest.algorithms.find((a) => a.id === "epa")!.version).toBe(epa.version);
+    expect(manifest.algorithms.find((a) => a.id === "bpr")!.version).toBe(bpr.version);
   });
 
-  it("the VPR entry's version equals the committed promoted version file's version field (read at test time, never hardcoded)", () => {
-    const committed = PromotedVersionSchema.parse(JSON.parse(readFileSync(PROMOTED_VPR_VERSION_PATH, "utf8")));
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
-    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
-    expect(vprEntry.version).toBe(committed.version);
-    expect(vprEntry.version).toContain("+");
-    expect(() => Object.freeze(vprEntry.params)).not.toThrow();
-  });
-
-  it("the VPR entry's params parse against Sigma1ParamsSchema (already enforced by AlgorithmsManifestSchema.parse inside buildAlgorithmsManifest, asserted here for presence)", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
-    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
-    expect(vprEntry.params).toBeDefined();
-  });
-
-  // D-2 (quick task 260904-100): the season `buildAlgorithmsManifest` is
-  // asked for round-trips onto the VPR entry itself, and OPR/EPA (which
-  // carry no tunable parameter set) never gain the field.
-  it("round-trips paramsSeason onto the VPR entry only", () => {
+  it("carries no tunable params or paramsSeason on any entry, since no published algorithm is promoted-versioned any more", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2023 });
-    const vprEntry = manifest.algorithms.find((a) => a.id === "vpr")!;
-    const oprEntry = manifest.algorithms.find((a) => a.id === "opr")!;
-    const epaEntry = manifest.algorithms.find((a) => a.id === "epa")!;
-    expect(vprEntry.paramsSeason).toBe(2023);
-    expect(oprEntry.paramsSeason).toBeUndefined();
-    expect(epaEntry.paramsSeason).toBeUndefined();
+    for (const entry of manifest.algorithms) {
+      expect(entry.params, `${entry.id} must carry no params`).toBeUndefined();
+      expect(entry.paramsSeason, `${entry.id} must carry no paramsSeason`).toBeUndefined();
+    }
+  });
+
+  it("does NOT advertise the retired vpr id", () => {
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
+    expect(manifest.algorithms.some((a) => a.id === "vpr")).toBe(false);
   });
 });
 
@@ -498,8 +492,9 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
   // knew the transition happened): `PUBLISHED_ALGORITHM_IDS` is once again
   // the ONLY algorithm-id constant this module exports, and its members are
   // the renamed triple in the shipped order.
-  it("is the module's only algorithm-id constant, and its members are the renamed triple in the shipped order", async () => {
-    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "vpr", "bpr"]);
+  it("is the module's only algorithm-id constant, and its members are the published triple in the shipped order", async () => {
+    // vpr removed 2026-09-09 on its retirement from the site.
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "bpr"]);
     expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS"]);
   });
 
@@ -507,10 +502,12 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
   // one tier): the published algorithm sits THIRD — the position the
   // shipped ribbon renders it in (D-03's ordering, re-pinned through the
   // rename).
-  it("places the published algorithm third", () => {
+  // BPR replaced VPR as SigmaScout's premier algorithm on 2026-09-09 and holds
+  // the same third position the ribbon renders it in.
+  it("places the premier algorithm third", () => {
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[0]);
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[1]);
-    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("vpr");
+    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("bpr");
   });
 });
 

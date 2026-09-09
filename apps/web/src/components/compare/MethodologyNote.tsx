@@ -52,7 +52,15 @@ export const METHODOLOGY_NOTE_TESTID = "compare-methodology-note";
 export const NEAR_TIE_CAPTION =
   "Where two algorithms' scores are this close, the published data can't tell us which is really better. The threshold below is a judgement call, not a statistical test.";
 
-const VPR_ALGORITHM_ID = "vpr";
+/**
+ * The algorithm this note's Brier list and best-season clause describe —
+ * SigmaScout's premier algorithm, which became BPR on 2026-09-09 when VPR left
+ * the published set. Named for its ROLE rather than hardcoded at each use, so
+ * the note follows the premier algorithm instead of having to be rewritten
+ * around it. The compare artifact still carries `vpr` slices for the seasons it
+ * was published on; they are simply no longer what this note reads.
+ */
+const PREMIER_ALGORITHM_ID = "bpr";
 
 interface SeasonBrier {
   readonly season: number;
@@ -113,7 +121,7 @@ export function buildMethodologyFigures(
   for (const season of COMPARE_SEASONS) {
     const artifact = artifactsByYear.get(season);
     const slice = artifact?.slices.find(
-      (candidate) => candidate.algorithmId === VPR_ALGORITHM_ID && candidate.season === season && candidate.compLevelView === "combined",
+      (candidate) => candidate.algorithmId === PREMIER_ALGORITHM_ID && candidate.season === season && candidate.compLevelView === "combined",
     );
     if (slice !== undefined) {
       entries.push({ season, brierScore: slice.brierScore });
@@ -177,7 +185,7 @@ function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
 function buildMethodologySentence(figures: MethodologyFiguresComplete): string {
   const brierList = buildBrierListSentence(figures.seasonBriers);
   const seasonCountWord = numberWord(figures.seasons.length);
-  const bestClause = `${figures.bestSeason} is VPR's single best season of the ${seasonCountWord}.`;
+  const bestClause = `${figures.bestSeason} is BPR's single best season of the ${seasonCountWord}.`;
 
   return `${brierList} ${bestClause}`;
 }

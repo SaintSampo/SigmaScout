@@ -27,7 +27,6 @@ import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../
 const ALGORITHM_DISPLAY_LABELS: Readonly<Record<PublishedAlgorithmId, string>> = {
   opr: "OPR",
   epa: "EPA",
-  vpr: "VPR",
   bpr: "BPR",
 };
 

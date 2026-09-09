@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,12 +75,16 @@ describe("selectedOnSeasonsFor", () => {
     expect(() => selectedOnSeasonsFor(["not-a-real-algorithm"])).toThrow(/not-a-real-algorithm/);
   });
 
-  it("resolves the SAME version identity resolvePublishAlgorithms(undefined) resolves for vpr — guards against a second, drifting resolution", () => {
-    const committed = readCommittedVprProvenance();
+  // 2026-09-09: VPR was retired from the published set, so the PUBLISH path no
+  // longer resolves it at all and there is no second resolution left to drift
+  // from. The committed provenance file still exists and is still read by the
+  // harness's own tuning runs (`applyPromotedOverrides` in `cli.ts`), which is
+  // a different consumer — what this now pins is that the two are genuinely
+  // separated: publishing must NOT resurrect a retired id from that file.
+  it("no longer resolves vpr for publishing — the retired id must not come back through the promoted-version file", () => {
     const resolved = resolvePublishAlgorithms(undefined);
-    const vprModule = resolved.find((m) => m.id === "vpr");
-    expect(vprModule).toBeDefined();
-    expect(vprModule!.version).toBe(committed.version);
+    expect(resolved.some((m) => m.id === "vpr")).toBe(false);
+    expect(resolved.map((m) => m.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
   /**

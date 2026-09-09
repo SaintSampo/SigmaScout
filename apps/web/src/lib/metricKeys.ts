@@ -100,7 +100,10 @@ export const GROUP_METRIC_KEYS: readonly string[] = COMPONENT_GROUP_IDS.map((id)
  * below.
  */
 export function publishesGroupMetrics(algorithmId: string): boolean {
-  return algorithmId === "vpr" || algorithmId === "epa";
+  // 2026-09-09: `vpr` -> `bpr` on VPR's retirement. Verified against the live
+  // 2026 teams artifacts that day: BPR and EPA publish `phaseAuto`/`phaseTeleop`/
+  // `phaseEndgame`, OPR does not.
+  return algorithmId === "bpr" || algorithmId === "epa";
 }
 
 /**

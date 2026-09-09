@@ -24,7 +24,7 @@ function artifact(teams: ArtifactTeam[]): TeamsArtifact {
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-01-01T00:00:00Z",
-    algorithmId: "vpr",
+    algorithmId: "bpr",
     algorithmVersion: "1.0.0",
     season: 2026,
     teams,
@@ -57,7 +57,7 @@ describe("buildTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 30 } } }),
         team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 20 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     expect(rows.map((row) => [row.teamKey, row.rank])).toEqual([
       ["frc1", 1],
@@ -72,7 +72,7 @@ describe("buildTeamRows", () => {
         team({ teamKey: "frc200", teamNumber: 200, metrics: { [TOTAL_KEY]: { value: 40 } } }),
         team({ teamKey: "frc100", teamNumber: 100, metrics: { [TOTAL_KEY]: { value: 40 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     expect(rows.map((row) => [row.teamKey, row.rank])).toEqual([
       ["frc100", 1],
@@ -84,14 +84,14 @@ describe("buildTeamRows", () => {
   it("assigns a rank to every input row — the count of rows out equals the count of rows in", () => {
     const rows = buildTeamRows(
       artifact([team({ teamKey: "frc1", teamNumber: 1 }), team({ teamKey: "frc2", teamNumber: 2 }), team({ teamKey: "frc3", teamNumber: 3 })]),
-      "vpr",
+      "bpr",
     );
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => typeof row.rank === "number")).toBe(true);
   });
 
   it("yields undefined for a cell whose metrics lack a declared key, rather than dropping the row or defaulting to zero", () => {
-    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 10 } } })]), "vpr");
+    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 10 } } })]), "bpr");
     expect(rows[0]?.metrics.hubShift1).toBeUndefined();
   });
 
@@ -101,18 +101,18 @@ describe("buildTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
         team({ teamKey: "frc2", teamNumber: 2, metrics: {} }),
       ]),
-      "vpr",
+      "bpr",
     );
     expect(rows.map((row) => row.teamKey)).toEqual(["frc1", "frc2"]);
     expect(rows[1]?.rank).toBe(2);
   });
 
   it("returns an empty array for an empty team array, without throwing", () => {
-    expect(buildTeamRows(artifact([]), "vpr")).toEqual([]);
+    expect(buildTeamRows(artifact([]), "bpr")).toEqual([]);
   });
 
   it("returns one row at rank 1 for a single-team array", () => {
-    const rows = buildTeamRows(artifact([team()]), "vpr");
+    const rows = buildTeamRows(artifact([team()]), "bpr");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.rank).toBe(1);
   });
@@ -141,7 +141,7 @@ describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => 
 
   it("a VPR row's already-published phaseAuto (with spread/percentile) survives byte-identical", () => {
     const publishedPhaseAuto = { value: 30, spread: 1.2, percentile: 90 };
-    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, phaseAuto: publishedPhaseAuto } })]), "vpr");
+    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, phaseAuto: publishedPhaseAuto } })]), "bpr");
     expect(rows[0]?.metrics.phaseAuto).toBe(publishedPhaseAuto);
   });
 });
@@ -154,7 +154,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 }, hubShift1: { value: 5 } } }),
         team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30 }, hubShift1: { value: 9 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const sorted = sortTeamRows(rows, "hubShift1", "desc");
     expect(sorted.map((row) => row.teamKey)).toEqual(["frc3", "frc1", "frc2"]);
@@ -166,7 +166,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
         team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const first = sortTeamRows(rows, TOTAL_KEY, "desc").map((row) => row.teamKey);
     const second = sortTeamRows(rows, TOTAL_KEY, "desc").map((row) => row.teamKey);
@@ -179,7 +179,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
         team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 }, hubShift1: { value: 4 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const desc = sortTeamRows(rows, "hubShift1", "desc").map((row) => row.teamKey);
     const asc = sortTeamRows(rows, "hubShift1", "asc").map((row) => row.teamKey);
@@ -193,7 +193,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc200", teamNumber: 200, metrics: { [TOTAL_KEY]: { value: 10 } } }),
         team({ teamKey: "frc100", teamNumber: 100, metrics: { [TOTAL_KEY]: { value: 10 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const sorted = sortTeamRows(rows, "no-such-key", "desc").map((row) => row.teamKey);
     expect(sorted).toEqual(["frc100", "frc200"]);
@@ -205,7 +205,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 30 }, hubShift1: { value: 1 } } }),
         team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 10 }, hubShift1: { value: 9 } } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const sorted = sortTeamRows(rows, "hubShift1", "desc");
     expect(sorted.map((row) => [row.teamKey, row.rank])).toEqual([
@@ -220,7 +220,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, record: { wins: 1, losses: 9, ties: 0 } }),
         team({ teamKey: "frc2", teamNumber: 2, record: { wins: 9, losses: 1, ties: 0 } }),
       ]),
-      "vpr",
+      "bpr",
     );
     const sorted = sortTeamRows(rows, WIN_RATE_SORT_KEY, "desc").map((row) => row.teamKey);
     expect(sorted).toEqual(["frc2", "frc1"]);
@@ -232,7 +232,7 @@ describe("sortTeamRows", () => {
         team({ teamKey: "frc1", teamNumber: 1, record: { wins: 0, losses: 0, ties: 0 } }),
         team({ teamKey: "frc2", teamNumber: 2, record: { wins: 3, losses: 1, ties: 0 } }),
       ]),
-      "vpr",
+      "bpr",
     );
     expect(sortTeamRows(rows, WIN_RATE_SORT_KEY, "desc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
     expect(sortTeamRows(rows, WIN_RATE_SORT_KEY, "asc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);

@@ -25,13 +25,29 @@
  * id) renamed by plan 07-18, once 07-17's write pass made the `vpr@` objects
  * live.
  *
- * `bpr` joined 2026-09-08 (quick task 260908-b4t). It is a winner/score model
- * only: like `opr` and `epa` it carries no ranking-point model, so it emits no
- * RP pmf and the rank simulation stays `vpr`-only. Its parameters were frozen
- * on 2016-2022 evidence alone and evaluated once against a sealed 2023-2026
- * holdout — see `packages/core/algorithms/bpr.ts` for the provenance that
- * number depends on.
+ * `bpr` joined 2026-09-08 (quick task 260908-b4t) and is SigmaScout's premier
+ * algorithm as of 2026-09-09. Its parameters were frozen on 2016-2022 evidence
+ * alone and evaluated once against a sealed 2023-2026 holdout — see
+ * `packages/core/algorithms/bpr.ts` for the provenance that number depends on.
+ *
+ * `vpr` was REMOVED from the published set on 2026-09-09 (developer decision):
+ * it is no longer offered anywhere on the site, no longer folds live, and no
+ * longer appears in the methodology. The model code under
+ * `packages/core/algorithms/sigma1/` is left in place for now — this list is
+ * what the site reads, so dropping the id here is what retires it — and the
+ * already-published `vpr@` objects in R2 are simply left unreferenced rather
+ * than deleted.
+ *
+ * TWO CAPABILITIES LEAVE WITH IT, and neither is replaced yet, because VPR was
+ * the only algorithm that modelled ranking points:
+ *   - the rank SIMULATION (needs `redRpPmf`/`blueRpPmf`; BPR emits none, and no
+ *     `v1/presim/…/bpr@…` sidecar exists — measured 404 on 2026-09-09 against
+ *     VPR's 200), so the Simulation tab is now unreachable for every algorithm;
+ *   - the per-bonus RP dots in the match tables (`redBonusRp`/`blueBonusRp`).
+ * Both degrade to their existing absent-data states rather than breaking. See
+ * `.planning/todos/pending/vpr-retirement-make-features-algorithm-agnostic.md`
+ * for the plan to rebuild ranking points as a SigmaScout-layer feature.
  */
-export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "vpr", "bpr"] as const;
+export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "bpr"] as const;
 
 export type PublishedAlgorithmId = (typeof PUBLISHED_ALGORITHM_IDS)[number];
