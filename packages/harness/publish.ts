@@ -94,18 +94,15 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
-import { allianceSwingBandVariance, SwingFactorAccumulator } from "./swingFactor.js";
-import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { allianceSwingBandVariance } from "./swingFactor.js";
+import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
-
-/**
- * Monte Carlo settings for the SigmaScout-layer RP draw. Explicit here rather
- * than inherited from any algorithm's tuned parameter set — `moments.ts`
- * requires a caller to choose its own. 4000 draws over ~19k qualification
- * matches per season is cheap offline and well inside pmf rounding.
- */
-const RP_MONTE_CARLO = { rpMonteCarloSeed: 0x5163_5f52, rpMonteCarloDraws: 4000 } as const;
+// The level-2 SigmaScout layer — the band and ranking points, computed
+// identically for every algorithm. BOTH orchestrations in this file drive it
+// (`publishSeasons` and `--event`), which is the point: see that module's
+// header for the regression that extracting it prevents.
+import { RP_MONTE_CARLO, SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
@@ -2379,101 +2376,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       perAlgoEventMatches.set(algorithm.id, new Map());
       perAlgoTeamMatches.set(algorithm.id, new Map());
     }
-    // SigmaScout-layer swing features (quick task 260908-5wd), computed here
-    // and NOT by any algorithm — see `swingFactor.ts`'s header for the two-level
-    // split. `records` is chronological (runAll's outer loop is the match
-    // stream), so one accumulator per algorithm walks forward with it.
-    //
-    // Every band is read BEFORE the match is folded in, so a match never
-    // informs its own band — the project's predict-before-update rule, which
-    // matters here because a band answers "how unsure were we when we predicted
-    // this" and later matches are not an admissible answer.
-    const swingAccumulators = new Map<string, SwingFactorAccumulator>();
-    for (const algorithm of options.algorithms) swingAccumulators.set(algorithm.id, new SwingFactorAccumulator());
-
-    // RANKING POINTS, likewise a SigmaScout-layer feature and likewise computed
-    // here rather than by any algorithm (quick task 260909, after VPR's
-    // retirement took RP with it). `RpMomentsAccumulator` learns each team's
-    // threshold-variable beliefs from OBSERVED results alone, so every
-    // algorithm gets ranking points — including OPR and EPA, which model no
-    // uncertainty at all.
-    //
-    // The score variance it needs is the SWING BAND computed just above: the
-    // one per-alliance variance every algorithm now has. That is the whole
-    // reason RP is reachable at all now and was not before.
-    //
-    // An algorithm that models its own RP (Sigma1 did) keeps whatever it
-    // produced — `prediction.redRpPmf` wins below — so this fills a gap rather
-    // than overriding a model.
+    // The level-2 SigmaScout layer — the band and ranking points, one instance
+    // per algorithm. `records` is chronological (runAll's outer loop is the
+    // match stream), so each instance walks forward with it, which is the
+    // ordering `foldPlayed` requires. The per-match math itself lives in
+    // `sigmaScoutLayer.ts` because `--event` below runs the identical thing.
     const rpRuleModule = RP_RULE_MODULES[season];
-    const rpAccumulators = new Map<string, RpMomentsAccumulator>();
-    if (rpRuleModule !== undefined) {
-      for (const algorithm of options.algorithms) rpAccumulators.set(algorithm.id, new RpMomentsAccumulator(rpRuleModule));
-    }
+    const layers = new Map<string, SigmaScoutLayer>();
+    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule));
 
     for (const r of records) {
-      const swing = swingAccumulators.get(r.algorithmId)!;
-      const redBandVariance = swing.bandVarianceFor(r.match.redTeams);
-      const blueBandVariance = swing.bandVarianceFor(r.match.blueTeams);
-      swing.fold(r.match.redTeams, r.match.redScore, r.prediction.redScore);
-      swing.fold(r.match.blueTeams, r.match.blueScore, r.prediction.blueScore);
-
-      // Predict-before-update again: read this match's pmf from history so far,
-      // then fold this match's observed threshold variables in.
-      const rpAccumulator = rpAccumulators.get(r.algorithmId);
-      let derivedRp: { redRpPmf?: readonly number[]; blueRpPmf?: readonly number[]; redBonusRp?: readonly number[]; blueBonusRp?: readonly number[] } = {};
-      if (rpAccumulator !== undefined && rpRuleModule !== undefined && isRpEligibleEventType(r.match.eventType)) {
-        if (redBandVariance !== undefined && blueBandVariance !== undefined) {
-          const pmf = rpPmfForMatch({
-            red: rpAccumulator.momentsFor(r.match.redTeams, r.prediction.redScore, redBandVariance),
-            blue: rpAccumulator.momentsFor(r.match.blueTeams, r.prediction.blueScore, blueBandVariance),
-            ruleModule: rpRuleModule,
-            eventType: r.match.eventType,
-            matchKey: r.match.matchKey,
-            compLevel: r.match.compLevel,
-            params: RP_MONTE_CARLO,
-          });
-          derivedRp = {
-            redRpPmf: pmf.redPmf,
-            blueRpPmf: pmf.bluePmf,
-            ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
-            ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
-          };
-        }
-        if (r.match.hasScoreBreakdown && r.match.scoreBreakdownRaw !== null) {
-          for (const side of ["red", "blue"] as const) {
-            try {
-              const parsed = rpRuleModule.parse(JSON.parse(r.match.scoreBreakdownRaw), side, r.match.eventType);
-              rpAccumulator.fold(side === "red" ? r.match.redTeams : r.match.blueTeams, parsed.thresholdVariables);
-            } catch {
-              // A breakdown this season's module cannot parse contributes
-              // nothing rather than aborting the publish — the same
-              // degrade-to-a-counted-skip discipline `parseBreakdown` uses.
-            }
-          }
-        }
-      }
-
-      const pr: PredictionRecord = {
-        match: r.match,
-        // One object, both maps below — the event page and the team page
-        // cannot show different numbers for this match because there is only
-        // one number.
-        //
-        // An algorithm that produced its own RP keeps it; ours fills the gap.
-        prediction:
-          r.prediction.redRpPmf !== undefined
-            ? r.prediction
-            : { ...r.prediction, ...derivedRp },
-        ...(redBandVariance !== undefined || blueBandVariance !== undefined
-          ? {
-              swingBand: {
-                ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
-                ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
-              },
-            }
-          : {}),
-      };
+      // One object, both maps below — the event page and the team page cannot
+      // show different numbers for this match because there is only one number.
+      const pr: PredictionRecord = layers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
       const eventMap = perAlgoEventMatches.get(r.algorithmId)!;
       const eventList = eventMap.get(r.match.eventKey) ?? [];
       eventList.push(pr);
@@ -2629,61 +2544,16 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // read once from the accumulator that walked the played stream above.
       // An unplayed match has no residual of its own, so its band is built
       // from everything played so far — walk-forward for it by definition.
-      const swingByTeamForAlgo = swingAccumulators.get(algorithm.id)!.swingByTeam();
+      const layerForAlgo = layers.get(algorithm.id)!;
+      const swingByTeamForAlgo = layerForAlgo.swingByTeam();
       if (state !== undefined) {
         for (const [eventKey, matchesForEvent] of scheduledByEvent) {
           scheduledPredictionsByEvent.set(
             eventKey,
-            matchesForEvent.map((match) => {
-              const red = allianceSwingBandVariance(match.redTeams, swingByTeamForAlgo);
-              const blue = allianceSwingBandVariance(match.blueTeams, swingByTeamForAlgo);
-              const prediction = algorithm.predict(state, match);
-
-              // RANKING POINTS for a NOT-YET-PLAYED match. This is the case the
-              // rank simulation actually consumes: it simulates the REMAINING
-              // schedule, so a pmf on played rows alone would enable the tab
-              // and give it nothing to draw. Built from every team's play so
-              // far, which is walk-forward for a match that has not happened.
-              //
-              // An algorithm that models its own RP keeps it, exactly as on
-              // the played path.
-              let upcomingRp: Partial<Prediction> = {};
-              const rpForAlgo = rpAccumulators.get(algorithm.id);
-              if (
-                prediction.redRpPmf === undefined &&
-                rpForAlgo !== undefined &&
-                rpRuleModule !== undefined &&
-                isRpEligibleEventType(match.eventType) &&
-                red !== undefined &&
-                blue !== undefined
-              ) {
-                const pmf = rpPmfForMatch({
-                  red: rpForAlgo.momentsFor(match.redTeams, prediction.redScore, red),
-                  blue: rpForAlgo.momentsFor(match.blueTeams, prediction.blueScore, blue),
-                  ruleModule: rpRuleModule,
-                  eventType: match.eventType,
-                  matchKey: match.matchKey,
-                  compLevel: match.compLevel,
-                  params: RP_MONTE_CARLO,
-                });
-                upcomingRp = {
-                  redRpPmf: pmf.redPmf,
-                  blueRpPmf: pmf.bluePmf,
-                  ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
-                  ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
-                };
-              }
-
-              return {
-                match,
-                prediction: { ...prediction, ...upcomingRp },
-                // One record object, shared by the event `upcoming` array and
-                // the per-team grouping below — so both carry the same band.
-                ...(red !== undefined || blue !== undefined
-                  ? { swingBand: { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) } }
-                  : {}),
-              };
-            })
+            // One record object per match, shared by the event `upcoming`
+            // array and the per-team grouping below — so both carry the same
+            // band and the same pmf.
+            matchesForEvent.map((match) => layerForAlgo.enrichUpcoming(match, algorithm.predict(state, match)))
           );
         }
       }
@@ -2924,7 +2794,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               seasonFinalState: state,
               generation,
               computedAt,
-              fillRankingPoints: makeRankingPointFiller(rpAccumulators.get(algorithm.id), rpRuleModule, swingByTeamForAlgo, eventTeamKeys),
+              fillRankingPoints: makeRankingPointFiller(layerForAlgo.rpAccumulator, rpRuleModule, swingByTeamForAlgo, eventTeamKeys),
             })
           : undefined;
         if (sidecar !== undefined) {
@@ -3230,15 +3100,25 @@ export function parseSeasonsRange(spec: string): number[] {
   return Array.from(seasons).sort((a, b) => a - b);
 }
 
-async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefined, bucket: string, dryRun: boolean): Promise<void> {
-  const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
-  const algorithm = algorithms[0];
-  if (!algorithm || algorithms.length !== 1) {
-    throw new Error("--event mode requires exactly one --algorithm");
-  }
+/** What a single-event publish would write: the event artifact, and its presim sidecar when one applies. */
+export interface SingleEventPublishResult {
+  readonly key: string;
+  readonly body: string;
+  readonly sidecar?: { key: string; body: string };
+}
 
-  const db = openCorpusReadOnly(CORPUS_PATH);
-  try {
+/**
+ * Builds everything `--event` publishes, without doing any IO.
+ *
+ * Separated from `runEventMode`'s corpus-opening and uploading (2026-09-09) so
+ * that a test can assert the thing that actually matters about this path: that
+ * the artifact it produces carries the SAME level-2 fields `publishSeasons`
+ * writes for the same event. That equivalence was silently false for a day —
+ * see `sigmaScoutLayer.ts` — and a byte count from `--dry-run` could not have
+ * detected it.
+ */
+export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm: AlgorithmModule<any>): SingleEventPublishResult {
+  {
     const season = deriveSeasonFromEventKey(eventKey);
     // D-10, PD-05, plan 07-09 Task 2: this mode now replays the target
     // event's WHOLE SEASON, not just the one event, so the percentile it
@@ -3304,14 +3184,29 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
     };
     const simulator = new WalkForwardSimulator(stream);
     const records = simulator.runAll([algorithm], teamsThisSeason, undefined, onMatchComplete);
-    const predictions: PredictionRecord[] = records
-      .filter((r) => r.match.eventKey === eventKey)
-      .map((r) => ({ match: r.match, prediction: r.prediction }));
+
+    // The SAME level-2 layer `publishSeasons` drives, over the SAME whole-season
+    // chronological stream — so a row this mode publishes carries the same band
+    // and the same pmf the full publish would write for it.
+    //
+    // This mode used to emit neither, which silently STRIPPED both from any
+    // event it republished (see `sigmaScoutLayer.ts`'s header). The fix is free
+    // here only because this mode already replays the whole season for the
+    // percentile pool; the layer rides that existing replay rather than adding
+    // one. That is why every record is folded and only then filtered — folding
+    // the event's own matches alone would give a team no history from its
+    // earlier events and produce a different band than the full publish does.
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season]);
+    const predictions: PredictionRecord[] = [];
+    for (const r of records) {
+      const enriched = layer.foldPlayed(r.match, r.prediction);
+      if (r.match.eventKey === eventKey) predictions.push(enriched);
+    }
     const finalState = records.finalStates.get(algorithm.id);
 
     const scheduledForEvent = scheduled.filter((m) => m.eventKey === eventKey);
     const upcoming: UpcomingPredictionRecord[] =
-      finalState !== undefined ? scheduledForEvent.map((match) => ({ match, prediction: algorithm.predict(finalState, match) })) : [];
+      finalState !== undefined ? scheduledForEvent.map((match) => layer.enrichUpcoming(match, algorithm.predict(finalState, match))) : [];
 
     const teamInfo = lookupAllTeamInfo(db);
     const matchDerivedTeamKeys = Array.from(new Set([...teams, ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
@@ -3401,11 +3296,31 @@ async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefine
             seasonFinalState: finalState,
             generation,
             computedAt: new Date().toISOString(),
+            // The same filler the seasons path passes. Without it this mode
+            // wrote a sidecar with no ranking points at all, which is what the
+            // rank simulation reads — so a `--event` republish disabled the
+            // Simulation tab for that event until the next full publish.
+            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.swingByTeam(), eventTeamKeys),
           })
         : undefined;
 
     const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });
     const body = JSON.stringify(validated);
+
+    return { key, body, ...(sidecar !== undefined ? { sidecar } : {}) };
+  }
+}
+
+async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefined, bucket: string, dryRun: boolean): Promise<void> {
+  const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
+  const algorithm = algorithms[0];
+  if (!algorithm || algorithms.length !== 1) {
+    throw new Error("--event mode requires exactly one --algorithm");
+  }
+
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  try {
+    const { key, body, sidecar } = buildSingleEventPublish(db, eventKey, algorithm);
 
     if (dryRun) {
       if (sidecar !== undefined) {

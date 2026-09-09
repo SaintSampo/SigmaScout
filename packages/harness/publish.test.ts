@@ -14,6 +14,7 @@ import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, TeamMetrics,
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
+import { bpr } from "../core/algorithms/bpr.js";
 import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 // Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
 // own `publish.ts` importer now imports the published `vpr` registry entry
@@ -42,6 +43,7 @@ import {
   buildCompareArtifact,
   buildEventArtifact,
   buildEventsArtifact,
+  buildSingleEventPublish,
   buildTeamsArtifact,
   buildTeamSeasonArtifact,
   computeSizeStats,
@@ -3760,22 +3762,24 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
 });
 
 /**
- * Plan 07-09 Task 2: `runEventMode` is module-private and not directly
- * callable from this test file, so its own single-season-replay/single-
- * pool/single-as-of-event-call shape is asserted STRUCTURALLY, at the
- * source-text level, standing in for a behavior test that would otherwise
- * need a full corpus. This is a deliberate stand-in, named as such so a
- * later reader does not mistake it for a weakened behavior assertion —
- * Test 3 below (the full pre-existing + Task 1 seeded-corpus suite still
- * green) is what actually proves runEventMode's sibling function,
- * publishSeasons, moved nothing.
+ * Plan 07-09 Task 2, repointed 2026-09-09: this began as a source-text
+ * stand-in because `runEventMode` was module-private and no behavior test of
+ * it was possible. That premise is gone — the build half is now exported as
+ * `buildSingleEventPublish` and the parity suites at the end of this file
+ * exercise it against a real seeded corpus.
+ *
+ * What survives is worth keeping on its own terms, and is no longer a
+ * stand-in for anything: the ONE-season-replay shape. `--event` must replay
+ * the season exactly once — once because a per-event replay would give a team
+ * no history from its earlier events (the wrong fix for the band/RP gap), and
+ * only once because that replay is this path's whole cost.
  */
-describe("runEventMode — structural (plan 07-09 Task 2)", () => {
+describe("--event replays the season exactly once — structural (plan 07-09 Task 2)", () => {
   const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
-  const rangeMatch = /async function runEventMode\b[\s\S]*?(?=\nasync function runSeasonsCliMode\b)/.exec(source);
+  const rangeMatch = /export function buildSingleEventPublish\b[\s\S]*?(?=\nasync function runEventMode\b)/.exec(source);
 
-  it("Test 2 (structural stand-in for an un-exported function): runEventMode's own range contains exactly one buildSeasonStream call, one sortedPoolsByMetric call, and one metricsAsOfEvent call", () => {
-    expect(rangeMatch, "expected to find runEventMode's source range").not.toBeNull();
+  it("its source range contains exactly one buildSeasonStream call, one sortedPoolsByMetric call, and one metricsAsOfEvent call", () => {
+    expect(rangeMatch, "expected to find buildSingleEventPublish's source range").not.toBeNull();
     const body = rangeMatch![0];
     const count = (pattern: string) => (body.match(new RegExp(pattern, "g")) ?? []).length;
     expect(count("buildSeasonStream\\(")).toBe(1);
@@ -4215,5 +4219,134 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
     };
     expect(buildTeamSeasonArtifact({ ...base, swingFactor: 12.3456 }).swingFactor).toBe(12.35);
     expect(buildTeamSeasonArtifact(base)).not.toHaveProperty("swingFactor");
+  });
+});
+
+/**
+ * The two orchestrations in `publish.ts` must agree.
+ *
+ * `publishSeasons` and `--event` (`buildSingleEventPublish`) both write
+ * `v1/event/{eventKey}/{algorithmId}@...`, and for a day they disagreed: the
+ * level-2 SigmaScout fields — the Match Band and ranking points — were added to
+ * `publishSeasons`'s loop only, so republishing an event with `--event`
+ * silently STRIPPED both from it until the next full publish.
+ *
+ * These tests exist because nothing else could catch that. Every unit test
+ * passed while it was true, and a `--dry-run` byte count cannot see a missing
+ * field. The fixture deliberately spans TWO events over the same six teams, so
+ * the late event's band depends on history from the early one — an `--event`
+ * path that replayed only its own event would produce different numbers here
+ * and fail, which is the specific wrong fix this pins against.
+ */
+describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-two-path-parity-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("emits a band at all on the late event — the precondition the parity assertions below rest on", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+    const banded = fromSeasons.matches.filter((m) => m.redSwingBandVariance !== undefined);
+    expect(banded.length, "seasons path publishes at least one banded row on the late event").toBeGreaterThan(0);
+  });
+
+  it("--event publishes the SAME band on every played row as the full seasons publish", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, bpr).body) as EventArtifact;
+
+    expect(fromEvent.matches.map((m) => m.matchKey)).toEqual(fromSeasons.matches.map((m) => m.matchKey));
+    for (const seasonsRow of fromSeasons.matches) {
+      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
+      expect(eventRow?.redSwingBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redSwingBandVariance);
+      expect(eventRow?.blueSwingBandVariance, `blue band on ${seasonsRow.matchKey}`).toBe(seasonsRow.blueSwingBandVariance);
+    }
+  });
+
+  it("--event publishes the same ranking-point fields as the full seasons publish", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, bpr).body) as EventArtifact;
+
+    for (const seasonsRow of fromSeasons.matches) {
+      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
+      expect(eventRow?.redRpPmf, `redRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redRpPmf);
+      expect(eventRow?.blueRpPmf, `blueRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.blueRpPmf);
+      expect(eventRow?.redBonusRp, `redBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redBonusRp);
+      expect(eventRow?.blueBonusRp, `blueBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.blueBonusRp);
+    }
+  });
+
+  it("agrees for OPR too — the layer is algorithm-independent, so parity cannot be a BPR-only property", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, opr.id);
+
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, opr).body) as EventArtifact;
+
+    for (const seasonsRow of fromSeasons.matches) {
+      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
+      expect(eventRow?.redSwingBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redSwingBandVariance);
+      expect(eventRow?.redRpPmf, `redRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redRpPmf);
+    }
+  });
+});
+
+/**
+ * The presim sidecar is the THIRD thing `--event` dropped, and the one with
+ * the most visible consequence: the rank simulation reads it, so a `--event`
+ * republish left that event's Simulation tab with no ranking points to draw
+ * until the next full publish.
+ */
+describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-sidecar-parity-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("both paths write a sidecar carrying ranking points for the same event", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const seasonsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${lateEventKey}/${bpr.id}@`));
+    expect(seasonsCall, "seasons path writes a presim sidecar for the late event").toBeDefined();
+    type Sidecar = { roster: string[]; schedules: { seed: number; matches: { rp: number[]; bp: number[] }[] }[] };
+    const fromSeasons = JSON.parse(seasonsCall![2] as string) as Sidecar;
+
+    const sidecar = buildSingleEventPublish(db, lateEventKey, bpr).sidecar;
+    expect(sidecar, "--event writes a presim sidecar for the same event").toBeDefined();
+    const fromEvent = JSON.parse(sidecar!.body) as Sidecar;
+
+    // The synthetic schedule is seeded and deterministic, so the two paths'
+    // schedules are directly comparable. `generation`/`computedAt` are
+    // deliberately excluded — they identify the RUN, not the numbers.
+    expect(fromEvent.roster).toEqual(fromSeasons.roster);
+    expect(fromSeasons.schedules.flatMap((s) => s.matches).length, "the fixture produces matches to compare").toBeGreaterThan(0);
+    expect(fromEvent.schedules).toEqual(fromSeasons.schedules);
   });
 });
