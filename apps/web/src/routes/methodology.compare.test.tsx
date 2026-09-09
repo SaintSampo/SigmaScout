@@ -198,7 +198,7 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
 });
 
 describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views x 10 seasons x 2 metrics = 60 decisions)", () => {
-  it("the computed rule (buildAccuracyRows + buildRowEmphasis) and an inline naive max/min strawman disagree on exactly nine of sixty emphasis decisions, each named individually", () => {
+  it("the computed rule (buildAccuracyRows + buildRowEmphasis) and an inline naive max/min strawman disagree on exactly eleven of sixty emphasis decisions, each named individually", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
     for (const season of COMPARE_SEASONS) {
       artifactsByYear.set(season, FIXTURES_BY_YEAR[season] as unknown as CompareArtifact);
@@ -258,24 +258,30 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
 
     // Measured against the ten committed real fixtures. History: four
     // divergences at planning time (08-CONTEXT.md D-11), nine after the
-    // Compare floor moved 2022 -> 2016 on 2026-09-07, and ten now that BPR is
-    // published (quick task 260908-b4t).
+    // Compare floor moved 2022 -> 2016 on 2026-09-07, ten once BPR was
+    // published (quick task 260908-b4t), and eleven at generation 40e7277d.
     //
-    // BPR did not add one case to the previous nine -- it REPLACED the set.
-    // Every divergence is now a season where BPR is the naive accuracy leader
-    // but sits inside the near-tie threshold of the runner-up, so the real
-    // rule withholds emphasis while the strawman bolds BPR. The old cases
-    // stopped diverging because BPR overtook the pairs that used to be the
-    // close ones, and the previous Brier divergence is gone entirely: all ten
-    // are accuracy decisions.
-    expect(diverged).toHaveLength(10);
+    // The move from ten to eleven is NOT drift -- it is one specific,
+    // explainable consequence of the BPR no-call fix (260908-b4t addendum 2).
+    // That fix cost BPR exactly 1.00pp of 2016 accuracy, dropping it from
+    // 71.46% to 70.46% and just BEHIND epa's 70.49%. A 0.03pp gap is deep
+    // inside the near-tie threshold, so 2016 combined and 2016 qualification
+    // became divergences with EPA as the naive leader. Meanwhile 2026
+    // elimination stopped diverging under the vpr 09g re-fit. Net +2 -1.
+    //
+    // Consequently the naive leader is NO LONGER always bpr: two of the
+    // eleven are epa. What stays invariant is the DIRECTION, asserted at the
+    // bottom of this test -- the real rule only ever withholds emphasis.
+    expect(diverged).toHaveLength(11);
     expect(diverged.every((d) => d.metric === "accuracy")).toBe(true);
-    expect(diverged.every((d) => d.naive.length === 1 && d.naive[0] === "bpr")).toBe(true);
+    expect(diverged.every((d) => d.naive.length === 1)).toBe(true);
+    expect(diverged.filter((d) => d.naive[0] === "epa")).toHaveLength(2);
+    expect(diverged.filter((d) => d.naive[0] === "bpr")).toHaveLength(9);
 
-    // Six of the ten sit in elimination play, where the samples are smallest
-    // and near-ties therefore most common.
+    // Five of the eleven sit in elimination play, where the samples are
+    // smallest and near-ties therefore most common.
     const eliminationDivergences = diverged.filter((d) => d.view === "elimination");
-    expect(eliminationDivergences).toHaveLength(6);
+    expect(eliminationDivergences).toHaveLength(5);
 
     function decisionFor(view: CompareCompLevelView, season: number, metric: "brier" | "accuracy") {
       const found = diverged.find((d) => d.view === view && d.season === season && d.metric === metric);
@@ -284,8 +290,10 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
     }
 
     // Named individually, so a failure states which case moved.
+    decisionFor("combined", 2016, "accuracy");
     decisionFor("combined", 2017, "accuracy");
     decisionFor("combined", 2023, "accuracy");
+    decisionFor("qualification", 2016, "accuracy");
     decisionFor("qualification", 2017, "accuracy");
     decisionFor("qualification", 2023, "accuracy");
     decisionFor("elimination", 2016, "accuracy");
@@ -293,7 +301,6 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
     decisionFor("elimination", 2020, "accuracy");
     decisionFor("elimination", 2022, "accuracy");
     decisionFor("elimination", 2023, "accuracy");
-    decisionFor("elimination", 2026, "accuracy");
 
     // Every divergence is the real rule WITHHOLDING emphasis the naive
     // strawman would have applied — never the reverse. That direction is the

@@ -1443,24 +1443,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-08T04:30:00.000Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason -- generation 34927891-7c14-401d-8684-af4f473ed02e, 145,070 objects, 5,283,450,092 bytes total. The 2026-09-08 BPR PUBLICATION (quick task 260908-b4t): a FOURTH algorithm, bpr@1.0.0+baseline, joins opr/epa/vpr. Not a re-tune and not a coverage change -- the same ten seasons, one more algorithm. BPR's parameters were frozen on 2016-2022 evidence alone and evaluated once against a sealed 2023-2026 holdout (see packages/core/algorithms/bpr.ts). vpr reads 11.0.0+rolling-2026-09e here because a concurrent session's Stage 2A parameter deletion landed before this run; that change is not this task's. Object count rose 108,805 -> 145,070 (+36,265) and bytes 4.24 GB -> 5.28 GB, almost entirely bpr's own team and event pages (team 101,400 -> 135,200 and event 7,335 -> 9,780, both exactly +1/3: one algorithm added to three). TWO ROWS MOVED FOR REASONS WORTH NAMING. teams median FELL 1,241,033 -> 797,231 B because bpr's per-season teams index is materially smaller than vpr's (it carries no RP or component payload), so adding it pulled the median down while the max barely moved. AND THE ONE TO WATCH: compare max rose 14,015 -> 18,630 B, now 93.2% of its 20,000 ceiling, because the compare artifact carries one slice set per algorithm and gained a fourth. A FIFTH algorithm would breach that ceiling outright -- raise it, or shrink the per-slice payload, before publishing one. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes. presim (216 sidecars, 2026 only) is vpr-only -- bpr carries no RP model and correctly produced none -- and is deliberately NOT a PageKind, so it has no row here.",
+  "measuredAt": "2026-09-09T01:35:00.000Z",
+  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason -- generation 40e7277d-aee1-42cf-82df-82587b67bc7e, 145,070 objects, 5,805,666,350 bytes total, exit 0, zero real errors (all 157 log lines are benign presim skips: 156 offseason event_type 99 events plus the cold-start season's first event). THREE INDEPENDENT MODEL STREAMS IN ONE GENERATION, recorded here because attribution is not otherwise recoverable. (1) epa 5.0.0+baseline -> 6.0.0+baseline (quick task 260908-615): W-L-T, event and match counts on the Teams list and team header now count OFFICIAL play only, and EPA season priors carry from the state after the last official match so exhibition play cannot seed the next season. (2) bpr (quick tasks 260908-b4t addendum 2 and 260908-pcm): the link is now exact at a dead-even matchup, and BPR publishes display-only phaseAuto/phaseTeleop/phaseEndgame. (3) vpr 11.0.0+rolling-2026-09e -> +rolling-2026-09g (quick task 260907-v1s): Stage 2A de-contamination plus a 2022/2025/2026 re-fit; R2 had been two promotions behind. MEASURED CONSEQUENCES, all predicted in advance and all confirmed. BPR's 2016 combined winner accuracy fell 71.46% -> 70.46% (exactly -1.00pp) and its 2016 no-call count rose 0 -> 269, which IS the no-call fix landing: BPR's normal-CDF link returned 0.5000000005 at a dead-even matchup, so it never tripped brier.ts's exact-equality no-call test and was credited for coin flips OPR/EPA/VPR were charged for under D-Q3. BPR no longer leads 2016; at 70.46% it now sits between epa (70.49%) and vpr (70.16%), which is the honest ordering. AND THE ONE TO WATCH, WHICH HAS CHANGED IDENTITY: team max rose 377,250 -> 392,088 B, now 98.0% of its 400,000 ceiling with 7,912 bytes of headroom. It is VPR's own frc3538/2024 object and the growth is the 09g re-fit, NOT bpr's new phase metrics (team artifacts are per-algorithm; bpr's own frc3538/2024 went 187,070 -> 244,610 B, 61% of ceiling). team has therefore overtaken compare (18,653 B, 93.3%) as the tightest constraint in the system. Jacob's stated intent on 2026-09-09 is to retire VPR soon, which would remove this object entirely -- so this is recorded rather than acted on. Note that retiring vpr also removes the ONLY algorithm carrying an RP model: presim (216 sidecars) and the rank simulation's redRpPmf/blueRpPmf are vpr-only, as is the Worker's live in-event folding. NO CEILING MOVED in this block; every page kind is under its committed budgetMaxBytes.",
   "pages": {
     "teams": {
       "count": 40,
-      "medianBytes": 797231,
-      "p95Bytes": 1500859,
-      "maxBytes": 1653552,
+      "medianBytes": 1045768,
+      "p95Bytes": 1573890,
+      "maxBytes": 1727364,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/vpr@11.0.0+rolling-2026-09e.json"
+      "largestKey": "v1/teams/2026/vpr@11.0.0+rolling-2026-09g.json"
     },
     "team": {
       "count": 135200,
-      "medianBytes": 27387,
-      "p95Bytes": 87208,
-      "maxBytes": 377250,
+      "medianBytes": 30775,
+      "p95Bytes": 93872,
+      "maxBytes": 392088,
       "budgetMaxBytes": 400000,
-      "largestKey": "v1/team/frc3538/2024/vpr@11.0.0+rolling-2026-09e.json"
+      "largestKey": "v1/team/frc3538/2024/vpr@11.0.0+rolling-2026-09g.json"
     },
     "events": {
       "count": 40,
@@ -1468,21 +1468,21 @@ rendering of these same numbers, not a second source.
       "p95Bytes": 84108,
       "maxBytes": 84117,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/vpr@11.0.0+rolling-2026-09e.json"
+      "largestKey": "v1/events/2025/vpr@11.0.0+rolling-2026-09g.json"
     },
     "event": {
       "count": 9780,
-      "medianBytes": 53497,
-      "p95Bytes": 105919,
-      "maxBytes": 262462,
+      "medianBytes": 61371,
+      "p95Bytes": 112140,
+      "maxBytes": 278098,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/vpr@11.0.0+rolling-2026-09e.json"
+      "largestKey": "v1/event/2016micmp/vpr@11.0.0+rolling-2026-09g.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 18196,
-      "p95Bytes": 18630,
-      "maxBytes": 18630,
+      "medianBytes": 18172,
+      "p95Bytes": 18653,
+      "maxBytes": 18653,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
