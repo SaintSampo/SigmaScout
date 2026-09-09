@@ -670,9 +670,28 @@ function eventMatchBonusRpFields(
 function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
   ruleModule: RpRuleModule | undefined,
-  swingByTeam: ReadonlyMap<string, number>
+  swingByTeam: ReadonlyMap<string, number>,
+  roster: readonly string[]
 ): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
   if (accumulator === undefined || ruleModule === undefined) return undefined;
+
+  // ALL-OR-NOTHING, decided ONCE for the whole event rather than per match.
+  //
+  // A synthetic schedule shuffles the roster, so different synthetic matches
+  // draw different alliances. Deciding per match meant an event containing even
+  // one team without a Swing Score priced its first match and then failed on a
+  // later one — and `buildPreScheduleArtifact` rightly treats a pmf that
+  // vanishes partway through a schedule as corruption rather than an RP-less
+  // algorithm, so it threw and took the whole publish down (measured
+  // 2026-09-09 on `2026isde4`).
+  //
+  // Returning `undefined` here instead means the probe on the FIRST synthetic
+  // match finds no pmf, which is the contract's own "this algorithm does not
+  // model ranking points" signal: the sidecar is skipped silently for this
+  // event. Honest — we genuinely cannot price an event whose roster we have not
+  // seen enough of — and uniform across every match of it.
+  if (roster.some((teamKey) => !swingByTeam.has(teamKey))) return undefined;
+
   return (match, prediction) => {
     if (prediction.redRpPmf !== undefined) return prediction;
     if (!isRpEligibleEventType(match.eventType)) return prediction;
@@ -2905,7 +2924,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               seasonFinalState: state,
               generation,
               computedAt,
-              fillRankingPoints: makeRankingPointFiller(rpAccumulators.get(algorithm.id), rpRuleModule, swingByTeamForAlgo),
+              fillRankingPoints: makeRankingPointFiller(rpAccumulators.get(algorithm.id), rpRuleModule, swingByTeamForAlgo, eventTeamKeys),
             })
           : undefined;
         if (sidecar !== undefined) {
