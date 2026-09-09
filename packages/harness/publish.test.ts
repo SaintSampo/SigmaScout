@@ -50,6 +50,7 @@ import {
   parseSeasonsRange,
   publishSeasons,
   resolvePublishAlgorithms,
+  seasonStatsMetricsForTeam,
   withEventPercentiles,
   withHistoryPercentiles,
   type ActualBonusFlags,
@@ -2653,6 +2654,45 @@ describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
 });
 
 /**
+ * Quick task 260908-wpo: direct unit coverage of `seasonStatsMetricsForTeam`
+ * — the team-artifact call site's official-vs-season-final selection helper
+ * — tested in isolation before the end-to-end `publishSeasons` describe
+ * block below wires it in.
+ */
+describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo)", () => {
+  it("official present and non-empty wins, tagged last-official-match", () => {
+    const official = { frc1: { total: { value: 313.95, percentile: 99.9 } } };
+    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
+    expect(result.metrics).toBe(official.frc1);
+    expect(result.metricsBasis).toBe("last-official-match");
+  });
+
+  it("official absent falls back to season-final, tagged season-final", () => {
+    const official = {};
+    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
+    expect(result.metrics).toBe(seasonFinal.frc1);
+    expect(result.metricsBasis).toBe("season-final");
+  });
+
+  it("official present but empty ALSO falls back to season-final — the trap: a presence-only check would publish the empty object instead", () => {
+    const official = { frc1: {} };
+    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
+    expect(result.metrics).toBe(seasonFinal.frc1);
+    expect(Object.keys(result.metrics).length).toBeGreaterThan(0);
+    expect(result.metricsBasis).toBe("season-final");
+  });
+
+  it("neither record has an entry for the team — returns empty metrics, tagged season-final (never throws)", () => {
+    const result = seasonStatsMetricsForTeam("frc404", {}, {});
+    expect(result.metrics).toEqual({});
+    expect(result.metricsBasis).toBe("season-final");
+  });
+});
+
+/**
  * Quick task 260904-586: end-to-end proof, through the real `publishSeasons`
  * path against a synthetic temp-dir corpus, that the Teams-list snapshot is
  * scoped to official play while team/event artifacts stay untouched.
@@ -2933,6 +2973,129 @@ describe("publishSeasons — official-only record, eventCount and matchCount (qu
     const officialTeam = teamsArtifact.teams.find((t) => t.teamKey === "frc10");
     expect(officialTeam?.country).toBe("USA");
     expect(officialTeam?.stateProv).toBe("CA");
+  });
+});
+
+/**
+ * Quick task 260908-wpo: end-to-end proof, through the real `publishSeasons`
+ * path against a synthetic temp-dir corpus, that the published team
+ * artifact's `seasonStats.metrics` reads the last-official-match basis with
+ * a season-final fallback for a team with no official play at all.
+ */
+describe("publishSeasons — seasonStats.metrics official-with-fallback (quick task 260908-wpo)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-seasonstats-basis-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function findTeamsArtifactRaw(year: number): unknown {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return JSON.parse(call![2] as string);
+  }
+
+  it("a team with one official and one offseason match: seasonStats.metrics equals the Teams-list row's metrics, tagged last-official-match, while metricHistory still carries the offseason row", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026casj_qm1", eventKey: "2026casj", sortTime: 1_000 }));
+
+    upsertEvent(
+      db,
+      seasonEvent({ eventKey: "2026ex", name: "Exhibition", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true })
+    );
+    upsertMatch(db, seasonMatch({ matchKey: "2026ex_qm1", eventKey: "2026ex", sortTime: 9_000 }));
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
+    const listRow = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
+    expect(listRow).toBeDefined();
+
+    const teamArtifact = findTeamArtifact("frc1", 2026);
+    expect(teamArtifact.seasonStats.metricsBasis).toBe("last-official-match");
+    expect(teamArtifact.seasonStats.metrics.total?.value).toBe(listRow?.metrics.total?.value);
+
+    expect(
+      teamArtifact.metricHistory.some((r) => r.eventKey === "2026ex"),
+      "the offseason match still moves the metric-history chart"
+    ).toBe(true);
+  });
+
+  it("an offseason-only team publishes NON-EMPTY seasonStats.metrics, tagged season-final — the trap this task closes", async () => {
+    // An official event elsewhere, involving different teams, so the season
+    // qualifies for aggregation (matches the sibling 260904-586 block's own
+    // fixture reasoning).
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0 }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: "2026casj_qm1",
+        eventKey: "2026casj",
+        sortTime: 500,
+        redTeams: ["frc10", "frc11", "frc12"],
+        blueTeams: ["frc13", "frc14", "frc15"],
+      })
+    );
+
+    upsertEvent(
+      db,
+      seasonEvent({ eventKey: "2026ex", name: "Exhibition", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true })
+    );
+    upsertMatch(db, seasonMatch({ matchKey: "2026ex_qm1", eventKey: "2026ex", sortTime: 1_000 }));
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamArtifact = findTeamArtifact("frc1", 2026);
+    expect(teamArtifact.seasonStats.metricsBasis).toBe("season-final");
+    // The trap: assert the VALUES are present, not merely the basis string —
+    // a basis-only assertion passes on a blanked team too.
+    expect(Object.keys(teamArtifact.seasonStats.metrics).length).toBeGreaterThan(0);
+    expect(teamArtifact.seasonStats.metrics.total?.value).toBeDefined();
+    // Cross-check against the same team's own metricHistory, which stays
+    // season-final regardless — the fallback must equal that value exactly.
+    const lastHistoryRow = teamArtifact.metricHistory.at(-1);
+    expect(teamArtifact.seasonStats.metrics.total?.value).toBe(lastHistoryRow?.metrics.total?.value);
+  });
+
+  it("a team with official play only: metricsBasis is last-official-match and the value equals the season-final path's own value — the frc254 no-regression case", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2026casj_qm1", eventKey: "2026casj", sortTime: 1_000 }));
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [opr],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamArtifact = findTeamArtifact("frc1", 2026);
+    expect(teamArtifact.seasonStats.metricsBasis).toBe("last-official-match");
+    const lastHistoryRow = teamArtifact.metricHistory.at(-1);
+    expect(teamArtifact.seasonStats.metrics.total?.value).toBe(lastHistoryRow?.metrics.total?.value);
   });
 });
 

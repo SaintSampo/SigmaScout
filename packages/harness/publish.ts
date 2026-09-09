@@ -102,6 +102,7 @@ import {
   sortedPoolsByMetric,
   withPercentiles,
   type TeamMetricWithPercentile,
+  type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
 import { emitSeedSql, serializeState, type StateStamp } from "./stateSnapshot.js";
@@ -262,6 +263,43 @@ export function lastOfficialMetricsByTeam(
     if (lastOfficial !== undefined) result[teamKey] = lastOfficial.metrics;
   }
   return result;
+}
+
+/**
+ * Quick task 260908-wpo: per-team basis selection for a team-season
+ * artifact's `seasonStats.metrics` — reuse, not a new derivation. Takes the
+ * two ALREADY percentile-widened records the caller built once per
+ * (algorithm, season) — `officialMetricsByTeamWithPercentiles` (from
+ * `lastOfficialMetricsByTeam` + `withPercentiles`) and
+ * `metricsByTeamWithPercentiles` (season-final, from `withPercentiles`
+ * alone) — and derives nothing about officialness itself; that derivation
+ * already happened once, in `lastOfficialMetricsByTeam` above.
+ *
+ * Selection rule: the official entry wins, tagged `"last-official-match"`,
+ * when it is present AND non-empty. Otherwise falls back to the season-final
+ * entry (`?? {}`), tagged `"season-final"`. The emptiness check (not merely
+ * a presence check) is load-bearing: `lastOfficialMetricsByTeam` OMITS an
+ * offseason-only team entirely, so a bare `officialWithPercentiles[teamKey]`
+ * would be `undefined` for such a team and correctly fall through — but this
+ * function checks emptiness too, rather than depending on that omission
+ * invariant holding at every call site forever, so it structurally cannot
+ * publish an empty metrics object for a team whose season-final values are
+ * non-empty (39 such teams in 2026, 97 in 2025, 97 in 2024 — measured,
+ * `260908-wpo-CONTEXT.md`).
+ *
+ * Exported (like `lastOfficialMetricsByTeam` above it) for direct unit
+ * testing.
+ */
+export function seasonStatsMetricsForTeam(
+  teamKey: string,
+  officialWithPercentiles: TeamMetricsWithPercentile,
+  seasonFinalWithPercentiles: TeamMetricsWithPercentile
+): { metrics: Record<string, TeamMetricWithPercentile>; metricsBasis: "last-official-match" | "season-final" } {
+  const official = officialWithPercentiles[teamKey];
+  if (official !== undefined && Object.keys(official).length > 0) {
+    return { metrics: official, metricsBasis: "last-official-match" };
+  }
+  return { metrics: seasonFinalWithPercentiles[teamKey] ?? {}, metricsBasis: "season-final" };
 }
 
 /**
@@ -2412,9 +2450,20 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // skipping any team with no value, so an offseason-only team (absent
       // from `officialMetricsByTeam` entirely) is simply excluded from every
       // metric's ranking, never counted as a zero. `metricsByTeamWithPercentiles`
-      // above and `sortedPools` below are untouched by this — the per-team
-      // artifact's `seasonStats`/`metricHistory` sections stay season-final,
-      // exactly as before.
+      // above and `sortedPools` below are untouched by this.
+      //
+      // Quick task 260908-wpo: as of this change, the per-team artifact's
+      // `seasonStats.metrics` no longer stays season-final — the earlier
+      // version of this comment said it did, and that stopped being true.
+      // `seasonStatsMetricsForTeam` (below, per-team, at the team-artifact
+      // call site) now reads THIS `officialMetricsByTeamWithPercentiles`
+      // record when a team has any official play, tagging the result
+      // `metricsBasis: "last-official-match"`, and falls back to the
+      // season-final `metricsByTeamWithPercentiles` ONLY for a team with no
+      // official play at all (tagged `"season-final"`), so an offseason-only
+      // team's page never publishes an empty metrics object. `metricHistory`
+      // and `sortedPools` genuinely DO stay season-final, unchanged by this —
+      // it is only `seasonStats.metrics` that moved.
       const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
       const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason);
 
@@ -2732,6 +2781,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         // that way — an offseason event keeps its own section, its matches
         // and its metric-history rows.
         const stats = teamStatsOfficial.get(teamKey);
+        // Quick task 260908-wpo: official-with-fallback, not the bare
+        // season-final `metricsByTeamWithPercentiles[teamKey] ?? {}` this
+        // replaced — see `seasonStatsMetricsForTeam`'s doc comment for the
+        // full selection rule and why the emptiness check matters.
+        const seasonStatsMetrics = seasonStatsMetricsForTeam(teamKey, officialMetricsByTeamWithPercentiles, metricsByTeamWithPercentiles);
         const teamSeasonArtifact = buildTeamSeasonArtifact({
           teamKey,
           teamNumber: info.teamNumber,
@@ -2741,13 +2795,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           algorithmVersion: version,
           seasonStats: {
             record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-            // D-04 (Phase 6): the percentile-widened record — the ONLY
-            // consumer of `metricsByTeamWithPercentiles` this phase wires.
-            metrics: metricsByTeamWithPercentiles[teamKey] ?? {},
-            // TODO(quick task 260908-wpo, Task 2): placeholder until the
-            // official-vs-season-final selection helper lands — Task 1 only
-            // threads the field through the schema and builder.
-            metricsBasis: "last-official-match",
+            metrics: seasonStatsMetrics.metrics,
+            metricsBasis: seasonStatsMetrics.metricsBasis,
           },
           // Quick task 260908-5wd: SigmaScout-layer Swing Factor, the SAME
           // per-team value the `/teams` artifact publishes for this team — one
