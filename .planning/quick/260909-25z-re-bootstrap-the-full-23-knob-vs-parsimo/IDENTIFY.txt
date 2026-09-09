@@ -1,0 +1,66 @@
+IDENTIFY - which file on disk IS the full 23-knob variant
+date: 2026-09-09T05:55:04Z
+
+The task brief said the full variant DOES NOT EXIST ON DISK and must be
+reconstructed. That claim was scoped to packages/bpr/*.json and is WRONG one
+directory over. This file re-proves the correction independently.
+
+=== A. Commit ordering (git log --diff-filter=A) ===
+.planning/quick/260908-b4t-fresh-2023-blind-model/round5-full.json       214f66f5 2026-09-08 01:18:12 -0400 test(bpr): model tests, side-bias term, and the pre-committed freeze rule
+.planning/quick/260908-b4t-fresh-2023-blind-model/parsimonious-seed.json 214f66f5 2026-09-08 01:18:12 -0400 test(bpr): model tests, side-bias term, and the pre-committed freeze rule
+.planning/quick/260908-b4t-fresh-2023-blind-model/DECISION.md            214f66f5 2026-09-08 01:18:12 -0400 test(bpr): model tests, side-bias term, and the pre-committed freeze rule
+.planning/quick/260908-b4t-fresh-2023-blind-model/fair-reset-control.json 3cfe7520 2026-09-08 01:53:07 -0400 feat(bpr): cross-season carryover study - how much FRC strength persists
+.planning/quick/260908-b4t-fresh-2023-blind-model/hetero-seed.json       22ad2035 2026-09-08 01:46:04 -0400 feat(bpr): heteroscedastic observation noise, diagnosed from 2023 wk0-1
+packages/bpr/frozen-params.json                                          a66688af 2026-09-08 01:20:51 -0400 freeze(bpr): seal parameters chosen on 2016-2022 only
+
+=== B. git show --stat 214f66f5 (does DECISION.md ship in the same commit?) ===
+214f66f5 2026-09-08 01:18:12 -0400 test(bpr): model tests, side-bias term, and the pre-committed freeze rule
+
+ .../260908-b4t-fresh-2023-blind-model/DECISION.md  |  73 ++++++++++
+ .../parsimonious-seed.json                         |  10 ++
+ .../260908-b4t-fresh-2023-blind-model/round3.json  |  10 ++
+ .../260908-b4t-fresh-2023-blind-model/round4.json  |  10 ++
+ .../round5-full.json                               |  10 ++
+ .../validation-tune-1619.json                      |  10 ++
+ packages/bpr/ablate.ts                             |  22 +++
+ packages/bpr/evaluate.ts                           |   5 +-
+ packages/bpr/model.test.ts                         | 154 +++++++++++++++++++++
+ packages/bpr/model.ts                              |  60 +++++++-
+ packages/bpr/score.ts                              |  33 +++++
+ packages/bpr/tune.ts                               |  15 ++
+ 12 files changed, 406 insertions(+), 6 deletions(-)
+
+Reading: round5-full.json, parsimonious-seed.json and DECISION.md were committed
+TOGETHER at 01:18:12, and frozen-params.json was sealed 2m39s later at 01:20:51.
+The full variant, the parsimonious seed and the freeze rule shipped in one commit
+immediately before the freeze. hetero-seed.json (obsSdSlope, F-16, 'diagnosed from
+2023 wk0-1') and fair-reset-control.json are POST-SEAL (01:46 and 01:53) and are
+NOT the full variant, despite carrying a similar _selected comment string.
+
+=== C. Knob profile: every component the parsimonious model pins inert is ACTIVE ===
+  knob            full(round5)      parsimonious(frozen)   component
+  foulOn        true              false                  foul submodel
+  foulObsSd     1.5               1.5                    
+  foulQ         0.0001            0.0001                 
+  foulPriorVar  0.02              0.02                   
+  elimWeight    0.5               1                      elim down-weighting
+  defPriorVar   0.005             0                      defensive suppression
+  defQ          0                 0                      
+  huberK        2.5               1000000000             Huber clip
+  biasLr        0.001             0                      learned side bias
+
+  round5-full knob count (params keys): 23
+  obsSdSlope present in round5-full?    false
+  obsSdSlope present in frozen-params?  false
+
+Every one of the five dropped components is ACTIVE in round5-full.json and INERT
+in frozen-params.json (foulOn true/false, elimWeight 0.5/1, defPriorVar 0.005/0,
+huberK 2.5/1e9, biasLr 0.001/0). No obsSdSlope key is present, which dates the
+file to the 23-knob era exactly - that knob was added post-seal (F-16).
+
+=== D. What this identification does NOT rest on ===
+It rests on the commit-ordering evidence in A/B and the knob profile in C, and
+NOT on reproducing the pre-P3 accuracy figure 0.73319 quoted in frozen-params.json's
+_selected string. The pre-P3 code path no longer exists at HEAD (P3 changed both the
+scored population and the accuracy convention), so 0.73319 is not reproducible today
+and this task does not attempt it. Every number this task produces is post-P3.

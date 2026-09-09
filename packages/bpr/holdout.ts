@@ -74,7 +74,15 @@ function load(path: string): BprParams {
   return { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
 }
 
-interface Paired {
+/**
+ * One match, scored by BOTH models. Exported (with the two statistics below)
+ * so a design-era contrast measures the SAME quantity with the SAME code a
+ * holdout run would use - which is what lets a design-era interval serve as a
+ * valid pre-registration for a later holdout interval, rather than being a
+ * second hand-rolled approximation of it. Exporting changes nothing about what
+ * this file computes or how main() behaves.
+ */
+export interface Paired {
   readonly eventKey: string;
   readonly matchKey: string;
   readonly season: number;
@@ -85,7 +93,7 @@ interface Paired {
   readonly pCandidate: number;
 }
 
-function meanBrierDelta(units: readonly Paired[]): number {
+export function meanBrierDelta(units: readonly Paired[]): number {
   if (units.length === 0) return 0;
   let sum = 0;
   for (const u of units) {
@@ -95,7 +103,7 @@ function meanBrierDelta(units: readonly Paired[]): number {
   return sum / units.length;
 }
 
-function meanAccuracyDelta(units: readonly Paired[]): number {
+export function meanAccuracyDelta(units: readonly Paired[]): number {
   let n = 0;
   let sum = 0;
   for (const u of units) {

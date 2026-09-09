@@ -1,0 +1,37 @@
+[bpr] loaded 152757 matches in 3373ms
+=== ARM A ===  DESIGN ERA 2016-2022 ONLY, post-P3 unified path
+  INCUMBENT (parsimonious side): packages/bpr/frozen-params.json
+  CANDIDATE (full side):         .planning/quick/260908-b4t-fresh-2023-blind-model/round5-full.json
+  orientation: delta = FULL - PARSIMONIOUS
+  resamples: 2000   seed: eventBootstrap default (42)
+  paired units: 82735   jsonl: reports/260909-25z/A.jsonl
+
+INCUMBENT (parsimonious) packages/bpr/frozen-params.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146     269   70.46  0.1845  0.5533
+  2017   15364   15103    261       1   67.24  0.2036  0.6016
+  2018   16889   16861     28       0   74.40  0.1716  0.5140
+  2019   17972   17664    308       0   73.24  0.1750  0.5333
+  2020    4644    4618     26       0   72.76  0.1766  0.5287
+  2022   14603   14427    176       0   78.75  0.1429  0.4457
+  TOTAL  82735   81790    945     270   72.87  0.1756  0.5295
+
+CANDIDATE (full) .planning/quick/260908-b4t-fresh-2023-blind-model/round5-full.json
+  year      n  accDen   ties  noCall   acc%    brier   logloss
+  2016   13263   13117    146       1   71.55  0.1843  0.5527
+  2017   15364   15103    261       0   67.21  0.2033  0.6007
+  2018   16889   16861     28       0   74.89  0.1689  0.5075
+  2019   17972   17664    308       0   73.29  0.1745  0.5325
+  2020    4644    4618     26       0   73.00  0.1769  0.5295
+  2022   14603   14427    176       0   79.24  0.1425  0.4448
+  TOTAL  82735   81790    945       1   73.25  0.1748  0.5276
+
+  LEVELS  parsimonious acc 72.871%  brier 0.17559  ll 0.52954
+          full         acc 73.250%  brier 0.17477  ll 0.52764
+
+PAIRED  FULL - PARSIMONIOUS  (event-blocked, same matches both models)
+  combined               n= 82735 events= 911  dAcc   +0.379pp SE 0.0794 95% [0.221, 0.538] excl0 YES  |  dBrier  -0.00081 95% [-0.00110, -0.00052] excl0 YES
+  champs (type 2,3,4)    n= 11728 events= 108  dAcc   +0.311pp SE 0.2297 95% [-0.138, 0.756] excl0 no   |  dBrier  -0.00150 95% [-0.00242, -0.00055] excl0 YES
+  non-champs             n= 71007 events= 803  dAcc   +0.390pp SE 0.0837 95% [0.231, 0.546] excl0 YES  |  dBrier  -0.00070 95% [-0.00100, -0.00040] excl0 YES
+
+  Reading: dAcc POSITIVE => full better. dBrier NEGATIVE => full better.
