@@ -1237,7 +1237,30 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   teamNumber: z.number().int(),
   nickname: z.string(),
   season: z.number().int(),
-  seasonStats: RecordAndMetricsSchema,
+  seasonStats: RecordAndMetricsSchema.extend({
+    /**
+     * Quick task 260908-wpo: which basis produced this object's `metrics`.
+     * - `"last-official-match"` — this team's metrics as of its own LAST
+     *   OFFICIAL (non-offseason, non-Week-0) match, the same snapshot the
+     *   Teams list and the team-page header ("As of last official match")
+     *   already show. Carried by every team with at least one official match.
+     * - `"season-final"` — this team's season-final metrics, which keep
+     *   learning through offseason/preseason play. Used ONLY as the fallback
+     *   for a team with NO official play at all, so an offseason-only team's
+     *   page never publishes an empty metrics object.
+     *
+     * Scoped to `metrics` alone: `metricHistory` on this same artifact stays
+     * season-final regardless of this field's value.
+     *
+     * Optional at parse — `.optional()` here, not required — so an artifact
+     * published before quick task 260908-wpo (whose `seasonStats.metrics`
+     * was unconditionally season-final, with no field naming that) still
+     * parses during the republish window rather than hard-failing every
+     * CDN-cached pre-republish artifact. Mandatory on the write side instead:
+     * `buildTeamSeasonArtifact` requires a basis from every caller.
+     */
+    metricsBasis: z.enum(["last-official-match", "season-final"]).optional(),
+  }),
   /**
    * SIGMASCOUT-LAYER Swing Factor (quick task 260908-5wd): how much this team's
    * share of its alliance's score swings from match to match, recency-weighted

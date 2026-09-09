@@ -1041,7 +1041,18 @@ export interface BuildTeamSeasonArtifactParams {
   readonly season: number;
   readonly algorithmId: string;
   readonly algorithmVersion: string;
-  readonly seasonStats: { record: { wins: number; losses: number; ties: number }; metrics: Record<string, TeamMetricWithPercentile> };
+  readonly seasonStats: {
+    record: { wins: number; losses: number; ties: number };
+    metrics: Record<string, TeamMetricWithPercentile>;
+    /**
+     * Quick task 260908-wpo: required here — every caller must state which
+     * basis produced `metrics` — even though `TeamSeasonArtifactSchema`
+     * itself parses this field as optional for pre-260908-wpo back-compat.
+     * See that schema's `seasonStats.metricsBasis` doc comment for the two
+     * values' meaning.
+     */
+    metricsBasis: "last-official-match" | "season-final";
+  };
   /**
    * This team's SigmaScout-layer Swing Factor (quick task 260908-5wd),
    * season-final. Present for every algorithm, absent for a team with fewer
@@ -1231,7 +1242,13 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     // matching field for the absent-vs-undefined contract and the rounding.
     ...(params.swingFactor !== undefined ? { swingFactor: roundMetric(params.swingFactor) } : {}),
     season: params.season,
-    seasonStats: { record: params.seasonStats.record, metrics: roundTeamMetricRecord(params.seasonStats.metrics) },
+    seasonStats: {
+      record: params.seasonStats.record,
+      metrics: roundTeamMetricRecord(params.seasonStats.metrics),
+      // Quick task 260908-wpo: a string tag — passed through unmodified, no
+      // rounding, no transform.
+      metricsBasis: params.seasonStats.metricsBasis,
+    },
     events,
     metricHistory: params.metricHistory.map(roundMetricHistoryRow),
     robotImageUrl: params.robotImageUrl,
@@ -2727,6 +2744,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             // D-04 (Phase 6): the percentile-widened record — the ONLY
             // consumer of `metricsByTeamWithPercentiles` this phase wires.
             metrics: metricsByTeamWithPercentiles[teamKey] ?? {},
+            // TODO(quick task 260908-wpo, Task 2): placeholder until the
+            // official-vs-season-final selection helper lands — Task 1 only
+            // threads the field through the schema and builder.
+            metricsBasis: "last-official-match",
           },
           // Quick task 260908-5wd: SigmaScout-layer Swing Factor, the SAME
           // per-team value the `/teams` artifact publishes for this team — one

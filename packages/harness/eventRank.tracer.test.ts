@@ -94,7 +94,7 @@ describe("event standing — corpus-backed end-to-end tracer (plan 06.1-01, Task
       season: SEASON,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" },
       events: [
         {
           eventKey: eventKey!,

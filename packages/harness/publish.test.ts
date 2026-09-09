@@ -641,7 +641,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equival
       season: 2026,
       algorithmId: "vpr",
       algorithmVersion: "2.0.0+test",
-      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
         {
           eventKey: "2026casj",
@@ -718,7 +718,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
       season: 2026,
       algorithmId: "vpr",
       algorithmVersion: "2.0.0+test",
-      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
         {
           eventKey: "2026casj",
@@ -751,7 +751,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
       season: 2026,
       algorithmId: "vpr",
       algorithmVersion: "2.0.0+test",
-      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
         {
           eventKey: "2026casj",
@@ -1492,7 +1492,7 @@ describe("buildTeamSeasonArtifact", () => {
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } } },
+      seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
         {
           eventKey: "2026casj",
@@ -1527,7 +1527,7 @@ describe("buildTeamSeasonArtifact", () => {
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" },
       events: [],
       metricHistory: [],
       generation: "g1",
@@ -1546,7 +1546,7 @@ describe("buildTeamSeasonArtifact — ranks (quick task 260905-ldu)", () => {
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" },
       events: [],
       metricHistory: [],
       generation: "g1",
@@ -1588,7 +1588,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     season: 2026,
     algorithmId: "opr",
     algorithmVersion: "3.0.0+baseline",
-    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } }, metricsBasis: "last-official-match" },
     metricHistory: [],
     generation: "test-generation-1",
     computedAt: "2026-08-22T00:00:00.000Z",
@@ -1716,6 +1716,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
         metrics: { total: { value: 45.6, spread: 3.1, percentile: 82.4 } },
+        metricsBasis: "last-official-match",
       },
       robotImageUrl: "https://i.imgur.com/example.jpg",
       activeYears: [2024, 2025, 2026],
@@ -1757,7 +1758,7 @@ describe("buildTeamSeasonArtifact — TEAM-04/F-06-3 event rank (plan 06.1-01 Ta
     season: 2024,
     algorithmId: "opr",
     algorithmVersion: "3.0.0+baseline",
-    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } }, metricsBasis: "last-official-match" },
     metricHistory: [],
     generation: "test-generation-1",
     computedAt: "2026-08-26T00:00:00.000Z",
@@ -1903,7 +1904,7 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
     season: 2024,
     algorithmId: "vpr",
     algorithmVersion: "2.0.0+test",
-    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } } },
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } }, metricsBasis: "last-official-match" },
     metricHistory: [],
     generation: "test-generation-1",
     computedAt: "2026-08-26T00:00:00.000Z",
@@ -3966,7 +3967,7 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "4.0.0+baseline",
-      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } }, metricsBasis: "last-official-match" },
       events: [{ eventKey: "2026casj", eventName: "2026casj", startDate: "2026-03-01", matches: [shared] }],
       metricHistory: [],
       generation: "g1",
@@ -4039,7 +4040,7 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
       season: 2026,
       algorithmId: "opr" as const,
       algorithmVersion: "4.0.0+baseline",
-      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } }, metricsBasis: "last-official-match" as const },
       events: [],
       metricHistory: [],
       generation: "g1",

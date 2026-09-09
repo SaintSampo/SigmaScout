@@ -276,7 +276,7 @@ const SAMPLE_EVENT_KEY = "2026azfg";
           season: 2026,
           algorithmId: opr.id,
           algorithmVersion: opr.version,
-          seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+          seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" },
           events: [{ eventKey: SAMPLE_EVENT_KEY, eventName: SAMPLE_EVENT_KEY, startDate: "2026-01-01", matches: teamMatches }],
           metricHistory: [],
           generation: "payload-budget-test",

@@ -665,6 +665,33 @@ describe("TeamMetricSchema.percentile — D-04 boundary (Phase 6, plan 06-02 Tas
   });
 });
 
+describe("TeamSeasonArtifactSchema — seasonStats.metricsBasis (quick task 260908-wpo)", () => {
+  it("parses with metricsBasis: 'last-official-match'", () => {
+    const base = validTeamSeasonFixture();
+    const fixture = { ...base, seasonStats: { ...base.seasonStats, metricsBasis: "last-official-match" } };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("parses with metricsBasis: 'season-final'", () => {
+    const base = validTeamSeasonFixture();
+    const fixture = { ...base, seasonStats: { ...base.seasonStats, metricsBasis: "season-final" } };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("parses with metricsBasis absent — the pre-260908-wpo back-compat case", () => {
+    const fixture = validTeamSeasonFixture();
+    expect("metricsBasis" in fixture.seasonStats).toBe(false);
+    const parsed = TeamSeasonArtifactSchema.parse(fixture);
+    expect(parsed.seasonStats.metricsBasis).toBeUndefined();
+  });
+
+  it("rejects any other string value", () => {
+    const base = validTeamSeasonFixture();
+    const fixture = { ...base, seasonStats: { ...base.seasonStats, metricsBasis: "season-average" } };
+    expect(() => TeamSeasonArtifactSchema.parse(fixture)).toThrow();
+  });
+});
+
 describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears (D-03/D-05, Phase 6, plan 06-02 Task 3)", () => {
   it("parses a fixture with no robotImageUrl and no activeYears", () => {
     expect(() => TeamSeasonArtifactSchema.parse(validTeamSeasonFixture())).not.toThrow();
