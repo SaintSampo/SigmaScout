@@ -109,7 +109,12 @@ afterEach(() => {
 });
 
 describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () => {
-  it("the D-15 worked example: three picks at {value: 10, spread: 10} combine to value 30.00 and spread 17.32, never 30.00 as the spread", () => {
+  // 2026-09-09: this pair used to pin the quadrature COMBINATION of the picks'
+  // `spread`. That combination is gone — spread is the algorithm's own
+  // confidence and must never reach the screen in any form, including summed.
+  // The values still sum; the alliance simply makes no uncertainty claim until
+  // per-team Swing Scores are available on this surface.
+  it("sums the picks' values and returns NO combined ± — the spread-derived one was removed", () => {
     const totals = [
       { value: 10, spread: 10 },
       { value: 10, spread: 10 },
@@ -117,11 +122,10 @@ describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () =>
     ];
     const combined = combineAlliancePicks(totals);
     expect(combined?.value.toFixed(2)).toBe("30.00");
-    expect(combined?.spread?.toFixed(2)).toBe("17.32");
-    expect(combined?.spread?.toFixed(2)).not.toBe("30.00");
+    expect(combined?.spread).toBeUndefined();
   });
 
-  it("the exact-integer fixture: spreads 3/4/12 combine to exactly spread 13 (9+16+144=169), values 10.50/20.25/30.10 sum to exactly 60.85", () => {
+  it("the exact-integer fixture: values 10.50/20.25/30.10 sum to exactly 60.85, and no spread survives the combination", () => {
     const totals = [
       { value: 10.5, spread: 3 },
       { value: 20.25, spread: 4 },
@@ -129,7 +133,7 @@ describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () =>
     ];
     const combined = combineAlliancePicks(totals);
     expect(combined?.value).toBe(60.85);
-    expect(combined?.spread).toBe(13);
+    expect(combined?.spread).toBeUndefined();
   });
 
   it("returns undefined when the FIRST of the three positions is undefined", () => {
@@ -380,7 +384,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const captainCell = await screen.findByTestId("alliances-cell-pick0");
     expect(captainCell.textContent).toContain("74.76");
-    expect(captainCell.textContent).toContain("± 3.47");
+    // 2026-09-09: the pick's published `spread` (3.47) must NOT render — it is
+    // the algorithm's own confidence. The tier box, which is a percentile
+    // claim rather than an uncertainty one, is unaffected.
+    expect(captainCell.textContent).not.toContain("±");
+    expect(captainCell.textContent).not.toContain("3.47");
     expect(captainCell.querySelector(".metric-tier--legendary")).not.toBeNull();
 
     const pick2Cell = screen.getByTestId("alliances-cell-pick2");

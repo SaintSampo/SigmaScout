@@ -10,6 +10,18 @@ import { useDisplaySettingsStore } from "@/stores/displaySettings";
  */
 export interface DisplayMetric {
   value: number;
+  /**
+   * The ALGORITHM's own confidence in `value`. Present on the wire for the
+   * algorithms that model it (BPR publishes one on `total` and all three
+   * phase metrics).
+   *
+   * DELIBERATELY NOT READ BY THIS COMPONENT, and that is the whole point of
+   * this field's presence in the type: spread must never reach the screen in
+   * any form, including as a fallback (developer rule, 2026-09-09). It is
+   * declared here only so a reader who finds it on an artifact can see, in one
+   * place, that it is knowingly ignored — deleting it from the type would just
+   * make the next person wonder where it went.
+   */
   spread?: number;
 }
 
@@ -60,7 +72,29 @@ export interface DisplayMetric {
  * (that class is also consumed by two match-table surfaces outside this
  * fix's scope).
  */
-export function MetricValue({ metric, tier, className }: { metric?: DisplayMetric; tier?: Tier; className?: string }) {
+export function MetricValue({
+  metric,
+  tier,
+  className,
+  swingScore,
+}: {
+  metric?: DisplayMetric;
+  tier?: Tier;
+  className?: string;
+  /**
+   * The SWING SCORE for this cell — SigmaScout's own heuristic for how much
+   * this robot's contribution varies match to match. The ONLY quantity this
+   * component will render as a `±`.
+   *
+   * Passed EXPLICITLY by each caller rather than read off `metric`, so that
+   * showing a `±` is always a deliberate act. Before 2026-09-09 this component
+   * rendered `metric.spread`, which meant every one of its ten call sites
+   * displayed the algorithm's internal confidence without ever asking to —
+   * a leak that was systemic precisely because it lived here rather than at
+   * any one call site.
+   */
+  swingScore?: number;
+}) {
   const showSwingFactor = useDisplaySettingsStore((state) => state.showSwingFactor);
 
   if (metric === undefined) {
@@ -71,14 +105,14 @@ export function MetricValue({ metric, tier, className }: { metric?: DisplayMetri
   }
 
   const valueText = metric.value.toFixed(2);
-  const hasSpread = metric.spread !== undefined && showSwingFactor;
+  const hasSwingScore = swingScore !== undefined && showSwingFactor;
   const boxed = tier !== undefined;
 
   return (
     <span className={cn("numeric-cell whitespace-nowrap", boxed && "metric-tier", boxed && `metric-tier--${tier}`, className)}>
       <span className="text-role-body">{valueText}</span>
-      {hasSpread && (
-        <span className="metric-spread-superscript text-muted-foreground">{` ± ${metric.spread?.toFixed(2)}`}</span>
+      {hasSwingScore && (
+        <span className="metric-spread-superscript text-muted-foreground">{` ± ${swingScore.toFixed(2)}`}</span>
       )}
     </span>
   );

@@ -152,7 +152,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(autoCell.textContent).toContain("12.34");
   });
 
-  it("gives every phase group its own plus-minus and rarity tier, not just Total", () => {
+  it("gives every phase group its own rarity tier; only Total carries a plus-minus, since Swing Score is a total-only quantity", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
       phaseTeleop: { value: 30, spread: 2, percentile: 20 },
@@ -169,9 +169,11 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     const totalCell = cells.at(3);
     if (autoCell === undefined || teleopCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
 
-    // A group's spread is real published data (the covariance quadratic form
-    // over its own component indices), so it renders like any other metric.
-    expect(autoCell.textContent).toContain("±");
+    // A group's published `spread` is the ALGORITHM's own confidence, so it no
+    // longer renders (2026-09-09). Swing Score is computed from TOTAL-score
+    // residuals and has no per-component form, so a phase tile shows a bare
+    // value and its tier.
+    expect(autoCell.textContent).not.toContain("±");
     expect(autoCell.querySelector(".metric-tier--legendary")).not.toBeNull();
     expect(totalCell.querySelector(".metric-tier--legendary")).not.toBeNull();
     // 20th percentile is Common, which since 260904-7rt (sketch 008 winner
@@ -219,7 +221,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(endgameCell?.textContent).toContain("4"); // 3 + 1
   });
 
-  it("D-3: a VPR fixture with published phase metrics carrying spreads still renders its published spread/tier — derivation is invisible on VPR", () => {
+  it("D-3: a fixture with published phase metrics keeps its published values and tiers, and renders none of their spreads", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
       phaseTeleop: { value: 30, spread: 2, percentile: 40 },
@@ -232,7 +234,10 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     const [autoCell] = cells;
-    expect(autoCell?.textContent).toContain("±");
+    // Published phase value and tier survive; the published spread does not
+    // render (2026-09-09) — it is the algorithm's own confidence.
+    expect(autoCell?.textContent).toContain("12.34");
+    expect(autoCell?.textContent).not.toContain("±");
     expect(autoCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
@@ -404,7 +409,7 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
     expect(totalCell?.textContent).not.toContain("2.50");
   });
 
-  it("a VPR-shaped artifact (Total entry with a published spread) renders that published number unchanged", () => {
+  it("an artifact whose Total carries a published spread renders NO plus-minus from it", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },
       events: eventsWithOneMatch(),
@@ -415,7 +420,8 @@ describe("SeasonHeader — published Swing Factor (quick task 260908-5wd)", () =
     const cells = screen.getAllByTestId("metric-grid-cell");
     // VPR always shows four tiles (Auto/Teleop/Endgame/Total); Total is last.
     const totalCell = cells.at(-1);
-    expect(totalCell?.textContent).toContain("60.50 ± 2.50");
+    expect(totalCell?.textContent).toContain("60.50");
+    expect(totalCell?.textContent).not.toContain("±");
   });
 
   it("a team with no played matches renders the Total tile with no ± and no crash", () => {

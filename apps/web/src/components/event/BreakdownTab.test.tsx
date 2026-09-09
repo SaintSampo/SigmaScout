@@ -366,7 +366,7 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
     expect(cell.querySelector(".metric-tier")).toBeNull();
   });
 
-  it("a published phase entry wins over the derived sum and keeps its spread and tier", async () => {
+  it("a published phase entry wins over the derived sum and keeps its tier, and never renders its spread", async () => {
     const metrics = fullVPRMetrics2024();
     metrics.phaseAuto = { value: 28.5, spread: 2.1, percentile: 80 };
     const artifact = makeArtifact([team({ metrics })]);
@@ -374,7 +374,7 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
     expect(cell.textContent).toContain("28.50");
-    expect(cell.textContent).toContain("± 2.10");
+    expect(cell.textContent).not.toContain("±");
     expect(cell.querySelector(".metric-tier--epic")).not.toBeNull();
   });
 });

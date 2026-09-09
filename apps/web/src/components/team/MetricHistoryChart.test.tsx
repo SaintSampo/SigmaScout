@@ -22,14 +22,17 @@ const EVENT_NAMES: Record<string, string> = {
 };
 
 describe("MetricHistoryChart", () => {
-  it("renders an Area band when at least one point carries a spread", () => {
+  it("renders NO Area band even when points carry a spread — the band was drawn from the algorithm's confidence", () => {
     const rows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="bpr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
-    expect(container.querySelectorAll(".recharts-area").length).toBeGreaterThan(0);
+    // The Area band was drawn from each row's `spread`. Spread must never
+    // reach the screen, so no band renders — and there is no per-match Swing
+    // Score published yet to draw an honest one from.
+    expect(container.querySelectorAll(".recharts-area").length).toBe(0);
   });
 
   it("renders zero Area elements and no variance/spread copy when no row carries a spread (OPR/EPA)", () => {

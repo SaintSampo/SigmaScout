@@ -153,7 +153,14 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
   }, []);
 
   const points = buildMetricSeries(rows, TOTAL_KEY);
-  const hasSpread = points.some((point) => point.spread !== undefined);
+  // The shaded band this chart used to draw came from each history row's
+  // `spread` — the ALGORITHM's confidence in its own rating — which must never
+  // reach the screen (2026-09-09). Forced off rather than deleted piecemeal:
+  // every band code path below stays intact and dormant, so re-enabling it
+  // once PER-MATCH Swing Scores are published is a one-line change rather than
+  // a re-implementation. `metricHistorySeries.ts` still carries `spread` on
+  // each point for the same reason; nothing renders it.
+  const hasSpread = false;
   const bands = detectEventBands(points);
 
   const data: ChartDatum[] = points.map((point) => ({

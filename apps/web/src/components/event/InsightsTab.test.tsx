@@ -676,7 +676,7 @@ describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-arti
     expect(screen.getByTestId("insights-cell-phaseEndgame").textContent).toContain("4");
   });
 
-  it("a VPR fixture's published group values/spreads/tiers are unchanged by this derivation", async () => {
+  it("a VPR fixture's published group values/tiers are unchanged by this derivation, and no spread renders", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -693,7 +693,8 @@ describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-arti
 
     const cell = await screen.findByTestId("insights-cell-phaseAuto");
     expect(cell.textContent).toContain("22.50");
-    expect(cell.textContent).toContain("±");
+    // The published phase spread is the algorithm's own confidence — never rendered.
+    expect(cell.textContent).not.toContain("±");
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 

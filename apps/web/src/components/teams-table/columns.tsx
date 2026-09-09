@@ -374,7 +374,17 @@ export function buildColumns(algorithmId: string, season: number, isNarrow: bool
       // tradeoff — a small, temporary, wrong claim beats the Teams table
       // showing Common bare while every other tiered surface on the site
       // shows it outlined.
-      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />,
+      // SWING SCORE on the Total column only — it is computed from TOTAL-score
+      // residuals, so there is no per-component equivalent for the other metric
+      // columns, and they render a bare value rather than borrowing the
+      // algorithm's spread (which must never reach the screen).
+      cell: (info) => (
+        <MetricValue
+          metric={info.getValue()}
+          tier={info.getValue()?.tier ?? "common"}
+          swingScore={key === TOTAL_KEY ? info.row.original.swingScore : undefined}
+        />
+      ),
     }),
   );
 

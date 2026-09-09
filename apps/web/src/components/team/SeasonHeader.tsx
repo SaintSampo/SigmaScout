@@ -56,36 +56,6 @@ function formatWinRate(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/**
- * Shows the SIGMASCOUT-LAYER Swing Factor on the Total tile (quick task
- * 260908-5wd), published for every algorithm since generation `40e7277d`.
- *
- * It OVERRIDES the algorithm's own `spread` rather than filling a gap, and that
- * is the point rather than an accident. The two are different levels: `spread`
- * is the ALGORITHM's uncertainty about its own rating, which only some
- * algorithms model at all, while Swing Factor is SigmaScout's scouting
- * heuristic about how much the ROBOT varies match to match. The tile shows the
- * latter, so it answers the same question whichever algorithm is selected —
- * BPR publishes a `spread` of 12.46 for frc254 and the tile shows its Swing
- * Factor of 76.42 instead.
- *
- * The browser-side estimator this once carried is gone, along with
- * `lib/swingFactor.ts` and `lib/allianceBand.ts`. Verified before deleting:
- * every season 2016-2026 publishes `swingFactor` for ~100% of teams, the
- * residue being teams with fewer than two played matches, which correctly have
- * none and render a bare value.
- */
-function withPublishedSwingFactor(
-  metrics: TeamSeasonArtifact["seasonStats"]["metrics"],
-  artifact: TeamSeasonArtifact
-): TeamSeasonArtifact["seasonStats"]["metrics"] {
-  const totalEntry = metrics[TOTAL_KEY];
-  if (totalEntry === undefined) return metrics;
-  const swingFactor = (artifact as { swingFactor?: number }).swingFactor;
-  if (swingFactor === undefined) return metrics;
-  return { ...metrics, [TOTAL_KEY]: { ...totalEntry, spread: swingFactor } };
-}
-
 /** A rate over zero matches is undefined, never a coerced zero — same rule `teams-table/rowModel.ts`'s own `winRate()` applies. */
 function winRateOf(record: { wins: number; losses: number; ties: number }): number | null {
   const totalMatches = record.wins + record.losses + record.ties;
@@ -136,8 +106,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // the snapshot's own match when `snapshotMatchKey` is supplied. See
   // `withBrowserSwingFactor` for why bounding replaced the original skip.
   const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
-  const metricsWithSwingFactor = withPublishedSwingFactor(resolvedMetrics, artifact);
-  const metrics = withDerivedGroupMetrics(metricsWithSwingFactor, season);
+  const metrics = withDerivedGroupMetrics(resolvedMetrics, season);
   // Column set is derived from (algorithm, season) ONLY, never from
   // inspecting `metrics` itself — a row missing a declared component
   // renders a BLANK cell and the cell never disappears (D-17/E2 empty).
@@ -161,10 +130,17 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // `tierForPercentile(undefined)` below yields no tier for a derived tile —
   // the honest outcome for stale data, never worked around by inventing a
   // percentile from the single team in view.
+  // SWING SCORE, per tile. Only `total` has one today: it is computed from a
+  // team's share of its alliance's TOTAL-score residuals, so there is no
+  // per-component equivalent to show on the phase tiles yet, and those render
+  // a bare value rather than borrowing the algorithm's spread. The algorithm's
+  // spread is never a fallback here (developer rule, 2026-09-09) — see
+  // `MetricValue`'s own `swingScore` prop comment.
+  const swingScore = (artifact as { swingFactor?: number }).swingFactor;
   const groupTiles = publishesComponents
-    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
+    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey], swingScore: undefined as number | undefined }))
     : [];
-  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] }];
+  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY], swingScore }];
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -278,7 +254,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           {tiles.map((tile) => (
             <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
               <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
+              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} swingScore={tile.swingScore} />
             </div>
           ))}
         </div>

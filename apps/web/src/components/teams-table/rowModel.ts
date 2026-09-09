@@ -63,6 +63,13 @@ export interface TeamRow {
   winRate: number | null;
   /** The published metrics record, exactly as fetched — a key the declared set contains but this row lacks is simply absent here, never defaulted. */
   metrics: TeamMetrics;
+  /**
+   * This team's SWING SCORE, published per row since 2026-09-08. The ONLY
+   * quantity the Total column may render as a `±` — the metrics above also
+   * carry the algorithm's own `spread`, which must never reach the screen.
+   * Absent for a team with fewer than two played matches.
+   */
+  swingScore?: number;
   rank: number;
 }
 
@@ -124,6 +131,7 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     nickname: team.nickname,
     record: team.record,
     winRate: winRate(team.record),
+    swingScore: (team as { swingFactor?: number }).swingFactor,
     // Published metrics widened with any derivable group entries this
     // algorithm/season combination supports (D-2/D-3/D-4) — see this
     // module's own header comment. `sortValueFor` reads `row.metrics[key]`

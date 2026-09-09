@@ -179,18 +179,18 @@ export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined
   // The argument stands unchanged under the correction: defaulting to zero
   // would silently replace an honest "unknown" with a false "weak".
   const value = resolved.reduce((sum, total) => sum + total.value, 0);
-  const allSpreadsPresent = resolved.every((total) => total.spread !== undefined);
-  if (!allSpreadsPresent) {
-    return { value };
-  }
-  // The square root is applied EXACTLY ONCE, to the summed variances —
-  // never to an individual term and never twice. Sum in full floating point
-  // from the published values: no rounding, re-rounding or rescaling of any
-  // input, and no rounding of the intermediate sum — `MetricValue` restores
-  // display digits at the end and the pipeline already rounded once at the
-  // publish boundary.
-  const varianceSum = resolved.reduce((sum, total) => sum + total.spread! * total.spread!, 0);
-  return { value, spread: Math.sqrt(varianceSum) };
+  // The combined `±` this used to return was the quadrature sum of the three
+  // picks' `spread` — the ALGORITHM's own confidence — and it is gone
+  // (2026-09-09): spread must never reach the screen in any form.
+  //
+  // The right replacement is the quadrature sum of the three picks' SWING
+  // SCORES, which is precisely the Match Band already drawn on every match row
+  // (`Σ S_i²`, rooted once). It is not wired here yet because an alliance's
+  // picks are team keys and this component has no per-team Swing Score to hand
+  // — the same per-surface gap the phase tiles have. Until then the combined
+  // total renders as a bare value, which is honest: we are not showing a
+  // narrower number, we are showing no uncertainty claim at all.
+  return { value };
 }
 
 /** Ascending `allianceNumber`, exact ties broken by ascending first-pick team key — a TOTAL order that never depends on the sort engine's stability (EVNT-05 adjacency). */
