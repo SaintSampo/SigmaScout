@@ -134,13 +134,38 @@ minutes against a 1–3 minute freshness target. The Worker already rotates even
 no-starvation guarantee. CPU is the tighter constraint (idle ticks run 5–9 ms of a 10 ms budget) —
 measure a real fold before trusting it. Detail in `vpr-retirement-make-features-algorithm-agnostic.md`.
 
-## 5b. `publish.ts --event` strips the SigmaScout layer (my regression)
+## 5b. ~~`publish.ts --event` strips the SigmaScout layer~~ — DONE 2026-09-09 (`41dbbe2d`)
 
-The single-event republish path mirrors `publishSeasons` locally and never got the swing band or
-RP, so running it on an event silently deletes that event's bands. Same defect shape as the
-Worker's lossy merge. **Do not run `--event` on an event you care about** until fixed;
-`pnpm publish:seasons` is unaffected. Two honest fix options in
-`single-event-publish-path-drops-the-sigmascout-layer.md`.
+The per-match math moved into `sigmaScoutLayer.ts` and **both** orchestrations now drive it, so a
+level-2 field can no longer reach one write path and not the other. Verified on the real corpus:
+`--event 2026casnv` emits band on 75 of 89 played rows, `rpPmf` on 74, `bonusRp` on 59, and a
+197 KB presim sidecar — matching the published artifact's own coverage, for bpr and opr alike.
+
+The planned fix was the wrong one. The todo doc proposed carrying published values forward,
+because it assumed `--event` replays only its own event. That premise was stale — plan 07-09
+already made this mode replay the whole season for the percentile pool — so the correct fix
+(recompute properly) turned out to be free.
+
+Four parity tests now pin the two paths together, and each was **confirmed to fail against the old
+behavior before being kept**. Worth noting what did not catch this: 1083 passing unit tests, and a
+`--dry-run` byte count, which cannot see a missing field.
+
+## 5c. `--event` writes different NUMBERS than the full publish — measured, and worse than 5b was
+
+Fixing the strip made this measurable. `--event` replays its season **cold**, while
+`pnpm publish:seasons` threads carry state from 2016. Against the live `2026casnv` artifact:
+**`pRedWin` differs on 86 of 89 rows**, and on `qm1` `--event` says `0.5` — the cold-start coin
+flip — where the live publish says `0.055`.
+
+This is upstream of the SigmaScout layer entirely; band and RP are computed identically by both
+paths now and differ only because the predictions beneath them do. The strip at least showed as
+absence — this replaces good numbers with worse ones and leaves an artifact that looks normal.
+
+`runEventMode`'s header has disclosed this since plan 07-09 as "close to but not identical".
+`0.5` vs `0.055` is not close. **The "do not run `--event` on an event you care about" warning
+stands, for this reason now.** Three options, including a genuinely interesting one (persist each
+season's end state during `publish:seasons` and have `--event` load it), in
+`event-mode-replays-cold-and-writes-different-numbers.md`.
 
 ## 6. Calibration and honesty items
 
@@ -177,23 +202,35 @@ BPR's constants are settled and are not to be revisited.
 - Published `vpr@` objects remain in R2, unreferenced. Deliberate — the retirement removed the id
   from the site, not data already written.
 
-## 9. Test-suite hygiene
+## 9. ~~Test-suite hygiene~~ — DONE 2026-09-09 (`1a7bd4c1`)
 
-Two suites fail only in FULL runs and pass in isolation, which makes every full run ambiguous:
-`seasonParamSets` D-4 Leg B and `algorithmIdentity`. Both documented in
-`flaky-seasonparamsets-equivalence-gate.md`. Until fixed, **re-run in isolation before treating a
-full-run failure as a defect**.
+**The full suite is green: 225 files, 4127 passed, 0 failed.** It had not been, and that mattered —
+a red suite is how the last 8-day red hid, and these parity tests would have meant nothing arriving
+into an already-red run.
+
+Three unrelated failures, all pre-existing:
+
+- `replayRig.test.ts` still pinned `PUBLISHED_ALGORITHM_IDS` to the four-member list including
+  `vpr`. VPR left that list on 2026-09-09 (`eae2defb`) and the pin was not updated with it. The
+  equality pin is the right shape — it failed loudly on a membership change, exactly as designed.
+- `seasonParamSets` D-4 Leg B (replays two full seasons twice over) and `algorithmIdentity` (reads
+  every source file in the repo) run 6–7 s against vitest's 5 s default. Given explicit 30 s
+  timeouts. They were never flaky in the "sometimes wrong" sense — just slow, and only under
+  full-suite parallel load.
+
+The "re-run in isolation before treating a full-run failure as a defect" workaround is retired.
+Treat a full-run failure as a defect.
 
 ---
 
 ## Suggested order
 
-1. **Fix `publish.ts --event`** (item 5b) — a live footgun: it strips bands, and now RP, from any
-   event it republishes.
-2. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
-   re-seed.
-3. **Measure the RP bias** from item 3 against real outcomes, now that pmfs are published and every
+1. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
+   re-seed. Now the top item: it is the last place a published band silently disappears.
+2. **Measure the RP bias** from item 3 against real outcomes, now that pmfs are published and every
    season's actual bonus flags are in the corpus to compare against.
+3. **Decide what `--event` is for** (item 5c) — fix its cold replay, or delete the path. It cannot
+   stay as a republish command that degrades what it republishes.
 4. **Algorithm rotation** (item 5), measured on a real fold.
 5. **Calibration and docs** (item 6), and re-decide the two dormant displays from item 2.
 
