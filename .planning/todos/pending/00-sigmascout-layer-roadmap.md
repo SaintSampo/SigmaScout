@@ -74,31 +74,31 @@ Two things unblock automatically when it lands:
 - the **metric-history chart band**, whose code is intact and dormant behind a single flag in
   `MetricHistoryChart.tsx` and needs per-MATCH Swing Scores
 
-## 3. Ranking points for BPR — everything downstream is already built
+## 3. Ranking points — ADAPTER BUILT 2026-09-09, awaiting a republish
 
-`packages/core/rankingPoints/` is universal and tested without any algorithm attached: ten season
-rule modules, the registry, the constants, and the Monte Carlo. The only missing piece is an
-adapter producing `AllianceRpMoments` for BPR — per-team beliefs over the season's threshold
-variables, plus score mean/variance/cross-covariance.
+`RpMomentsAccumulator` (`packages/core/rankingPoints/empiricalMoments.ts`) learns each team's
+threshold-variable beliefs from observed results alone and produces `AllianceRpMoments` for ANY
+algorithm — the score variance it needs is the swing band, which is why RP is reachable now and was
+not before. Wired into `publishSeasons`' walk-forward loop beside the band, predict-before-update.
+An algorithm that models its own RP keeps it.
 
-For 2026 that is **two variables**, and neither is a phase total:
+Measured over the same 216 events of 2026 for `bpr`: median event artifact **57,555 → 68,112 bytes**
+(+18%), payload-budget gate still green. 149 tests in the package, including the end-to-end path
+for all ten seasons with no algorithm involved.
 
-| bonus | gated on |
-|---|---|
-| Energized, Supercharged | `hubTotalCount` — a raw fuel COUNT, never points |
-| Traversal | `totalTowerPoints` = `autoTowerPoints + endGameTowerPoints` |
+**Still to do, in order:**
 
-**So modelling auto/teleop/endgame points does not unlock RP.** Do not conflate item 2 with this
-one — they want different quantities, and building eleven point components would still leave two
-of three bonuses unpredictable.
+1. **Republish** — nothing is live until then. `pnpm publish:seasons`.
+2. **Flip `SIMULATION_AVAILABLE`** in `SimulationTab.tsx` once artifacts carry `redRpPmf`. It is a
+   single constant, and the tab lights up for every algorithm at once.
+3. **Verify the presim sidecar builds for BPR** — it 404s today. `preSchedule.ts` is already
+   generic and should just work once RP exists, but confirm rather than assume.
+4. **Check the bonus-RP dots** return in the match tables (`redBonusRp` is emitted now).
 
-Read `rankingPoints/moments.ts` before implementing: it names the assumptions an adapter must
-consciously satisfy rather than inherit (a diagonal covariance block asserts `hubTotalCount` and
-`totalTowerPoints` are uncorrelated, which is probably false).
-
-Restores with this: the **Simulation tab** (dark for every algorithm since VPR left — BPR's presim
-sidecar 404s where VPR's returned 200) and the **per-bonus RP dots** in match tables.
-`preSchedule.ts` is already generic and needs no changes.
+**Known bias, stated rather than discovered later:** the covariance block is diagonal and the score
+cross-covariance is zero, so the joint draw understates how often an alliance clears both 2026
+thresholds together. Narrower and less correlated than reality, pushing bonus probabilities toward
+the extremes. Documented in `empiricalMoments.ts`'s header with the reasoning.
 
 ## 4. Live match updates carry no band — and the shape bump they need
 
@@ -127,6 +127,14 @@ The way through is rotating **two algorithms per tick**, giving every algorithm 
 minutes against a 1–3 minute freshness target. The Worker already rotates events with a
 no-starvation guarantee. CPU is the tighter constraint (idle ticks run 5–9 ms of a 10 ms budget) —
 measure a real fold before trusting it. Detail in `vpr-retirement-make-features-algorithm-agnostic.md`.
+
+## 5b. `publish.ts --event` strips the SigmaScout layer (my regression)
+
+The single-event republish path mirrors `publishSeasons` locally and never got the swing band or
+RP, so running it on an event silently deletes that event's bands. Same defect shape as the
+Worker's lossy merge. **Do not run `--event` on an event you care about** until fixed;
+`pnpm publish:seasons` is unaffected. Two honest fix options in
+`single-event-publish-path-drops-the-sigmascout-layer.md`.
 
 ## 6. Calibration and honesty items
 
@@ -174,13 +182,13 @@ full-run failure as a defect**.
 
 ## Suggested order
 
-1. **Ranking points for BPR** (item 3) — biggest user-visible win, and everything downstream is
-   already written and tested without an algorithm attached. Restores the Simulation tab and the
-   bonus-RP dots.
-2. **The Worker's swing accumulator** (item 4) — needs a shape bump that forces a re-seed, so batch
-   it with the next re-seed rather than making it its own outage.
-3. **Per-component Swing Score** (item 2) — unblocks two dormant displays at once.
-4. **Algorithm rotation** (item 5), measured on a real fold.
-5. Calibration and docs (item 6) as separate, evidence-first pieces.
+1. **Republish**, then flip `SIMULATION_AVAILABLE` and verify the presim sidecar and bonus dots
+   (item 3's remaining four steps). This is the payoff for everything above it.
+2. **Fix `--event`** (item 5b) before anyone uses it — it is a live footgun today.
+3. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
+   re-seed.
+4. **Per-component Swing Score** (item 2) — unblocks two dormant displays.
+5. **Algorithm rotation** (item 5), measured on a real fold.
+6. Calibration and docs (item 6).
 
 Watch the first live event of the season: it is the first real exercise of BPR's fold path.
