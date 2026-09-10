@@ -12,6 +12,7 @@ import { displayedMetricKeys, type TeamsTableView } from "../components/teams-ta
 import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/TeamsTable.js";
 import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
 import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
+import { TeamsBubbleChart } from "../components/teams-table/TeamsBubbleChart.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
@@ -21,8 +22,12 @@ export const Route = createFileRoute("/teams")({
 function TeamsPage() {
   // 05-06-PLAN.md Task 3: the real table replaces the tracer's plain one,
   // with sort bound to the URL (D-14) instead of a hard-coded slice.
-  const { year, algorithm, sort, sortDir, cols, country, state, district } = Route.useSearch();
+  const { year, algorithm, sort, sortDir, cols, country, state, district, chart } = Route.useSearch();
   const navigate = Route.useNavigate();
+
+  // Quick task 260909-tom (D-04): the bubble-chart toggle's state lives
+  // entirely in `chart` — no local view state to hold or fall out of sync.
+  const isChart = chart === "bubble";
 
   // Quick task 260905-ttv: the three region filter dimensions, read from the
   // URL exactly like every other search-param-backed piece of state on this
@@ -127,6 +132,15 @@ function TeamsPage() {
     });
   }
 
+  // Quick task 260909-tom: mirrors `handleViewToggle`'s updater form exactly
+  // so year, algorithm, sort and the three region filters all survive a
+  // chart-view toggle.
+  function handleChartToggle() {
+    navigate({
+      search: (prev) => ({ ...prev, chart: prev.chart === "bubble" ? undefined : "bubble" }),
+    });
+  }
+
   // Quick task 260905-ttv: the updater form so year/algorithm/sort/cols all
   // survive, mirroring `events.tsx`'s `handleFiltersChange`/`handleClearFilters`.
   function handleFiltersChange(nextFilters: TeamFiltersModel) {
@@ -166,16 +180,43 @@ function TeamsPage() {
       <div className="mx-auto flex w-fit max-w-full flex-col">
         <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
           <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
-          {canToggleView && (
+          <div className="flex items-center gap-[var(--spacing-sm)]">
+            {/*
+              Quick task 260909-tom: rendered UNCONDITIONALLY, unlike the
+              `cols` toggle below (gated on `canToggleView`) — the chart view
+              must always be reachable regardless of which algorithm is
+              selected. `aria-pressed` carries the state; the visible LABEL
+              stays the stable string "Bubble chart" in both states (never
+              flipped with the state) so a screen-reader user is not told the
+              state twice, once by the announcement and once by a relabelled
+              name. The pressed style (accent border + inset background)
+              gives the state a visible signal too, not announced-only.
+            */}
             <button
               type="button"
-              data-testid="teams-view-toggle"
-              onClick={handleViewToggle}
-              className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+              data-testid="teams-chart-toggle"
+              onClick={handleChartToggle}
+              aria-pressed={isChart}
+              className={
+                isChart
+                  ? "text-role-label rounded-md border border-[var(--color-accent)] bg-[var(--color-bg-inset)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)]"
+                  : "text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+              }
             >
-              {view === "components" ? "◂ Grouped view" : "All components ▸"}
+              Bubble chart
             </button>
-          )}
+            {/* Quick task 260909-tom: hidden in chart mode -- it changes only table columns and would be a control with no effect there. */}
+            {canToggleView && !isChart && (
+              <button
+                type="button"
+                data-testid="teams-view-toggle"
+                onClick={handleViewToggle}
+                className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
+              >
+                {view === "components" ? "◂ Grouped view" : "All components ▸"}
+              </button>
+            )}
+          </div>
         </div>
         {/*
           Quick task 260905-ttv: gated on `data !== undefined` (the artifact
@@ -191,19 +232,37 @@ function TeamsPage() {
             <TeamsFilters rows={data.teams} filters={filters} onFiltersChange={handleFiltersChange} onClearFilters={handleClearFilters} />
           </div>
         )}
-        <TeamsTable
-          status={status}
-          rows={rows}
-          algorithmId={algorithm}
-          season={year}
-          view={view}
-          sortKey={effectiveSortKey}
-          sortDirection={sortDir}
-          onSortChange={handleSortChange}
-          onRetry={() => void refetch()}
-          hasActiveFilter={hasActiveFilter}
-          onClearFilters={handleClearFilters}
-        />
+        {/*
+          Quick task 260909-tom: `status === "success"` gates the chart body
+          rather than the chart component duplicating the loading skeleton,
+          the error state with its retry, and the filtered-to-zero empty
+          state with its Clear-filters link — `TeamsTable` already owns all
+          three. Falling back to `TeamsTable` for every non-success status
+          means chart mode inherits those behaviours for free, with no
+          second, driftable implementation of any of them.
+        */}
+        {isChart && status === "success" ? (
+          // The centred column is `mx-auto flex w-fit`, which sizes to its
+          // widest child — the svg has no intrinsic width to give it, so
+          // without a declared width here the column collapses to zero.
+          <div className="w-[1100px] max-w-full">
+            <TeamsBubbleChart rows={rows} />
+          </div>
+        ) : (
+          <TeamsTable
+            status={status}
+            rows={rows}
+            algorithmId={algorithm}
+            season={year}
+            view={view}
+            sortKey={effectiveSortKey}
+            sortDirection={sortDir}
+            onSortChange={handleSortChange}
+            onRetry={() => void refetch()}
+            hasActiveFilter={hasActiveFilter}
+            onClearFilters={handleClearFilters}
+          />
+        )}
       </div>
     </div>
   );

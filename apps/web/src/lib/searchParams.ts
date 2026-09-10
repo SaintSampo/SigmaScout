@@ -116,6 +116,27 @@ export const TeamsSearchSchema = RootSearchSchema.extend({
   country: z.string().optional().catch(undefined),
   state: z.string().optional().catch(undefined),
   district: z.string().optional().catch(undefined),
+  /**
+   * Quick task 260909-tom: which VISUALISATION of the Teams page's already-
+   * filtered rows to draw — absent (or anything unrecognized) is the table,
+   * `"bubble"` is the scatter. This is NOT a second `view` field: this
+   * module's own header note above says "the route segment already IS that
+   * fact" for the page view itself, and `/teams` is the pathname in both
+   * modes here too. `chart` answers a narrower question than page view —
+   * which rendering of the SAME filtered rows to draw — so there is still
+   * only one source of the page-view fact.
+   *
+   * `applyYearChange` touches only the literal key `sort` and spreads every
+   * other field on `current` through untouched, so this field survives a
+   * year change with no change to that function — the same reasoning
+   * `country`/`state`/`district` above already state for themselves.
+   *
+   * `z.literal("bubble").optional().catch(undefined)` (D-04, T-260909-tom-01):
+   * the field is structurally incapable of holding a value other than
+   * `"bubble"` or absent, so a hand-edited `?chart=` can only ever resolve
+   * to one of the two declared view states before any component reads it.
+   */
+  chart: z.literal("bubble").optional().catch(undefined),
 });
 
 export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;
