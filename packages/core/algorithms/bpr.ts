@@ -717,4 +717,19 @@ export const bpr: AlgorithmModule<BprState> = {
   update,
   teamMetrics,
   carrySeason,
+  /**
+   * Quick task 260910-kco (2026-09-10, ships inside the same 2.0.0 bump as
+   * 260910-2pt, before any 2.0.0 artifact was published): season boundaries
+   * carry the state as of the season's last OFFICIAL match, so offseason and
+   * preseason exhibition play cannot seed the next season's prior — EPA's
+   * 260908-615 mechanism. Design-era paired contrast on the production path:
+   * accuracy delta −0.0145pp, 95% event-blocked CI [−0.113, +0.079] — a
+   * statistical zero, adopted on principle: the sealed research model
+   * (`packages/bpr/data.ts`) has never loaded an offseason match, so this
+   * narrows production's unvalidated deviation from the sealed
+   * configuration. Within-season offseason FOLDING is unchanged; only the
+   * boundary crossing moves. Rule pre-registered at 0d9c402d before any
+   * number existed; full contrast in the 260910-kco planning dir.
+   */
+  carryFrom: "last-official-match",
 };
