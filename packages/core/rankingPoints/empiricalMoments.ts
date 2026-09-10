@@ -142,15 +142,41 @@ export class RpMomentsAccumulator {
 
     for (const name of names) {
       let mean = 0;
-      let variance = 0;
+      let varianceSum = 0;
+      let contributing = 0;
       for (const teamKey of roster) {
         const belief = this.#byTeam.get(teamKey)?.get(name);
         if (belief === undefined) continue;
         mean += belief.mean;
-        variance += varianceOf(belief) ?? 0;
+        varianceSum += varianceOf(belief) ?? 0;
+        contributing++;
       }
       meanVector.push(mean);
-      variances.push(variance);
+      // UNDO THE EVEN-SPLIT SHRINKAGE (fixed 2026-09-09; measured, see below).
+      //
+      // A team's belief is folded from `allianceValue / rosterSize`, so what it
+      // estimates is not that robot's own contribution variance — it is the
+      // WHOLE ALLIANCE's variance divided by `rosterSize²`, because the even
+      // split carries the partners' variability too. Summing `rosterSize` of
+      // them therefore lands on `Var(A)/rosterSize`, not `Var(A)`.
+      //
+      // Each contributing team implies `rosterSize² · Var(belief)` for the
+      // alliance, so the alliance estimate is the AVERAGE of those implications
+      // over the teams that actually have one. With a full roster that reduces
+      // to `rosterSize × Σ Var(belief)`; with a partial roster it degrades
+      // correctly instead of under-counting once for the missing team and again
+      // for the shrinkage.
+      //
+      // The mean needs no such correction and gets none: `rosterSize` even
+      // splits summed back reconstruct the alliance value exactly, which is why
+      // this was easy to miss — the first moment was right the whole time.
+      //
+      // Measured before the fix, walk-forward over 488,076 (alliance, bonus)
+      // observations across ten seasons: mean predicted 0.1131 against an
+      // observed 0.3109. This shrinkage is one of three causes and the only
+      // unintended one — the DIAGONAL block and the zero cross-covariance in
+      // this module's header are deliberate and remain.
+      variances.push(contributing > 0 ? (varianceSum * roster.length * roster.length) / contributing : 0);
     }
 
     // Diagonal by construction — see this module's header for why the

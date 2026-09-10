@@ -104,12 +104,27 @@ const CORAL_BONUS_COOP_LEVELS_REQUIRED = 3;
 /** Barge Bonus `endGameBargePoints` threshold. District Championship does NOT bump — only Championship does (verified: DC-tier mismatch rate is minimized at the base value, not the championship value). */
 const BARGE_BONUS_THRESHOLD: RpTieredThreshold = { base: 14, districtChampionship: 14, championship: 16 };
 
+/** How many of the three recorded robots must leave the starting line for the Auto Bonus. */
+const AUTO_LINE_ROBOTS_REQUIRED = 3;
+
+/** Minimum CORAL scored in auto for the Auto Bonus. */
+const AUTO_CORAL_REQUIRED = 1;
+
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   { name: "trough", unit: "count" },
   { name: "botRow", unit: "count" },
   { name: "midRow", unit: "count" },
   { name: "topRow", unit: "count" },
   { name: "endGameBargePoints", unit: "points" },
+  // Added 2026-09-09 so `autoBonus` can be PREDICTED at all. Before this it
+  // was hardcoded `false` in `predictThresholds` below, honestly documented as
+  // the limit of what the tracked variables could express — but measured over
+  // 25,978 alliance-observations it happens 65.94% of the time, which made
+  // that hardcoded `false` the second-worst prediction in the whole RP layer
+  // (Brier 0.6594, worse than predicting 0.5 for everything). It was a missing
+  // input, not a modelling approximation, so the input is now tracked.
+  { name: "autoLineCount", unit: "count" },
+  { name: "autoCoralCount", unit: "count" },
 ];
 
 const BONUS_NAMES = ["autoBonus", "coralBonus", "bargeBonus"] as const;
@@ -139,11 +154,19 @@ export const rp2025: RpRuleModule = {
     thresholdVariables.midRow = midRow;
     thresholdVariables.topRow = topRow;
     thresholdVariables.endGameBargePoints = own.endGameBargePoints;
+    // The two Auto Bonus inputs, as COUNTS so the predictive branch can reason
+    // about them the same way it reasons about reef levels. `autoLineCount` is
+    // the number of the three recorded robots that left, which is exactly what
+    // the "all robots leave" condition is counting.
+    const autoLineCount = [own.autoLineRobot1, own.autoLineRobot2, own.autoLineRobot3].filter((v) => v !== "No").length;
+    thresholdVariables.autoLineCount = autoLineCount;
+    thresholdVariables.autoCoralCount = own.autoCoralCount;
     assertFiniteThresholdVariables(thresholdVariables, `rp2025 ${side}`);
 
     // Auto Bonus: all (recorded) robots leave AND >=1 CORAL scored in auto.
-    const allRobotsLeft = own.autoLineRobot1 !== "No" && own.autoLineRobot2 !== "No" && own.autoLineRobot3 !== "No";
-    const autoBonus = allRobotsLeft && own.autoCoralCount >= 1;
+    // Expressed through the same two counts the predictive branch reads, so
+    // the observed and predicted definitions cannot drift apart.
+    const autoBonus = autoLineCount >= AUTO_LINE_ROBOTS_REQUIRED && own.autoCoralCount >= AUTO_CORAL_REQUIRED;
 
     // Coral Bonus: >=N on each of 4 levels, relaxed to >=N on >=3 of 4 when coopertition met.
     // Coopertition requires BOTH alliances' criteria met — AND, never OR (same
@@ -187,13 +210,21 @@ export const rp2025: RpRuleModule = {
    * `coralBonus`'s real condition also gates on `own.coopertitionCriteriaMet`
    * (untracked) — evaluated here at the STRICT (non-coop, all-4-levels)
    * path, per `RpRuleModule.predictThresholds`'s conservative-gate
-   * convention. `autoBonus` depends ENTIRELY on fields this season tracks
-   * no Kalman state for at all (`autoLineRobot1/2/3`'s per-robot leave
-   * flags, `autoCoralCount`) — there is no threshold-variable-only fallback
-   * for it, so it is always `false` here, the single, honestly-documented
-   * exception to "evaluate what the tracked variables allow": this is not a
-   * silently wrong prediction, it is the stated limit of what a count-unit
-   * Kalman state (D-09) can represent for a per-robot binary condition.
+   * convention.
+   *
+   * `autoBonus` USED TO BE hardcoded `false` here, on the reasoning that it
+   * depends on per-robot leave flags a count-unit state cannot represent.
+   * Measured 2026-09-09, that cost far more than the honesty was worth: the
+   * bonus happens 65.94% of the time, so always-false scored a Brier of 0.6594
+   * over 25,978 observations — worse than predicting 0.5 for everything, and
+   * the second-worst number in the RP layer. It is now evaluated from two
+   * tracked counts, which express the condition exactly: "all three recorded
+   * robots left" IS a count reaching 3.
+   *
+   * The remaining approximation is honest and much smaller: a count drawn from
+   * a continuous distribution and cut at its own ceiling still understates how
+   * often all three robots leave, because "3 of 3" is a discrete outcome at the
+   * top of the range rather than a tail event.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     const tier = eventTierFor(eventType);
@@ -203,7 +234,7 @@ export const rp2025: RpRuleModule = {
     const topRow = values.topRow ?? 0;
     const endGameBargePoints = values.endGameBargePoints ?? 0;
 
-    const autoBonus = false;
+    const autoBonus = (values.autoLineCount ?? 0) >= AUTO_LINE_ROBOTS_REQUIRED && (values.autoCoralCount ?? 0) >= AUTO_CORAL_REQUIRED;
     const levels = [trough, botRow, midRow, topRow];
     const coralBonus = levels.every((v) => v >= CORAL_LEVEL_THRESHOLD_STRICT[tier]);
     const bargeBonus = endGameBargePoints >= BARGE_BONUS_THRESHOLD[tier];

@@ -168,3 +168,71 @@ describe("RpMomentsAccumulator feeding rpPmfForMatch — the end-to-end path RP 
     }
   });
 });
+
+/**
+ * The even-split shrinkage regression (fixed 2026-09-09).
+ *
+ * Every test above pins the SHAPE of the variance — zero at one observation,
+ * positive once observations differ, diagonal — and not one pins its
+ * MAGNITUDE. That is exactly how the bug survived: a belief folded from
+ * `allianceValue / rosterSize` estimates `Var(A)/rosterSize²`, so summing the
+ * roster landed on `Var(A)/rosterSize` and every published bonus probability
+ * came out of a distribution too narrow by that factor.
+ *
+ * The property below is the one that could have caught it, and it is worth
+ * stating in its own right: if an alliance's observations are all this module
+ * has seen, the alliance variance it reports back must BE the spread of those
+ * observations — not a third of it.
+ */
+describe("RpMomentsAccumulator — alliance variance reconstructs the alliance's own spread", () => {
+  /** The same decayed weighted variance `empiricalMoments.ts` computes, derived here independently from the observation list. */
+  function weightedVarianceOf(values: readonly number[]): number {
+    const decay = 0.5 ** (1 / 6);
+    const last = values.length - 1;
+    const weights = values.map((_, i) => decay ** (last - i));
+    const w = weights.reduce((a, b) => a + b, 0);
+    const w2 = weights.reduce((a, b) => a + b * b, 0);
+    const mean = values.reduce((acc, v, i) => acc + weights[i]! * v, 0) / w;
+    const ss = values.reduce((acc, v, i) => acc + weights[i]! * (v - mean) ** 2, 0);
+    return ss / (w - w2 / w);
+  }
+
+  it("a three-team alliance reports the spread of the alliance values it saw, not a third of it", () => {
+    const acc = new RpMomentsAccumulator(RULES_2026);
+    const observed = [30, 90, 60, 120];
+    for (const v of observed) acc.fold(RED, { [HUB]: v, [TOWER]: 30 });
+
+    const reported = acc.momentsFor(RED, 300, 900).varianceBlock[0]?.[0] as number;
+    const expected = weightedVarianceOf(observed);
+
+    expect(reported).toBeCloseTo(expected, 6);
+    // The pre-fix value, named so a regression is unmistakable rather than
+    // merely a failed closeness check.
+    expect(reported).not.toBeCloseTo(expected / RED.length, 6);
+  });
+
+  it("holds for a TWO-team alliance too — the correction is rosterSize, not a hardcoded 3", () => {
+    const pair = ["frc1", "frc2"];
+    const acc = new RpMomentsAccumulator(RULES_2026);
+    const observed = [20, 80, 50];
+    for (const v of observed) acc.fold(pair, { [HUB]: v, [TOWER]: 10 });
+
+    expect(acc.momentsFor(pair, 300, 900).varianceBlock[0]?.[0] as number).toBeCloseTo(weightedVarianceOf(observed), 6);
+  });
+
+  it("degrades on a PARTIAL roster instead of under-counting twice", () => {
+    // Beliefs are built the way they always are in practice — from three-team
+    // alliances — and only ONE of the three teams in the alliance being priced
+    // has any. That one team's belief already implies the whole alliance's
+    // spread, so the estimate is its implication rather than a third of it:
+    // noisy, which is honest for a roster we mostly have not seen, but not
+    // shrunk twice over (once for the missing teammates, once for the split).
+    const acc = new RpMomentsAccumulator(RULES_2026);
+    const observed = [30, 90];
+    for (const v of observed) acc.fold(RED, { [HUB]: v, [TOWER]: 30 });
+
+    const oneKnown = [RED[0]!, "frc900", "frc901"];
+    const reported = acc.momentsFor(oneKnown, 300, 900).varianceBlock[0]?.[0] as number;
+    expect(reported).toBeCloseTo(weightedVarianceOf(observed), 6);
+  });
+});
