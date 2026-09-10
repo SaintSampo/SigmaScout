@@ -30,6 +30,8 @@ function match(over: Partial<BprMatch> & Pick<BprMatch, "matchKey">): BprMatch {
     blueRaw: 50,
     redFoul: 0,
     blueFoul: 0,
+    redAdjust: 0,
+    blueAdjust: 0,
     winner: "red",
     redSurrogates: [],
     blueSurrogates: [],

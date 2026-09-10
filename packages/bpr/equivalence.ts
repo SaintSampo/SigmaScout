@@ -32,6 +32,11 @@ import { isSurrogateAffected, loadMatches } from "./data.js";
  * from a retired local convention that awarded half credit for an
  * unopinionated prediction and scored a population no other algorithm saw. The
  * honest number is lower; the drop is the correction, not a regression.
+ *
+ * Both frozen figures below PREDATE quick task 260910-4bf's scoring-target
+ * change (dropping TBA's `adjustPoints`). A small nonzero design-era delta
+ * against the port is therefore expected now and is evidence of the target
+ * change, not of port drift.
  */
 const KNOWN_DESIGN = 72.87;
 const KNOWN_HOLDOUT_ALL = 78.05;
@@ -56,11 +61,13 @@ function main(): void {
     }
     season = m.year;
 
-    // Round-trips through the port's own foulPoints parser rather than reusing
-    // the already-extracted value, so the parser is under test too.
+    // Round-trips through the port's own correctionsOf parser rather than
+    // reusing the already-extracted values, so the parser is under test too.
+    // Carries adjustPoints alongside foulPoints (quick task 260910-4bf) so
+    // the round-trip exercises both fields the port now reads.
     const scoreBreakdownRaw = JSON.stringify({
-      red: { foulPoints: m.redFoul },
-      blue: { foulPoints: m.blueFoul },
+      red: { foulPoints: m.redFoul, adjustPoints: m.redAdjust },
+      blue: { foulPoints: m.blueFoul, adjustPoints: m.blueAdjust },
     });
 
     const result: MatchResult = {
@@ -75,8 +82,8 @@ function main(): void {
       blueSurrogates: m.blueSurrogates,
       eventType: m.eventType,
       winner: m.winner,
-      redScore: m.redOut + m.redFoul,
-      blueScore: m.blueOut + m.blueFoul,
+      redScore: m.redOut + m.redFoul + m.redAdjust,
+      blueScore: m.blueOut + m.blueFoul + m.blueAdjust,
       redRpEarned: null,
       blueRpEarned: null,
       redDqs: m.redDqs,

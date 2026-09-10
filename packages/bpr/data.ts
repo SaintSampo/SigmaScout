@@ -30,15 +30,22 @@ export interface BprMatch {
   week: number | null;
   redTeams: string[];
   blueTeams: string[];
-  /** Foul-adjusted alliance output: totalPoints - foulPoints. */
+  /** Corrected alliance output: totalPoints - foulPoints - adjustPoints. */
   redOut: number;
   blueOut: number;
-  /** Unadjusted alliance score, kept so foul-adjustment itself is ablatable. */
+  /** Unadjusted alliance score, kept so foul/adjust correction itself is ablatable. */
   redRaw: number;
   blueRaw: number;
   /** Foul points *awarded to* this alliance, i.e. conceded by the opponent. */
   redFoul: number;
   blueFoul: number;
+  /**
+   * TBA's `adjustPoints` — a manual scorekeeper correction, attributable to
+   * no robot — carried explicitly so the drop stays ablatable in the same
+   * spirit as `redRaw`/`redFoul` (quick task 260910-4bf).
+   */
+  redAdjust: number;
+  blueAdjust: number;
   winner: "red" | "blue" | "tie";
   /**
    * D-07 surrogate slots, carried straight through from the corpus. A match
@@ -55,12 +62,59 @@ export interface BprMatch {
   eventType: number;
 }
 
-function foulOf(breakdown: unknown, side: "red" | "blue"): number {
-  if (breakdown === null || typeof breakdown !== "object") return 0;
-  const alliance = (breakdown as Record<string, unknown>)[side];
-  if (alliance === null || typeof alliance !== "object") return 0;
-  const fp = (alliance as Record<string, unknown>).foulPoints;
-  return typeof fp === "number" && Number.isFinite(fp) ? fp : 0;
+/**
+ * Mirrors `packages/core/algorithms/bpr.ts`'s `correctionsOf` — same name,
+ * signature and semantics, checked by `packages/bpr/scoringTarget.test.ts`.
+ * Reads `foulPoints` and `adjustPoints` off a parsed `score_breakdown` via one
+ * shared per-alliance field ladder, so the two reads cannot drift from each
+ * other within this file.
+ *
+ * Intentional behaviour unification: `loadMatches` used to let a malformed
+ * `scoreBreakdownRaw` throw via an inline `JSON.parse`. This helper returns
+ * zeros instead, matching the port — required both by "malformed yields
+ * adjust = 0, never a skipped update" and by cross-module identity.
+ * `loadMatches` selects with `excludeOffseason: true`, and the known
+ * malformed-breakdown population is offseason (~21% of offseason matches
+ * carrying one, plus 2018's 140 null-`adjustPoints` sides, all from one
+ * offseason event), so no currently loaded row is expected to change
+ * behaviour — quick task 260910-4bf's Task 3 measures whether that holds.
+ */
+export interface ScoreCorrections {
+  readonly redFoul: number;
+  readonly blueFoul: number;
+  readonly redAdjust: number;
+  readonly blueAdjust: number;
+}
+
+const ZERO_CORRECTIONS: ScoreCorrections = { redFoul: 0, blueFoul: 0, redAdjust: 0, blueAdjust: 0 };
+
+function numberField(alliance: Record<string, unknown>, field: string): number {
+  const v = alliance[field];
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function allianceFields(parsed: unknown, side: "red" | "blue"): Record<string, unknown> | null {
+  if (parsed === null || typeof parsed !== "object") return null;
+  const alliance = (parsed as Record<string, unknown>)[side];
+  return alliance !== null && typeof alliance === "object" ? (alliance as Record<string, unknown>) : null;
+}
+
+export function correctionsOf(raw: string | null): ScoreCorrections {
+  if (raw === null) return ZERO_CORRECTIONS;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return ZERO_CORRECTIONS;
+  }
+  const red = allianceFields(parsed, "red");
+  const blue = allianceFields(parsed, "blue");
+  return {
+    redFoul: red ? numberField(red, "foulPoints") : 0,
+    blueFoul: blue ? numberField(blue, "foulPoints") : 0,
+    redAdjust: red ? numberField(red, "adjustPoints") : 0,
+    blueAdjust: blue ? numberField(blue, "adjustPoints") : 0,
+  };
 }
 
 interface EventRow {
@@ -142,10 +196,7 @@ export function loadMatches(corpusPath: string): BprMatch[] {
         // Unreachable: the selector inner-joins events, so every row has one.
         throw new Error(`bpr/data: no events row for ${r.eventKey}`);
       }
-      const breakdown: unknown =
-        r.scoreBreakdownRaw === null ? null : JSON.parse(r.scoreBreakdownRaw);
-      const redFoul = foulOf(breakdown, "red");
-      const blueFoul = foulOf(breakdown, "blue");
+      const { redFoul, blueFoul, redAdjust, blueAdjust } = correctionsOf(r.scoreBreakdownRaw);
       out.push({
         matchKey: r.matchKey,
         eventKey: r.eventKey,
@@ -155,12 +206,14 @@ export function loadMatches(corpusPath: string): BprMatch[] {
         week: meta.week,
         redTeams: [...r.redTeams],
         blueTeams: [...r.blueTeams],
-        redOut: r.redScore - redFoul,
-        blueOut: r.blueScore - blueFoul,
+        redOut: r.redScore - redFoul - redAdjust,
+        blueOut: r.blueScore - blueFoul - blueAdjust,
         redRaw: r.redScore,
         blueRaw: r.blueScore,
         redFoul,
         blueFoul,
+        redAdjust,
+        blueAdjust,
         winner: r.winner,
         redSurrogates: [...r.redSurrogates],
         blueSurrogates: [...r.blueSurrogates],

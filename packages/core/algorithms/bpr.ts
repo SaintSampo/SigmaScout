@@ -17,6 +17,17 @@
  * against 2023 or later converts that holdout into a training set and voids
  * the number above.
  *
+ * QUICK TASK 260910-4bf (2026-09-10) changed the scoring target AFTER that
+ * evaluation ran: the target now also subtracts TBA's `adjustPoints` — a
+ * manual scorekeeper correction — alongside `foulPoints` (see
+ * `correctionsOf` below). The 78.05% figure above therefore describes the
+ * revision of this file that predates this change, not this one. Measured
+ * deltas were +0.087pp accuracy / -0.00036 Brier on 2023 (design-adjacent)
+ * and +0.003pp / -0.00009 on the 2024-25 holdout slice — BOTH accuracy
+ * intervals spanned zero. The change is justified by attribution — a
+ * scorekeeper correction is not robot performance — not by measured
+ * accuracy.
+ *
  * Four components earned their place on design-year evidence, each beating a
  * two-standard-error bar (0.31pp on 82,946 matches):
  *
@@ -277,24 +288,67 @@ function freshTeam(p: BprParams): BprTeamState {
 /**
  * Foul points awarded TO an alliance are earned by the OPPONENT's fouls, so
  * they are opponent-attributable and are removed from the skill signal rather
- * than credited to the alliance that received them. `totalPoints` and
- * `foulPoints` were verified present in all ten seasons 2016-2026; no other
- * breakdown field is touched, deliberately, because field names are not stable
- * across seasons (2026 renamed `autoPoints` to `totalAutoPoints`).
+ * than credited to the alliance that received them. `adjustPoints` is a
+ * manual scorekeeper correction, attributable to no robot, and is removed for
+ * the same reason (quick task 260910-4bf). `totalPoints`, `foulPoints` and
+ * `adjustPoints` were verified present under those exact keys in all ten
+ * registered seasons 2016-2026 (every season module's Zod schema declares
+ * `adjustPoints: z.number().finite()`); no other breakdown field is touched,
+ * deliberately, because field names are not stable across seasons (2026
+ * renamed `autoPoints` to `totalAutoPoints`).
+ *
+ * This reads the raw fields directly rather than through the season
+ * component map (`ADJUST_COMPONENT` / `tryParseBreakdownPair`), even though
+ * both route to the identical value in every registered season. Two reasons,
+ * verified against HEAD before this change landed: `state.season` is `null`
+ * for the whole first replayed season (`initState` sets it null, and
+ * `carrySeason` only runs when a prior state exists), so a component-map read
+ * would make `adjust` invisible for a whole season here while
+ * `packages/bpr/data.ts` (which always has `meta.year`) subtracted it —
+ * exactly the cross-module divergence this rule must not have. And
+ * `componentMapForSeason` throws for an unregistered season, which would turn
+ * a future unregistered season into a hard failure of the live update path
+ * rather than a degrade-to-zero. The shallow read is numerically identical to
+ * the component-map read on every successfully parsed payload. See
+ * `packages/bpr/scoringTarget.test.ts` — the only thing holding this
+ * implementation and `packages/bpr/data.ts`'s in sync.
  */
-function foulPointsOf(raw: string | null, side: "red" | "blue"): number {
-  if (raw === null) return 0;
+export interface ScoreCorrections {
+  readonly redFoul: number;
+  readonly blueFoul: number;
+  readonly redAdjust: number;
+  readonly blueAdjust: number;
+}
+
+const ZERO_CORRECTIONS: ScoreCorrections = { redFoul: 0, blueFoul: 0, redAdjust: 0, blueAdjust: 0 };
+
+function numberField(alliance: Record<string, unknown>, field: string): number {
+  const v = alliance[field];
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function allianceFields(parsed: unknown, side: "red" | "blue"): Record<string, unknown> | null {
+  if (parsed === null || typeof parsed !== "object") return null;
+  const alliance = (parsed as Record<string, unknown>)[side];
+  return alliance !== null && typeof alliance === "object" ? (alliance as Record<string, unknown>) : null;
+}
+
+export function correctionsOf(raw: string | null): ScoreCorrections {
+  if (raw === null) return ZERO_CORRECTIONS;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return 0;
+    return ZERO_CORRECTIONS;
   }
-  if (parsed === null || typeof parsed !== "object") return 0;
-  const alliance = (parsed as Record<string, unknown>)[side];
-  if (alliance === null || typeof alliance !== "object") return 0;
-  const fp = (alliance as Record<string, unknown>).foulPoints;
-  return typeof fp === "number" && Number.isFinite(fp) ? fp : 0;
+  const red = allianceFields(parsed, "red");
+  const blue = allianceFields(parsed, "blue");
+  return {
+    redFoul: red ? numberField(red, "foulPoints") : 0,
+    blueFoul: blue ? numberField(blue, "foulPoints") : 0,
+    redAdjust: red ? numberField(red, "adjustPoints") : 0,
+    blueAdjust: blue ? numberField(blue, "adjustPoints") : 0,
+  };
 }
 
 interface AllianceView {
@@ -570,10 +624,9 @@ function foldPhases(
 function update(state: BprState, result: MatchResult): BprState {
   const p = BPR_PARAMS;
 
-  const redFoul = foulPointsOf(result.scoreBreakdownRaw, "red");
-  const blueFoul = foulPointsOf(result.scoreBreakdownRaw, "blue");
-  const redOut = result.redScore - redFoul;
-  const blueOut = result.blueScore - blueFoul;
+  const { redFoul, blueFoul, redAdjust, blueAdjust } = correctionsOf(result.scoreBreakdownRaw);
+  const redOut = result.redScore - redFoul - redAdjust;
+  const blueOut = result.blueScore - blueFoul - blueAdjust;
 
   // --- online season scale, in points ---
   const { scale, count: scaleCount } = stepScale(state.scale, state.scaleCount, (redOut + blueOut) / 2, p);
@@ -605,8 +658,15 @@ function update(state: BprState, result: MatchResult): BprState {
     logTau,
     scale,
     scaleCount,
-    // Display-only, and deliberately last: everything above this line is the
-    // frozen predictor, byte-for-byte what produced the sealed 78.05%.
+    // Display-only, and deliberately last: everything above this line is
+    // still the predictor, and `foldPhases` is still display-only and
+    // deliberately last. It is NOT byte-for-byte what produced the sealed
+    // 78.05% anymore — quick task 260910-4bf changed the scoring target
+    // (dropping TBA's `adjustPoints`), so that figure describes the revision
+    // of this file that predates this change, not this one. The measured
+    // deltas had accuracy intervals spanning zero on both slices tested; the
+    // change is justified by attribution (a scorekeeper correction is not
+    // robot performance), not by measured accuracy.
     ...foldPhases(state, result, p),
   };
 }
