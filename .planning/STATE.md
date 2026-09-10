@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260909-03b: BPR measurement path unified and selection bar re-derived; P1 dropped at Gate B, holdout unspent"
-last_updated: "2026-09-10T02:11:52.768Z"
+last_updated: "2026-09-10T02:16:25.587Z"
 last_activity: 2026-09-09
 last_activity_desc: "Completed quick task 260909-3fj: /methodology/swing, the first user-facing explanation of Swing Score and the match band, five inline SVG figures drawn by the shipping code, 0 dash characters verified by rendering"
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-09 - Completed quick task 260909-3fj: /methodology/swing, the first user-facing explanation of Swing Score and the match band, five inline SVG figures drawn by the shipping code, 0 dash characters verified by rendering
+Last activity: 2026-09-09 - Completed quick task 260909-tom: the Teams page bubble-chart toggle, total metric against Swing Score for every filtered team
 
 Progress: [██████████] 100%
 
@@ -455,6 +455,7 @@ None yet.
 | 88 | Remove the ribbon +/- toggle -- Swing Score is a permanent part of the site and can never be turned off | 2026-09-10 | 7fb39556 | — |
 | 88 | Match-plot ticks: snap the left edge to the device-pixel phase so every tick renders one weight at 125/150 percent display scaling; the previous CSS-pixel rounding measured as a no-op | 2026-09-10 | 697f43d0 | — |
 | 89 | Swing Factor as a first-class metric with rarity tiers (residual vs rating curve, lower-is-better) | 2026-09-10 | 21539518 | [260909-tgf](./quick/260909-tgf-make-swing-factor-a-first-class-metric-w/) |
+| 90 | Teams page bubble-chart toggle: ?chart=bubble swaps the table for a scatter of every filtered team, X = total metric, Y = Swing Score, uniform dots colored by total-metric rarity tier, drawn as at most four SVG paths rather than one node per team | 2026-09-10 | d4109e49 | — |
 
 ### Roadmap Evolution
 
