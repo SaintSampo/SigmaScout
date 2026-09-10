@@ -624,11 +624,41 @@ const NEW_2024AUWARP_ENTRY: SubsetEntry = {
 };
 
 /**
+ * 2026-09-10: the retired `vpr` prefix's absence layer, exactly the sigma1
+ * pattern one retirement later. The `retire-vpr-9-generation` delete pass
+ * ran this day (25,724 keys over --seasons 2019-2026, pre-census 56/60
+ * present, post-census 0/60 — `docs/publish-budget.md`'s delete-pass
+ * section), so `vpr@9.0.0+rolling-2026-09c` absence is now a live,
+ * re-runnable claim. Derived programmatically from the fifteen sigma1
+ * controls (same events, same PD-05 shape); the version literal is the
+ * historical record of what was deleted and cannot go stale — nothing will
+ * ever publish under `vpr@9.0.0+rolling-2026-09c` again. Earlier vpr
+ * generations (7.0.0, 8.0.0) were deleted by their own passes and are not
+ * re-asserted here, matching how sigma1's absence layer pins only its final
+ * version.
+ */
+export const RETIRED_VPR_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUBSET.filter(
+  (entry) => entry.algorithmId === "sigma1"
+).map((entry) => ({
+  ...entry,
+  algorithmId: "vpr",
+  note: `[retired-vpr absence, 2026-09-10] ${entry.note}`,
+  expectAbsent: true,
+  version: "9.0.0+rolling-2026-09c",
+}));
+
+/**
  * The full event-level expectation table this plan's verifier runs against:
  * the seventeen 07-10 control entries, their seventeen renamed-run
- * duplicates, and the one genuinely new `2024auwarp` entry — 35 total.
+ * duplicates, the one genuinely new `2024auwarp` entry, and (2026-09-10)
+ * the fifteen retired-vpr absence entries — 50 total.
  */
-export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [...PRE_RENAME_EVENT_SUBSET, ...RENAMED_EVENT_SUBSET, NEW_2024AUWARP_ENTRY];
+export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
+  ...PRE_RENAME_EVENT_SUBSET,
+  ...RENAMED_EVENT_SUBSET,
+  NEW_2024AUWARP_ENTRY,
+  ...RETIRED_VPR_EVENT_SUBSET,
+];
 assertSubsetEntryShape(PUBLISHED_SUBSET, "PUBLISHED_SUBSET");
 
 // ---------------------------------------------------------------------------

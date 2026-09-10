@@ -111,8 +111,16 @@ const PROBE_EVENT_KEY = "__07-19-delete-probe__";
  * corpus that failed to open, or a `--seasons` range that parsed wrong,
  * produces a small, plausible-looking key count and a fast, clean, entirely
  * wrong run — this is what turns that into a loud abort instead.
+ *
+ * 2026-09-10: max widened 25,000 -> 30,000. The band was calibrated for the
+ * seven-season corpus (07-19); the retire-vpr-9-generation pass enumerates
+ * 25,724 keys over --seasons 2019-2026 against the grown corpus (new
+ * offseason events ingested since 2026-09-06), a plausible true count that
+ * the old ceiling refused. min stays 15,000 — the failure mode this band
+ * exists for (empty/misparsed enumeration) produces counts far BELOW min,
+ * and that edge is untouched.
  */
-export const RETIRED_KEY_COUNT_BOUNDS = { min: 15_000, max: 25_000 } as const;
+export const RETIRED_KEY_COUNT_BOUNDS = { min: 15_000, max: 30_000 } as const;
 
 export class RefusedLiveAlgorithmIdError extends Error {
   constructor(retiredId: string, liveIds: readonly string[]) {
