@@ -20,6 +20,14 @@
  * (by the route's own filter model) and are neither re-filtered nor
  * reordered here. `buildBubbleModel` makes a single pass over `rows` in the
  * order given.
+ *
+ * Quick task 260909-v5v: this module also now serves pointer hit-testing —
+ * `buildHitIndex`/`hitTestNearest` resolve a pointer position to the nearest
+ * plotted point, and `tooltipAnchorFor` places the hover card. The hit test
+ * lives HERE, in a pure module, rather than in the component, because jsdom
+ * does no layout: a hit test written against live element geometry would be
+ * untestable in this repo's test environment, while a pure function over
+ * numbers is exhaustively testable.
  */
 import type { TeamRow } from "./rowModel.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
@@ -92,7 +100,38 @@ export const BUBBLE_CHART = Object.freeze({
   /** D-01: uniform by decision, not oversight — ~4000 teams at full filter width make a size channel pure clutter. */
   dotRadius: 2.5,
   targetTickCount: 6,
+  /**
+   * Quick task 260909-v5v: the pointer-to-point distance inside which a
+   * point counts as hit, AND the spatial grid's cell size (`buildHitIndex`).
+   * These are DELIBERATELY the same number — the 3x3-neighbourhood scan
+   * `hitTestNearest` runs is exhaustive only because the cell size is at
+   * least the hit radius. Changing one without the other starts silently
+   * missing points.
+   */
+  hitRadius: 12,
+  /** The hover ring's radius — about 2.4x `dotRadius`, big enough to read against a dense cloud without hiding its neighbours. */
+  highlightRadius: 6,
+  /**
+   * The tooltip card's declared geometry (chart-craft.md: "derive coupled
+   * geometry; never hand-tune both ends"). `TeamsBubbleChart.tsx`'s inline
+   * card width and `tooltipAnchorFor`'s flip arithmetic both read these same
+   * fields, or the card will flip at the wrong moment.
+   */
+  tooltipWidth: 220,
+  tooltipHeight: 96,
+  tooltipOffset: 12,
 });
+
+/**
+ * The per-team published number and the Y axis title — SigmaScout's own
+ * heuristic for how much a robot's contribution varies match to match. NOT
+ * Match Band (an unrelated term) and NEVER the algorithm's own internal
+ * confidence field. The axis title and the tooltip's row label both read
+ * this ONE constant, so "the same label the axis uses, never a re-typed
+ * literal" (D-01, quick task 260909-v5v) is structural rather than a
+ * convention two call sites could drift apart on.
+ */
+export const SWING_AXIS_LABEL = "Swing Score";
 
 /** Derives the plot rect from `width` and `BUBBLE_CHART`. Clamps both dimensions to a non-negative minimum so a collapsed container cannot produce negative geometry. */
 export function plotRectFor(width: number): PlotRect {
@@ -216,6 +255,17 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
 }
 
 /**
+ * Rounds a projected coordinate to one decimal. Shared, rather than inline,
+ * because `tonePathData` and `buildHitIndex` (quick task 260909-v5v) both
+ * project the same points, and if the two rounded differently the highlight
+ * ring would sit a fraction off the dot it claims to be marking. One helper
+ * is the enforcement.
+ */
+function roundCoord(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
  * Concatenates one arc-pair circle subpath per point into a single `d`
  * string for one tone — the whole reason the point cloud costs at most four
  * DOM nodes regardless of team count (see 260909-tom-PLAN.md's
@@ -230,9 +280,157 @@ export function tonePathData(points: readonly BubblePoint[], x: BubbleAxis, y: B
   const r = BUBBLE_CHART.dotRadius;
   const subpaths: string[] = [];
   for (const point of points) {
-    const cx = Math.round(projectX(point.x, x, plot) * 10) / 10;
-    const cy = Math.round(projectY(point.y, y, plot) * 10) / 10;
+    const cx = roundCoord(projectX(point.x, x, plot));
+    const cy = roundCoord(projectY(point.y, y, plot));
     subpaths.push(`M${cx},${cy}m-${r},0a${r},${r} 0 1,0 ${2 * r},0a${r},${r} 0 1,0 -${2 * r},0`);
   }
   return subpaths.join("");
+}
+
+/**
+ * A uniform-grid spatial index over a `BubbleModel`'s points, built once per
+ * `[model, plot]` (quick task 260909-v5v). `cx`/`cy`/`teamNumbers` are
+ * parallel typed arrays, one entry per `points[i]`. `teamNumbers` is
+ * duplicated into the index rather than read back off `points` so
+ * `hitTestNearest` needs no second argument and no property access in its
+ * inner loop.
+ *
+ * `buckets` is a FLAT grid indexed `row * cols + col`, deliberately NOT a
+ * `Map` with string keys: the lookup runs at pointer rate, and a string key
+ * would allocate on every move.
+ */
+export interface BubbleHitIndex {
+  cx: Float64Array;
+  cy: Float64Array;
+  teamNumbers: Int32Array;
+  originX: number;
+  originY: number;
+  cellSize: number;
+  cols: number;
+  rows: number;
+  buckets: readonly (readonly number[])[];
+}
+
+/**
+ * Builds a `BubbleHitIndex` in one pass: project each point with
+ * `projectX`/`projectY`, round with the same `roundCoord` `tonePathData`
+ * uses, store into the typed arrays, and push its index into its bucket.
+ * Grid origin is `plot.left`/`plot.top`; `cellSize` is
+ * `BUBBLE_CHART.hitRadius`. `cols`/`rows` are always at least 1, so a
+ * collapsed (zero width or height) plot rect still yields a usable 1x1 grid
+ * rather than throwing or producing a zero-dimension grid.
+ */
+export function buildHitIndex(points: readonly BubblePoint[], x: BubbleAxis, y: BubbleAxis, plot: PlotRect): BubbleHitIndex {
+  const cellSize = BUBBLE_CHART.hitRadius;
+  const originX = plot.left;
+  const originY = plot.top;
+  const cols = Math.max(1, Math.ceil(plot.width / cellSize) + 1);
+  const rows = Math.max(1, Math.ceil(plot.height / cellSize) + 1);
+
+  const cx = new Float64Array(points.length);
+  const cy = new Float64Array(points.length);
+  const teamNumbers = new Int32Array(points.length);
+  const buckets: number[][] = Array.from({ length: cols * rows }, () => []);
+
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    const px = roundCoord(projectX(point.x, x, plot));
+    const py = roundCoord(projectY(point.y, y, plot));
+    cx[i] = px;
+    cy[i] = py;
+    teamNumbers[i] = point.teamNumber;
+
+    let col = Math.floor((px - originX) / cellSize);
+    let row = Math.floor((py - originY) / cellSize);
+    if (col < 0) col = 0;
+    else if (col >= cols) col = cols - 1;
+    if (row < 0) row = 0;
+    else if (row >= rows) row = rows - 1;
+    buckets[row * cols + col]!.push(i);
+  }
+
+  return { cx, cy, teamNumbers, originX, originY, cellSize, cols, rows, buckets };
+}
+
+/**
+ * Resolves a pointer position to the index of the nearest point within
+ * `BUBBLE_CHART.hitRadius`, or `null` if none is that close. Computes the
+ * pointer's grid cell, CLAMPS it into range, and scans the 3x3 neighbourhood
+ * of cells around it — exhaustive because the grid's cell size equals the
+ * hit radius, so a point within `hitRadius` of a pointer that sits outside
+ * the grid must lie within `hitRadius` of the grid boundary too, hence in
+ * the clamped boundary cell or its immediate neighbour, which the 3x3 scan
+ * covers.
+ *
+ * Compares squared distance against squared `hitRadius`, never a square
+ * root. Ties (an exactly equal squared distance) resolve to the LOWER
+ * `teamNumbers` entry — D-03's determinism, written as an explicit branch
+ * rather than left to iteration order, so the same pixel always yields the
+ * same team regardless of point order in the model.
+ *
+ * Allocates nothing: no array, no object, no closure. Returns an index into
+ * the points the index was built from, or `null`.
+ */
+export function hitTestNearest(index: BubbleHitIndex, px: number, py: number): number | null {
+  const { cx, cy, teamNumbers, originX, originY, cellSize, cols, rows, buckets } = index;
+  const radius = BUBBLE_CHART.hitRadius;
+  const radiusSq = radius * radius;
+
+  let pointerCol = Math.floor((px - originX) / cellSize);
+  let pointerRow = Math.floor((py - originY) / cellSize);
+  if (pointerCol < 0) pointerCol = 0;
+  else if (pointerCol >= cols) pointerCol = cols - 1;
+  if (pointerRow < 0) pointerRow = 0;
+  else if (pointerRow >= rows) pointerRow = rows - 1;
+
+  let best: number | null = null;
+  let bestDistSq = Infinity;
+
+  for (let row = Math.max(0, pointerRow - 1); row <= Math.min(rows - 1, pointerRow + 1); row++) {
+    for (let col = Math.max(0, pointerCol - 1); col <= Math.min(cols - 1, pointerCol + 1); col++) {
+      const bucket = buckets[row * cols + col]!;
+      for (let k = 0; k < bucket.length; k++) {
+        const i = bucket[k]!;
+        const dx = cx[i]! - px;
+        const dy = cy[i]! - py;
+        const distSq = dx * dx + dy * dy;
+        if (distSq > radiusSq) continue;
+        if (
+          distSq < bestDistSq ||
+          (distSq === bestDistSq && best !== null && teamNumbers[i]! < teamNumbers[best]!)
+        ) {
+          best = i;
+          bestDistSq = distSq;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Places the tooltip card down-and-right of the point by default, flipping
+ * left when that would overflow the plot rect's right edge and up when it
+ * would overflow the bottom edge. Clamps both `left`/`top` to at least 0, so
+ * a flip near the top-left corner never positions the card off the
+ * container. Pure — no DOM measurement — which is the whole reason the card
+ * has a DECLARED width/height (`BUBBLE_CHART.tooltipWidth`/`tooltipHeight`)
+ * rather than being measured: the flip behaviour is unit-testable without a
+ * DOM.
+ */
+export function tooltipAnchorFor(cx: number, cy: number, plot: PlotRect): { left: number; top: number } {
+  const { tooltipWidth, tooltipHeight, tooltipOffset } = BUBBLE_CHART;
+
+  let left = cx + tooltipOffset;
+  if (left + tooltipWidth > plot.left + plot.width) {
+    left = cx - tooltipOffset - tooltipWidth;
+  }
+
+  let top = cy + tooltipOffset;
+  if (top + tooltipHeight > plot.top + plot.height) {
+    top = cy - tooltipOffset - tooltipHeight;
+  }
+
+  return { left: Math.max(0, left), top: Math.max(0, top) };
 }
