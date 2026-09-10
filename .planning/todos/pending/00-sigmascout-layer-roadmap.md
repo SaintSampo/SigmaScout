@@ -112,7 +112,7 @@ Two things carried forward rather than closed:
 - **Presim storage roughly tripled** — median 184 KB per sidecar, now for three algorithms instead
   of VPR's one. Comfortable against R2's free tier today; check it at the next budget review.
 
-## 4. ~~Live match updates carry no band~~ — CODE DONE 2026-09-09 (`63596da3`), NOT YET DEPLOYED
+## 4. ~~Live match updates carry no band~~ — SHIPPED 2026-09-10
 
 The Worker now emits the Match Band on every match it folds and the per-team Swing Factor on
 every team it touches. Each team row carries `sigmascoutSwing` — four running numbers — as a
@@ -135,15 +135,23 @@ too, since the band landed. The rule now lives in `SwingFactorAccumulator.foldMa
 callers cannot diverge. Over 2024–2026, 300 fully-demo matches were polluting the accumulator and
 **8,017 of 122,310 published bands change** as a result.
 
-**STILL TO DO — the production step, deliberately not taken unattended:**
+**Rolled out 2026-09-10, in order: publish, seed, deploy.**
 
-1. `pnpm publish:seasons` — corrects those 8,017 bands AND emits shape-10 seeds.
-2. `npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-bpr.sql`
-3. Deploy the Worker.
+- **Publish** generation `af0bf6af`, **108,805 objects / 4.23 GB**, exit 0, zero real errors.
+- **Seed** applied to all three algorithms (not just the live one, so a future
+  `LIVE_ALGORITHM_IDS` change cannot hit a stale shape): bpr 6,548 team rows of which **3,746
+  carry a belief**, league row declaring shape 10.
+- **Deploy** version `61605e4e`. Two consecutive cron ticks `ok:true`, 1–2 ms CPU, zero exceptions.
 
-**Seed first, deploy second.** A deploy carrying shape 10 against un-re-seeded rows throws
-`LeagueRowShapeVersionError` and takes live folding down until the seed runs. September has no
-live windows, so this is the cheapest possible moment to do it.
+**Verified end-to-end rather than assumed.** An idle tick never reads state, so it proves nothing
+about shape coherence. Instead the real D1 rows were pulled and parsed through the deployed
+shape-10 code: `deserializeState` succeeded, `readSwingBeliefs` recovered the beliefs, and the
+Swing Factors they reconstruct — frc254 **76.42**, frc1678 **94.01** — are byte-identical to what
+the site publishes for those teams. That is the property the whole bump existed to buy.
+
+**Still not exercised, honestly: the FOLD path.** September has zero live windows, so every tick
+runs `eventsConsidered: 0`. The state is loadable and the arithmetic agrees, but no match has been
+folded through the live band in production. First live event is the real test.
 
 ## 5. All algorithms folding live — blocked by arithmetic, with a way through
 
@@ -247,17 +255,15 @@ Treat a full-run failure as a defect.
 
 ## Suggested order
 
-1. **Ship item 4's production step** — publish, seed, deploy, in that order. The code is committed
-   and the suite is green; what is left is the part that touches production, and September's empty
-   calendar is the cheapest window for a shape bump.
-2. **Fix the RP under-prediction** (item 3's measured bias), cheapest cause first: the `rosterSize`
-   variance shrinkage, then 2025's hardcoded `autoBonus`, then the diagonal block itself — for
-   which a single GLOBAL per-season correlation is worth trying before a per-team cross-term that
-   the sample size cannot support.
-3. **Decide what `--event` is for** (item 5c) — fix its cold replay, or delete the path. It cannot
+1. **The RP diagonal block** — the last of the three under-prediction causes and now the dominant
+   one. Try a single GLOBAL per-season correlation before a per-team cross-term the sample size
+   cannot support. The other two causes shipped 2026-09-10 (`72566078`).
+2. **Decide what `--event` is for** (item 5c) — fix its cold replay, or delete the path. It cannot
    stay as a republish command that degrades what it republishes.
-4. **Algorithm rotation** (item 5), measured on a real fold.
-5. **Calibration and docs** (item 6), and re-decide the two dormant displays from item 2.
+3. **Algorithm rotation** (item 5), measured on a real fold.
+4. **Calibration and docs** (item 6), and re-decide the two dormant displays from item 2.
+5. **Re-measure the `team` payload ceiling downward** — VPR's retirement took the object that made
+   it tight, and it now sits at 63.6% of a ceiling sized for a bigger one.
 
 Watch the first live event of the season: it is the first real exercise of BPR's fold path AND of
 the live RP path.
