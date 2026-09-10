@@ -15,7 +15,7 @@
  * reporting layer and the accuracy rule key off.
  */
 import { describe, expect, it } from "vitest";
-import { bpr, type BprState, type BprTeamState } from "./bpr.js";
+import { bpr, correctionsOf, type BprState, type BprTeamState } from "./bpr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
 
@@ -319,4 +319,85 @@ describe("bpr display-variance calibration", () => {
     expect(p.blueScoreVarianceOwn).toBe(0);
     expect(p.variance).toBe(0);
   });
+});
+
+/**
+ * Quick task 260910-4bf. The deltas measured for this change had accuracy
+ * intervals spanning zero on both slices tested (2023: +0.087pp
+ * [-0.062, +0.229]; 2024-25 holdout: +0.003pp [-0.071, +0.070]). These tests
+ * pin an ATTRIBUTION rule -- a scorekeeper correction is not robot
+ * performance -- not a performance claim.
+ */
+function breakdownJson(
+  red: { foulPoints?: number; adjustPoints?: number } = {},
+  blue: { foulPoints?: number; adjustPoints?: number } = {},
+): string {
+  return JSON.stringify({
+    red: { foulPoints: red.foulPoints ?? 0, adjustPoints: red.adjustPoints ?? 0 },
+    blue: { foulPoints: blue.foulPoints ?? 0, adjustPoints: blue.adjustPoints ?? 0 },
+  });
+}
+
+const sortedTeams = (state: BprState): [string, BprTeamState][] =>
+  [...state.teams.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+describe("bpr scoring target excludes adjustPoints from the target (requirement a)", () => {
+  const runOnce = (redScore: number, adjustPoints: number): BprState =>
+    bpr.update(
+      bpr.initState(SIX),
+      result({
+        redScore,
+        blueScore: 50,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: breakdownJson({ adjustPoints }, {}),
+      }),
+    );
+
+  it.each([
+    [100, 0, 130, 30],
+    [100, 0, 70, -30],
+    [100, 0, 250, 150],
+  ])(
+    "redScore=%i,adjust=%i produces the same post-update state as redScore=%i,adjust=%i",
+    (redA, adjA, redB, adjB) => {
+      const a = runOnce(redA, adjA);
+      const b = runOnce(redB, adjB);
+
+      // Compared by sorted entry arrays, since Map identity is not what is
+      // being asserted -- both start from the SAME bpr.initState(SIX), so
+      // the comparison isolates the target.
+      expect(sortedTeams(a)).toEqual(sortedTeams(b));
+      expect(a.scale).toBe(b.scale);
+      expect(a.scaleCount).toBe(b.scaleCount);
+      expect(a.logTau).toBe(b.logTau);
+    },
+  );
+});
+
+describe("bpr scoring target: malformed breakdown yields adjust = 0, never skips the update (requirement b, port half)", () => {
+  const MALFORMED: readonly (string | null)[] = [
+    null,
+    "{not json",
+    '{"red":{},"blue":{}}',
+    '{"red":{"adjustPoints":null},"blue":{"adjustPoints":"12"}}',
+    "null",
+    "[]",
+  ];
+
+  for (const raw of MALFORMED) {
+    it(`raw=${JSON.stringify(raw)}: correctionsOf returns four zeros without throwing`, () => {
+      expect(() => correctionsOf(raw)).not.toThrow();
+      expect(correctionsOf(raw)).toEqual({ redFoul: 0, blueFoul: 0, redAdjust: 0, blueAdjust: 0 });
+    });
+
+    it(`raw=${JSON.stringify(raw)}: bpr.update folds the match rather than skipping it`, () => {
+      const before = bpr.initState(SIX);
+      const next = bpr.update(before, result({ scoreBreakdownRaw: raw, hasScoreBreakdown: raw !== null }));
+
+      // The update was folded at adjust = 0, not skipped: ratings move and
+      // the scale counter increments.
+      expect(sortedTeams(next)).not.toEqual(sortedTeams(before));
+      expect(next.scaleCount).toBe(before.scaleCount + 1);
+    });
+  }
 });
