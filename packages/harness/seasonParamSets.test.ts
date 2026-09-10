@@ -380,9 +380,5 @@ describe("D-4 equivalence gate, Leg B (evidence, not the bar): the season-bounda
     // Leg A (above) is the acceptance bar (D-4); this assertion must never be
     // read as a substitute for it.
     expect(facadeDigest).toBe(plainDigest);
-    // 30s, not vitest's 5s default: this test replays two full seasons twice
-    // over. It passes in isolation and timed out only under full-suite
-    // parallel load, which is the worst kind of red — it trains readers to
-    // ignore a failing suite.
-  }, 30_000);
+  });
 });
