@@ -43,12 +43,15 @@ omission); `metricsBasis: "last-official-match"` present on team artifacts (clos
 260908-wpo's deferred parity check). `pnpm verify:subset`: generation uniformity **1 distinct
 value** equal to the summary line — but 20 of 35 entries fail on STALE EXPECTATIONS, not bad
 artifacts: the subset still checks retired `vpr` rows (the manifest correctly resolves nothing)
-and still pins opr/epa to ZERO RP pmfs, a polarity commit 160401fe deliberately inverted
-(observed: 72/72 played qual rows carrying pmfs at `2024casf` for opr and epa). The
-expectation-table rework is queued as its own task; treat verify:subset as red-for-stale-reasons
-until it lands. One honest observation filed for the simulation/swing rethink: bpr carries pmfs
-on only 57/72 of `2024casf`'s played qual rows where opr/epa carry 72/72 — the cold-start →
-no-band → no-pmf chain is now measurably algorithm-dependent. D1 re-seed was classifier-blocked
+and still pins opr/epa to ZERO RP pmfs, a polarity commit 160401fe deliberately inverted. The
+expectation-table rework landed the same night (RENAMED_ALGORITHM_ID vpr → bpr; the new
+`"partial"` pmf expectation): verify:subset is back to **35 entries, 0 failing**. One honest
+observation filed for the simulation/swing rethink, CORRECTED from this entry's first draft:
+ALL THREE algorithms uniformly carry pmfs on 57/72 of `2024casf`'s played qual rows (the
+first-draft "opr/epa 72/72 vs bpr 57/72" claim misread the old checker's either-field count,
+which included 15 degenerate length-1 ELIMINATION pmf pairs). The 15 uncovered qual rows are
+the cold-start → no-band → no-pmf chain, and it is uniform across algorithms, not
+algorithm-dependent. D1 re-seed was classifier-blocked
 in-session and handed to the operator (`reports/publish/SEED-COMMANDS.txt`, one invocation per
 seed, read-back after each); not yet confirmed applied at the time this entry was written.
 
