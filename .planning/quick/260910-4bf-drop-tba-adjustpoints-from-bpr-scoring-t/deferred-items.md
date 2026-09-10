@@ -1,5 +1,14 @@
 # Deferred items — quick task 260910-4bf
 
+> **RESOLVED 2026-09-10, same night, commit 095424c9 (a different session).**
+> Both items below were fixed within the hour: the gbr 2026 exact-count pin
+> became a seal-time FLOOR (`toBeGreaterThanOrEqual(20297)` — the corpus is
+> live and offseason ingest grows it continuously), and the digest slice
+> fixture was re-extracted through its own designed remedy
+> (`fixtures/extract-digest-slice.ts`; every committed DIGEST reproduces
+> untouched, per that test's prohibition). Both files 23/23 green. The
+> analysis below stands as the accurate record of what was found.
+
 Found during the Task 3 full-suite run (`npx vitest run` from repo root). Both
 are pre-existing, unrelated to this task's scoring-target change, and are
 out of scope per the executor's scope-boundary rule (only auto-fix issues
