@@ -23,7 +23,36 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-05 (evening), the Rule-A promotion republish
+**Latest run — 2026-09-10 (early morning ET), the swing-tiers / cold-start / card-DQ republish
+(`pnpm publish:seasons`, generation `2f1a8885-ecdd-4179-8733-f425a3df7ce0`).** 108,820 page
+objects plus 2 manifests (108,822 total `PUT`s), 4,287,054,147 bytes, 641 presim sidecars,
+started 23:45:19 ET 2026-09-09, ~60 min wall clock. This is the SECOND full publish of the same
+evening — it supersedes generation `af0bf6af` (the shape-10 / post-VPR run recorded in the
+machine-readable block's previous revision, measured 22:40 ET) roughly an hour later, because
+three artifact-value changes landed after that run: quick task 260909-tgf's Swing Score
+tier/percentile merge onto both artifact families, 260909-vs5's card-driven-zero exemption from
+the Swing Factor accumulator, and 260909-t5q's unified cold-start handling (`coldStart` stamps
+plus the Compare exclusion bucket). Object count moved +15 vs `af0bf6af` (108,805 → 108,820):
++6 `event` and +9 `team` pages, corpus growth from newly ingested offseason events between the
+two runs, not a schema change. **Post-run verification, all against the live origin:**
+`pnpm manifest:algorithms` read-back verified (3 entries — opr `4.0.0+baseline`,
+epa `6.0.0+baseline`, bpr `1.0.0+baseline`); Compare exclusion counts match 260909-t5q's
+pre-publish census EXACTLY (coldStart 269 in 2016, 1 in 2017, 0 elsewhere); all 3,721 rows of
+`teams/2026/bpr` carry a swing entry (930 rare / 744 epic / 188 legendary, common encoded by
+omission); `metricsBasis: "last-official-match"` present on team artifacts (closing
+260908-wpo's deferred parity check). `pnpm verify:subset`: generation uniformity **1 distinct
+value** equal to the summary line — but 20 of 35 entries fail on STALE EXPECTATIONS, not bad
+artifacts: the subset still checks retired `vpr` rows (the manifest correctly resolves nothing)
+and still pins opr/epa to ZERO RP pmfs, a polarity commit 160401fe deliberately inverted
+(observed: 72/72 played qual rows carrying pmfs at `2024casf` for opr and epa). The
+expectation-table rework is queued as its own task; treat verify:subset as red-for-stale-reasons
+until it lands. One honest observation filed for the simulation/swing rethink: bpr carries pmfs
+on only 57/72 of `2024casf`'s played qual rows where opr/epa carry 72/72 — the cold-start →
+no-band → no-pmf chain is now measurably algorithm-dependent. D1 re-seed was classifier-blocked
+in-session and handed to the operator (`reports/publish/SEED-COMMANDS.txt`, one invocation per
+seed, read-back after each); not yet confirmed applied at the time this entry was written.
+
+**Prior run — 2026-09-05 (evening), the Rule-A promotion republish
 (`pnpm publish:seasons`, generation `f4f8f379-b83f-4350-9971-4f4cdc87f331`).** 75,544 page
 objects plus 2 manifests (75,546 total `PUT`s), 2,932,411,463 bytes, backgrounded, ~28 min.
 **This run changed real prediction values**: vpr moved to `9.0.0+rolling-2026-09c` (commit
@@ -1468,22 +1497,22 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-10T02:40:00.000Z",
-  "run": "tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason -- generation af0bf6af-9ea6-42db-93a2-805ae14359ea, 108,805 objects, 4,225,933,817 bytes total, exit 0, zero real errors (every log line is a benign presim skip: offseason event_type 99 events plus the cold-start season). FIRST PUBLISH AFTER VPR'S RETIREMENT, and the first at state shape 10. Object count fell 145,070 -> 108,805 and total bytes 5.81 GB -> 4.23 GB, purely from dropping the fourth algorithm; teams/events artifacts go 40 -> 30 and team artifacts 135,200 -> 101,400. THE ONE-TO-WATCH RESOLVED ITSELF EXACTLY AS THIS DOCUMENT PREDICTED: the previous block flagged VPR's own frc3538/2024 team object at 392,088 B, 98.0% of its 400,000 ceiling with 7,912 bytes of headroom, and noted that retiring VPR would remove it outright. It did. team max is now 317,800 B (EPA's frc3538/2024), 63.6% of the 500,000 ceiling. team is no longer the tightest constraint; compare is, at 14,007 B against 20,000 (70.0%). The ceiling is now wide and worth re-measuring downward, which this run deliberately does NOT do -- no ceiling moved in this block, and every page kind is comfortably under its committed budgetMaxBytes. TWO MODEL-LAYER CHANGES ship in this generation, both level-2 SigmaScout features rather than any algorithm: (1) the Match Band now skips fully-demo alliances, matching what every algorithm's update() already did -- 300 such matches were polluting the accumulator and 8,017 of 122,310 published bands move as a result (commit 63596da3); (2) bonus-RP probabilities are materially better calibrated after fixing an even-split variance shrinkage and 2025's hardcoded-false autoBonus -- pooled Brier 0.2164 -> 0.1860 over 488,026 alliance-bonus observations (commit 72566078). Winner accuracy and match Brier are untouched; both changes are downstream of level 1, not in it.",
+  "measuredAt": "2026-09-10T04:45:00.000Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason) -- generation 2f1a8885-ecdd-4179-8733-f425a3df7ce0, 108,820 objects, 4,287,054,147 bytes total, 641 presim sidecars, started 23:45:19 ET 2026-09-09, ~60 min. SECOND full publish of the same evening, superseding af0bf6af (the shape-10 / post-VPR run this block previously recorded) about an hour later; the deltas vs that block are the three artifact-value changes that landed in between -- 260909-tgf's Swing Score tier/percentile merged onto both artifact families, 260909-vs5's card-driven-zero exemption from the Swing Factor accumulator, and 260909-t5q's coldStart stamps plus the Compare exclusion bucket -- and +15 objects (+6 event, +9 team) of ordinary corpus growth from newly ingested offseason events. The swing/coldStart additions are visible as size growth on the two team-bearing kinds (teams median 935,165 -> 982,472, max +53,311 same key; team median +446, max +3,857 same key) while events is byte-identical and compare grows ~130B per object from the new exclusion field. No ceiling moved and none is close: team max 321,657 = 64.3% of 500,000; compare is the tightest kind at 14,131 / 20,000 (70.7%). The af0bf6af block's downward re-measure of the team ceiling is STILL owed and still deliberately not taken here. Post-run: manifest read-back 3 entries (opr 4.0.0+baseline, epa 6.0.0+baseline, bpr 1.0.0+baseline); verify:subset generation uniformity 1 distinct value equal to this generation, but 20/35 entries fail on stale expectations (retired vpr rows; opr/epa ZERO-pmf polarity inverted by commit 160401fe) -- expectation-table rework queued, artifacts verified healthy directly.",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 935165,
-      "p95Bytes": 1563863,
-      "maxBytes": 1572698,
+      "medianBytes": 982472,
+      "p95Bytes": 1612311,
+      "maxBytes": 1626009,
       "budgetMaxBytes": 3500000,
       "largestKey": "v1/teams/2026/epa@6.0.0+baseline.json"
     },
     "team": {
-      "count": 101400,
-      "medianBytes": 30693,
-      "p95Bytes": 87340,
-      "maxBytes": 317800,
+      "count": 101409,
+      "medianBytes": 31139,
+      "p95Bytes": 88425,
+      "maxBytes": 321657,
       "budgetMaxBytes": 500000,
       "largestKey": "v1/team/frc3538/2024/epa@6.0.0+baseline.json"
     },
@@ -1496,18 +1525,18 @@ rendering of these same numbers, not a second source.
       "largestKey": "v1/events/2025/bpr@1.0.0+baseline.json"
     },
     "event": {
-      "count": 7335,
-      "medianBytes": 66559,
-      "p95Bytes": 108135,
-      "maxBytes": 246060,
+      "count": 7341,
+      "medianBytes": 67809,
+      "p95Bytes": 109254,
+      "maxBytes": 246054,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2016micmp/epa@6.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 13585,
-      "p95Bytes": 14007,
-      "maxBytes": 14007,
+      "medianBytes": 13711,
+      "p95Bytes": 14131,
+      "maxBytes": 14131,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
