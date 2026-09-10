@@ -142,9 +142,15 @@ describe("THE SEAL — loadSeason throws for the holdout year, and only for it",
     expect(() => loadSeason(2026)).toThrow(/2026/);
   });
 
-  it.skipIf(!corpusPresent)("loadSeason(2026, { breakSeal: true }) does not throw, and returns 20,297 rows", () => {
+  // 2026-09-10: the exact-count pin (20,297) went stale — the corpus is LIVE
+  // and offseason ingest grows the 2026 season continuously (20,408 at the
+  // time of this edit). The seal-time count becomes a FLOOR: the assertion's
+  // job is proving breakSeal actually loads the full season, not freezing the
+  // corpus. GBR itself is shelved (2026-09-08); this keeps its seal test
+  // honest without weekly maintenance.
+  it.skipIf(!corpusPresent)("loadSeason(2026, { breakSeal: true }) does not throw, and returns at least the seal-time 20,297 rows", () => {
     const rows = loadSeason(2026, { breakSeal: true });
-    expect(rows.length).toBe(20297);
+    expect(rows.length).toBeGreaterThanOrEqual(20297);
   });
 
   it.skipIf(!corpusPresent)("loadSeason(2016) returns 15,572 rows", () => {
