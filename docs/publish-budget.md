@@ -789,6 +789,32 @@ silently marked done: after this run, a human should open the Cloudflare R2 dash
 count alongside the local numbers above, since the two can differ (multipart uploads, retries, and
 prior runs' objects all count toward the dashboard figure but not this run's local counter).
 
+## Delete pass — 2026-09-10, the retired `vpr` prefix removed (retire-vpr-9-generation)
+
+The final act of VPR's 2026-09-09 retirement: with generation `2f1a8885` live and the manifest
+resolving only opr/epa/bpr, the orphaned `vpr@9.0.0+rolling-2026-09c` generation was removed.
+
+```
+pnpm cleanup:retired-objects --retired-id vpr --version 9.0.0+rolling-2026-09c --seasons 2019-2026 --dry-run
+pnpm cleanup:retired-objects --retired-id vpr --version 9.0.0+rolling-2026-09c --seasons 2019-2026 --execute
+pnpm cleanup:retired-objects --retired-id vpr --version 9.0.0+rolling-2026-09c --seasons 2019-2026 --census-only
+```
+
+**25,724 keys enumerated** (8 `events`, 2,088 `event`, 8 `teams`, 23,620 `team`), all deletes
+issued, exit 0. Pre-census: 56/60 sampled keys present (the 4 absent are the known
+offseason-scope gap the tool's own doc names). **Post-census: 0/60 present** — the stratified
+sample reads 404 across every page kind. Two supporting facts recorded honestly: (1) the tool's
+`RETIRED_KEY_COUNT_BOUNDS.max` was widened 25,000 → 30,000 in the same session — the band was
+calibrated for the seven-season corpus and refused the grown corpus's true count; `min` (the edge
+that catches empty/misparsed enumerations) is untouched. (2) `--seasons` accepts only a single
+contiguous range, so the pass ran `2019-2026`; empty 2021 contributes no keys (corpus-driven
+enumeration) and over-enumeration costs idempotent 404s by design. The same session also deleted
+vpr's **5,764 stale D1 `algorithm_state` rows** (generation `f4f8f379`, inert since the worker
+reads only published algorithm ids) — D1 now carries exactly opr/epa/bpr at `2f1a8885`.
+`verify:subset` gained a fifteen-entry `vpr@9.0.0+rolling-2026-09c` absence layer derived from
+the sigma1 controls the same day: **50 entries, 0 failing**. Earlier vpr generations were removed
+by their own recorded passes below (7.0.0: 2026-09-04 section; 8.0.0: 2026-09-05 section).
+
 ## Delete pass — 2026-08-29, plan 07-19 Task 3 (D-06, the retired `sigma1` prefix removed)
 
 **This is the section 07-17 assigned here.** After 07-18 moved the deployed client onto the
