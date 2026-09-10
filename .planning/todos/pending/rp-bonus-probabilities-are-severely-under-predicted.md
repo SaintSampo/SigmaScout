@@ -5,7 +5,21 @@ source: roadmap item 3's "measure the RP bias against real outcomes" — measure
 priority: high
 ---
 
-# Published bonus-RP probabilities under-predict by ~2.75x, and three separate causes explain it
+# Published bonus-RP probabilities under-predict, and three separate causes explain it
+
+> **TWO OF THREE FIXED — 2026-09-09 (`72566078`).** Causes 2 and 3 are done. Re-measured over the
+> same 488,026 observations: **Brier 0.2164 -> 0.1860**, mean predicted 0.1131 -> 0.1507 against an
+> observed 0.3109, extreme predictions 70.5% -> 52.2%, and the sub-0.05 bucket now happens 11.26%
+> of the time instead of 18.41%. 18 of 21 season-bonuses improved; 2 unchanged (still hardcoded
+> false); one moved -0.0002, which is noise.
+>
+> **Cause 1 — the diagonal covariance block — is untouched and is now the dominant remaining term.**
+> The discarded dependence is unchanged at +0.0391 and the model's implied joint is 0.0222 against
+> an observed 0.1179. That one is a genuine modelling decision, not a bug, and the global
+> per-season correlation sketched at the bottom of this file is the next thing to try.
+>
+> Before/after outputs: `reports/rp/calibration-bpr-all-seasons.txt` and
+> `reports/rp/calibration-bpr-after-fixes.txt` (both gitignored).
 
 Measured walk-forward over **488,026 (alliance, bonus) observations across all ten seasons**,
 driven through the same `SigmaScoutLayer` the publisher runs, so these ARE the published numbers.
@@ -51,28 +65,35 @@ The correlation the block discards is measured directly and positive in every se
 observed `P(both) = 0.1179` against `P(A)*P(B) = 0.0787`. The header predicted this sign; it is
 confirmed, with a magnitude.
 
-### 2. The even-split variance shrinkage — real, arithmetic, and fixable
+### 2. ~~The even-split variance shrinkage~~ — FIXED (`72566078`)
 
 A team's belief is folded from `allianceValue / rosterSize`, so its variance estimates
 `Var(A)/9`, not its own contribution's variance. Summing three teams gives `Var(A)/3` where the
 alliance variance should be `Var(A)` — **understated by exactly `rosterSize`**.
 
-Tested by scaling the variance block by `roster.length` and re-measuring: Brier improved on 4 of
-the 5 non-hardcoded bonuses in 2025/2026 (2026 `supercharged` 0.0720 -> 0.0637, 2025 `bargeBonus`
-0.2742 -> 0.2382), and the model's implied joint moved 0.0151 -> 0.0303 against an observed
-0.0886. **Real, and not sufficient on its own** — cause 1 dominates.
+Shipped as the average of each contributing team's implied alliance variance
+(`rosterSize^2 * Var(belief)`), which reduces to `rosterSize * sum` on a full roster and degrades
+correctly on a partial one rather than shrinking twice. **Real, and not sufficient on its own** —
+cause 1 dominates.
+
+Three tests now pin the variance MAGNITUDE. Every test that existed pinned only its shape — zero
+at one observation, positive once observations differ, diagonal — which is exactly how a
+factor-of-3 error survived all of them.
 
 Note this is a genuine error rather than a documented simplification: the module's header
 justifies the DIAGONAL block and the ZERO cross-covariance deliberately, but this shrinkage is
 not mentioned anywhere and appears to be unintended.
 
-### 3. Bonuses hardcoded to `false` because the threshold variables cannot express them
+### 3. Bonuses hardcoded to `false` — 2025 FIXED (`72566078`), 2019 left alone
 
 Two seasons predict a bonus as always-false, each honestly documented in place:
 
-- **2025 `autoBonus`** (`2025.ts:206`) — gated on per-robot leave flags and `autoCoralCount`,
-  which this season tracks no threshold variable for. It happens **65.94%** of the time. This
-  single hardcoded `false` produces a Brier of 0.6594 over 25,978 observations.
+- **2025 `autoBonus`** — FIXED. It happens **65.94%** of the time and the hardcoded `false` scored
+  a Brier of 0.6594 over 25,978 observations. It was a missing INPUT, not a modelling
+  approximation: "all three recorded robots left" IS a count reaching 3. Tracking `autoLineCount`
+  and `autoCoralCount` as threshold variables takes it to **0.4045**. Parse and predict now read
+  the same two counts so their definitions cannot drift. It still understates, for a stated
+  reason: a count drawn continuously and cut at its own ceiling understates a discrete "3 of 3".
 - **2019 `completeRocket`** (`2019.ts:162`) — happens 5.15% of the time, so the cost is small.
 
 The 2025 case is the second-worst number in the whole measurement and is not a modelling
@@ -89,12 +110,9 @@ algorithm (level 1), not from this layer. The scope is bonus RP and anything der
 
 ## Suggested order
 
-1. **Fix cause 2** — it is arithmetic, roughly a one-line change, and measurably helps. Cheapest
-   real improvement available.
-2. **Fix cause 3 for 2025** — `autoBonus` needs `autoLineRobot1/2/3` and `autoCoralCount` carried
-   as threshold variables. A 66%-base-rate bonus predicted as never happening is the single most
-   visible wrongness on the list.
-3. **Then cause 1**, which is the hard one and the only one that is a genuine modelling decision.
+1. ~~Fix cause 2~~ — done.
+2. ~~Fix cause 3 for 2025~~ — done.
+3. **Cause 1**, all that is left, and the hard one and the only one that is a genuine modelling decision.
    Estimating a stable per-team cross-term needs more observations than a team plays in a season,
    which is why it was made diagonal in the first place. A cheaper route worth trying first: a
    single GLOBAL correlation applied to all threshold pairs, measured once per season across all
