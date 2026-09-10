@@ -13,6 +13,7 @@ import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/Tea
 import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
 import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
 import { TeamsBubbleChart } from "../components/teams-table/TeamsBubbleChart.js";
+import type { BubblePoint } from "../components/teams-table/teamsBubbleModel.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
@@ -141,6 +142,20 @@ function TeamsPage() {
     });
   }
 
+  // Quick task 260909-v5v (D-02): `columns.tsx`'s link shape verbatim — a
+  // team opened from a bubble-chart dot lands in exactly the state a team
+  // opened from a table row lands in. `navigate` rather than a `<Link>`
+  // deliberately; see `TeamsBubbleChart.tsx`'s header comment for the full
+  // tradeoff (one canonical copy of that reasoning, beside the code it
+  // constrains, rather than restated here).
+  function handleSelectTeam(point: BubblePoint) {
+    void navigate({
+      to: "/team/$teamNumber",
+      params: { teamNumber: String(point.teamNumber) },
+      search: { year, algorithm, tab: "overview" },
+    });
+  }
+
   // Quick task 260905-ttv: the updater form so year/algorithm/sort/cols all
   // survive, mirroring `events.tsx`'s `handleFiltersChange`/`handleClearFilters`.
   function handleFiltersChange(nextFilters: TeamFiltersModel) {
@@ -246,7 +261,7 @@ function TeamsPage() {
           // widest child — the svg has no intrinsic width to give it, so
           // without a declared width here the column collapses to zero.
           <div className="w-[1100px] max-w-full">
-            <TeamsBubbleChart rows={rows} />
+            <TeamsBubbleChart rows={rows} onSelectTeam={handleSelectTeam} />
           </div>
         ) : (
           <TeamsTable
