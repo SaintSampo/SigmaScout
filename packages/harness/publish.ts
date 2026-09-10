@@ -94,7 +94,8 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
-import { allianceSwingBandVariance, type SwingBelief } from "./swingFactor.js";
+import { allianceSwingBandVariance, SWING_METRIC_KEY, type SwingBelief } from "./swingFactor.js";
+import { swingMetricByTeam } from "./swingMetric.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
@@ -1765,9 +1766,10 @@ function teamInfoOrFallback(teamInfo: ReadonlyMap<string, TeamInfo>, teamKey: st
 /**
  * Replaces each metric's `percentile` with the compact `tier` the teams
  * table actually consumes. Common is omitted entirely (it renders unboxed),
- * so absence means "Common or unranked".
+ * so absence means "Common or unranked". Exported (quick task 260909-tgf)
+ * for direct unit testing of the swing metric's tier-stamping behaviour.
  */
-function withPublishedTiers(metrics: Record<string, { value: number; spread?: number; percentile?: number }>): Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> {
+export function withPublishedTiers(metrics: Record<string, { value: number; spread?: number; percentile?: number }>): Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> {
   const out: Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> = {};
   for (const [key, metric] of Object.entries(metrics)) {
     const tier = publishedTierForPercentile(metric.percentile);
@@ -2550,6 +2552,21 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // from everything played so far — walk-forward for it by definition.
       const layerForAlgo = layers.get(algorithm.id)!;
       const swingByTeamForAlgo = layerForAlgo.swingByTeam();
+      // Quick task 260909-tgf: the published `swing` metric (value + tier on
+      // the teams row, value + percentile on the team-season artifact),
+      // computed ONCE here per (algorithm, season) and consumed by BOTH
+      // artifacts below -- the same "one computation feeds both" property
+      // the top-level `swingFactor` comment above already claims for the raw
+      // value, extended to the tier. The rating axis is the SEASON-FINAL
+      // `metricsByTeam` (not `officialMetricsByTeam`): `swingByTeamForAlgo`
+      // is itself season-final -- `layerForAlgo.swingByTeam()` reflects
+      // everything played -- so pairing it with a season-final rating keeps
+      // both sides of the residual measured over the same window.
+      const swingMetricForAlgo = swingMetricByTeam({
+        swingByTeam: swingByTeamForAlgo,
+        metricsByTeam,
+        teamKeys: teamsThisSeason,
+      });
       if (state !== undefined) {
         for (const [eventKey, matchesForEvent] of scheduledByEvent) {
           scheduledPredictionsByEvent.set(
@@ -2592,6 +2609,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // every algorithm. `swingByTeamForAlgo` omits any team with fewer
           // than two played matches, so `.get` returning undefined is the
           // honest "not enough play to say" case, not a lookup failure.
+          //
+          // Quick task 260909-tgf: KEPT unchanged alongside the new `swing`
+          // metric entry merged into `metrics` below -- see the team-season
+          // artifact's identical `swingFactor` field (below in this file) for
+          // the three load-bearing reasons this top-level field is never
+          // removed or deprecated.
           swingFactor: swingByTeamForAlgo.get(teamKey),
           // Quick task 260904-586: the team's metrics as of its LAST
           // OFFICIAL match, not the season-final snapshot — ranked (via
@@ -2619,7 +2642,22 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // identical rendered result. Page-load speed is the top stated UX
           // priority, so the table gets the cheap representation and the
           // small per-team artifact keeps the full percentile.
-          metrics: withPublishedTiers(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
+          //
+          // Quick task 260909-tgf: the `swing` entry (from `swingMetricForAlgo`
+          // above) is merged in HERE, BEFORE `withPublishedTiers` strips
+          // `percentile` and stamps `tier` -- merging after would leave a
+          // `percentile` on this row and `encodeTeamMetricEntry` would throw
+          // at publish time. A team with no swing entry gets nothing merged;
+          // the key stays genuinely absent, never present-and-undefined. Note
+          // also that the swing entry is SEASON-FINAL while the rest of this
+          // record is the LAST-OFFICIAL-MATCH snapshot (260904-586 / 260908-wpo)
+          // -- not new, the top-level `swingFactor` on this same row has
+          // always been season-final, but now that it sits INSIDE the metrics
+          // record beside official-scoped values, this says so plainly.
+          metrics: withPublishedTiers({
+            ...(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
+            ...(swingMetricForAlgo[teamKey] !== undefined ? { [SWING_METRIC_KEY]: swingMetricForAlgo[teamKey] } : {}),
+          }),
           eventCount: stats?.eventKeys.size ?? 0,
           matchCount: stats?.matchCount ?? 0,
           // Quick task 260905-ttv: this team's inferred home region, from the
@@ -2859,12 +2897,30 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           algorithmVersion: version,
           seasonStats: {
             record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-            metrics: seasonStatsMetrics.metrics,
+            // Quick task 260909-tgf: the `swing` entry is merged in HERE,
+            // with its `percentile` KEPT (unlike the teams row above) --
+            // the per-team artifact is small and carries full percentiles by
+            // design (`TeamMetricSchema.tier`'s own documented size
+            // argument), and the season-header tile derives its tier from
+            // this percentile via the existing client `tierForPercentile`.
+            metrics: {
+              ...seasonStatsMetrics.metrics,
+              ...(swingMetricForAlgo[teamKey] !== undefined ? { [SWING_METRIC_KEY]: swingMetricForAlgo[teamKey] } : {}),
+            },
             metricsBasis: seasonStatsMetrics.metricsBasis,
           },
           // Quick task 260908-5wd: SigmaScout-layer Swing Factor, the SAME
           // per-team value the `/teams` artifact publishes for this team — one
           // computation, so the team page and the Teams table cannot disagree.
+          //
+          // Quick task 260909-tgf: KEPT unchanged, deliberately, alongside the
+          // new `swing` metric entry above. It is load-bearing in three ways:
+          // `apps/worker/src/scheduled.ts` writes it on every live tick and
+          // computes no percentiles at all (so a live-rebuilt row has a swing
+          // value and no metric entry); `apps/web/src/components/event/
+          // eventMatchAxis.ts` reads it; and it is the stale-artifact fallback
+          // that keeps swing rendering (value only, no tier) between this
+          // commit and the developer's republish.
           swingFactor: swingByTeamForAlgo.get(teamKey),
           events,
           metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], sortedPools),

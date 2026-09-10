@@ -55,12 +55,14 @@ import {
   seasonStatsMetricsForTeam,
   withEventPercentiles,
   withHistoryPercentiles,
+  withPublishedTiers,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
   type EventTeamRankingInput,
   type PublishedObjectRecord,
 } from "./publish.js";
 import { artifactKey, decodeTeamsRowMetrics, preScheduleKey, PreScheduleArtifactSchema, TeamsArtifactSchema } from "./pageArtifacts.js";
+import { SWING_METRIC_KEY } from "./swingFactor.js";
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
@@ -1399,6 +1401,77 @@ describe("buildTeamsArtifact", () => {
   });
 });
 
+describe("buildTeamsArtifact — swing metric (quick task 260909-tgf)", () => {
+  function baseTeamInput(metrics: Record<string, TeamMetric & { percentile?: number; tier?: "rare" | "epic" | "legendary" }>) {
+    return {
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      record: { wins: 10, losses: 2, ties: 0 },
+      metrics,
+      eventCount: 3,
+      matchCount: 36,
+    };
+  }
+
+  it("a row whose swing entry carries value + tier (no percentile) encodes positionally without throwing, and metricKeys includes SWING_METRIC_KEY", () => {
+    const artifact = buildTeamsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
+      generation: "g1",
+      computedAt: "2026-08-22T00:00:00.000Z",
+    });
+    expect(artifact.metricKeys).toContain(SWING_METRIC_KEY);
+    const swingIndex = artifact.metricKeys!.indexOf(SWING_METRIC_KEY);
+    // [value, spread | null, tier] -- the three-element boxed-tier form.
+    expect((artifact.teams[0]!.metrics as unknown[])[swingIndex]).toEqual([8.42, null, "legendary"]);
+  });
+
+  it("a row whose swing entry still carries percentile THROWS -- the merge must happen on the correct side of withPublishedTiers", () => {
+    expect(() =>
+      buildTeamsArtifact({
+        season: 2026,
+        algorithmId: "opr",
+        algorithmVersion: "3.0.0+baseline",
+        teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } })],
+        generation: "g1",
+      })
+    ).toThrow("encodeTeamMetricEntry: the teams-table positional encoding has no slot for `percentile`");
+  });
+
+  it("TeamsArtifactSchema.parse decodes the swing entry back to {value, tier} losslessly", () => {
+    const artifact = buildTeamsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
+      generation: "g1",
+    });
+    // TeamsArtifactSchema.parse (the DECODING schema, deliberately distinct
+    // from TeamsArtifactWireSchema) already reconstructs each row's metrics
+    // to record-form and drops metricKeys entirely -- see its own doc
+    // comment. So the round-trip is a direct field read, not a second
+    // decodeTeamsRowMetrics call.
+    const parsed = TeamsArtifactSchema.parse(artifact);
+    expect(parsed.teams[0]!.metrics[SWING_METRIC_KEY]).toEqual({ value: 8.42, tier: "legendary" });
+  });
+
+  it("rounds the swing value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
+    const artifact = buildTeamsArtifact({
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      teams: [baseTeamInput({ total: { value: 12.34567 }, [SWING_METRIC_KEY]: { value: 8.426789, tier: "epic" } })],
+      generation: "g1",
+    });
+    const swingIndex = artifact.metricKeys!.indexOf(SWING_METRIC_KEY);
+    const entry = (artifact.teams[0]!.metrics as unknown[])[swingIndex] as [number, number | null, string];
+    expect(entry[0]).toBe(roundTo(8.426789, ROUNDING_RULE.metric));
+  });
+});
+
 describe("buildEventsArtifact", () => {
   it("assembles a small fixture that parses against EventsArtifactSchema", () => {
     const artifact = buildEventsArtifact({
@@ -1541,6 +1614,63 @@ describe("buildTeamSeasonArtifact", () => {
     });
     expect(artifact.events).toEqual([]);
     expect(artifact.metricHistory).toEqual([]);
+  });
+});
+
+describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () => {
+  it("seasonStats.metrics.swing.percentile round-trips, and the top-level swingFactor field stays present and unchanged", () => {
+    const artifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      seasonStats: {
+        record: { wins: 10, losses: 2, ties: 0 },
+        metrics: { total: { value: 50 }, [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } },
+        metricsBasis: "last-official-match",
+      },
+      swingFactor: 8.42,
+      events: [],
+      metricHistory: [],
+      generation: "g1",
+    });
+    expect(artifact.seasonStats.metrics[SWING_METRIC_KEY]?.percentile).toBe(97);
+    expect(artifact.swingFactor).toBe(roundTo(8.42, ROUNDING_RULE.metric));
+  });
+
+  it("rounds the swing value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
+    const artifact = buildTeamSeasonArtifact({
+      teamKey: "frc254",
+      teamNumber: 254,
+      nickname: "The Cheesy Poofs",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      seasonStats: {
+        record: { wins: 10, losses: 2, ties: 0 },
+        metrics: { [SWING_METRIC_KEY]: { value: 8.426789, percentile: 97 } },
+        metricsBasis: "last-official-match",
+      },
+      events: [],
+      metricHistory: [],
+      generation: "g1",
+    });
+    expect(artifact.seasonStats.metrics[SWING_METRIC_KEY]?.value).toBe(roundTo(8.426789, ROUNDING_RULE.metric));
+  });
+});
+
+describe("withPublishedTiers — swing tier stamping (quick task 260909-tgf)", () => {
+  it("a swing entry with percentile 97 yields tier legendary and no percentile key", () => {
+    const result = withPublishedTiers({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } });
+    expect(result[SWING_METRIC_KEY]?.tier).toBe("legendary");
+    expect("percentile" in (result[SWING_METRIC_KEY] ?? {})).toBe(false);
+  });
+
+  it("a swing entry with percentile 30 yields no tier key at all (Common is omitted, per the existing wire-format rule)", () => {
+    const result = withPublishedTiers({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 30 } });
+    expect("tier" in (result[SWING_METRIC_KEY] ?? {})).toBe(false);
   });
 });
 
@@ -3801,7 +3931,7 @@ describe("buildCompareArtifact", () => {
       scoredCount: 1000,
       tieCount: 0,
       noCallCount: 0,
-      exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+      exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
       candidateCount: 1000,
       calibrationBins: [],
     };
