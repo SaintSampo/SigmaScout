@@ -23,7 +23,32 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-10 (early morning ET), the swing-tiers / cold-start / card-DQ republish
+**Latest run — 2026-09-10 (~02:26–03:10 ET), the bpr@2.0.0 republish — presim OFF
+(`pnpm publish:seasons`, generation `b9e26153-c473-4ab0-9c31-189a8d28c884`).** 108,820 page
+objects plus 2 manifests, 4,285,893,092 bytes, **zero presim sidecars** — the first run under
+the temporary `--presim-from-season 9999` flag (commit 1a759198, added to the script while the
+simulation/swing rethink iterates; every season logged the "below presim-from-season" skip).
+~44 min wall clock. Two model-layer changes ship in `bpr@2.0.0+baseline` (code version bump, so
+every bpr key moved and the object count is UNCHANGED at 108,820): (1) quick task 260910-2pt's
+display-time variance calibration (`displaySdFactor` — winner calls pinned bit-identical);
+(2) quick task 260910-kco's official-play-only season carryover (`carryFrom:
+"last-official-match"`, measured a statistical zero at −0.0145pp, CI [−0.113, +0.079], and
+adopted on principle — the sealed research model never loads offseason matches). Byte totals
+moved −1.16MB vs `2f1a8885` from value-shape drift on the bpr keys. **Post-run:**
+`manifest:algorithms` read-back 3 entries (opr 4.0.0 / epa 6.0.0 / **bpr 2.0.0**);
+`verify:subset` **50 entries, 0 failing**, generation uniformity 1 distinct value equal to the
+summary line (the renamed-layer bpr entries followed the manifest to 2.0.0 automatically); D1
+re-seeded one file per invocation with read-back after opr and at the end — all three algorithms
+at `b9e26153`, bpr `2.0.0+baseline` (one transient auth-10000 on the first opr attempt,
+succeeded verbatim on retry). **Owed and deliberately deferred for a soak:** the
+`bpr@1.0.0+baseline` generation is now orphaned in R2 (~36k objects); its `--supersedes-live`
+delete pass needs TWO invocations (`--seasons 2016-2020` then `2022-2026` — the full 2016-2026
+range enumerates ~36k keys, above even the widened 30,000 band, and the band is a per-pass
+sanity check worth keeping tight rather than widening again). Note while auditing this:
+`epa@5.0.0+baseline` keys from before 260908-615's 5→6 bump may be a second, older orphan
+worth a census when the bpr pass runs.
+
+**Prior run — 2026-09-10 (early morning ET), the swing-tiers / cold-start / card-DQ republish
 (`pnpm publish:seasons`, generation `2f1a8885-ecdd-4179-8733-f425a3df7ce0`).** 108,820 page
 objects plus 2 manifests (108,822 total `PUT`s), 4,287,054,147 bytes, 641 presim sidecars,
 started 23:45:19 ET 2026-09-09, ~60 min wall clock. This is the SECOND full publish of the same
@@ -1526,12 +1551,12 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-10T04:45:00.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason) -- generation 2f1a8885-ecdd-4179-8733-f425a3df7ce0, 108,820 objects, 4,287,054,147 bytes total, 641 presim sidecars, started 23:45:19 ET 2026-09-09, ~60 min. SECOND full publish of the same evening, superseding af0bf6af (the shape-10 / post-VPR run this block previously recorded) about an hour later; the deltas vs that block are the three artifact-value changes that landed in between -- 260909-tgf's Swing Score tier/percentile merged onto both artifact families, 260909-vs5's card-driven-zero exemption from the Swing Factor accumulator, and 260909-t5q's coldStart stamps plus the Compare exclusion bucket -- and +15 objects (+6 event, +9 team) of ordinary corpus growth from newly ingested offseason events. The swing/coldStart additions are visible as size growth on the two team-bearing kinds (teams median 935,165 -> 982,472, max +53,311 same key; team median +446, max +3,857 same key) while events is byte-identical and compare grows ~130B per object from the new exclusion field. No ceiling moved and none is close: team max 321,657 = 64.3% of 500,000; compare is the tightest kind at 14,131 / 20,000 (70.7%). The af0bf6af block's downward re-measure of the team ceiling is STILL owed and still deliberately not taken here. Post-run: manifest read-back 3 entries (opr 4.0.0+baseline, epa 6.0.0+baseline, bpr 1.0.0+baseline); verify:subset generation uniformity 1 distinct value equal to this generation, but 20/35 entries fail on stale expectations (retired vpr rows; opr/epa ZERO-pmf polarity inverted by commit 160401fe) -- expectation-table rework queued, artifacts verified healthy directly.",
+  "measuredAt": "2026-09-10T07:15:00.000Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation b9e26153-c473-4ab0-9c31-189a8d28c884, 108,820 objects, 4,285,893,092 bytes total, ZERO presim sidecars (the temporary rethink-era off switch, commit 1a759198), ~02:26-03:10 ET 2026-09-10, ~44 min. Ships bpr@2.0.0+baseline: 260910-2pt's display-variance calibration (winner calls bit-identical) plus 260910-kco's official-play-only season carryover (measured -0.0145pp, CI [-0.113, +0.079] -- a statistical zero, adopted on principle). Object count UNCHANGED at 108,820 (a version bump renames keys, never changes cardinality); bytes -1.16MB vs 2f1a8885 from value-shape drift on bpr keys. No ceiling moved: team max 321,657 = 64.3% of 500,000; compare tightest at 14,126 / 20,000 (70.6%). Post-run: manifest 3 entries with bpr 2.0.0; verify:subset 50 entries 0 failing, generation uniformity 1; D1 all three algorithms at b9e26153 (one transient auth-10000 on the first opr seed attempt, clean on verbatim retry). OWED: the orphaned bpr@1.0.0 generation's supersedes-live delete pass (two invocations, 2016-2020 then 2022-2026, after a soak), and a census of possible epa@5.0.0 orphans from the 260908-615 bump while at it. The sim tab keeps serving the 641 presim sidecars frozen at generation 2f1a8885 until presim is re-enabled.",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 982472,
+      "medianBytes": 982381,
       "p95Bytes": 1612311,
       "maxBytes": 1626009,
       "budgetMaxBytes": 3500000,
@@ -1539,8 +1564,8 @@ rendering of these same numbers, not a second source.
     },
     "team": {
       "count": 101409,
-      "medianBytes": 31139,
-      "p95Bytes": 88425,
+      "medianBytes": 31128,
+      "p95Bytes": 88411,
       "maxBytes": 321657,
       "budgetMaxBytes": 500000,
       "largestKey": "v1/team/frc3538/2024/epa@6.0.0+baseline.json"
@@ -1551,11 +1576,11 @@ rendering of these same numbers, not a second source.
       "p95Bytes": 84108,
       "maxBytes": 84108,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/bpr@1.0.0+baseline.json"
+      "largestKey": "v1/events/2025/bpr@2.0.0+baseline.json"
     },
     "event": {
       "count": 7341,
-      "medianBytes": 67809,
+      "medianBytes": 67800,
       "p95Bytes": 109254,
       "maxBytes": 246054,
       "budgetMaxBytes": 350000,
@@ -1563,9 +1588,9 @@ rendering of these same numbers, not a second source.
     },
     "compare": {
       "count": 10,
-      "medianBytes": 13711,
-      "p95Bytes": 14131,
-      "maxBytes": 14131,
+      "medianBytes": 13696,
+      "p95Bytes": 14126,
+      "maxBytes": 14126,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
