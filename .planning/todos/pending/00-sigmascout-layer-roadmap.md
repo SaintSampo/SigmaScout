@@ -99,29 +99,51 @@ the SigmaScout layer. That was the point of moving RP out of the algorithm.
 
 Two things carried forward rather than closed:
 
-- **The known bias.** The covariance block is diagonal and the score cross-covariance zero, so the
-  joint draw understates how often an alliance clears both 2026 thresholds together — narrower and
-  less correlated than reality, pushing bonus probabilities toward the extremes. Documented in
-  `empiricalMoments.ts`'s header. Worth measuring against actual RP outcomes now that it ships.
+- **~~The known bias~~ — MEASURED 2026-09-09 (`4bdb7717`), and far worse than "a known bias".**
+  Over 488,026 (alliance, bonus) observations across all ten seasons: mean predicted **0.1131**
+  against an observed **0.3109**. Every bonus in every season under-predicts; 2016 `breach` is
+  predicted at 0.0044 and happens 73.37% of the time. THREE causes, separated by measurement:
+  independent draws across conjunctions (the diagonal block — 2025 `coralBonus` needs four reef
+  levels at once and is 62x under), an apparently-unintended even-split variance shrinkage by
+  exactly `rosterSize`, and two bonuses hardcoded `false` (2025 `autoBonus` happens 65.94% of the
+  time and is predicted 0.0000). Full write-up and a suggested fix order in
+  `rp-bonus-probabilities-are-severely-under-predicted.md`; re-measure with
+  `scripts/measureRpCalibration.ts`.
 - **Presim storage roughly tripled** — median 184 KB per sidecar, now for three algorithms instead
   of VPR's one. Comfortable against R2's free tier today; check it at the next budget review.
 
-## 4. Live match updates carry no band — and the shape bump they need
+## 4. ~~Live match updates carry no band~~ — CODE DONE 2026-09-09 (`63596da3`), NOT YET DEPLOYED
 
-`buildEventMatchRow` emits no band, so every match the Worker folds during a live event loses its
-band until the next full publish. Detail and the full design in
-`live-match-updates-swing-and-lossy-merge.md` (defect 2 — defects 1 and 3 are done).
+The Worker now emits the Match Band on every match it folds and the per-team Swing Factor on
+every team it touches. Each team row carries `sigmascoutSwing` — four running numbers — as a
+PASSENGER injected by `withSwingBeliefs`/`readSwingBeliefs`, so no algorithm's serializer knows
+it exists. `STATE_SNAPSHOT_SHAPE_VERSION` is **10**.
 
-The estimator does NOT need a deviation history: four running numbers per team under West's
-weighted incremental variance, O(1) per match, numerically stable. The catch is that the offline
-side uses an exact two-pass form, so **both should move onto the same accumulator** or live and
-offline will agree algebraically but not bit-for-bit — against a contract built on bit-equality.
-`scheduled.replay.test.ts`'s digest covers only three prediction fields today and would not catch
-the divergence; extend it.
+Offline moved onto the same incremental estimator first (`7c685676`), so there is one arithmetic
+path rather than two that agree to twelve digits. Publish-neutral, measured: over 37,281 real band
+comparisons, max raw difference 2.9e-11 and **zero** rows differ after rounding.
 
-Costs a `STATE_SNAPSHOT_SHAPE_VERSION` bump 9 → 10, which invalidates every live row with no
-migration path by design. **Ride the same re-seed as item 1** rather than making it a second
-outage.
+`scheduled.replay.test.ts` gained a SECOND digest covering the band. The existing one is pinned
+byte-for-byte to `promote.ts` and covers only three prediction fields, so it could not have seen a
+divergence in the field this bump was made for. Confirmed to fail with the emission reverted, and
+it carries an explicit non-vacuity check.
+
+**A real bug fell out of it.** The demo-team test caught that the swing fold ignored the
+fully-demo-alliance rule every algorithm's `update` applies — a real alliance "beating" three
+placeholders is not evidence of anything and must not move a band either. Offline had this wrong
+too, since the band landed. The rule now lives in `SwingFactorAccumulator.foldMatch` so the two
+callers cannot diverge. Over 2024–2026, 300 fully-demo matches were polluting the accumulator and
+**8,017 of 122,310 published bands change** as a result.
+
+**STILL TO DO — the production step, deliberately not taken unattended:**
+
+1. `pnpm publish:seasons` — corrects those 8,017 bands AND emits shape-10 seeds.
+2. `npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-bpr.sql`
+3. Deploy the Worker.
+
+**Seed first, deploy second.** A deploy carrying shape 10 against un-re-seeded rows throws
+`LeagueRowShapeVersionError` and takes live folding down until the seed runs. September has no
+live windows, so this is the cheapest possible moment to do it.
 
 ## 5. All algorithms folding live — blocked by arithmetic, with a way through
 
@@ -225,10 +247,13 @@ Treat a full-run failure as a defect.
 
 ## Suggested order
 
-1. **The Worker's swing accumulator** (item 4) — needs a shape bump, so batch it with the next
-   re-seed. Now the top item: it is the last place a published band silently disappears.
-2. **Measure the RP bias** from item 3 against real outcomes, now that pmfs are published and every
-   season's actual bonus flags are in the corpus to compare against.
+1. **Ship item 4's production step** — publish, seed, deploy, in that order. The code is committed
+   and the suite is green; what is left is the part that touches production, and September's empty
+   calendar is the cheapest window for a shape bump.
+2. **Fix the RP under-prediction** (item 3's measured bias), cheapest cause first: the `rosterSize`
+   variance shrinkage, then 2025's hardcoded `autoBonus`, then the diagonal block itself — for
+   which a single GLOBAL per-season correlation is worth trying before a per-team cross-term that
+   the sample size cannot support.
 3. **Decide what `--event` is for** (item 5c) — fix its cold replay, or delete the path. It cannot
    stay as a republish command that degrades what it republishes.
 4. **Algorithm rotation** (item 5), measured on a real fold.
