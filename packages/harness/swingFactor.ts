@@ -1,6 +1,11 @@
 /**
- * SWING FACTOR — a SigmaScout-layer heuristic, deliberately NOT part of any
- * algorithm (developer framing, 2026-09-08).
+ * SWING FACTOR — a SigmaScout-layer heuristic, computed identically for
+ * every algorithm and, since quick task 260909-tgf, PUBLISHED as a
+ * first-class metric (`SWING_METRIC_KEY`) rather than left as a bare
+ * top-level field. THE ESTIMATOR ITSELF DID NOT CHANGE AND THE NUMBERS DID
+ * NOT MOVE — this header edit is a framing correction for what became true
+ * once Swing Factor started flowing through the percentile/tier machinery,
+ * not a rewrite of the estimator's own documentation below.
  *
  * ---------------------------------------------------------------------------
  * THE TWO LEVELS, AND WHY THIS FILE IS NOT IN `packages/core/algorithms`
@@ -29,6 +34,16 @@
  * team page and on an event page for the same match. It cannot drift, because
  * there is only one of it.
  *
+ * Promoting Swing Factor to a published metric (this quick task) does not
+ * cross level 1/level 2 boundary in the other direction: it is INJECTED at
+ * publish time as a synthetic metric entry under `SWING_METRIC_KEY` so it
+ * inherits the percentile/tier/sort machinery every other metric already
+ * has, while remaining outside every algorithm's own state and outside
+ * `AlgorithmModule.teamMetrics` — no `AlgorithmModule` implementation
+ * computes it or knows its name. `packages/harness/publish.ts` merges it in
+ * once per `(algorithm, season)`, after `layerForAlgo.swingByTeam()` has
+ * already run, exactly the same way it always has.
+ *
  * ---------------------------------------------------------------------------
  * THE ESTIMATOR
  * ---------------------------------------------------------------------------
@@ -52,6 +67,19 @@
  */
 
 import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
+
+/**
+ * The published metric key Swing Factor is injected under at publish time
+ * (quick task 260909-tgf). Declared ONCE, here — this module is already
+ * imported by `apps/web/src/components/methodology/SwingPage.tsx`, so it is
+ * proven browser-safe (no Node built-ins), which is what lets
+ * `apps/web/src/components/teams-table/rowModel.ts` import the SAME
+ * constant rather than retyping the literal `"swing"`. Every other file
+ * (`metricDirection.ts`, `swingMetric.ts`, `publish.ts`, `rowModel.ts`)
+ * imports this constant; grep for `SWING_METRIC_KEY *=` finds exactly one
+ * declaration.
+ */
+export const SWING_METRIC_KEY = "swing";
 
 /**
  * Half-life in matches: a deviation six matches old counts half as much as the

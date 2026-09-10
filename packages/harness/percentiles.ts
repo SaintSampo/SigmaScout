@@ -24,6 +24,7 @@
  */
 import { COMPONENT_GROUP_METRIC_KEYS } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY, type TeamMetric, type TeamMetrics } from "../core/algorithms/types.js";
+import { goodnessPercentile, metricDirectionOrDefault } from "./metricDirection.js";
 import { roundTo, ROUNDING_RULE } from "./rounding.js";
 
 /**
@@ -31,6 +32,18 @@ import { roundTo, ROUNDING_RULE } from "./rounding.js";
  * `percentile` is never present on `packages/core/algorithms/types.ts`'s
  * `TeamMetric` itself — it is a publish-time-only derived quantity, not
  * something any `AlgorithmModule` computes.
+ *
+ * Since quick task 260909-tgf (D2), the published `percentile` means
+ * GOODNESS rank, not value rank: `metricDirectionOrDefault` looks up each
+ * metric name's declared direction and `goodnessPercentile` inverts it for a
+ * declared lower-is-better name. This is identical to the raw value-rank
+ * percentile for every higher-is-better metric — which was every metric
+ * that flowed through this function before this task, and still is every
+ * metric except `SWING_METRIC_KEY` — and reversed for a declared
+ * lower-is-better one. This is what lets `publishedTierForPercentile` and
+ * `apps/web/src/lib/tiers.ts` stay completely direction-unaware: they only
+ * ever see a goodness percentile, never a raw one, so their single-source
+ * tier-cut property survives this change untouched.
  */
 /**
  * `tier` rides along here because `roundTeamMetricRecord` rebuilds each
@@ -95,6 +108,13 @@ export function percentileRanks(values: readonly number[]): number[] {
  * that includes teams outside the intended pool; `teamKeys` is the single
  * source of truth for pool membership, matching this phase's prohibition
  * against ranking over a convenient subset).
+ *
+ * The published `percentile` is a GOODNESS rank (D2, quick task
+ * 260909-tgf): the raw value-rank percentile is passed through
+ * `goodnessPercentile` with that metric name's `metricDirectionOrDefault` —
+ * the LENIENT accessor, never the strict one (see `metricDirection.ts`'s
+ * file header for why a throw here would turn a multi-hour manual
+ * `pnpm publish:seasons` run into a hard crash on an unrecognized name).
  */
 export function withPercentiles(metricsByTeam: TeamMetrics, teamKeys: readonly string[]): TeamMetricsWithPercentile {
   const metricNames = new Set<string>();
@@ -112,9 +132,10 @@ export function withPercentiles(metricsByTeam: TeamMetrics, teamKeys: readonly s
       const value = metricsByTeam[teamKey]?.[name]?.value;
       if (value !== undefined) entries.push({ teamKey, value });
     }
-    const percentiles = percentileRanks(entries.map((e) => e.value));
+    const rawPercentiles = percentileRanks(entries.map((e) => e.value));
+    const direction = metricDirectionOrDefault(name);
     const byTeam = new Map<string, number>();
-    entries.forEach((entry, i) => byTeam.set(entry.teamKey, percentiles[i]!));
+    entries.forEach((entry, i) => byTeam.set(entry.teamKey, goodnessPercentile(rawPercentiles[i]!, direction)));
     percentileByMetric.set(name, byTeam);
   }
 

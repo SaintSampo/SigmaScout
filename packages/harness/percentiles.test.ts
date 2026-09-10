@@ -21,6 +21,7 @@ import {
   sortedPoolsByMetric,
   withPercentiles,
 } from "./percentiles.js";
+import { SWING_METRIC_KEY } from "./swingFactor.js";
 
 describe("percentileRanks", () => {
   it("mid-rank convention on distinct values (D-04)", () => {
@@ -122,6 +123,31 @@ describe("withPercentiles", () => {
     const pct = result.frc0?.total?.percentile;
     expect(pct).toBeDefined();
     expect(Number.isInteger(pct! * 10)).toBe(true);
+  });
+
+  // Quick task 260909-tgf, Task 1: `withPercentiles` gains direction
+  // awareness (D2). These two tests pin the higher-is-better regression and
+  // add the first lower-is-better assertion.
+  it("REGRESSION PIN: a two-team record on TOTAL_METRIC_KEY still produces exactly the percentiles it produced before direction-awareness -- higher value -> higher percentile", () => {
+    const metrics: TeamMetrics = {
+      frc1: { [TOTAL_METRIC_KEY]: { value: 10 } },
+      frc2: { [TOTAL_METRIC_KEY]: { value: 20 } },
+    };
+    const result = withPercentiles(metrics, ["frc1", "frc2"]);
+    expect(result.frc1?.[TOTAL_METRIC_KEY]?.percentile).toBe(25);
+    expect(result.frc2?.[TOTAL_METRIC_KEY]?.percentile).toBe(75);
+    expect(result.frc2?.[TOTAL_METRIC_KEY]?.percentile).toBeGreaterThan(result.frc1?.[TOTAL_METRIC_KEY]?.percentile!);
+  });
+
+  it("a metric record containing a declared lower-is-better name (swing) ranks INVERTED -- the lower value receives the higher percentile", () => {
+    const metrics: TeamMetrics = {
+      frc1: { [SWING_METRIC_KEY]: { value: 10 } },
+      frc2: { [SWING_METRIC_KEY]: { value: 20 } },
+    };
+    const result = withPercentiles(metrics, ["frc1", "frc2"]);
+    // frc1 has the LOWER raw swing value and must receive the HIGHER percentile.
+    expect(result.frc1?.[SWING_METRIC_KEY]?.percentile).toBe(75);
+    expect(result.frc2?.[SWING_METRIC_KEY]?.percentile).toBe(25);
   });
 });
 
