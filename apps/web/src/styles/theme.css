@@ -185,6 +185,54 @@
   --tier-legendary-fg: #B45309;
 
   /*
+   * Bubble-chart MARK tokens (quick task 260909-tom) — solid dot colours for
+   * the Teams page's bubble-chart view, where a tier's colour is the ONLY
+   * signal (there is no text label riding alongside a dot the way there is
+   * in a tiered table cell). Computed, not picked, per the dataviz skill's
+   * `scripts/validate_palette.js` and this quick task's own deterministic
+   * rule (260909-tom-PLAN.md `colour_decision`):
+   *
+   * 1. Candidate set A (the skill's identity hues: sky `#0EA5E9`, purple
+   *    `#9333EA`, amber `#F59E0B`) was tried first. It FAILED the 3:1
+   *    non-text contrast floor against this white surface (`#ffffff`): sky
+   *    measured 2.77:1, amber 2.15:1 — legible in a tinted table cell
+   *    (where the fill and a ring do the work) but not as a small solid dot
+   *    on white, which has no such relief.
+   * 2. Per the deterministic rule, a failing member of set A means set B
+   *    (the existing `--tier-*-fg` values) is used for ALL THREE, never a
+   *    half-swapped trio. Set B passed: normal-vision ΔE 20.3, all three
+   *    >= 3:1 contrast (rare 5.93:1, epic 6.98:1, legendary 5.02:1). Its
+   *    adjacent CVD separation (epic vs rare) is 7.8 deutan / 13.0 tritan —
+   *    inside the 6-8 WARN band, legal only with secondary encoding, which
+   *    `TeamsBubbleChart.tsx`'s key row (four text-labelled swatches)
+   *    supplies: identity is never colour-alone here.
+   * 3. The neutral started at Tailwind slate-500 `#64748B` and was moved
+   *    ALONG THE SLATE RAMP (never adding chroma — the neutral must stay
+   *    the visibly quiet one) until it cleared the normal-vision floor
+   *    against the closest tier mark (rare, the navy): slate-500 measured
+   *    only ΔE 9.7 against rare, a hard FAIL (floor is 15). The lighter
+   *    slate-400 `#94A3B8` cleared ΔE (20.3) but dropped contrast to
+   *    2.56:1. `#7D8DA3`, interpolated between the two, is the landing
+   *    point: ΔE 16.1 against rare (comfortably over the 15 floor) and
+   *    3.38:1 contrast (over the 3:1 floor). Its own chroma (0.038) is
+   *    below the validator's general 0.10 categorical-chroma floor — an
+   *    EXPECTED, not a defect: a gray neutral chosen for being the quiet
+   *    one will always read as chroma-less by that check.
+   *
+   * Final validator run, this exact set, `--mode light --surface #ffffff
+   * --pairs all`: lightness band PASS; chroma floor FAIL (neutral only,
+   * expected per above); CVD separation WARN (7.8 deutan / 13.0 tritan,
+   * epic vs rare, mitigated by the key row); normal-vision floor PASS
+   * (worst pair rare vs neutral, ΔE 16.1); contrast vs surface PASS (all
+   * four >= 3:1). Re-run this validator before changing any of these four
+   * values.
+   */
+  --tier-neutral-mark: #7D8DA3;
+  --tier-rare-mark: #0369A1;
+  --tier-epic-mark: #7E22CE;
+  --tier-legendary-mark: #B45309;
+
+  /*
    * Compare page calibration-chart series colours (08-10, sketch 006 winner
    * C) — the OPR/EPA/VPR reliability-diagram line colours. This is sketch
    * 006's own validated trio, used verbatim, never re-derived. Run through
@@ -785,6 +833,44 @@ body {
  */
 .metric-tier--common {
   box-shadow: inset 0 0 0 1px var(--tier-common-edge);
+}
+
+/*
+ * Bubble-chart tone classes (quick task 260909-tom) — the SVG dot marks and
+ * the key-row swatches share this one class family rather than two separate
+ * colour declarations that could drift apart. `fill` is what an SVG
+ * `<path>` (the dot marks) reads; `background-color` is what an HTML
+ * `<span>` (the key-row swatch) reads. Setting BOTH on one rule is
+ * intentional, not redundant: an SVG element ignores `background-color`
+ * and an HTML element ignores `fill`, so each consumer picks up the
+ * property it understands, and the mark colour and the key-swatch colour
+ * cannot drift apart the way two separately-maintained rules could.
+ *
+ * `fill-opacity: 0.8` exists only so a lower tone's path can show through
+ * where an upper tone's path is drawn on top of it (BUBBLE_TONE_DRAW_ORDER
+ * paints neutral first, legendary last) — it does NOT darken where two dots
+ * of the SAME tone overlap, because they are one path with one fill-opacity,
+ * not two stacked shapes. This chart is not a density plot and no copy
+ * anywhere may read as if it were.
+ */
+.bubble-tone {
+  fill-opacity: 0.8;
+}
+.bubble-tone--neutral {
+  fill: var(--tier-neutral-mark);
+  background-color: var(--tier-neutral-mark);
+}
+.bubble-tone--rare {
+  fill: var(--tier-rare-mark);
+  background-color: var(--tier-rare-mark);
+}
+.bubble-tone--epic {
+  fill: var(--tier-epic-mark);
+  background-color: var(--tier-epic-mark);
+}
+.bubble-tone--legendary {
+  fill: var(--tier-legendary-mark);
+  background-color: var(--tier-legendary-mark);
 }
 
 /*
