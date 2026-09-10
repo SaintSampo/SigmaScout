@@ -7,12 +7,16 @@
  * (not MIT) and grants redistribution only for contributing back upstream;
  * see the fetch script's header for the full statement.
  *
- * A pure Node module: no I/O beyond `readFileSync`, no network, no clock.
- * There is no silent degrade path and no fabricated schedule anywhere in
- * this module — a missing cache file throws `ScheduleTemplateMissingError`
- * naming the exact path and the fetch script (C-11), and a malformed cache
- * line throws `ScheduleTemplateParseError` naming the file and line number
- * rather than producing an off-by-one schedule.
+ * A pure Node module: no I/O beyond `readFileSync`/`existsSync`, no
+ * network, no clock. There is no silent degrade path and no fabricated
+ * schedule anywhere in this module — a missing cache file throws
+ * `ScheduleTemplateMissingError` naming the exact path and the fetch
+ * script (C-11), and a malformed cache line throws
+ * `ScheduleTemplateParseError` naming the file and line number rather than
+ * producing an off-by-one schedule. The ONE exception is a wholly absent
+ * cache directory, which falls back to the committed
+ * `SCHEDULE_TEMPLATE_FIXTURE_DIR` grid — see that constant for why that is
+ * a CI affordance rather than a degrade path.
  *
  * A positive fact about template geometry, stated here rather than
  * rediscovered per caller: a template's row count is
@@ -22,7 +26,7 @@
  * sidecar prices "a plausible schedule of about this shape", not a
  * reproduction of any specific event's real match list.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -34,6 +38,43 @@ import { join } from "node:path";
  * not an oversight.
  */
 export const SCHEDULE_TEMPLATE_DIR = "data/schedule-templates";
+
+/**
+ * A three-cell stand-in grid that IS committed, consulted only when the
+ * production cache directory above does not exist at all — in practice,
+ * only on a machine that has never run `pnpm fetch:schedule-templates`,
+ * which means CI.
+ *
+ * These CSVs are NOT Team 254's files and reproduce none of their content:
+ * they are balanced schedules this repo generated for itself, verified
+ * distinct from the upstream cache byte-for-byte, covering exactly the
+ * three grid cells (6x1, 6x2, 8x2) that `publish.test.ts`'s synthetic
+ * `publishSeasons` fixtures reach through `buildPreScheduleSidecarForEvent`.
+ * Being ours, they are ours to commit — which is the whole point: without
+ * them CI could only SKIP those 16 tests, silently retiring the presim
+ * sidecar gate and the `publishSeasons`/`--event` parity gate that exist
+ * to catch a cold-publish regression.
+ *
+ * Deliberately a fallback for a WHOLLY ABSENT directory, never a
+ * per-file one. On a machine that HAS the cache, a missing individual cell
+ * still throws `ScheduleTemplateMissingError` exactly as before, so a
+ * half-fetched cache can never be masked by this. And 6- and 8-team fields
+ * are far below any real FRC event, so no real publish can quietly land
+ * here even if the fallback did engage.
+ */
+export const SCHEDULE_TEMPLATE_FIXTURE_DIR = "packages/harness/fixtures/schedule-templates";
+
+/**
+ * Resolved once per process, not per load: the answer cannot change
+ * mid-run (nothing in this pipeline creates the cache directory while it
+ * is running), and re-`existsSync`-ing on every one of a full-season
+ * publish's hundreds of template loads would be pure syscall overhead.
+ */
+let resolvedTemplateDir: string | undefined;
+function templateDir(): string {
+  resolvedTemplateDir ??= existsSync(SCHEDULE_TEMPLATE_DIR) ? SCHEDULE_TEMPLATE_DIR : SCHEDULE_TEMPLATE_FIXTURE_DIR;
+  return resolvedTemplateDir;
+}
 
 /** The grid `scripts/fetchScheduleTemplates.ts` mirrors: team counts 6..100, matches-per-team 1..14. */
 const MIN_TEMPLATE_TEAMS = 6;
@@ -187,7 +228,7 @@ function loadTemplateFileDirect(numTeams: number, matchesPerTeam: number): reado
   const memoized = templateMemo.get(memoKey);
   if (memoized !== undefined) return memoized;
 
-  const path = join(SCHEDULE_TEMPLATE_DIR, `${numTeams}_${matchesPerTeam}.csv`);
+  const path = join(templateDir(), `${numTeams}_${matchesPerTeam}.csv`);
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");

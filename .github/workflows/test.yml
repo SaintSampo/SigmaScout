@@ -56,6 +56,19 @@ jobs:
 # is wrong (a missing fixture or a missing version file), not a healthy
 # no-op.
 #
+# RUN: packages/harness/publish.test.ts — its `publishSeasons` suites build a
+# pre-schedule sidecar per event, which loads a qualification-schedule
+# template. The production template cache (data/schedule-templates/) is
+# gitignored for licensing reasons and never exists on this runner, so 16 of
+# these tests threw ScheduleTemplateMissingError here while passing locally
+# off untracked local state — CI was red on that alone for 22 consecutive
+# runs (2026-09-06..2026-09-09). They RUN now, against the committed
+# stand-in grid in packages/harness/fixtures/schedule-templates/ (schedules
+# this repo generated itself, not Team 254's files — see that directory's
+# README.md). If these ever start SKIPPING here, the presim-sidecar and
+# publishSeasons/--event parity gates have gone quiet and that is a
+# regression, not a healthy no-op.
+#
 # SKIP (healthy, expected — each prints an explicit "skipped: ... not
 # found" message rather than a silent pass): the corpus-backed tests that
 # genuinely cannot run without the full local corpus —
