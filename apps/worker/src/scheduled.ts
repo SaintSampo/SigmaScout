@@ -1000,7 +1000,7 @@ async function processEvent(
             ...(swing.bandVarianceFor(result.blueTeams) !== undefined ? { blue: swing.bandVarianceFor(result.blueTeams) } : {}),
           });
           state = algorithm.update(state, result);
-          swing.foldMatch(result.redTeams, result.redScore, prediction.redScore, result.blueTeams, result.blueScore, prediction.blueScore);
+          swing.foldMatch(result, prediction);
         }
 
         const upcomingPredictions = new Map<string, Prediction>();

@@ -137,7 +137,7 @@ export class SigmaScoutLayer {
   foldPlayed(match: MatchResult, prediction: Prediction): PredictionRecord {
     const redBandVariance = this.#swing.bandVarianceFor(match.redTeams);
     const blueBandVariance = this.#swing.bandVarianceFor(match.blueTeams);
-    this.#swing.foldMatch(match.redTeams, match.redScore, prediction.redScore, match.blueTeams, match.blueScore, prediction.blueScore);
+    this.#swing.foldMatch(match, prediction);
 
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     this.#foldObservedThresholds(match);

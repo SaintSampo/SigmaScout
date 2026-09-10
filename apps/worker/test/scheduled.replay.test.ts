@@ -503,7 +503,7 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         const offlineBands = offlineRecords.map((r) => {
           const red = swing.bandVarianceFor(r.match.redTeams);
           const blue = swing.bandVarianceFor(r.match.blueTeams);
-          swing.foldMatch(r.match.redTeams, r.match.redScore, r.prediction.redScore, r.match.blueTeams, r.match.blueScore, r.prediction.blueScore);
+          swing.foldMatch(r.match, r.prediction);
           return {
             matchKey: r.match.matchKey,
             red: red === undefined ? undefined : roundTo(red, ROUNDING_RULE.variance),

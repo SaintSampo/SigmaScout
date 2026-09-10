@@ -67,6 +67,37 @@
  */
 
 import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
+import { isFullyDqZeroScoreAlliance } from "../core/algorithms/dq.js";
+
+/**
+ * The structural slice of `MatchResult` that `foldMatch` needs. Deliberately
+ * NOT `MatchResult` itself, for two reasons. First, `MatchResult` (and every
+ * production caller's own match object) is structurally assignable to this,
+ * so every real caller passes the object it already holds and no positional
+ * argument can be transposed — the exact class of bug a six-parameter
+ * signature invites. Second, a test can build a six-field literal instead of
+ * fabricating a fifteen-field `MatchResult`.
+ *
+ * Both DQ fields are REQUIRED, never optional and never defaulted, on
+ * purpose: this is the mechanical enforcement of the live/offline parity
+ * contract (dq.ts's header, "D4") — a caller that omits them fails
+ * typecheck rather than silently folding a carded zero while looking
+ * healthy.
+ */
+export interface SwingFoldMatch {
+  readonly redTeams: readonly string[];
+  readonly redScore: number;
+  readonly redDqs: readonly string[];
+  readonly blueTeams: readonly string[];
+  readonly blueScore: number;
+  readonly blueDqs: readonly string[];
+}
+
+/** The structural slice of `Prediction` that `foldMatch` needs. */
+export interface SwingFoldPrediction {
+  readonly redScore: number;
+  readonly blueScore: number;
+}
 
 /**
  * The published metric key Swing Factor is injected under at publish time
@@ -381,18 +412,50 @@ export class SwingFactorAccumulator {
    * slot beside two real robots really did occupy that slot and really did
    * contribute to the observed score, so the residual is genuine evidence about
    * its teammates. That is the same split `demoTeams.ts` documents.
+   *
+   * Since quick task 260909-vs5, a SECOND, narrower rule composes with the
+   * demo one, per `dq.ts`'s own composition contract (its header): a
+   * whole-alliance card ruling is not evidence about the three robots that
+   * were physically on the field, so a fully-DQ'd, exactly-zero-scored
+   * alliance's observation is skipped too — but unlike the demo rule, only
+   * THAT alliance's own fold is skipped, never the whole match. The demo
+   * check drops both sides because a real alliance "beating" three
+   * placeholders carries no information about either side; a whole-alliance
+   * DQ has no such symmetry — the disqualified alliance's robots were real,
+   * so only their own meaningless 0 is dropped, and the opponent's genuine
+   * score still folds normally.
+   *
+   * Swing folds the RAW roster — unlike EPA and Sigma1 it applies no
+   * surrogate filter and no demo remap — so the roster folded here already
+   * IS this caller's rating-eligible team list, which is exactly the
+   * identity `dq.ts`'s composition contract asks be compared against the
+   * raw `redDqs`/`blueDqs` key lists.
+   *
+   * A PARTIAL DQ (some but not all teams on an alliance disqualified)
+   * deliberately still folds normally: `dq.ts` measures that population at
+   * 68.4 points with essentially no zeros, which is genuinely bad-but-real
+   * play, not a ruling. A whole-alliance DQ with a NON-ZERO recorded score
+   * also folds normally, by the same predicate returning `false` by
+   * construction — that score may describe real play completed before an
+   * unrelated later ruling.
+   *
+   * Only `isFullyDqZeroScoreAlliance` (the full-DQ-flag encoding) is applied
+   * here. `dq.ts` also documents a SIBLING predicate, `isAdjustZeroedAlliance`,
+   * for the rarer case where a scorekeeper zeroes an alliance via a negative
+   * `adjustPoints` breakdown value with no DQ flags filed at all. That
+   * encoding is deliberately out of scope: neither this offline publisher nor
+   * the live Worker parses score breakdowns today, and applying offline a
+   * predicate the Worker cannot evaluate under its 10 ms budget would break
+   * the very live/offline bit-equality contract this method exists to keep.
    */
-  foldMatch(
-    redTeams: readonly string[],
-    redActual: number,
-    redPredicted: number,
-    blueTeams: readonly string[],
-    blueActual: number,
-    bluePredicted: number
-  ): void {
-    if (isFullyDemoAlliance(redTeams) || isFullyDemoAlliance(blueTeams)) return;
-    this.fold(redTeams, redActual, redPredicted);
-    this.fold(blueTeams, blueActual, bluePredicted);
+  foldMatch(match: SwingFoldMatch, prediction: SwingFoldPrediction): void {
+    if (isFullyDemoAlliance(match.redTeams) || isFullyDemoAlliance(match.blueTeams)) return;
+    if (!isFullyDqZeroScoreAlliance(match.redTeams, match.redDqs, match.redScore)) {
+      this.fold(match.redTeams, match.redScore, prediction.redScore);
+    }
+    if (!isFullyDqZeroScoreAlliance(match.blueTeams, match.blueDqs, match.blueScore)) {
+      this.fold(match.blueTeams, match.blueScore, prediction.blueScore);
+    }
   }
 
   fold(roster: readonly string[], actualScore: number, predictedScore: number): void {
