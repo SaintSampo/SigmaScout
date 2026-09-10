@@ -71,8 +71,16 @@ export function renderHeadToHeadTable(artifact: HarnessArtifact): string {
       return a.algorithmId.localeCompare(b.algorithmId);
     })
     .map((slice) => {
+      // Quick task 260909-t5q: `coldStart` added to the total and the
+      // breakdown, mirroring the three existing terms exactly.
+      // `quarantined` remains OMITTED from both, unchanged — that
+      // pre-existing gap is outside this task's scope (recorded as an
+      // observation in the SUMMARY rather than fixed here).
       const excludedTotal =
-        slice.exclusionCounts.offseason + slice.exclusionCounts.surrogateAffected + slice.exclusionCounts.missingResult;
+        slice.exclusionCounts.offseason +
+        slice.exclusionCounts.surrogateAffected +
+        slice.exclusionCounts.missingResult +
+        slice.exclusionCounts.coldStart;
       const rowClass = slice.headlineEligible ? "headline-row" : "selection-row";
       const labelBadge = slice.headlineEligible
         ? `<span class="badge badge-headline">Headline-eligible</span>`
@@ -87,7 +95,7 @@ export function renderHeadToHeadTable(artifact: HarnessArtifact): string {
         <td>${slice.scoredCount}</td>
         <td>${slice.tieCount}</td>
         <td>${slice.noCallCount}</td>
-        <td>${excludedTotal} <span class="exclusion-breakdown">(offseason ${slice.exclusionCounts.offseason}, surrogate ${slice.exclusionCounts.surrogateAffected}, missing ${slice.exclusionCounts.missingResult})</span></td>
+        <td>${excludedTotal} <span class="exclusion-breakdown">(offseason ${slice.exclusionCounts.offseason}, surrogate ${slice.exclusionCounts.surrogateAffected}, missing ${slice.exclusionCounts.missingResult}, cold start ${slice.exclusionCounts.coldStart})</span></td>
         <td>${slice.candidateCount}</td>
       </tr>`;
     })
