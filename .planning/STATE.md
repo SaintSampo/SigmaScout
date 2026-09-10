@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260909-03b: BPR measurement path unified and selection bar re-derived; P1 dropped at Gate B, holdout unspent"
-last_updated: "2026-09-10T01:46:21.872Z"
+last_updated: "2026-09-10T02:11:52.768Z"
 last_activity: 2026-09-09
 last_activity_desc: "Completed quick task 260909-3fj: /methodology/swing, the first user-facing explanation of Swing Score and the match band, five inline SVG figures drawn by the shipping code, 0 dash characters verified by rendering"
 progress:
@@ -454,6 +454,7 @@ None yet.
 | 87 | Match tables: snap prediction ticks to a whole pixel so all render 2px; Call column glyphs get green/red/grey rounded badges | 2026-09-10 | f2521fd1 | — |
 | 88 | Remove the ribbon +/- toggle -- Swing Score is a permanent part of the site and can never be turned off | 2026-09-10 | 7fb39556 | — |
 | 88 | Match-plot ticks: snap the left edge to the device-pixel phase so every tick renders one weight at 125/150 percent display scaling; the previous CSS-pixel rounding measured as a no-op | 2026-09-10 | 697f43d0 | — |
+| 89 | Swing Factor as a first-class metric with rarity tiers (residual vs rating curve, lower-is-better) | 2026-09-10 | 21539518 | [260909-tgf](./quick/260909-tgf-make-swing-factor-a-first-class-metric-w/) |
 
 ### Roadmap Evolution
 
