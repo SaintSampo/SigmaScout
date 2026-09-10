@@ -19,7 +19,19 @@
  * Source material for the three entries below is `docs/models/
  * epa-divergences.md` sections 4, 6 and 3 — reworded here from scratch for a
  * student audience rather than pasted, since that document is written for a
- * maintainer. The offseason-matches difference (section 7) was DROPPED in
+ * maintainer.
+ *
+ * REVISED 2026-09-10 (quick task 260910-5ym) for `epa@7.0.0+baseline`, which
+ * changed the facts under two of the three entries. `win-probability-scale`
+ * gained a paragraph on the season boundary: the running spread measure used
+ * to carry its observation count across seasons, so it pooled every season
+ * ever replayed and stopped being per-season at all; it now re-seeds. And
+ * `component-maps` said 2024 "kept five separate scoring pieces that
+ * Statbotics grouped into fewer", which is now BACKWARDS — 2024 rates three
+ * phase pieces, and is one of the coarser seasons rather than the finest.
+ * Its measured accuracy figures (73.5 / 75.2 / 74.0 percent) are quoted from
+ * quick task 260910-4x0's partition sweep and are the reason the page can
+ * say the choice was measured rather than preferred. The offseason-matches difference (section 7) was DROPPED in
  * this revision, not merely reworded: it explained an "offseason on versus
  * off" stat table that measured a quantity nobody is shown anywhere on this
  * site. The other four EXCLUDED differences (fouls handling, EPA carrying no
@@ -51,9 +63,10 @@ export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
     id: "win-probability-scale",
     heading: "How win probability is scaled",
     paragraphs: [
-      "Predicting a winner means turning a predicted score difference into a probability. Both sites do this the same way, a logistic curve, and both divide the score difference by a measure of how spread out scores are that season.",
+      "Predicting a winner means turning a predicted score difference into a probability. Both sites do this the same way, a logistic curve, and both divide the score difference by a measure of how spread out scores are that season. That divisor decides how big a lead has to be before a prediction becomes confident.",
       "Statbotics uses one number for the whole season, calculated only once the season is over. SigmaScout uses a running measure that only knows about matches played so far.",
       "This is what makes walk forward prediction possible. Walk forward means predicting a match using only data from before that match was played, never data from later in the season. A Week 1 prediction built from a season-end number would be cheating: it would know things about the season that had not happened yet.",
+      "Every season gets its own measure. Scoring scales change enormously between FRC games, so a lead that decides a match in one season is a rounding error in another. At each season boundary SigmaScout keeps the previous season's spread as a starting guess and then lets the new season's own matches replace it, which takes about one event.",
     ],
   },
   {
@@ -61,7 +74,9 @@ export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
     heading: "How a match score is split into pieces",
     paragraphs: [
       "A game like FRC scores points in pieces: autonomous points, teleop points, endgame points, and finer pieces inside those. Statbotics groups the raw scoring fields FIRST publishes into these pieces using its own table.",
-      "SigmaScout built its own table instead, checked directly against the matches it has stored. In some seasons the two sites group scoring pieces differently. In 2024, for example, SigmaScout kept five separate scoring pieces that Statbotics grouped into fewer.",
+      "SigmaScout built its own table instead, checked directly against the matches it has stored. In some seasons the two sites group scoring pieces differently. For 2024, SigmaScout rates three pieces, one for each phase of the match, while several other seasons are split more finely than that.",
+      "How finely to slice matters more than it sounds. Each piece is rated separately from roughly a dozen qualification matches per team, so more pieces means each one is estimated from the same thin evidence and carries more noise. Adding those noisy pieces back together makes a noisier predicted score.",
+      "Slicing 2024 more coarsely was a measured change, not a preference. Rating eleven scoring pieces predicted 73.5 percent of 2024 winners correctly. Rating three predicted 75.2 percent. Going all the way down to a single piece was worse again at 74.0 percent, so there is a best middle and it is not the finest or the coarsest slicing.",
       "Neither grouping is more correct. They are different choices about how finely to slice the same total score, and a different slicing can shift a rating without changing anything that happened on the field.",
     ],
   },
