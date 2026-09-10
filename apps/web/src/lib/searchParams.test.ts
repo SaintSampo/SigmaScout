@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
-import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
+import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, MatchSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
 
 describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
   // Test 1 — the default algorithm.
@@ -110,5 +110,24 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
     expect(DEFAULT_EVENT_TAB).toBe("insights");
     expect(EVENT_TABS.at(-1)).toBe("simulation");
     expect(EVENT_TABS.at(-1)).not.toBe(DEFAULT_EVENT_TAB);
+  });
+});
+
+describe("MatchSearchSchema (260909-tiq-PLAN.md Task 1)", () => {
+  it("carries no tab field — the match page has no tabs", () => {
+    const parsed = MatchSearchSchema.parse({});
+    expect("tab" in parsed).toBe(false);
+  });
+
+  it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
+    const parsed = MatchSearchSchema.parse({ year: "1899", algorithm: "nope" });
+    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.algorithm).toBe("bpr");
+  });
+
+  it("parses an explicit valid year/algorithm pair unchanged", () => {
+    const parsed = MatchSearchSchema.parse({ year: CURRENT_SEASON, algorithm: "bpr" });
+    expect(parsed.year).toBe(CURRENT_SEASON);
+    expect(parsed.algorithm).toBe("bpr");
   });
 });

@@ -341,3 +341,21 @@ export const DistrictsSearchSchema = RootSearchSchema.extend({
 
 export type DistrictsSearch = z.infer<typeof DistrictsSearchSchema>;
 export type DistrictTab = (typeof DISTRICT_TABS)[number];
+
+/**
+ * The match page's search schema (260909-tiq-PLAN.md Task 1) — extends
+ * `RootSearchSchema` with NO additional fields. There is no `tab` here: the
+ * match page has no tabs, unlike the event and team pages.
+ *
+ * `year` is carried only so the root ribbon's year dropdown keeps working —
+ * every other page on this site reads `year` for data, but the match page's
+ * own season comes from the match key's embedded event key
+ * (`eventKeyFromMatchKey` + `seasonFromEventKey`, `lib/matchKey.ts` /
+ * `lib/eventKey.ts`), never from this search param. A hand-edited `?year=`
+ * therefore cannot produce a mismatched render — it changes what the ribbon's
+ * dropdown shows, never what artifact this page fetches or which season's
+ * column set it renders.
+ */
+export const MatchSearchSchema = RootSearchSchema;
+
+export type MatchSearch = RootSearch;
