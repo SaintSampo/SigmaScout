@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 08
 status: completed
 stopped_at: "Completed quick task 260909-03b: BPR measurement path unified and selection bar re-derived; P1 dropped at Gate B, holdout unspent"
-last_updated: "2026-09-10T03:18:18.675Z"
+last_updated: "2026-09-10T04:19:05.267Z"
 last_activity: 2026-09-09
 last_activity_desc: "Completed quick task 260909-v5v: bubble-chart points answer to the pointer, hover for the team number and click through to the team page"
 progress:
@@ -460,6 +460,7 @@ None yet.
 | 91 | Unify cold-start handling across OPR/EPA/BPR: all 6 robots unseen predicts a tie, excluded from accuracy and Brier, new em-dash Call glyph | 2026-09-09 | 2d39b507 | [260909-t5q](./quick/260909-t5q-unify-cold-start-handling-predict-a-tie-/) |
 | 91 | Bubble chart hover and click: pointer hit-testing against a uniform-grid spatial index resolves the nearest point, showing a team-number tooltip and navigating to that team page on click, with the cloud still at most four SVG paths | 2026-09-10 | 192be647 | — |
 | 92 | Exempt card-driven zero scores from Swing Factor - a red card zeroes the alliance and was folded as robot inconsistency | 2026-09-10 | 0629a54b | [260909-vs5](./quick/260909-vs5-exempt-card-driven-zero-scores-from-swin/) |
+| 93 | 260908-wpo closed the population split inside the published team artifact's seasonStats: record/matchCount/eventCount had been official-play-only since 260908-615 while metrics stayed season-final and offseason-inclusive, so one block mixed two populations. seasonStats.metrics now snapshots at the team's last official match, and every artifact declares its basis via a new metricsBasis field (last-official-match vs season-final), optional at parse so CDN-cached pre-republish artifacts keep parsing during the republish window but required on the write side so every caller must state a basis. Code landed 2026-09-08 as 0afefc78 (schema field and threading) and 4fc2225d (seasonStatsMetricsForTeam selection, checking both presence and emptiness of the official record so the fallback is structural rather than invariant-dependent). Tasks 3-4, the full republish and live parity verification, were deliberately deferred and are being closed by the 2026-09-09 publish:seasons run. The planning dir and this row were committed a day late in 6f87d03e after the session ended without bookkeeping. | 2026-09-10 | 6f87d03e | [260908-wpo-publish-seasonstats-metrics-as-the-last-](./quick/260908-wpo-publish-seasonstats-metrics-as-the-last-/) |
 
 ### Roadmap Evolution
 
