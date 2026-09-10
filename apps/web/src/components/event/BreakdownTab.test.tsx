@@ -170,9 +170,9 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
       "nickname",
       TOTAL_KEY,
       "phaseAuto",
-      "teleopAmpNote",
-      "teleopSpeakerNote",
-      "teleopSpeakerNoteAmplified",
+      // 2024's map is grouped at phase granularity (quick task 260910-5ym), so
+      // expanding `teleop` reveals exactly one component column.
+      "teleop",
       "phaseEndgame",
       "foulsCommitted",
     ]);
@@ -197,13 +197,13 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
 describe("BreakdownTab — partial data (EVNT-03)", () => {
   it("a team missing one declared component key renders a blank cell once its group is expanded; the column header for that key stays present", async () => {
     const metrics = fullVPRMetrics2024();
-    delete metrics.endGamePark;
+    delete metrics.endgame;
     const artifact = makeArtifact([team({ metrics })]);
     renderBreakdown(artifact, "bpr", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-endgame"));
-    await waitFor(() => expect(screen.getByTestId("breakdown-header-endGamePark")).toBeDefined());
-    expect(screen.getByTestId("breakdown-cell-endGamePark").textContent).toBe("");
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-endgame")).toBeDefined());
+    expect(screen.getByTestId("breakdown-cell-endgame").textContent).toBe("");
   });
 
   it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", async () => {
@@ -361,8 +361,9 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
     renderBreakdown(artifact, "bpr", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
-    // 2024 auto = autoLeave + autoAmpNote + autoSpeakerNote, 10 each in the fixture.
-    expect(cell.textContent).toBe("30.00");
+    // 2024's `auto` group holds the single collapsed `auto` component (quick
+    // task 260910-5ym), at 10 in the fixture.
+    expect(cell.textContent).toBe("10.00");
     expect(cell.querySelector(".metric-tier")).toBeNull();
   });
 
@@ -413,13 +414,13 @@ describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => 
 
   it("collapsing the group that owns the active sort key resets the sort to Total descending", async () => {
     const artifact = makeArtifact([
-      team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleopAmpNote: { value: 1 } } }),
-      team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleopAmpNote: { value: 9 } } }),
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
     ]);
     renderBreakdown(artifact, "bpr", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
-    const header = await screen.findByTestId("breakdown-header-teleopAmpNote");
+    const header = await screen.findByTestId("breakdown-header-teleop");
     fireEvent.click(within(header).getByRole("button"));
     await waitFor(() => expect(rowNumbers()).toEqual([2, 1]));
 

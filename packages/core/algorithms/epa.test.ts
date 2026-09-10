@@ -114,7 +114,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
     // documented no-op and cannot perturb frc1's component.
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
+      teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -131,7 +131,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
     });
 
     const next = epa.update(state, result);
-    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
+    expect(next.teamComponents.get("frc1")!["auto"]).toBeCloseTo(20, 10);
     // D-05: this is a qualification match (the default `compLevel: "qm"`),
     // so the counter increments — an elimination match with the identical
     // observation would leave it at 0 instead (see the D-05 describe below).
@@ -142,7 +142,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
 describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_attrib)", () => {
   /**
    * Three rating-eligible teammates with deliberately UNEQUAL prior means on
-   * `autoLeave` (40 / 10 / 10, summing to a predicted alliance total of 60),
+   * `auto` (40 / 10 / 10, summing to a predicted alliance total of 60),
    * all sharing a match count of 0 so they share one learning rate. Blue's
    * whole roster is surrogates, so blue attribution is a documented no-op and
    * cannot perturb red.
@@ -151,9 +151,9 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     return {
       season: 2024,
       teamComponents: new Map([
-        ["frc1", { autoLeave: 40 }],
-        ["frc2", { autoLeave: 10 }],
-        ["frc3", { autoLeave: 10 }],
+        ["frc1", { auto: 40 }],
+        ["frc2", { auto: 10 }],
+        ["frc3", { auto: 10 }],
       ]),
       teamMatchCounts: new Map([
         ["frc1", 0],
@@ -190,9 +190,9 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     // toward its alliance's mean on a match that told us nothing new.
     const next = epa.update(unequalTeammatesState(), redObservationOf(60));
 
-    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40, 10);
-    expect(next.teamComponents.get("frc2")!["autoLeave"]).toBeCloseTo(10, 10);
-    expect(next.teamComponents.get("frc3")!["autoLeave"]).toBeCloseTo(10, 10);
+    expect(next.teamComponents.get("frc1")!["auto"]).toBeCloseTo(40, 10);
+    expect(next.teamComponents.get("frc2")!["auto"]).toBeCloseTo(10, 10);
+    expect(next.teamComponents.get("frc3")!["auto"]).toBeCloseTo(10, 10);
 
     // This is a qualification match (D-05), so the counters still increment
     // — the match WAS played and observed; it simply carried no information
@@ -210,16 +210,16 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     const next = epa.update(unequalTeammatesState(), redObservationOf(90));
 
     const expectedDelta = (1 / 3) * 10;
-    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40 + expectedDelta, 10);
-    expect(next.teamComponents.get("frc2")!["autoLeave"]).toBeCloseTo(10 + expectedDelta, 10);
-    expect(next.teamComponents.get("frc3")!["autoLeave"]).toBeCloseTo(10 + expectedDelta, 10);
+    expect(next.teamComponents.get("frc1")!["auto"]).toBeCloseTo(40 + expectedDelta, 10);
+    expect(next.teamComponents.get("frc2")!["auto"]).toBeCloseTo(10 + expectedDelta, 10);
+    expect(next.teamComponents.get("frc3")!["auto"]).toBeCloseTo(10 + expectedDelta, 10);
 
     // Stated as a relation too, so the "same absolute amount" claim is pinned
     // independently of the hand-computed level above — and so this control
     // cannot pass vacuously alongside a no-op implementation.
-    const d1 = next.teamComponents.get("frc1")!["autoLeave"]! - 40;
-    const d2 = next.teamComponents.get("frc2")!["autoLeave"]! - 10;
-    const d3 = next.teamComponents.get("frc3")!["autoLeave"]! - 10;
+    const d1 = next.teamComponents.get("frc1")!["auto"]! - 40;
+    const d2 = next.teamComponents.get("frc2")!["auto"]! - 10;
+    const d3 = next.teamComponents.get("frc3")!["auto"]! - 10;
     expect(d2).toBeCloseTo(d1, 10);
     expect(d3).toBeCloseTo(d1, 10);
     expect(d1).toBeGreaterThan(0);
@@ -231,7 +231,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     // every pre-existing n === 1 fixture in this file is unchanged by D-Q1.
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
+      teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -250,7 +250,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     );
     // 10 + (1/3)(40 - 10) === 20, the same value the even-split fixture above
     // asserts — the two formulas coincide exactly at n === 1.
-    expect(next.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
+    expect(next.teamComponents.get("frc1")!["auto"]).toBeCloseTo(20, 10);
   });
 });
 
@@ -258,7 +258,7 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
   function baseStateForElimTests(): EpaState {
     return {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
+      teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -286,13 +286,13 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
 
     // Qualification: twoStageEwma(10, 40, 1/3, weight=1) = 20 — unchanged
     // from the pre-D-05 behavior; a qualification match is never discounted.
-    expect(afterQual.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(20, 10);
+    expect(afterQual.teamComponents.get("frc1")!["auto"]).toBeCloseTo(20, 10);
     expect(afterQual.teamMatchCounts.get("frc1")).toBe(1);
 
     // Elimination: the SAME inner blend (10 -> 20) is then blended AGAIN, at
     // EPA_ELIM_WEIGHT (1/3), against the ORIGINAL mean (10):
     // (1/3)*20 + (2/3)*10 = 40/3.
-    expect(afterElim.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(40 / 3, 10);
+    expect(afterElim.teamComponents.get("frc1")!["auto"]).toBeCloseTo(40 / 3, 10);
     // The counter is left exactly where it started — an elimination match
     // never advances epaPercentFunc's decaying-learning-rate schedule.
     expect(afterElim.teamMatchCounts.get("frc1")).toBe(0);
@@ -314,7 +314,7 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
     const observation = 40;
     const innerMean = (1 - percent) * startingMean + percent * observation;
     const expected = EPA_ELIM_WEIGHT * innerMean + (1 - EPA_ELIM_WEIGHT) * startingMean;
-    expect(afterSecondElim.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(expected, 10);
+    expect(afterSecondElim.teamComponents.get("frc1")!["auto"]).toBeCloseTo(expected, 10);
   });
 
   it("ef/qf/sf/f are all treated as eliminations identically; only qm is a qualification match", () => {
@@ -322,8 +322,8 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
     const afterSf = epa.update(baseState, matchAt("sf", "2024test_sf1"));
     for (const compLevel of ["ef", "qf", "f"] as const) {
       const afterOther = epa.update(baseState, matchAt(compLevel, `2024test_${compLevel}1`));
-      expect(afterOther.teamComponents.get("frc1")!["autoLeave"]).toBeCloseTo(
-        afterSf.teamComponents.get("frc1")!["autoLeave"]!,
+      expect(afterOther.teamComponents.get("frc1")!["auto"]).toBeCloseTo(
+        afterSf.teamComponents.get("frc1")!["auto"]!,
         10
       );
       expect(afterOther.teamMatchCounts.get("frc1")).toBe(afterSf.teamMatchCounts.get("frc1"));
@@ -515,7 +515,7 @@ describe("epa — contract shape", () => {
   it("teamMetrics reports one entry per learned component plus TOTAL_METRIC_KEY, with no spread", () => {
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5, foulsCommitted: 7 }]]),
+      teamComponents: new Map([["frc1", { auto: 10, teleop: 5, foulsCommitted: 7 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -523,8 +523,8 @@ describe("epa — contract shape", () => {
       breakdownParseFailureCount: 0,
     };
     const metrics = epa.teamMetrics(state);
-    expect(metrics["frc1"]!["autoLeave"]).toEqual({ value: 10 });
-    expect(metrics["frc1"]!["autoAmpNote"]).toEqual({ value: 5 });
+    expect(metrics["frc1"]!["auto"]).toEqual({ value: 10 });
+    expect(metrics["frc1"]!["teleop"]).toEqual({ value: 5 });
     // D-01 (quick task 260904-5px): `total` is the OFFENSIVE sum alone (10 +
     // 5), excluding `foulsCommitted` — matching Statbotics' no-foul
     // `epa.total_points`.
@@ -537,7 +537,7 @@ describe("epa — contract shape", () => {
   it("teamMetrics: a team with no foulsCommitted entry at all is unaffected — total is still the plain component sum", () => {
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5 }]]),
+      teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -555,7 +555,7 @@ describe("epa — contract shape", () => {
     // client's blank-cell/sorts-last handling represent "no data" honestly.
     const state: EpaState = {
       season: 2024,
-      teamComponents: new Map([["frc1", { autoLeave: 10, autoAmpNote: 5 }]]),
+      teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
       fallbackSkipped: 0,
@@ -580,19 +580,18 @@ describe("epa — contract shape", () => {
  * assertion of intent.
  */
 describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups published as first-class metrics", () => {
-  /** One value per 2024-registered component (all three groups plus both ungrouped components), so every group has something present. */
+  /**
+   * One value per 2024-registered component (all three groups plus both
+   * ungrouped components), so every group has something present. 2024's map
+   * was collapsed to phase granularity by quick task 260910-5ym, so each
+   * group now holds exactly one component of the same name — the assertions
+   * below still read `componentsInGroup` rather than hand-typing that, which
+   * is what keeps them true across a future re-grouping.
+   */
   const FULL_2024_COMPONENTS: Readonly<Record<string, number>> = {
-    autoLeave: 3,
-    autoAmpNote: 4,
-    autoSpeakerNote: 5,
-    teleopAmpNote: 6,
-    teleopSpeakerNote: 7,
-    teleopSpeakerNoteAmplified: 8,
-    endGameOnStage: 1,
-    endGamePark: 2,
-    endGameHarmony: 3,
-    endGameNoteInTrap: 4,
-    endGameSpotLightBonus: 5,
+    auto: 12,
+    teleop: 21,
+    endgame: 15,
     adjust: 0,
     foulsCommitted: 9,
   };
@@ -629,8 +628,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
   });
 
   it("a group whose components are all absent from the team's record publishes NO entry — never a fabricated zero", () => {
-    const { endGameOnStage: _a, endGamePark: _b, endGameHarmony: _c, endGameNoteInTrap: _d, endGameSpotLightBonus: _e, ...withoutEndgame } =
-      FULL_2024_COMPONENTS;
+    const { endgame: _e, ...withoutEndgame } = FULL_2024_COMPONENTS;
     const state = stateWithComponents(withoutEndgame);
     const metrics = epa.teamMetrics(state)["frc1"]!;
     expect(metrics["phaseAuto"]).toBeDefined();
@@ -642,7 +640,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
     const state = stateWithComponents(FULL_2024_COMPONENTS, null);
     expect(() => epa.teamMetrics(state)).not.toThrow();
     const metrics = epa.teamMetrics(state)["frc1"]!;
-    expect(metrics["autoLeave"]).toEqual({ value: 3 });
+    expect(metrics["auto"]).toEqual({ value: 12 });
     expect(metrics["total"]).toBeDefined();
     expect(metrics["phaseAuto"]).toBeUndefined();
     expect(metrics["phaseTeleop"]).toBeUndefined();
@@ -660,7 +658,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
 
 describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, deliberately different from the published total (quick task 260904-5px)", () => {
   it("a team with a nonzero foulsCommitted carries a LARGER point total than a teammate with an identical offensive component but zero foulsCommitted", () => {
-    // frc1 and frc2 share the identical offensive component (autoLeave: 30)
+    // frc1 and frc2 share the identical offensive component (auto: 30)
     // — under the PUBLISHED (fouls-excluded) total they would be
     // indistinguishable. carrySeason sums teamComponents directly, without
     // routing through teamMetrics' D-01 exclusion, so frc1's fromSeason
@@ -671,8 +669,8 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map([
-        ["frc1", { autoLeave: 30, foulsCommitted: 20 }],
-        ["frc2", { autoLeave: 30, foulsCommitted: 0 }],
+        ["frc1", { auto: 30, foulsCommitted: 20 }],
+        ["frc2", { auto: 30, foulsCommitted: 0 }],
       ]),
       teamMatchCounts: new Map([
         ["frc1", 10],
@@ -708,8 +706,8 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map<string, Record<string, number>>([
-        ["R1", { autoLeave: 40, teleopSpeakerNote: 10, [FOULS_COMMITTED_COMPONENT]: 8 }],
-        ["B1", { autoLeave: 5, [FOULS_COMMITTED_COMPONENT]: 4 }],
+        ["R1", { auto: 40, teleop: 10, [FOULS_COMMITTED_COMPONENT]: 8 }],
+        ["B1", { auto: 5, [FOULS_COMMITTED_COMPONENT]: 4 }],
       ]),
       teamMatchCounts: new Map([
         ["R1", 0],
@@ -746,18 +744,18 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
     // non-fouls components, in proportion to their predicted shares
     // (40:10 of a 50 total) — NOT the pre-fix formula, which would have
     // split the full, un-netted 100 across all 13 components including
-    // foulsCommitted (giving autoLeave = 100*40/58 ~= 68.97, not 52.27).
+    // foulsCommitted (giving auto = 100*40/58 ~= 68.97, not 52.27).
     const expectedAutoLeave = (2 / 3) * 40 + (1 / 3) * (96 * (40 / 50));
     const expectedTeleopSpeakerNote = (2 / 3) * 10 + (1 / 3) * (96 * (10 / 50));
-    expect(next.teamComponents.get("R1")!["autoLeave"]).toBeCloseTo(expectedAutoLeave, 9);
-    expect(next.teamComponents.get("R1")!["teleopSpeakerNote"]).toBeCloseTo(expectedTeleopSpeakerNote, 9);
+    expect(next.teamComponents.get("R1")!["auto"]).toBeCloseTo(expectedAutoLeave, 9);
+    expect(next.teamComponents.get("R1")!["teleop"]).toBeCloseTo(expectedTeleopSpeakerNote, 9);
 
     // Mirror invariant on blue: red's currently-predicted foulsCommitted
     // mean (8) is netted out of result.blueScore (50 -> 42) before blue's
     // own split (blue's only-nonzero predicted offensive component is
-    // autoLeave, so it absorbs the entire net residual).
+    // auto, so it absorbs the entire net residual).
     const expectedBlueAutoLeave = (2 / 3) * 5 + (1 / 3) * 42;
-    expect(next.teamComponents.get("B1")!["autoLeave"]).toBeCloseTo(expectedBlueAutoLeave, 9);
+    expect(next.teamComponents.get("B1")!["auto"]).toBeCloseTo(expectedBlueAutoLeave, 9);
   });
 });
 
@@ -838,8 +836,8 @@ describe("epa.update — T-03-18b: a malformed self-reported breakdown degrades 
     // pinned by the unequal-means cases above, which is where the two
     // formulas actually diverge.)
     for (const team of ["frc2", "frc3"]) {
-      expect(next.teamComponents.get(team)!["autoLeave"]).toBe(next.teamComponents.get("frc1")!["autoLeave"]);
-      expect(next.teamComponents.get(team)!["teleopSpeakerNote"]).toBe(next.teamComponents.get("frc1")!["teleopSpeakerNote"]);
+      expect(next.teamComponents.get(team)!["auto"]).toBe(next.teamComponents.get("frc1")!["auto"]);
+      expect(next.teamComponents.get(team)!["teleop"]).toBe(next.teamComponents.get("frc1")!["teleop"]);
     }
     // A component this match's payload left at 0 (e.g. adjustPoints) still
     // moves off the empty cold-start state to a defined, finite value —
@@ -1138,8 +1136,8 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map([
-        ["frc1", { autoLeave: 30, [ADJUST_COMPONENT]: 0 }],
-        ["frc2", { autoLeave: 20, [ADJUST_COMPONENT]: 0 }],
+        ["frc1", { auto: 30, [ADJUST_COMPONENT]: 0 }],
+        ["frc2", { auto: 20, [ADJUST_COMPONENT]: 0 }],
       ]),
       teamMatchCounts: new Map([
         ["frc1", 10],
@@ -1169,18 +1167,26 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
     // otherwise the sum would fall short by exactly one `coldStart` share.
     const modeledComponentCount = breakdown2024.components.filter((name) => name !== ADJUST_COMPONENT).length;
     const coldStart = EPA_INIT_COMPONENT_TOTAL / modeledComponentCount;
+    // What has to equal `coldStart` is each COMPONENT's observation, not each
+    // TBA field: 2024's map groups several fields into one rated component
+    // (quick task 260910-5ym), so a field-uniform payload would hand `auto`
+    // three times its prior and break the no-op this test depends on. Each
+    // group's fields therefore split one `coldStart` between them.
+    const autoShare = coldStart / 3;
+    const teleopShare = coldStart / 3;
+    const endgameShare = coldStart / 5;
     const uniformFields = {
-      autoLeavePoints: coldStart,
-      autoAmpNotePoints: coldStart,
-      autoSpeakerNotePoints: coldStart,
-      teleopAmpNotePoints: coldStart,
-      teleopSpeakerNotePoints: coldStart,
-      teleopSpeakerNoteAmplifiedPoints: coldStart,
-      endGameOnStagePoints: coldStart,
-      endGameParkPoints: coldStart,
-      endGameHarmonyPoints: coldStart,
-      endGameNoteInTrapPoints: coldStart,
-      endGameSpotLightBonusPoints: coldStart,
+      autoLeavePoints: autoShare,
+      autoAmpNotePoints: autoShare,
+      autoSpeakerNotePoints: autoShare,
+      teleopAmpNotePoints: teleopShare,
+      teleopSpeakerNotePoints: teleopShare,
+      teleopSpeakerNoteAmplifiedPoints: teleopShare,
+      endGameOnStagePoints: endgameShare,
+      endGameParkPoints: endgameShare,
+      endGameHarmonyPoints: endgameShare,
+      endGameNoteInTrapPoints: endgameShare,
+      endGameSpotLightBonusPoints: endgameShare,
       adjustPoints: coldStart, // irrelevant — pinned at 0 regardless (D-5)
       foulPoints: coldStart,
     };

@@ -15,8 +15,8 @@ import {
   EPA_NORM_SD,
   EPA_ROOKIE_BASELINE,
 } from "./carryover.js";
-import { epa, type EpaState } from "./epa.js";
-import { emptyExpandingStats } from "../scoring/expandingStats.js";
+import { epa, EPA_SCORE_SD_SEED_COUNT, type EpaState } from "./epa.js";
+import { emptyExpandingStats, standardDeviation } from "../scoring/expandingStats.js";
 import type { SeasonBoundary } from "./types.js";
 
 describe("EPA_ROOKIE_BASELINE", () => {
@@ -224,10 +224,10 @@ describe("epa.carrySeason — end-to-end state carry", () => {
     expect(Object.prototype.hasOwnProperty.call(frc1Components, "link")).toBe(true);
   });
 
-  it("allianceScoreStats is carried forward unchanged, seeding the new season's expanding-window SD from the prior season's final value", () => {
+  it("allianceScoreStats is RE-SEEDED at the boundary: the prior season's SD survives, its observation count does not (quick task 260910-5ym)", () => {
     const state: EpaState = {
       season: 2022,
-      teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
+      teamComponents: new Map([["frc1", { autoTaxi: 10 }]]),
       teamMatchCounts: new Map([["frc1", 3]]),
       allianceScoreStats: { count: 10, mean: 90, m2: 400 },
       fallbackSkipped: 0,
@@ -236,6 +236,35 @@ describe("epa.carrySeason — end-to-end state carry", () => {
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
-    expect(next.allianceScoreStats).toEqual({ count: 10, mean: 90, m2: 400 });
+
+    // The SD the next season STARTS from is exactly the one it ended with —
+    // that is the "seed from the prior season's final value" Pitfall EPA-1
+    // asks for, and it is preserved to the last bit.
+    expect(standardDeviation(next.allianceScoreStats, NaN)).toBeCloseTo(standardDeviation(state.allianceScoreStats, NaN), 12);
+    expect(next.allianceScoreStats.mean).toBe(90);
+
+    // ...but the count is replaced by the seed strength, which is the whole
+    // point: a seed has to be outvotable by the new season's own data. This
+    // test previously asserted the accumulator came through UNCHANGED, which
+    // pinned the defect quick task 260910-4x0 measured — the prior seasons'
+    // observation count rode along, so the pool could never be outvoted and
+    // 2024's win-probability denominator read 106.4 against its own 27.2.
+    expect(next.allianceScoreStats.count).toBe(EPA_SCORE_SD_SEED_COUNT);
+    expect(next.allianceScoreStats).not.toEqual(state.allianceScoreStats);
+  });
+
+  it("a prior season with too few observations to have an SD passes through untouched, so the fallback keeps applying", () => {
+    const state: EpaState = {
+      season: 2022,
+      teamComponents: new Map([["frc1", { autoTaxi: 10 }]]),
+      teamMatchCounts: new Map([["frc1", 3]]),
+      allianceScoreStats: { count: 1, mean: 90, m2: 0 },
+      fallbackSkipped: 0,
+      priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
+    };
+
+    const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
+    expect(next.allianceScoreStats).toEqual({ count: 1, mean: 90, m2: 0 });
   });
 });

@@ -54,3 +54,33 @@ export function standardDeviation(stats: ExpandingStats, fallback: number): numb
   if (stats.count < 2) return fallback;
   return Math.sqrt(stats.m2 / stats.count);
 }
+
+/**
+ * Restarts an accumulator at a new regime boundary, keeping the old regime's
+ * mean/SD as a PRIOR of `pseudoCount` observations rather than carrying its
+ * real observation count forward.
+ *
+ * This exists because carrying `stats` across such a boundary unchanged is
+ * not a "seed" at all — a seed is supposed to fade as the new regime's own
+ * data arrives, and it cannot fade while the old regime's observation count
+ * comes with it. Quick task 260910-4x0 measured what that costs: EPA's
+ * win-probability denominator had pooled every alliance score since 2016, so
+ * by 2024 the season's own 44,198 observations were 15.7% of a 282,192-strong
+ * accumulator and could never outvote it. The denominator read 106.4 where
+ * 2024's own scale was 27.2, flattening the logistic ~3.9x and pushing 88.7%
+ * of that season's predictions into [0.4, 0.6].
+ *
+ * `pseudoCount` is the seed's strength in observations. After the new regime
+ * has folded roughly `pseudoCount` of its own, its data dominates. Below 2
+ * observations there is no prior SD to carry (`standardDeviation`'s own
+ * contract), so the input is returned untouched and the caller's `fallback`
+ * keeps applying.
+ */
+export function reseedFromPrior(stats: ExpandingStats, pseudoCount: number): ExpandingStats {
+  if (stats.count < 2 || pseudoCount < 2) return stats;
+  const variance = stats.m2 / stats.count;
+  // m2 is recovered from the target variance at the pseudo-count, so
+  // `standardDeviation` reads back exactly the prior regime's SD while the
+  // count — the thing that decides how fast new data wins — is reset.
+  return { count: pseudoCount, mean: stats.mean, m2: variance * pseudoCount };
+}

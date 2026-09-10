@@ -86,29 +86,36 @@ function median(values: readonly number[]): number {
 // ---------------------------------------------------------------------------
 
 /**
- * The twelve 2024 components a team actually contributes to, paired with the
- * raw `score_breakdown` field each is parsed from (`breakdown/2024.ts`'s
+ * The 2024 components a team actually contributes to, paired with ONE raw
+ * `score_breakdown` field each is parsed from (`breakdown/2024.ts`'s
  * `OWN_FIELD_COMPONENT_MAP`). `foulsCommitted` is deliberately excluded and
  * held at exactly 0 throughout: it is cross-attributed from the OPPONENT's
  * `foulPoints` (D-04), so giving it synthetic noise would be modelling a
  * quantity whose truth is not this team's own performance.
+ *
+ * Quick task 260910-5ym collapsed 2024's map from eleven offensive
+ * components to three phase groups, so this table shrank from twelve rows to
+ * four. Each group sums several TBA fields; driving exactly one of them and
+ * leaving the rest at zero makes the parsed component value equal the driven
+ * field exactly, which is what keeps the hand-computed reconstructions below
+ * exact rather than approximate.
  */
 const COMPONENT_FIELDS = [
-  ["autoLeave", "autoLeavePoints"],
-  ["autoAmpNote", "autoAmpNotePoints"],
-  ["autoSpeakerNote", "autoSpeakerNotePoints"],
-  ["teleopAmpNote", "teleopAmpNotePoints"],
-  ["teleopSpeakerNote", "teleopSpeakerNotePoints"],
-  ["teleopSpeakerNoteAmplified", "teleopSpeakerNoteAmplifiedPoints"],
-  ["endGameOnStage", "endGameOnStagePoints"],
-  ["endGamePark", "endGameParkPoints"],
-  ["endGameHarmony", "endGameHarmonyPoints"],
-  ["endGameNoteInTrap", "endGameNoteInTrapPoints"],
-  ["endGameSpotLightBonus", "endGameSpotLightBonusPoints"],
-  ["adjust", "adjustPoints"],
+  ["auto", "autoLeavePoints"],
+  ["teleop", "teleopAmpNotePoints"],
+  ["endgame", "endGameOnStagePoints"],
 ] as const;
 
-const COMPONENT_COUNT = COMPONENT_FIELDS.length; // 12
+/**
+ * `adjust` is NOT in the table above, deliberately. It is pinned at
+ * `{ mean: 0, variance: 0 }` and never folds an innovation (D-5/D-6), so
+ * synthetic noise injected there is noise the estimator is guaranteed not to
+ * see — it would show up as recovery loss that no estimator change could fix.
+ * Every component this file drives is one the filter actually learns, which
+ * is what makes "recovers TRUE_TEAM_MATCH_SIGMA" a fair test of the
+ * estimator rather than of the pinning rule.
+ */
+const COMPONENT_COUNT = COMPONENT_FIELDS.length; // 3
 
 /**
  * The truth this file exists to recover: the standard deviation of ONE
@@ -195,6 +202,22 @@ function buildSyntheticLeague(seed: number): {
   return { teams, matches };
 }
 
+/** Every own field `breakdown/2024.ts`'s schema requires, zeroed — the base COMPONENT_FIELDS overwrites. */
+const ZERO_OWN_FIELDS = {
+  autoLeavePoints: 0,
+  autoAmpNotePoints: 0,
+  autoSpeakerNotePoints: 0,
+  teleopAmpNotePoints: 0,
+  teleopSpeakerNotePoints: 0,
+  teleopSpeakerNoteAmplifiedPoints: 0,
+  endGameOnStagePoints: 0,
+  endGameParkPoints: 0,
+  endGameHarmonyPoints: 0,
+  endGameNoteInTrapPoints: 0,
+  endGameSpotLightBonusPoints: 0,
+  adjustPoints: 0,
+};
+
 /** The RP-side fields `rp/2024.ts`'s own schema requires. Held constant: no assertion in this file is about RP thresholds. */
 const RP_PLACEHOLDER_FIELDS = {
   autoAmpNoteCount: 0,
@@ -221,7 +244,14 @@ function rawBreakdown(
   rpOverrides: Record<string, unknown> = {}
 ): string {
   const side = (components: readonly number[]) => {
-    const out: Record<string, unknown> = { ...RP_PLACEHOLDER_FIELDS, ...rpOverrides };
+    // ZERO_OWN_FIELDS first: `breakdown/2024.ts`'s Zod schema requires EVERY
+    // own field, and 2024's map now groups several of them into one rated
+    // component (quick task 260910-5ym), so COMPONENT_FIELDS drives only one
+    // field per group and no longer covers the schema on its own. Without
+    // this base the parse throws, sigma1 takes its fallback path, and
+    // `componentOrder` comes back empty — which surfaces as a bare
+    // `indexOf(...) === -1` rather than as a parse error.
+    const out: Record<string, unknown> = { ...ZERO_OWN_FIELDS, ...RP_PLACEHOLDER_FIELDS, ...rpOverrides };
     COMPONENT_FIELDS.forEach(([, field], i) => {
       out[field] = components[i]!;
     });
@@ -527,7 +557,7 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
     const OBSERVED_AUTO_LEAVE = 40;
     const OTHERS = 10;
 
-    const components = COMPONENT_FIELDS.map(([name]) => (name === "autoLeave" ? OBSERVED_AUTO_LEAVE : OTHERS));
+    const components = COMPONENT_FIELDS.map(([name]) => (name === "auto" ? OBSERVED_AUTO_LEAVE : OTHERS));
     const blueComponents = COMPONENT_FIELDS.map(() => OTHERS);
 
     let state = vpr.initState(["A", "B", "C", "D", "E", "F"]);
@@ -545,7 +575,7 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
     );
 
     const teamA = state.teams.get("A")!;
-    const index = state.componentOrder.indexOf("autoLeave");
+    const index = state.componentOrder.indexOf("auto");
     expect(index).toBeGreaterThanOrEqual(0);
 
     // Hand-computed. Every teammate cold-starts identically on a fresh
@@ -569,7 +599,7 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
     expect(expectedSample).toBeGreaterThan(1);
 
     const fromConsistency =
-      (teamA.consistency["autoLeave"]! - (1 - params.consistencyEwmaAlpha) * params.coldStartConsistencyVariance) /
+      (teamA.consistency["auto"]! - (1 - params.consistencyEwmaAlpha) * params.coldStartConsistencyVariance) /
       params.consistencyEwmaAlpha;
     const fromCovarianceDiagonal = teamA.covariance[index]![index]! / params.covEwmaAlpha;
 
@@ -581,7 +611,7 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
   });
 
   it("gives every teammate on an alliance the SAME per-component sample — an honest property of a summed observation, not a bug", () => {
-    const components = COMPONENT_FIELDS.map(([name]) => (name === "autoLeave" ? 40 : 10));
+    const components = COMPONENT_FIELDS.map(([name]) => (name === "auto" ? 40 : 10));
     let state = vpr.initState(["A", "B", "C", "D", "E", "F"]);
     state = vpr.update(
       state,
@@ -590,9 +620,9 @@ describe("D-Q2 — the consistency fold and the covariance diagonal are ONE quan
         0
       )
     );
-    const a = state.teams.get("A")!.consistency["autoLeave"]!;
-    const b = state.teams.get("B")!.consistency["autoLeave"]!;
-    const c = state.teams.get("C")!.consistency["autoLeave"]!;
+    const a = state.teams.get("A")!.consistency["auto"]!;
+    const b = state.teams.get("B")!.consistency["auto"]!;
+    const c = state.teams.get("C")!.consistency["auto"]!;
     expect(a).toBe(b);
     expect(b).toBe(c);
   });
@@ -623,7 +653,7 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
 
   function twoUpdates(autoLeaveObserved: number) {
     const flat = COMPONENT_FIELDS.map(() => 10);
-    const moved = COMPONENT_FIELDS.map(([name]) => (name === "autoLeave" ? autoLeaveObserved : 10));
+    const moved = COMPONENT_FIELDS.map(([name]) => (name === "auto" ? autoLeaveObserved : 10));
     const base = { redTeams: [...ALLIANCE], blueTeams: ["D", "E", "F"] };
 
     let state = vpr.initState([]);
@@ -649,7 +679,7 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
     const params = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, afterFirst.allianceScoreStats);
     const before = afterFirst.teams.get("A")!;
     const after = afterSecond.teams.get("A")!;
-    const componentIndex = afterSecond.componentOrder.indexOf("autoLeave");
+    const componentIndex = afterSecond.componentOrder.indexOf("auto");
     expect(componentIndex).toBeGreaterThanOrEqual(0);
 
     // Hand-computed gain for match 2, from the state match 1 left behind.
@@ -658,11 +688,11 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
     // factor is exactly 1). R is the sum of the three teammates' own
     // consistency, multiplier 1 for a real breakdown.
     const priors = ALLIANCE.map((team) => afterFirst.teams.get(team)!);
-    const p = priors.map((t) => t.beliefs["autoLeave"]!.variance + params.processNoiseWithinEvent);
-    const measurementNoise = priors.reduce((sum, t) => sum + t.consistency["autoLeave"]!, 0);
+    const p = priors.map((t) => t.beliefs["auto"]!.variance + params.processNoiseWithinEvent);
+    const measurementNoise = priors.reduce((sum, t) => sum + t.consistency["auto"]!, 0);
     const sumP = p.reduce((a, b) => a + b, 0);
     const gainA = p[0]! / (sumP + measurementNoise);
-    const innovation = OBSERVED - priors.reduce((sum, t) => sum + t.beliefs["autoLeave"]!.mean, 0);
+    const innovation = OBSERVED - priors.reduce((sum, t) => sum + t.beliefs["auto"]!.mean, 0);
     const expectedScoreResidual = gainA * innovation;
     expect(Math.abs(expectedScoreResidual)).toBeGreaterThan(0.1);
 
@@ -692,9 +722,9 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
     const params = DEFAULT_SIGMA1_PARAMS;
     const high = twoUpdates(40);
     const low = twoUpdates(0);
-    const componentIndex = high.afterSecond.componentOrder.indexOf("autoLeave");
+    const componentIndex = high.afterSecond.componentOrder.indexOf("auto");
 
-    // The RP side is IDENTICAL between the two runs (only `autoLeave`
+    // The RP side is IDENTICAL between the two runs (only `auto`
     // differs), so `rpResid_t` is the same and any sign change in the cross
     // term is a sign change in the SCORE residual.
     const t = high.afterSecond.teams

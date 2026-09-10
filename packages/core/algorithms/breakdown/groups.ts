@@ -134,10 +134,16 @@ const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
     teleop: ["teleopGamePiece", "link"],
     endgame: ["endGameChargeStation", "endGamePark"],
   },
+  // 2024's component map was collapsed to phase granularity by quick task
+  // 260910-5ym (see `2024.ts` for the measurement), so each group here holds
+  // exactly the one component of the same name rather than a list of
+  // finer-grained ones. The group METRIC keys stay `phaseAuto`/`phaseTeleop`/
+  // `phaseEndgame`, so nothing collides — `groups.test.ts` pins that, and
+  // 2022's bare `endgame` component is the precedent.
   2024: {
-    auto: ["autoLeave", "autoAmpNote", "autoSpeakerNote"],
-    teleop: ["teleopAmpNote", "teleopSpeakerNote", "teleopSpeakerNoteAmplified"],
-    endgame: ["endGameOnStage", "endGamePark", "endGameHarmony", "endGameNoteInTrap", "endGameSpotLightBonus"],
+    auto: ["auto"],
+    teleop: ["teleop"],
+    endgame: ["endgame"],
   },
   2025: {
     auto: ["autoMobility", "autoCoral"],

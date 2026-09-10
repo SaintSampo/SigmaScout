@@ -140,6 +140,7 @@ import { distributeResidual } from "./breakdown/fallback.js";
 import {
   emptyExpandingStats,
   foldObservation,
+  reseedFromPrior,
   standardDeviation,
   type ExpandingStats,
 } from "../scoring/expandingStats.js";
@@ -192,6 +193,29 @@ export const EPA_K = -5 / 8;
  * accumulates. Phase 3 hyperparameter, default unverified.
  */
 export const EPA_FALLBACK_SCORE_SD = 25;
+
+/**
+ * Strength, in observations, of the prior-season seed `carrySeason` leaves in
+ * `allianceScoreStats` at a season boundary (`reseedFromPrior`).
+ *
+ * Quick task 260910-4x0: this used to be unbounded. `carrySeason` handed the
+ * whole accumulator across the boundary — observation count included — so the
+ * win-probability denominator pooled every alliance score the replay had ever
+ * seen. Across 2016-2024 that is 282,192 observations against a season's own
+ * ~44,000, and FRC's point scale is not remotely stationary across seasons
+ * (2018 alliances averaged 292 points, 2019 averaged 55). 2024 read a pooled
+ * SD of 106.4 where its own was 27.2 — a ~3.9x too-flat logistic, measured at
+ * 0.2204 Brier against 0.1764 for the same replay scored with a per-season
+ * scale.
+ *
+ * 50 is about one event's worth of alliance scores: enough that a season's
+ * opening matches inherit a sane scale instead of falling back to
+ * `EPA_FALLBACK_SCORE_SD` (25 suits 2024's 27.2 but not 2026's 144.6), and
+ * small enough that the season's own data has taken over well inside week 1.
+ * Deliberately NOT zero (a hard reset) and deliberately NOT unbounded (the
+ * defect this replaces).
+ */
+export const EPA_SCORE_SD_SEED_COUNT = 50;
 
 /**
  * D-05 (quick task 260904-5px) — Statbotics' own `ELIM_WEIGHT`
@@ -345,9 +369,23 @@ function sumComponentsAcrossTeam(
       totals[name] = (totals[name] ?? 0) + value;
     }
   }
+  // Emitted in SORTED key order, deliberately. `predict()` sums these into an
+  // alliance total with `Object.entries(...).reduce(...)`, and floating-point
+  // addition is not associative, so the order the keys happen to sit in
+  // changes the last bits of every predicted score. That order is not stable
+  // across the system: a live state carries a team's components in the order
+  // `update()` inserted them, while a state rebuilt from a snapshot carries
+  // them alphabetically, because `stateSnapshot.ts` writes rows with
+  // `stableStringify` (sorted keys) so the payload itself is canonical.
+  // Sorting here makes the prediction depend only on WHICH components exist
+  // and their values, never on how the record was built — which is what
+  // `stateSnapshot.test.ts`'s continuation-replay digest equality actually
+  // asserts. Found by quick task 260910-5ym: collapsing 2024's map changed
+  // the component magnitudes enough to make the pre-existing order
+  // sensitivity visible as a digest mismatch.
   const result: Record<string, ComponentPrediction> = {};
-  for (const [name, value] of Object.entries(totals)) {
-    result[name] = { mean: value };
+  for (const name of Object.keys(totals).sort()) {
+    result[name] = { mean: totals[name]! };
   }
   return result;
 }
@@ -849,12 +887,18 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
  * expected to call this for the cold-start season at all, but this makes
  * the contract safe to call defensively regardless).
  *
- * `allianceScoreStats` is carried forward UNCHANGED (not reset) rather
- * than re-seeded empty: RESEARCH.md's Pitfall EPA-1 fix specifies seeding
- * the expanding-window score SD "from the prior season's final value at
- * season start" — this is that seed, applied at the one place a season
- * boundary is already being handled, so the harness season loop (plan
- * 02-03 Task 2) needs no second boundary hook for it.
+ * `allianceScoreStats` is RE-SEEDED here, not carried whole (quick task
+ * 260910-4x0). RESEARCH.md's Pitfall EPA-1 fix specifies seeding the
+ * expanding-window score SD "from the prior season's final value at season
+ * start", and this is the one place a season boundary is already handled, so
+ * the harness season loop (plan 02-03 Task 2) still needs no second boundary
+ * hook for it. What changed is that this function used to pass the
+ * accumulator across the boundary UNCHANGED, which is not a seed: a seed
+ * fades as the new season's own data arrives, and it cannot fade while the
+ * prior seasons' observation count comes with it. The result was a
+ * win-probability denominator pooled across every season replayed so far,
+ * against FRC point scales that move by 5x between seasons. See
+ * `EPA_SCORE_SD_SEED_COUNT` for the measurement and the seed strength.
  */
 function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
   if (boundary.isColdStart) return state;
@@ -896,7 +940,7 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
     season: boundary.toSeason,
     teamComponents,
     teamMatchCounts,
-    allianceScoreStats: state.allianceScoreStats,
+    allianceScoreStats: reseedFromPrior(state.allianceScoreStats, EPA_SCORE_SD_SEED_COUNT),
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
     // D-Q2 (quick task 260818-inm): carried forward UNCHANGED, in deliberate
@@ -1054,7 +1098,7 @@ export const epa: AlgorithmModule<EpaState> = {
   //      now excludes them from the carry instant — correct under the locked
   //      definition of official, and stated here rather than glossed as "no
   //      change".
-  version: "6.0.0+baseline",
+  version: "7.0.0+baseline",
   initState,
   predict,
   update,

@@ -85,18 +85,27 @@ function rawBreakdown2024Uniform(
   perComponentValue: number,
   overrides: { red?: Record<string, number>; blue?: Record<string, number> } = {}
 ): string {
+  // PER-COMPONENT, not per-field: 2024's map groups several TBA fields into
+  // one rated component (auto/teleop/endgame — quick task 260910-5ym), so
+  // each group's fields split one `perComponentValue` between them. Setting
+  // every field to `perComponentValue` would hand `auto` three times the
+  // intended observation and silently break every caller that relies on this
+  // helper producing a uniform COMPONENT vector.
+  const autoField = perComponentValue / 3;
+  const teleopField = perComponentValue / 3;
+  const endgameField = perComponentValue / 5;
   const side = {
-    autoLeavePoints: perComponentValue,
-    autoAmpNotePoints: perComponentValue,
-    autoSpeakerNotePoints: perComponentValue,
-    teleopAmpNotePoints: perComponentValue,
-    teleopSpeakerNotePoints: perComponentValue,
-    teleopSpeakerNoteAmplifiedPoints: perComponentValue,
-    endGameOnStagePoints: perComponentValue,
-    endGameParkPoints: perComponentValue,
-    endGameHarmonyPoints: perComponentValue,
-    endGameNoteInTrapPoints: perComponentValue,
-    endGameSpotLightBonusPoints: perComponentValue,
+    autoLeavePoints: autoField,
+    autoAmpNotePoints: autoField,
+    autoSpeakerNotePoints: autoField,
+    teleopAmpNotePoints: teleopField,
+    teleopSpeakerNotePoints: teleopField,
+    teleopSpeakerNoteAmplifiedPoints: teleopField,
+    endGameOnStagePoints: endgameField,
+    endGameParkPoints: endgameField,
+    endGameHarmonyPoints: endgameField,
+    endGameNoteInTrapPoints: endgameField,
+    endGameSpotLightBonusPoints: endgameField,
     adjustPoints: perComponentValue,
     // Each side's OWN foulPoints becomes the OPPOSING side's
     // foulsCommitted value (breakdown/2024.ts's parse()) — identical `side`
@@ -130,7 +139,7 @@ function rawBreakdown2024Uniform(
   return JSON.stringify({ red: { ...side, ...overrides.red }, blue: { ...side, ...overrides.blue } });
 }
 
-const SIGMA1_2024_COMPONENT_COUNT = 13; // 12 OWN_FIELD_COMPONENT_MAP keys + foulsCommitted
+const SIGMA1_2024_COMPONENT_COUNT = 5; // 4 OWN_FIELD_COMPONENT_MAP keys (auto/teleop/endgame/adjust, collapsed by quick task 260910-5ym) + foulsCommitted
 const UNIFORM_PER_COMPONENT = 10;
 const UNIFORM_TOTAL = SIGMA1_2024_COMPONENT_COUNT * UNIFORM_PER_COMPONENT; // 130
 
@@ -592,12 +601,12 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     // Both teams below are hand-built with `lastEventKey: null`, so the RETIRED
     // rule would blank BOTH. They differ only in whether their swing carries
     // the key, which is the new rule and the only rule.
-    const componentOrder = ["autoLeave"];
+    const componentOrder = ["auto"];
     function teamState(swing: ReturnType<typeof emptyTeamSwing>, matchCount: number) {
       return {
-        beliefs: { autoLeave: { mean: 10, variance: 4 } },
+        beliefs: { auto: { mean: 10, variance: 4 } },
         covariance: [[4]],
-        consistency: { autoLeave: 2 },
+        consistency: { auto: 2 },
         matchCount,
         lastEventKey: null,
         rpBeliefs: {},
@@ -609,7 +618,7 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     // ONE observation, which under D-Y2 is already a valid (noisy) estimate.
     const oneMatchSwing = foldSwingObservation(
       emptyTeamSwing(),
-      { autoLeave: 9, [TOTAL_METRIC_KEY]: 49 },
+      { auto: 9, [TOTAL_METRIC_KEY]: 49 },
       DEFAULT_SIGMA1_PARAMS.swingHalfLifeMatches
     );
     const state: Sigma1State = {
@@ -630,8 +639,8 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     const metrics = vpr.teamMetrics(state, ["NEVERPLAYED", "ONEMATCH"]);
 
     // Never folded -> the one undefined case. `value` is still published.
-    expect(metrics["NEVERPLAYED"]!["autoLeave"]!.value).toBe(10);
-    expect(metrics["NEVERPLAYED"]!["autoLeave"]!.spread).toBeUndefined();
+    expect(metrics["NEVERPLAYED"]!["auto"]!.value).toBe(10);
+    expect(metrics["NEVERPLAYED"]!["auto"]!.spread).toBeUndefined();
     expect(metrics["NEVERPLAYED"]!["total"]!.value).toBe(10);
     expect(metrics["NEVERPLAYED"]!["total"]!.spread).toBeUndefined();
 
@@ -639,7 +648,7 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     // `scale * |dev|`, with no floor and no minimum-match threshold. Story 2
     // (a low seed WANTING to see a high `±`) is why an omission here would be
     // actively harmful rather than merely conservative.
-    expect(metrics["ONEMATCH"]!["autoLeave"]!.spread).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * 3);
+    expect(metrics["ONEMATCH"]!["auto"]!.spread).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * 3);
     expect(metrics["ONEMATCH"]!["total"]!.spread).toBe(DEFAULT_SIGMA1_PARAMS.swingScale * 7);
 
     // Non-vacuity, and the sharpest statement of the change: the two teams
@@ -679,8 +688,8 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
       }
     }
     // Non-vacuity: the perturbation is real and large.
-    const sample = state.teams.get("T1")!.beliefs["autoLeave"]!.variance;
-    expect(perturbed.teams.get("T1")!.beliefs["autoLeave"]!.variance).not.toBe(sample);
+    const sample = state.teams.get("T1")!.beliefs["auto"]!.variance;
+    expect(perturbed.teams.get("T1")!.beliefs["auto"]!.variance).not.toBe(sample);
   });
 
   it("RETIRED IDENTITY (D-V4's real cost) — the alliance-additivity identity is FALSE BY DESIGN, and what replaced it", () => {
@@ -764,7 +773,7 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     // `varianceGroups` applies when it builds that key's fold target, which is
     // what keeps the folded and published key sets in agreement by
     // construction.
-    const narrow: Sigma1State = { ...state, componentOrder: ["autoLeave"] };
+    const narrow: Sigma1State = { ...state, componentOrder: ["auto"] };
     const narrowMetrics = vpr.teamMetrics(narrow, ["T1"]);
     expect(narrowMetrics["T1"]!["phaseAuto"]).toBeDefined();
     expect(narrowMetrics["T1"]!["phaseEndgame"]).toBeUndefined();
@@ -808,8 +817,8 @@ describe("D-05 fallback — null scoreBreakdownRaw still updates state, with inf
     // as the only difference. A larger R (fallback, x FALLBACK_NOISE_
     // MULTIPLIER) produces a strictly SMALLER Kalman gain and therefore a
     // strictly LARGER (less-shrunk) posterior variance than the real path.
-    const realVariance = realState.teams.get("T1")!.beliefs["autoLeave"]!.variance;
-    const fallbackVariance = fallbackState.teams.get("T1")!.beliefs["autoLeave"]!.variance;
+    const realVariance = realState.teams.get("T1")!.beliefs["auto"]!.variance;
+    const fallbackVariance = fallbackState.teams.get("T1")!.beliefs["auto"]!.variance;
     expect(fallbackVariance).toBeGreaterThan(realVariance);
   });
 });
@@ -1098,8 +1107,8 @@ describe("D-07 process noise — cross-event vs within-event", () => {
     stateSameEvent = vpr.update(stateSameEvent, secondMatchSameEvent);
     stateCrossEvent = vpr.update(stateCrossEvent, secondMatchCrossEvent);
 
-    const sameEventVariance = stateSameEvent.teams.get("T1")!.beliefs["autoLeave"]!.variance;
-    const crossEventVariance = stateCrossEvent.teams.get("T1")!.beliefs["autoLeave"]!.variance;
+    const sameEventVariance = stateSameEvent.teams.get("T1")!.beliefs["auto"]!.variance;
+    const crossEventVariance = stateCrossEvent.teams.get("T1")!.beliefs["auto"]!.variance;
     expect(crossEventVariance).toBeGreaterThan(sameEventVariance);
   });
 });
@@ -1273,7 +1282,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
     // prior foulsCommitted mean (8) — the exact shape CR-01 names as
     // untested. A custom 3-component componentOrder keeps the hand math
     // tractable while still exercising the real fallback code path.
-    const componentOrder = ["autoLeave", "teleopSpeakerNote", FOULS_COMMITTED_COMPONENT];
+    const componentOrder = ["auto", "teleop", FOULS_COMMITTED_COMPONENT];
     const state: Sigma1State = {
       season: 2024,
       componentOrder,
@@ -1282,8 +1291,8 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
           "R1",
           {
             beliefs: {
-              autoLeave: { mean: 40, variance: 4 },
-              teleopSpeakerNote: { mean: 10, variance: 4 },
+              auto: { mean: 40, variance: 4 },
+              teleop: { mean: 10, variance: 4 },
               [FOULS_COMMITTED_COMPONENT]: { mean: 8, variance: 4 },
             },
             covariance: [
@@ -1291,7 +1300,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
               [0, 4, 0],
               [0, 0, 4],
             ],
-            consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
+            consistency: { auto: 2, teleop: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
             rpBeliefs: {},
@@ -1304,8 +1313,8 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
           "B1",
           {
             beliefs: {
-              autoLeave: { mean: 5, variance: 4 },
-              teleopSpeakerNote: { mean: 0, variance: 4 },
+              auto: { mean: 5, variance: 4 },
+              teleop: { mean: 0, variance: 4 },
               [FOULS_COMMITTED_COMPONENT]: { mean: 4, variance: 4 },
             },
             covariance: [
@@ -1313,7 +1322,7 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
               [0, 4, 0],
               [0, 0, 4],
             ],
-            consistency: { autoLeave: 2, teleopSpeakerNote: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
+            consistency: { auto: 2, teleop: 2, [FOULS_COMMITTED_COMPONENT]: 2 },
             matchCount: 5,
             lastEventKey: "2024test",
             rpBeliefs: {},
@@ -1373,15 +1382,15 @@ describe("vpr.update — D-05 fallback attribution (CR-01, code review phase 02)
     const gain = priorVariance / (priorVariance + measurementNoise);
     const expectedAutoLeaveInnovation = 96 * (40 / 50) - 40;
     const expectedTeleopInnovation = 96 * (10 / 50) - 10;
-    expect(next.teams.get("R1")!.beliefs["autoLeave"]!.mean).toBeCloseTo(40 + gain * expectedAutoLeaveInnovation, 9);
-    expect(next.teams.get("R1")!.beliefs["teleopSpeakerNote"]!.mean).toBeCloseTo(10 + gain * expectedTeleopInnovation, 9);
+    expect(next.teams.get("R1")!.beliefs["auto"]!.mean).toBeCloseTo(40 + gain * expectedAutoLeaveInnovation, 9);
+    expect(next.teams.get("R1")!.beliefs["teleop"]!.mean).toBeCloseTo(10 + gain * expectedTeleopInnovation, 9);
 
     // Mirror invariant on blue: red's currently-predicted foulsCommitted
     // mean (8) is netted out of result.blueScore (50 -> 42) before blue's
     // own split; blue's only nonzero predicted offensive component
-    // (autoLeave) absorbs the entire net residual.
+    // (auto) absorbs the entire net residual.
     const expectedBlueAutoLeaveInnovation = 42 - 5;
-    expect(next.teams.get("B1")!.beliefs["autoLeave"]!.mean).toBeCloseTo(5 + gain * expectedBlueAutoLeaveInnovation, 9);
+    expect(next.teams.get("B1")!.beliefs["auto"]!.mean).toBeCloseTo(5 + gain * expectedBlueAutoLeaveInnovation, 9);
   });
 });
 
@@ -1987,7 +1996,7 @@ describe("vpr — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
   });
 
   it("distributeResidual, fed Sigma1's modeled (non-fouls, non-adjust) component list, still sums to the observed total — ADJUST_COMPONENT never receives a share", () => {
-    const modeledComponents = ["autoLeave", "autoAmpNote", "teleopSpeakerNote"]; // any subset excluding fouls/adjust
+    const modeledComponents = ["auto", "teleop", "endgame"]; // any subset excluding fouls/adjust
     const result = distributeResidual(90, {}, modeledComponents);
     const sum = Object.values(result).reduce((s, v) => s + v, 0);
     expect(sum).toBeCloseTo(90, 9);

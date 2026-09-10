@@ -52,20 +52,55 @@ const Breakdown2024Schema = z.object({
   blue: SideBreakdownSchema,
 });
 
-/** canonical component name -> TBA `score_breakdown` key, for this alliance's own fields. */
-const OWN_FIELD_COMPONENT_MAP: Readonly<Record<string, keyof z.infer<typeof SideBreakdownSchema>>> = {
-  autoLeave: "autoLeavePoints",
-  autoAmpNote: "autoAmpNotePoints",
-  autoSpeakerNote: "autoSpeakerNotePoints",
-  teleopAmpNote: "teleopAmpNotePoints",
-  teleopSpeakerNote: "teleopSpeakerNotePoints",
-  teleopSpeakerNoteAmplified: "teleopSpeakerNoteAmplifiedPoints",
-  endGameOnStage: "endGameOnStagePoints",
-  endGamePark: "endGameParkPoints",
-  endGameHarmony: "endGameHarmonyPoints",
-  endGameNoteInTrap: "endGameNoteInTrapPoints",
-  endGameSpotLightBonus: "endGameSpotLightBonusPoints",
-  adjust: "adjustPoints",
+/**
+ * canonical component name -> the TBA `score_breakdown` keys summed into it.
+ *
+ * **2024 is deliberately grouped at phase granularity (quick task 260910-5ym),
+ * unlike every other registered season, which maps one component per TBA
+ * field.** The eleven offensive fields below are still read, still Zod-validated
+ * and still reconcile exactly against the alliance's score — only the number of
+ * separately-RATED quantities changed, from eleven to three.
+ *
+ * Why, measured rather than argued: 2024 carried the most granular map of any
+ * season (13 components against a median of 9) on the season with the
+ * second-lowest score variance in the corpus (SD 27.2). Each component is a
+ * per-team EWMA estimated from roughly a dozen quals, and eleven noisy
+ * estimates were being summed into every predicted alliance total. Quick task
+ * 260910-4x0 replayed 2016->2024 four times off one shared carry and scored
+ * 2024's 16,764 decided official matches:
+ *
+ *   | rating granularity                          | comps | accuracy |
+ *   |---------------------------------------------|-------|----------|
+ *   | one component per TBA field (was shipping)   |    13 |   0.7348 |
+ *   | Statbotics' comp partition                   |     6 |   0.7461 |
+ *   | phase groups — THIS MAP                      |     5 |   0.7520 |
+ *   | a single no-foul total                       |     3 |   0.7403 |
+ *
+ * Note the curve turns over: collapsing all the way to one total is WORSE
+ * than three phase groups, so this is a bias/variance optimum and not a
+ * "fewer is always better" rule to propagate to other seasons without
+ * measuring them the same way. Statbotics' own 2024 accuracy is 0.7627.
+ *
+ * The grouping is not invented here — it is exactly `groups.ts`'s existing
+ * 2024 `auto`/`teleop`/`endgame` partition, which the site already publishes
+ * as phase metrics, and it matches three of Statbotics' own rated 2024 keys
+ * (`auto_points`, `teleop_points`, `endgame_points`). Bare `auto`/`teleop`/
+ * `endgame` component names are an established convention here, not a new
+ * one: 2022 already declares a bare `endgame` component, and
+ * `groups.test.ts` pins that a component name never collides with a group
+ * METRIC key (`phaseAuto`/`phaseTeleop`/`phaseEndgame`).
+ */
+const OWN_FIELD_COMPONENT_MAP: Readonly<Record<string, readonly (keyof z.infer<typeof SideBreakdownSchema>)[]>> = {
+  auto: ["autoLeavePoints", "autoAmpNotePoints", "autoSpeakerNotePoints"],
+  teleop: ["teleopAmpNotePoints", "teleopSpeakerNotePoints", "teleopSpeakerNoteAmplifiedPoints"],
+  endgame: [
+    "endGameOnStagePoints",
+    "endGameParkPoints",
+    "endGameHarmonyPoints",
+    "endGameNoteInTrapPoints",
+    "endGameSpotLightBonusPoints",
+  ],
+  adjust: ["adjustPoints"],
 };
 
 const FOULS_COMMITTED_COMPONENT = "foulsCommitted";
@@ -82,8 +117,10 @@ export const breakdown2024: SeasonComponentMap = {
     // TBA JSON is never spread onto the result, so a `__proto__` key in the
     // raw payload cannot reach Object.prototype via this map.
     const result: ParsedComponents = Object.create(null) as ParsedComponents;
-    for (const [canonical, tbaKey] of Object.entries(OWN_FIELD_COMPONENT_MAP)) {
-      result[canonical] = own[tbaKey];
+    for (const [canonical, tbaKeys] of Object.entries(OWN_FIELD_COMPONENT_MAP)) {
+      let sum = 0;
+      for (const tbaKey of tbaKeys) sum += own[tbaKey];
+      result[canonical] = sum;
     }
 
     // Deliberate divergence from RESEARCH.md's field-aliasing sketch (D-04):

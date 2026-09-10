@@ -3,6 +3,46 @@
 **SC-2** (Phase 2's success criteria): "EPA runs walk-forward at any point in a season, and
 spot-checked teams land within a documented tolerance of published Statbotics numbers."
 
+> **STALE AS OF 2026-09-10 (quick task 260910-5ym) — every figure below was measured under
+> `epa@6.0.0+baseline`, which is no longer the shipping model.** Two defects that quick task
+> 260910-4x0 measured are now fixed in `epa@7.0.0+baseline`: the win-probability denominator
+> no longer pools alliance scores across seasons (`carrySeason` re-seeds `allianceScoreStats`
+> rather than carrying its observation count), and 2024's component map is grouped at phase
+> granularity rather than one component per TBA field. Re-measured over 2016-2024 against the
+> shipping code, scoring each season's decided official matches:
+>
+> | Season | accuracy 6.0.0 -> 7.0.0 | Brier 6.0.0 -> 7.0.0 | Statbotics |
+> |--------|--------------------------|-----------------------|------------|
+> | 2016 | 0.7195 -> 0.7150 | 0.1857 -> 0.1888 | 0.7312 / 0.1799 |
+> | 2017 | 0.6681 -> 0.6679 | 0.2047 -> 0.2074 | 0.6694 / 0.2023 |
+> | 2018 | 0.7333 -> 0.7333 | 0.1801 -> 0.1799 | 0.7435 / 0.1747 |
+> | 2019 | 0.6441 -> 0.6441 | 0.2310 -> 0.2338 | 0.7322 / 0.1763 |
+> | 2020 | 0.7113 -> 0.7111 | 0.2164 -> 0.1918 | 0.7262 / 0.1834 |
+> | 2022 | 0.7710 -> 0.7710 | 0.2149 -> 0.1615 | 0.7815 / 0.1502 |
+> | 2023 | 0.7610 -> 0.7610 | 0.2079 -> 0.1640 | 0.7647 / 0.1608 |
+> | 2024 | 0.7348 -> **0.7520** | 0.2179 -> **0.1704** | 0.7627 / 0.1620 |
+> | 2025 | 0.7772 -> 0.7772 | 0.1953 -> 0.1605 | 0.7839 / 0.1537 |
+> | 2026 | 0.7943 -> 0.7944 | 0.1548 -> 0.1540 | 0.7978 / 0.1483 |
+>
+> **Three seasons got slightly WORSE on Brier and are recorded here rather than omitted:**
+> 2016 (+0.0031), 2017 (+0.0027) and 2019 (+0.0028). The mechanism is understood, not
+> mysterious. The re-seed carries the prior season's MEAN as well as its SD, and FRC's point
+> scale jumps hard across those particular boundaries (2016 averaged 85.5, 2017 averaged
+> 233.5), so Welford's running variance is transiently inflated while the mean migrates to the
+> new season's level. The pooled accumulator this replaces happened to sit closer to those
+> three seasons' scales by coincidence. `EPA_SCORE_SD_SEED_COUNT` is the knob if that trade is
+> ever worth revisiting; at 50 it buys 0.03-0.05 Brier in five seasons for 0.003 in three.
+> 2016's accuracy movement (-0.45 pp) is a separate, benign effect: at cold start both
+> alliances hold identical component values, so the predicted margin is exactly 0 and the
+> `>= 0` tie convention picks red. `sumComponentsAcrossTeam` now sums in sorted key order (see
+> `epa-divergences.md`), and reordering a floating-point sum turns some of those exact zeros
+> into +/-1e-15, flipping coin-flip picks either way.
+>
+> **The per-team agreement statistics and the committed tolerance bands below have NOT been
+> re-measured under 7.0.0**, and `v1/methodology/epa-vs-statbotics.json` still serves the
+> 6.0.0 figures. Re-running `scripts/epaVsStatbotics.ts` and republishing is required before
+> anything below is quotable again.
+
 ## History
 
 Recorded **blocked-on-external-dependency** from 2026-08-13 (Phase 1's recon,

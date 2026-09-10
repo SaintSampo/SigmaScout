@@ -639,7 +639,7 @@ describe("elimObservationNoiseMultiplier composes with FALLBACK_NOISE_MULTIPLIER
     state = algorithm.update(state, fallbackElimMatch);
 
     // At a genuine cold start every teammate's prior variance AND consistency
-    // for "autoLeave" is exactly `resolved.coldStartConsistencyVariance` (p0):
+    // for "auto" is exactly `resolved.coldStartConsistencyVariance` (p0):
     // `updateAllianceSum`'s posterior variance for one of 3 symmetric
     // teammates is `p0 * (1 - p0 / (3*p0 + measurementNoise))`, and
     // `measurementNoise = 3 * p0 * measurementNoiseMultiplier` — this does not
@@ -653,7 +653,7 @@ describe("elimObservationNoiseMultiplier composes with FALLBACK_NOISE_MULTIPLIER
       return p0 * (1 - gain);
     }
 
-    const actualVariance = state.teams.get("T1")!.beliefs["autoLeave"]!.variance;
+    const actualVariance = state.teams.get("T1")!.beliefs["auto"]!.variance;
     const composedMultiplier = FALLBACK_NOISE_MULTIPLIER * elimMultiplier;
     expect(actualVariance).toBeCloseTo(posteriorVarianceAt(composedMultiplier), 6);
 
@@ -919,11 +919,11 @@ describe("carryVarianceFactor — inert at 1, wired at 0.3, gated on the season 
  */
 function stateForCarryVarianceProbe(): Sigma1State {
   const componentOrder = [
-    "autoLeave",
-    "autoAmpNote",
+    "auto",
+    "teleop",
     "autoSpeakerNote",
     "teleopAmpNote",
-    "teleopSpeakerNote",
+    "teleop",
     "teleopSpeakerNoteAmplified",
     "endGameOnStage",
     "endGamePark",
@@ -1136,11 +1136,11 @@ describe("carryEvidenceRate — inert at 0, wired at 0.02, gated on the season b
  */
 function stateForCarryEvidenceProbe(): Sigma1State {
   const componentOrder = [
-    "autoLeave",
-    "autoAmpNote",
+    "auto",
+    "teleop",
     "autoSpeakerNote",
     "teleopAmpNote",
-    "teleopSpeakerNote",
+    "teleop",
     "teleopSpeakerNoteAmplified",
     "endGameOnStage",
     "endGamePark",
@@ -1295,7 +1295,7 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
     // its own variance<=0 degenerate branch, which a nonzero margin here
     // does not hit (nonzero belief.variance is part of the hand-built
     // state).
-    const componentOrder = ["autoLeave"];
+    const componentOrder = ["auto"];
     function stateWithMargin(): Sigma1State {
       return {
         season: 2024,
@@ -1304,9 +1304,9 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
           [
             "T1",
             {
-              beliefs: { autoLeave: { mean: 20, variance: 4 } },
+              beliefs: { auto: { mean: 20, variance: 4 } },
               covariance: [[4]],
-              consistency: { autoLeave: 4 },
+              consistency: { auto: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
               rpBeliefs: {},
@@ -1318,9 +1318,9 @@ describe("fallbackScoreSd — predict-only, but unreachable via a normal replay"
           [
             "T2",
             {
-              beliefs: { autoLeave: { mean: 5, variance: 4 } },
+              beliefs: { auto: { mean: 5, variance: 4 } },
               covariance: [[4]],
-              consistency: { autoLeave: 4 },
+              consistency: { auto: 4 },
               matchCount: 3,
               lastEventKey: "2024test",
               rpBeliefs: {},

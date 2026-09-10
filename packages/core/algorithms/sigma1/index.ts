@@ -976,6 +976,15 @@ function allianceComponentPredictions(state: Sigma1State, teams: readonly string
 
 function allianceOffensiveTotal(components: Record<string, ComponentPrediction>): number {
   let total = 0;
+  // NOT sorted, deliberately — in contrast to `epa.ts`'s
+  // `sumComponentsAcrossTeam`. Sigma1 carries an explicit `componentOrder` in
+  // its state and builds every component-keyed record by iterating it, so the
+  // runtime order is already canonical and the snapshot layer restores it on
+  // read (`stateSnapshot.ts`'s `inComponentOrder`). Imposing a sort here
+  // instead would change this alliance total's floating-point summation order
+  // and break the committed bitwise digests every promoted vpr parameter set
+  // is pinned to (D-15/SC-5, `digest.test.ts`). EPA has no `componentOrder` to
+  // restore, which is why it takes the other fix. Quick task 260910-5ym.
   for (const [name, prediction] of Object.entries(components)) {
     if (name === FOULS_COMMITTED_COMPONENT) continue;
     total += prediction.mean;

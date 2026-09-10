@@ -321,6 +321,33 @@ function makeRow(
 // only in predict()'s link mode, never in what update() accumulates)
 // ---------------------------------------------------------------------------
 
+/**
+ * Restores a component-keyed record to the runtime's canonical key order.
+ *
+ * `makeRow` writes every payload with `stableStringify`, so a row's JSON has
+ * ALPHABETICAL keys by design — that canonical form is what makes a snapshot
+ * byte-comparable. The runtime's own order is different: sigma1 builds every
+ * component-keyed record by iterating `componentOrder`. Reading a snapshot
+ * back therefore used to hand the algorithm records in a different key order
+ * than the live state had, and since floating-point addition is not
+ * associative, an alliance total summed over those keys differed in its last
+ * bits — enough to change `pRedWin` and break the continuation-replay digest
+ * equality `stateSnapshot.test.ts` asserts.
+ *
+ * Keys absent from `componentOrder` are appended in sorted order rather than
+ * dropped, so this can never silently lose a field. Quick task 260910-5ym.
+ */
+function inComponentOrder<T>(record: Readonly<Record<string, T>>, componentOrder: readonly string[]): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const name of componentOrder) {
+    if (Object.prototype.hasOwnProperty.call(record, name)) out[name] = record[name]!;
+  }
+  for (const name of Object.keys(record).sort()) {
+    if (!Object.prototype.hasOwnProperty.call(out, name)) out[name] = record[name]!;
+  }
+  return out;
+}
+
 interface SerializedSigma1TeamState {
   beliefs: Sigma1TeamState["beliefs"];
   covariance: number[][];
@@ -464,7 +491,13 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     // that gate having already thrown.
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamRow;
-    if (teamJson.current !== undefined) teams.set(row.scopeKey, teamJson.current);
+    if (teamJson.current !== undefined) {
+      teams.set(row.scopeKey, {
+        ...teamJson.current,
+        beliefs: inComponentOrder(teamJson.current.beliefs, leagueJson.componentOrder),
+        consistency: inComponentOrder(teamJson.current.consistency, leagueJson.componentOrder),
+      });
+    }
     if (teamJson.priorSeasonLastSeason !== undefined) lastSeason.set(row.scopeKey, teamJson.priorSeasonLastSeason);
     if (teamJson.priorSeasonYearBefore !== undefined) yearBefore.set(row.scopeKey, teamJson.priorSeasonYearBefore);
   }
@@ -473,7 +506,11 @@ function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]):
     season: leagueJson.season,
     componentOrder: leagueJson.componentOrder,
     teams,
-    league: leagueJson.league,
+    league: {
+      ...leagueJson.league,
+      componentMean: inComponentOrder(leagueJson.league.componentMean, leagueJson.componentOrder),
+      componentConsistency: inComponentOrder(leagueJson.league.componentConsistency, leagueJson.componentOrder),
+    },
     allianceScoreStats: leagueJson.allianceScoreStats,
     priorSeasonRatings: { lastSeason, yearBefore },
     rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
