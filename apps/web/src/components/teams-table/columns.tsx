@@ -339,8 +339,6 @@ export function buildColumns(
   isNarrow: boolean,
   metricFirst: boolean = isNarrow,
   view: TeamsTableView = "grouped",
-  /** Whether the ribbon's `±` control is on. Passed in rather than read from the store here, because this is a plain builder and not a component. */
-  showSwingScore: boolean = true,
 ) {
   const metricKeys = displayedMetricKeys(algorithmId, season, view);
   // `algorithmId` reaching this function was already validated upstream
@@ -534,7 +532,7 @@ export function buildColumns(
     ...(isNarrow ? [recordColumn] : []),
     ...(metricFirst ? restMetricColumns : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
-    ...(showSwingScore ? [swingColumn] : []),
+    swingColumn,
     winRateColumn,
   ]);
 }

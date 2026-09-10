@@ -3,13 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { MetricValue } from "./MetricValue.js";
-
-function resetDisplaySettings() {
-  useDisplaySettingsStore.setState({ showSwingFactor: true });
-  window.localStorage.removeItem("sigmascout-display-settings");
-}
 
 // D-07: the value-and-spread display primitive. Every input/output pair
 // below is pinned exactly as 05-UI-SPEC.md's Typography "Sigma display
@@ -127,49 +121,33 @@ describe("MetricValue", () => {
     });
   });
 
-  describe("showSwingFactor toggle (quick task 260908-5wd)", () => {
-    afterEach(() => resetDisplaySettings());
-
-    it("with showSwingFactor true (the default), renders the value followed by the ± span exactly as before", () => {
-      resetDisplaySettings();
+  // Swing Score is unconditional (2026-09-09, user decision): the ribbon's ±
+  // control and the `displaySettings` store it wrote to are both gone, so
+  // `swingScore` is the ONLY thing that decides whether a ± renders. These
+  // replace the four toggle-state tests that used to live here.
+  describe("Swing Score is unconditional", () => {
+    it("renders the value followed by the ± span whenever a swingScore is passed", () => {
       const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
 
       expect(container.textContent).toBe("88.20 ± 3.10");
     });
 
-    it("with showSwingFactor false, renders the value alone — no ± glyph, no spread digits — but keeps the numeric-cell box", () => {
-      resetDisplaySettings();
-      useDisplaySettingsStore.getState().toggleSwingFactor();
-
-      const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
-
-      expect(container.textContent).toBe("88.20");
-      expect(container.textContent?.includes("±")).toBe(false);
-      expect(container.textContent?.includes("3.10")).toBe(false);
-      const outer = container.firstElementChild;
-      expect(outer?.className).toMatch(/numeric-cell/);
-    });
-
-    it("with showSwingFactor false, still keeps a tier wrapper's box so no column changes width or disappears", () => {
-      resetDisplaySettings();
-      useDisplaySettingsStore.getState().toggleSwingFactor();
-
+    it("renders the ± inside a tier wrapper too, box and all", () => {
       const { container } = render(<MetricValue metric={{ value: 76.23 }} swingScore={2.85} tier="epic" />);
 
       const outer = container.firstElementChild;
       expect(outer?.className).toMatch(/metric-tier\b/);
       expect(outer?.className).toMatch(/metric-tier--epic/);
-      expect(container.textContent).toBe("76.23");
+      expect(container.textContent).toBe("76.23 ± 2.85");
     });
 
-    it("with no spread at all, renders identically whether the toggle is on or off", () => {
-      resetDisplaySettings();
-      const on = render(<MetricValue metric={{ value: 88.2 }} />);
-      useDisplaySettingsStore.getState().toggleSwingFactor();
-      const off = render(<MetricValue metric={{ value: 88.2 }} />);
+    it("renders the bare value, keeping the numeric-cell box, when no swingScore is passed", () => {
+      const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
 
-      expect(on.container.textContent).toBe(off.container.textContent);
-      expect(off.container.textContent).toBe("88.20");
+      expect(container.textContent).toBe("88.20");
+      expect(container.textContent?.includes("±")).toBe(false);
+      const outer = container.firstElementChild;
+      expect(outer?.className).toMatch(/numeric-cell/);
     });
   });
 });

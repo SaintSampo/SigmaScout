@@ -22,7 +22,6 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
-import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { buildColumns, features, MOBILE_PINNED_COLUMN_IDS, PINNED_COLUMN_IDS, rankColumnAccessibleLabel, sortableColumnIds, type TeamsTableView } from "./columns";
 import type { SortDirection, TeamRow } from "./rowModel";
 
@@ -87,12 +86,9 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
   const isF3Width = useIsF3MetricFirstWidth();
 
   const metricFirst = isNarrow && isF3Width;
-  // The ribbon's `±` control now names the Swing column, so it hides that
-  // column rather than a suffix on another one.
-  const showSwingScore = useDisplaySettingsStore((state) => state.showSwingFactor);
   const columns = useMemo(
-    () => buildColumns(algorithmId, season, isNarrow, metricFirst, view, showSwingScore),
-    [algorithmId, season, isNarrow, metricFirst, view, showSwingScore],
+    () => buildColumns(algorithmId, season, isNarrow, metricFirst, view),
+    [algorithmId, season, isNarrow, metricFirst, view],
   );
   const sortableIds = useMemo(() => new Set(sortableColumnIds(algorithmId, season, view)), [algorithmId, season, view]);
   const columnPinning = useMemo(

@@ -1,6 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
-import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
@@ -58,14 +57,14 @@ function formatWinRate(value: number | null): string {
 }
 
 /**
- * The Swing Score tile. Hidden entirely by the ribbon's `±` control, which is
- * what that control now names, and absent for a team with fewer than two played
- * matches — one observation cannot separate model bias from robot swing, so the
- * tile shows nothing rather than a fabricated zero.
+ * The Swing Score tile. Always rendered when a swing score exists (2026-09-09:
+ * Swing Score is a permanent part of the site, so the ribbon's `±` control is
+ * gone and nothing can turn this off). Absent only for a team with fewer than
+ * two played matches — one observation cannot separate model bias from robot
+ * swing, so the tile shows nothing rather than a fabricated zero.
  */
 function SwingScoreTile({ swingScore }: { swingScore?: number }) {
-  const show = useDisplaySettingsStore((state) => state.showSwingFactor);
-  if (!show || swingScore === undefined) return null;
+  if (swingScore === undefined) return null;
   return (
     <div data-testid="swing-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
       <span className="text-role-label text-[var(--color-text-muted)]">Swing</span>

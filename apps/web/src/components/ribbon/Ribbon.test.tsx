@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
-import { useDisplaySettingsStore } from "@/stores/displaySettings";
 import { Ribbon } from "./Ribbon.js";
 
 /**
@@ -56,18 +55,20 @@ describe("Ribbon", () => {
     global.fetch = originalFetch;
     cleanup();
     vi.restoreAllMocks();
-    useDisplaySettingsStore.setState({ showSwingFactor: true });
-    window.localStorage.removeItem("sigmascout-display-settings");
   });
 
-  it("renders the Swing Factor toggle on desktop, reachable by its accessible name (quick task 260908-5wd)", async () => {
+  // Swing Score is a permanent part of the site (2026-09-09, user decision):
+  // it can never be turned off, so the ribbon carries no control for it. These
+  // two tests are the drift guard against a future edit reintroducing one —
+  // they replace the pair that asserted the toggle's presence on each branch.
+  it("renders NO Swing Factor toggle on desktop — Swing Score can never be turned off", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/teams?year=2024&algorithm=bpr");
 
-    expect(screen.getByRole("button", { name: /swing factor/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
   });
 
-  it("renders the Swing Factor toggle on mobile too, in the same compact second row as GitHubLink/SearchBox", async () => {
+  it("renders NO Swing Factor toggle on mobile either, in the compact second row alongside GitHubLink/SearchBox", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     const original = window.matchMedia;
     window.matchMedia = (query: string) =>
@@ -84,7 +85,7 @@ describe("Ribbon", () => {
 
     try {
       await renderRibbonAt("/teams?year=2024&algorithm=bpr");
-      expect(screen.getByRole("button", { name: /swing factor/i })).toBeDefined();
+      expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
     } finally {
       window.matchMedia = original;
     }
