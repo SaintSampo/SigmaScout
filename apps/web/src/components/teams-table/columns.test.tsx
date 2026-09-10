@@ -239,3 +239,67 @@ describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
     expect(narrowTotal.size).toBe(120);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 260909-tgf — the Swing column now carries a rarity tier, sourced
+// from rowModel.ts's swingTier, never derived here.
+// ---------------------------------------------------------------------------
+describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
+  it("the swing cell for a Legendary row carries the legendary tier class", async () => {
+    renderWithRouter(
+      <TeamsTable
+        status="success"
+        rows={[row({ swingScore: 8.42, swingTier: "legendary" })]}
+        algorithmId="bpr"
+        season={2024}
+        view="components"
+        sortKey={TOTAL_KEY}
+        sortDirection="desc"
+        onSortChange={noop}
+        onRetry={noop}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("8.42")).toBeDefined());
+    expect(document.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("the swing cell for a stale row (value, no tier) renders the value with NO .metric-tier wrapper class at all", async () => {
+    renderWithRouter(
+      <TeamsTable
+        status="success"
+        rows={[row({ swingScore: 8.42, swingTier: undefined })]}
+        algorithmId="bpr"
+        season={2024}
+        view="components"
+        sortKey={TOTAL_KEY}
+        sortDirection="desc"
+        onSortChange={noop}
+        onRetry={noop}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("8.42")).toBeDefined());
+    const swingValue = screen.getByText("8.42");
+    expect(swingValue.closest(".metric-tier")).toBeNull();
+  });
+
+  it("an absent swing renders blank, not 0.00 — the existing behaviour, re-pinned", async () => {
+    renderWithRouter(
+      <TeamsTable
+        status="success"
+        rows={[row({ swingScore: undefined, swingTier: undefined })]}
+        algorithmId="bpr"
+        season={2024}
+        view="components"
+        sortKey={TOTAL_KEY}
+        sortDirection="desc"
+        onSortChange={noop}
+        onRetry={noop}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByRole("link").length).toBeGreaterThanOrEqual(2));
+    expect(screen.queryByText("0.00")).toBeNull();
+  });
+});

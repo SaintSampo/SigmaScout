@@ -453,6 +453,82 @@ describe("SeasonHeader — Swing Score has its OWN tile (developer decision 2026
   });
 });
 
+describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
+  afterEach(() => cleanup());
+
+  it("an artifact whose seasonStats.metrics.swing carries percentile 97 renders the Swing tile with the legendary tier class", () => {
+    const artifact = baseArtifact({
+      seasonStats: {
+        record: { wins: 1, losses: 0, ties: 0 },
+        metrics: { total: { value: 60.5 }, swing: { value: 8.42, percentile: 97 } },
+      },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+
+    const swingTile = screen.getByTestId("swing-score-tile");
+    expect(swingTile.textContent).toContain("8.42");
+    expect(swingTile.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("an artifact whose seasonStats.metrics.swing carries percentile 12 renders the Swing tile with the common (hairline ring) tier class", () => {
+    const artifact = baseArtifact({
+      seasonStats: {
+        record: { wins: 1, losses: 0, ties: 0 },
+        metrics: { total: { value: 60.5 }, swing: { value: 3.1, percentile: 12 } },
+      },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+
+    const swingTile = screen.getByTestId("swing-score-tile");
+    expect(swingTile.textContent).toContain("3.10");
+    expect(swingTile.querySelector(".metric-tier--common")).not.toBeNull();
+  });
+
+  it("a STALE artifact carrying only the top-level swingFactor renders the Swing tile with the value and NO tier class", () => {
+    const artifact = {
+      ...baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5 } } } }),
+      swingFactor: 18.5,
+    } as unknown as TeamSeasonArtifact;
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+
+    const swingTile = screen.getByTestId("swing-score-tile");
+    expect(swingTile.textContent).toContain("18.50");
+    expect(swingTile.querySelector('[class*="metric-tier"]')).toBeNull();
+  });
+
+  it("still hides the tile entirely when there is no swing data at all -- the tile's existing hide-when-absent behaviour is unaffected by this task (no `showSwingFactor` toggle exists in the current codebase to test directly)", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
+      events: [],
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+
+    expect(screen.queryByTestId("swing-score-tile")).toBeNull();
+  });
+
+  it("MetricValue's ± superscript render path is NOT given a tier by any of these changes -- no metric superscript element itself carries a tier class (D3: this task never touches MetricValue.tsx, which owns that render path)", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      total: { value: 60.5, percentile: 96 },
+      swing: { value: 8.42, percentile: 97 },
+    };
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },
+      events: [],
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="bpr" season={2026} teamNumber={1114} />);
+
+    const superscripts = document.querySelectorAll(".metric-spread-superscript");
+    for (const el of superscripts) {
+      expect(el.className).not.toMatch(/metric-tier/);
+    }
+  });
+});
+
 describe("SeasonHeader — rank cards render inside the header (quick task 260905-ttv)", () => {
   afterEach(() => cleanup());
 

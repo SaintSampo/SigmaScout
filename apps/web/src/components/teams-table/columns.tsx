@@ -422,6 +422,17 @@ export function buildColumns(
    * two played matches, which renders blank rather than a fabricated zero.
    *
    * Hidden by the ribbon's `±` control, which is what that control now names.
+   *
+   * Quick task 260909-tgf: this cell now carries a rarity TIER, sourced from
+   * `rowModel.ts`'s `swingTier` (the published `swing` metric entry's tier,
+   * never derived here) — with LOWER swing earning the HIGHER tier, the D2
+   * inversion applied once at the pipeline. Rendered through `MetricValue`
+   * so it gets the identical `.metric-tier` box, padding and `toFixed(2)`
+   * every other tiered cell on the site gets, rather than hand-rolling a
+   * second box. Deliberately NOT `?? "common"`-coalesced here: `rowModel.ts`
+   * already made that per-branch decision correctly (present entry -> tier
+   * defaults to Common; absent entry, stale fallback -> genuinely no tier),
+   * and re-coalescing here would undo it for a stale row.
    */
   const swingColumn = columnHelper.accessor("swingScore", {
     id: "swingScore",
@@ -429,7 +440,7 @@ export function buildColumns(
     size: 84,
     cell: (info) => {
       const value = info.getValue();
-      return <span className="numeric-cell whitespace-nowrap">{value === undefined ? "" : value.toFixed(2)}</span>;
+      return <MetricValue metric={value === undefined ? undefined : { value }} tier={info.row.original.swingTier} />;
     },
   });
 

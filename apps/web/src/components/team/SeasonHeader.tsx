@@ -3,8 +3,10 @@ import { MetricValue } from "@/components/MetricValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
+import type { Tier } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { SWING_METRIC_KEY } from "../../../../../packages/harness/swingFactor.js";
 import { RankCards } from "./RankCards.js";
 
 /**
@@ -62,13 +64,21 @@ function formatWinRate(value: number | null): string {
  * gone and nothing can turn this off). Absent only for a team with fewer than
  * two played matches — one observation cannot separate model bias from robot
  * swing, so the tile shows nothing rather than a fabricated zero.
+ *
+ * Quick task 260909-tgf: the tile IS tier-boxed. The percentile behind it is
+ * the team's residual against an expected-swing curve fitted at its own
+ * rating — so a strong robot is not automatically high-swing — and the
+ * direction is inverted at the pipeline so LOW swing earns the HIGH tier.
+ * `tier` is genuinely `undefined` when only the stale-artifact fallback value
+ * exists (see `SeasonHeader`'s own `swingTier` derivation), which renders the
+ * value with no ring at all rather than a fabricated Common one.
  */
-function SwingScoreTile({ swingScore }: { swingScore?: number }) {
+function SwingScoreTile({ swingScore, tier }: { swingScore?: number; tier?: Tier }) {
   if (swingScore === undefined) return null;
   return (
     <div data-testid="swing-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
       <span className="text-role-label text-[var(--color-text-muted)]">Swing</span>
-      <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{swingScore.toFixed(2)}</span>
+      <MetricValue metric={{ value: swingScore }} tier={tier} />
     </div>
   );
 }
@@ -152,7 +162,21 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // estimate for its NEXT match — which is a different question from every
   // metric beside it, so it reads as its own quantity rather than an
   // annotation on another one. No metric tile carries a `±` any more.
-  const swingScore = (artifact as { swingFactor?: number }).swingFactor;
+  //
+  // Quick task 260909-tgf: the VALUE still prefers the published `swing`
+  // metric entry (`SWING_METRIC_KEY` in `metrics`, the SAME resolved/widened
+  // record the tiles above read) and falls back to the top-level
+  // `swingFactor` field only when that entry is absent — a pre-republish
+  // artifact, or a browser-computed estimate for an as-of-event snapshot
+  // that never carried a percentile. The TIER comes ONLY from the published
+  // entry's percentile, via the existing client `tierForPercentile` (the
+  // same function every other tile on this page already uses, so the
+  // pipeline's cuts and this page's cuts can never disagree) — when the
+  // entry is absent, `tierForPercentile(undefined)` yields `undefined`, so
+  // the fallback-only case renders the value with NO ring at all.
+  const swingMetric = metrics[SWING_METRIC_KEY];
+  const swingScore = swingMetric?.value ?? artifact.swingFactor;
+  const swingTier = tierForPercentile(swingMetric?.percentile);
   const groupTiles = publishesComponents
     ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
@@ -274,11 +298,12 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
             </div>
           ))}
           {/* Swing Score's own tile — see `swingScore`'s derivation above for
-              why it is not a suffix on Total. Rendered through the same
-              `numeric-cell` box as every other value so the row stays aligned,
-              but deliberately unboxed by tier: a consistency estimate has no
-              percentile pool behind it. */}
-          <SwingScoreTile swingScore={swingScore} />
+              why it is not a suffix on Total. Quick task 260909-tgf: the tile
+              IS tier-boxed, exactly like the tiles beside it — the percentile
+              behind it is the team's residual against an expected-swing curve
+              at its own rating, inverted at the pipeline so LOW swing earns
+              the HIGH tier. */}
+          <SwingScoreTile swingScore={swingScore} tier={swingTier} />
         </div>
       </div>
     </div>

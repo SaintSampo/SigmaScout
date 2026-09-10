@@ -31,9 +31,11 @@
  * ranking itself is unaffected.
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { SWING_METRIC_KEY } from "../../../../../packages/harness/swingFactor.js";
 import { compareTeamsByTotal } from "../../../../../packages/harness/teamRanks.js";
 import { withDerivedGroupMetrics } from "../../lib/metricGroups.js";
 import { isRealTeamKey } from "../../lib/teamKey.js";
+import type { Tier } from "../../lib/tiers.js";
 
 export type TeamRecord = TeamsArtifact["teams"][number]["record"];
 export type TeamMetrics = TeamsArtifact["teams"][number]["metrics"];
@@ -70,6 +72,15 @@ export interface TeamRow {
    * Absent for a team with fewer than two played matches.
    */
   swingScore?: number;
+  /**
+   * Quick task 260909-tgf: the Swing column's rarity tier, sourced from the
+   * published `swing` metric entry (`SWING_METRIC_KEY` in `team.metrics`),
+   * NEVER derived here from `swingScore`. `undefined` means the pipeline has
+   * not ranked this team's swing at all (a pre-republish artifact, or a
+   * live-worker-rebuilt row) — see `buildTeamRows`'s own comment for the
+   * two-branch distinction that produces this value.
+   */
+  swingTier?: Tier;
   rank: number;
 }
 
@@ -102,6 +113,19 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
  */
 export const WIN_RATE_SORT_KEY = "winRate";
 
+/**
+ * Quick task 260909-tgf: `TeamRow.swingTier`'s two-branch derivation, pulled
+ * into its own function with an explicit `Tier | undefined` return type so
+ * the `"common"` fallback keeps its literal type rather than widening to
+ * plain `string` inside the larger object-literal `.map()` in `buildTeamRows`
+ * below (a bare inline `?? "common"` there loses the literal union under
+ * this file's `noUncheckedIndexedAccess`/`verbatimModuleSyntax` config).
+ */
+function deriveSwingTier(entry: { tier?: "rare" | "epic" | "legendary" } | undefined): Tier | undefined {
+  if (entry === undefined) return undefined;
+  return entry.tier ?? "common";
+}
+
 /** The numeric value `sortTeamRows` compares for a given row and key — `TeamRow.winRate` for the reserved sentinel, otherwise the published metric's value. A `null` win rate (zero-match team) is treated as absent for sorting purposes, same as a missing metric key. */
 function sortValueFor(row: TeamRow, key: string): number | undefined {
   if (key === WIN_RATE_SORT_KEY) {
@@ -131,7 +155,29 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     nickname: team.nickname,
     record: team.record,
     winRate: winRate(team.record),
-    swingScore: (team as { swingFactor?: number }).swingFactor,
+    // Quick task 260909-tgf: TWO BRANCHES, deliberately kept separate --
+    // this is the single most "fixable-back-to-wrong" line in this file.
+    //
+    // Branch 1 (entry present): the published `swing` metric entry
+    // (`SWING_METRIC_KEY` in `team.metrics`) IS the source of truth for both
+    // the value and the tier. `entry.tier ?? "common"` is correct HERE
+    // because the entry's PRESENCE proves the pipeline ranked this team's
+    // swing -- Common is omitted from the wire purely for size (the same
+    // argument `columns.tsx`'s existing metric cells already make), so its
+    // absence on a present entry means "ranked, Common tier," never
+    // "unranked."
+    //
+    // Branch 2 (entry absent): falls back to the top-level `swingFactor`
+    // field for the VALUE only, and `swingTier` stays UNDEFINED. The entry
+    // can be absent for two reasons -- a pre-republish artifact (this
+    // task's own commit, before the developer's `pnpm publish:seasons`
+    // run) or a live-worker-rebuilt row (`apps/worker/src/scheduled.ts`
+    // writes only the top-level field and computes no percentiles at all)
+    // -- and in NEITHER case does the pipeline know this team's tier.
+    // Coalescing to `"common"` here would be a positive false claim about a
+    // team the pipeline has not actually ranked.
+    swingScore: team.metrics[SWING_METRIC_KEY]?.value ?? team.swingFactor,
+    swingTier: deriveSwingTier(team.metrics[SWING_METRIC_KEY]),
     // Published metrics widened with any derivable group entries this
     // algorithm/season combination supports (D-2/D-3/D-4) — see this
     // module's own header comment. `sortValueFor` reads `row.metrics[key]`

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { SWING_METRIC_KEY } from "../../../../../packages/harness/swingFactor.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
 import { buildTeamRows, sortTeamRows, winRate, WIN_RATE_SORT_KEY } from "./rowModel.js";
 
@@ -143,6 +144,72 @@ describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => 
     const publishedPhaseAuto = { value: 30, spread: 1.2, percentile: 90 };
     const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, phaseAuto: publishedPhaseAuto } })]), "bpr");
     expect(rows[0]?.metrics.phaseAuto).toBe(publishedPhaseAuto);
+  });
+});
+
+describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
+  it("a published row whose metrics carry a swing entry with a tier produces swingScore from the entry's value and swingTier from the entry's tier", () => {
+    const rows = buildTeamRows(
+      artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, [SWING_METRIC_KEY]: { value: 8.42, tier: "legendary" } } })]),
+      "bpr",
+    );
+    expect(rows[0]?.swingScore).toBe(8.42);
+    expect(rows[0]?.swingTier).toBe("legendary");
+  });
+
+  it("a published row whose swing entry has no tier (Common, omitted on the wire by design) still produces swingTier 'common' -- the tier IS known, it is just the omitted one", () => {
+    const rows = buildTeamRows(
+      artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, [SWING_METRIC_KEY]: { value: 8.42 } } })]),
+      "bpr",
+    );
+    expect(rows[0]?.swingScore).toBe(8.42);
+    expect(rows[0]?.swingTier).toBe("common");
+  });
+
+  it("a STALE row carrying only the top-level swingFactor and no swing metric entry produces swingScore from that field and swingTier undefined -- never a fabricated ring", () => {
+    const rows = buildTeamRows(
+      artifact([team({ swingFactor: 8.42, metrics: { [TOTAL_KEY]: { value: 50 } } })]),
+      "bpr",
+    );
+    expect(rows[0]?.swingScore).toBe(8.42);
+    expect(rows[0]?.swingTier).toBeUndefined();
+  });
+
+  it("a row with neither the swing metric entry nor the top-level swingFactor produces swingScore undefined and swingTier undefined", () => {
+    const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 } } })]), "bpr");
+    expect(rows[0]?.swingScore).toBeUndefined();
+    expect(rows[0]?.swingTier).toBeUndefined();
+  });
+
+  it("sorting by the published swing metric key still orders by VALUE ascending/descending exactly as before -- the tier does not reorder anything", () => {
+    // `sortTeamRows` sorts by `row.metrics[key]?.value` for any key besides
+    // the win-rate sentinel (see `sortValueFor`) -- it was never special-cased
+    // for swing and this task does not add one. Because the published `swing`
+    // entry is merged into the wire `metrics` record (Task 2), sorting by
+    // `SWING_METRIC_KEY` already exercises the real generic path -- this pins
+    // that a tier riding alongside the value on that SAME entry cannot leak
+    // into the comparison, which is the one behaviour a direction change
+    // could plausibly break by accident.
+    const rows = buildTeamRows(
+      artifact([
+        team({
+          teamKey: "frc1",
+          teamNumber: 1,
+          metrics: { [TOTAL_KEY]: { value: 10 }, [SWING_METRIC_KEY]: { value: 9, tier: "legendary" } },
+        }),
+        team({
+          teamKey: "frc2",
+          teamNumber: 2,
+          metrics: { [TOTAL_KEY]: { value: 20 }, [SWING_METRIC_KEY]: { value: 3 } },
+        }),
+      ]),
+      "bpr",
+    );
+    // frc2's swing VALUE (3) is lower than frc1's (9) despite frc1 carrying
+    // the "better" (legendary) tier and frc2 the Common one -- sort order
+    // must track the raw value, never the tier.
+    expect(sortTeamRows(rows, SWING_METRIC_KEY, "asc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
+    expect(sortTeamRows(rows, SWING_METRIC_KEY, "desc").map((row) => row.teamKey)).toEqual(["frc1", "frc2"]);
   });
 });
 
