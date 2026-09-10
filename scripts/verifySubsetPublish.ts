@@ -56,8 +56,18 @@ import {
   type TeamSeasonArtifact,
 } from "../packages/harness/pageArtifacts.js";
 
-/** D-04/D-05 (plan 07-16): the renamed published algorithm id — every `sigma1` control entry's renamed duplicate carries this id instead. */
-const RENAMED_ALGORITHM_ID = "vpr";
+/**
+ * D-04/D-05 (plan 07-16): the live premier algorithm id — every `sigma1`
+ * control entry's renamed duplicate carries this id instead. Was `"vpr"`
+ * until 2026-09-10: VPR was retired from the site 2026-09-09 (commit
+ * eae2defb) and the manifest no longer resolves it, so the live presence
+ * layer now targets its successor, `bpr`. The orphaned `vpr@*` objects are
+ * still physically present in R2 until the filed delete pass runs
+ * (`retire-vpr-*-generation-r2`) — vpr-key ABSENCE entries (PD-05 style,
+ * like the fifteen `sigma1` ones) become assertable only after that pass,
+ * and are deliberately not added here yet.
+ */
+const RENAMED_ALGORITHM_ID = "bpr";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,8 +114,21 @@ export interface SubsetEntry {
    * fields; `"absent"` requires ZERO rows (across `matches` and `upcoming`
    * combined) to carry either field. Left `undefined` on an entry with zero
    * played `qm` rows (e.g. `2025cmptx`), which has nothing to assert.
+   *
+   * `"partial"` (added 2026-09-10): at least one played `qm` row carries
+   * BOTH fields, and NO row anywhere carries exactly one of them. This is
+   * the honest current claim for EVERY algorithm on RP-eligible events:
+   * the RP layer (commit 160401fe) gives all three algorithms pmfs, but
+   * coverage is uniformly incomplete — 57/72 played qm rows at `2024casf`
+   * for opr, epa AND bpr alike (live-measured 2026-09-10 at generation
+   * `2f1a8885`; the other 15 pmf pairs in the histogram are degenerate
+   * length-1 ELIMINATION pmfs, not qual coverage). The 15 uncovered qual
+   * rows are the cold-start -> no-band -> no-pmf chain filed with the
+   * simulation/swing rethink. When that chain is resolved, these entries
+   * should be promoted back to `"present"`; `"partial"` exists so the gap
+   * stays measured without leaving the whole subset red-for-known-reasons.
    */
-  readonly expectPlayedQmRpPmf?: "present" | "absent";
+  readonly expectPlayedQmRpPmf?: "present" | "partial" | "absent";
   /**
    * D-12/08-05 check 15: whether this entry's played `qm` rows are expected
    * to carry the `actualRedRp`/`actualBlueRp` KEYS (value may be a number or
@@ -497,17 +520,19 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
       "UI-SPEC E4 partial and E5 partial on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
       "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
       "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the sigma1 " +
-      "assertion its meaning. 08-05 (D-04): OPR models no ranking points at all, so this arm expects ZERO pmf " +
-      "on any of its 72 played qm rows regardless of 2024casf's own event_type — the algorithm-level negative " +
-      "half that gives the vpr entries' positive assertion its meaning — while still carrying actual-RP " +
-      "(algorithm-independent, sourced from MatchResult).",
+      "assertion its meaning. 08-05 (D-04) HISTORY: this arm used to expect ZERO pmf because OPR models no " +
+      "ranking points. 2026-09-10: commit 160401fe's SigmaScout-layer RP model (learned from results alone) " +
+      "deliberately inverted that — every algorithm's artifacts now carry pmfs on RP-eligible played qm rows, " +
+      "sourced from the layer, not the algorithm. Flipped to \"partial\" (57/72 live-measured at generation " +
+      "2f1a8885 — same coverage as every algorithm; see expectPlayedQmRpPmf's doc comment); still carrying " +
+      "actual-RP (algorithm-independent, sourced from MatchResult).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -515,16 +540,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "epa",
     note:
       "The same no-variance state at a different column set — the third arm that lets 07-01/07-11/07-12 flip " +
-      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts. 08-05 (D-04): EPA " +
-      "models no ranking points at all, so this arm expects ZERO pmf on any of its 72 played qm rows while " +
-      "still carrying actual-RP (algorithm-independent).",
+      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts. 08-05 (D-04) " +
+      "HISTORY: used to expect ZERO pmf (EPA models no ranking points). 2026-09-10: flipped to \"partial\" for " +
+      "the same 160401fe SigmaScout-layer reason as the opr arm above (57/72 live-measured at 2f1a8885).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
 ];
@@ -557,6 +582,13 @@ export const RENAMED_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUB
   ...entry,
   algorithmId: entry.algorithmId === "sigma1" ? RENAMED_ALGORITHM_ID : entry.algorithmId,
   note: `[renamed-run duplicate, PD-03] ${entry.note}`,
+  // 2026-09-10: the premier-algorithm duplicates (sigma1 -> bpr) downgrade
+  // "present" to "partial" — bpr's RP-pmf coverage is measurably incomplete
+  // (57/72 at 2024casf) while the cold-start -> no-band -> no-pmf chain is
+  // open; see expectPlayedQmRpPmf's doc comment. The opr/epa duplicates keep
+  // their controls' own values untouched (full 72/72 coverage, "present").
+  expectPlayedQmRpPmf:
+    entry.algorithmId === "sigma1" && entry.expectPlayedQmRpPmf === "present" ? "partial" : entry.expectPlayedQmRpPmf,
   expectAbsent: false,
   version: undefined,
 }));
@@ -1010,6 +1042,28 @@ export function verifyEntry(
       // a present-but-empty pmf array is a schema-boundary bug, not a valid
       // "not modeled" state (isValidPmf already rejects it at parse time,
       // but this is the published-side evidence that the boundary held).
+      const emptyPmfCount = [...artifact.matches, ...artifact.upcoming].filter(
+        (m) => (m.redRpPmf !== undefined && m.redRpPmf.length === 0) || (m.blueRpPmf !== undefined && m.blueRpPmf.length === 0)
+      ).length;
+      if (emptyPmfCount > 0) {
+        failures.push(`rpPmf: ${emptyPmfCount} row(s) carry a present-but-EMPTY pmf array — should be omitted entirely, never []`);
+      }
+    } else if (entry.expectPlayedQmRpPmf === "partial") {
+      // 2026-09-10: bpr's honest current state on RP-eligible events — see
+      // the field's doc comment. Some rows must carry both, none may carry
+      // exactly one; full coverage is NOT asserted while the cold-start ->
+      // no-band -> no-pmf chain remains open.
+      const bothPmf = playedQmRows.filter((m) => m.redRpPmf !== undefined && m.blueRpPmf !== undefined);
+      observed.playedQmBothPmfCount = bothPmf.length;
+      if (playedQmRows.length > 0 && bothPmf.length === 0) {
+        failures.push(`rpPmf: expected at least one played qm row carrying BOTH redRpPmf and blueRpPmf (partial), observed 0 of ${playedQmRows.length}`);
+      }
+      const exactlyOne = [...artifact.matches, ...artifact.upcoming].filter(
+        (m) => (m.redRpPmf !== undefined) !== (m.blueRpPmf !== undefined)
+      ).length;
+      if (exactlyOne > 0) {
+        failures.push(`rpPmf: ${exactlyOne} row(s) carry exactly ONE of redRpPmf/blueRpPmf — pmfs must come in pairs`);
+      }
       const emptyPmfCount = [...artifact.matches, ...artifact.upcoming].filter(
         (m) => (m.redRpPmf !== undefined && m.redRpPmf.length === 0) || (m.blueRpPmf !== undefined && m.blueRpPmf.length === 0)
       ).length;
