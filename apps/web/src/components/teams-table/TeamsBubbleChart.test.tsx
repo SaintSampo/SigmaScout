@@ -1,12 +1,14 @@
 /**
- * Coverage for `TeamsBubbleChart.tsx` (Task 2, 260909-tom-PLAN.md) — the
- * eleven behaviors listed in the plan's `<behavior>` block, one test each.
+ * Coverage for `TeamsBubbleChart.tsx` (Task 2, 260909-tom-PLAN.md, plus
+ * Task 2, 260909-v5v-PLAN.md) — the eleven original behaviors plus the
+ * twelve hover/click behaviors listed in 260909-v5v-PLAN.md's `<behavior>`
+ * block, one test each.
  */
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import type { TeamRow } from "./rowModel.js";
-import { BUBBLE_TONE_DRAW_ORDER } from "./teamsBubbleModel.js";
+import { BUBBLE_CHART, BUBBLE_TONE_DRAW_ORDER } from "./teamsBubbleModel.js";
 import { TeamsBubbleChart } from "./TeamsBubbleChart.js";
 
 function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNumber">): TeamRow {
@@ -131,5 +133,183 @@ describe("TeamsBubbleChart", () => {
     const labels = Array.from(keyRow.children).map((child) => child.textContent);
     expect(labels).toEqual(["Common / unranked", "Rare", "Epic", "Legendary"]);
     expect(within(keyRow).getByText("Common / unranked")).toBeDefined();
+  });
+});
+
+/**
+ * Coverage for hover/click (Task 2, 260909-v5v-PLAN.md). Follows
+ * `<test_strategy>` exactly: jsdom does no layout, so every test stubs the
+ * svg's `getBoundingClientRect()` and derives the pointer target from the
+ * ACTUAL rendered `d` attribute rather than recomputing the projection.
+ */
+
+/** `<test_strategy>` step 2 — a stubbed rect with left/top at zero and width equal to the svg's own width attribute, so client coordinates ARE svg coordinates. */
+function stubRect(svg: SVGSVGElement): void {
+  svg.getBoundingClientRect = () =>
+    ({
+      left: 0,
+      top: 0,
+      width: BUBBLE_CHART.fallbackWidth,
+      height: BUBBLE_CHART.height,
+      right: BUBBLE_CHART.fallbackWidth,
+      bottom: BUBBLE_CHART.height,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
+
+/** `<test_strategy>` step 3 — parses the first `M{cx},{cy}` out of a tone path's `d` attribute, the coordinates the component ACTUALLY drew. */
+function firstDotCoords(container: HTMLElement, tone: string): { x: number; y: number } {
+  const el = container.querySelector(`[data-tone="${tone}"]`);
+  const d = el?.getAttribute("d") ?? "";
+  const match = /M([\d.-]+),([\d.-]+)/.exec(d);
+  if (!match) throw new Error(`no M command found for tone "${tone}"`);
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
+describe("TeamsBubbleChart hover and click", () => {
+  afterEach(() => cleanup());
+
+  it("moving the pointer to a point's projected coordinates renders exactly one tooltip naming that team", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const tooltips = screen.getAllByTestId("bubble-chart-tooltip");
+    expect(tooltips).toHaveLength(1);
+    expect(within(tooltips[0]!).getByText("1")).toBeDefined();
+  });
+
+  it("the tooltip's first line is the team number, rendered in the largest type role the card uses", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const tooltip = screen.getByTestId("bubble-chart-tooltip");
+    const firstLine = tooltip.firstElementChild;
+    expect(firstLine?.textContent).toBe("1");
+    expect(firstLine?.className).toContain("text-role-heading");
+  });
+
+  it("the tooltip shows the nickname, the Total value under the X axis's label, and the Swing Score value under the Y axis's label", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, swingScore=1
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const tooltip = within(screen.getByTestId("bubble-chart-tooltip"));
+    expect(tooltip.getByText("Team 1")).toBeDefined(); // nickname (makeRow's default)
+    expect(tooltip.getByText("Total")).toBeDefined();
+    expect(tooltip.getByText("Swing Score")).toBeDefined();
+  });
+
+  it("both tooltip values render with the table's two-decimal display precision", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, swingScore=1
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const tooltip = within(screen.getByTestId("bubble-chart-tooltip"));
+    expect(tooltip.getByText("10.00")).toBeDefined();
+    expect(tooltip.getByText("1.00")).toBeDefined();
+  });
+
+  it("hovering a point whose Total metric publishes the algorithm's own confidence field produces a tooltip with no plus-minus glyph and no occurrence of that field's name", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "neutral"); // frc5, carries spread: 3.5
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const tooltip = screen.getByTestId("bubble-chart-tooltip");
+    expect(tooltip.textContent ?? "").not.toContain("±");
+    expect(tooltip.textContent ?? "").not.toContain("spread");
+    expect(tooltip.textContent ?? "").not.toContain("3.5");
+  });
+
+  it("moving the pointer further than the hit radius from every point renders no tooltip and no highlight", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    fireEvent.pointerMove(svg, { clientX: 1, clientY: 1 }); // top-left corner, well outside every dot's hit disc
+
+    expect(screen.queryByTestId("bubble-chart-tooltip")).toBeNull();
+    expect(screen.queryByTestId("bubble-chart-highlight")).toBeNull();
+  });
+
+  it("a pointer leave event clears both the tooltip and the highlight", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary");
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+    expect(screen.queryByTestId("bubble-chart-tooltip")).not.toBeNull();
+
+    fireEvent.pointerLeave(svg);
+    expect(screen.queryByTestId("bubble-chart-tooltip")).toBeNull();
+    expect(screen.queryByTestId("bubble-chart-highlight")).toBeNull();
+  });
+
+  it("hovering renders exactly one highlight mark, centred on the hovered point's drawn coordinates", () => {
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary");
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const highlights = container.querySelectorAll('[data-testid="bubble-chart-highlight"]');
+    expect(highlights).toHaveLength(1);
+    expect(Number(highlights[0]!.getAttribute("cx"))).toBe(x);
+    expect(Number(highlights[0]!.getAttribute("cy"))).toBe(y);
+  });
+
+  it("clicking at a point's coordinates calls onSelectTeam exactly once with that point", () => {
+    const onSelectTeam = vi.fn();
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} onSelectTeam={onSelectTeam} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1
+    fireEvent.click(svg, { clientX: x, clientY: y });
+
+    expect(onSelectTeam).toHaveBeenCalledOnce();
+    expect(onSelectTeam.mock.calls[0]![0]).toMatchObject({ teamKey: "frc1", teamNumber: 1 });
+  });
+
+  it("clicking further than the hit radius from every point does not call onSelectTeam", () => {
+    const onSelectTeam = vi.fn();
+    const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} onSelectTeam={onSelectTeam} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    fireEvent.click(svg, { clientX: 1, clientY: 1 });
+
+    expect(onSelectTeam).not.toHaveBeenCalled();
+  });
+
+  it("rendering 400 rows with a hover active yields at most four data-tone paths, at most one highlight circle, and no other per-point element", () => {
+    const rows: TeamRow[] = Array.from({ length: 400 }, (_, i) =>
+      makeRow({
+        teamKey: `frc${i + 1}`,
+        teamNumber: i + 1,
+        metrics: { [TOTAL_KEY]: { value: i, tier: i % 4 === 0 ? "legendary" : i % 3 === 0 ? "epic" : i % 2 === 0 ? "rare" : undefined } },
+        swingScore: i,
+      }),
+    );
+    const { container } = render(<TeamsBubbleChart rows={rows} />);
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary");
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const paths = container.querySelectorAll("[data-tone]");
+    const circles = container.querySelectorAll("circle");
+    expect(paths.length).toBeLessThanOrEqual(4);
+    expect(circles.length).toBeLessThanOrEqual(1);
   });
 });
