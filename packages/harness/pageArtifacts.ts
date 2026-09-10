@@ -450,6 +450,20 @@ const EventMatchSchema = z
     actualRedScore: z.number(),
     actualBlueScore: z.number(),
     /**
+     * D-01/D-03 (quick task 260909-t5q): true iff every one of this match's
+     * six robots was making its corpus-global first appearance — the SAME
+     * stamp `packages/harness/replay.ts`'s `WalkForwardSimulator` attached to
+     * this match's `PredictionRecord`, carried through unchanged to the
+     * artifact. Present ONLY when `true`, omitted otherwise — mirrors
+     * `redSwingBandVariance`'s presence-means-something convention above,
+     * rather than a boolean written `false` on the overwhelming majority of
+     * rows. Read by both match tables' Call column to render the neutral
+     * em-dash with a distinct accessible label; see
+     * `TeamSeasonMatchSchema.coldStart` for the mirror on the team-season
+     * side.
+     */
+    coldStart: z.literal(true).optional(),
+    /**
      * D-12, plan 08-02 Task 2: this alliance's actual bonus ranking points
      * for this match — the same quantity under the same name that
      * `TeamSeasonMatchSchema.actualRedRp` has carried since Phase 6 (see that
@@ -768,6 +782,8 @@ const TeamSeasonMatchSchema = z
     actualWinner: z.enum(["red", "blue", "tie"]).optional(),
     actualRedScore: z.number().optional(),
     actualBlueScore: z.number().optional(),
+    /** D-01/D-03 (quick task 260909-t5q): the mirror of `EventMatchSchema.coldStart` — see its doc comment for the full contract. */
+    coldStart: z.literal(true).optional(),
     /**
      * D-02 (Phase 6): actual bonus ranking points, sourced from
      * `MatchResult.redRpEarned`/`blueRpEarned` (`packages/core/algorithms/
@@ -1504,6 +1520,20 @@ const CompareExclusionCountsSchema = z.object({
   surrogateAffected: z.number().int().nonnegative(),
   missingResult: z.number().int().nonnegative(),
   quarantined: z.number().int().nonnegative(),
+  /**
+   * D-02/D-04 (quick task 260909-t5q): see `packages/harness/score.ts`'s
+   * `ExclusionCounts.coldStart` doc comment for the full contract. OPTIONAL
+   * here on purpose, UNLIKE `packages/harness/artifact.ts`'s own
+   * `ExclusionCountsSchema` counterpart — this is a LIVE, R2-served artifact
+   * shape, and D-04 defers the republish that would add this key to every
+   * already-published slice. A required key would fail to parse every one
+   * of today's four-key live artifacts and blank the Compare page in
+   * production before any republish happens. Absence genuinely means "this
+   * artifact predates the field" and MUST render as absent
+   * (`coverageRows.ts`'s `SharedCount`'s `absent` variant), never coerced to
+   * zero — pinned by `apps/web/src/lib/api/compare.compat.test.ts`.
+   */
+  coldStart: z.number().int().nonnegative().optional(),
 });
 
 /** One algorithm's `ScoreSlice` figures for one season/compLevel view — raw numbers only (D-21); no field here may be a delta or judgement between two algorithms' slices. */

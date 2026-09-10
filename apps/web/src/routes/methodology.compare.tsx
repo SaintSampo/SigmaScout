@@ -42,7 +42,12 @@ export const Route = createFileRoute("/methodology/compare")({
  * number at the call site, matching `AccuracyTable.tsx`'s own
  * `ACCURACY_TABLE_ROW_COUNT`/`ACCURACY_TABLE_COLUMN_COUNT` precedent.
  */
-const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 2;
+// Quick task 260909-t5q: 3, not 2 — `MethodologyNote` now renders the
+// near-tie caption AND the always-visible cold-start explanation (2 fixed
+// lines) plus the derived Brier-list sentence (1 conditional line) once
+// figures are complete, so the skeleton's up-to-3-line footprint must match
+// to avoid a layout jump when the real note mounts.
+const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 3;
 const CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 3;
 
 function MethodologyNoteSkeleton() {

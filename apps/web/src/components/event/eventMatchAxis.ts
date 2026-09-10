@@ -51,6 +51,15 @@ export interface EventMatchRow {
   actualRedScore?: number;
   actualBlueScore?: number;
   /**
+   * D-01/D-03 (quick task 260909-t5q): true iff this PLAYED match was a
+   * cold start (every one of its six robots making its corpus-global first
+   * appearance) — carried verbatim from `EventMatchSchema.coldStart`. Never
+   * set for an unplayed row: `EventUpcomingMatchSchema` publishes no such
+   * field, matching this row type's existing played-only fields
+   * (`actualWinner`, `video`) just above.
+   */
+  coldStart?: true;
+  /**
    * Quick 260905-jj8: the per-bonus RP fields, carried verbatim from
    * whichever source row published them (`TeamSeasonMatchSchema.redBonusRp`
    * and `.actualRedBonusRp` document the positional-alignment and
@@ -190,6 +199,7 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     row.actualBlueScore = playedMatch.actualBlueScore;
     row.actualRedBonusRp = playedMatch.actualRedBonusRp;
     row.actualBlueBonusRp = playedMatch.actualBlueBonusRp;
+    row.coldStart = playedMatch.coldStart;
     // Quick task 260906-7eu: played-only, matching this branch's other
     // played-only fields above — EventUpcomingMatchSchema has no `video` key.
     row.video = playedMatch.video;

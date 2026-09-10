@@ -53,6 +53,20 @@ export const NEAR_TIE_CAPTION =
   "Where two algorithms' scores are this close, the published data can't tell us which is really better. The threshold below is a judgement call, not a statistical test.";
 
 /**
+ * D-03 (quick task 260909-t5q): explains the cold-start rule in plain
+ * language, in the site's established register. Unlike `NEAR_TIE_CAPTION`
+ * (a fixed caption) and `buildMethodologySentence`'s Brier list (a DERIVED
+ * figure, per this module's own header discipline), this is a STATIC RULE —
+ * it transcribes no number and needs no republish to stay accurate, so it
+ * renders unconditionally rather than gated on `figures?.complete`. No count
+ * is published here: D-04 explicitly defers the republish that would make
+ * one measurable on-site (Task 3's census answers "what a republish would
+ * change" in this quick task's own SUMMARY instead).
+ */
+export const COLD_START_EXPLANATION =
+  "When every robot in a match is playing its first-ever match, there's nothing to predict from. All three algorithms call it an even matchup, and the match is left out of the accuracy and Brier figures above rather than counted as a wrong guess.";
+
+/**
  * The algorithm this note's Brier list and best-season clause describe —
  * SigmaScout's premier algorithm, which became BPR on 2026-09-09 when VPR left
  * the published set. Named for its ROLE rather than hardcoded at each use, so
@@ -199,6 +213,7 @@ export function MethodologyNote({ artifactsByYear }: MethodologyNoteProps) {
   return (
     <div data-testid={METHODOLOGY_NOTE_TESTID} className="flex flex-col gap-[var(--spacing-xs)]">
       <p className="text-role-body text-[var(--color-text-muted)]">{NEAR_TIE_CAPTION}</p>
+      <p className="text-role-body text-[var(--color-text-muted)]">{COLD_START_EXPLANATION}</p>
       {figures?.complete === true && (
         <p className="text-role-body text-[var(--color-text-muted)]">{buildMethodologySentence(figures)}</p>
       )}

@@ -351,6 +351,19 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       <td data-testid={`call-${row.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!row.played ? (
           <span aria-hidden="true" className="call-badge call-none">{"—"}</span>
+        ) : row.coldStart === true ? (
+          // D-01/D-02/D-03 (quick task 260909-t5q): a structural cold start —
+          // every robot in this match was making its corpus-global first
+          // appearance, so the algorithm had nothing to predict from and the
+          // match is excluded from accuracy/Brier entirely. Same neutral
+          // glyph and class as the not-played branch above (D-03 wants it
+          // visually inert), but UNLIKE that branch this one IS exposed to
+          // assistive technology, with its own accessible label distinct
+          // from both "Prediction correct" and "Prediction incorrect". Taken
+          // from the row's own published flag, never derived from
+          // `row.pRedWin === 0.5` — that would sweep in an ordinary D-Q3
+          // no-call and violate D-02.
+          <span aria-label="Not scored — no prior data" className="call-badge call-none">{"—"}</span>
         ) : row.actualWinner === "tie" ? (
           <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
         ) : winnerCorrect ? (

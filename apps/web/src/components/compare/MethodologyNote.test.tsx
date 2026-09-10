@@ -5,6 +5,7 @@ import {
   buildMethodologyFigures,
   formatSeasonList,
   NEAR_TIE_CAPTION,
+  COLD_START_EXPLANATION,
   METHODOLOGY_NOTE_TESTID,
 } from "./MethodologyNote.js";
 import { formatBrierDisplay } from "../../lib/compareTie.js";
@@ -200,7 +201,7 @@ describe("MethodologyNote — rendering", () => {
     expect(text).toContain(String(figures.bestSeason));
   });
 
-  it("the incomplete case renders the near-tie caption alone and no second paragraph (D-5, quick task 260903-n2o: the retired selection sentence is gone, not replaced)", () => {
+  it("the incomplete case renders the near-tie caption and the always-visible cold-start explanation, and no THIRD paragraph (D-5, quick task 260903-n2o: the retired selection sentence is gone, not replaced; quick task 260909-t5q added the cold-start paragraph as the new second, unconditional line)", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
       [2022, makeMinimalArtifact(2022, 0.19)],
       [2023, makeMinimalArtifact(2023, 0.17)],
@@ -208,8 +209,15 @@ describe("MethodologyNote — rendering", () => {
     render(<MethodologyNote artifactsByYear={artifactsByYear} />);
     const note = screen.getByTestId(METHODOLOGY_NOTE_TESTID);
     const text = note.textContent ?? "";
-    expect(text).toBe(NEAR_TIE_CAPTION);
-    expect(note.querySelectorAll("p")).toHaveLength(1);
+    expect(text).toBe(NEAR_TIE_CAPTION + COLD_START_EXPLANATION);
+    expect(note.querySelectorAll("p")).toHaveLength(2);
+  });
+
+  it("renders the cold-start explanation in plain language (D-03, quick task 260909-t5q)", () => {
+    const artifactsByYear = realArtifactsByYear();
+    render(<MethodologyNote artifactsByYear={artifactsByYear} />);
+    const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
+    expect(text).toContain(COLD_START_EXPLANATION);
   });
 
   it("the complete form renders neither fragment of the retired leak-free-selection claim (D-5, quick task 260903-n2o)", () => {

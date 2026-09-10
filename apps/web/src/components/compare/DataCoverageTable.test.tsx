@@ -172,6 +172,29 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     expect(oprNoCallCell.textContent).toBe("");
   });
 
+  it("the coldStart column's header label renders (D-03, quick task 260909-t5q)", () => {
+    render(<DataCoverageTable artifactsByYear={fullYearArtifact()} compLevelView="combined" />);
+    expect(screen.getByRole("columnheader", { name: "No prior data" })).toBeDefined();
+  });
+
+  it("a slice missing the coldStart key renders the absent (blank) cell in that column, while a genuinely-zero original column in the SAME row still renders a printed digit (D-02/D-04, quick task 260909-t5q)", () => {
+    const artifactsByYear = fullYearArtifact({
+      opr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
+      epa: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
+      bpr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
+    });
+    render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
+
+    const coldStartCell = screen.getByTestId(coverageCellTestId(YEAR, "coldStart"));
+    expect(coldStartCell.textContent).toBe("");
+
+    // Same row, an ORIGINAL column that IS published as zero — must still
+    // print the digit, proving the absent branch above is not a row-wide
+    // rendering bug.
+    const missingResultCell = screen.getByTestId(coverageCellTestId(YEAR, "missingResult"));
+    expect(missingResultCell.textContent).toBe("0");
+  });
+
   it("a disagreed shared cell renders all three algorithm labels with their own values, never a single collapsed number", () => {
     const artifactsByYear = fullYearArtifact({
       opr: { candidateCount: 100 },

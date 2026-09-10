@@ -440,6 +440,15 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!played ? (
           <span aria-hidden="true" className="call-badge call-none">{"—"}</span>
+        ) : match.coldStart === true ? (
+          // D-01/D-02/D-03 (quick task 260909-t5q): the mirror of
+          // `EventMatchTable.tsx`'s own cold-start branch — see its comment
+          // for the full contract. Same neutral glyph and class as the
+          // not-played branch above, but exposed to assistive technology
+          // with its own accessible label, distinct from both "Prediction
+          // correct" and "Prediction incorrect". Taken from the row's own
+          // published flag, never derived from `match.pRedWin === 0.5`.
+          <span aria-label="Not scored — no prior data" className="call-badge call-none">{"—"}</span>
         ) : winnerCorrect ? (
           <span aria-label="Prediction correct" className="call-badge call-hit">{"✓"}</span>
         ) : (

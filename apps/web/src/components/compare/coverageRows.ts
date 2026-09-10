@@ -7,9 +7,15 @@
  * The central discipline of this module is D-09's "surfaces everything the
  * artifact carries" obligation, applied to a shape most of the app's fields
  * don't have. Measured against all 45 published slices this session: seven
- * of the eight coverage fields (`candidateCount`, `scoredCount`, `tieCount`
- * and all four `exclusionCounts` members) agree across OPR/EPA/VPR in all 15
- * (season, compLevelView) groups TODAY. Nothing in `CompareSliceSchema` or in
+ * of the eight coverage fields present at measurement time (`candidateCount`,
+ * `scoredCount`, `tieCount` and all four ORIGINAL `exclusionCounts` members)
+ * agree across OPR/EPA/VPR in all 15 (season, compLevelView) groups TODAY.
+ * Quick task 260909-t5q's `coldStart` fifth member (below) postdates that
+ * measurement and is absent from every published slice, so it was neither
+ * agreeing nor disagreeing — see this header's own `coldStart` paragraph
+ * for its distinct absent-vs-zero handling. The schema now declares FIVE
+ * `exclusionCounts` members and NINE coverage fields in total. Nothing in
+ * `CompareSliceSchema` or in
  * `aggregateScores` (`packages/harness/score.ts`) guarantees that agreement —
  * those fields are computed inside a per-algorithm loop, and
  * `exclusionCounts.quarantined` is by construction an algorithm-specific
@@ -20,6 +26,18 @@
  * to describe the match population — would look exactly like a correct
  * render.
  *
+ * Quick task 260909-t5q added a FIFTH exclusion column, `coldStart`
+ * ("No prior data") — see `packages/harness/score.ts`'s
+ * `ExclusionCounts.coldStart` doc comment for the algorithm-level contract.
+ * It is structurally different from the other four: `CompareExclusionCountsSchema`
+ * publishes it OPTIONALLY (D-04 defers the republish that would add it to
+ * today's already-live four-key artifacts), so `collectOptional` below
+ * treats a missing key as "this algorithm has no opinion" rather than
+ * folding it into `collect`'s always-a-number contract — an algorithm with
+ * no published value for this key is simply excluded from the collapse, so
+ * a slice where NO published algorithm carries the key collapses to the
+ * `absent` variant, never to an agreed `0`.
+ *
  * `noCallCount` is the one coverage field that DOES vary by algorithm — a
  * no-call is a fact about an algorithm's own prediction (exactly 50%), not
  * about the match population it was scored on — so it is carried per
@@ -28,12 +46,14 @@
  * A published count of zero is a real measurement and must render as the
  * agreed variant carrying zero. A season/view/algorithm with no matching
  * slice is a genuine absence and must render as the absent variant. Two of
- * the four exclusion columns are zero in all 45 published slices today, so
- * conflating the two branches in either direction would be wrong on most of
- * what this table renders — the rendering layer (`DataCoverageTable.tsx`)
- * maps `agreed` value `0` to a printed digit and `absent` to the em-dash, and
- * this module's own job is keeping those two branches structurally distinct
- * so that mapping cannot collapse them by accident.
+ * the four ORIGINAL exclusion columns are zero in all 45 published slices
+ * today, and — per D-04 — the fifth (`coldStart`) is ABSENT in every one of
+ * those same live slices until a republish runs, so conflating the two
+ * branches in either direction would be wrong on most of what this table
+ * renders — the rendering layer (`DataCoverageTable.tsx`) maps `agreed`
+ * value `0` to a printed digit and `absent` to the em-dash, and this
+ * module's own job is keeping those two branches structurally distinct so
+ * that mapping cannot collapse them by accident.
  *
  * This module performs NO arithmetic on any published figure: it never sums
  * the exclusion columns, never adds ties to no-calls, and never derives
@@ -51,8 +71,8 @@ import type { CompareArtifact } from "../../../../../packages/harness/pageArtifa
 /** One `CompareArtifact`'s `slices[number]` element — the raw published shape this module reads and never re-exports. */
 type CompareSlice = CompareArtifact["slices"][number];
 
-/** The four `CompareExclusionCountsSchema` member names, in the table's declared column order. */
-export type CoverageExclusionKey = "offseason" | "surrogateAffected" | "missingResult" | "quarantined";
+/** The five `CompareExclusionCountsSchema` member names, in the table's declared column order. */
+export type CoverageExclusionKey = "offseason" | "surrogateAffected" | "missingResult" | "quarantined" | "coldStart";
 
 export interface CoverageExclusionColumn {
   readonly key: CoverageExclusionKey;
@@ -64,12 +84,19 @@ export interface CoverageExclusionColumn {
  * each — the only place these labels live. Never "... excluded": the
  * `Excluded from scoring` group header already carries that word, so
  * repeating it on every leaf column would be redundant.
+ *
+ * `coldStart` ("No prior data", quick task 260909-t5q) is deliberately LAST:
+ * it is the newest column, published optionally (D-04), and reads as absent
+ * on every slice today — placing it at the end keeps the four
+ * always-present columns' positions unchanged for anyone already reading
+ * this table.
  */
 export const COVERAGE_EXCLUSION_COLUMNS: readonly CoverageExclusionColumn[] = [
   { key: "offseason", label: "Offseason" },
   { key: "surrogateAffected", label: "Surrogate-affected" },
   { key: "missingResult", label: "Missing result" },
   { key: "quarantined", label: "Quarantined" },
+  { key: "coldStart", label: "No prior data" },
 ];
 
 interface AlgorithmValue {
@@ -161,9 +188,34 @@ export function buildCoverageRows(
       return collapseSharedCount(values);
     }
 
+    /**
+     * D-02/D-04 (quick task 260909-t5q): the `coldStart` column's own
+     * collapse — `reader` may return `undefined` (the field is genuinely
+     * absent from that algorithm's published slice, not zero). An
+     * algorithm with an undefined reading is excluded from `values`
+     * entirely, exactly like an algorithm with no slice at all — so a
+     * column where NO published algorithm carries the key collapses to
+     * `absent` via `collapseSharedCount`'s own empty-array rule, never to
+     * an agreed `0`. This module's header explains why `collect` above
+     * cannot be reused unchanged for this one column.
+     */
+    function collectOptional(reader: (slice: CompareSlice) => number | undefined): SharedCount {
+      const values: AlgorithmValue[] = [];
+      for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+        const slice = slicesByAlgorithm.get(algorithmId);
+        if (slice === undefined) continue;
+        const value = reader(slice);
+        if (value !== undefined) values.push({ algorithmId, value });
+      }
+      return collapseSharedCount(values);
+    }
+
     const exclusionCounts = {} as Record<CoverageExclusionKey, SharedCount>;
     for (const column of COVERAGE_EXCLUSION_COLUMNS) {
-      exclusionCounts[column.key] = collect((slice) => slice.exclusionCounts[column.key]);
+      exclusionCounts[column.key] =
+        column.key === "coldStart"
+          ? collectOptional((slice) => slice.exclusionCounts.coldStart)
+          : collect((slice) => slice.exclusionCounts[column.key as Exclude<CoverageExclusionKey, "coldStart">]);
     }
 
     const noCalls: NoCallEntry[] = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => ({

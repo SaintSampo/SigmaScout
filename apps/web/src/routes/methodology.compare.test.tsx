@@ -675,8 +675,19 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
         expect(screen.getByTestId(coverageCellTestId(season, "scoredCount")).textContent).toBe(expectedSharedText(entries, (s) => s.scoredCount));
         expect(screen.getByTestId(coverageCellTestId(season, "tieCount")).textContent).toBe(expectedSharedText(entries, (s) => s.tieCount));
         for (const column of COVERAGE_EXCLUSION_COLUMNS) {
+          if (column.key === "coldStart") {
+            // Quick task 260909-t5q (D-04): every committed fixture predates
+            // this field entirely — none of the three algorithms publishes
+            // it, so the column collapses to the ABSENT variant (a blank
+            // cell), never to an agreed 0. `expectedSharedText`'s `reader`
+            // contract assumes an always-present number, which does not
+            // hold for this one optional column, hence the direct assertion
+            // here instead of routing through that helper.
+            expect(screen.getByTestId(coverageCellTestId(season, column.key)).textContent).toBe("");
+            continue;
+          }
           expect(screen.getByTestId(coverageCellTestId(season, column.key)).textContent).toBe(
-            expectedSharedText(entries, (s) => s.exclusionCounts[column.key]),
+            expectedSharedText(entries, (s) => s.exclusionCounts[column.key as Exclude<typeof column.key, "coldStart">]),
           );
         }
         for (const { algorithmId, slice } of entries) {
@@ -695,7 +706,14 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
           (s) => s.candidateCount,
           (s) => s.scoredCount,
           (s) => s.tieCount,
-          ...COVERAGE_EXCLUSION_COLUMNS.map((column) => (s: FixtureSlice) => s.exclusionCounts[column.key]),
+          // Quick task 260909-t5q: the committed fixtures predate `coldStart`
+          // entirely, so `exclusionCounts` here structurally has only the
+          // original four keys — cast to a wider index type rather than
+          // widening every fixture, since the runtime value is legitimately
+          // `undefined` for that column on every committed fixture (D-04).
+          ...COVERAGE_EXCLUSION_COLUMNS.map(
+            (column) => (s: FixtureSlice) => (s.exclusionCounts as Record<string, number | undefined>)[column.key] as number,
+          ),
         ];
         for (const reader of readers) {
           const values = entries.map((e) => reader(e.slice));
@@ -720,7 +738,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
         const entries = slicesFor(season, view);
 
         for (const column of COVERAGE_EXCLUSION_COLUMNS) {
-          const values = entries.map((e) => e.slice.exclusionCounts[column.key]);
+          const values = entries.map((e) => (e.slice.exclusionCounts as Record<string, number | undefined>)[column.key]);
           if (values.every((v) => v === 0)) {
             const text = screen.getByTestId(coverageCellTestId(season, column.key)).textContent;
             expect(text, `${view} ${season} ${column.key}`).toBe(String(values[0]));

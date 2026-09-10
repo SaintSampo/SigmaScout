@@ -249,8 +249,18 @@ describe("buildCoverageRows", () => {
     expect(row.tieCount).toEqual({ kind: "agreed", value: 4 });
   });
 
-  it("COVERAGE_EXCLUSION_COLUMNS is a readonly ordered list of the four exclusion keys, and buildCoverageRows emits cells keyed by those same keys", () => {
-    expect(COVERAGE_EXCLUSION_COLUMNS.map((c) => c.key)).toEqual(["offseason", "surrogateAffected", "missingResult", "quarantined"]);
+  it("COVERAGE_EXCLUSION_COLUMNS is a readonly ordered list of the five exclusion keys, and buildCoverageRows emits cells keyed by those same keys", () => {
+    // Written as a single `toEqual` against a literal, NEVER as a loop over
+    // the column list — a loop would silently skip a future sixth key
+    // (quick task 260909-t5q added this fifth, `coldStart`, deliberately
+    // LAST — see COVERAGE_EXCLUSION_COLUMNS' own doc comment).
+    expect(COVERAGE_EXCLUSION_COLUMNS.map((c) => c.key)).toEqual([
+      "offseason",
+      "surrogateAffected",
+      "missingResult",
+      "quarantined",
+      "coldStart",
+    ]);
 
     const artifactsByYear = new Map<number, CompareArtifact>();
     artifactsByYear.set(
@@ -269,11 +279,90 @@ describe("buildCoverageRows", () => {
     const rows = buildCoverageRows(artifactsByYear, "combined");
     const row = rows.find((r) => r.season === YEAR)!;
     const keys = Object.keys(row.exclusionCounts) as CoverageExclusionKey[];
-    expect(keys.sort()).toEqual(["missingResult", "offseason", "quarantined", "surrogateAffected"]);
+    expect(keys.sort()).toEqual(["coldStart", "missingResult", "offseason", "quarantined", "surrogateAffected"]);
     expect(row.exclusionCounts.offseason).toEqual({ kind: "agreed", value: 1 });
     expect(row.exclusionCounts.surrogateAffected).toEqual({ kind: "agreed", value: 2 });
     expect(row.exclusionCounts.missingResult).toEqual({ kind: "agreed", value: 3 });
     expect(row.exclusionCounts.quarantined).toEqual({ kind: "agreed", value: 4 });
+    // The fixture above never sets `coldStart` on any of the three
+    // algorithms' slices — the live D-04 case — so the column collapses to
+    // ABSENT, never to an agreed 0.
+    expect(row.exclusionCounts.coldStart).toEqual({ kind: "absent" });
+  });
+
+  /**
+   * D-02/D-04 (quick task 260909-t5q): the `coldStart` column's own
+   * dedicated coverage, per the plan's `<behavior>` block.
+   */
+  describe("coldStart column — absent-vs-agreed-vs-disagreed (D-02/D-04)", () => {
+    it("a slice whose published exclusion counts carry only the original four keys collapses coldStart to the ABSENT variant, not to an agreed value of 0", () => {
+      const artifactsByYear = new Map<number, CompareArtifact>();
+      artifactsByYear.set(
+        YEAR,
+        artifactWith(
+          PUBLISHED_ALGORITHM_IDS.map((algorithmId) =>
+            makeSlice({
+              algorithmId,
+              season: YEAR,
+              compLevelView: "combined",
+              exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+            }),
+          ),
+        ),
+      );
+      const rows = buildCoverageRows(artifactsByYear, "combined");
+      const row = rows.find((r) => r.season === YEAR)!;
+      expect(row.exclusionCounts.coldStart).toEqual({ kind: "absent" });
+    });
+
+    it("two algorithms publishing different coldStart values collapse to the disagreed variant, naming both", () => {
+      const artifactsByYear = new Map<number, CompareArtifact>();
+      artifactsByYear.set(
+        YEAR,
+        artifactWith([
+          makeSlice({
+            algorithmId: "opr",
+            season: YEAR,
+            compLevelView: "combined",
+            exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 12 },
+          }),
+          makeSlice({
+            algorithmId: "epa",
+            season: YEAR,
+            compLevelView: "combined",
+            exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 7 },
+          }),
+        ]),
+      );
+      const rows = buildCoverageRows(artifactsByYear, "combined");
+      const row = rows.find((r) => r.season === YEAR)!;
+      expect(row.exclusionCounts.coldStart.kind).toBe("disagreed");
+      if (row.exclusionCounts.coldStart.kind === "disagreed") {
+        const byAlgorithm = Object.fromEntries(row.exclusionCounts.coldStart.values.map((v) => [v.algorithmId, v.value]));
+        expect(byAlgorithm.opr).toBe(12);
+        expect(byAlgorithm.epa).toBe(7);
+      }
+    });
+
+    it("all published algorithms agreeing on a real coldStart value collapses to agreed, including agreeing on zero", () => {
+      const artifactsByYear = new Map<number, CompareArtifact>();
+      artifactsByYear.set(
+        YEAR,
+        artifactWith(
+          PUBLISHED_ALGORITHM_IDS.map((algorithmId) =>
+            makeSlice({
+              algorithmId,
+              season: YEAR,
+              compLevelView: "combined",
+              exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
+            }),
+          ),
+        ),
+      );
+      const rows = buildCoverageRows(artifactsByYear, "combined");
+      const row = rows.find((r) => r.season === YEAR)!;
+      expect(row.exclusionCounts.coldStart).toEqual({ kind: "agreed", value: 0 });
+    });
   });
 
   it("performs no arithmetic: a distinctive sum of a row's own exclusion counts appears in no returned cell", () => {
