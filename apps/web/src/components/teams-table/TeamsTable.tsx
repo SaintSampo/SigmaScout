@@ -125,26 +125,19 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
     initialRect: { width: 960, height: 640 },
   });
 
-  // NAV-04 empty edge: an empty or error state renders OUTSIDE the
-  // horizontally scrolling table region entirely, so it is fully visible at
-  // phone width without a sideways scroll — never nested inside the
-  // virtualized container below.
-  if (status === "empty") {
-    if (hasActiveFilter) {
-      return (
-        <EmptyState heading="No teams match your filters" body="Try removing a filter, or check a different year." onClearFilters={onClearFilters} />
-      );
-    }
-    return <EmptyState heading={`No teams for ${season}`} body={`No teams found for ${season}. Check a different year.`} />;
-  }
-
-  if (status === "error") {
-    return <ErrorState resource="teams" year={season} onRetry={onRetry} />;
-  }
-
   // Fill the viewport below wherever the table actually starts. Recomputed on
   // resize and orientation change; falls back to a sane min so the table is
   // never collapsed to nothing while measuring.
+  //
+  // MUST stay ABOVE the empty/error early returns below. It used to sit under
+  // them, so an empty or error render called two fewer hooks than a table
+  // render — and clearing a filter (empty -> rows) then rendered MORE hooks
+  // than the previous render: React error #310, thrown on the click.
+  //
+  // Keyed on `status` rather than `[]` because it now also runs on renders
+  // where `parentRef` is unattached and `measure()` bails; re-running when
+  // status changes is what makes it measure for real once the scroll
+  // container actually exists.
   const [scrollHeight, setScrollHeight] = useState<number>(SCROLL_CONTAINER_MIN_HEIGHT_PX);
   useLayoutEffect(() => {
     const measure = (): void => {
@@ -161,7 +154,24 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
     };
-  }, []);
+  }, [status]);
+
+  // NAV-04 empty edge: an empty or error state renders OUTSIDE the
+  // horizontally scrolling table region entirely, so it is fully visible at
+  // phone width without a sideways scroll — never nested inside the
+  // virtualized container below.
+  if (status === "empty") {
+    if (hasActiveFilter) {
+      return (
+        <EmptyState heading="No teams match your filters" body="Try removing a filter, or check a different year." onClearFilters={onClearFilters} />
+      );
+    }
+    return <EmptyState heading={`No teams for ${season}`} body={`No teams found for ${season}. Check a different year.`} />;
+  }
+
+  if (status === "error") {
+    return <ErrorState resource="teams" year={season} onRetry={onRetry} />;
+  }
 
   const isLoading = status === "loading";
   const virtualItems = isLoading ? [] : rowVirtualizer.getVirtualItems();

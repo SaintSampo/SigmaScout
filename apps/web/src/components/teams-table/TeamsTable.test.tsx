@@ -316,6 +316,70 @@ describe("TeamsTable", () => {
     },
   );
 
+  // React error #310 ("Rendered more hooks than during the previous render"),
+  // reported from the live site 2026-09-09 on a Clear-filters click. The
+  // scroll-height `useState`/`useLayoutEffect` pair sat BELOW the empty/error
+  // early returns, so a filtered-to-zero render called two fewer hooks than a
+  // table render and the transition back threw on the spot.
+  //
+  // The pre-existing "offers Clear filters" test above could not catch it: it
+  // asserts the CALLBACK fires and stops there. The defect lives in the render
+  // that the callback causes, so the transition itself has to be exercised.
+  it("clearing an active filter transitions empty -> rows without a hook-order violation (React #310)", async () => {
+    const hookOrderErrors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      const text = args.map((a) => String(a)).join(" ");
+      if (/Rendered more hooks|Rendered fewer hooks|order of Hooks/i.test(text)) hookOrderErrors.push(text);
+      originalError(...(args as Parameters<typeof console.error>));
+    };
+    try {
+      const { rerender } = render(
+        <TestHarness>
+          <TeamsTable
+            status="empty"
+            rows={[]}
+            algorithmId="opr"
+            season={2024}
+            view="components"
+            sortKey={TOTAL_KEY}
+            sortDirection="desc"
+            onSortChange={noop}
+            onRetry={noop}
+            hasActiveFilter
+            onClearFilters={noop}
+          />
+        </TestHarness>,
+      );
+      await waitFor(() => expect(screen.getByText("No teams match your filters")).toBeDefined());
+
+      // What the Clear-filters click actually produces: the filter is gone, so
+      // the rows come back and the same mounted component renders its table.
+      rerender(
+        <TestHarness>
+          <TeamsTable
+            status="success"
+            rows={[row()]}
+            algorithmId="opr"
+            season={2024}
+            view="components"
+            sortKey={TOTAL_KEY}
+            sortDirection="desc"
+            onSortChange={noop}
+            onRetry={noop}
+            hasActiveFilter={false}
+            onClearFilters={noop}
+          />
+        </TestHarness>,
+      );
+      await waitFor(() => expect(screen.getByTestId(`teams-header-${TOTAL_KEY}`)).toBeDefined());
+      expect(screen.queryByText("No teams match your filters")).toBeNull();
+      expect(hookOrderErrors).toEqual([]);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
   it("renders the contract's error copy, and Retry invokes the callback", async () => {
     const onRetry = vi.fn();
     render(
