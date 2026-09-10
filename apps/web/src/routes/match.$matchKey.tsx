@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_EVENT_TAB, MatchSearchSchema } from "../lib/searchParams.js";
 import { eventKeyFromMatchKey, isValidMatchKey } from "../lib/matchKey.js";
 import { seasonFromEventKey } from "../lib/eventKey.js";
 import { eventQueryOptions } from "../lib/api/event.js";
+import { teamQueryOptions } from "../lib/api/team.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
@@ -14,6 +15,8 @@ import { computeEventAxisDomain, mergeEventMatches } from "../components/event/e
 import { formatScheduledTime, matchLabel } from "../components/team/MatchTable.js";
 import { MatchVideoCell } from "../components/MatchVideoCell.js";
 import { parseMatchVideoKey } from "../lib/matchVideo.js";
+import { preMatchMetrics } from "../lib/preMatchMetrics.js";
+import { MatchRobotGrid, type MatchRobotRecord } from "../components/match/MatchRobotGrid.js";
 import type { AxisDomain } from "../components/team/matchAxis.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
@@ -56,8 +59,13 @@ function MatchPage() {
   // would throw on an invalid key, so this guards the call rather than
   // letting the throw reach render. `""` never reaches `isValidEventKey`'s
   // caller below because the query stays disabled and the invalid-key branch
-  // returns before `seasonFromEventKey` is ever called.
+  // returns before the event key is ever used for a real lookup.
   const eventKey = isValidKey ? eventKeyFromMatchKey(matchKey) : "";
+  // Also declared unconditionally and guarded the same way (`seasonFromEventKey`
+  // throws on an invalid key): Task 2's `useQueries` below needs a `season`
+  // value at the top of the component body, before the invalid-key early
+  // return, to build its (disabled, when invalid) query options.
+  const season = isValidKey ? seasonFromEventKey(eventKey) : 0;
 
   // 07-01-PLAN.md's established pattern, mirrored here exactly: the artifact
   // query stays DISABLED until the algorithms manifest resolves a real
@@ -78,6 +86,38 @@ function MatchPage() {
   const domain = useMemo(() => computeEventAxisDomain(rows), [rows]);
   const row = rows.find((candidate) => candidate.matchKey === matchKey);
 
+  // Task 2: the six roster team-season artifacts. ONE `useQueries` hook,
+  // declared here at the top level of the component body — before every
+  // early return — so its `queries` array may change LENGTH between renders
+  // (empty before the row resolves, six once it does) without this component
+  // ever changing how many HOOKS it calls. Mapping `useQuery` over a roster
+  // instead would be a hooks-count violation; this repo has already shipped a
+  // React #310 crash from hooks placed below an early return.
+  const rosterKeys = useMemo(() => (row === undefined ? [] : [...row.redTeams, ...row.blueTeams]), [row]);
+  const teamQueries = useQueries({
+    queries: rosterKeys.map((teamKey) => ({
+      ...teamQueryOptions({ teamKey, year: season, algorithmId: algorithm, version: version ?? "" }),
+      enabled: isValidKey && version !== undefined,
+    })),
+  });
+
+  // Built here, not inside `MatchRobotGrid` (which stays a pure function of
+  // its props per Task 2's own contract). A team artifact that 404s or fails
+  // degrades to `{ isPending: false }` with no artifact — the card shows the
+  // fallback tile and the no-metrics note, never an error that takes down
+  // the whole match page.
+  const byTeamKey: Record<string, MatchRobotRecord> = {};
+  rosterKeys.forEach((teamKey, index) => {
+    const result = teamQueries[index];
+    if (result === undefined) return;
+    const teamArtifact = result.data;
+    byTeamKey[teamKey] = {
+      artifact: teamArtifact,
+      preMatch: teamArtifact !== undefined && row !== undefined ? preMatchMetrics(teamArtifact.metricHistory, matchKey, { played: row.played }) : undefined,
+      isPending: result.isPending,
+    };
+  });
+
   if (!isValidKey) {
     return (
       <div className="p-[var(--spacing-lg)]">
@@ -85,8 +125,6 @@ function MatchPage() {
       </div>
     );
   }
-
-  const season = seasonFromEventKey(eventKey);
 
   // A 404 means no artifact was ever published for this event — the same
   // branch `event.$eventKey.tsx` applies, one level down. Every OTHER fetch
@@ -105,7 +143,7 @@ function MatchPage() {
       ) : row === undefined ? (
         <EmptyState heading={`No match ${matchKey} published for this event`} body={MATCH_PAGE_EMPTY_STATE_BODY} />
       ) : (
-        <MatchPageBody data={data} row={row} domain={domain} season={season} algorithm={algorithm} />
+        <MatchPageBody data={data} row={row} domain={domain} season={season} algorithm={algorithm} byTeamKey={byTeamKey} />
       )}
     </div>
   );
@@ -117,12 +155,14 @@ function MatchPageBody({
   domain,
   season,
   algorithm,
+  byTeamKey,
 }: {
   data: EventArtifact;
   row: EventMatchRow;
   domain: AxisDomain;
   season: number;
   algorithm: PublishedAlgorithmId;
+  byTeamKey: Readonly<Record<string, MatchRobotRecord>>;
 }) {
   // `parseMatchVideoKey` is the ONLY resolver; an unparseable key renders
   // nothing at all, identically to a missing one (T-7eu-01 preserved by
@@ -158,6 +198,11 @@ function MatchPageBody({
           <MatchVideoCell matchKey={row.matchKey} matchLabel={matchLabel(row)} videoKey={row.video} />
         </div>
       )}
+
+      {/* Task 2: the six robots — this grid has its own per-card pending
+          state and paints independently of the heading/table above, which
+          already rendered from the event artifact alone. */}
+      <MatchRobotGrid redTeams={row.redTeams} blueTeams={row.blueTeams} byTeamKey={byTeamKey} season={season} algorithm={algorithm} />
     </div>
   );
 }

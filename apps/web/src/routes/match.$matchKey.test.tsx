@@ -204,3 +204,40 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
     expect(screen.queryByTestId("actual-2024casf_qm2-red")).toBeNull();
   });
 });
+
+describe("/match/$matchKey route — the six roster team artifacts (260909-tiq-PLAN.md Task 2)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("fetches the team artifact for every resolved roster key, and the match row/table paint BEFORE any of those six fetches resolve", async () => {
+    const teamFetchUrls: string[] = [];
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      if (url.includes("/v1/team/")) {
+        teamFetchUrls.push(url);
+        return new Promise<Response>(() => {}); // never resolves
+      }
+      return Promise.resolve(eventArtifactResponse({ matches: [PLAYED_MATCH] }));
+    });
+    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr");
+
+    // The heading/table paint from the event artifact alone, with the six
+    // team-artifact fetches left permanently pending.
+    await waitFor(() => expect(screen.getByTestId("match-row-2024casf_qm1")).toBeDefined());
+    expect(screen.getByTestId("match-table-scroll")).toBeDefined();
+
+    await waitFor(() => expect(teamFetchUrls.filter((url) => url.includes("/v1/team/frc254/")).length).toBeGreaterThan(0));
+    expect(teamFetchUrls.some((url) => url.includes("/v1/team/frc118/"))).toBe(true);
+
+    // Each robot card renders its own pending skeleton rather than a blank —
+    // a pending fetch is not an absence.
+    await waitFor(() => expect(screen.getByTestId("robot-card-frc254")).toBeDefined());
+    expect(screen.getByTestId("robot-card-frc254").querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+});
