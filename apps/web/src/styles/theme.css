@@ -1219,10 +1219,29 @@ body {
 /*
  * Match-table Call column, option C2 (2026-09-01 user decision): the check
  * and cross glyphs wear the same emerald/rose ink the Result chips use —
- * one correctness vocabulary — at bold weight, no box.
+ * one correctness vocabulary — at bold weight.
+ *
+ * REVISED 2026-09-09 (user request): the bare glyph was hard to find at a
+ * glance in a dense table, so the ink now sits inside a soft-tinted,
+ * rounded badge — the SAME tint+ink construction `.result-chip` above uses,
+ * so "correct/incorrect" reads identically wherever it appears. The badge
+ * is a fixed square so every row's glyph lands on the same centre, and an
+ * unplayed row gets the neutral `--none` badge rather than an empty cell,
+ * which keeps the column a column instead of a ragged scatter.
  */
-.call-hit { color: #047857; font-weight: 700; }
-.call-miss { color: #be123c; font-weight: 700; }
+.call-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-weight: 700;
+  line-height: 1;
+}
+.call-hit { background-color: rgba(5, 150, 105, 0.14); color: #047857; }
+.call-miss { background-color: rgba(225, 29, 72, 0.12); color: #be123c; }
+.call-none { background-color: var(--color-bg-inset); color: var(--color-text-muted); }
 
 /*
  * Compare page: the winning accuracy / Brier value in a season row.

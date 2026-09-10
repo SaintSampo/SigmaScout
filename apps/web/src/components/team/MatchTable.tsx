@@ -149,7 +149,12 @@ function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, col
       <div
         data-testid={`${testIdBase}-tick`}
         className="absolute"
-        style={{ top: pos.tickTop, left: tickCentre - 1, width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
+        /* 2026-09-09: the left edge is SNAPPED to a whole pixel. A fractional
+           `left` puts a 2px-wide rule across three device pixels, and the
+           browser renders that as one solid pixel with two faint halves —
+           so the same 2px tick looked 1px on some rows and 2px on others.
+           Rounding the edge (not the centre) keeps every tick exactly 2px. */
+        style={{ top: pos.tickTop, left: Math.round(tickCentre) - 1, width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
       />
       {dotCentre !== undefined && (
         <div
@@ -417,11 +422,11 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         {!played ? (
-          <span aria-hidden="true"></span>
+          <span aria-hidden="true" className="call-badge call-none">{"—"}</span>
         ) : winnerCorrect ? (
-          <span aria-label="Prediction correct" className="call-hit">{"✓"}</span>
+          <span aria-label="Prediction correct" className="call-badge call-hit">{"✓"}</span>
         ) : (
-          <span aria-label="Prediction incorrect" className="call-miss">{"✗"}</span>
+          <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
         )}
       </td>
     </tr>

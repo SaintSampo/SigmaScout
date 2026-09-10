@@ -229,7 +229,7 @@ describe("Unplayed rows", () => {
   it("the Call cell renders an em-dash carrying no correct/incorrect accessible label", () => {
     renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
     const call = screen.getByTestId("call-m1");
-    expect(call.textContent).toBe("");
+    expect(call.textContent).toBe("—");
     expect(screen.queryByLabelText("Prediction correct")).toBeNull();
     expect(screen.queryByLabelText("Prediction incorrect")).toBeNull();
   });
