@@ -105,9 +105,19 @@ export interface Prediction {
   blueScore: number;
   /**
    * Optional variance channel — left unpopulated by OPR, populated by later
-   * algorithms. This is the red+blue SUM (the win-probability denominator),
-   * NOT either alliance's own variance — see `redScoreVarianceOwn`/
-   * `blueScoreVarianceOwn` below for that.
+   * algorithms. This is the red+blue SUM, NOT either alliance's own variance —
+   * see `redScoreVarianceOwn`/`blueScoreVarianceOwn` below for that.
+   *
+   * TREAT THIS AS A DISPLAY QUANTITY, NOT AS A WIN-PROBABILITY DENOMINATOR.
+   * This comment used to call it "the win-probability denominator", and for
+   * Sigma1 it still coincides with one. It does NOT for `bpr` as of
+   * `2.0.0+baseline`: BPR's filter states about twice the score variance it
+   * realizes (quick task 260910-25c measured sd(z) = 0.7062 over the design
+   * era), so BPR calibrates what it EMITS while computing `pRedWin` from the
+   * raw, uncalibrated figure. Reconstructing a win probability from this field
+   * would therefore disagree with `pRedWin` — which is why the only consumers
+   * are `EventMatchTable`/`MatchTable`, both of which render `sqrt(variance)`
+   * as a displayed interval and nothing else.
    */
   variance?: number;
   /**
