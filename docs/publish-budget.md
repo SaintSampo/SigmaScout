@@ -42,9 +42,11 @@ invocations (2016-2020: 17,560 keys; 2022-2026: 19,272 keys; 36,832 per version,
 deletes issued). Two transient R2 500s interrupted 1.0.0's second range; the idempotent
 re-run-to-resume property worked as designed (three attempts to completion, distinct keys each
 failure). **Post-census 0/60 on all four range×version combinations.** The epa@5.0.0 census
-(read-only, no delete authorized) confirms **57/60 present** — a full orphaned
-`epa@5.0.0+baseline` generation (~36k objects, from 260908-615's 5→6 bump) awaits its own
-authorized pass.
+(read-only at the time, no delete yet authorized) confirmed **57/60 present**. **Deleted later
+the same morning once authorized**: `epa@5.0.0+baseline`, one `--supersedes-live` pass over
+`--seasons 2019-2026` (its whole published era — the 2016-2018 backfill published straight to
+6.0.0), 25,724 keys enumerated and deleted, post-census **0/60**. R2 now holds exactly one
+generation per published algorithm version, nothing orphaned.
 
 **Prior run — 2026-09-10 (~02:26–03:10 ET), the bpr@2.0.0 republish — presim OFF
 (`pnpm publish:seasons`, generation `b9e26153-c473-4ab0-9c31-189a8d28c884`).** 108,820 page
@@ -1575,7 +1577,7 @@ rendering of these same numbers, not a second source.
 ```json budget
 {
   "measuredAt": "2026-09-10T15:45:00.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation e169a4d4-fce9-4da1-9d88-eb9edefcac29, 108,820 objects, 4,285,902,355 bytes total, zero presim sidecars, ~03:53-04:37 ET 2026-09-10, unattended overnight. Ships bpr@3.0.0+baseline: 260910-4bf's adjustPoints drop from the scoring target plus 260910-52c's soft credit allocation by expected rank; the sealed 78.05% now describes a model three revisions back. Object count unchanged at 108,820. Tail verified in the morning after a session restart lost task tracking (the process itself ran to completion): verify:subset 50 entries 0 failing at uniformity 1; D1 all three algorithms at e169a4d4 with bpr 3.0.0+baseline. DELETE PASSES RUN (pre-authorized): bpr@1.0.0 and bpr@2.0.0 both fully removed, 36,832 keys each (2016-2020: 17,560; 2022-2026: 19,272), post-census 0/60 on all four combinations; two transient R2 500s on 1.0.0's second range resolved by idempotent re-runs. CONFIRMED ORPHAN, not yet deleted (no authorization): epa@5.0.0+baseline, census 57/60 present, ~36k objects from 260908-615's 5-to-6 bump -- needs its own authorized supersedes-live pass. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation e169a4d4-fce9-4da1-9d88-eb9edefcac29, 108,820 objects, 4,285,902,355 bytes total, zero presim sidecars, ~03:53-04:37 ET 2026-09-10, unattended overnight. Ships bpr@3.0.0+baseline: 260910-4bf's adjustPoints drop from the scoring target plus 260910-52c's soft credit allocation by expected rank; the sealed 78.05% now describes a model three revisions back. Object count unchanged at 108,820. Tail verified in the morning after a session restart lost task tracking (the process itself ran to completion): verify:subset 50 entries 0 failing at uniformity 1; D1 all three algorithms at e169a4d4 with bpr 3.0.0+baseline. DELETE PASSES RUN (pre-authorized): bpr@1.0.0 and bpr@2.0.0 both fully removed, 36,832 keys each (2016-2020: 17,560; 2022-2026: 19,272), post-census 0/60 on all four combinations; two transient R2 500s on 1.0.0's second range resolved by idempotent re-runs. epa@5.0.0+baseline orphan (census 57/60 present) DELETED later the same morning once authorized: one supersedes-live pass over 2019-2026, 25,724 keys, post-census 0/60 -- R2 now holds no orphaned generations at all. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
   "pages": {
     "teams": {
       "count": 30,
