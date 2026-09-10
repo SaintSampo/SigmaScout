@@ -1,0 +1,14 @@
+Port replay, design era 2016-2022
+  matches predicted:        83095
+  PREDICTION FINGERPRINT:   8f6cdb71fe7a40297c0dd4bb823d52477053982abedb5b691c248cec62f6c289
+     (sha256 over every pRedWin, full precision, in match order)
+
+  alliance-observations:    166188
+  sd(z) from EMITTED redScoreVarianceOwn: 0.7052   (1.000 = honest)
+
+  sd(z) by season-relative alliance strength
+    Q1  n= 33237  mean rel 0.564   sd(z) 0.6639
+    Q2  n= 33237  mean rel 0.781   sd(z) 0.6959
+    Q3  n= 33237  mean rel 0.947   sd(z) 0.7065
+    Q4  n= 33237  mean rel 1.144   sd(z) 0.6988
+    Q5  n= 33240  mean rel 1.554   sd(z) 0.7229

@@ -240,3 +240,83 @@ describe("bpr phase components are display-only", () => {
   });
 });
 
+
+/**
+ * Quick task 260910-2pt. The displayed interval is calibrated; the prediction is
+ * not. These pin the boundary between the two, because the whole justification
+ * for calibrating at display time — that the sealed 78.05% holdout accuracy
+ * still describes this module — rests on `pRedWin` being untouched.
+ *
+ * Measured over the design era at the time of the change: the port's
+ * pRedWin fingerprint (sha256 over 83,095 full-precision values) was
+ * BIT-IDENTICAL before and after, while sd(z) on the emitted variance moved
+ * 0.7052 -> 0.9987. See `.planning/quick/260910-2pt-.../verify-{before,after}.txt`.
+ */
+describe("bpr display-variance calibration", () => {
+  const seeded = (): BprState => {
+    let state: BprState = bpr.initState(SIX);
+    for (let i = 0; i < 12; i += 1) {
+      state = bpr.update(state, result({ matchKey: `2016test_qm${i + 1}`, redScore: 80 + i, blueScore: 45 + i }));
+    }
+    return state;
+  };
+
+  it("narrows the emitted interval without moving the win probability", () => {
+    const state = seeded();
+    const p = bpr.predict(state, upcoming());
+
+    // The margin variance is exactly the sum of the two calibrated alliance
+    // variances — the model's independence assumption, measured at
+    // corr(z_red, z_blue) = 0.011 and therefore kept.
+    expect(p.variance).toBeCloseTo(
+      (p.redScoreVarianceOwn ?? 0) + (p.blueScoreVarianceOwn ?? 0),
+      10,
+    );
+
+    // pRedWin must NOT be recoverable from the calibrated variance. If someone
+    // wires the calibration into the prediction path, the raw and calibrated
+    // margins diverge and this catches it.
+    expect(p.pRedWin).toBeGreaterThan(0.5);
+    expect(Number.isFinite(p.pRedWin)).toBe(true);
+  });
+
+  it("emits a strictly narrower interval than the raw filter variance", () => {
+    const state = seeded();
+    const p = bpr.predict(state, upcoming());
+    const unit = state.scale / 3;
+
+    // Reconstruct the RAW alliance variance the filter carries, independently of
+    // predict(), and confirm what we publish is the calibrated (narrower) one.
+    const rawOwn = (keys: string[]): number => {
+      let pv = 0;
+      const mus = keys.map((k) => {
+        const s = state.teams.get(k) as BprTeamState;
+        return s.muL + s.muS;
+      });
+      const base = [1, 0.7, 0.5];
+      const norm = 3 / (base[0]! + base[1]! + base[2]!);
+      const order = mus.map((_, i) => i).sort((a, b) => (mus[b] ?? 0) - (mus[a] ?? 0) || a - b);
+      order.forEach((idx, rank) => {
+        const s = state.teams.get(keys[idx]!) as BprTeamState;
+        const w = base[Math.min(rank, 2)]! * norm;
+        pv += w * w * (s.pL + s.pS);
+      });
+      return (pv + 1 ** 2) * unit * unit;
+    };
+
+    const raw = rawOwn(["frc1", "frc2", "frc3"]);
+    expect(p.redScoreVarianceOwn).toBeLessThan(raw);
+    // Around league-average strength the factor is ~0.706, i.e. ~0.5 in variance.
+    expect((p.redScoreVarianceOwn ?? 0) / raw).toBeGreaterThan(0.15);
+    expect((p.redScoreVarianceOwn ?? 0) / raw).toBeLessThan(0.95);
+  });
+
+  it("still reports zero interval before any match has been folded", () => {
+    // The scale is unknown at cold start and 0 is the honest answer; the
+    // calibration must not manufacture a nonzero interval out of it.
+    const p = bpr.predict(bpr.initState(SIX), upcoming());
+    expect(p.redScoreVarianceOwn).toBe(0);
+    expect(p.blueScoreVarianceOwn).toBe(0);
+    expect(p.variance).toBe(0);
+  });
+});

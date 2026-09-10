@@ -210,7 +210,6 @@ export class BprModel {
   /** Online estimate of mean alliance foul-adjusted output, in points. */
   private scale = 0;
   private scaleCount = 0;
-  private year = -1;
   /** Red-side margin offsets, index 0 = qualification, 1 = elimination. */
   private readonly bias = [0, 0];
 
@@ -393,8 +392,6 @@ export class BprModel {
     isElim: boolean,
     pred: Prediction,
   ): void {
-    this.year = year;
-
     // --- online season scale (mean foul-adjusted alliance output, points) ---
     const obsMean = (redOut + blueOut) / 2;
     if (this.scaleCount === 0) this.scale = Math.max(obsMean, 1);

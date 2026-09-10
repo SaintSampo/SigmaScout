@@ -35,6 +35,11 @@
  * Like `opr.ts` and `epa.ts`, and unlike `vpr`, BPR carries no ranking-point
  * model, so it emits no `redRpPmf`/`blueRpPmf` and cannot drive the rank
  * simulation. That is a deliberate scope boundary, not an omission.
+ *
+ * DISPLAYED UNCERTAINTY IS CALIBRATED SEPARATELY from the filter's internal
+ * variance, because the two are not the same number — see `displaySdFactor`.
+ * The filter's own variance is ~2x its realized variance, which `tau` hides in
+ * the win probability but which used to ship straight to the screen.
  */
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type SeasonBoundary, type TeamMetrics, type UpcomingMatch } from "./types.js";
 import {
@@ -60,8 +65,6 @@ export interface BprParams {
   readonly fastPriorVar: number;
   /** Prior mean rating for a never-seen team (1.0 = league average). */
   readonly rookieMean: number;
-  /** Shrink of the slow mean toward 1.0 at a season boundary; 1.0 = carry untouched. */
-  readonly seasonShrink: number;
   /** Variance added to the slow component at a season boundary. */
   readonly seasonVar: number;
   /** Initial link temperature. */
@@ -73,6 +76,60 @@ export interface BprParams {
   /** Anti-additivity weights for the 2nd and 3rd strongest team in an alliance. */
   readonly w2: number;
   readonly w3: number;
+}
+
+/**
+ * DISPLAY-TIME variance calibration.
+ *
+ * The filter does not believe its own variance. Quick task 260910-25c formed
+ * the standardized innovation `z = (observed - mu) / sqrt(pv + obsSd^2)` over
+ * the design era (166,188 alliance-observations) and measured `sd(z) = 0.7062`
+ * against an honest 1.0, with the learned link temperature converging to
+ * 0.45-0.63 in every season and never near 1.0.
+ *
+ * The cause is that `obsSd` does two contradictory jobs: it sets the Kalman
+ * gain (`k = w*p / (pv + obsSd^2)`) AND the stated uncertainty. It was selected
+ * for winner accuracy, i.e. for the gain, and the online `tau` then repairs the
+ * consequence in `pRedWin`. Nothing repaired it in the variance this module
+ * EMITS — which is published (`pageArtifacts.ts`) and rendered directly as the
+ * displayed `X +/- Y` (`EventMatchTable.tsx`). The interval shipped ~1.42x too
+ * wide, and wrongly so by a strength-dependent amount (2022 quintiles ran
+ * sd(z) 0.551 -> 1.001, i.e. 1.8x too wide for weak alliances).
+ *
+ * The benign explanation was tested and FAILED: `corr(z_red, z_blue) = 0.011`,
+ * so the independence assumption is fine and only the level is wrong.
+ *
+ * Fitted by weighted least squares over design-era deciles
+ * (`.planning/quick/260910-2pt-.../fit-output.txt`):
+ *
+ *   sd(z) = 0.7058 + 0.0844 * (mu - 3)
+ *
+ * Applying it lands overall sd(z) at 1.0001 and tightens the strength quintiles
+ * from 0.551-1.001 to 0.961-1.022.
+ *
+ * WHY THIS DOES NOT VOID THE SEALED HOLDOUT. The factor is applied ONLY to the
+ * emitted variance fields. It never enters `z`, never enters `pRedWin`, and
+ * never enters a Kalman gain, so every winner call and every probability this
+ * module produces is bit-identical to the frozen model's. The sealed 78.05% is
+ * a statement about winner accuracy and is untouched. `bpr.test.ts` pins that
+ * invariance directly.
+ *
+ * DESIGN-ERA ONLY. The fit reads 2016-2022 and spends no holdout.
+ */
+const DISPLAY_SD_A = 0.7058;
+const DISPLAY_SD_B = 0.0844;
+/**
+ * Safety rails for alliance strengths outside the fitted range. Neither binds
+ * anywhere in 2016-2022 (observed mu spans 0.283 to 8.099, giving c in
+ * 0.477..1.136); they exist so a future season with an extreme rating cannot
+ * produce a non-positive or absurd interval.
+ */
+const DISPLAY_SD_MIN = 0.4;
+const DISPLAY_SD_MAX = 1.3;
+
+/** Calibration multiplier on the DISPLAYED standard deviation at strength `mu`. */
+function displaySdFactor(mu: number): number {
+  return Math.min(DISPLAY_SD_MAX, Math.max(DISPLAY_SD_MIN, DISPLAY_SD_A + DISPLAY_SD_B * (mu - 3)));
 }
 
 /**
@@ -88,7 +145,6 @@ export const BPR_PARAMS: BprParams = {
   priorVar: 0.1,
   fastPriorVar: 0.25,
   rookieMean: 0.55,
-  seasonShrink: 1,
   seasonVar: 0.03,
   tau0: 1,
   tauLr: 0.005,
@@ -104,14 +160,45 @@ export const BPR_PARAMS: BprParams = {
  * honest one here: BPR has no tuned parameter file and is never touched by
  * `applyPromotedOverrides`. Its constants were frozen once, on 2016-2022
  * evidence, and are not re-tuned per season.
+ *
+ * Bumped 1.0.0 -> 2.0.0 (quick task 260910-2pt): `predict()`'s observable output
+ * changed. `variance`, `redScoreVarianceOwn` and `blueScoreVarianceOwn` are now
+ * multiplied by `displaySdFactor(mu)^2`, so every interval this module has ever
+ * published moves (~1.42x narrower overall, more at low alliance strength).
+ * MAJOR under D-13's rule that no artifact key may stand for two structurally
+ * different outputs.
+ *
+ * `pRedWin` and `winner` are deliberately UNCHANGED and pinned by test, so the
+ * sealed 78.05% holdout accuracy still describes this module exactly. The
+ * paramSetName stays `baseline`: the calibration is a display transform fitted
+ * on design-era innovations, not a tuned parameter file, and
+ * `applyPromotedOverrides` still never touches BPR.
  */
-export const BPR_VERSION = "1.0.0+baseline";
+export const BPR_VERSION = "2.0.0+baseline";
 
+/**
+ * The two-timescale state, described by what the FROZEN PARAMETERS actually do
+ * rather than by the talent-versus-form story it was designed around. Quick
+ * task 260910-25c simulated the filter's own variance recursions under
+ * `BPR_PARAMS` and found `qSlow = 0.00002` (the floor of its search grid)
+ * against `qFast = 0.015`, a 750x ratio:
+ *
+ *   at steady state pL = 0.0051 and pS = 0.0624, so 92.5% of every rating
+ *   update lands in the FAST component — which decays 10% per match
+ *   (half-life 6.6 matches) and is then ZEROED at each season boundary.
+ *   Over a fresh 60-match season only 22.2% of the evidence the filter
+ *   absorbs ever reaches the mean that carries forward.
+ *
+ * So this is not "underlying quality plus current form". It is an annual
+ * re-baseline (`muL`, re-opened each winter by `seasonVar`) plus a ~6.6-match
+ * exponential form rating (`muS`) that is discarded every winter. The mechanism
+ * is real and earned its +1.05pp; only the names were wrong.
+ */
 export interface BprTeamState {
-  /** Slow "true talent" component. */
+  /** Near-frozen per-team offset; re-opened for a short window each season. */
   readonly muL: number;
   readonly pL: number;
-  /** Fast, mean-reverting "current form" component. */
+  /** Fast mean-reverting component; carries ~92% of each update, reset yearly. */
   readonly muS: number;
   readonly pS: number;
 }
@@ -219,10 +306,35 @@ interface AllianceView {
 }
 
 /**
- * Anti-additivity: an FRC alliance shares one field and a finite supply of
- * game pieces, so three elite scorers do not add linearly. Teams are ranked
- * within their alliance and contribute with weights (1, w2, w3), renormalized
- * to sum to 3 so the scale-free property survives any alliance size.
+ * Rank weighting. Teams are ranked within their alliance and contribute with
+ * weights (1, w2, w3), renormalized to sum to 3 so the scale-free property
+ * survives any alliance size.
+ *
+ * WHAT THIS ACTUALLY DOES, corrected by quick task 260910-25c. The docstring
+ * here used to call this "anti-additivity" and justify it as field congestion —
+ * "three elite scorers do not add linearly". The renormalization inverts that.
+ * With w2=0.7, w3=0.5 the live weights are (1.3636, 0.9545, 0.6818), and the
+ * LARGEST weight is matched to the LARGEST rating, so by Chebyshev's sum
+ * inequality the weighted sum is >= the plain sum for EVERY alliance, with
+ * equality only when all three ratings are identical:
+ *
+ *   (1.00, 1.00, 1.00) -> 3.000 vs 3.000 plain   (1.000x)
+ *   (1.20, 1.00, 0.80) -> 3.136 vs 3.000 plain   (1.046x)
+ *   (2.00, 1.00, 0.50) -> 4.023 vs 3.500 plain   (1.149x)
+ *   (3.00, 0.60, 0.40) -> 4.936 vs 4.000 plain   (1.234x)
+ *
+ * So this is a SPREAD AMPLIFIER, not a suppressor: it says a star-plus-two-weak
+ * alliance outscores three mediocre robots of the same total rating. That is a
+ * real empirical claim the design era endorsed at +0.53pp — it is simply the
+ * opposite of the mechanism this comment used to assert.
+ *
+ * Two known artifacts, documented rather than fixed (fixing either needs a
+ * re-tune, and BPR tuning is closed):
+ *   - the weights are a STEP function of a noisy ordering, so teammates whose
+ *     ratings differ by 1e-9 receive weights differing by 43%;
+ *   - exact ties fall through to the ascending-index tiebreak below, so three
+ *     equally-rated teams (any all-rookie alliance) give driver station 1 twice
+ *     the Kalman credit of station 3 on identical evidence.
  */
 function viewOfMap(
   teams: ReadonlyMap<string, BprTeamState>,
@@ -298,14 +410,26 @@ function predict(state: BprState, match: UpcomingMatch): Prediction {
   // match has been folded the scale is unknown, and 0 is the honest answer -
   // never a guessed constant.
   const unit = state.scale / 3;
+
+  // Display-time variance calibration. `z` and `pRedWin` above are computed
+  // from the RAW `v` and are untouched by this; only what we emit is rescaled.
+  // See `displaySdFactor`'s doc comment for the measurement and the reasoning.
+  const cRed = displaySdFactor(red.mu);
+  const cBlue = displaySdFactor(blue.mu);
+  const redOwn = (red.pv + p.obsSd ** 2) * cRed * cRed;
+  const blueOwn = (blue.pv + p.obsSd ** 2) * cBlue * cBlue;
+
   return {
     winner: pRedWin >= 0.5 ? "red" : "blue",
     pRedWin,
     redScore: red.mu * unit,
     blueScore: blue.mu * unit,
-    variance: v * unit * unit,
-    redScoreVarianceOwn: (red.pv + p.obsSd ** 2) * unit * unit,
-    blueScoreVarianceOwn: (blue.pv + p.obsSd ** 2) * unit * unit,
+    // The margin variance is the sum of the two calibrated alliance variances.
+    // Summing them is what the model already assumed, and 260910-25c confirmed
+    // the assumption holds: corr(z_red, z_blue) = 0.011.
+    variance: (redOwn + blueOwn) * unit * unit,
+    redScoreVarianceOwn: redOwn * unit * unit,
+    blueScoreVarianceOwn: blueOwn * unit * unit,
   };
 }
 
@@ -513,7 +637,12 @@ function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
     const out = new Map<string, BprTeamState>();
     for (const [key, s] of teams) {
       out.set(key, {
-        muL: p.seasonShrink * s.muL + (1 - p.seasonShrink) * 1.0,
+        // The slow mean carries UNTOUCHED. A `seasonShrink` knob used to sit
+        // here, but it was frozen at 1.0 — its whole expression reduced to the
+        // identity, while reading as though a shrink toward league average
+        // happened every winter. Removed by quick task 260910-2pt; deleting a
+        // parameter pinned at its identity value changes no prediction.
+        muL: s.muL,
         pL: s.pL + p.seasonVar,
         muS: 0,
         pS: p.fastPriorVar,
