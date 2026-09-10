@@ -1,0 +1,23 @@
+BPR innovation diagnostics, frozen params, DESIGN ERA 2016-2022
+
+OVERALL
+  all alliance-observations          n=166188  mean z  0.0379 (+-0.0034)   sd z 0.7062
+
+BY EVENT TYPE  (mean z < 0 = model OVER-predicts alliance output)
+  regional/district (type 0,1)       n=137666  mean z  0.0804 (+-0.0038)   sd z 0.7151
+  district championship (type 2)     n= 10030  mean z -0.0366 (+-0.0125)   sd z 0.6369
+  CHAMPIONSHIP division (type 3)     n= 13268  mean z -0.2320 (+-0.0102)   sd z 0.5999
+  CHAMPIONSHIP final (type 4)        n=   280  mean z -0.4091 (+-0.0640)   sd z 0.5467
+  all championship (type 3,4)        n= 13548  mean z -0.2357 (+-0.0101)   sd z 0.5994
+
+BY COMP LEVEL
+  qualification                      n=137480  mean z  0.0551 (+-0.0036)   sd z 0.6903
+  elimination                        n= 28708  mean z -0.0442 (+-0.0089)   sd z 0.7726
+
+CONVERGED LINK TEMPERATURE tau (=1.0 would mean the filter's own variance is honest)
+  end of 2016:  tau = 0.4595
+  end of 2017:  tau = 0.6264
+  end of 2018:  tau = 0.4508
+  end of 2019:  tau = 0.4672
+  end of 2020:  tau = 0.6206
+  end of 2022:  tau = 0.5417

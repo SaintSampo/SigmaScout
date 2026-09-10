@@ -1,0 +1,30 @@
+renormalized weights (rank1,2,3) = 1.3636, 0.9545, 0.6818
+sum w = 3.0000   sum w^2 = 3.2355  (additive model: 3.0000 / 3.0000)
+
+ match |      pL |      pS | pS/(pL+pS) = share of each update that DECAYS
+     1 | 0.09130 | 0.17335 |  65.5%
+     2 | 0.08741 | 0.14400 |  62.2%
+     3 | 0.08546 | 0.12732 |  59.8%
+     5 | 0.07408 | 0.09406 |  55.9%
+    10 | 0.05719 | 0.06997 |  55.0%
+    20 | 0.03923 | 0.06458 |  62.2%
+    40 | 0.02370 | 0.06305 |  72.7%
+    80 | 0.01351 | 0.06348 |  82.4%
+   160 | 0.00785 | 0.06253 |  88.8%
+   400 | 0.00508 | 0.06244 |  92.5%
+
+STEADY STATE (match 400): pL=0.00508  pS=0.06244   pS/pL = 12.3x
+  -> 92.5% of every rating update lands in the fast component,
+     which decays by rhoFast=0.9 per match (half-life 6.6 matches).
+  -> only 7.5% is permanent, and muS is ZEROED at every season boundary.
+
+--- season boundary: pL += seasonVar(0.03), pS := fastPriorVar(0.25), muS := 0 ---
+ season match   1 | pL=0.03391 | slow gain kL=0.02488 | fast gain kS=0.17734
+ season match   5 | pL=0.03108 | slow gain kL=0.02086 | fast gain kS=0.06561
+ season match  10 | pL=0.02756 | slow gain kL=0.02947 | fast gain kS=0.07538
+ season match  20 | pL=0.02254 | slow gain kL=0.01700 | fast gain kS=0.04703
+ season match  40 | pL=0.01647 | slow gain kL=0.01822 | fast gain kS=0.07052
+ season match  60 | pL=0.01322 | slow gain kL=0.00723 | fast gain kS=0.03459
+
+Over a 60-match season, summed slow gain = 0.949, summed fast gain = 3.323
+Fraction of a season's total evidence that reaches the CARRIED (slow) mean: 22.2%

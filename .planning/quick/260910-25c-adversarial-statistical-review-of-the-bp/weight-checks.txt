@@ -1,0 +1,16 @@
+CLAIM: the renormalized rank weights make the model SUPER-additive, never sub-additive.
+
+ alliance (mu1,mu2,mu3)        plain sum   BPR weighted   ratio
+ (1.00, 1.00, 1.00)           3.000       3.000      1.0000
+ (1.20, 1.00, 0.80)           3.000       3.136      1.0455
+ (2.00, 1.00, 0.50)           3.500       4.023      1.1494
+ (3.00, 0.60, 0.40)           4.000       4.936      1.2341
+ (1.50, 1.45, 1.40)           4.350       4.384      1.0078
+ (0.60, 0.50, 0.40)           1.500       1.568      1.0455
+
+CLAIM: exactly-tied ratings are broken by ARRAY INDEX (driver-station order).
+ three identical rookies (0.55,0.55,0.55) -> weights 1.3636, 0.9545, 0.6818
+ slot 1 absorbs 100% more Kalman credit than slot 3, on identical evidence.
+
+CLAIM: unequal weights inflate the alliance predictive variance (pv = sum w_i^2 p_i).
+ sum w^2 = 3.2355 vs 3.0000 additive -> pv inflated 7.9% for equal-strength teams.

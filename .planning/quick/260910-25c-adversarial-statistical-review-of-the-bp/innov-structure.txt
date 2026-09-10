@@ -1,0 +1,24 @@
+TEST 1 - within-match correlation of the two alliances' innovations
+  matches n = 83094
+  corr(z_red, z_blue) = 0.0111     [the model assumes 0]
+  implied honest margin variance = 0.989x the variance BPR states
+  -> a scale-only correction of sqrt(1-rho) = 0.9945 on the margin sd,
+     which is what a learned tau near 0.99 would look like.
+
+TEST 2 - OLS of z on own and opponent predicted strength
+  (naive SEs; observations cluster by match and event, so intervals are optimistic)
+
+  ALL design-era  (n=166188)
+    intercept        0.3499
+    OWN strength     0.0434  (+-0.0048)   <- negative = winner's curse / selection
+    OPPONENT strength -0.1488  (+-0.0048)   <- negative = unmodelled defensive suppression
+
+  non-championship only  (n=152640)
+    intercept        0.2745
+    OWN strength     0.0654  (+-0.0049)   <- negative = winner's curse / selection
+    OPPONENT strength -0.1379  (+-0.0049)   <- negative = unmodelled defensive suppression
+
+  championship only  (n=13548)
+    intercept        1.1569
+    OWN strength     -0.2168  (+-0.0175)   <- negative = winner's curse / selection
+    OPPONENT strength -0.2064  (+-0.0175)   <- negative = unmodelled defensive suppression

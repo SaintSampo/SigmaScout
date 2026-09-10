@@ -1,0 +1,23 @@
+Innovation diagnostics - 2022 weeks 0,1,2,3,4,5,6,7,8
+  alliance observations: 27552
+  mean z -0.0113   sd z 0.7761   (sd should be 1.000)
+  -> stated variance is 1.66x the realized variance
+     (a global level error is largely absorbed by the online tau;
+      the quintile trend below is the part tau cannot fix)
+
+sd(z) by predicted alliance strength (quintiles of mu)
+  quintile      n   mean mu   sd z
+  Q1         5510    1.706   0.5507
+  Q2         5510    2.429   0.6809
+  Q3         5510    2.946   0.7409
+  Q4         5510    3.499   0.8020
+  Q5         5512    4.559   1.0011
+
+sd(z) by week
+  week 0  n  3554  mean 0.0155  sd 0.8663
+  week 1  n  3990  mean 0.0013  sd 0.8435
+  week 2  n  4274  mean 0.0283  sd 0.8107
+  week 3  n  5244  mean 0.0023  sd 0.7553
+  week 4  n  4024  mean 0.0103  sd 0.7494
+  week 5  n  4836  mean -0.0066  sd 0.6930
+  week 6  n  1630  mean -0.3159  sd 0.5772
