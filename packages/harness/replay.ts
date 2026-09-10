@@ -24,6 +24,7 @@
 import type { AlgorithmModule, MatchResult, Prediction } from "../core/algorithms/types.js";
 import { toLeakProofUpcoming } from "../core/algorithms/leakProof.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
+import { applyColdStartTie, NO_COLD_START_INDEX } from "../core/scoring/coldStart.js";
 import { selectMatchesChronological, type Corpus } from "../corpus/db.js";
 
 export { toLeakProofUpcoming, OUTCOME_KEYS } from "../core/algorithms/leakProof.js";
@@ -46,6 +47,17 @@ export interface PredictionRecord {
    * to be.
    */
   swingBand?: { red?: number; blue?: number };
+  /**
+   * D-01/D-02 (quick task 260909-t5q): present ONLY when `true` — the single
+   * source of truth for whether `WalkForwardSimulator` recognized this match
+   * as cold start (all six robots making their corpus-global first
+   * appearance) and forced `prediction.pRedWin` to exactly 0.5. Every
+   * downstream consumer (`packages/harness/score.ts`'s
+   * `HarnessPredictionInput.isColdStart`, the published Compare/match-table
+   * surfaces) reads THIS stamp rather than re-deriving the predicate, so the
+   * unified answer cannot drift as it is threaded through the pipeline.
+   */
+  coldStart?: true;
 }
 
 /** D-22: one (match, algorithm) prediction from a multi-algorithm shared-stream run. */
@@ -53,6 +65,8 @@ export interface MultiAlgorithmPredictionRecord {
   match: MatchResult;
   algorithmId: string;
   prediction: Prediction;
+  /** See `PredictionRecord.coldStart`'s doc comment for the full contract — identical here. */
+  coldStart?: true;
 }
 
 /** Options for `buildSeasonStream`. */
@@ -98,9 +112,22 @@ export function buildSeasonStream(
 
 export class WalkForwardSimulator {
   readonly #matches: readonly MatchResult[];
+  readonly #coldStartIndex: ReadonlySet<string>;
 
-  constructor(chronologicalMatches: readonly MatchResult[]) {
+  /**
+   * `coldStartIndex` (D-01, quick task 260909-t5q) defaults to
+   * `NO_COLD_START_INDEX` — every existing caller that does not pass one is
+   * provably unaffected. The simulator CANNOT derive this itself: it holds
+   * only one season's (or one event's) stream, and building an index from
+   * that alone would silently produce D-01's REJECTED season-global
+   * definition rather than the required corpus-global one. A caller with a
+   * corpus-global view must build a real index (e.g.
+   * `packages/harness/corpusColdStart.ts`'s `corpusColdStartIndex`) and pass
+   * it explicitly.
+   */
+  constructor(chronologicalMatches: readonly MatchResult[], coldStartIndex: ReadonlySet<string> = NO_COLD_START_INDEX) {
     this.#matches = chronologicalMatches;
+    this.#coldStartIndex = coldStartIndex;
   }
 
   /**
@@ -120,8 +147,15 @@ export class WalkForwardSimulator {
     let state = algorithm.initState([...teams]);
     const predictions: PredictionRecord[] = [];
     for (const result of this.#matches) {
-      const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
-      predictions.push({ match: result, prediction });
+      const rawPrediction = algorithm.predict(state, toLeakProofUpcoming(result));
+      // D-01: the stamp is the single source of truth — nothing downstream
+      // re-derives cold start, every consumer reads this.
+      const isColdStart = this.#coldStartIndex.has(result.matchKey);
+      const prediction = isColdStart ? applyColdStartTie(rawPrediction) : rawPrediction;
+      predictions.push({ match: result, prediction, ...(isColdStart ? { coldStart: true as const } : {}) });
+      // The `update` call is UNCHANGED — a cold-start match still teaches
+      // the algorithm (this is the match that ends the team's cold-start
+      // status for every LATER match), it just is not scored (D-02).
       state = algorithm.update(state, result);
     }
     return predictions;
@@ -197,10 +231,21 @@ export class WalkForwardSimulator {
       // keeping the inner loop's shape unchanged for the common case where
       // no algorithm asks for the last-official instant at all.
       const isOfficial = wantsLastOfficial && isOfficialEventType(result.eventType);
+      // D-01: also a property of the MATCH, not of any algorithm — computed
+      // once per match so every algorithm this run scores over the SAME
+      // match receives the identical cold-start answer (this IS D-01's
+      // unification, mechanically: one lookup shared across the inner loop).
+      const isColdStart = this.#coldStartIndex.has(result.matchKey);
       for (const algorithm of algorithms) {
         const state = states.get(algorithm.id);
-        const prediction = algorithm.predict(state, upcoming);
-        records.push({ match: result, algorithmId: algorithm.id, prediction });
+        const rawPrediction = algorithm.predict(state, upcoming);
+        const prediction = isColdStart ? applyColdStartTie(rawPrediction) : rawPrediction;
+        records.push({
+          match: result,
+          algorithmId: algorithm.id,
+          prediction,
+          ...(isColdStart ? { coldStart: true as const } : {}),
+        });
         const nextState = algorithm.update(state, result);
         states.set(algorithm.id, nextState);
         // The stream is chronological, so the LAST write here is by

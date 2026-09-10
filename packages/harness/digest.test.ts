@@ -162,6 +162,7 @@ describe("promoted algorithm version reproducibility (D-15/SC-5)", () => {
           actualWinner: r.match.winner,
           isOffseason: false,
           isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+          isColdStart: false,
         }));
         // D-2 (quick task 260903-n2o): the sentinel — this reproducibility
         // gate reads only brierScore/winnerAccuracy below, never

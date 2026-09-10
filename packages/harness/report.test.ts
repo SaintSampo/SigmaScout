@@ -25,7 +25,7 @@ const slice2024Qual: ScoreSlice = {
   scoredCount: 3,
   tieCount: 0,
   noCallCount: 0,
-  exclusionCounts: { offseason: 1, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+  exclusionCounts: { offseason: 1, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
   candidateCount: 4,
   calibrationBins: calibrationBins([{ pRedWin: 0.7, actualWinner: "red" }], 10),
 };
@@ -43,7 +43,7 @@ const slice2024Elim: ScoreSlice = {
   scoredCount: 0,
   tieCount: 0,
   noCallCount: 0,
-  exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 2, quarantined: 0 },
+  exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 2, quarantined: 0, coldStart: 0 },
   candidateCount: 2,
   calibrationBins: calibrationBins([], 10),
 };
@@ -58,7 +58,7 @@ const slice2025Combined: ScoreSlice = {
   scoredCount: 3,
   tieCount: 0,
   noCallCount: 0,
-  exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+  exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
   candidateCount: 3,
   calibrationBins: populatedBins2025,
 };

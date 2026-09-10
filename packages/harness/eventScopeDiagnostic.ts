@@ -695,6 +695,10 @@ async function main(): Promise<void> {
         actualWinner: record.actualWinner,
         isOffseason: offseasonEventKeys.has(record.eventKey),
         isSurrogateAffected: surrogateAffectedByMatchKey.get(record.matchKey) ?? false,
+        // Quick task 260909-t5q: this diagnostic reads a JSONL sidecar
+        // record, not a `PredictionRecord` with a cold-start stamp on it —
+        // no record is reachable here, so it makes no cold-start claim.
+        isColdStart: false,
       }));
 
       const unbucketed = poolPredictions(seasonPredictions);

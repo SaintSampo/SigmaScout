@@ -284,15 +284,24 @@ function replaySeasons(db: Corpus, seasons: readonly number[], paramsFile: strin
         // `buildSeasonStream` already excluded offseason events (D-06's default).
         isOffseason: false,
         isSurrogateAffected,
+        // Quick task 260909-t5q: read off the record's own stamp, same as
+        // every other producer — this script's `WalkForwardSimulator`
+        // construction is deliberately left on the default (no-op)
+        // cold-start index, so this is always `false` today, but the
+        // vocabulary stays single-source rather than a second hardcoded
+        // literal.
+        isColdStart: r.coldStart === true,
       });
 
-      // The SAME four exclusions `aggregateScores` applies, in the same
-      // order. Applying a different (or differently-ordered) filter would
-      // make Brier and MAE describe two different populations and reintroduce
-      // — inside the measuring instrument — exactly the silent-narrowing
-      // failure `score.ts`'s quarantine bounds exist to prevent. The
-      // agreement is CHECKED below, not assumed.
+      // The SAME five exclusions `aggregateScores` applies, in the same
+      // order (quick task 260909-t5q added cold start, immediately alongside
+      // surrogate). Applying a different (or differently-ordered) filter
+      // would make Brier and MAE describe two different populations and
+      // reintroduce — inside the measuring instrument — exactly the
+      // silent-narrowing failure `score.ts`'s quarantine bounds exist to
+      // prevent. The agreement is CHECKED below, not assumed.
       if (isSurrogateAffected) continue;
+      if (r.coldStart === true) continue;
       if (r.match.winner === null) continue;
       if (!isValidPRedWin(r.prediction.pRedWin)) continue;
 

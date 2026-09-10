@@ -71,7 +71,7 @@ function buildSlice(overrides: Partial<ScoreSlice> = {}): ScoreSlice {
     scoredCount: 120,
     tieCount: 0,
     noCallCount: 0,
-    exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+    exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
     candidateCount: 120,
     calibrationBins: [],
     ...overrides,
@@ -95,6 +95,7 @@ describe("mapRecordsToHarnessPredictionInput", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     });
   });
 

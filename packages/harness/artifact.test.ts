@@ -20,6 +20,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     actualWinner: "red",
     isOffseason: false,
     isSurrogateAffected: false,
+    isColdStart: false,
   },
   {
     matchKey: "2024test_qm2",
@@ -33,6 +34,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     actualWinner: "blue",
     isOffseason: false,
     isSurrogateAffected: false,
+    isColdStart: false,
   },
   {
     matchKey: "2025test_qm1",
@@ -46,6 +48,7 @@ const FIXTURE_PREDICTIONS: HarnessPredictionInput[] = [
     actualWinner: "red",
     isOffseason: false,
     isSurrogateAffected: false,
+    isColdStart: false,
   },
 ];
 

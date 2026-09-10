@@ -73,6 +73,7 @@ import {
 import { buildPreScheduleArtifact } from "./preSchedule.js";
 import { defaultMatchesPerTeam, matchesPerTeamFor, ScheduleTemplateUnavailableError } from "./scheduleTemplates.js";
 import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionRecord } from "./replay.js";
+import { corpusColdStartIndex } from "./corpusColdStart.js";
 import {
   artifactKey,
   CompareArtifactSchema,
@@ -733,7 +734,7 @@ function upcomingSwingBandFields(
 }
 
 export function buildEventArtifact(params: BuildEventArtifactParams): EventArtifact {
-  const matches = params.predictions.map(({ match, prediction, swingBand }) => ({
+  const matches = params.predictions.map(({ match, prediction, swingBand, coldStart }) => ({
     matchKey: match.matchKey,
     compLevel: match.compLevel,
     setNumber: match.setNumber,
@@ -799,6 +800,11 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
+    // D-01/D-03 (quick task 260909-t5q): spread from the prediction
+    // record's own stamp, empty when absent — the key never appears as
+    // `false`, matching this row's own `rank`/`totalTeams`-style
+    // conditional-spread convention elsewhere in this file.
+    ...(coldStart === true ? { coldStart: true as const } : {}),
     // D-12, plan 08-02 Task 2: the same quantity and the same guard as
     // `buildTeamSeasonArtifact`'s own pair (see it rather than this comment
     // restating it) — routed through `toIntegerRpOrNull` rather than a raw
@@ -1326,6 +1332,13 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           actualWinner: match.winner,
           actualRedScore: match.redScore,
           actualBlueScore: match.blueScore,
+          // D-01/D-03 (quick task 260909-t5q): the mirror of
+          // `buildEventArtifact`'s own conditional spread — see its comment
+          // for the full contract. `record` is narrowed on `"winner" in
+          // match`, not on its own union member, so `"coldStart" in record`
+          // is the safe way to read the stamp: `UpcomingPredictionRecord`
+          // never declares the field at all, not even optionally.
+          ...("coldStart" in record && record.coldStart === true ? { coldStart: true as const } : {}),
           // D-02 (Phase 6): never coerced null -> 0 — see TeamSeasonMatchSchema's
           // actualRedRp/actualBlueRp doc comment for the full null contract.
           // toIntegerRpOrNull: defence-in-depth against a non-integer value
@@ -2366,7 +2379,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       }
     };
 
-    const simulator = new WalkForwardSimulator(stream);
+    // D-01 (quick task 260909-t5q): `db` is the corpus handle this whole
+    // function already has open.
+    const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
     const records = simulator.runAll(options.algorithms, teamsThisSeason, initialStates, onMatchComplete);
 
     for (const algorithm of options.algorithms) {
@@ -2394,7 +2409,15 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     for (const r of records) {
       // One object, both maps below — the event page and the team page cannot
       // show different numbers for this match because there is only one number.
-      const pr: PredictionRecord = layers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
+      // D-01 (quick task 260909-t5q): `foldPlayed` builds a FRESH
+      // `PredictionRecord` from just `(match, prediction)` and has no
+      // opinion about cold start, so the raw record's own stamp is spread
+      // in here — the single source of truth threads through this fold
+      // rather than being silently dropped by it.
+      const pr: PredictionRecord = {
+        ...layers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction),
+        ...(r.coldStart === true ? { coldStart: true as const } : {}),
+      };
       const eventMap = perAlgoEventMatches.get(r.algorithmId)!;
       const eventList = eventMap.get(r.match.eventKey) ?? [];
       eventList.push(pr);
@@ -2479,6 +2502,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       actualWinner: r.match.winner,
       isOffseason: offseasonEventKeys.has(r.match.eventKey),
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+      isColdStart: r.coldStart === true,
     }));
 
     for (const algorithm of options.algorithms) {
@@ -3261,7 +3285,9 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
       hasLastState = true;
       stateByEventKey.set(match.eventKey, state);
     };
-    const simulator = new WalkForwardSimulator(stream);
+    // D-01 (quick task 260909-t5q): `db` is the corpus handle this function
+    // already has open.
+    const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
     const records = simulator.runAll([algorithm], teamsThisSeason, undefined, onMatchComplete);
 
     // The SAME level-2 layer `publishSeasons` drives, over the SAME whole-season
@@ -3278,7 +3304,13 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     const layer = new SigmaScoutLayer(RP_RULE_MODULES[season]);
     const predictions: PredictionRecord[] = [];
     for (const r of records) {
-      const enriched = layer.foldPlayed(r.match, r.prediction);
+      // D-01 (quick task 260909-t5q): see the seasons-path loop's identical
+      // comment above `foldPlayed` — the raw record's cold-start stamp must
+      // be spread back in, since the fold itself has no opinion about it.
+      const enriched: PredictionRecord = {
+        ...layer.foldPlayed(r.match, r.prediction),
+        ...(r.coldStart === true ? { coldStart: true as const } : {}),
+      };
       if (r.match.eventKey === eventKey) predictions.push(enriched);
     }
     const finalState = records.finalStates.get(algorithm.id);

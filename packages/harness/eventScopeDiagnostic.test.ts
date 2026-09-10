@@ -158,6 +158,7 @@ function predictionInput(matchKey: string): HarnessPredictionInput {
     actualWinner: "red",
     isOffseason: false,
     isSurrogateAffected: false,
+    isColdStart: false,
   };
 }
 
@@ -182,7 +183,7 @@ describe("computeWarmCut / assertWarmCutPartition — D-09's warm-only cut", () 
   });
 });
 
-const EMPTY_EXCLUSIONS = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 };
+const EMPTY_EXCLUSIONS = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 };
 
 /** Minimal synthetic `ScoreSlice` fixture — every field `poolSlices` reads is explicit, everything else is a plausible filler. */
 function scoreSlice(overrides: Partial<ScoreSlice>): ScoreSlice {

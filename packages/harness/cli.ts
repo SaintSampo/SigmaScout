@@ -84,6 +84,7 @@ import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
 import { makeSeasonalSigma1 } from "./seasonParamSets.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
+import { corpusColdStartIndex } from "./corpusColdStart.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
 import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
@@ -590,7 +591,11 @@ async function runSeason(
       }
     : undefined;
 
-  const simulator = new WalkForwardSimulator(stream);
+  // D-01 (quick task 260909-t5q): a real corpus-global index, from the same
+  // `db` handle this function already has open — see
+  // `corpusColdStartIndex`'s own header for why offseason/preseason matches
+  // are included on purpose.
+  const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
   const records = simulator.runAll(algorithms, teams, initialStates, onMatchComplete);
 
   const predictionsWriter = sidecars?.predictionsWriter;
@@ -637,6 +642,7 @@ async function runSeason(
     actualWinner: r.match.winner,
     isOffseason: offseasonEventKeys.has(r.match.eventKey),
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+    isColdStart: r.coldStart === true,
   }));
 
   for (const algorithm of algorithms) {
@@ -892,7 +898,9 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
 
     const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
-    const simulator = new WalkForwardSimulator(matches);
+    // D-01 (quick task 260909-t5q): `db` is the same corpus handle this
+    // single-event CLI already has open.
+    const simulator = new WalkForwardSimulator(matches, corpusColdStartIndex(db));
     const records = simulator.runAll(algorithms, teams);
     reportBreakdownParseFailures(algorithms, records.finalStates);
 
@@ -910,6 +918,7 @@ async function runEventMode(eventKey: string, algorithms: readonly AlgorithmModu
       actualWinner: r.match.winner,
       isOffseason,
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+      isColdStart: r.coldStart === true,
     }));
 
     // D-2 (quick task 260903-krp): this legacy single-event smoke path scores

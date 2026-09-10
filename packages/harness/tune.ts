@@ -445,7 +445,7 @@ interface ReplayedPrediction extends HarnessPredictionInput {
 }
 
 /**
- * The FOUR exclusions `aggregateScores` (`score.ts`) applies to its own
+ * The FIVE exclusions `aggregateScores` (`score.ts`) applies to its own
  * scorable population, in the SAME order, mirrored here rather than
  * re-derived so the tuner's own accuracy blocks (`buildEventAccuracyBlocks`
  * below) and the acceptance path's `scoreOriginRows` can never silently
@@ -454,12 +454,25 @@ interface ReplayedPrediction extends HarnessPredictionInput {
  * to call this — it is out of this task's file scope — so this predicate is
  * a mirror, not a shared implementation; keeping the two in agreement is a
  * discipline `score.test.ts`'s own equivalence coverage checks.
+ *
+ * Quick task 260909-t5q added the `isColdStart` check, immediately alongside
+ * the existing surrogate check — without it the tuner would optimize against
+ * a different population than `aggregateScores` reports, exactly the
+ * private-re-derivation drift `accuracyCall` was hoisted into `brier.ts` to
+ * prevent.
  */
 export function isScorablePrediction<
-  T extends { isOffseason: boolean; isSurrogateAffected: boolean; actualWinner: MatchOutcome | null; pRedWin: number },
+  T extends {
+    isOffseason: boolean;
+    isSurrogateAffected: boolean;
+    isColdStart: boolean;
+    actualWinner: MatchOutcome | null;
+    pRedWin: number;
+  },
 >(p: T): p is T & { actualWinner: MatchOutcome } {
   if (p.isOffseason) return false;
   if (p.isSurrogateAffected) return false;
+  if (p.isColdStart) return false;
   if (p.actualWinner === null) return false;
   if (!isValidPRedWin(p.pRedWin)) return false;
   return true;
@@ -682,6 +695,12 @@ async function runBoundedSeasons(
       // events (D-06 default) — every replayed match here is non-offseason.
       isOffseason: false,
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+      // Quick task 260909-t5q: read off the record's own stamp, same as every
+      // other producer — this construction's `WalkForwardSimulator` is
+      // deliberately left on the default (no-op) cold-start index, so this
+      // is always `false` today, but the vocabulary stays single-source
+      // rather than a second hardcoded literal.
+      isColdStart: r.coldStart === true,
     }));
 
     // Rule 1 (bug) fix, discovered running this plan's own real full-season

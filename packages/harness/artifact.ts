@@ -42,6 +42,15 @@ const ExclusionCountsSchema = z.object({
   missingResult: z.number().int().nonnegative(),
   /** D-06 / 01-REVIEW WR-05: see `score.ts`'s `ExclusionCounts.quarantined` doc comment. */
   quarantined: z.number().int().nonnegative(),
+  /**
+   * D-02 (quick task 260909-t5q): see `score.ts`'s `ExclusionCounts.coldStart`
+   * doc comment. REQUIRED here, unlike `pageArtifacts.ts`'s published
+   * `CompareExclusionCountsSchema` counterpart: this run-output artifact is
+   * regenerated on every harness run, never a live-served R2 file, so a
+   * required key is safe — there is no existing artifact on disk this schema
+   * must still parse.
+   */
+  coldStart: z.number().int().nonnegative(),
 });
 
 const ScoreSliceSchema = z.object({

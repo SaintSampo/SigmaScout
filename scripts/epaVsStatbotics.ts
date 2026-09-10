@@ -284,6 +284,12 @@ export function mapRecordsToHarnessPredictionInput(
     actualWinner: r.match.winner,
     isOffseason: r.match.eventType === OFFSEASON_EVENT_TYPE,
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+    // Quick task 260909-t5q: read off the record's own stamp, same as every
+    // other producer — this script's `WalkForwardSimulator` construction is
+    // deliberately left on the default (no-op) cold-start index, so this is
+    // always `false` today, but the vocabulary stays single-source rather
+    // than a second hardcoded literal.
+    isColdStart: r.coldStart === true,
   }));
 }
 

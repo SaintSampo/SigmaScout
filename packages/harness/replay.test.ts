@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
 import { toLeakProofUpcoming, WalkForwardSimulator } from "./replay.js";
+import { NO_COLD_START_INDEX } from "../core/scoring/coldStart.js";
 
 function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   return {
@@ -310,5 +311,107 @@ describe("WalkForwardSimulator", () => {
 
     expect(runA).toEqual(["2024test_qm1", "2024test_qm2", "2024test_qm3"]);
     expect(runB).toEqual(runA);
+  });
+});
+
+/**
+ * D-01 (quick task 260909-t5q): `WalkForwardSimulator`'s own cold-start
+ * seam. Uses a stub algorithm that returns a fixed, deliberately
+ * NOT-0.5 probability so a forced tie is unambiguous in these assertions.
+ */
+describe("WalkForwardSimulator — cold-start index (D-01/D-02)", () => {
+  const matches: MatchResult[] = [
+    makeMatch({ matchKey: "2024test_qm1", matchNumber: 1, winner: "red", redScore: 100, blueScore: 80 }),
+    makeMatch({ matchKey: "2024test_qm2", matchNumber: 2, winner: "blue", redScore: 60, blueScore: 90 }),
+  ];
+
+  function stubAlgorithm(fixedPRedWin: number): AlgorithmModule<null> {
+    return {
+      id: "stub-fake",
+      version: "0.0.0",
+      initState: () => null,
+      predict: () => ({ winner: "red", pRedWin: fixedPRedWin, redScore: 55, blueScore: 45 }),
+      update: (state) => state,
+      teamMetrics: () => ({}),
+    };
+  }
+
+  it("given an index containing a match's key, that match's recorded prediction carries pRedWin exactly 0.5 and the record carries the stamp, for an algorithm that would otherwise have returned something else", () => {
+    const index = new Set(["2024test_qm1"]);
+    const simulator = new WalkForwardSimulator(matches, index);
+    const records = simulator.run(stubAlgorithm(0.9), []);
+
+    const coldStartRecord = records.find((r) => r.match.matchKey === "2024test_qm1")!;
+    expect(coldStartRecord.prediction.pRedWin).toBe(0.5);
+    expect(coldStartRecord.coldStart).toBe(true);
+
+    const ordinaryRecord = records.find((r) => r.match.matchKey === "2024test_qm2")!;
+    expect(ordinaryRecord.prediction.pRedWin).toBe(0.9);
+    expect(ordinaryRecord.coldStart).toBeUndefined();
+  });
+
+  it("given the unavailable-index constant (the default), the recorded predictions are unchanged from today and no record carries the stamp", () => {
+    const simulator = new WalkForwardSimulator(matches, NO_COLD_START_INDEX);
+    const records = simulator.run(stubAlgorithm(0.9), []);
+
+    for (const record of records) {
+      expect(record.prediction.pRedWin).toBe(0.9);
+      expect(record.coldStart).toBeUndefined();
+    }
+  });
+
+  it("omitting the constructor argument entirely behaves identically to passing NO_COLD_START_INDEX explicitly", () => {
+    const simulator = new WalkForwardSimulator(matches);
+    const records = simulator.run(stubAlgorithm(0.9), []);
+
+    for (const record of records) {
+      expect(record.prediction.pRedWin).toBe(0.9);
+      expect(record.coldStart).toBeUndefined();
+    }
+  });
+
+  it("runAll with three stub algorithms returning three different probabilities: on a cold-start match all three records come out at exactly 0.5 (D-01's unification, pinned)", () => {
+    const index = new Set(["2024test_qm1"]);
+    const simulator = new WalkForwardSimulator(matches, index);
+    const algorithms = [stubAlgorithm(0.1), stubAlgorithm(0.5001), stubAlgorithm(0.999)];
+    // Distinguish the three algorithms by id so records are attributable.
+    const namedAlgorithms = algorithms.map((a, i) => ({ ...a, id: `stub-${i}` }));
+
+    const records = simulator.runAll(namedAlgorithms, []);
+    const coldStartRecords = records.filter((r) => r.match.matchKey === "2024test_qm1");
+    expect(coldStartRecords).toHaveLength(3);
+    for (const record of coldStartRecords) {
+      expect(record.prediction.pRedWin).toBe(0.5);
+      expect(record.coldStart).toBe(true);
+    }
+
+    const ordinaryRecords = records.filter((r) => r.match.matchKey === "2024test_qm2");
+    expect(ordinaryRecords).toHaveLength(3);
+    const ordinaryProbabilities = ordinaryRecords.map((r) => r.prediction.pRedWin).sort();
+    expect(ordinaryProbabilities).toEqual([0.1, 0.5001, 0.999].sort());
+    for (const record of ordinaryRecords) {
+      expect(record.coldStart).toBeUndefined();
+    }
+  });
+
+  it("the `update` call still runs for a cold-start match — a cold-start match still teaches the algorithm, it just is not scored", () => {
+    const index = new Set(["2024test_qm1"]);
+    const updateLog: string[] = [];
+    const algorithm: AlgorithmModule<null> = {
+      id: "update-tracking-fake",
+      version: "0.0.0",
+      initState: () => null,
+      predict: () => ({ winner: "red", pRedWin: 0.9, redScore: 55, blueScore: 45 }),
+      update: (state, result) => {
+        updateLog.push(result.matchKey);
+        return state;
+      },
+      teamMetrics: () => ({}),
+    };
+
+    const simulator = new WalkForwardSimulator(matches, index);
+    simulator.run(algorithm, []);
+
+    expect(updateLog).toEqual(["2024test_qm1", "2024test_qm2"]);
   });
 });

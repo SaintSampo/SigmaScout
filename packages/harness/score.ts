@@ -143,6 +143,22 @@ export interface ExclusionCounts {
    * rationale.
    */
   quarantined: number;
+  /**
+   * D-02 (quick task 260909-t5q): a match where all six robots are making
+   * their corpus-global first appearance — no prior data exists for any of
+   * them, so every algorithm predicts a forced tie (`pRedWin === 0.5`, see
+   * `packages/core/scoring/coldStart.ts`) rather than a genuine call.
+   * Deliberately DIVERGES from the D-Q3 no-call contract just above
+   * (`brier.ts`'s header): D-Q3 counts an ordinary `pRedWin === 0.5`
+   * prediction as a miss because the model HAD information and chose not to
+   * use it to make a call; this bucket is keyed off the structural
+   * `isColdStart` flag alone, never off the probability value, because here
+   * there was no information available to call the match AT ALL. Excluded
+   * from both `scoreSet` and `calibrationBins`, exactly like `offseason`/
+   * `surrogateAffected`/`missingResult` above — counted, never silently
+   * dropped.
+   */
+  coldStart: number;
 }
 
 /**
@@ -215,6 +231,15 @@ export interface HarnessPredictionInput {
   actualWinner: MatchOutcome | null;
   isOffseason: boolean;
   isSurrogateAffected: boolean;
+  /**
+   * D-01/D-02 (quick task 260909-t5q): true iff `packages/harness/replay.ts`'s
+   * `WalkForwardSimulator` stamped this prediction's record as cold start —
+   * the SINGLE source of truth every producer below reads rather than
+   * re-deriving. REQUIRED, not optional with a `false` default: an optional
+   * field would let a producer silently opt out of the unification D-01
+   * exists to guarantee, and the typechecker would never catch it.
+   */
+  isColdStart: boolean;
 }
 
 export interface ScoreSlice {
@@ -244,7 +269,19 @@ export interface ScoreSlice {
   calibrationBins: CalibrationBin[];
 }
 
-const EMPTY_EXCLUSIONS: ExclusionCounts = { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 };
+/**
+ * D-02 (quick task 260909-t5q): exported so `score.test.ts` can pin the
+ * exact key set with a single `toEqual` against a literal — a future sixth
+ * exclusion key added here without a matching test update fails loudly
+ * rather than being silently skipped by a test that iterates a key list.
+ */
+export const EMPTY_EXCLUSIONS: ExclusionCounts = {
+  offseason: 0,
+  surrogateAffected: 0,
+  missingResult: 0,
+  quarantined: 0,
+  coldStart: 0,
+};
 
 /**
  * `aggregateScores`' options. `corpusSeasons` is REQUIRED, with no default
@@ -349,6 +386,16 @@ export function aggregateScores(
           }
           if (candidate.isSurrogateAffected) {
             exclusionCounts.surrogateAffected += 1;
+            continue;
+          }
+          // D-02: placed AFTER surrogate and BEFORE missing-result, so every
+          // existing exclusion's attribution stays byte-identical — a
+          // candidate that is ALSO offseason or surrogate-affected is
+          // attributed to that earlier branch, never double-counted here.
+          // This is what makes a future republish's delta a pure transfer
+          // out of scoredCount into this one bucket (Task 3's census).
+          if (candidate.isColdStart) {
+            exclusionCounts.coldStart += 1;
             continue;
           }
           if (candidate.actualWinner === null) {

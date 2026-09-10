@@ -244,6 +244,7 @@ describe("aggregateScoresForRun", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
       ...overrides,
     };
   }

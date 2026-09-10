@@ -323,7 +323,7 @@ function fakeSlice(algorithmId: string, season: number, brierScore: number, winn
     scoredCount: 10,
     tieCount: 0,
     noCallCount: 0,
-    exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 },
+    exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
     candidateCount: 10,
     calibrationBins: [],
   };

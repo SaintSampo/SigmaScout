@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateScores,
   ELIGIBILITY_NOT_CLAIMED,
+  EMPTY_EXCLUSIONS,
   isHeadlineEligible,
   MIN_PRIOR_SEASONS_FOR_HEADLINE,
   QUARANTINE_ABSOLUTE_LIMIT,
@@ -32,6 +33,7 @@ describe("aggregateScores — 2019/2020 unblocked (D-1/D-2 tracer)", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     };
   }
 
@@ -115,6 +117,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     };
   }
 
@@ -185,6 +188,7 @@ describe("aggregateScores", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
     {
       matchKey: "2024test_qm2",
@@ -198,6 +202,7 @@ describe("aggregateScores", () => {
       actualWinner: "blue",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
     {
       matchKey: "2024off_qm1",
@@ -211,6 +216,7 @@ describe("aggregateScores", () => {
       actualWinner: "red",
       isOffseason: true,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
     {
       matchKey: "2024test_qm3",
@@ -224,6 +230,7 @@ describe("aggregateScores", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: true,
+      isColdStart: false,
     },
     {
       matchKey: "2024test_qm4",
@@ -237,6 +244,7 @@ describe("aggregateScores", () => {
       actualWinner: null,
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
     {
       matchKey: "2024test_sf1",
@@ -250,6 +258,7 @@ describe("aggregateScores", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
     {
       matchKey: "2025test_qm1",
@@ -263,6 +272,7 @@ describe("aggregateScores", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     },
   ];
 
@@ -289,13 +299,15 @@ describe("aggregateScores", () => {
       surrogateAffected: 1,
       missingResult: 1,
       quarantined: 0,
+      coldStart: 0,
     });
     const total =
       qualSlice2024.scoredCount +
       qualSlice2024.exclusionCounts.offseason +
       qualSlice2024.exclusionCounts.surrogateAffected +
       qualSlice2024.exclusionCounts.missingResult +
-      qualSlice2024.exclusionCounts.quarantined;
+      qualSlice2024.exclusionCounts.quarantined +
+      qualSlice2024.exclusionCounts.coldStart;
     expect(total).toBe(qualSlice2024.candidateCount);
   });
 
@@ -306,7 +318,8 @@ describe("aggregateScores", () => {
         slice.exclusionCounts.offseason +
         slice.exclusionCounts.surrogateAffected +
         slice.exclusionCounts.missingResult +
-        slice.exclusionCounts.quarantined;
+        slice.exclusionCounts.quarantined +
+        slice.exclusionCounts.coldStart;
       expect(total).toBe(slice.candidateCount);
     }
   });
@@ -366,6 +379,7 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
           actualWinner: "red",
           isOffseason: false,
           isSurrogateAffected: false,
+          isColdStart: false,
         });
       }
     }
@@ -416,6 +430,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
       ...overrides,
     };
   }
@@ -471,7 +486,8 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
       combined.exclusionCounts.offseason +
       combined.exclusionCounts.surrogateAffected +
       combined.exclusionCounts.missingResult +
-      combined.exclusionCounts.quarantined;
+      combined.exclusionCounts.quarantined +
+      combined.exclusionCounts.coldStart;
     expect(total).toBe(combined.candidateCount);
   });
 
@@ -548,6 +564,7 @@ describe("aggregateScores — D-2 selectedOnSeasons contract", () => {
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     };
   }
 
@@ -597,6 +614,7 @@ describe("aggregateScores — selectedOnSeasons feeds only headlineEligible (no-
           actualWinner: i % 2 === 0 ? "red" : "blue",
           isOffseason: false,
           isSurrogateAffected: false,
+          isColdStart: false,
         });
       }
     }
@@ -661,6 +679,7 @@ describe("aggregateScores — D-3 pin: vpr's eligible set is exactly {2025, 2026
       actualWinner: "red",
       isOffseason: false,
       isSurrogateAffected: false,
+      isColdStart: false,
     }));
   }
 
@@ -688,5 +707,112 @@ describe("aggregateScores — D-3 pin: vpr's eligible set is exactly {2025, 2026
     );
     expect(eligibleSeasonsFor("epa")).toEqual(expectedBaselineEligible);
     expect(eligibleSeasonsFor("opr")).toEqual(expectedBaselineEligible);
+  });
+});
+
+/** D-02 (quick task 260909-t5q): the equality pin the plan's own must_haves require — a future sixth key must fail loudly. */
+describe("EMPTY_EXCLUSIONS — exact five-key equality pin (D-02)", () => {
+  it("is exactly these five keys, all zero — never a subset, never an extra key", () => {
+    expect(EMPTY_EXCLUSIONS).toEqual({
+      offseason: 0,
+      surrogateAffected: 0,
+      missingResult: 0,
+      quarantined: 0,
+      coldStart: 0,
+    });
+  });
+});
+
+/**
+ * D-02 (quick task 260909-t5q): cold start diverges from every other
+ * exclusion in ONE crucial way — it is keyed off the structural
+ * `isColdStart` flag, NEVER off `pRedWin === 0.5`. This describe block pins
+ * both halves of that divergence: a flagged candidate is excluded, and an
+ * UNFLAGGED 0.5 no-call keeps its D-Q3 treatment (in `scoredCount`, in
+ * `noCallCount`, counted a miss).
+ */
+describe("aggregateScores — D-02 cold-start exclusion, keyed off isColdStart alone", () => {
+  function prediction(overrides: Partial<HarnessPredictionInput> & Pick<HarnessPredictionInput, "matchKey">): HarnessPredictionInput {
+    return {
+      season: 2024,
+      eventKey: "2024test",
+      compLevel: "qm",
+      algorithmId: "opr",
+      pRedWin: 0.7,
+      predictedRedScore: 60,
+      predictedBlueScore: 40,
+      actualWinner: "red",
+      isOffseason: false,
+      isSurrogateAffected: false,
+      isColdStart: false,
+      ...overrides,
+    };
+  }
+
+  it("a candidate flagged cold start increments the new exclusion count, is absent from scoredCount, and moves neither winnerAccuracy nor brierScore — identical to the same set with that candidate removed entirely", () => {
+    const withColdStart: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.7, actualWinner: "red" }),
+      prediction({ matchKey: "2024test_qm2", pRedWin: 0.3, actualWinner: "blue" }),
+      prediction({ matchKey: "2024test_qm3", isColdStart: true, actualWinner: "red" }),
+    ];
+    const withoutColdStartCandidate: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.7, actualWinner: "red" }),
+      prediction({ matchKey: "2024test_qm2", pRedWin: 0.3, actualWinner: "blue" }),
+    ];
+
+    const slicesWith = aggregateScores(withColdStart, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
+    const slicesWithout = aggregateScores(withoutColdStartCandidate, {
+      corpusSeasons: [2024],
+      selectedOnSeasons: { opr: () => [] },
+    });
+    const combinedWith = slicesWith.find((s) => s.compLevelView === "combined")!;
+    const combinedWithout = slicesWithout.find((s) => s.compLevelView === "combined")!;
+
+    expect(combinedWith.exclusionCounts.coldStart).toBe(1);
+    expect(combinedWith.scoredCount).toBe(2);
+    expect(combinedWith.candidateCount).toBe(3);
+
+    // Identical metrics to the candidate-removed fixture — proves the
+    // cold-start candidate reaches neither Brier nor winner accuracy.
+    expect(combinedWith.brierScore).toBe(combinedWithout.brierScore);
+    expect(combinedWith.winnerAccuracy).toBe(combinedWithout.winnerAccuracy);
+    expect(combinedWith.scoredCount).toBe(combinedWithout.scoredCount);
+  });
+
+  it("THE LOAD-BEARING PIN (D-02): a pRedWin === 0.5 candidate, NOT flagged cold start, against a red win, is IN scoredCount, IN noCallCount, counted a MISS in winnerAccuracy, and leaves exclusionCounts.coldStart at 0", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", pRedWin: 0.5, actualWinner: "red", isColdStart: false }),
+    ];
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+
+    expect(combined.exclusionCounts.coldStart).toBe(0);
+    expect(combined.scoredCount).toBe(1);
+    expect(combined.noCallCount).toBe(1);
+    // D-Q3: a 0.5 no-call against a decided match is counted a MISS — 0
+    // correct out of 1 scorable, non-tie candidate.
+    expect(combined.winnerAccuracy).toBe(0);
+  });
+
+  it("precedence: a candidate that is both offseason and cold start is attributed to offseason, never to coldStart", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024off_qm1", isOffseason: true, isColdStart: true }),
+    ];
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+
+    expect(combined.exclusionCounts.offseason).toBe(1);
+    expect(combined.exclusionCounts.coldStart).toBe(0);
+  });
+
+  it("precedence: a candidate that is both surrogate-affected and cold start is attributed to surrogateAffected, never to coldStart", () => {
+    const predictions: HarnessPredictionInput[] = [
+      prediction({ matchKey: "2024test_qm1", isSurrogateAffected: true, isColdStart: true }),
+    ];
+    const slices = aggregateScores(predictions, { corpusSeasons: [2024], selectedOnSeasons: { opr: () => [] } });
+    const combined = slices.find((s) => s.compLevelView === "combined")!;
+
+    expect(combined.exclusionCounts.surrogateAffected).toBe(1);
+    expect(combined.exclusionCounts.coldStart).toBe(0);
   });
 });

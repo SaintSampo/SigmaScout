@@ -124,6 +124,7 @@ import {
 import { openCorpusReadOnly, selectCorpusSeasons, selectMatchesChronological, type Corpus } from "../corpus/db.js";
 import { SEARCH_OBJECTIVE_DEFINITION } from "./objectiveDefinition.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
+import { corpusColdStartIndex } from "./corpusColdStart.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { makeSeasonalSigma1, ParamSetsBySeasonSchema, resolveParamSets, type SeasonParamSet } from "./seasonParamSets.js";
 
@@ -1196,7 +1197,9 @@ async function runPerSeasonPromotion(
     };
     const algorithm = makeSeasonalSigma1(preliminary, { id, linkMode: "predictive-variance" });
     const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-    const simulator = new WalkForwardSimulator(stream);
+    // D-01 (quick task 260909-t5q): `db` is still open here, before the
+    // `finally` block closes it.
+    const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
     records = simulator.run(algorithm, teams);
   } finally {
     db.close();
@@ -1216,6 +1219,7 @@ async function runPerSeasonPromotion(
     actualWinner: r.match.winner,
     isOffseason: false,
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+    isColdStart: r.coldStart === true,
   }));
   // D-2 (quick task 260903-n2o): the sentinel — this bounded digest slice
   // claims no eligibility at all, exactly as the single-set path does.
@@ -1411,7 +1415,9 @@ async function main(): Promise<void> {
 
     const algorithm = makeSigma1({ id, linkMode: "predictive-variance", params, paramSetName });
     const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-    const simulator = new WalkForwardSimulator(stream);
+    // D-01 (quick task 260909-t5q): `db` is still open here, before the
+    // `finally` block closes it.
+    const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
     records = simulator.run(algorithm, teams);
   } finally {
     db.close();
@@ -1433,6 +1439,7 @@ async function main(): Promise<void> {
     actualWinner: r.match.winner,
     isOffseason: false,
     isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+    isColdStart: r.coldStart === true,
   }));
   // D-2 (quick task 260903-krp): a deliberately bounded single-season slice —
   // `headlineEligible` is never read below (only `brierScore`/
