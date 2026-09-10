@@ -232,7 +232,22 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
     <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
       <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         <div className="flex min-w-0 flex-col gap-[1px]">
-          <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(row)}</span>
+          {/* 260909-tiq-PLAN.md Task 3: the Match-column label is now a link
+              to that match's own page, carrying the reader's current
+              algorithm and season — the SAME `text-role-label
+              text-[var(--color-text-primary)]` treatment plus `hover:underline`
+              the roster-number links below already use, so both lines of the
+              cell read as the same affordance. Never joins the
+              `.match-alliance-num*` class family (that is the roster-number
+              links' own class, asserted distinct by this file's own test). */}
+          <Link
+            to="/match/$matchKey"
+            params={{ matchKey: row.matchKey }}
+            search={{ year: season, algorithm }}
+            className="text-role-label text-[var(--color-text-primary)] hover:underline"
+          >
+            {matchLabel(row)}
+          </Link>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             {/* 2026-09-08: `.match-alliance-nums--even` (theme.css) fixes the
                 line's width and distributes the leftover space, so red and

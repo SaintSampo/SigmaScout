@@ -19,7 +19,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { render } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
+import { MatchSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
 
 const ChildrenContext = createContext<ReactNode>(null);
 
@@ -36,7 +36,12 @@ function buildRouter() {
   // links there resolves a real route in the tree rather than an unknown
   // path.
   const teamsRoute = createRoute({ path: "/teams", getParentRoute: () => rootRoute, validateSearch: TeamsSearchSchema, component: () => null });
-  const routeTree = rootRoute.addChildren([eventRoute, teamRoute, teamsRoute]);
+  // 260909-tiq-PLAN.md Task 3: the Match-column label's own `<Link
+  // to="/match/$matchKey">` target, registered for the same reason the
+  // `/teams` route above is — without it, every table test rendering the
+  // new link fails to resolve a route.
+  const matchRoute = createRoute({ path: "/match/$matchKey", getParentRoute: () => rootRoute, validateSearch: MatchSearchSchema, component: () => null });
+  const routeTree = rootRoute.addChildren([eventRoute, teamRoute, teamsRoute, matchRoute]);
   return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/event/2024casf"] }) });
 }
 

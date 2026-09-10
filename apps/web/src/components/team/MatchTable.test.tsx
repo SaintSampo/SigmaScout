@@ -858,3 +858,44 @@ describe("MatchTable", () => {
     });
   });
 });
+
+describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task 3)", () => {
+  it("a played row's Match label is a link whose href contains the match key, carrying the year and algorithm", () => {
+    renderWithRouter(
+      <MatchTable
+        matches={[makeMatch({ matchKey: "2024casj_qm1", setNumber: 1, matchNumber: 1, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
+        domain={DOMAIN}
+        teamKey="frc118"
+        season={2024}
+        algorithm="bpr"
+      />,
+    );
+    const row = screen.getByTestId("match-row-2024casj_qm1");
+    const link = within(row).getByText("Qual 1").closest("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("2024casj_qm1");
+    expect(link?.getAttribute("href")).toContain("year=2024");
+    expect(link?.getAttribute("href")).toContain("algorithm=bpr");
+  });
+
+  it("an unplayed row's Match label links exactly as a played row's does — a match page exists for both", () => {
+    renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm2", setNumber: 1, matchNumber: 2 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="bpr" />,
+    );
+    const row = screen.getByTestId("match-row-2024casj_qm2");
+    const link = within(row).getByText("Qual 2").closest("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("2024casj_qm2");
+  });
+
+  it("the match link does NOT join the .match-alliance-num class family, and the roster-number links beside it still resolve to team pages", () => {
+    renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm1", setNumber: 1, matchNumber: 1 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="bpr" />,
+    );
+    const row = screen.getByTestId("match-row-2024casj_qm1");
+    const matchLink = within(row).getByText("Qual 1").closest("a");
+    expect(matchLink?.className).not.toMatch(/match-alliance-num/);
+    const rosterLink = within(row).getByText("118").closest("a");
+    expect(rosterLink?.getAttribute("href")).toContain("/team/118");
+  });
+});

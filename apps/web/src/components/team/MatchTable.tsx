@@ -325,7 +325,21 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
       </td>
       <td className={cn("sticky left-[64px] z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
         <div className="flex min-w-0 flex-col gap-[1px]">
-          <span className="text-role-label text-[var(--color-text-primary)]">{matchLabel(match)}</span>
+          {/* 260909-tiq-PLAN.md Task 3: the Match-column label is now a link
+              to that match's own page, carrying the reader's current
+              algorithm and season — the SAME `text-role-label
+              text-[var(--color-text-primary)]` treatment plus `hover:underline`
+              the roster-number links below already use. Never joins the
+              `.match-alliance-num*` class family (that is the roster-number
+              links' own class). */}
+          <Link
+            to="/match/$matchKey"
+            params={{ matchKey: match.matchKey }}
+            search={{ year: season, algorithm }}
+            className="text-role-label text-[var(--color-text-primary)] hover:underline"
+          >
+            {matchLabel(match)}
+          </Link>
           {/* Sketch 010-C ground tint (quick 260906-80e): the team's own
               alliance line rides a pill on `--alliance-{red,blue}-ground`;
               its own number rides `-ground-own` on top. This replaces the

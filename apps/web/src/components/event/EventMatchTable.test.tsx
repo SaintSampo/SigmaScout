@@ -406,3 +406,32 @@ describe("Row count conservation", () => {
     expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(n);
   });
 });
+
+describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task 3)", () => {
+  it("a played row's Match label is a link whose href contains the match key, carrying the year and algorithm", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "2024casj_qm1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
+    const row = screen.getByTestId("match-row-2024casj_qm1");
+    const link = within(row).getByText("Qual 1").closest("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("2024casj_qm1");
+    expect(link?.getAttribute("href")).toContain("year=2024");
+    expect(link?.getAttribute("href")).toContain("algorithm=bpr");
+  });
+
+  it("an unplayed row's Match label links exactly as a played row's does — a match page exists for both", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "2024casj_qm2", matchNumber: 2, played: false })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
+    const row = screen.getByTestId("match-row-2024casj_qm2");
+    const link = within(row).getByText("Qual 2").closest("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("2024casj_qm2");
+  });
+
+  it("the match link does NOT join the .match-alliance-num class family, and the roster-number links beside it still resolve to team pages", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "2024casj_qm1" })]} domain={DOMAIN} season={2024} algorithm="bpr" />);
+    const row = screen.getByTestId("match-row-2024casj_qm1");
+    const matchLink = within(row).getByText("Qual 1").closest("a");
+    expect(matchLink?.className).not.toMatch(/match-alliance-num/);
+    const rosterLink = within(row).getByText("118").closest("a");
+    expect(rosterLink?.getAttribute("href")).toContain("/team/118");
+  });
+});
