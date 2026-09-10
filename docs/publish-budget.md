@@ -23,7 +23,30 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-10 (~02:26–03:10 ET), the bpr@2.0.0 republish — presim OFF
+**Latest run — 2026-09-10 (~03:53–04:37 ET), the bpr@3.0.0 republish — unattended overnight
+(`pnpm publish:seasons`, generation `e169a4d4-fce9-4da1-9d88-eb9edefcac29`).** 108,820 page
+objects, 4,285,902,355 bytes, zero presim sidecars (flag still on), ~44 min. Ships
+`bpr@3.0.0+baseline`: 260910-4bf's adjustPoints drop from the scoring target (7c88e234) and
+260910-52c's soft credit allocation by expected rank (e1ba84dd) — the sealed 78.05% now
+describes a model three revisions back; every published bpr value moves. Run launched before
+the operator slept with standing authorization for the full tail AND the delete passes; the
+Claude session restarted mid-run and lost task tracking, but the process ran to completion on
+its own (the "interrupted tracking is not an interrupted process" lesson from 2026-09-04,
+re-confirmed) — ground truth re-established from the output file and the live manifest before
+any tail step ran. **Tail (morning, same session):** live manifest at `e169a4d4` with bpr
+3.0.0 (the publish writes manifests itself); `verify:subset` **50 entries, 0 failing**,
+uniformity 1; D1 seeded one file per invocation with read-backs — all three algorithms at
+`e169a4d4`, bpr `3.0.0+baseline`. **Delete passes (pre-authorized, run without confirmation):**
+`bpr@1.0.0+baseline` and `bpr@2.0.0+baseline`, each in two season-split supersedes-live
+invocations (2016-2020: 17,560 keys; 2022-2026: 19,272 keys; 36,832 per version, 73,664 total
+deletes issued). Two transient R2 500s interrupted 1.0.0's second range; the idempotent
+re-run-to-resume property worked as designed (three attempts to completion, distinct keys each
+failure). **Post-census 0/60 on all four range×version combinations.** The epa@5.0.0 census
+(read-only, no delete authorized) confirms **57/60 present** — a full orphaned
+`epa@5.0.0+baseline` generation (~36k objects, from 260908-615's 5→6 bump) awaits its own
+authorized pass.
+
+**Prior run — 2026-09-10 (~02:26–03:10 ET), the bpr@2.0.0 republish — presim OFF
 (`pnpm publish:seasons`, generation `b9e26153-c473-4ab0-9c31-189a8d28c884`).** 108,820 page
 objects plus 2 manifests, 4,285,893,092 bytes, **zero presim sidecars** — the first run under
 the temporary `--presim-from-season 9999` flag (commit 1a759198, added to the script while the
@@ -1551,12 +1574,12 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-10T07:15:00.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation b9e26153-c473-4ab0-9c31-189a8d28c884, 108,820 objects, 4,285,893,092 bytes total, ZERO presim sidecars (the temporary rethink-era off switch, commit 1a759198), ~02:26-03:10 ET 2026-09-10, ~44 min. Ships bpr@2.0.0+baseline: 260910-2pt's display-variance calibration (winner calls bit-identical) plus 260910-kco's official-play-only season carryover (measured -0.0145pp, CI [-0.113, +0.079] -- a statistical zero, adopted on principle). Object count UNCHANGED at 108,820 (a version bump renames keys, never changes cardinality); bytes -1.16MB vs 2f1a8885 from value-shape drift on bpr keys. No ceiling moved: team max 321,657 = 64.3% of 500,000; compare tightest at 14,126 / 20,000 (70.6%). Post-run: manifest 3 entries with bpr 2.0.0; verify:subset 50 entries 0 failing, generation uniformity 1; D1 all three algorithms at b9e26153 (one transient auth-10000 on the first opr seed attempt, clean on verbatim retry). OWED: the orphaned bpr@1.0.0 generation's supersedes-live delete pass (two invocations, 2016-2020 then 2022-2026, after a soak), and a census of possible epa@5.0.0 orphans from the 260908-615 bump while at it. The sim tab keeps serving the 641 presim sidecars frozen at generation 2f1a8885 until presim is re-enabled.",
+  "measuredAt": "2026-09-10T15:45:00.000Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation e169a4d4-fce9-4da1-9d88-eb9edefcac29, 108,820 objects, 4,285,902,355 bytes total, zero presim sidecars, ~03:53-04:37 ET 2026-09-10, unattended overnight. Ships bpr@3.0.0+baseline: 260910-4bf's adjustPoints drop from the scoring target plus 260910-52c's soft credit allocation by expected rank; the sealed 78.05% now describes a model three revisions back. Object count unchanged at 108,820. Tail verified in the morning after a session restart lost task tracking (the process itself ran to completion): verify:subset 50 entries 0 failing at uniformity 1; D1 all three algorithms at e169a4d4 with bpr 3.0.0+baseline. DELETE PASSES RUN (pre-authorized): bpr@1.0.0 and bpr@2.0.0 both fully removed, 36,832 keys each (2016-2020: 17,560; 2022-2026: 19,272), post-census 0/60 on all four combinations; two transient R2 500s on 1.0.0's second range resolved by idempotent re-runs. CONFIRMED ORPHAN, not yet deleted (no authorization): epa@5.0.0+baseline, census 57/60 present, ~36k objects from 260908-615's 5-to-6 bump -- needs its own authorized supersedes-live pass. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 982381,
+      "medianBytes": 982507,
       "p95Bytes": 1612311,
       "maxBytes": 1626009,
       "budgetMaxBytes": 3500000,
@@ -1565,7 +1588,7 @@ rendering of these same numbers, not a second source.
     "team": {
       "count": 101409,
       "medianBytes": 31128,
-      "p95Bytes": 88411,
+      "p95Bytes": 88422,
       "maxBytes": 321657,
       "budgetMaxBytes": 500000,
       "largestKey": "v1/team/frc3538/2024/epa@6.0.0+baseline.json"
@@ -1576,11 +1599,11 @@ rendering of these same numbers, not a second source.
       "p95Bytes": 84108,
       "maxBytes": 84108,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/bpr@2.0.0+baseline.json"
+      "largestKey": "v1/events/2025/bpr@3.0.0+baseline.json"
     },
     "event": {
       "count": 7341,
-      "medianBytes": 67800,
+      "medianBytes": 67803,
       "p95Bytes": 109254,
       "maxBytes": 246054,
       "budgetMaxBytes": 350000,
@@ -1588,9 +1611,9 @@ rendering of these same numbers, not a second source.
     },
     "compare": {
       "count": 10,
-      "medianBytes": 13696,
-      "p95Bytes": 14126,
-      "maxBytes": 14126,
+      "medianBytes": 13711,
+      "p95Bytes": 14107,
+      "maxBytes": 14107,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
