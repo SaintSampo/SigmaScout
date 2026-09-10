@@ -4,6 +4,7 @@ import { BonusRpDots } from "../team/BonusRpDots.js";
 // Quick 260905-jj8: the same published-data-to-dot-state mapping
 // `team/MatchTable.tsx` uses — one implementation, two surfaces.
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
+import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
 import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
@@ -69,6 +70,7 @@ interface EventAllianceRowProps {
 function EventAllianceRow({ matchKey, side, predicted, sd, actual, played, yBand, domain, colorVar, softVar }: EventAllianceRowProps) {
   const pos = allianceMarkPositions(yBand);
   const tickCentre = scaleToPlot(predicted, domain, PLOT_W);
+  const tickStep = useDevicePixelPhaseStep();
   const testIdBase = `alliance-mark-${matchKey}-${side}`;
 
   let bandLeft: number | undefined;
@@ -94,12 +96,13 @@ function EventAllianceRow({ matchKey, side, predicted, sd, actual, played, yBand
       <div
         data-testid={`${testIdBase}-tick`}
         className="absolute"
-        /* 2026-09-09: the left edge is SNAPPED to a whole pixel. A fractional
-           `left` puts a 2px-wide rule across three device pixels, and the
-           browser renders that as one solid pixel with two faint halves —
-           so the same 2px tick looked 1px on some rows and 2px on others.
-           Rounding the edge (not the centre) keeps every tick exactly 2px. */
-        style={{ top: pos.tickTop, left: Math.round(tickCentre) - 1, width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
+        /* 2026-09-09: the left EDGE is snapped onto the device-pixel grid so
+           every tick in the table renders at the same weight — see
+           `lib/devicePixelGrid.ts` for the measurement showing that the 2px
+           width was never the variable and that rounding to a whole CSS
+           pixel does nothing at all. `tickStep` is 1 at dpr 1 and 2, where
+           this was never broken, so those readers see no change. */
+        style={{ top: pos.tickTop, left: snapToDevicePixelPhase(tickCentre - 1, tickStep), width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
       />
       {dotCentre !== undefined && (
         <div

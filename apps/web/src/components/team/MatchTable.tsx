@@ -5,6 +5,7 @@ import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
+import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 // G-06.1-26 (plan 06.1-08, PD-19): imported directly from core rather than
 // copied into apps/web — `rp/constants.ts` has zero runtime imports of its
 // own, so (unlike `BONUS_RP_BY_SEASON` in `bonusRp.ts`) importing it does not
@@ -124,6 +125,7 @@ interface AllianceRowProps {
 function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, colorVar, softVar }: AllianceRowProps) {
   const pos = allianceMarkPositions(yBand);
   const tickCentre = scaleToPlot(predicted, domain, PLOT_W);
+  const tickStep = useDevicePixelPhaseStep();
   const testIdBase = `alliance-mark-${matchKey}-${side}`;
 
   let bandLeft: number | undefined;
@@ -149,12 +151,13 @@ function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, col
       <div
         data-testid={`${testIdBase}-tick`}
         className="absolute"
-        /* 2026-09-09: the left edge is SNAPPED to a whole pixel. A fractional
-           `left` puts a 2px-wide rule across three device pixels, and the
-           browser renders that as one solid pixel with two faint halves —
-           so the same 2px tick looked 1px on some rows and 2px on others.
-           Rounding the edge (not the centre) keeps every tick exactly 2px. */
-        style={{ top: pos.tickTop, left: Math.round(tickCentre) - 1, width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
+        /* 2026-09-09: the left EDGE is snapped onto the device-pixel grid so
+           every tick in the table renders at the same weight — see
+           `lib/devicePixelGrid.ts` for the measurement showing that the 2px
+           width was never the variable and that rounding to a whole CSS
+           pixel does nothing at all. `tickStep` is 1 at dpr 1 and 2, where
+           this was never broken, so those readers see no change. */
+        style={{ top: pos.tickTop, left: snapToDevicePixelPhase(tickCentre - 1, tickStep), width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
       />
       {dotCentre !== undefined && (
         <div
