@@ -111,6 +111,50 @@ export interface BprParams {
    * out under-confident on even matchups and over-confident on lopsided ones.
    */
   obsSdSlope: number;
+  /**
+   * Allocate an alliance's surprise across its three robots by EXPECTED rank
+   * rather than by sorted point estimate.
+   *
+   * The rank weights (1, w2, w3) are a step function of an ordering the model
+   * only knows to within its own posterior. Measured across 2023-2025: the
+   * model's own probability that an adjacent pair is ordered the wrong way
+   * averages 0.27, and about half of all alliances contain at least one rank
+   * boundary that is effectively a coin flip — yet the shipped weights differ by
+   * 43% across that boundary.
+   *
+   * In qualifications a coin-flip ordering lands each way and the
+   * mis-attribution averages out. In PLAYOFFS the alliance is fixed for the
+   * whole run, so the arbitrary ordering is locked (measured: 91% of the time)
+   * and repeated for seven or more matches, and it is self-reinforcing because
+   * whoever is ranked first absorbs more of every innovation. Among playoff
+   * pairs that were statistically indistinguishable when the run began, the one
+   * that happened to sort first ends it ahead by +0.0054 [+0.0020, +0.0087] —
+   * an interval clear of zero, and manufactured entirely from noise.
+   *
+   * With this on, each robot's CREDIT weight is the base vector interpolated at
+   * its expected rank `1 + sum_j P(r_j > r_i)`. Confident orderings reproduce
+   * the hard assignment exactly; genuinely unresolvable ones fall back toward
+   * equal credit, which is the honest answer when the model cannot tell who
+   * contributed more.
+   *
+   * PREDICTION still uses the hard rank weights. Only the credit split is
+   * softened. Softening the prediction too was measured and was worse: it
+   * partly disables the anti-additivity that earned promotion on the design
+   * years, costing published-rating reliability at intervals clear of zero
+   * (-0.0045 / -0.0035 / -0.0033 across 2023-2025), where softening credit alone
+   * costs -0.0032 / -0.0029 / -0.0018 with every interval spanning zero.
+   *
+   * The consequence, stated plainly: this is no longer a strictly consistent
+   * Kalman update, because the gain's H (soft) no longer matches the mean's H
+   * (hard). That is a deliberate approximation, defensible exactly where it is
+   * applied — the hard ordering is wrong about a quarter of the time, so the
+   * "exact" gain is exact with respect to an ordering the model does not
+   * actually believe.
+   *
+   * `false` reproduces the sorted-rank assignment exactly, so this knob is inert
+   * at its default.
+   */
+  softCredit: boolean;
 }
 
 export const DEFAULTS: BprParams = {
@@ -138,6 +182,7 @@ export const DEFAULTS: BprParams = {
   huberK: 1e9,
   biasLr: 0,
   obsSdSlope: 0,
+  softCredit: false,
 };
 
 interface TeamState {
@@ -179,6 +224,20 @@ function erf(x: number): number {
  */
 const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 
+/**
+ * `base` = [1, w2, w3] evaluated at a fractional, 1-indexed rank. At integer
+ * ranks this returns the base entry exactly, which is what makes softCredit
+ * collapse onto the hard assignment whenever the ordering is certain.
+ */
+function interpolateWeight(base: readonly number[], rank: number): number {
+  const last = base.length - 1;
+  const r = Math.min(last + 1, Math.max(1, rank));
+  const lo = Math.min(last, Math.floor(r - 1));
+  const hi = Math.min(last, lo + 1);
+  const t = r - 1 - lo;
+  return (base[lo] ?? 1) + t * ((base[hi] ?? 1) - (base[lo] ?? 1));
+}
+
 export interface Prediction {
   /** P(red wins), in (0,1). */
   pRed: number;
@@ -201,6 +260,11 @@ interface AllianceView {
   states: TeamState[];
   /** Contribution weight per team, aligned with `states`. */
   weights: number[];
+  /**
+   * Weight used to ALLOCATE the innovation across teams in `update`. Identical
+   * to `weights` unless `softCredit` is on. See BprParams.softCredit.
+   */
+  creditWeights: number[];
 }
 
 export class BprModel {
@@ -302,6 +366,31 @@ export class BprModel {
       weights[idx] = (base[Math.min(rank, base.length - 1)] ?? 1) * norm;
     }
 
+    // Credit weights. Identical to `weights` unless softCredit is on, in which
+    // case each team's weight is `base` interpolated at its EXPECTED rank
+    // rather than read off the sorted order. See BprParams.softCredit.
+    let creditWeights = weights;
+    if (this.p.softCredit) {
+      const rawCredit = new Array<number>(n).fill(1);
+      for (let i = 0; i < n; i += 1) {
+        const si = states[i];
+        if (si === undefined) continue;
+        let expected = 1;
+        for (let j = 0; j < n; j += 1) {
+          if (i === j) continue;
+          const sj = states[j];
+          if (sj === undefined) continue;
+          const sd = Math.sqrt(Math.max(si.pL + si.pS + sj.pL + sj.pS, 1e-12));
+          expected += normCdf(((mus[j] ?? 0) - (mus[i] ?? 0)) / sd);
+        }
+        rawCredit[i] = interpolateWeight(base, expected);
+      }
+      let creditSum = 0;
+      for (const w of rawCredit) creditSum += w;
+      const creditNorm = creditSum > 0 ? 3 / creditSum : 1;
+      creditWeights = rawCredit.map((w) => w * creditNorm);
+    }
+
     let mu = 0;
     let pv = 0;
     let muF = 0;
@@ -319,7 +408,7 @@ export class BprModel {
       muD += s.muD;
       pD += s.pD;
     }
-    return { mu, pv, muF, pF, muD, pD, states, weights };
+    return { mu, pv, muF, pF, muD, pD, states, weights, creditWeights };
   }
 
   /**
@@ -450,11 +539,13 @@ export class BprModel {
 
       for (let i = 0; i < side.states.length; i += 1) {
         const s = side.states[i];
-        const wi = side.weights[i];
+        const wi = side.creditWeights[i];
         if (s === undefined || wi === undefined) continue;
         // Observation row is H_i = wi, so the gain carries the same weight:
         // a team that the model believes contributes less also absorbs less
-        // of the alliance's surprise.
+        // of the alliance's surprise. Under softCredit this is the EXPECTED-rank
+        // weight rather than the sorted one, which deliberately breaks strict
+        // Kalman consistency with `side.mu` above — see BprParams.softCredit.
         const kL = (wi * s.pL) / sTot;
         const kS = (wi * s.pS) / sTot;
         corr.push({

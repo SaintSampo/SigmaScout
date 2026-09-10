@@ -27,6 +27,8 @@
     "defPriorVar": 0,
     "defQ": 0,
     "huberK": 1e9,
-    "biasLr": 0
-  }
+    "biasLr": 0,
+    "softCredit": true
+  },
+  "_softCredit_note": "NOT a retune. Every value above is still the 2016-2022 selection, untouched. softCredit is a structural correction to CREDIT ASSIGNMENT only - predictions still use the hard rank weights - and it was enabled on a measured defect rather than a search: the model's own P(adjacent pair mis-ordered) averages 0.27, and in playoffs, where the alliance is fixed, an arbitrary ordering locks 91% of the time and inflates whichever robot happened to sort first by +0.0054 [+0.0020, +0.0087]. That measurement used 2023-2025, which for this line of work was already spent; it buys a bias removal whose interval is clear of zero at a reliability cost whose intervals are not (-0.0032/-0.0029/-0.0018). Stated so nobody later reads this file as a clean 2016-2022 artifact."
 }

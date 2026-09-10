@@ -87,6 +87,13 @@ export interface BprParams {
   /** Anti-additivity weights for the 2nd and 3rd strongest team in an alliance. */
   readonly w2: number;
   readonly w3: number;
+  /**
+   * Allocate an alliance's surprise by EXPECTED rank rather than by sorted
+   * point estimate. Mirrors `packages/bpr/model.ts`'s `softCredit` exactly —
+   * see that file for the measurement and the reasoning. `false` reproduces
+   * the sorted-rank assignment, so the knob is inert at its default.
+   */
+  readonly softCredit: boolean;
 }
 
 /**
@@ -162,6 +169,7 @@ export const BPR_PARAMS: BprParams = {
   scaleMinLr: 0.01,
   w2: 0.7,
   w3: 0.5,
+  softCredit: true,
 };
 
 /**
@@ -179,13 +187,27 @@ export const BPR_PARAMS: BprParams = {
  * MAJOR under D-13's rule that no artifact key may stand for two structurally
  * different outputs.
  *
- * `pRedWin` and `winner` are deliberately UNCHANGED and pinned by test, so the
- * sealed 78.05% holdout accuracy still describes this module exactly. The
- * paramSetName stays `baseline`: the calibration is a display transform fitted
- * on design-era innovations, not a tuned parameter file, and
- * `applyPromotedOverrides` still never touches BPR.
+ * Bumped 2.0.0 -> 3.0.0: `pRedWin` and `winner` now change too, for two
+ * independent reasons landed back to back.
+ *
+ *  1. The scoring target dropped TBA's `adjustPoints` (commit 7c88e234). That
+ *     commit altered every prediction this module makes but left the version at
+ *     2.0.0, which under D-13 would leave one artifact key standing for two
+ *     structurally different outputs. This bump covers it.
+ *  2. `softCredit` allocates an alliance's surprise by EXPECTED rank instead of
+ *     sorted point estimate, so ratings — and therefore predictions — move.
+ *
+ * The sealed 78.05% holdout accuracy no longer describes this module. It
+ * describes the revision that predates both changes. Neither change is an
+ * accuracy claim: the adjust drop measured +0.003pp on 2024-25 with the
+ * interval spanning zero, and softCredit measured +0.014pp likewise. Both are
+ * correctness arguments, not performance ones.
+ *
+ * The paramSetName stays `baseline`: `applyPromotedOverrides` still never
+ * touches BPR, and `softCredit` is a structural correction rather than a tuned
+ * value.
  */
-export const BPR_VERSION = "2.0.0+baseline";
+export const BPR_VERSION = "3.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
@@ -356,7 +378,27 @@ interface AllianceView {
   pv: number;
   keys: string[];
   states: BprTeamState[];
+  /** Weights defining the alliance's predicted output. Always hard-ranked. */
   weights: number[];
+  /**
+   * Weights allocating the innovation across teams in `foldRatings`. Identical
+   * to `weights` unless `softCredit` is on.
+   */
+  creditWeights: number[];
+}
+
+/**
+ * `base` = [1, w2, w3] evaluated at a fractional, 1-indexed rank. At integer
+ * ranks this returns the base entry exactly, which is what makes softCredit
+ * collapse onto the hard assignment whenever the ordering is certain.
+ */
+function interpolateWeight(base: readonly number[], rank: number): number {
+  const last = base.length - 1;
+  const r = Math.min(last + 1, Math.max(1, rank));
+  const lo = Math.min(last, Math.floor(r - 1));
+  const hi = Math.min(last, lo + 1);
+  const t = r - 1 - lo;
+  return (base[lo] ?? 1) + t * ((base[hi] ?? 1) - (base[lo] ?? 1));
 }
 
 /**
@@ -418,6 +460,28 @@ function viewOfMap(
     weights[idx] = (base[Math.min(rank, base.length - 1)] ?? 1) * norm;
   }
 
+  let creditWeights = weights;
+  if (p.softCredit) {
+    const rawCredit = new Array<number>(n).fill(1);
+    for (let i = 0; i < n; i += 1) {
+      const si = states[i];
+      if (si === undefined) continue;
+      let expected = 1;
+      for (let j = 0; j < n; j += 1) {
+        if (i === j) continue;
+        const sj = states[j];
+        if (sj === undefined) continue;
+        const sd = Math.sqrt(Math.max(si.pL + si.pS + sj.pL + sj.pS, 1e-12));
+        expected += normCdf(((mus[j] ?? 0) - (mus[i] ?? 0)) / sd);
+      }
+      rawCredit[i] = interpolateWeight(base, expected);
+    }
+    let creditSum = 0;
+    for (const w of rawCredit) creditSum += w;
+    const creditNorm = creditSum > 0 ? 3 / creditSum : 1;
+    creditWeights = rawCredit.map((w) => w * creditNorm);
+  }
+
   let mu = 0;
   let pv = 0;
   for (let i = 0; i < n; i += 1) {
@@ -427,7 +491,7 @@ function viewOfMap(
     mu += w * (mus[i] ?? 0);
     pv += w * w * (s.pL + s.pS);
   }
-  return { mu, pv, keys: kept, states, weights };
+  return { mu, pv, keys: kept, states, weights, creditWeights };
 }
 
 function freshTeamMap(teams: readonly string[]): Map<string, BprTeamState> {
@@ -534,11 +598,14 @@ function foldRatings(
     const sTot = side.pv + p.obsSd ** 2;
     for (let i = 0; i < side.states.length; i += 1) {
       const s = side.states[i];
-      const w = side.weights[i];
+      const w = side.creditWeights[i];
       const key = side.keys[i];
       if (s === undefined || w === undefined || key === undefined) continue;
       // Observation row is H_i = w, so the gain carries the same weight: a
       // team the model believes contributes less also absorbs less surprise.
+      // Under softCredit this is the EXPECTED-rank weight rather than the
+      // sorted one, deliberately breaking strict Kalman consistency with
+      // `side.mu` above — see packages/bpr/model.ts's softCredit doc.
       const kL = (w * s.pL) / sTot;
       const kS = (w * s.pS) / sTot;
       const prior = corrections.get(key) ?? s;
