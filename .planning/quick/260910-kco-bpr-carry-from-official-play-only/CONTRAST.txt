@@ -1,0 +1,38 @@
+Season 2016: cold-start season (first season in this run) — every algorithm starts fresh.
+Season 2016 [bpr]: 15572 matches replayed, 13263 scorable, 2309 excluded (started cold)
+Season 2016 [bpr-oc]: 15572 matches replayed, 13263 scorable, 2309 excluded (started cold)
+Season 2017 [bpr]: 18331 matches replayed, 15364 scorable, 2967 excluded (carried state in)
+Season 2017 [bpr-oc]: 18331 matches replayed, 15364 scorable, 2967 excluded (carried state in)
+Season 2018 [bpr]: 20524 matches replayed, 16889 scorable, 3635 excluded (carried state in)
+Season 2018 [bpr-oc]: 20524 matches replayed, 16889 scorable, 3635 excluded (carried state in)
+Season 2019 [bpr]: 21627 matches replayed, 17972 scorable, 3655 excluded (carried state in)
+Season 2019 [bpr-oc]: 21627 matches replayed, 17972 scorable, 3655 excluded (carried state in)
+Season 2020 [bpr]: 4737 matches replayed, 4644 scorable, 93 excluded (carried state in)
+Season 2020 [bpr-oc]: 4737 matches replayed, 4644 scorable, 93 excluded (carried state in)
+Season 2022 [bpr]: 18012 matches replayed, 14603 scorable, 3409 excluded (carried state in)
+Season 2022 [bpr-oc]: 18012 matches replayed, 14603 scorable, 3409 excluded (carried state in)
+replayed 197606 prediction rows in 185s
+
+=== bpr — combined view, per season ===
+  2016  n=12994  acc=71.922%  brier=0.1832
+  2017  n=15363  acc=67.230%  brier=0.2037
+  2018  n=16889  acc=74.574%  brier=0.1710
+  2019  n=17972  acc=73.160%  brier=0.1748
+  2020  n=4644  acc=72.954%  brier=0.1760
+  2022  n=14603  acc=78.838%  brier=0.1426
+
+=== bpr-oc — combined view, per season ===
+  2016  n=12994  acc=71.922%  brier=0.1832
+  2017  n=15363  acc=67.223%  brier=0.2036
+  2018  n=16889  acc=74.509%  brier=0.1716
+  2019  n=17972  acc=73.205%  brier=0.1750
+  2020  n=4644  acc=72.672%  brier=0.1767
+  2022  n=14603  acc=78.873%  brier=0.1427
+
+paired official matches: 82735
+rows where the two arms' pRedWin differ at all: 69445
+
+paired accuracy delta (candidate − incumbent): -0.0145pp  95% percentile [-0.1130, 0.0789]  SE 0.0498pp over 911 event blocks
+paired Brier delta   (candidate − incumbent): 0.000205  95% percentile [0.000072, 0.000350]
+
+pre-registered rule: ship unless paired accuracy delta < -0.169pp (RULE.md)

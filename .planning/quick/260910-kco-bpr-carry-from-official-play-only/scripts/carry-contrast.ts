@@ -76,10 +76,14 @@ async function main(): Promise<void> {
   });
   console.log(`rows where the two arms' pRedWin differ at all: ${diverging}`);
 
-  const acc = eventBlockedBootstrap(units, (u) => u.accDelta);
-  const brier = eventBlockedBootstrap(units, (u) => u.brierDelta);
-  console.log(`\npaired accuracy delta (candidate − incumbent): ${(acc.mean * 100).toFixed(4)}pp  95% CI [${(acc.ciLow * 100).toFixed(4)}, ${(acc.ciHigh * 100).toFixed(4)}]`);
-  console.log(`paired Brier delta   (candidate − incumbent): ${brier.mean.toFixed(6)}  95% CI [${brier.ciLow.toFixed(6)}, ${brier.ciHigh.toFixed(6)}]`);
+  const meanAcc = (sample: readonly typeof units[number][]): number =>
+    sample.reduce((a, u) => a + u.accDelta, 0) / sample.length;
+  const meanBrier = (sample: readonly typeof units[number][]): number =>
+    sample.reduce((a, u) => a + u.brierDelta, 0) / sample.length;
+  const acc = eventBlockedBootstrap(units, meanAcc);
+  const brier = eventBlockedBootstrap(units, meanBrier);
+  console.log(`\npaired accuracy delta (candidate − incumbent): ${(acc.pointEstimate * 100).toFixed(4)}pp  95% percentile [${(acc.percentile.lower * 100).toFixed(4)}, ${(acc.percentile.upper * 100).toFixed(4)}]  SE ${(acc.standardError * 100).toFixed(4)}pp over ${acc.eventCount} event blocks`);
+  console.log(`paired Brier delta   (candidate − incumbent): ${brier.pointEstimate.toFixed(6)}  95% percentile [${brier.percentile.lower.toFixed(6)}, ${brier.percentile.upper.toFixed(6)}]`);
   console.log(`\npre-registered rule: ship unless paired accuracy delta < -0.169pp (RULE.md)`);
   db.close();
 }
