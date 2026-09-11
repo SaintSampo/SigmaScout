@@ -103,19 +103,57 @@ interface CliOptions {
   readonly check: boolean;
 }
 
+/**
+ * Parses `--seasons` into an ascending, de-duplicated season list.
+ *
+ * Accepts a comma-separated list of ranges AND bare years, matching the
+ * spelling `publish:seasons` already uses (`2016-2020,2022-2026`). A single
+ * range (`2022-2026`) is still accepted unchanged, so every existing
+ * invocation and the `DEFAULT_SEASONS_RANGE` keep their exact behaviour.
+ *
+ * Quick task 260911-r7e added the gapped form for one concrete reason: the
+ * replay carries EPA state across each season boundary, so measuring 2022
+ * from a 2022 start cold-starts every team in the one season whose carry-in
+ * Statbotics actually has. Reaching a warm 2022 requires naming 2016-2020 and
+ * 2022-2026 while SKIPPING 2021 — `componentMapForSeason` has no 2021 map
+ * (the season had no on-field play with a TBA score breakdown), so a
+ * contiguous 2016-2026 range throws. This function is what makes the warm
+ * measurement expressible at all.
+ */
 export function parseSeasonRange(raw: string): number[] {
-  const match = /^(\d{4})-(\d{4})$/.exec(raw);
-  if (!match) {
-    throw new Error(`epaVsStatbotics: --seasons must be of the form <start>-<end> (e.g. 2022-2026), got "${raw}"`);
+  const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    throw new Error(`epaVsStatbotics: --seasons must name at least one season, got "${raw}"`);
   }
-  const start = Number.parseInt(match[1]!, 10);
-  const end = Number.parseInt(match[2]!, 10);
-  if (start > end) {
-    throw new Error(`epaVsStatbotics: --seasons start (${start}) must be <= end (${end})`);
+
+  const seasons = new Set<number>();
+  for (const part of parts) {
+    const range = /^(\d{4})-(\d{4})$/.exec(part);
+    if (range) {
+      const start = Number.parseInt(range[1]!, 10);
+      const end = Number.parseInt(range[2]!, 10);
+      if (start > end) {
+        throw new Error(`epaVsStatbotics: --seasons start (${start}) must be <= end (${end})`);
+      }
+      for (let season = start; season <= end; season++) seasons.add(season);
+      continue;
+    }
+
+    const single = /^(\d{4})$/.exec(part);
+    if (single) {
+      seasons.add(Number.parseInt(single[1]!, 10));
+      continue;
+    }
+
+    throw new Error(
+      `epaVsStatbotics: --seasons takes comma-separated years and <start>-<end> ranges (e.g. 2016-2020,2022-2026), got "${part}"`
+    );
   }
-  const seasons: number[] = [];
-  for (let season = start; season <= end; season++) seasons.push(season);
-  return seasons;
+
+  // Ascending order is load-bearing, not cosmetic: `replayEpaSeasonFinals`
+  // walks this list in order and carries EPA state from one season into the
+  // next, so an out-of-order list would carry backwards in time.
+  return [...seasons].sort((a, b) => a - b);
 }
 
 function parseCliOptions(): CliOptions {

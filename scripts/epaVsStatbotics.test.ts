@@ -12,7 +12,7 @@ import { epa } from "../packages/core/algorithms/epa.js";
 import type { MatchResult, Prediction } from "../packages/core/algorithms/types.js";
 import type { MultiAlgorithmPredictionRecord } from "../packages/harness/replay.js";
 import type { ScoreSlice } from "../packages/harness/score.js";
-import { currentEpaVersion, mapRecordsToHarnessPredictionInput, officialOnlyTeamValues, selectCombinedSlice } from "./epaVsStatbotics.js";
+import { currentEpaVersion, mapRecordsToHarnessPredictionInput, officialOnlyTeamValues, parseSeasonRange, selectCombinedSlice } from "./epaVsStatbotics.js";
 
 function buildMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   return {
@@ -166,5 +166,46 @@ describe("officialOnlyTeamValues", () => {
 
   it("returns an empty array for a team with no official match this season (absent from the map)", () => {
     expect(officialOnlyTeamValues(new Map())).toEqual([]);
+  });
+});
+
+/**
+ * Quick task 260911-r7e. The gapped form exists so a warm 2022 can be
+ * measured at all (2021 has no component map), so the 2021-skipping case is
+ * pinned by equality rather than by a loop over whatever the parser returns.
+ */
+describe("parseSeasonRange", () => {
+  it("still parses a single contiguous range unchanged", () => {
+    expect(parseSeasonRange("2022-2026")).toEqual([2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("parses the gapped list that skips 2021", () => {
+    expect(parseSeasonRange("2016-2020,2022-2026")).toEqual([
+      2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026,
+    ]);
+  });
+
+  it("never emits 2021 from the gapped list, because no 2021 component map is registered", () => {
+    expect(parseSeasonRange("2016-2020,2022-2026")).not.toContain(2021);
+  });
+
+  it("accepts bare years alongside ranges", () => {
+    expect(parseSeasonRange("2016,2019-2020,2024")).toEqual([2016, 2019, 2020, 2024]);
+  });
+
+  it("sorts ascending and de-duplicates, because the replay carries state forward in list order", () => {
+    expect(parseSeasonRange("2024,2016-2017,2024")).toEqual([2016, 2017, 2024]);
+  });
+
+  it("rejects a reversed range", () => {
+    expect(() => parseSeasonRange("2026-2022")).toThrow(/must be <=/);
+  });
+
+  it("rejects a non-year token", () => {
+    expect(() => parseSeasonRange("2016-2020,banana")).toThrow(/comma-separated years/);
+  });
+
+  it("rejects an empty selection", () => {
+    expect(() => parseSeasonRange(" , ")).toThrow(/at least one season/);
   });
 });
