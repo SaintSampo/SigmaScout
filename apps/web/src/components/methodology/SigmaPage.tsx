@@ -17,6 +17,7 @@ import {
 } from "../../../../../packages/harness/swingFactor.js";
 import {
   DEFAULT_SIGMA_SCORE_OPTIONS,
+  MIN_POPULATION_FOR_TALENT_PRIOR,
   SigmaScoreAccumulator,
 } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -398,84 +399,97 @@ function LevelAndSwingFigure(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ */
-/* F2b — evidence moves the reading off the prior                      */
+/* F2b — how much a team's own matches move its reading                */
 /* ------------------------------------------------------------------ */
 
 /**
- * The figure that carries SIGMA'S DISTINCTIVE IDEA, and the one with no
- * equivalent on the page this replaced.
+ * The figure carrying SIGMA'S DISTINCTIVE IDEA, with no equivalent on the page
+ * this replaced.
  *
- * Three example teams, identical in every way except how many matches they have
- * played. Each row is a track running from the PRIOR (what robots of this
- * strength usually do) on the left to that team's OWN measured spread on the
- * right. The published Sigma sits on that track, and more matches slide it
- * further toward its own evidence.
+ * Four rows for one example robot at four points in its season: never played,
+ * then after 2, 6 and 20 matches. Its misses are deliberately NEARLY IDENTICAL,
+ * because that is precisely the case the old estimator got catastrophically
+ * wrong — two similar matches used to read as near perfect consistency.
  *
- * Every drawn position is a real `SigmaScoreAccumulator` reading, not a sketch
- * of one: each row folds its own miss list and asks the shipped accumulator
- * where it landed. A hand-drawn approximation here would be the exact drift the
- * rest of this page's figures were built to avoid.
+ * EVERY DRAWN VALUE IS A REAL ACCUMULATOR READING. The figure seeds a
+ * population first, because the talent scaled prior is deliberately withheld
+ * until the population is known; drawing it without one would show the fallback
+ * path while claiming to show the prior.
  *
- * The three rows deliberately share ONE miss pattern, repeated, so the only
- * thing differing between them is the COUNT. If the rows also differed in how
- * erratic they were, the figure would be showing two effects at once and
- * demonstrating neither.
+ * A property this figure made visible, and worth stating because it is not
+ * obvious: with a 2 match volatility half life the effective sample never grows
+ * beyond about 3.4 observations no matter how many matches are played, so the
+ * peer figure keeps a small share of the answer permanently. The reading slides
+ * a long way toward the robot's own behaviour and never entirely arrives.
  */
-const F2B_PATTERN = [14, -12, 15, -13, 12, -14, 13, -15, 14, -12, 15, -13, 12, -14, 13, -15, 14, -12, 15, -13];
-const F2B_MATCH_COUNTS = [2, 6, 20];
+const F2B_CALM_MISSES = [9, 9.4, 8.7, 9.2, 8.9, 9.1, 9.3, 8.8, 9.0, 9.2, 8.6, 9.4, 9.1, 8.9, 9.2, 9.0, 8.8, 9.3, 9.1, 8.95];
+const F2B_MATCH_COUNTS = [0, 2, 6, 20];
 const F2B_TALENT = 40;
-const F2B_H = 216;
-const F2B_ROW_Y = [58, 112, 166];
-const F2B_TRACK_PAD = 46;
+const F2B_POPULATION_MISSES = [18, -14, 4];
+const F2B_H = 232;
+const F2B_ROW_Y = [64, 110, 156, 202];
+const F2B_AXIS_Y = 40;
+
+/** An accumulator whose population has been seen enough times for the talent scaled prior to engage. */
+function seededPopulation(): SigmaScoreAccumulator {
+  const accumulator = new SigmaScoreAccumulator();
+  for (let index = 0; index < MIN_POPULATION_FOR_TALENT_PRIOR + 60; index += 1) {
+    const key = `pop${index % 40}`;
+    accumulator.observeTalent(key, F2B_TALENT);
+    accumulator.fold(key, F2B_POPULATION_MISSES[index % F2B_POPULATION_MISSES.length] as number);
+  }
+  return accumulator;
+}
 
 function EvidenceFigure(): ReactElement {
-  // The left anchor: the prior alone, before this team has played anything.
-  const priorOnly = new SigmaScoreAccumulator();
-  priorOnly.observeTalent("frcFresh", F2B_TALENT);
-  const priorValue = priorOnly.sigmaFor("frcFresh");
-
-  const rows = F2B_MATCH_COUNTS.map((count) => ({
-    count,
-    sigma: illustrativeSigma(F2B_PATTERN.slice(0, count), F2B_TALENT),
-  }));
-
-  // The right anchor: the widest reading any row reached, so the track spans
-  // the whole journey the figure is about.
-  const ownEvidence = Math.max(...rows.map((row) => row.sigma));
-  const lo = Math.min(priorValue, ...rows.map((row) => row.sigma));
-  const hi = Math.max(priorValue, ownEvidence);
-  const span = hi - lo || 1;
-
-  const trackLeft = PLOT_LEFT + F2B_TRACK_PAD;
-  const trackRight = PLOT_RIGHT - F2B_TRACK_PAD;
-  const xFor = (value: number) => trackLeft + ((value - lo) / span) * (trackRight - trackLeft);
+  const rows = F2B_MATCH_COUNTS.map((count) => {
+    const accumulator = seededPopulation();
+    accumulator.observeTalent("frcExample", F2B_TALENT);
+    for (const miss of F2B_CALM_MISSES.slice(0, count)) accumulator.fold("frcExample", miss);
+    return { count, sigma: accumulator.sigmaFor("frcExample") };
+  });
+  const prior = rows[0]?.sigma ?? 0;
+  const axisMax = Math.ceil(prior * 1.15);
+  const xFor = (points: number) => PLOT_LEFT + (points / axisMax) * FIGURE_PLOT_W;
 
   return (
     <Figure figureId="evidence" height={F2B_H}>
-      <text x={trackLeft} y={26} textAnchor="middle" fontSize={LABEL_FONT} fill="var(--color-text-muted)">
+      <ValueAxis y={F2B_AXIS_Y} ticks={axisTicks({ min: 0, max: axisMax })} xFor={xFor} name="Sigma in points" />
+      <line
+        x1={xFor(prior)}
+        y1={F2B_AXIS_Y + 6}
+        x2={xFor(prior)}
+        y2={F2B_ROW_Y[F2B_ROW_Y.length - 1] as number}
+        stroke="var(--color-text-muted)"
+        strokeWidth={1}
+        strokeDasharray="4 4"
+      />
+      <text
+        x={xFor(prior)}
+        y={F2B_AXIS_Y - 12}
+        textAnchor="end"
+        fontSize={LABEL_FONT}
+        fill="var(--color-text-muted)"
+      >
         what similar robots do
-      </text>
-      <text x={trackRight} y={26} textAnchor="middle" fontSize={LABEL_FONT} fill="var(--color-text-muted)">
-        what this robot showed
       </text>
       {rows.map((row, index) => {
         const y = F2B_ROW_Y[index] as number;
         return (
           <g key={row.count}>
-            <GutterLabel y={y - 4}>{`${row.count} matches played`}</GutterLabel>
+            <GutterLabel y={y + 4}>{row.count === 0 ? "never played" : `${row.count} matches played`}</GutterLabel>
             <line
-              x1={trackLeft}
+              x1={PLOT_LEFT}
               y1={y}
-              x2={trackRight}
+              x2={PLOT_RIGHT}
               y2={y}
               stroke="var(--color-border-subtle)"
-              strokeWidth={2}
-              strokeLinecap="round"
+              strokeWidth={1}
             />
             <circle cx={xFor(row.sigma)} cy={y} r={7} fill="var(--color-text-primary)" />
             <text
               x={xFor(row.sigma)}
-              y={y - 14}
+              y={y - 13}
               textAnchor="middle"
               fontSize={ANNOTATION_FONT}
               fill="var(--color-text-primary)"

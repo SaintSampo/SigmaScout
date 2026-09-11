@@ -83,9 +83,9 @@ export const SIGMA_FIGURES: readonly SigmaFigure[] = [
   },
   {
     id: "evidence",
-    title: "Three teams with two, six and twenty matches played, and where each one's Sigma sits",
+    title: "One example robot's Sigma after zero, two, six and twenty matches played",
     caption:
-      "Three example teams. Each row runs from what similar robots usually do, on the left, to what this robot's own matches say, on the right. The dot is the published Sigma. More matches played pulls the dot further right.",
+      "One example robot whose misses are nearly identical every match. The dashed line is what similar robots do. Each row is the published Sigma after that many matches. Two matches move it a little and twenty move it a long way, and it never arrives completely.",
     illustrative: true,
   },
   {
@@ -161,7 +161,8 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
     figureId: "evidence",
     paragraphs: [
       "A team that has played two matches has almost no evidence about itself. Two matches that happen to land close together do not mean the robot is reliable, they mean you have seen it twice.",
-      "So Sigma does not start from nothing. It starts from what robots of similar strength usually do, then moves toward what this robot's own matches say, by an amount that depends on how many matches there are. Two matches barely move it. Twenty matches move it almost all the way.",
+      "So Sigma does not start from nothing. It starts from what robots of similar strength usually do, then moves toward what this robot's own matches say, by an amount that depends on how many matches there are.",
+      "It never moves all the way across. Only the last few matches count toward the spread, so the number of matches that carry weight stops growing at about 3 no matter how long the season runs. A small share of the answer stays with what similar robots do, permanently. That is deliberate, and it is what stops one quiet run of matches from being read as proof.",
       "Stronger robots score more points, so they have more points to swing by. The starting guess scales with the team's own rating for that reason, rather than being one number for every robot on the field.",
       "This is why Sigma is never exactly zero and never blank. A robot seen twice gets an honest answer built mostly from its peers. A robot never seen at all still gets one, which means a match between six debut teams can still be given a band.",
       "The old number on this site did start from nothing, and it showed. Measured across 297,854 team matches, about 2 teams in every 1,000 came out below 1 point, meaning the site called them almost perfectly consistent on the strength of two similar matches. Those few teams then missed by 40 points and more.",
