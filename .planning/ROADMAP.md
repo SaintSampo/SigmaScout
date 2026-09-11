@@ -564,7 +564,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
 | 8. Simulation & Compare | 15/15 | Complete    | 2026-08-31 |
-| 9. Analytic Ranking Points & Browser-Side Simulation | 0/0 | Not planned | — |
+| 9. Analytic Ranking Points & Browser-Side Simulation | 2/10 | In Progress|  |
 
 ## Coverage
 
@@ -625,20 +625,21 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 
 **Note:** F8's cold-start gate is already fixed for BPR by the Sigma Score work committed 2026-09-10 22:43, but remains live for OPR and EPA, which still use Swing's two-observation rule.
 
-**Plans:** 10 plans
+**Plans:** 2/10 plans executed
 
 Plans:
 
-- [ ] 09-01 — TRACER: RP calibration scorecard end-to-end + frozen before-baselines (wave 1)
-- [ ] 09-02 — Declarative bonus-predicate contract across all ten season modules (wave 1)
-- [ ] 09-03 — `marginals.ts` numerics + F3 warm-roster re-measurement (wave 2)
-- [ ] 09-04 — `analyticPmf.ts` replaces the Monte Carlo, `RpLayerConfig` inert, D-12 proven (wave 3)
-- [ ] 09-05 — Win/tie/marginal as inert-by-default config branches (wave 4)
-- [ ] 09-07 — Rank-simulation red/blue coupling fix (wave 5)
-- [ ] 09-06 — Attribution, the D-09 call [checkpoint], and the D-06 collapse (wave 6)
-- [ ] 09-09 — Pre-schedule ladder rung 1 [checkpoint] (wave 7)
-- [ ] 09-08 — Live Worker RP, state shape bump [checkpoint] (wave 8)
-- [ ] 09-10 — Sidecars, presim re-enable, republish, phase close [checkpoint] (wave 9)
+- [x] 09-01-PLAN.md
+- [x] 09-02-PLAN.md
+- [ ] 09-03-PLAN.md
+- [ ] 09-04-PLAN.md
+- [ ] 09-05-PLAN.md
+- [ ] 09-06-PLAN.md
+- [ ] 09-07-PLAN.md
+- [ ] 09-08-PLAN.md
+- [ ] 09-09-PLAN.md
+- [ ] 09-10-PLAN.md
+
 
 ---
 *Roadmap created: 2026-08-12*
