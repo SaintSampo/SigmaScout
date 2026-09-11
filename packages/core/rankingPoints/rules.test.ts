@@ -6,7 +6,36 @@
  */
 import { describe, expect, it } from "vitest";
 import { eventTierFor } from "./constants.js";
-import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, rpRuleModuleForSeason } from "./rules.js";
+import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, resolveRpThreshold, rpRuleModuleForSeason, type BonusPredicate } from "./rules.js";
+
+/**
+ * Walks every `BonusPredicate` kind and collects the threshold-variable
+ * names it reads — `variable`, `terms[].variable`, `clauses[].terms[].variable`,
+ * `indicators[].terms[].variable`, and the `dataDependentMixture`'s three
+ * clauses. Test-only (09-02 Task 3): used by the "every referenced variable
+ * is declared" case below, not by the evaluator itself.
+ */
+function referencedVariableNames(predicate: BonusPredicate): string[] {
+  switch (predicate.kind) {
+    case "singleThreshold":
+    case "nestedSameVariable":
+      return [predicate.variable];
+    case "linearCombination":
+      return predicate.terms.map((t) => t.variable);
+    case "conjunctionDistinct":
+      return predicate.clauses.flatMap((c) => c.terms.map((t) => t.variable));
+    case "countOfIndicators":
+      return predicate.indicators.flatMap((c) => c.terms.map((t) => t.variable));
+    case "dataDependentMixture":
+      return [
+        ...predicate.selector.terms.map((t) => t.variable),
+        ...predicate.whenSelectorTrue.terms.map((t) => t.variable),
+        ...predicate.whenSelectorFalse.terms.map((t) => t.variable),
+      ];
+    case "constant":
+      return [];
+  }
+}
 
 describe("rpRuleModuleForSeason", () => {
   it("throws for an unregistered season, naming every registered season (2021 stays absent — no standard season was played)", () => {
@@ -46,6 +75,128 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     for (const v of module.thresholdVariables) {
       expect(["count", "points"]).toContain(v.unit);
     }
+  });
+
+  // --- 09-02 Task 3: structural assertions over the declarative contract ---
+
+  it("bonusNames is DERIVED from bonusPredicates (Pitfall 2) — one list, never two that can drift", () => {
+    expect(module.bonusNames).toEqual(module.bonusPredicates.map((p) => p.name));
+  });
+
+  it("every threshold variable's marginalFamily is a member of the MarginalFamily union", () => {
+    for (const v of module.thresholdVariables) {
+      expect(["gaussian", "negative-binomial"]).toContain(v.marginalFamily);
+    }
+  });
+
+  it("every threshold variable's marginalFamily is the Gaussian value today (explicitly temporary — 09-05 flips this, gated on 09-03's warm-roster F3 re-measurement; when it does, THIS assertion is the one to update)", () => {
+    for (const v of module.thresholdVariables) {
+      expect(v.marginalFamily).toBe("gaussian");
+    }
+  });
+
+  it("every threshold variable referenced by a bonusPredicate is declared in thresholdVariables (a typo'd name would otherwise read as 0 forever and silently suppress a bonus)", () => {
+    const declared = new Set(module.thresholdVariables.map((v) => v.name));
+    const referenced = new Set(module.bonusPredicates.flatMap((p) => referencedVariableNames(p)));
+    for (const name of referenced) {
+      expect(declared.has(name)).toBe(true);
+    }
+  });
+
+  it("nestedSameVariable groups are consistently ordered at every tier (D-07: supercharged implies energized at base, districtChampionship AND championship)", () => {
+    const nested = module.bonusPredicates.filter((p): p is Extract<BonusPredicate, { kind: "nestedSameVariable" }> => p.kind === "nestedSameVariable");
+    for (const predicate of nested) {
+      for (const siblingName of predicate.nestedWith) {
+        const sibling = nested.find((p) => p.name === siblingName);
+        expect(sibling).toBeDefined();
+        expect(sibling!.variable).toBe(predicate.variable);
+        expect(sibling!.nestedWith).toContain(predicate.name);
+      }
+    }
+    if (nested.length > 0) {
+      const byVariable = new Map<string, typeof nested>();
+      for (const p of nested) {
+        const group = byVariable.get(p.variable) ?? [];
+        group.push(p);
+        byVariable.set(p.variable, group);
+      }
+      for (const group of byVariable.values()) {
+        const sorted = [...group].sort(
+          (a, b) => resolveRpThreshold(a.threshold, "base") - resolveRpThreshold(b.threshold, "base")
+        );
+        for (const tier of ["districtChampionship", "championship"] as const) {
+          for (let i = 1; i < sorted.length; i++) {
+            expect(resolveRpThreshold(sorted[i]!.threshold, tier)).toBeGreaterThanOrEqual(
+              resolveRpThreshold(sorted[i - 1]!.threshold, tier)
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it("countOfIndicators.required never exceeds indicators.length, and is at least 1, at every tier", () => {
+    const countPredicates = module.bonusPredicates.filter((p): p is Extract<BonusPredicate, { kind: "countOfIndicators" }> => p.kind === "countOfIndicators");
+    for (const predicate of countPredicates) {
+      for (const tier of ["base", "districtChampionship", "championship"] as const) {
+        const required = resolveRpThreshold(predicate.required, tier);
+        expect(required).toBeGreaterThanOrEqual(1);
+        expect(required).toBeLessThanOrEqual(predicate.indicators.length);
+      }
+    }
+  });
+
+  it("bonus names are unique within the season, and none is the empty string", () => {
+    expect(new Set(module.bonusNames).size).toBe(module.bonusNames.length);
+    for (const name of module.bonusNames) {
+      expect(name.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("predictThresholds throws for an unmapped TBA event_type (99, offseason) before any comparison", () => {
+    const zeroed: Record<string, number> = {};
+    for (const v of module.thresholdVariables) zeroed[v.name] = 0;
+    expect(() => module.predictThresholds(zeroed, 99)).toThrow(/unmapped TBA event_type 99/);
+  });
+});
+
+describe("bonusNames order is pinned per season (positional contract into published artifacts — an iterated loop would silently skip a newly-registered season; these are ten explicit equalities on purpose)", () => {
+  it("2016: [breach, capture]", () => {
+    expect(rpRuleModuleForSeason(2016).bonusNames).toEqual(["breach", "capture"]);
+  });
+  it("2017: [kPa, rotor]", () => {
+    expect(rpRuleModuleForSeason(2017).bonusNames).toEqual(["kPa", "rotor"]);
+  });
+  it("2018: [autoQuest, faceTheBoss]", () => {
+    expect(rpRuleModuleForSeason(2018).bonusNames).toEqual(["autoQuest", "faceTheBoss"]);
+  });
+  it("2019: [habDocking, completeRocket]", () => {
+    expect(rpRuleModuleForSeason(2019).bonusNames).toEqual(["habDocking", "completeRocket"]);
+  });
+  it("2020: [shieldOperational]", () => {
+    expect(rpRuleModuleForSeason(2020).bonusNames).toEqual(["shieldOperational"]);
+  });
+  it("2022: [cargoBonus, hangarBonus]", () => {
+    expect(rpRuleModuleForSeason(2022).bonusNames).toEqual(["cargoBonus", "hangarBonus"]);
+  });
+  it("2023: [activationBonus, sustainabilityBonus]", () => {
+    expect(rpRuleModuleForSeason(2023).bonusNames).toEqual(["activationBonus", "sustainabilityBonus"]);
+  });
+  it("2024: [melodyBonus, ensembleBonus]", () => {
+    expect(rpRuleModuleForSeason(2024).bonusNames).toEqual(["melodyBonus", "ensembleBonus"]);
+  });
+  it("2025: [autoBonus, coralBonus, bargeBonus]", () => {
+    expect(rpRuleModuleForSeason(2025).bonusNames).toEqual(["autoBonus", "coralBonus", "bargeBonus"]);
+  });
+  it("2026: [energized, supercharged, traversal]", () => {
+    expect(rpRuleModuleForSeason(2026).bonusNames).toEqual(["energized", "supercharged", "traversal"]);
+  });
+});
+
+describe("total bonus count across every registered season is 21 (moves if any season gains or loses a bonus for any reason)", () => {
+  it("sums to 21", () => {
+    const total = RP_REGISTERED_SEASONS.reduce((sum, season) => sum + RP_RULE_MODULES[season]!.bonusNames.length, 0);
+    expect(total).toBe(21);
   });
 });
 

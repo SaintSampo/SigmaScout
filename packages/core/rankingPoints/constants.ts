@@ -49,12 +49,13 @@ export interface RpThresholdVariable {
    * variable needing an exception has somewhere to say so. Every
    * declaration in the tree names the Gaussian value today; the flip to
    * the count-native family is 09-05's, gated on 09-03's warm-roster
-   * re-measurement. Optional for exactly one plan's worth of migration
-   * (09-02 Task 1): the nine season modules not yet converted in that task
-   * still typecheck without it. Task 3 tightens this to required once
-   * every module declares it.
+   * re-measurement. Introduced OPTIONAL in Task 1 for exactly one task's
+   * worth of migration (so the nine not-yet-converted modules kept
+   * typechecking); REQUIRED as of Task 3, once every one of the ten season
+   * modules declares it — a future season module cannot compile without
+   * naming a family.
    */
-  readonly marginalFamily?: MarginalFamily;
+  readonly marginalFamily: MarginalFamily;
 }
 
 /**
@@ -425,11 +426,12 @@ export interface RpRuleModule {
    * D-02/Pitfall 2: `bonusNames` above is DERIVED from this array —
    * `bonusNames.map(p => p.name)` in every season module, one list of
    * bonus names in the tree that can never drift from a second,
-   * separately-maintained literal. Optional for exactly one plan's worth
-   * of migration (09-02 Task 1); Task 3 tightens this to required once
-   * every season module declares it.
+   * separately-maintained literal. Introduced OPTIONAL in Task 1 for
+   * exactly one task's worth of migration; REQUIRED as of Task 3, once
+   * every season module declares it — a future season module cannot
+   * compile without declaring its predicates.
    */
-  readonly bonusPredicates?: readonly BonusPredicate[];
+  readonly bonusPredicates: readonly BonusPredicate[];
   readonly maxRp: number;
   readonly winRp: number;
   readonly tieRp: number;
