@@ -109,7 +109,13 @@ import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
 import { correctionsOf } from "../packages/core/algorithms/bpr.js";
 import { isFullyDemoAlliance } from "../packages/core/algorithms/demoTeams.js";
 import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
-import { parseSeasons } from "./measureSwingSkill.js";
+import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
+import { eventBlockedBootstrap, type EventBootstrapResult } from "../packages/harness/eventBootstrap.js";
+// REUSE, not re-implementation: `equalCountBuckets` and `parseSeasons` are
+// already exported and already unit-tested in `measureSwingSkill.ts`, and that
+// module's own `isEntryPoint` guard means importing it opens no corpus. A second
+// quantile bucketer here would be a second chance to drop rows at a boundary.
+import { equalCountBuckets, parseSeasons } from "./measureSwingSkill.js";
 
 export { parseSeasons };
 
@@ -152,7 +158,24 @@ export interface Observation {
   /** `raw - foulPoints - adjustPoints` via `correctionsOf`. BPR's native target. */
   readonly actualCorrected: number;
   readonly rosterSize: number;
+  /**
+   * The STRENGTH CONTROL (REC-04). OPR's predicted output for the SAME side of
+   * the SAME match — available because all three algorithms ride one `runAll`,
+   * so this is a common yardstick every row can be sorted on without using the
+   * outcome and without using the model being judged.
+   *
+   * Why it is the control that matters: Championship is stacked AND late in the
+   * season AND smaller-field. Quintiles of `strengthRef` inside ORDINARY
+   * regionals ask the hypothesis's real question with none of those confounds —
+   * if BPR's behaviour on strong alliances already shows up at week-3 regionals,
+   * the effect is about alliance strength, not about Championship, and the
+   * Championship framing is simply the wrong frame.
+   */
+  readonly strengthRef: number;
 }
+
+/** The algorithm whose prediction supplies `Observation.strengthRef`. */
+export const STRENGTH_REFERENCE_ALGORITHM = "opr";
 
 // ───────────────────────────────── pure ─────────────────────────────────
 // Everything below this divider is pure and unit-tested in
@@ -339,11 +362,125 @@ export interface TierStats {
   readonly mae: number;
   readonly rmse: number;
   readonly signed: number;
+  /** Printed beside the errors so a reader can size a signed error against the scoreboard it lives on. */
+  readonly meanPredicted: number;
+  readonly meanActual: number;
 }
 
 export function statsFor(observations: readonly Observation[], target: Target): TierStats {
   const errors = errorsOf(observations, target);
-  return { n: errors.length, mae: mae(errors), rmse: rmse(errors), signed: signedMean(errors) };
+  const actuals = observations.map((o) => (target === "corrected" ? o.actualCorrected : o.actualRaw));
+  return {
+    n: errors.length,
+    mae: mae(errors),
+    rmse: rmse(errors),
+    signed: signedMean(errors),
+    meanPredicted: signedMean(observations.map((o) => o.predicted)),
+    meanActual: signedMean(actuals),
+  };
+}
+
+/**
+ * The identity of ONE alliance in ONE match — the join key every paired
+ * comparison uses. Deliberately includes `side`: pairing on `matchKey` alone
+ * would silently compare BPR's red reconstruction against EPA's blue one.
+ */
+export function sideKey(matchKey: string, side: "red" | "blue"): string {
+  return `${matchKey}|${side}`;
+}
+
+/** One paired unit for the event-blocked bootstrap: a difference, and the event block it belongs to. */
+export interface PairedDiffUnit {
+  readonly eventKey: string;
+  readonly matchKey: string;
+  readonly side: "red" | "blue";
+  /** `|err_a| - |err_b|`. NEGATIVE means `a` was closer — `a` is the better reconstruction. */
+  readonly diff: number;
+}
+
+/**
+ * Per-observation paired difference in ABSOLUTE error, `|err_a| - |err_b|`,
+ * with both models scored on the IDENTICAL observation.
+ *
+ * Pairs strictly on `(matchKey, side)` and DROPS any observation without a
+ * counterpart in the other model. It never zero-fills a missing counterpart: a
+ * zero-filled row asserts "the two models tied here", which dilutes the
+ * contrast toward zero and would make a real difference look smaller than it
+ * is, in exactly the direction that manufactures a false "indistinguishable".
+ *
+ * Pairing is also what makes the interval tight enough to be worth computing:
+ * both models see the same match, so the shared match-difficulty variance
+ * cancels inside the difference before the resampling ever happens (see
+ * `eventBootstrap.ts`'s header on level SE vs paired SE).
+ */
+export function pairedAbsErrorDiffs(
+  a: readonly Observation[],
+  b: readonly Observation[],
+  target: Target
+): PairedDiffUnit[] {
+  const absErrorOf = (o: Observation): number =>
+    Math.abs(o.predicted - (target === "corrected" ? o.actualCorrected : o.actualRaw));
+  const bByKey = new Map<string, Observation>();
+  for (const o of b) bByKey.set(sideKey(o.matchKey, o.side), o);
+  const units: PairedDiffUnit[] = [];
+  for (const o of a) {
+    const counterpart = bByKey.get(sideKey(o.matchKey, o.side));
+    if (counterpart === undefined) continue; // dropped, never zero-filled
+    units.push({
+      eventKey: o.eventKey,
+      matchKey: o.matchKey,
+      side: o.side,
+      diff: absErrorOf(o) - absErrorOf(counterpart),
+    });
+  }
+  return units;
+}
+
+/** Mean paired difference — the statistic the event-blocked bootstrap resamples. */
+export function meanDiff(units: readonly PairedDiffUnit[]): number {
+  if (units.length === 0) return Number.NaN;
+  let sum = 0;
+  for (const u of units) sum += u.diff;
+  return sum / units.length;
+}
+
+/**
+ * The three pre-registered outcomes, in the caller's own words. Written so
+ * "REFUTED" is exactly as reachable as "SUPPORTED" — the hypothesis is on
+ * trial here, not on display.
+ */
+export type VerdictKind = "supported" | "indistinguishable" | "refuted" | "unmeasurable";
+
+/**
+ * `lower`/`upper` are the 2.5/97.5 percentiles of the resampled mean of
+ * `|err_subject| - |err_reference|`. An interval that spans zero means the
+ * sample cannot tell the two apart at this many EVENT blocks, and that is
+ * reported as such rather than resolved by the point estimate's sign.
+ */
+export function verdictFor(lower: number, upper: number, pointEstimate: number): VerdictKind {
+  if (!Number.isFinite(lower) || !Number.isFinite(upper) || !Number.isFinite(pointEstimate)) return "unmeasurable";
+  if (lower <= 0 && upper >= 0) return "indistinguishable";
+  return pointEstimate < 0 ? "supported" : "refuted";
+}
+
+/**
+ * Assigns each `(matchKey, side)` in `observations` to one of `count`
+ * equal-population buckets of `strengthRef`, ascending.
+ *
+ * Deduplicated to match-sides FIRST, then bucketed: every algorithm scores the
+ * identical match-side with the identical `strengthRef`, so bucketing the raw
+ * observation list would weight each match-side once per algorithm and let a
+ * row that one model dropped shift another model's bucket edges.
+ */
+export function strengthBucketIndex(observations: readonly Observation[], count: number): Map<string, number> {
+  const bySide = new Map<string, number>();
+  for (const o of observations) bySide.set(sideKey(o.matchKey, o.side), o.strengthRef);
+  const rows = [...bySide].map(([key, strengthRef]) => ({ key, strengthRef }));
+  const assignment = new Map<string, number>();
+  for (const [index, bucket] of equalCountBuckets(rows, (r) => r.strengthRef, count).entries()) {
+    for (const row of bucket) assignment.set(row.key, index);
+  }
+  return assignment;
 }
 
 /** Groups observations by `(algorithmId, tier)`. */
@@ -368,9 +505,15 @@ function formatStat(value: number): string {
   return Number.isFinite(value) ? value.toFixed(3) : "—";
 }
 
+function signedStat(value: number): string {
+  return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(3)}` : "—";
+}
+
 function printTierTable(observations: readonly Observation[], algorithmIds: readonly string[], target: Target): void {
   const grouped = groupByAlgorithmAndTier(observations);
-  console.log(`   algorithm  tier                          n        MAE       RMSE     SIGNED`);
+  console.log(
+    `   algorithm  tier                          n        MAE       RMSE     SIGNED   mean pred    mean act`
+  );
   for (const algorithmId of algorithmIds) {
     const byTier = grouped.get(algorithmId);
     for (const tier of TIER_ORDER) {
@@ -380,17 +523,107 @@ function printTierTable(observations: readonly Observation[], algorithmIds: read
       console.log(
         `   ${algorithmId.padEnd(9)}  ${tier.padEnd(22)}  ${String(s.n).padStart(7)}  ` +
           `${formatStat(s.mae).padStart(9)}  ${formatStat(s.rmse).padStart(9)}  ` +
-          `${((s.signed >= 0 ? "+" : "") + formatStat(s.signed)).padStart(9)}`
+          `${signedStat(s.signed).padStart(9)}  ${formatStat(s.meanPredicted).padStart(10)}  ` +
+          `${formatStat(s.meanActual).padStart(10)}`
       );
     }
   }
 }
 
-function printCensus(census: ExclusionCensus, replayedMatches: number): void {
-  console.log(`   EXCLUSION CENSUS (match-algorithm records replayed: ${replayedMatches})`);
+function printCensus(census: ExclusionCensus, replayedRecords: number): void {
+  console.log(`   EXCLUSION CENSUS (match-algorithm records replayed: ${replayedRecords})`);
   for (const [reason, count] of Object.entries(census)) {
     console.log(`      ${reason.padEnd(20)} ${String(count).padStart(9)}`);
   }
+  console.log(
+    `      Every row above left the SCOREBOARD only. Nothing left the STATE STREAM: every replayed match`
+  );
+  console.log(`      still taught every algorithm, so a narrowed population never becomes a warmer model.`);
+}
+
+/**
+ * The comparability finding REC-03 requires be surfaced rather than normalized
+ * away. Printed above every table so it cannot be read as a footnote.
+ */
+function printNativeTargetNote(): void {
+  console.log(`   NATIVE TARGET — WHICH TARGET EACH MODEL ACTUALLY TRAINS ON`);
+  console.log(`      opr: RAW total points (fouls included)`);
+  console.log(`      epa: RAW total points (it deliberately ADDS the opponent's predicted foulsCommitted)`);
+  console.log(`      bpr: CORRECTED points (raw - foulPoints - adjustPoints, via correctionsOf)`);
+  console.log(
+    `      THIS IS A REAL COMPARABILITY FINDING, NOT A NUISANCE. Against the CORRECTED target, OPR's and`
+  );
+  console.log(
+    `      EPA's signed error carries the mean foul load as a FLOOR — they are predicting a quantity that`
+  );
+  console.log(
+    `      includes fouls and being graded on one that does not, so their negative signed error there is`
+  );
+  console.log(
+    `      partly arithmetic, not model bias. Against the RAW target the handicap runs the other way, and`
+  );
+  console.log(
+    `      BPR's signed error carries the foul load as a NEGATIVE floor. Both tables are printed for all`
+  );
+  console.log(
+    `      three models and neither is "corrected"; subtracting fouls out of OPR's or EPA's prediction to`
+  );
+  console.log(`      reconcile them would be inventing a model that neither one is.`);
+}
+
+/** The paired contrast for one (subject, reference) pair inside one tier. */
+interface PairedReport {
+  readonly tier: Tier;
+  readonly subject: string;
+  readonly reference: string;
+  readonly target: Target;
+  readonly result: EventBootstrapResult | null;
+  readonly failure: string | null;
+}
+
+function pairedReport(
+  tier: Tier,
+  subject: string,
+  reference: string,
+  target: Target,
+  subjectRows: readonly Observation[],
+  referenceRows: readonly Observation[]
+): PairedReport {
+  const units = pairedAbsErrorDiffs(subjectRows, referenceRows, target);
+  if (units.length === 0) {
+    return { tier, subject, reference, target, result: null, failure: "no paired observations" };
+  }
+  try {
+    return {
+      tier,
+      subject,
+      reference,
+      target,
+      result: eventBlockedBootstrap(units, meanDiff),
+      failure: null,
+    };
+  } catch {
+    // `eventBlockedBootstrap` refuses below 2 event blocks — a single-block
+    // bootstrap reports an SE of exactly 0, a false claim of certainty. Caught
+    // and reported rather than allowed to kill a nine-season run.
+    return { tier, subject, reference, target, result: null, failure: "too few event blocks to bootstrap" };
+  }
+}
+
+function printPairedReport(report: PairedReport): void {
+  const label = `   ${report.tier.padEnd(22)} ${report.subject} vs ${report.reference} (${report.target})`;
+  if (report.result === null) {
+    console.log(`${label}: ${report.failure}`);
+    return;
+  }
+  const r = report.result;
+  console.log(
+    `${label}\n` +
+      `      mean(|err_${report.subject}| - |err_${report.reference}|) = ${signedStat(r.pointEstimate)} points   ` +
+      `SE ${r.standardError.toFixed(3)}   ` +
+      `95% [${signedStat(r.percentile.lower)}, ${signedStat(r.percentile.upper)}]   ` +
+      `eventCount ${r.eventCount}   n ${r.matchCount}`
+  );
 }
 
 interface StreamRecord {
@@ -406,6 +639,16 @@ function observationsForSeason(
   records: readonly StreamRecord[],
   census: ExclusionCensus
 ): Observation[] {
+  // Pass 1: the strength yardstick. OPR's own prediction for each match-side,
+  // harvested from the SAME shared run, so `strengthRef` is available to every
+  // algorithm's rows without any second replay and without using the outcome.
+  const strengthByKey = new Map<string, number>();
+  for (const record of records) {
+    if (record.algorithmId !== STRENGTH_REFERENCE_ALGORITHM) continue;
+    strengthByKey.set(sideKey(record.match.matchKey, "red"), record.prediction.redScore);
+    strengthByKey.set(sideKey(record.match.matchKey, "blue"), record.prediction.blueScore);
+  }
+
   const observations: Observation[] = [];
   for (const record of records) {
     const { match } = record;
@@ -457,6 +700,7 @@ function observationsForSeason(
         actualRaw: s.actual,
         actualCorrected: s.actualCorrected,
         rosterSize: s.teams.length,
+        strengthRef: strengthByKey.get(sideKey(match.matchKey, s.side)) ?? Number.NaN,
       });
     }
   }
@@ -468,6 +712,62 @@ function flagValue(args: readonly string[], name: string): string | undefined {
   return i === -1 ? undefined : args[i + 1];
 }
 
+/** The base-tier strength control (REC-04): Championship's question, asked without Championship. */
+function printStrengthQuintiles(
+  observations: readonly Observation[],
+  algorithmIds: readonly string[],
+  target: Target,
+  quintiles: number
+): void {
+  const base = observations.filter((o) => o.tier === "base" && Number.isFinite(o.strengthRef));
+  if (base.length === 0) {
+    console.log(`   no base-tier observations to bucket`);
+    return;
+  }
+  const assignment = strengthBucketIndex(base, quintiles);
+  const byAlgorithmAndBucket = new Map<string, Observation[][]>();
+  for (const algorithmId of algorithmIds) {
+    byAlgorithmAndBucket.set(
+      algorithmId,
+      Array.from({ length: quintiles }, () => [] as Observation[])
+    );
+  }
+  for (const o of base) {
+    const bucket = assignment.get(sideKey(o.matchKey, o.side));
+    if (bucket === undefined) continue;
+    byAlgorithmAndBucket.get(o.algorithmId)?.[bucket]?.push(o);
+  }
+
+  console.log(`   quintile  mean OPR strength  algorithm        n        MAE     SIGNED`);
+  for (let q = 0; q < quintiles; q++) {
+    const reference = byAlgorithmAndBucket.get(algorithmIds[0]!)?.[q] ?? [];
+    const meanStrength = signedMean(reference.map((o) => o.strengthRef));
+    for (const algorithmId of algorithmIds) {
+      const rows = byAlgorithmAndBucket.get(algorithmId)?.[q] ?? [];
+      if (rows.length === 0) continue;
+      const s = statsFor(rows, target);
+      console.log(
+        `   ${String(q + 1).padStart(8)}  ${formatStat(meanStrength).padStart(17)}  ` +
+          `${algorithmId.padEnd(9)}  ${String(s.n).padStart(7)}  ${formatStat(s.mae).padStart(9)}  ` +
+          `${signedStat(s.signed).padStart(9)}`
+      );
+    }
+  }
+}
+
+function describeVerdict(kind: VerdictKind, subject: string, reference: string): string {
+  switch (kind) {
+    case "supported":
+      return `SUPPORTED — ${subject} reconstructs this tier CLOSER than ${reference}, and the interval excludes zero`;
+    case "refuted":
+      return `REFUTED — ${subject} reconstructs this tier WORSE than ${reference}, and the interval excludes zero`;
+    case "indistinguishable":
+      return `INDISTINGUISHABLE at this sample size — the paired interval spans zero`;
+    case "unmeasurable":
+      return `UNMEASURABLE — no usable interval for this tier`;
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = flagValue(args, "--seasons") ?? DEFAULT_SEASONS_SPEC;
@@ -475,10 +775,20 @@ async function main(): Promise<void> {
   const seasons = parseSeasons(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmsSpec);
   const algorithmIds = algorithms.map((a) => a.id);
+  const quintiles = 5;
 
   console.log(`ALLIANCE RECONSTRUCTION — which model rebuilds the alliance that actually played?`);
   console.log(`algorithms: ${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}`);
   console.log(`seasons:    ${seasons.join(", ")}`);
+  console.log(``);
+  console.log(`READ-ONLY. Nothing here is tuned, fitted, swept or selected against any season.`);
+  console.log(``);
+  console.log(`n IS NOT INDEPENDENT OBSERVATIONS. One match contributes up to 2 rows (red and blue) that`);
+  console.log(`share a field, a game state and an officiating crew, and matches inside one event share all`);
+  console.log(`of that again. That is why every interval below is an EVENT-BLOCKED bootstrap reporting its`);
+  console.log(`own eventCount — treat any interval derived from n instead as far too tight.`);
+  console.log(``);
+  printNativeTargetNote();
   console.log(``);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
@@ -488,23 +798,127 @@ async function main(): Promise<void> {
     const pooled: Observation[] = [];
     let replayedRecords = 0;
 
-    for (const season of seasons) {
+    // SEASON-BOUNDARY THREADING, mirroring `packages/harness/cli.ts`'s
+    // `runSeasons` loop exactly: `seasonBoundaryFor` -> `carrySeason` ->
+    // `initialStates`, then `records.carryStates` back out.
+    //
+    // WHY A FRESH-PER-SEASON RUN WOULD BE WRONG HERE, specifically. The control
+    // bucket is mostly week-1-to-week-6 regional matches; the Championship
+    // bucket is, by definition, the end of the season. Starting every season
+    // cold would handicap the EARLY matches — which is nearly all of the
+    // control — and hand Championship an advantage that is really just a warmer
+    // model. That would manufacture the very effect this script exists to test.
+    let liveStates = new Map<string, unknown>();
+
+    for (const [seasonIndex, season] of seasons.entries()) {
       const stream = buildSeasonStream(db, season);
       if (stream.length === 0) {
         console.log(`── ${season} ── no matches in corpus\n`);
         continue;
       }
+      const boundary = seasonBoundaryFor(seasons, seasonIndex);
+      let initialStates: ReadonlyMap<string, unknown> | undefined;
+      if (!boundary.isColdStart) {
+        const carried = new Map<string, unknown>();
+        for (const algorithm of algorithms) {
+          const priorState = liveStates.get(algorithm.id);
+          if (algorithm.carrySeason && priorState !== undefined) {
+            carried.set(algorithm.id, algorithm.carrySeason(priorState, boundary));
+          }
+        }
+        initialStates = carried;
+      }
+
       const teams = [...new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
       // ONE runAll for all three algorithms over ONE shared stream (D-22), so
       // every model provably sees the identical object for each match.
-      const records = new WalkForwardSimulator(stream, coldStartIndex).runAll(algorithms, teams);
+      const records = new WalkForwardSimulator(stream, coldStartIndex).runAll(algorithms, teams, initialStates);
       replayedRecords += records.length;
-      pooled.push(...observationsForSeason(season, records, census));
+      const observations = observationsForSeason(season, records, census);
+
+      console.log(`═══ ${season} — corrected target ═══`);
+      printTierTable(observations, algorithmIds, "corrected");
+      console.log(`═══ ${season} — raw target ═══`);
+      printTierTable(observations, algorithmIds, "raw");
+      console.log(``);
+
+      pooled.push(...observations);
+      liveStates = new Map(records.carryStates);
     }
 
-    console.log(`═══ POOLED — corrected target (raw - foulPoints - adjustPoints) ═══`);
+    console.log(`═══════════════════════════════════════════════════════════════════════════════`);
+    console.log(`POOLED ACROSS ${seasons.length} SEASONS`);
+    console.log(`═══════════════════════════════════════════════════════════════════════════════`);
+    console.log(`   ── corrected target (raw - foulPoints - adjustPoints) — BPR's native target ──`);
     printTierTable(pooled, algorithmIds, "corrected");
+    console.log(`   ── raw target (TBA total points) — OPR's and EPA's native target ──`);
+    printTierTable(pooled, algorithmIds, "raw");
     console.log(``);
+
+    console.log(`── TIER CONTROLS ──`);
+    console.log(`   base                 = regional + district. The headline CONTROL.`);
+    console.log(`   districtChampionship = the WARM control: late-season, but far less stacked than Champs.`);
+    console.log(`   champsDivision       = stacked AND late-season AND small-field.`);
+    console.log(`   einstein             = the most stacked field in the sport, ~1-2 events per season.`);
+    console.log(
+      `   If an advantage appears at champsDivision but NOT at districtChampionship, the stacking story`
+    );
+    console.log(`   survives the lateness confound. If it appears at districtChampionship too, it does not.`);
+    console.log(``);
+
+    console.log(`── STRENGTH CONTROL — base tier ONLY, quintiles of OPR's own predicted alliance output ──`);
+    console.log(`   Championship's question asked with no Championship in it: if the effect is already`);
+    console.log(`   visible on the top strength quintile of ordinary regionals, it is about alliance`);
+    console.log(`   STRENGTH, not about Championship, and the Championship framing is the wrong frame.`);
+    console.log(`   (corrected target)`);
+    printStrengthQuintiles(pooled, algorithmIds, "corrected", quintiles);
+    console.log(`   (raw target)`);
+    printStrengthQuintiles(pooled, algorithmIds, "raw", quintiles);
+    console.log(``);
+
+    // ── PAIRED CONTRASTS, event-blocked ──────────────────────────────────────
+    const grouped = groupByAlgorithmAndTier(pooled);
+    const subject = "bpr";
+    const references = algorithmIds.filter((id) => id !== subject);
+    const verdictLines: string[] = [];
+
+    console.log(`── PAIRED CONTRAST (event-blocked bootstrap, pooled across seasons) ──`);
+    console.log(`   NEGATIVE mean(|err_bpr| - |err_other|) means BPR is CLOSER. eventCount is the honest`);
+    console.log(`   effective sample size; n is shown beside it only to make that gap visible.`);
+    for (const target of ["corrected", "raw"] as const) {
+      for (const reference of references) {
+        for (const tier of TIER_ORDER) {
+          const subjectRows = grouped.get(subject)?.get(tier) ?? [];
+          const referenceRows = grouped.get(reference)?.get(tier) ?? [];
+          if (subjectRows.length === 0 || referenceRows.length === 0) continue;
+          const report = pairedReport(tier, subject, reference, target, subjectRows, referenceRows);
+          printPairedReport(report);
+          if (reference === "epa" && target === "corrected") {
+            const kind =
+              report.result === null
+                ? "unmeasurable"
+                : verdictFor(report.result.percentile.lower, report.result.percentile.upper, report.result.pointEstimate);
+            const subjectStats = statsFor(subjectRows, target);
+            const referenceStats = statsFor(referenceRows, target);
+            verdictLines.push(
+              `   ${tier.padEnd(22)} ${describeVerdict(kind, subject, reference)}\n` +
+                `      MAE bpr ${formatStat(subjectStats.mae)} vs epa ${formatStat(referenceStats.mae)};  ` +
+                `SIGNED bpr ${signedStat(subjectStats.signed)} vs epa ${signedStat(referenceStats.signed)}  ` +
+                `(positive = OVER-prediction, which is what the spread-amplifier reading predicts)`
+            );
+          }
+        }
+      }
+    }
+    console.log(``);
+
+    console.log(`══ VERDICT — pre-registered, bpr vs epa on the corrected target ══`);
+    console.log(
+      `   Hypothesis: BPR's rank weighting reconstructs a STACKED alliance better than a linear sum can.`
+    );
+    for (const line of verdictLines) console.log(line);
+    console.log(``);
+
     printCensus(census, replayedRecords);
   } finally {
     db.close();
