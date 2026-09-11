@@ -28,9 +28,9 @@ function manifestResponse() {
 
 /**
  * The teams-table artifact. Four rows, per the plan's own fixture spec:
- * frc1 and frc2 both carry a Total and a `swingFactor` (the WIRE field name
- * `buildTeamRows` renames to `swingScore`), in different countries; frc3
- * carries a Total and a published tier but NO `swingFactor`; frc4 carries a
+ * frc1 and frc2 both carry a Total and a published `sigma` metric entry, in
+ * different countries; frc3 carries a Total and a published tier but NO
+ * `sigma`; frc4 carries a
  * Total whose metric has NO `tier`.
  */
 function teamsArtifactResponse() {
@@ -50,8 +50,9 @@ function teamsArtifactResponse() {
           eventCount: 3,
           matchCount: 30,
           record: { wins: 20, losses: 10, ties: 0 },
-          metrics: { total: { value: 50, tier: "rare" } },
-          swingFactor: 3.5,
+          // Sigma Score rides the published `sigma` metric entry, not the
+          // legacy top-level `swingFactor` wire field (2026-09-10).
+          metrics: { total: { value: 50, tier: "rare" }, sigma: { value: 3.5 } },
           country: "USA",
         },
         {
@@ -61,8 +62,7 @@ function teamsArtifactResponse() {
           eventCount: 2,
           matchCount: 20,
           record: { wins: 12, losses: 8, ties: 0 },
-          metrics: { total: { value: 20, tier: "epic" } },
-          swingFactor: 1.2,
+          metrics: { total: { value: 20, tier: "epic" }, sigma: { value: 1.2 } },
           country: "Canada",
         },
         {
@@ -73,7 +73,7 @@ function teamsArtifactResponse() {
           matchCount: 1,
           record: { wins: 1, losses: 0, ties: 0 },
           metrics: { total: { value: 80, tier: "legendary" } },
-          // No swingFactor -- fewer than two played matches.
+          // No `sigma` entry -- this algorithm/team publishes no consistency figure.
           country: "USA",
         },
         {
@@ -83,8 +83,7 @@ function teamsArtifactResponse() {
           eventCount: 1,
           matchCount: 10,
           record: { wins: 5, losses: 5, ties: 0 },
-          metrics: { total: { value: 10 } }, // No tier -> neutral.
-          swingFactor: 0.5,
+          metrics: { total: { value: 10 }, sigma: { value: 0.5 } }, // No tier -> neutral.
           country: "USA",
         },
       ],
@@ -232,7 +231,7 @@ describe("/teams route bubble-chart toggle", () => {
 
     await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
     // Filtered to country=USA: frc1, frc3, frc4 (frc2 is Canada). Of those,
-    // frc3 has no swingFactor and is omitted -- exactly frc1 and frc4 plot.
+    // frc3 has no `sigma` entry and is omitted -- exactly frc1 and frc4 plot.
     await waitFor(() => expect(countDots(container)).toBe(2));
   });
 

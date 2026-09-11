@@ -42,6 +42,7 @@ import {
 } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { SWING_METRIC_KEY } from "./swingFactor.js";
+import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 export type MetricDirection = "higher-is-better" | "lower-is-better";
 
@@ -87,6 +88,16 @@ for (const key of Object.values(COMPONENT_GROUP_METRIC_KEYS)) {
  * oversight.
  */
 DIRECTION_BY_METRIC_NAME.set(SWING_METRIC_KEY, "lower-is-better");
+
+/**
+ * Sigma Score inherits that same D2 override, for the same reason and by the
+ * same decision: the tier is one-sided ("more consistent is always better")
+ * even though the underlying quantity is arguably two-sided. Registered
+ * separately rather than aliased, because the two keys are independently
+ * publishable — `SIGMA_SCORE_ALGORITHM_IDS` decides which appears — and a
+ * future change to one direction must not silently move the other.
+ */
+DIRECTION_BY_METRIC_NAME.set(SIGMA_METRIC_KEY, "lower-is-better");
 
 /**
  * STRICT accessor. Throws `UndeclaredMetricDirectionError` on an undeclared

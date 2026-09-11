@@ -6,7 +6,7 @@ import { tierForPercentile } from "@/lib/tiers";
 import type { Tier } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { SWING_METRIC_KEY } from "../../../../../packages/harness/swingFactor.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import { RankCards } from "./RankCards.js";
 
 /**
@@ -59,26 +59,26 @@ function formatWinRate(value: number | null): string {
 }
 
 /**
- * The Swing Score tile. Always rendered when a swing score exists (2026-09-09:
- * Swing Score is a permanent part of the site, so the ribbon's `±` control is
- * gone and nothing can turn this off). Absent only for a team with fewer than
- * two played matches — one observation cannot separate model bias from robot
- * swing, so the tile shows nothing rather than a fabricated zero.
+ * The SIGMA SCORE tile.
  *
- * Quick task 260909-tgf: the tile IS tier-boxed. The percentile behind it is
- * the team's residual against an expected-swing curve fitted at its own
- * rating — so a strong robot is not automatically high-swing — and the
- * direction is inverted at the pipeline so LOW swing earns the HIGH tier.
- * `tier` is genuinely `undefined` when only the stale-artifact fallback value
- * exists (see `SeasonHeader`'s own `swingTier` derivation), which renders the
- * value with no ring at all rather than a fabricated Common one.
+ * Rendered exactly when the artifact carries a published `sigma` metric entry,
+ * which is the same thing as saying "this algorithm publishes Sigma Score" —
+ * BPR today, per `SIGMA_SCORE_ALGORITHM_IDS`. There is deliberately NO
+ * algorithm-id check in the browser: the data's presence is the condition, so
+ * changing which algorithms carry Sigma needs no web change at all.
+ *
+ * The tile IS tier-boxed (quick task 260909-tgf's construction, inherited). The
+ * percentile behind it is the team's residual against an expected-consistency
+ * curve fitted at its own rating — so a strong robot is not automatically
+ * high-sigma — and the direction is inverted at the pipeline so LOW sigma earns
+ * the HIGH tier.
  */
-function SwingScoreTile({ swingScore, tier }: { swingScore?: number; tier?: Tier }) {
-  if (swingScore === undefined) return null;
+function SigmaScoreTile({ sigmaScore, tier }: { sigmaScore?: number; tier?: Tier }) {
+  if (sigmaScore === undefined) return null;
   return (
-    <div data-testid="swing-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
-      <span className="text-role-label text-[var(--color-text-muted)]">Swing</span>
-      <MetricValue metric={{ value: swingScore }} tier={tier} />
+    <div data-testid="sigma-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
+      <span className="text-role-label text-[var(--color-text-muted)]">Sigma</span>
+      <MetricValue metric={{ value: sigmaScore }} tier={tier} />
     </div>
   );
 }
@@ -174,9 +174,14 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // pipeline's cuts and this page's cuts can never disagree) — when the
   // entry is absent, `tierForPercentile(undefined)` yields `undefined`, so
   // the fallback-only case renders the value with NO ring at all.
-  const swingMetric = metrics[SWING_METRIC_KEY];
-  const swingScore = swingMetric?.value ?? artifact.swingFactor;
-  const swingTier = tierForPercentile(swingMetric?.percentile);
+  // The published `sigma` entry and NOTHING ELSE. The old
+  // `?? artifact.swingFactor` fallback is deliberately gone: that field holds a
+  // SWING FACTOR, a different estimator on a different scale (Swing prints
+  // 1.92 sigma against Sigma's honest 1 sigma), so falling back to it would
+  // print a Swing number under a "Sigma" label. Absent entry means no tile.
+  const sigmaMetric = metrics[SIGMA_METRIC_KEY];
+  const sigmaScore = sigmaMetric?.value;
+  const sigmaTier = tierForPercentile(sigmaMetric?.percentile);
   const groupTiles = publishesComponents
     ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
@@ -297,13 +302,13 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
               <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
             </div>
           ))}
-          {/* Swing Score's own tile — see `swingScore`'s derivation above for
+          {/* Sigma Score's own tile — see `sigmaScore`'s derivation above for
               why it is not a suffix on Total. Quick task 260909-tgf: the tile
               IS tier-boxed, exactly like the tiles beside it — the percentile
               behind it is the team's residual against an expected-swing curve
               at its own rating, inverted at the pipeline so LOW swing earns
               the HIGH tier. */}
-          <SwingScoreTile swingScore={swingScore} tier={swingTier} />
+          <SigmaScoreTile sigmaScore={sigmaScore} tier={sigmaTier} />
         </div>
       </div>
     </div>

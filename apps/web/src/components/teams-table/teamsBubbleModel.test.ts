@@ -30,8 +30,8 @@ function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNu
     record: overrides.record ?? { wins: 0, losses: 0, ties: 0 },
     winRate: overrides.winRate ?? null,
     metrics: overrides.metrics ?? {},
-    swingScore: overrides.swingScore,
-    swingTier: overrides.swingTier,
+    sigmaScore: overrides.sigmaScore,
+    sigmaTier: overrides.sigmaTier,
     rank: overrides.rank ?? overrides.teamNumber,
   };
 }
@@ -39,16 +39,16 @@ function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNu
 describe("teamsBubbleModel", () => {
   it("returns one point per row with BOTH a Total value and a Swing Score, in input order", () => {
     const rows: TeamRow[] = [
-      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, swingScore: 4 }),
-      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, swingScore: 2 }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 4 }),
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: 2 }),
     ];
     const model = buildBubbleModel(rows);
     expect(model.points.map((point) => point.teamKey)).toEqual(["frc2", "frc1"]);
     expect(model.points).toHaveLength(2);
   });
 
-  it("omits a row with swingScore undefined, incrementing omittedNoSwing, and never emits a y === 0 point for it", () => {
-    const rows: TeamRow[] = [makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, swingScore: undefined })];
+  it("omits a row with sigmaScore undefined, incrementing omittedNoSwing, and never emits a y === 0 point for it", () => {
+    const rows: TeamRow[] = [makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: undefined })];
     const model = buildBubbleModel(rows);
     expect(model.points).toHaveLength(0);
     expect(model.omittedNoSwing).toBe(1);
@@ -57,7 +57,7 @@ describe("teamsBubbleModel", () => {
   });
 
   it("omits a row whose metrics[TOTAL_KEY] is absent, incrementing omittedNoTotal", () => {
-    const rows: TeamRow[] = [makeRow({ teamKey: "frc1", teamNumber: 1, metrics: {}, swingScore: 4 })];
+    const rows: TeamRow[] = [makeRow({ teamKey: "frc1", teamNumber: 1, metrics: {}, sigmaScore: 4 })];
     const model = buildBubbleModel(rows);
     expect(model.points).toHaveLength(0);
     expect(model.omittedNoTotal).toBe(1);
@@ -66,8 +66,8 @@ describe("teamsBubbleModel", () => {
 
   it("tone is the published tier for rows that have one; a Total metric with no tier yields 'neutral', never 'common'", () => {
     const rows: TeamRow[] = [
-      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "epic" } }, swingScore: 1 }),
-      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 5 } }, swingScore: 1 }),
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "epic" } }, sigmaScore: 1 }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 5 } }, sigmaScore: 1 }),
     ];
     const model = buildBubbleModel(rows);
     expect(model.points[0]?.tone).toBe("epic");
@@ -77,7 +77,7 @@ describe("teamsBubbleModel", () => {
 
   it("never copies the algorithm's own confidence field onto the built point object", () => {
     const rows: TeamRow[] = [
-      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, spread: 3.5, tier: "rare" } }, swingScore: 1 }),
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, spread: 3.5, tier: "rare" } }, sigmaScore: 1 }),
     ];
     const model = buildBubbleModel(rows);
     expect(Object.keys(model.points[0]!)).not.toContain("spread");

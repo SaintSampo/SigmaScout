@@ -122,8 +122,21 @@ export function swingMetricByTeam(params: {
   swingByTeam: ReadonlyMap<string, number>;
   metricsByTeam: TeamMetrics;
   teamKeys: readonly string[];
+  /**
+   * Which metric key's declared direction to apply. Defaults to
+   * `SWING_METRIC_KEY`, so every existing caller is unchanged.
+   *
+   * Parameterised (quick task 260910-x) so SIGMA SCORE reuses this exact
+   * expected-curve-and-residual construction rather than getting a second
+   * copy of it. The two metrics are different estimators but the same
+   * QUESTION — "is this robot more or less consistent than others at its
+   * rating" — and a second implementation would be free to drift from this
+   * one in the rating-local window size, the median, or the inversion.
+   */
+  metricKey?: string;
 }): Record<string, SwingMetricEntry> {
   const { swingByTeam, metricsByTeam, teamKeys } = params;
+  const metricKey = params.metricKey ?? SWING_METRIC_KEY;
 
   const ratingByTeam = new Map<string, number>();
   for (const teamKey of teamKeys) {
@@ -145,7 +158,7 @@ export function swingMetricByTeam(params: {
   // crashing on rather than degrading past. It is the SAME declared-
   // direction mechanism the percentile pass uses, so swing is an instance
   // of it rather than a second one.
-  const direction = metricDirection(SWING_METRIC_KEY);
+  const direction = metricDirection(metricKey);
 
   eligible.forEach((teamKey, i) => {
     result[teamKey] = {

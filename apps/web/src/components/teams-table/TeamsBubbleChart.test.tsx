@@ -19,8 +19,8 @@ function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNu
     record: overrides.record ?? { wins: 0, losses: 0, ties: 0 },
     winRate: overrides.winRate ?? null,
     metrics: overrides.metrics ?? {},
-    swingScore: overrides.swingScore,
-    swingTier: overrides.swingTier,
+    sigmaScore: overrides.sigmaScore,
+    sigmaTier: overrides.sigmaTier,
     rank: overrides.rank ?? overrides.teamNumber,
   };
 }
@@ -35,11 +35,11 @@ function countDots(container: HTMLElement, tone?: string): number {
 }
 
 const MIXED_ROWS: TeamRow[] = [
-  makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } }, swingScore: 1 }),
-  makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20, tier: "epic" } }, swingScore: 2 }),
-  makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30, tier: "epic" } }, swingScore: 3 }),
-  makeRow({ teamKey: "frc4", teamNumber: 4, metrics: { [TOTAL_KEY]: { value: 40, tier: "rare" } }, swingScore: 4 }),
-  makeRow({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 50, spread: 3.5 } }, swingScore: 5 }), // no tier -> neutral, carries spread
+  makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } }, sigmaScore: 1 }),
+  makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20, tier: "epic" } }, sigmaScore: 2 }),
+  makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30, tier: "epic" } }, sigmaScore: 3 }),
+  makeRow({ teamKey: "frc4", teamNumber: 4, metrics: { [TOTAL_KEY]: { value: 40, tier: "rare" } }, sigmaScore: 4 }),
+  makeRow({ teamKey: "frc5", teamNumber: 5, metrics: { [TOTAL_KEY]: { value: 50, spread: 3.5 } }, sigmaScore: 5 }), // no tier -> neutral, carries spread
 ];
 
 describe("TeamsBubbleChart", () => {
@@ -69,7 +69,7 @@ describe("TeamsBubbleChart", () => {
   it("with rows whose Swing Score is absent, an on-screen note names the count and the reason; absent when nothing was omitted", () => {
     const rowsWithOmission: TeamRow[] = [
       ...MIXED_ROWS,
-      makeRow({ teamKey: "frc6", teamNumber: 6, metrics: { [TOTAL_KEY]: { value: 60 } }, swingScore: undefined }),
+      makeRow({ teamKey: "frc6", teamNumber: 6, metrics: { [TOTAL_KEY]: { value: 60 } }, sigmaScore: undefined }),
     ];
     render(<TeamsBubbleChart rows={rowsWithOmission} />);
     expect(screen.getByText(/1 team is not plotted: they have played fewer than two matches, so they have no Swing Score\./)).toBeDefined();
@@ -80,7 +80,7 @@ describe("TeamsBubbleChart", () => {
   });
 
   it("with rows carrying no Total metric, a second note names that count separately", () => {
-    const rowsWithOmission: TeamRow[] = [...MIXED_ROWS, makeRow({ teamKey: "frc7", teamNumber: 7, metrics: {}, swingScore: 1 })];
+    const rowsWithOmission: TeamRow[] = [...MIXED_ROWS, makeRow({ teamKey: "frc7", teamNumber: 7, metrics: {}, sigmaScore: 1 })];
     render(<TeamsBubbleChart rows={rowsWithOmission} />);
     expect(screen.getByText(/1 team is not plotted: they carry no Total for this algorithm\./)).toBeDefined();
   });
@@ -120,7 +120,7 @@ describe("TeamsBubbleChart", () => {
 
   it("a row whose Total metric has no published tier lands in the neutral tone path, not rare/epic/legendary", () => {
     const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
-    // frc5 (no tier) is the only point given a swingScore of 5; its dot must
+    // frc5 (no tier) is the only point given a sigmaScore of 5; its dot must
     // be counted in the neutral bucket and nowhere else.
     expect(countDots(container, "neutral")).toBe(1);
     const nonNeutralTotal = countDots(container, "rare") + countDots(container, "epic") + countDots(container, "legendary");
@@ -200,7 +200,7 @@ describe("TeamsBubbleChart hover and click", () => {
     const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
     const svg = container.querySelector("svg")!;
     stubRect(svg);
-    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, swingScore=1
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, sigmaScore=1
     fireEvent.pointerMove(svg, { clientX: x, clientY: y });
 
     const tooltip = within(screen.getByTestId("bubble-chart-tooltip"));
@@ -213,7 +213,7 @@ describe("TeamsBubbleChart hover and click", () => {
     const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
     const svg = container.querySelector("svg")!;
     stubRect(svg);
-    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, swingScore=1
+    const { x, y } = firstDotCoords(container, "legendary"); // frc1: x=10, sigmaScore=1
     fireEvent.pointerMove(svg, { clientX: x, clientY: y });
 
     const tooltip = within(screen.getByTestId("bubble-chart-tooltip"));
@@ -298,7 +298,7 @@ describe("TeamsBubbleChart hover and click", () => {
         teamKey: `frc${i + 1}`,
         teamNumber: i + 1,
         metrics: { [TOTAL_KEY]: { value: i, tier: i % 4 === 0 ? "legendary" : i % 3 === 0 ? "epic" : i % 2 === 0 ? "rare" : undefined } },
-        swingScore: i,
+        sigmaScore: i,
       }),
     );
     const { container } = render(<TeamsBubbleChart rows={rows} />);

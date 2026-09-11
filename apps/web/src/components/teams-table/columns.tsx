@@ -424,7 +424,7 @@ export function buildColumns(
    * Hidden by the ribbon's `±` control, which is what that control now names.
    *
    * Quick task 260909-tgf: this cell now carries a rarity TIER, sourced from
-   * `rowModel.ts`'s `swingTier` (the published `swing` metric entry's tier,
+   * `rowModel.ts`'s `sigmaTier` (the published `sigma` metric entry's tier,
    * never derived here) — with LOWER swing earning the HIGHER tier, the D2
    * inversion applied once at the pipeline. Rendered through `MetricValue`
    * so it gets the identical `.metric-tier` box, padding and `toFixed(2)`
@@ -434,13 +434,13 @@ export function buildColumns(
    * defaults to Common; absent entry, stale fallback -> genuinely no tier),
    * and re-coalescing here would undo it for a stale row.
    */
-  const swingColumn = columnHelper.accessor("swingScore", {
-    id: "swingScore",
-    header: "Swing",
+  const sigmaColumn = columnHelper.accessor("sigmaScore", {
+    id: "sigmaScore",
+    header: "Sigma",
     size: 84,
     cell: (info) => {
       const value = info.getValue();
-      return <MetricValue metric={value === undefined ? undefined : { value }} tier={info.row.original.swingTier} />;
+      return <MetricValue metric={value === undefined ? undefined : { value }} tier={info.row.original.sigmaTier} />;
     },
   });
 
@@ -543,7 +543,7 @@ export function buildColumns(
     ...(isNarrow ? [recordColumn] : []),
     ...(metricFirst ? restMetricColumns : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
-    swingColumn,
+    sigmaColumn,
     winRateColumn,
   ]);
 }

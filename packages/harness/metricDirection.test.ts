@@ -17,6 +17,7 @@ import {
   UndeclaredMetricDirectionError,
 } from "./metricDirection.js";
 import { SWING_METRIC_KEY } from "./swingFactor.js";
+import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 describe("metricDirection (strict accessor)", () => {
   it("TOTAL_METRIC_KEY is higher-is-better", () => {
@@ -65,8 +66,12 @@ describe("metricDirectionOrDefault (lenient accessor)", () => {
 });
 
 describe("lowerIsBetterMetricKeys (equality pin -- iteration-list-trap antidote)", () => {
-  it("is exactly {swing} -- a future addition must fail this test loudly rather than sliding in", () => {
-    expect(lowerIsBetterMetricKeys()).toEqual(new Set([SWING_METRIC_KEY]));
+  it("is exactly {swing, sigma} -- a future addition must fail this test loudly rather than sliding in", () => {
+    // `sigma` joined on 2026-09-10 when Sigma Score shipped for BPR. Both keys
+    // are registered independently rather than one aliasing the other, because
+    // `SIGMA_SCORE_ALGORITHM_IDS` decides which of them a given algorithm
+    // publishes and a future change to one direction must not move the other.
+    expect(lowerIsBetterMetricKeys()).toEqual(new Set([SWING_METRIC_KEY, SIGMA_METRIC_KEY]));
   });
 });
 

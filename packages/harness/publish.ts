@@ -50,6 +50,7 @@ import type {
   TeamMetrics,
   UpcomingMatch,
 } from "../core/algorithms/types.js";
+import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
@@ -97,6 +98,7 @@ import {
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
 import { allianceSwingBandVariance, SWING_METRIC_KEY, type SwingBelief } from "./swingFactor.js";
 import { swingMetricByTeam } from "./swingMetric.js";
+import { SIGMA_METRIC_KEY, usesSigmaScore } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
@@ -2339,6 +2341,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       preEventCaptureSeen.set(algorithm.id, new Set());
     }
     const lastStateByAlgo = new Map<string, unknown>();
+    /**
+     * Per `(algorithmId, matchKey)`, each rostered team's rating AS OF AFTER
+     * that match — the Sigma Score talent prior's input. Only populated for
+     * algorithms in `SIGMA_SCORE_ALGORITHM_IDS`.
+     */
+    const talentAfterMatch = new Map<string, Map<string, number>>();
     const onMatchComplete = (match: MatchResult, algorithmId: string, state: unknown): void => {
       const algorithm = algorithmById.get(algorithmId);
       if (!algorithm) return;
@@ -2362,6 +2370,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       stateByAlgoEvent.get(algorithmId)!.set(match.eventKey, state);
       const involvedTeams = [...match.redTeams, ...match.blueTeams];
       const metrics = algorithm.teamMetrics(state, involvedTeams);
+      // SIGMA SCORE's talent prior. Captured from the metrics pass this hook
+      // ALREADY runs for metric history, so it costs no extra `teamMetrics`
+      // call. `state` here is post-update for THIS match, which is exactly the
+      // admissible talent for the team's NEXT match — `SigmaScoutLayer.foldPlayed`
+      // applies it after folding, so a match never informs its own prior.
+      if (usesSigmaScore(algorithmId)) {
+        const talent = new Map<string, number>();
+        for (const teamKey of involvedTeams) {
+          const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+          if (total !== undefined) talent.set(teamKey, total);
+        }
+        talentAfterMatch.set(`${algorithmId}:${match.matchKey}`, talent);
+      }
       const byTeam = metricHistoryByAlgoTeam.get(algorithmId)!;
       for (const teamKey of involvedTeams) {
         const row: MetricHistoryRow = {
@@ -2404,7 +2425,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // `sigmaScoutLayer.ts` because `--event` below runs the identical thing.
     const rpRuleModule = RP_RULE_MODULES[season];
     const layers = new Map<string, SigmaScoutLayer>();
-    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule));
+    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id));
 
     for (const r of records) {
       // One object, both maps below — the event page and the team page cannot
@@ -2415,7 +2436,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // in here — the single source of truth threads through this fold
       // rather than being silently dropped by it.
       const pr: PredictionRecord = {
-        ...layers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction),
+        ...layers
+          .get(r.algorithmId)!
+          .foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
         ...(r.coldStart === true ? { coldStart: true as const } : {}),
       };
       const eventMap = perAlgoEventMatches.get(r.algorithmId)!;
@@ -2575,7 +2598,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // An unplayed match has no residual of its own, so its band is built
       // from everything played so far — walk-forward for it by definition.
       const layerForAlgo = layers.get(algorithm.id)!;
-      const swingByTeamForAlgo = layerForAlgo.swingByTeam();
+      // Sigma Score where this algorithm publishes it, Swing Factor otherwise —
+      // ONE accessor so the band, the per-team figure and the metric entry
+      // below cannot disagree about which estimator this algorithm is on.
+      const swingByTeamForAlgo = layerForAlgo.consistencyByTeam();
+      const consistencyMetricKey = usesSigmaScore(algorithm.id) ? SIGMA_METRIC_KEY : SWING_METRIC_KEY;
       // Quick task 260909-tgf: the published `swing` metric (value + tier on
       // the teams row, value + percentile on the team-season artifact),
       // computed ONCE here per (algorithm, season) and consumed by BOTH
@@ -2586,11 +2613,22 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // is itself season-final -- `layerForAlgo.swingByTeam()` reflects
       // everything played -- so pairing it with a season-final rating keeps
       // both sides of the residual measured over the same window.
-      const swingMetricForAlgo = swingMetricByTeam({
-        swingByTeam: swingByTeamForAlgo,
-        metricsByTeam,
-        teamKeys: teamsThisSeason,
-      });
+      //
+      // PUBLISHED ONLY where a consistency metric is wanted. Sigma-enabled
+      // algorithms publish it under `SIGMA_METRIC_KEY`; every other algorithm
+      // publishes NOTHING here (developer decision, 2026-09-10 — OPR and EPA
+      // show no consistency column, rather than keeping a Swing column the
+      // measurement did not support). Their Swing Factors are still computed,
+      // because their MATCH BANDS are built from them; only the per-team
+      // published figure goes away.
+      const swingMetricForAlgo = usesSigmaScore(algorithm.id)
+        ? swingMetricByTeam({
+            swingByTeam: swingByTeamForAlgo,
+            metricsByTeam,
+            teamKeys: teamsThisSeason,
+            metricKey: consistencyMetricKey,
+          })
+        : {};
       if (state !== undefined) {
         for (const [eventKey, matchesForEvent] of scheduledByEvent) {
           scheduledPredictionsByEvent.set(
@@ -2639,7 +2677,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // artifact's identical `swingFactor` field (below in this file) for
           // the three load-bearing reasons this top-level field is never
           // removed or deprecated.
-          swingFactor: swingByTeamForAlgo.get(teamKey),
+          // Sigma-enabled algorithms carry their figure in the metric entry
+          // alone; this legacy top-level field stays a SWING-only back-compat
+          // shim for pre-republish artifacts.
+          swingFactor: usesSigmaScore(algorithm.id) ? undefined : swingByTeamForAlgo.get(teamKey),
           // Quick task 260904-586: the team's metrics as of its LAST
           // OFFICIAL match, not the season-final snapshot — ranked (via
           // `officialMetricsByTeamWithPercentiles` above) against the field
@@ -2680,7 +2721,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // record beside official-scoped values, this says so plainly.
           metrics: withPublishedTiers({
             ...(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
-            ...(swingMetricForAlgo[teamKey] !== undefined ? { [SWING_METRIC_KEY]: swingMetricForAlgo[teamKey] } : {}),
+            ...(swingMetricForAlgo[teamKey] !== undefined ? { [consistencyMetricKey]: swingMetricForAlgo[teamKey] } : {}),
           }),
           eventCount: stats?.eventKeys.size ?? 0,
           matchCount: stats?.matchCount ?? 0,
@@ -2929,7 +2970,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             // this percentile via the existing client `tierForPercentile`.
             metrics: {
               ...seasonStatsMetrics.metrics,
-              ...(swingMetricForAlgo[teamKey] !== undefined ? { [SWING_METRIC_KEY]: swingMetricForAlgo[teamKey] } : {}),
+              ...(swingMetricForAlgo[teamKey] !== undefined ? { [consistencyMetricKey]: swingMetricForAlgo[teamKey] } : {}),
             },
             metricsBasis: seasonStatsMetrics.metricsBasis,
           },
@@ -2945,7 +2986,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // eventMatchAxis.ts` reads it; and it is the stale-artifact fallback
           // that keeps swing rendering (value only, no tier) between this
           // commit and the developer's republish.
-          swingFactor: swingByTeamForAlgo.get(teamKey),
+          // Sigma-enabled algorithms carry their figure in the metric entry
+          // alone; this legacy top-level field stays a SWING-only back-compat
+          // shim for pre-republish artifacts.
+          swingFactor: usesSigmaScore(algorithm.id) ? undefined : swingByTeamForAlgo.get(teamKey),
           events,
           metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], sortedPools),
           sortTimeByMatchKey,
@@ -3276,6 +3320,12 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     const preEventCaptureSeen = new Set<string>();
     let lastState: unknown;
     let hasLastState = false;
+    // Mirrors `publishSeasons`'s own capture. This mode exists because it has
+    // drifted from the seasons path before — `sigmaScoutLayer.ts`'s header
+    // records bands and RP being silently stripped by exactly that divergence —
+    // so the Sigma talent prior is captured here too rather than left to be
+    // discovered missing later.
+    const talentAfterMatch = new Map<string, Map<string, number>>();
     const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
       if (!preEventCaptureSeen.has(match.eventKey)) {
         preEventCaptureSeen.add(match.eventKey);
@@ -3284,6 +3334,16 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
       lastState = state;
       hasLastState = true;
       stateByEventKey.set(match.eventKey, state);
+      if (usesSigmaScore(algorithm.id)) {
+        const involvedTeams = [...match.redTeams, ...match.blueTeams];
+        const metrics = algorithm.teamMetrics(state, involvedTeams);
+        const talent = new Map<string, number>();
+        for (const teamKey of involvedTeams) {
+          const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+          if (total !== undefined) talent.set(teamKey, total);
+        }
+        talentAfterMatch.set(match.matchKey, talent);
+      }
     };
     // D-01 (quick task 260909-t5q): `db` is the corpus handle this function
     // already has open.
@@ -3301,14 +3361,14 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     // one. That is why every record is folded and only then filtered — folding
     // the event's own matches alone would give a team no history from its
     // earlier events and produce a different band than the full publish does.
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season]);
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season], algorithm.id);
     const predictions: PredictionRecord[] = [];
     for (const r of records) {
       // D-01 (quick task 260909-t5q): see the seasons-path loop's identical
       // comment above `foldPlayed` — the raw record's cold-start stamp must
       // be spread back in, since the fold itself has no opinion about it.
       const enriched: PredictionRecord = {
-        ...layer.foldPlayed(r.match, r.prediction),
+        ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey)),
         ...(r.coldStart === true ? { coldStart: true as const } : {}),
       };
       if (r.match.eventKey === eventKey) predictions.push(enriched);
@@ -3411,7 +3471,7 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
             // wrote a sidecar with no ranking points at all, which is what the
             // rank simulation reads — so a `--event` republish disabled the
             // Simulation tab for that event until the next full publish.
-            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.swingByTeam(), eventTeamKeys),
+            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.consistencyByTeam(), eventTeamKeys),
           })
         : undefined;
 

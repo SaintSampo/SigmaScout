@@ -226,7 +226,7 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
       omittedNoTotal += 1;
       continue;
     }
-    if (row.swingScore === undefined) {
+    if (row.sigmaScore === undefined) {
       omittedNoSwing += 1;
       continue;
     }
@@ -235,7 +235,7 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
       teamNumber: row.teamNumber,
       nickname: row.nickname,
       x: total.value,
-      y: row.swingScore,
+      y: row.sigmaScore,
       tone: total.tier ?? "neutral",
     });
   }

@@ -242,14 +242,14 @@ describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
 
 // ---------------------------------------------------------------------------
 // Quick task 260909-tgf — the Swing column now carries a rarity tier, sourced
-// from rowModel.ts's swingTier, never derived here.
+// from rowModel.ts's sigmaTier, never derived here.
 // ---------------------------------------------------------------------------
 describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
   it("the swing cell for a Legendary row carries the legendary tier class", async () => {
     renderWithRouter(
       <TeamsTable
         status="success"
-        rows={[row({ swingScore: 8.42, swingTier: "legendary" })]}
+        rows={[row({ sigmaScore: 8.42, sigmaTier: "legendary" })]}
         algorithmId="bpr"
         season={2024}
         view="components"
@@ -268,7 +268,7 @@ describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
     renderWithRouter(
       <TeamsTable
         status="success"
-        rows={[row({ swingScore: 8.42, swingTier: undefined })]}
+        rows={[row({ sigmaScore: 8.42, sigmaTier: undefined })]}
         algorithmId="bpr"
         season={2024}
         view="components"
@@ -288,7 +288,7 @@ describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
     renderWithRouter(
       <TeamsTable
         status="success"
-        rows={[row({ swingScore: undefined, swingTier: undefined })]}
+        rows={[row({ sigmaScore: undefined, sigmaTier: undefined })]}
         algorithmId="bpr"
         season={2024}
         view="components"

@@ -2,9 +2,21 @@
  * SIGMA SCORE — a Bayesian, talent-informed estimate of how wildly a robot's
  * contribution might swing in its NEXT match.
  *
- * EXPERIMENTAL (quick task 260910-u7g). Nothing in the production publish path
- * imports this module, and nothing should until it wins its comparison against
- * the shipped Swing Factor. `scripts/compareSigmaScore.ts` is the only consumer.
+ * SHIPPED FOR BPR ONLY (quick task 260910-u7g measured it; the ship decision is
+ * the developer's, 2026-09-10). `SIGMA_SCORE_ALGORITHM_IDS` is the single place
+ * that scope is declared — OPR and EPA publish no consistency metric at all and
+ * keep their existing Swing-derived match bands untouched.
+ *
+ * Consumers: `sigmaScoutLayer.ts` (bands and the per-team figure), `publish.ts`
+ * (the published `sigma` metric), and `scripts/compareSigmaScore.ts` (the
+ * head-to-head that justified shipping it).
+ *
+ * WHY BPR ONLY, since "better metric, ship it everywhere" is the obvious
+ * alternative: measured over 110,232 rows per algorithm on 2026, Sigma beats
+ * Swing on calibration, on separating steady robots from erratic ones, and on
+ * catastrophic-failure avoidance for ALL THREE algorithms — but on volatility
+ * RANKING and trimmed likelihood it wins for OPR and BPR and LOSES for EPA. It
+ * is scoped to the premier algorithm rather than shipped where it is worse.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT IS FOR, WHICH DECIDES ITS SHAPE
@@ -112,6 +124,43 @@
  * measured rather than assumed. `compareSigmaScore.ts` runs both.
  */
 
+/**
+ * The published metric key Sigma Score is injected under at publish time.
+ *
+ * A DISTINCT key from `SWING_METRIC_KEY`, not a replacement of its contents,
+ * and the distinction is what keeps the UI free of algorithm-ID branching: the
+ * Sigma column and tile render exactly when this key is present on the row, so
+ * "which algorithms show a consistency number" is answered by the data rather
+ * than by a hardcoded list in the browser. An algorithm that starts or stops
+ * publishing Sigma needs no web change at all.
+ */
+export const SIGMA_METRIC_KEY = "sigma";
+
+/**
+ * The algorithms that publish Sigma Score.
+ *
+ * BPR ONLY, by developer decision (2026-09-10), on the measured result in quick
+ * task 260910-u7g: Sigma beats Swing on calibration, separation and
+ * catastrophic-failure avoidance for all three algorithms, but on volatility
+ * RANKING and trimmed likelihood it wins for OPR and BPR and LOSES for EPA.
+ * Rather than ship a metric that is better on two algorithms and worse on the
+ * third, the developer scoped it to the premier algorithm.
+ *
+ * OPR and EPA therefore publish NO consistency metric at all and show no column
+ * — also a developer decision, over the alternative of leaving Swing visible
+ * for them. They keep their Swing-derived MATCH BANDS unchanged; only the
+ * per-team published figure goes away.
+ */
+export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["bpr"]);
+
+/** Whether this algorithm publishes Sigma Score rather than a Swing Factor. */
+export function usesSigmaScore(algorithmId: string): boolean {
+  return SIGMA_SCORE_ALGORITHM_IDS.has(algorithmId);
+}
+
+import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
+import { isFullyDqZeroScoreAlliance } from "../core/algorithms/dq.js";
+
 /** Floor applied to a team's talent before it scales the prior. OPR ratings can be <= 0. */
 export const TALENT_FLOOR = 1;
 
@@ -123,6 +172,23 @@ export const TALENT_FLOOR = 1;
  * should be doing.
  */
 export const INITIAL_PRIOR_K = 0.5;
+
+/**
+ * The structural slice of a match `foldMatch` needs. Mirrors
+ * `swingFactor.ts`'s `SwingFoldMatch` field for field — deliberately, so the
+ * same caller object satisfies both and no positional argument can be
+ * transposed between them. Both DQ fields are REQUIRED, never optional, for
+ * the reason that module's header gives: a caller that omits them must fail
+ * typecheck rather than silently fold a carded zero while looking healthy.
+ */
+export interface SigmaFoldMatch {
+  readonly redTeams: readonly string[];
+  readonly redScore: number;
+  readonly redDqs: readonly string[];
+  readonly blueTeams: readonly string[];
+  readonly blueScore: number;
+  readonly blueDqs: readonly string[];
+}
 
 /**
  * Bounds on the talent-scaled prior, as multiples of the population's own RMS
@@ -170,6 +236,19 @@ export const DEFAULT_SIGMA_SCORE_OPTIONS: SigmaScoreOptions = {
   scale: 1,
   talentPrior: true,
 };
+
+/**
+ * The belief returned for a team nobody has folded or observed. FROZEN so a
+ * caller that mistakes a read for a write fails loudly instead of quietly
+ * mutating every unseen team's shared state.
+ */
+const UNSEEN_BELIEF: SigmaBelief = Object.freeze({
+  meanWeight: 0,
+  mean: 0,
+  varWeight: 0,
+  sumSquares: 0,
+  talent: TALENT_FLOOR,
+});
 
 /** One team's running state. Six numbers, all O(1) to update. */
 interface SigmaBelief {
@@ -226,7 +305,27 @@ export class SigmaScoreAccumulator {
     this.#varDecay = decayFor(merged.varHalfLife);
   }
 
-  #belief(teamKey: string): SigmaBelief {
+  /**
+   * A team's belief WITHOUT creating one — the read path.
+   *
+   * Split from `#mutableBelief` because a getter that inserts makes results
+   * ORDER-DEPENDENT, and that was not hypothetical: with a single
+   * insert-on-read accessor, `publishSeasons` and `--event` produced different
+   * ranking-point pmfs for the same event (0.46525 against 0.47), because
+   * merely PRICING a match created belief entries and `scoreByTeam()` iterates
+   * exactly those keys. Whichever path happened to read a team first changed
+   * what the other could see. `publish.test.ts`'s sidecar-parity test is what
+   * caught it.
+   *
+   * Returns a frozen zero belief for an unseen team, so a read still yields the
+   * prior-only Sigma Score without recording that the team was ever asked about.
+   */
+  #readBelief(teamKey: string): SigmaBelief {
+    return this.#beliefs.get(teamKey) ?? UNSEEN_BELIEF;
+  }
+
+  /** A team's belief, CREATING one if absent. Only the write paths may use this. */
+  #mutableBelief(teamKey: string): SigmaBelief {
     let belief = this.#beliefs.get(teamKey);
     if (belief === undefined) {
       belief = { meanWeight: 0, mean: 0, varWeight: 0, sumSquares: 0, talent: TALENT_FLOOR };
@@ -245,7 +344,7 @@ export class SigmaScoreAccumulator {
    */
   observeTalent(teamKey: string, talent: number): void {
     if (!Number.isFinite(talent)) return;
-    this.#belief(teamKey).talent = talent;
+    this.#mutableBelief(teamKey).talent = talent;
   }
 
   /** The population's running residual-to-talent ratio — the `priorK` of this module's header. */
@@ -281,7 +380,7 @@ export class SigmaScoreAccumulator {
     // unformed `priorK` is precisely how the measured 2026 blow-up started.
     if (this.#populationCount < MIN_POPULATION_FOR_TALENT_PRIOR) return populationSigma;
 
-    const talent = Math.max(this.#belief(teamKey).talent, TALENT_FLOOR);
+    const talent = Math.max(this.#readBelief(teamKey).talent, TALENT_FLOOR);
     const scaled = this.priorK() * talent;
 
     // CLAMPED to a band around the population's own spread, and this is not
@@ -320,7 +419,7 @@ export class SigmaScoreAccumulator {
    * match including a team's first, which Swing Factor structurally cannot.
    */
   sigmaFor(teamKey: string): number {
-    const belief = this.#belief(teamKey);
+    const belief = this.#readBelief(teamKey);
     const priorSigma = this.priorSigmaFor(teamKey);
     const alpha0 = this.#options.priorObs / 2;
 
@@ -350,7 +449,7 @@ export class SigmaScoreAccumulator {
 
   /** This team's current bias term — the location a predictive distribution is centred on. */
   biasFor(teamKey: string): number {
-    return this.#belief(teamKey).mean;
+    return this.#readBelief(teamKey).mean;
   }
 
   /**
@@ -362,9 +461,71 @@ export class SigmaScoreAccumulator {
    * precisely the signal a scout wants, and it would be partly cancelled if the
    * mean were updated first.
    */
+  /** Every team this accumulator has seen, with its current Sigma Score. */
+  scoreByTeam(): ReadonlyMap<string, number> {
+    const scores = new Map<string, number>();
+    for (const teamKey of this.#beliefs.keys()) scores.set(teamKey, this.sigmaFor(teamKey));
+    return scores;
+  }
+
+  /**
+   * One alliance's band variance — the quadrature sum of its roster's Sigma
+   * Scores.
+   *
+   * Unlike Swing Factor's all-or-nothing rule there is no undefined case here
+   * beyond an empty roster, because Sigma always has a figure. The rule Swing
+   * needed — better no band than one built from part of the variance — does not
+   * arise: every roster member contributes a real term, from its prior if it has
+   * no history of its own.
+   *
+   * A consequence worth stating: a BPR match whose roster is all debutants now
+   * carries a band where Swing produced none. That is the intended behaviour,
+   * not an accident, and it is what lets the rank simulation price matches that
+   * previously had no pmf at all.
+   */
+  bandVarianceFor(roster: readonly string[]): number | undefined {
+    if (roster.length === 0) return undefined;
+    let variance = 0;
+    for (const teamKey of roster) {
+      const sigma = this.sigmaFor(teamKey);
+      variance += sigma * sigma;
+    }
+    return variance;
+  }
+
+  /**
+   * Folds a whole MATCH, applying the IDENTICAL demo and full-DQ-zero rules
+   * `SwingFactorAccumulator.foldMatch` applies.
+   *
+   * Identical on purpose and not merely by coincidence: Sigma and Swing are
+   * computed side by side over the same stream, and a population difference
+   * between them would make every comparison between the two an
+   * apples-to-oranges one. See `swingFactor.ts`'s `foldMatch` for why each rule
+   * exists — a real alliance beating three placeholders is not evidence about
+   * anybody, and a whole-alliance card ruling is not evidence about the three
+   * robots that were physically on the field.
+   */
+  foldMatch(match: SigmaFoldMatch, prediction: { readonly redScore: number; readonly blueScore: number }): void {
+    if (isFullyDemoAlliance(match.redTeams) || isFullyDemoAlliance(match.blueTeams)) return;
+    if (!isFullyDqZeroScoreAlliance(match.redTeams, match.redDqs, match.redScore)) {
+      this.foldAlliance(match.redTeams, match.redScore, prediction.redScore);
+    }
+    if (!isFullyDqZeroScoreAlliance(match.blueTeams, match.blueDqs, match.blueScore)) {
+      this.foldAlliance(match.blueTeams, match.blueScore, prediction.blueScore);
+    }
+  }
+
+  /** Folds one alliance's even-split deviation into each of its teams. */
+  foldAlliance(roster: readonly string[], actualScore: number, predictedScore: number): void {
+    if (roster.length === 0) return;
+    if (!Number.isFinite(actualScore) || !Number.isFinite(predictedScore)) return;
+    const deviation = (actualScore - predictedScore) / roster.length;
+    for (const teamKey of roster) this.fold(teamKey, deviation);
+  }
+
   fold(teamKey: string, deviation: number): void {
     if (!Number.isFinite(deviation)) return;
-    const belief = this.#belief(teamKey);
+    const belief = this.#mutableBelief(teamKey);
 
     const residual = deviation - belief.mean;
 

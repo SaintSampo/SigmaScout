@@ -53,6 +53,7 @@ import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
+import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
 
 /**
  * Monte Carlo settings for the level-2 RP draw. Explicit here rather than
@@ -82,6 +83,13 @@ export interface UpcomingLayerRecord {
  */
 export class SigmaScoutLayer {
   readonly #swing = new SwingFactorAccumulator();
+  /**
+   * Present ONLY for an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` (BPR today).
+   * When present it is the source of this algorithm's per-team consistency
+   * figure AND of its match bands; `#swing` is then still folded, but only so
+   * the D1 seed's shape stays uniform across algorithms.
+   */
+  readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
 
@@ -90,10 +98,41 @@ export class SigmaScoutLayer {
    * registered rules (2021, and any season before the vocabulary starts). A
    * season without rules still gets bands — the two features are independent,
    * and RP simply does not appear.
+   *
+   * `algorithmId` decides whether this layer produces Sigma Score or Swing
+   * Factor. It is OPTIONAL and defaults to Swing so that every pre-existing
+   * caller and test keeps its current behaviour without edit — the Sigma path
+   * is opt-in by id, never the silent default.
    */
-  constructor(ruleModule: RpRuleModule | undefined) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
     this.#ruleModule = ruleModule;
     this.#rp = ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
+    this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
+  }
+
+  /** True when this layer publishes Sigma Score in place of a Swing Factor. */
+  get usesSigma(): boolean {
+    return this.#sigma !== undefined;
+  }
+
+  /**
+   * This algorithm's per-team consistency figure — Sigma Score where enabled,
+   * Swing Factor otherwise.
+   *
+   * The two differ in COVERAGE as well as in value, and callers must not assume
+   * the Swing shape: Swing omits any team below two played matches, while Sigma
+   * always has a figure (its prior is a legitimate answer before any evidence).
+   * So a Sigma layer returns an entry for every team it has ever seen.
+   */
+  consistencyByTeam(): ReadonlyMap<string, number> {
+    if (this.#sigma === undefined) return this.#swing.swingByTeam();
+    return this.#sigma.scoreByTeam();
+  }
+
+  /** One alliance's band variance from history so far, in whichever metric this layer publishes. */
+  #bandVarianceFor(roster: readonly string[]): number | undefined {
+    if (this.#sigma === undefined) return this.#swing.bandVarianceFor(roster);
+    return this.#sigma.bandVarianceFor(roster);
   }
 
   /** This algorithm's Swing Factors from every match folded so far. Omits any team below two played matches. */
@@ -134,10 +173,22 @@ export class SigmaScoutLayer {
    * builder should read, which is what makes a match's band byte-identical on
    * an event page and a team page rather than merely intended to be.
    */
-  foldPlayed(match: MatchResult, prediction: Prediction): PredictionRecord {
-    const redBandVariance = this.#swing.bandVarianceFor(match.redTeams);
-    const blueBandVariance = this.#swing.bandVarianceFor(match.blueTeams);
+  foldPlayed(
+    match: MatchResult,
+    prediction: Prediction,
+    talentAfterMatch?: ReadonlyMap<string, number>
+  ): PredictionRecord {
+    const redBandVariance = this.#bandVarianceFor(match.redTeams);
+    const blueBandVariance = this.#bandVarianceFor(match.blueTeams);
     this.#swing.foldMatch(match, prediction);
+    this.#sigma?.foldMatch(match, prediction);
+    // Talent is applied AFTER the fold, on purpose: `talentAfterMatch` is read
+    // from the algorithm's state as of AFTER this match, so it is admissible
+    // evidence for the team's NEXT match and not for this one. Applying it
+    // before the fold would let a match inform its own prior.
+    if (talentAfterMatch !== undefined && this.#sigma !== undefined) {
+      for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
+    }
 
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     this.#foldObservedThresholds(match);
@@ -166,9 +217,9 @@ export class SigmaScoutLayer {
    * Simulation tab and then give it nothing to draw.
    */
   enrichUpcoming(match: UpcomingMatch, prediction: Prediction): UpcomingLayerRecord {
-    const swingByTeam = this.swingByTeam();
-    const red = allianceSwingBandVariance(match.redTeams, swingByTeam);
-    const blue = allianceSwingBandVariance(match.blueTeams, swingByTeam);
+    const consistencyByTeam = this.consistencyByTeam();
+    const red = allianceSwingBandVariance(match.redTeams, consistencyByTeam);
+    const blue = allianceSwingBandVariance(match.blueTeams, consistencyByTeam);
     const upcomingRp =
       prediction.redRpPmf === undefined ? this.#rpFieldsFor(match, prediction, red, blue) : {};
 

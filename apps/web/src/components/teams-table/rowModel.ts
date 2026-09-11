@@ -31,7 +31,7 @@
  * ranking itself is unaffected.
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { SWING_METRIC_KEY } from "../../../../../packages/harness/swingFactor.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import { compareTeamsByTotal } from "../../../../../packages/harness/teamRanks.js";
 import { withDerivedGroupMetrics } from "../../lib/metricGroups.js";
 import { isRealTeamKey } from "../../lib/teamKey.js";
@@ -71,7 +71,7 @@ export interface TeamRow {
    * carry the algorithm's own `spread`, which must never reach the screen.
    * Absent for a team with fewer than two played matches.
    */
-  swingScore?: number;
+  sigmaScore?: number;
   /**
    * Quick task 260909-tgf: the Swing column's rarity tier, sourced from the
    * published `swing` metric entry (`SWING_METRIC_KEY` in `team.metrics`),
@@ -80,7 +80,7 @@ export interface TeamRow {
    * live-worker-rebuilt row) — see `buildTeamRows`'s own comment for the
    * two-branch distinction that produces this value.
    */
-  swingTier?: Tier;
+  sigmaTier?: Tier;
   rank: number;
 }
 
@@ -121,7 +121,7 @@ export const WIN_RATE_SORT_KEY = "winRate";
  * below (a bare inline `?? "common"` there loses the literal union under
  * this file's `noUncheckedIndexedAccess`/`verbatimModuleSyntax` config).
  */
-function deriveSwingTier(entry: { tier?: "rare" | "epic" | "legendary" } | undefined): Tier | undefined {
+function deriveSigmaTier(entry: { tier?: "rare" | "epic" | "legendary" } | undefined): Tier | undefined {
   if (entry === undefined) return undefined;
   return entry.tier ?? "common";
 }
@@ -176,8 +176,21 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     // -- and in NEITHER case does the pipeline know this team's tier.
     // Coalescing to `"common"` here would be a positive false claim about a
     // team the pipeline has not actually ranked.
-    swingScore: team.metrics[SWING_METRIC_KEY]?.value ?? team.swingFactor,
-    swingTier: deriveSwingTier(team.metrics[SWING_METRIC_KEY]),
+    // SIGMA SCORE, from the published `sigma` metric entry and NOTHING ELSE.
+    //
+    // The old `?? team.swingFactor` fallback is deliberately GONE. That field
+    // still exists on OPR/EPA rows and on any pre-republish BPR row, and it
+    // holds a SWING FACTOR — a different estimator on a different scale
+    // (Swing prints 1.92 sigma, Sigma prints an honest 1 sigma, so the same
+    // robot reads roughly twice as large under Swing). Falling back to it
+    // would print a Swing number under a "Sigma" heading, which is not a
+    // degraded answer but a wrong one.
+    //
+    // The consequence is intended: until the pipeline republishes, and for
+    // every algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`, this is `undefined`
+    // and the column renders nothing.
+    sigmaScore: team.metrics[SIGMA_METRIC_KEY]?.value,
+    sigmaTier: deriveSigmaTier(team.metrics[SIGMA_METRIC_KEY]),
     // Published metrics widened with any derivable group entries this
     // algorithm/season combination supports (D-2/D-3/D-4) — see this
     // module's own header comment. `sortValueFor` reads `row.metrics[key]`
