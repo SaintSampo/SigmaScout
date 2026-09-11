@@ -155,7 +155,7 @@ function HomePage() {
         </h1>
         <p className="text-role-body max-w-[42rem] text-[var(--color-text-muted)]">
           With SPR (Sigma Power Rating), every team carries a mean and a variance. We show you both, as
-          mean ± sigma. The mean is a robot&apos;s average score, but that is half the story. How consistent
+          mean ± sigma. The mean is a robot&apos;s average score, but only half the story. How consistent
           is that robot? That&apos;s sigma.
         </p>
       </div>
