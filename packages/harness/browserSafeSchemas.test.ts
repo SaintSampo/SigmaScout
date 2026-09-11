@@ -97,6 +97,7 @@ const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "s
 const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
 const MARGINALS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "marginals.ts");
 const ANALYTIC_PMF_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "analyticPmf.ts");
+const FIELD_AVERAGED_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "fieldAveraged.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -250,6 +251,20 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/analyticPmf.ts: ${detail}`);
+    }
+  });
+  it("never reaches a Node built-in import from packages/core/rankingPoints/fieldAveraged.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-09 Task 1, D-08/D-16)", () => {
+    const { nodeBuiltinViolations, visited } = scan([FIELD_AVERAGED_ENTRY_POINT]);
+    expect(visited.has(FIELD_AVERAGED_ENTRY_POINT)).toBe(true);
+    // Sanity check the scan is not vacuous: it must actually visit the
+    // sibling leaf this module's whole runtime graph consists of. The
+    // `rankSimulation.ts` edge is TYPE-ONLY by design, so it is deliberately
+    // NOT asserted here — asserting it would force a runtime import that the
+    // module does not need and does not have.
+    expect(visited.has(ANALYTIC_PMF_ENTRY_POINT)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/fieldAveraged.ts: ${detail}`);
     }
   });
 });
