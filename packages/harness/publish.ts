@@ -38,9 +38,11 @@
  * the model here.
  */
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import type {
   AlgorithmModule,
   CompLevel,
@@ -89,6 +91,7 @@ import {
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
   type CompareArtifact,
+  type CompareRpCalibration,
   type EventArtifact,
   type EventsArtifact,
   type PageKind,
@@ -1432,6 +1435,167 @@ export function buildEventsArtifact(params: BuildEventsArtifactParams): EventsAr
 }
 
 // ---------------------------------------------------------------------------
+// RP calibration measurement (F1, D-09, D-11, D-12 — phase 09 plan 09-01)
+// ---------------------------------------------------------------------------
+
+/** One published bonus's calibration figures, structurally identical to `pageArtifacts.ts`'s module-private `CompareRpBonusSchema`. */
+const RpCalibrationBonusSchema = z.object({
+  name: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  meanPredicted: z.number(),
+  observedFrequency: z.number(),
+  brierScore: z.number(),
+});
+
+/** Structurally identical to `pageArtifacts.ts`'s module-private `CompareCalibrationBinSchema`. */
+const RpCalibrationBinSchema = z.object({
+  binStart: z.number(),
+  binEnd: z.number(),
+  meanPredicted: z.number().nullable(),
+  observedFrequency: z.number().nullable(),
+  count: z.number().int().nonnegative(),
+});
+
+/**
+ * Structurally identical to `pageArtifacts.ts`'s module-private
+ * `CompareRpCalibrationSchema` — DUPLICATED, not imported, because that
+ * schema is deliberately not exported (only its inferred TYPE,
+ * `CompareRpCalibration`, is — see that file's own comment for why). The
+ * `satisfies` clause below is the compile-time guard against the two shapes
+ * silently drifting apart; `scripts/measureRpCalibration.test.ts` and
+ * `packages/harness/pageArtifacts.test.ts` both additionally exercise this
+ * SAME real emitted record fixture
+ * (`apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json`) as a
+ * runtime cross-check.
+ */
+const RpCalibrationRecordSchema = z.object({
+  scoredCount: z.number().int().nonnegative(),
+  bonuses: z.array(RpCalibrationBonusSchema),
+  reliabilityBins: z.array(RpCalibrationBinSchema),
+});
+
+/** Alias, not a re-declaration — this IS `pageArtifacts.ts`'s wire type, used here so `scripts/measureRpCalibration.ts`'s emitter has one name for "the record" regardless of which file's schema last validated it. */
+export type RpCalibrationRecord = CompareRpCalibration;
+
+/**
+ * Compile-time guard: if `RpCalibrationRecordSchema`'s inferred shape ever
+ * stops structurally matching `CompareRpCalibration` (pageArtifacts.ts's
+ * module-private schema's exported type), this line fails to typecheck —
+ * `npx tsc --noEmit` catches the drift instead of a caller discovering it at
+ * runtime months later.
+ */
+type _RpCalibrationSchemaMatchesWireType =
+  z.infer<typeof RpCalibrationRecordSchema> extends CompareRpCalibration
+    ? CompareRpCalibration extends z.infer<typeof RpCalibrationRecordSchema>
+      ? true
+      : false
+    : false;
+const _rpCalibrationSchemaMatchesWireType: _RpCalibrationSchemaMatchesWireType = true;
+void _rpCalibrationSchemaMatchesWireType;
+
+/**
+ * The committed, dated "before" baseline (D-09's per-bonus left-hand side)
+ * AND `buildCompareArtifact`'s compare-artifact input. Plan 09-06 writes a
+ * NEW dated file and repoints this default rather than overwriting this one
+ * (`must_haves.prohibitions`: never edit a committed baseline in place).
+ */
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09.json";
+
+/**
+ * A committed, self-describing measurement of every registered season's
+ * per-bonus calibration for every measured algorithm — `scripts/measureRpCalibration.ts`'s
+ * `--emit-artifact` output. `algorithmVersions` and `command` exist so a
+ * reader can tell what produced a given figure without a second file
+ * (T-09-06's provenance mitigation).
+ */
+export const RpCalibrationMeasurementSchema = z.object({
+  measuredAt: z.string().min(1),
+  command: z.string().min(1),
+  corpusIdentity: z.string().min(1),
+  offseasonIncluded: z.boolean(),
+  algorithmVersions: z.record(z.string(), z.string()),
+  records: z.array(
+    z.object({
+      season: z.number().int(),
+      algorithmId: z.string().min(1),
+      calibration: RpCalibrationRecordSchema,
+    })
+  ),
+});
+export type RpCalibrationMeasurement = z.infer<typeof RpCalibrationMeasurementSchema>;
+
+/**
+ * Reads and validates a committed `RpCalibrationMeasurement` file.
+ * `undefined` when the path does not exist — a genuinely absent measurement,
+ * e.g. before this phase's first emit. THROWS a named error when the path
+ * exists but does not parse, rather than degrading to `undefined` (T-09-03):
+ * a silent `undefined` would be indistinguishable from "measurement not run
+ * yet" when the real fact is "the committed file is corrupt," and those two
+ * states must never look the same to a caller.
+ */
+export function loadRpCalibrationMeasurement(path: string): RpCalibrationMeasurement | undefined {
+  if (!existsSync(path)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    throw new Error(
+      `loadRpCalibrationMeasurement: "${path}" exists but is not valid JSON — ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  const parsed = RpCalibrationMeasurementSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`loadRpCalibrationMeasurement: "${path}" exists but does not match RpCalibrationMeasurementSchema — ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * Attaches each matching `RpCalibrationMeasurement` record onto its slice,
+ * rounding to six decimal places at this boundary (a deliberate, BOUNDED
+ * narrowing for this new block only — `buildCompareArtifact`'s existing
+ * policy is that calibration figures ship unrounded; six decimals is four
+ * orders of magnitude finer than the one-decimal-percent the page renders,
+ * and it makes the wire cost of this block deterministic against a compare
+ * budget with under six kilobytes of headroom). Bonus ranking points exist
+ * only in QUALIFICATION matches, so only a slice whose `compLevelView` is
+ * `"qualification"` is ever eligible; every other slice — and every
+ * qualification slice with no matching record — is returned UNCHANGED, with
+ * the key absent rather than present-and-empty. `measurement === undefined`
+ * (no committed baseline yet) is a no-op over every slice.
+ */
+function attachRpCalibration(
+  slices: readonly ScoreSlice[],
+  measurement: RpCalibrationMeasurement | undefined
+): readonly (ScoreSlice & { rpCalibration?: CompareRpCalibration })[] {
+  if (measurement === undefined) return slices;
+  return slices.map((slice) => {
+    if (slice.compLevelView !== "qualification") return slice;
+    const record = measurement.records.find((r) => r.season === slice.season && r.algorithmId === slice.algorithmId);
+    if (record === undefined) return slice;
+    const { calibration } = record;
+    const rpCalibration: CompareRpCalibration = {
+      scoredCount: calibration.scoredCount,
+      bonuses: calibration.bonuses.map((b) => ({
+        name: b.name,
+        count: b.count,
+        meanPredicted: roundTo(b.meanPredicted, 6),
+        observedFrequency: roundTo(b.observedFrequency, 6),
+        brierScore: roundTo(b.brierScore, 6),
+      })),
+      reliabilityBins: calibration.reliabilityBins.map((bin) => ({
+        binStart: bin.binStart,
+        binEnd: bin.binEnd,
+        meanPredicted: bin.meanPredicted === null ? null : roundTo(bin.meanPredicted, 6),
+        observedFrequency: bin.observedFrequency === null ? null : roundTo(bin.observedFrequency, 6),
+        count: bin.count,
+      })),
+    };
+    return { ...slice, rpCalibration };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // buildCompareArtifact — v1/compare/{year}.json
 // ---------------------------------------------------------------------------
 
@@ -1440,6 +1604,8 @@ export interface BuildCompareArtifactParams {
   readonly slices: readonly ScoreSlice[];
   readonly generation: string;
   readonly computedAt?: string;
+  /** F1/D-09/D-11 (phase 09 plan 09-01): the committed RP measurement to attach onto matching qualification slices via `attachRpCalibration`. `undefined` — the default — attaches nothing, so every existing caller is unaffected until it opts in. */
+  readonly rpCalibration?: RpCalibrationMeasurement;
 }
 
 /**
@@ -1448,7 +1614,9 @@ export interface BuildCompareArtifactParams {
  * `HarnessArtifactSchema.slices[].brierScore` doc comment already states the
  * same policy for the harness's internal artifact ("Unrounded — rounding
  * happens only when the HTML report renders a value"). This mirrors that
- * exactly rather than inventing a sixth rounding rule. Parses through
+ * exactly rather than inventing a sixth rounding rule. The ONE exception is
+ * `rpCalibration`, rounded to six decimal places by `attachRpCalibration`
+ * for the documented wire-budget reason on that function. Parses through
  * `CompareArtifactSchema` before returning (T-04-22).
  */
 export function buildCompareArtifact(params: BuildCompareArtifactParams): CompareArtifact {
@@ -1456,12 +1624,13 @@ export function buildCompareArtifact(params: BuildCompareArtifactParams): Compar
     const { codeVersion, paramSetName } = splitVersion(a.id, a.version);
     return { id: a.id, version: a.version, codeVersion, paramSetName };
   });
+  const slices = attachRpCalibration(params.slices, params.rpCalibration);
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
     computedAt: params.computedAt ?? new Date().toISOString(),
     algorithms,
-    slices: params.slices,
+    slices,
   };
   return CompareArtifactSchema.parse(candidate);
 }

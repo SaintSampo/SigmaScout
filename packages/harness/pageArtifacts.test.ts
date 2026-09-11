@@ -5,10 +5,12 @@
  * including the `compare` exception, and the mechanical raw-numbers-only
  * (D-21) field-name scan.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   artifactKey,
   CompareArtifactSchema,
+  type CompareArtifact,
   composeEventLocation,
   decodeTeamMetricEntry,
   decodeTeamsRowMetrics,
@@ -380,6 +382,33 @@ describe("D-04 stamp — generation is required on all five schemas", () => {
   it("CompareArtifactSchema rejects an object missing generation", () => {
     const { generation, ...rest } = validCompareFixture();
     expect(() => CompareArtifactSchema.parse(rest)).toThrow();
+  });
+});
+
+describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)", () => {
+  it("a slice carrying the REAL emitted rp-calibration-2026-bpr.json record parses, and rpCalibration round-trips unchanged", () => {
+    const record: unknown = JSON.parse(
+      readFileSync(new URL("../../apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json", import.meta.url), "utf8")
+    );
+    const fixture = { ...validCompareFixture() };
+    const withRp = { ...fixture, slices: [{ ...fixture.slices[0]!, compLevelView: "qualification" as const, rpCalibration: record }] };
+    const parsed = CompareArtifactSchema.parse(withRp) as CompareArtifact;
+    expect(parsed.slices[0]?.rpCalibration).toEqual(record);
+  });
+
+  it("a slice with NO rpCalibration key parses and reads back undefined — never coerced to a zero-filled object", () => {
+    const parsed = CompareArtifactSchema.parse(validCompareFixture()) as CompareArtifact;
+    expect(parsed.slices[0]?.rpCalibration).toBeUndefined();
+  });
+
+  it("rejects a bonus row with a negative count (schema-level sanity — never silently coerced)", () => {
+    const fixture = validCompareFixture();
+    const badSlice = {
+      ...fixture.slices[0]!,
+      compLevelView: "qualification" as const,
+      rpCalibration: { scoredCount: 10, bonuses: [{ name: "x", count: -1, meanPredicted: 0.5, observedFrequency: 0.5, brierScore: 0.1 }], reliabilityBins: [] },
+    };
+    expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
   });
 });
 

@@ -36,21 +36,49 @@
  * publisher runs, so these are the published numbers and not a re-derivation
  * that could disagree with them.
  *
+ * ---------------------------------------------------------------------------
+ * SAME-SCORER FIX (2026-09-11, phase 09 plan 09-01 Task 1 Step 1, D-11)
+ * ---------------------------------------------------------------------------
+ *
+ * This script used to construct its `SigmaScoutLayer` with ONE constructor
+ * argument (the rule module only), while the publisher
+ * (`packages/harness/publish.ts`) always constructs it with TWO (the rule
+ * module AND the algorithm id). The second argument is the ONLY thing that
+ * selects `SigmaScoreAccumulator` over
+ * `SwingFactorAccumulator` (`sigmaScoutLayer.ts`'s `usesSigmaScore` check —
+ * `SIGMA_SCORE_ALGORITHM_IDS` is `{bpr}`, this script's own default
+ * `--algorithm`), so every bpr bonus probability this script reported BEFORE
+ * this fix was computed from Swing-derived band variance while every
+ * published bpr row is computed from Sigma-derived band variance — the exact
+ * defect class recorded in STATE row 110 (two publish paths fed Swing and
+ * Sigma to the ranking-point filler and produced 0.46525 against 0.47 for the
+ * same event). Fixed by passing the resolved algorithm id as the layer's
+ * second constructor argument, so this script is now provably the same scorer
+ * the publisher runs, for every algorithm — the whole premise of D-11's
+ * same-scorer mitigation.
+ *
+ * `.planning/todos/pending/ranking-points-audit.md` F2's recorded 0.1507 /
+ * 0.3109 predates this fix and is NOT the number 09-01-SUMMARY.md freezes —
+ * see that summary's before/after table for the corrected figures.
+ *
  * Usage:
- *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr]
+ *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr] [--emit-artifact <path>]
  */
 
+import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
 import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
+import { RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
 /** One (match, alliance, bonus) prediction paired with what happened. */
-interface Observation {
+export interface Observation {
   readonly predicted: number;
   readonly actual: boolean;
 }
@@ -88,13 +116,21 @@ function meanPredicted(observations: readonly Observation[]): number {
   return observations.reduce((sum, o) => sum + o.predicted, 0) / observations.length;
 }
 
-const BUCKET_EDGES = [0, 0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0000001];
+/**
+ * Exported (promoted from the module-local `BUCKET_EDGES`) so the artifact
+ * emitter (`buildRpCalibrationRecord` below) and any future consumer share
+ * ONE bucket definition rather than a second hand-copied literal. The final
+ * edge is `1.0000001`, not `1`, so a prediction of exactly `1.0` lands in the
+ * last bucket instead of falling off the end — unchanged from the original
+ * `BUCKET_EDGES`.
+ */
+export const RP_RELIABILITY_BUCKET_EDGES = [0, 0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0000001];
 
 function reliabilityTable(observations: readonly Observation[]): string[] {
   const lines: string[] = [];
-  for (let i = 0; i < BUCKET_EDGES.length - 1; i++) {
-    const lo = BUCKET_EDGES[i]!;
-    const hi = BUCKET_EDGES[i + 1]!;
+  for (let i = 0; i < RP_RELIABILITY_BUCKET_EDGES.length - 1; i++) {
+    const lo = RP_RELIABILITY_BUCKET_EDGES[i]!;
+    const hi = RP_RELIABILITY_BUCKET_EDGES[i + 1]!;
     const inBucket = observations.filter((o) => o.predicted >= lo && o.predicted < hi);
     if (inBucket.length === 0) continue;
     const predicted = meanPredicted(inBucket);
@@ -109,10 +145,63 @@ function reliabilityTable(observations: readonly Observation[]): string[] {
   return lines;
 }
 
+/**
+ * Pure: builds one (season, algorithm) publishable calibration record from
+ * this season's bonus names and the per-bonus observations folded during the
+ * walk-forward loop. Built from the SAME `brier`/`rate`/`meanPredicted`
+ * helpers the console report above already uses — never a parallel
+ * computation (D-11's "one scorer" requirement extends to this emitter, not
+ * just to the console path).
+ *
+ * A bonus with zero observations is OMITTED from `bonuses` rather than
+ * emitted with `NaN` figures (T-09-04) — the same "absence, not a coerced
+ * zero" discipline the wire schema documents. `reliabilityBins` pools EVERY
+ * bonus's observations for this (season, algorithm) into one set of buckets,
+ * mirroring the console report's own pooled-per-season framing; an empty
+ * bucket gets `null` figures and `count: 0`, never a divide-by-zero NaN.
+ */
+export function buildRpCalibrationRecord(
+  bonusNames: readonly string[],
+  perBonusObservations: readonly (readonly Observation[])[]
+): RpCalibrationRecord {
+  const bonuses: RpCalibrationRecord["bonuses"][number][] = [];
+  const pooled: Observation[] = [];
+
+  for (let i = 0; i < bonusNames.length; i++) {
+    const observations = perBonusObservations[i] ?? [];
+    pooled.push(...observations);
+    if (observations.length === 0) continue;
+    bonuses.push({
+      name: bonusNames[i]!,
+      count: observations.length,
+      meanPredicted: meanPredicted(observations),
+      observedFrequency: rate(observations),
+      brierScore: brier(observations),
+    });
+  }
+
+  const reliabilityBins: RpCalibrationRecord["reliabilityBins"][number][] = [];
+  for (let i = 0; i < RP_RELIABILITY_BUCKET_EDGES.length - 1; i++) {
+    const lo = RP_RELIABILITY_BUCKET_EDGES[i]!;
+    const hi = RP_RELIABILITY_BUCKET_EDGES[i + 1]!;
+    const inBucket = pooled.filter((o) => o.predicted >= lo && o.predicted < hi);
+    reliabilityBins.push({
+      binStart: lo,
+      binEnd: hi >= 1 ? 1 : hi,
+      meanPredicted: inBucket.length > 0 ? meanPredicted(inBucket) : null,
+      observedFrequency: inBucket.length > 0 ? rate(inBucket) : null,
+      count: inBucket.length,
+    });
+  }
+
+  return { scoredCount: pooled.length, bonuses, reliabilityBins };
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = args[args.indexOf("--seasons") + 1] ?? "2023-2026";
   const algorithmId = args.indexOf("--algorithm") === -1 ? "bpr" : args[args.indexOf("--algorithm") + 1]!;
+  const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
   const seasons = parseSeasons(seasonsSpec).filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithm = resolvePublishAlgorithms(algorithmId)[0];
   if (algorithm === undefined) throw new Error(`unknown algorithm "${algorithmId}"`);
@@ -125,6 +214,7 @@ async function main(): Promise<void> {
     // Pooled across seasons, for the headline claims.
     const allMarginal: Observation[] = [];
     const allPairs: { p1: number; p2: number; a1: boolean; a2: boolean }[] = [];
+    const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
@@ -133,7 +223,12 @@ async function main(): Promise<void> {
       const records = new WalkForwardSimulator(stream).runAll([algorithm], teams);
       const actualFlags = actualBonusFlagsForSeason(stream, season);
 
-      const layer = new SigmaScoutLayer(ruleModule);
+      // SAME-SCORER FIX (see header): the second constructor argument
+      // selects Sigma-vs-Swing band variance exactly the way the publisher's
+      // own layer construction does (publish.ts's season loop) — without it
+      // this script silently scored a different band than the one it
+      // published.
+      const layer = new SigmaScoutLayer(ruleModule, algorithm.id);
       const perBonus: Observation[][] = ruleModule.bonusNames.map(() => []);
       const pairs: { p1: number; p2: number; a1: boolean; a2: boolean }[] = [];
 
@@ -162,6 +257,7 @@ async function main(): Promise<void> {
         }
       }
       allPairs.push(...pairs);
+      emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus) });
 
       const total = perBonus.reduce((sum, b) => sum + b.length, 0);
       console.log(`── ${season} ── ${total} (alliance, bonus) observations`);
@@ -237,9 +333,35 @@ async function main(): Promise<void> {
           `(${dependence > 0 ? "POSITIVE — the two go together more often than independence predicts, as the header expected" : "NEGATIVE — the two go together LESS often than independence predicts, opposite to what the header expected"})`
       );
     }
+
+    if (emitArtifactPath !== undefined) {
+      const candidate = {
+        measuredAt: new Date().toISOString(),
+        command: `npx tsx scripts/measureRpCalibration.ts ${args.join(" ")}`,
+        corpusIdentity: CORPUS_PATH,
+        // The stream above is built with `includeOffseason: true` and this
+        // task does not change that — the number's population is recorded
+        // here rather than quietly altered.
+        offseasonIncluded: true,
+        algorithmVersions: { [algorithm.id]: algorithm.version },
+        records: emittedRecords,
+      };
+      const parsed = RpCalibrationMeasurementSchema.parse(candidate);
+      writeFileSync(emitArtifactPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+      console.log(`\nwrote ${emitArtifactPath}`);
+    }
   } finally {
     db.close();
   }
 }
 
-await main();
+// Guard: only auto-run `main()` when this file is the process entry point, so
+// the pure helpers above can be imported by the test file without the harness
+// trying to open a corpus. Same idiom as `measureEpaDeviations.ts`.
+const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntryPoint) {
+  main().catch((err) => {
+    console.error("measure:rp-calibration failed:", err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

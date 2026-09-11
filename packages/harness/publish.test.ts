@@ -6,7 +6,7 @@
  * network, no corpus. The real full 2022-2026 run is recorded in the
  * SUMMARY, not re-run on every `pnpm test`.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +48,7 @@ import {
   buildTeamSeasonArtifact,
   computeSizeStats,
   lastOfficialMetricsByTeam,
+  loadRpCalibrationMeasurement,
   OUTCOME_KEYS,
   parseSeasonsRange,
   publishSeasons,
@@ -60,6 +61,7 @@ import {
   type BuildEventArtifactParams,
   type EventTeamRankingInput,
   type PublishedObjectRecord,
+  type RpCalibrationMeasurement,
 } from "./publish.js";
 import { artifactKey, decodeTeamsRowMetrics, preScheduleKey, PreScheduleArtifactSchema, TeamsArtifactSchema } from "./pageArtifacts.js";
 import { SWING_METRIC_KEY } from "./swingFactor.js";
@@ -3953,6 +3955,132 @@ describe("buildCompareArtifact", () => {
         generation: "g1",
       })
     ).toThrow();
+  });
+});
+
+describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase 09 plan 09-01 Task 1)", () => {
+  function sliceFor(algorithmId: string, compLevelView: ScoreSlice["compLevelView"]): ScoreSlice {
+    return {
+      algorithmId,
+      season: 2026,
+      headlineEligible: true,
+      compLevelView,
+      brierScore: 0.18,
+      winnerAccuracy: 0.72,
+      scoredCount: 1000,
+      tieCount: 0,
+      noCallCount: 0,
+      exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
+      candidateCount: 1000,
+      calibrationBins: [],
+    };
+  }
+
+  const MEASUREMENT: RpCalibrationMeasurement = {
+    measuredAt: "2026-09-11T00:00:00.000Z",
+    command: "npx tsx scripts/measureRpCalibration.ts --seasons 2026 --algorithm bpr",
+    corpusIdentity: "data/corpus.sqlite",
+    offseasonIncluded: true,
+    algorithmVersions: { bpr: "3.0.0+baseline" },
+    records: [
+      {
+        season: 2026,
+        algorithmId: "bpr",
+        calibration: {
+          scoredCount: 4,
+          bonuses: [{ name: "energized", count: 4, meanPredicted: 0.123456789, observedFrequency: 0.987654321, brierScore: 0.111111111 }],
+          reliabilityBins: [],
+        },
+      },
+    ],
+  };
+
+  it("attaches the matching record onto the matching (algorithmId, season, qualification) slice, and onto NO other slice", () => {
+    const artifact = buildCompareArtifact({
+      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }, { id: "opr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("bpr", "qualification"), sliceFor("bpr", "elimination"), sliceFor("bpr", "combined"), sliceFor("opr", "qualification")],
+      generation: "g1",
+      rpCalibration: MEASUREMENT,
+    });
+    const bprQual = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "qualification");
+    const bprElim = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "elimination");
+    const bprCombined = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "combined");
+    const oprQual = artifact.slices.find((s) => s.algorithmId === "opr" && s.compLevelView === "qualification");
+    expect(bprQual?.rpCalibration).toBeDefined();
+    expect(bprElim?.rpCalibration).toBeUndefined();
+    expect(bprCombined?.rpCalibration).toBeUndefined();
+    expect(oprQual?.rpCalibration).toBeUndefined();
+  });
+
+  it("rounds attached figures to six decimal places at the attach boundary — the measurement file itself is untouched", () => {
+    const artifact = buildCompareArtifact({
+      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("bpr", "qualification")],
+      generation: "g1",
+      rpCalibration: MEASUREMENT,
+    });
+    const attached = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "qualification")?.rpCalibration;
+    expect(attached?.bonuses[0]?.meanPredicted).toBe(0.123457);
+    expect(attached?.bonuses[0]?.observedFrequency).toBe(0.987654);
+    expect(attached?.bonuses[0]?.brierScore).toBe(0.111111);
+    // The source measurement's own figures are untouched by rounding.
+    expect(MEASUREMENT.records[0]?.calibration.bonuses[0]?.meanPredicted).toBe(0.123456789);
+  });
+
+  it("rpCalibration undefined (no committed baseline yet) is a no-op over every slice", () => {
+    const artifact = buildCompareArtifact({
+      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("bpr", "qualification")],
+      generation: "g1",
+    });
+    expect(artifact.slices[0]?.rpCalibration).toBeUndefined();
+  });
+});
+
+describe("loadRpCalibrationMeasurement (T-09-03)", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rp-calibration-measurement-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns undefined when the path does not exist", () => {
+    expect(loadRpCalibrationMeasurement(join(dir, "nope.json"))).toBeUndefined();
+  });
+
+  it("throws a NAMED error — never a silent undefined — when the path exists but is not valid JSON", () => {
+    const path = join(dir, "broken.json");
+    writeFileSync(path, "{not json", "utf8");
+    expect(() => loadRpCalibrationMeasurement(path)).toThrow(/loadRpCalibrationMeasurement/);
+  });
+
+  it("throws a NAMED error when the path exists but does not match RpCalibrationMeasurementSchema", () => {
+    const path = join(dir, "wrong-shape.json");
+    writeFileSync(path, JSON.stringify({ hello: "world" }), "utf8");
+    expect(() => loadRpCalibrationMeasurement(path)).toThrow(/loadRpCalibrationMeasurement/);
+  });
+
+  it("reads and validates a real committed-shape measurement file", () => {
+    const path = join(dir, "measurement.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        measuredAt: "2026-09-11T00:00:00.000Z",
+        command: "npx tsx scripts/measureRpCalibration.ts",
+        corpusIdentity: "data/corpus.sqlite",
+        offseasonIncluded: true,
+        algorithmVersions: { bpr: "3.0.0+baseline" },
+        records: [],
+      }),
+      "utf8"
+    );
+    const loaded = loadRpCalibrationMeasurement(path);
+    expect(loaded?.algorithmVersions).toEqual({ bpr: "3.0.0+baseline" });
+    expect(loaded?.records).toEqual([]);
   });
 });
 

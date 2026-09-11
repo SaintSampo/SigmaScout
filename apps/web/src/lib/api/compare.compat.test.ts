@@ -35,6 +35,7 @@
 import { describe, expect, it } from "vitest";
 import { CompareArtifactSchema, type CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import compare2022 from "../../routes/__fixtures__/compare-2022-legacy-seasonLabel.json";
+import compare2026 from "../../routes/__fixtures__/compare-2026.json";
 
 describe("CompareArtifactSchema — retired seasonLabel key tolerance", () => {
   it("the committed pre-deletion fixture really does carry the retired key on every slice (guards the premise, not the schema)", () => {
@@ -60,5 +61,21 @@ describe("CompareArtifactSchema — retired seasonLabel key tolerance", () => {
     const parsed = CompareArtifactSchema.parse(compare2022) as CompareArtifact;
     expect(parsed.slices.every((s) => typeof s.headlineEligible === "boolean")).toBe(true);
     expect(parsed.slices.map((s) => s.headlineEligible)).toEqual(fixtureSlices.map((s) => s.headlineEligible));
+  });
+});
+
+describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01) — a real PRE-phase artifact still parses", () => {
+  it("the live compare-2026.json fixture carries no rpCalibration key on any slice, real bytes proving the premise", () => {
+    const fixtureSlices = (compare2026 as { slices: Array<{ rpCalibration?: unknown }> }).slices;
+    expect(fixtureSlices.length).toBeGreaterThan(0);
+    expect(fixtureSlices.every((s) => !("rpCalibration" in s))).toBe(true);
+  });
+
+  it("parses without error and every slice reads rpCalibration as undefined — never a coerced zero", () => {
+    const parsed = CompareArtifactSchema.parse(compare2026) as CompareArtifact;
+    expect(parsed.slices.length).toBeGreaterThan(0);
+    for (const slice of parsed.slices) {
+      expect(slice.rpCalibration).toBeUndefined();
+    }
   });
 });

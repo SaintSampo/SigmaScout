@@ -1,0 +1,77 @@
+{
+  "scoredCount": 91146,
+  "bonuses": [
+    {
+      "name": "energized",
+      "count": 30382,
+      "meanPredicted": 0.5519693074846936,
+      "observedFrequency": 0.5767559739319333,
+      "brierScore": 0.19749191136610503
+    },
+    {
+      "name": "supercharged",
+      "count": 30382,
+      "meanPredicted": 0.04073589625436073,
+      "observedFrequency": 0.08106773747613719,
+      "brierScore": 0.058834899105556344
+    },
+    {
+      "name": "traversal",
+      "count": 30382,
+      "meanPredicted": 0.000047182542294779743,
+      "observedFrequency": 0.0012178263445461128,
+      "brierScore": 0.0012137829677111417
+    }
+  ],
+  "reliabilityBins": [
+    {
+      "binStart": 0,
+      "binEnd": 0.05,
+      "meanPredicted": 0.0027661405005687165,
+      "observedFrequency": 0.019535693970420934,
+      "count": 56256
+    },
+    {
+      "binStart": 0.05,
+      "binEnd": 0.2,
+      "meanPredicted": 0.11355593445527032,
+      "observedFrequency": 0.19840566873339238,
+      "count": 5645
+    },
+    {
+      "binStart": 0.2,
+      "binEnd": 0.4,
+      "meanPredicted": 0.3050651538026038,
+      "observedFrequency": 0.3545952066427628,
+      "count": 5299
+    },
+    {
+      "binStart": 0.4,
+      "binEnd": 0.6,
+      "meanPredicted": 0.5095671403869018,
+      "observedFrequency": 0.45423106019669296,
+      "count": 9253
+    },
+    {
+      "binStart": 0.6,
+      "binEnd": 0.8,
+      "meanPredicted": 0.6918576398488631,
+      "observedFrequency": 0.7533867846281449,
+      "count": 10851
+    },
+    {
+      "binStart": 0.8,
+      "binEnd": 0.95,
+      "meanPredicted": 0.8581903444034422,
+      "observedFrequency": 0.9591020910209103,
+      "count": 3252
+    },
+    {
+      "binStart": 0.95,
+      "binEnd": 1,
+      "meanPredicted": 0.9874923728813563,
+      "observedFrequency": 0.7254237288135593,
+      "count": 590
+    }
+  ]
+}

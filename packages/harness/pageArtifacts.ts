@@ -1536,6 +1536,41 @@ const CompareExclusionCountsSchema = z.object({
   coldStart: z.number().int().nonnegative().optional(),
 });
 
+/** One published bonus's calibration figures (F1, D-09, D-11) — one entry per bonus that scored at least one (alliance, bonus) observation this season/algorithm; a bonus with zero observations is OMITTED here rather than emitted with `NaN` figures (T-09-04). */
+const CompareRpBonusSchema = z.object({
+  name: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  meanPredicted: z.number(),
+  observedFrequency: z.number(),
+  brierScore: z.number(),
+});
+
+/**
+ * The RP scorecard's wire shape (F1, D-09, D-11) — one per (season,
+ * algorithm), attached to the matching `qualification` slice by
+ * `buildCompareArtifact`. `reliabilityBins` reuses `CompareCalibrationBinSchema`
+ * (never a second bin shape) pooling every bonus's observations for this
+ * season/algorithm into one set of buckets.
+ */
+const CompareRpCalibrationSchema = z.object({
+  scoredCount: z.number().int().nonnegative(),
+  bonuses: z.array(CompareRpBonusSchema),
+  reliabilityBins: z.array(CompareCalibrationBinSchema),
+});
+
+/**
+ * `CompareRpCalibrationSchema` is deliberately module-private (unlike most
+ * schemas in this file) — only this inferred TYPE is exported. Nothing
+ * outside this module constructs its own instance of the schema; a caller
+ * needing to validate one (`publish.ts`'s `RpCalibrationMeasurementSchema`)
+ * declares a structurally-identical schema of its own rather than importing
+ * this one, and both are exercised against the SAME real emitted record
+ * fixture (`apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json`)
+ * in their respective test files, which is what keeps them from silently
+ * drifting apart.
+ */
+export type CompareRpCalibration = z.infer<typeof CompareRpCalibrationSchema>;
+
 /** One algorithm's `ScoreSlice` figures for one season/compLevel view — raw numbers only (D-21); no field here may be a delta or judgement between two algorithms' slices. */
 const CompareSliceSchema = z.object({
   algorithmId: z.string().min(1),
@@ -1562,6 +1597,25 @@ const CompareSliceSchema = z.object({
   exclusionCounts: CompareExclusionCountsSchema,
   candidateCount: z.number().int().nonnegative(),
   calibrationBins: z.array(CompareCalibrationBinSchema),
+  /**
+   * F1/D-09/D-11 (phase 09 plan 09-01): the RP scorecard's per-bonus
+   * accuracy for this algorithm/season. OPTIONAL here on purpose, following
+   * `CompareExclusionCountsSchema.coldStart`'s precedent exactly — this is a
+   * LIVE, R2-served artifact shape (`v1/compare/{year}.json`), and a
+   * required key would fail to parse every already-published slice and
+   * blank the Compare page in production before this phase's republish
+   * lands. Absence genuinely means "this artifact predates the field" and
+   * MUST render as absent (`RP_CALIBRATION_ABSENT_TEXT` on the Compare
+   * page), never coerced to zero — pinned by
+   * `apps/web/src/lib/api/compare.compat.test.ts`.
+   *
+   * Hangs off the SLICE, not the artifact: bonus ranking points exist only
+   * in QUALIFICATION matches (no elimination/combined bonus RP exists to
+   * measure), so only a slice whose `compLevelView` is `"qualification"`
+   * ever carries this key — `buildCompareArtifact`'s `attachRpCalibration`
+   * enforces that.
+   */
+  rpCalibration: CompareRpCalibrationSchema.optional(),
 });
 
 /**

@@ -32,6 +32,7 @@ import {
 } from "../components/compare/CalibrationSection.js";
 import { type CompareSlice } from "../components/compare/calibrationSeries.js";
 import { buildCalibrationCard, cardHeadlineSentence } from "../components/compare/calibrationCards.js";
+import { RP_CALIBRATION_SECTION_TESTID } from "../components/compare/RpCalibrationSection.js";
 import { algorithmDisplayLabel } from "../components/ribbon/AlgorithmSelect.js";
 import { coverageCellTestId, DATA_COVERAGE_SCROLL_TESTID, DATA_COVERAGE_SECTION_TESTID } from "../components/compare/DataCoverageTable.js";
 import { COVERAGE_EXCLUSION_COLUMNS } from "../components/compare/coverageRows.js";
@@ -808,6 +809,7 @@ describe("/compare route — four-section pending and error branches (08-12, UI-
     // placeholder pulses, no `coverage-cell-*` test id).
     expect(screen.queryByTestId(METHODOLOGY_NOTE_TESTID)).toBeNull();
     expect(screen.queryByTestId(CALIBRATION_SECTION_TESTID)).toBeNull();
+    expect(screen.queryByTestId(RP_CALIBRATION_SECTION_TESTID)).toBeNull();
     expect(document.querySelector('[data-testid^="data-coverage-cell-"]')).toBeNull();
   });
 
@@ -829,21 +831,25 @@ describe("/compare route — four-section pending and error branches (08-12, UI-
     expect(screen.queryByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).toBeNull();
     expect(screen.queryByTestId(METHODOLOGY_NOTE_TESTID)).toBeNull();
     expect(screen.queryByTestId(CALIBRATION_SECTION_TESTID)).toBeNull();
+    expect(screen.queryByTestId(RP_CALIBRATION_SECTION_TESTID)).toBeNull();
     expect(screen.queryByTestId(DATA_COVERAGE_SECTION_TESTID)).toBeNull();
   });
 
-  it("the coverage section is a DOM sibling of the calibration section and the last of the four sections, matching UI-SPEC's layout order", async () => {
+  it("the coverage section is a DOM sibling of the calibration and RP calibration sections and the last of the five sections, matching UI-SPEC's layout order plus the RP section mounted between calibration and coverage (F1/D-09/D-11, phase 09 plan 09-01)", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "bpr", "brier")).not.toBe(""));
     await waitFor(() => expect(screen.getByTestId(CALIBRATION_SECTION_TESTID)).toBeDefined());
 
     const calibration = screen.getByTestId(CALIBRATION_SECTION_TESTID);
+    const rpCalibration = screen.getByTestId(RP_CALIBRATION_SECTION_TESTID);
     const coverage = screen.getByTestId(DATA_COVERAGE_SECTION_TESTID);
 
     expect(calibration.parentElement).toBe(coverage.parentElement);
+    expect(rpCalibration.parentElement).toBe(coverage.parentElement);
     const siblings = Array.from(calibration.parentElement!.children);
     expect(siblings.indexOf(coverage)).toBe(siblings.length - 1);
-    expect(siblings.indexOf(coverage)).toBeGreaterThan(siblings.indexOf(calibration));
+    expect(siblings.indexOf(rpCalibration)).toBeGreaterThan(siblings.indexOf(calibration));
+    expect(siblings.indexOf(coverage)).toBeGreaterThan(siblings.indexOf(rpCalibration));
   });
 });

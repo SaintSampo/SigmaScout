@@ -9,6 +9,7 @@ import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/Accu
 import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
 import { MethodologyNote } from "../components/compare/MethodologyNote.js";
 import { CalibrationSection } from "../components/compare/CalibrationSection.js";
+import { RpCalibrationSection } from "../components/compare/RpCalibrationSection.js";
 import { DataCoverageSection, DataCoverageSectionSkeleton } from "../components/compare/DataCoverageTable.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
@@ -49,6 +50,8 @@ export const Route = createFileRoute("/methodology/compare")({
 // to avoid a layout jump when the real note mounts.
 const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 3;
 const CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 3;
+/** F1/D-09/D-11 (phase 09 plan 09-01): same Decision-7 discipline as `CalibrationSectionSkeleton` below — the RP section's own plan (09-01) does not ship one, so its placeholder is declared here rather than in `RpCalibrationSection.tsx`. */
+const RP_CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 2;
 
 function MethodologyNoteSkeleton() {
   return (
@@ -72,6 +75,18 @@ function CalibrationSectionSkeleton() {
   );
 }
 
+function RpCalibrationSectionSkeleton() {
+  return (
+    <div className="mt-[var(--spacing-xl)] flex flex-col gap-[var(--spacing-sm)]">
+      <Skeleton className="h-7 w-56" />
+      {Array.from({ length: RP_CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT }, (_, index) => (
+        <Skeleton key={index} className="h-4 w-full" />
+      ))}
+      <Skeleton className="h-[220px] w-full" />
+    </div>
+  );
+}
+
 /**
  * The pending branch's shape-preserving composition, in the populated
  * page's own order: the real `AccuracyTableSkeleton` (08-01), a text-free
@@ -85,6 +100,7 @@ function ComparePendingSections() {
       <AccuracyTableSkeleton />
       <MethodologyNoteSkeleton />
       <CalibrationSectionSkeleton />
+      <RpCalibrationSectionSkeleton />
       <DataCoverageSectionSkeleton />
     </>
   );
@@ -170,6 +186,14 @@ function ComparePage() {
           {/* Fed the SAME compLevelView state the accuracy table receives
               above (one state, three consumers now, D-09). */}
           <CalibrationSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
+          {/* F1/D-09/D-11 (phase 09 plan 09-01): a DOM sibling of
+              CalibrationSection, mounted between it and DataCoverageSection
+              so that section's own "LAST section on the page" comment stays
+              true. Takes artifactsByYear ONLY — deliberately NOT
+              compLevelView, since bonus ranking points exist only in
+              qualification matches (see RpCalibrationSection.tsx's own
+              header for why feeding it the switcher would be wrong). */}
+          <RpCalibrationSection artifactsByYear={artifactsByYear} />
           {/* The LAST section on the page (UI-SPEC's layout order, item
               six), a DOM sibling of CalibrationSection — the same one
               compLevelView state, its third consumer (08-12-PLAN.md). No
