@@ -430,8 +430,19 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
   });
 });
 
-describe("epa.predict — D-04 foulsCommitted attributed to the opposing alliance", () => {
-  it("an alliance's own learned foulsCommitted component adds to the OPPONENT's predicted score, not its own", () => {
+// REWRITTEN 2026-09-11 (quick task 260911-l2k), not adjusted to pass. D-04's
+// cross-attribution is RETIRED from `predict`: an alliance's `foulsCommitted`
+// mean no longer reaches EITHER predicted score, because the foul term is now
+// one `(1 + foulRate)` scalar applied to both sides AFTER the win probability
+// (reference section 14). What this test now pins is the REPLACEMENT contract.
+//
+// D-04 itself is only NARROWED, not reversed: `foulsCommitted` is still a
+// per-team rated component derived from the opponent's raw `foulPoints`, still
+// a published metric, still `carrySeason`'s carryover input, and still the
+// quantity `fallbackObserved` nets out of an imputed observation. Only its
+// place in a PREDICTION moved.
+describe("epa.predict — foulsCommitted no longer enters either predicted score (D-04 narrowed, l2k)", () => {
+  it("an alliance's own learned foulsCommitted component reaches NEITHER predicted score", () => {
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map<string, Record<string, number>>([
@@ -458,16 +469,18 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
       upcoming({ redTeams: ["R1"], blueTeams: ["B1"], redSurrogates: [], blueSurrogates: [] })
     );
 
-    // Red's own foulsCommitted (5) must NOT inflate red's own predicted
-    // score — pre-fix, the old summation put it here instead.
+    // Red's own foulsCommitted (5) must NOT inflate red's own predicted score
+    // — it never did; `redOffensiveTotal` has always excluded it.
     expect(prediction.redScore).toBe(30);
-    // It must instead land in blue's predicted score (D-04: the receiving
-    // alliance's predicted score, not the fouling alliance's own).
-    expect(prediction.blueScore).toBe(15);
-    // The returned component records themselves are unchanged — only the
-    // scalar score summation changes (matches sigma1's D-04 handling).
-    expect(prediction.redComponents![FOULS_COMMITTED_COMPONENT]).toEqual({ mean: 5 });
-    expect(prediction.blueComponents![FOULS_COMMITTED_COMPONENT]).toBeUndefined();
+    // And it must no longer land in BLUE's predicted score either. This is the
+    // assertion that moved: it used to read 15 (10 + red's 5). With no foul
+    // information the rate is EPA_FALLBACK_FOUL_RATE (0), so blue's published
+    // score is its plain no-foul total.
+    expect(prediction.blueScore).toBe(10);
+    // The returned component records are unchanged and UNSCALED, matching how
+    // `AlliancePred` carries an unscaled breakdown beside a scaled score.
+    expect(prediction.redComponents?.[FOULS_COMMITTED_COMPONENT]).toEqual({ mean: 5 });
+    expect(prediction.blueComponents?.[FOULS_COMMITTED_COMPONENT]).toBeUndefined();
   });
 });
 
@@ -1723,7 +1736,7 @@ describe("epa — the optional component-map seam is inert at its default and li
   // WEEK-1 aggregate. Pinning by equality is what forced this edit to be a
   // deliberate one rather than a silent drift, which is the point of the pin.
   it("carries exactly one version string, pinned by equality so any bump is deliberate", () => {
-    expect(epa.version).toBe("9.0.0+baseline");
+    expect(epa.version).toBe("10.0.0+baseline");
   });
 });
 
@@ -2040,5 +2053,180 @@ describe("epa.carrySeason — the foul accumulators reset at a season boundary",
     expect(carried.weekOne.noFoulStats.count).toBe(0);
     expect(carried.weekOne.frozenFoul).toBeNull();
     expect(carried.weekOne.sealed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE FOUL SCALAR, AFTER THE WIN PROBABILITY (quick task 260911-l2k Task 2)
+// ---------------------------------------------------------------------------
+//
+// `main.py:125-130` (reference section 14), in order:
+//
+//     norm_diff = (red_score - blue_score) / score_sd
+//     win_prob  = 1 / (1 + 10 ** (k * norm_diff))
+//     foul_rate = self.year_obj.get_foul_rate()
+//     red_score_with_fouls  = red_score  * (1 + foul_rate)
+//     blue_score_with_fouls = blue_score * (1 + foul_rate)
+//
+// The order IS the model: because the multiplier is one scalar shared by both
+// alliances, it cannot change the sign of the difference, so fouls cannot touch
+// the predicted winner or the win probability. They inflate two published
+// scores and nothing else.
+function foulPredictState(overrides: Partial<EpaState> = {}): EpaState {
+  return {
+    season: 2024,
+    teamComponents: new Map<string, Record<string, number>>([
+      ["R1", { comp: 30, [FOULS_COMMITTED_COMPONENT]: 5 }],
+      ["B1", { comp: 10 }],
+    ]),
+    teamMatchCounts: new Map([
+      ["R1", 0],
+      ["B1", 0],
+    ]),
+    allianceScoreStats: emptyExpandingStats(),
+    allianceNoFoulStats: emptyExpandingStats(),
+    allianceFoulStats: emptyExpandingStats(),
+    weekOne: emptyEpaWeekOneState(),
+    fallbackSkipped: 0,
+    priorSeasonRatings: emptyPriorSeasonRatings(),
+    breakdownParseFailureCount: 0,
+    carrySeedMean: Number.NaN,
+    carryPending: new Set<string>(),
+    ...overrides,
+  };
+}
+
+const FOUL_PREDICT_MATCH = () =>
+  upcoming({ redTeams: ["R1"], blueTeams: ["B1"], redSurrogates: [], blueSurrogates: [] });
+
+describe("epa.predict — the foul term is a post-win-probability scalar (l2k)", () => {
+  it("neither alliance's foulsCommitted mean appears in either predicted score before the win probability", () => {
+    // With no foul information at all the rate is EPA_FALLBACK_FOUL_RATE (0),
+    // so both published scores are the plain NO-FOUL totals. Red's own
+    // foulsCommitted of 5 reaches NEITHER score: not its own (it never did —
+    // `redOffensiveTotal` already excluded it) and no longer the opponent's
+    // (the cross-attribution this task retires).
+    const prediction = epa.predict(foulPredictState(), FOUL_PREDICT_MATCH());
+    expect(prediction.redScore).toBe(30);
+    expect(prediction.blueScore).toBe(10);
+  });
+
+  it("THE DEFINING PROPERTY: pRedWin is bitwise invariant to ANY foulsCommitted value", () => {
+    // This is the whole point of the change, and it is asserted bitwise
+    // (`toBe`, not `toBeCloseTo`) because "almost invariant" would mean a foul
+    // term was still leaking into the margin somewhere.
+    const baseline = epa.predict(foulPredictState(), FOUL_PREDICT_MATCH()).pRedWin;
+
+    for (const [redFouls, blueFouls] of [
+      [0, 0],
+      [5, 0],
+      [0, 5],
+      [1_000, 3],
+      [3, 1_000],
+      [999_999, 999_998],
+    ] as const) {
+      const state = foulPredictState({
+        teamComponents: new Map<string, Record<string, number>>([
+          ["R1", { comp: 30, [FOULS_COMMITTED_COMPONENT]: redFouls }],
+          ["B1", { comp: 10, [FOULS_COMMITTED_COMPONENT]: blueFouls }],
+        ]),
+      });
+      expect(epa.predict(state, FOUL_PREDICT_MATCH()).pRedWin, `red ${redFouls} / blue ${blueFouls}`).toBe(baseline);
+    }
+  });
+
+  it("multiplies BOTH published scores by the SAME (1 + rate) once a rate is frozen", () => {
+    const rate = 0.12;
+    const state = foulPredictState({
+      weekOne: {
+        stats: { count: 400, mean: 70, m2: 90_000 },
+        frozen: { mean: 70, sd: 15 },
+        noFoulStats: { count: 400, mean: 62.5, m2: 80_000 },
+        foulStats: { count: 400, mean: 7.5, m2: 3_000 },
+        frozenFoul: { rate, noFoulMean: 62.5 },
+        sealed: true,
+      },
+    });
+    const prediction = epa.predict(state, FOUL_PREDICT_MATCH());
+    expect(prediction.redScore).toBeCloseTo(30 * (1 + rate), 10);
+    expect(prediction.blueScore).toBeCloseTo(10 * (1 + rate), 10);
+    // And the ratio between the two published scores is untouched by the
+    // scalar — the algebraic statement of "cannot move the winner".
+    expect(prediction.redScore / prediction.blueScore).toBeCloseTo(3, 10);
+  });
+
+  it("returns the component records UNSCALED, matching AlliancePred's unscaled breakdown", () => {
+    // `AlliancePred(red_score_with_fouls, breakdowns[0], ...)` carries the
+    // SCALED score beside the UNSCALED vector (reference section 14).
+    const state = foulPredictState({
+      weekOne: {
+        stats: { count: 400, mean: 70, m2: 90_000 },
+        frozen: { mean: 70, sd: 15 },
+        noFoulStats: { count: 400, mean: 62.5, m2: 80_000 },
+        foulStats: { count: 400, mean: 7.5, m2: 3_000 },
+        frozenFoul: { rate: 0.12, noFoulMean: 62.5 },
+        sealed: true,
+      },
+    });
+    const prediction = epa.predict(state, FOUL_PREDICT_MATCH());
+    expect(prediction.redComponents?.["comp"]).toEqual({ mean: 30 });
+    expect(prediction.redComponents?.[FOULS_COMMITTED_COMPONENT]).toEqual({ mean: 5 });
+    expect(prediction.blueComponents?.["comp"]).toEqual({ mean: 10 });
+  });
+
+  it("reads the SEASON-WIDE live pair before the seal and the FROZEN record after it", () => {
+    // The switch happens at the same match the SD denominator's switch
+    // happens — one seal moment, two records.
+    const live = foulPredictState({
+      allianceNoFoulStats: { count: 40, mean: 50, m2: 1_000 },
+      allianceFoulStats: { count: 40, mean: 5, m2: 100 },
+    });
+    expect(epa.predict(live, FOUL_PREDICT_MATCH()).redScore).toBeCloseTo(30 * (1 + 5 / 50), 10);
+
+    const sealed = foulPredictState({
+      allianceNoFoulStats: { count: 40, mean: 50, m2: 1_000 },
+      allianceFoulStats: { count: 40, mean: 5, m2: 100 },
+      weekOne: {
+        stats: { count: 400, mean: 70, m2: 90_000 },
+        frozen: { mean: 70, sd: 15 },
+        noFoulStats: { count: 400, mean: 62.5, m2: 80_000 },
+        foulStats: { count: 400, mean: 7.5, m2: 3_000 },
+        frozenFoul: { rate: 0.2, noFoulMean: 62.5 },
+        sealed: true,
+      },
+    });
+    // The frozen 0.2 wins over the live 0.1 once the seal has happened.
+    expect(epa.predict(sealed, FOUL_PREDICT_MATCH()).redScore).toBeCloseTo(30 * 1.2, 10);
+  });
+
+  it("falls back to EPA_FALLBACK_FOUL_RATE when the live pair is degenerate rather than dividing by it", () => {
+    const degenerate = foulPredictState({
+      allianceNoFoulStats: { count: 40, mean: 0, m2: 0 },
+      allianceFoulStats: { count: 40, mean: 5, m2: 100 },
+    });
+    expect(epa.predict(degenerate, FOUL_PREDICT_MATCH()).redScore).toBe(30);
+  });
+
+  it("winner still agrees with pRedWin at an exactly-zero margin, scalar or no scalar", () => {
+    const tied = foulPredictState({
+      teamComponents: new Map<string, Record<string, number>>([
+        ["R1", { comp: 20, [FOULS_COMMITTED_COMPONENT]: 40 }],
+        ["B1", { comp: 20, [FOULS_COMMITTED_COMPONENT]: 1 }],
+      ]),
+      weekOne: {
+        stats: { count: 400, mean: 70, m2: 90_000 },
+        frozen: { mean: 70, sd: 15 },
+        noFoulStats: { count: 400, mean: 62.5, m2: 80_000 },
+        foulStats: { count: 400, mean: 7.5, m2: 3_000 },
+        frozenFoul: { rate: 0.12, noFoulMean: 62.5 },
+        sealed: true,
+      },
+    });
+    const prediction = epa.predict(tied, FOUL_PREDICT_MATCH());
+    // Wildly asymmetric foul means, yet the margin is exactly zero — which is
+    // precisely what the old cross-attribution could not deliver.
+    expect(prediction.pRedWin).toBe(0.5);
+    expect(prediction.winner).toBe("red");
+    expect(prediction.redScore).toBeCloseTo(prediction.blueScore, 10);
   });
 });

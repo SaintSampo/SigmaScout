@@ -48,13 +48,35 @@ agreement with Statbotics got tighter or looser as a result.
 
 **Effect (historical):** EPA's ratings moved faster per elim match, and the per-team learning-rate schedule decayed faster overall (since elims counted toward the same 12-match threshold `percent_func` uses to reach its floor of `0.2`) than the equivalent Statbotics computation over the identical match history.
 
-## 2. Fouls — a per-team component, cross-attributed to the opponent (D-04)
+## 2. Fouls — NARROWED as of `epa@10.0.0+baseline`: the PREDICTION half is retired, the component survives
+
+**NARROWED 2026-09-11 by quick task 260911-l2k. Read this before the rest of the section, because
+the headline sentence below is now HISTORY for the prediction path.** Statbotics' foul model is
+now REPRODUCED: `epa.ts:predictCore` computes the margin, the logistic scale and `pRedWin` from the
+two NO-FOUL totals with no foul term anywhere, then multiplies BOTH published scores by one shared
+`(1 + foulRate)` — `main.py:125-130`, reference section 14. Because the multiplier is a single
+scalar applied identically to both alliances, fouls can no longer move the predicted winner or the
+win probability, and a test pins `pRedWin` bitwise invariant to any `foulsCommitted` value. The
+rate is `foulMean / noFoulMean` over Statbotics' week-1 population, frozen at the seal
+`epaWeekOne.ts` already owned and live-estimated only during week 1.
+
+**WHAT THIS DOES NOT RETIRE, stated first so nothing below reads as withdrawn.** `foulsCommitted`
+is still a per-team rated component, still derived from the OPPOSING alliance's raw `foulPoints`,
+still published as its own `teamMetrics` entry, still `carrySeason`'s fouls-INCLUSIVE carryover
+input, and still the quantity `fallbackObserved` nets out of an imputed observation. Everything
+this section says about WHAT the component means and HOW it is learned still holds exactly. Only
+the sentence about `predict()` adding it to the opponent's score is retired.
+
+Verdict in `docs/models/epa-statbotics-gap.md`'s matrix moved `GAP` -> `DELIBERATE DIFFERENCE` for
+mechanism 5 in all nine seasons: the placement is closed outright, and the only remainder is that
+the rate is live-estimated during week 1 (L-01, register R3 item 3).
+
 
 **Statbotics:** multiplies a no-foul predicted score by a season-level foul rate — `red_score * (1 + foul_rate)` — a single scalar correction applied uniformly, not a per-team learned quantity.
 
-**This project:** models `foulsCommitted` as its own per-team component (D-04), derived per `breakdown/*.ts`'s `parse()` from the **opposing** alliance's raw `foulPoints` field (`result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints`) — the points an alliance's own fouls cost the *other* side. `predict()` then adds each side's OWN offensive total to the OPPONENT's predicted `foulsCommitted`, never its own: `redScore = redOffensiveTotal + blueComponents[FOULS_COMMITTED_COMPONENT].mean`.
+**This project:** models `foulsCommitted` as its own per-team component (D-04), derived per `breakdown/*.ts`'s `parse()` from the **opposing** alliance's raw `foulPoints` field (`result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints`) — the points an alliance's own fouls cost the *other* side. **RETIRED 2026-09-11 (l2k) — this sentence described `predict()` until `epa@10.0.0+baseline` and is kept only so the change is legible:** `predict()` then adds each side's OWN offensive total to the OPPONENT's predicted `foulsCommitted`, never its own: `redScore = redOffensiveTotal + blueComponents[FOULS_COMMITTED_COMPONENT].mean`. Red's and blue's foul means are different numbers, so that term moved the margin and therefore the predicted winner — the inverse of what Statbotics does, which is why it went. `redOffensiveTotal` itself is unchanged and is now the no-foul total the shared scalar multiplies.
 
-**Why:** D-04 explicitly requires a per-team fouls-committed component so a predicted total includes the opponent's expected foul contribution, rather than a single alliance-wide multiplier. This is also the component D-04 names as the identifiability check's weakest member (see `docs/models/sigma1-identifiability.md`) — fouls are sparse (30-65% of matches carry any recorded foul, per season) and the cross-alliance attribution adds a wrinkle a uniform scalar correction never has to handle.
+**Why (as recorded at the time; the PREDICTION half of this rationale no longer applies as of l2k — a predicted total now takes the alliance-wide multiplier after all, and only the per-team RATING survives):** D-04 explicitly requires a per-team fouls-committed component so a predicted total includes the opponent's expected foul contribution, rather than a single alliance-wide multiplier. This is also the component D-04 names as the identifiability check's weakest member (see `docs/models/sigma1-identifiability.md`) — fouls are sparse (30-65% of matches carry any recorded foul, per season) and the cross-alliance attribution adds a wrinkle a uniform scalar correction never has to handle.
 
 **Correction recorded here (not a new divergence, a bug fix to this divergence's implementation):** commit `a0ec5d54` fixed `epa.ts`'s `predict()`, which had previously summed an alliance's OWN `foulsCommitted` mean into its OWN predicted score (backwards — crediting a team's fouls to itself, and omitting the opponent's fouls entirely) rather than the opposing alliance's, as D-04 actually specifies and as `sigma1/index.ts` had implemented correctly from the start (flagged as WINDOWS.md entry 3 by plan 02-04, now resolved). Every EPA number in this phase's `reports/full-v2/artifact.json` and this SUMMARY is from a run at or after that fix; no pre-fix EPA figure is cited anywhere in this phase's published output.
 

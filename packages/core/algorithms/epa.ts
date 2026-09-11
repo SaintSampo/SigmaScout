@@ -83,12 +83,31 @@
  * Deliberate divergences from Statbotics (every one documented at its use
  * site below, per D-13's "every deliberate divergence must be documented"
  * requirement):
- *   - D-04: `predict()`'s alliance score excludes its OWN
- *     `FOULS_COMMITTED_COMPONENT` mean and instead adds the OPPOSING
- *     alliance's `FOULS_COMMITTED_COMPONENT` mean — mirrors
- *     `sigma1/index.ts`'s `allianceOffensiveTotal`/`predict` handling of the
- *     same component (see that file's D-04 comment). WINDOWS.md entry 3
- *     tracked this as a bug before this fix; see the use site below.
+ *   - D-04 is HALF RETIRED as of `10.0.0+baseline` (quick task 260911-l2k,
+ *     2026-09-11). Say which half, because both halves used to live in this
+ *     one bullet:
+ *
+ *       RETIRED — `predict()`'s cross-attribution. An alliance's predicted
+ *       score is no longer "its own offensive total plus the OPPOSING
+ *       alliance's `FOULS_COMMITTED_COMPONENT` mean". Both alliances' foul
+ *       means are now absent from the margin entirely, and the foul term
+ *       enters afterwards as one `(1 + foulRate)` scalar applied to both
+ *       published scores (reference section 14). Red's and blue's foul means
+ *       are different numbers, so the retired term moved the margin and
+ *       therefore the predicted WINNER — the inverse of what Statbotics does.
+ *
+ *       STANDS — D-04's reading of `FOULS_COMMITTED_COMPONENT` as a
+ *       CROSS-ALLIANCE quantity, derived from the OPPOSING side's raw
+ *       `foulPoints` (`breakdown/{year}.ts`'s `parse()`). That is a fact about
+ *       what the component MEANS, not about where a prediction puts it, and it
+ *       still governs `fallbackObserved`'s netting, the published per-team
+ *       metric, `carrySeason`'s carryover input, and the no-foul/foul split
+ *       `update` folds. The component is still rated per team exactly as
+ *       before.
+ *
+ *     `sigma1/index.ts` still implements the ORIGINAL D-04 handling and was
+ *     deliberately not changed by that task — see its own D-04 comment.
+ *     WINDOWS.md entry 3 tracked the pre-D-04 behaviour as a bug.
  *   - D-08 CLOSED as of `5.0.0+baseline` (D-05, quick task 260904-5px):
  *     elimination matches used to be learned from normally — full weight,
  *     and the per-team match counter incrementing on every match including
@@ -146,9 +165,11 @@ import {
   type ExpandingStats,
 } from "../scoring/expandingStats.js";
 import {
+  EPA_FALLBACK_FOUL_RATE,
   emptyEpaWeekOneState,
   foldWeekOneAllianceScore,
   foldWeekOneFoulSplit,
+  foulRateFrom,
   sealWeekOneIfPast,
   type EpaWeekOneState,
 } from "./epaWeekOne.js";
@@ -419,15 +440,39 @@ function carryRescaleRatioFor(state: EpaState): { ratio: number; deferred: boole
   // the live estimate during week 1 and switching at the boundary is what makes
   // this a REFINEMENT of 8.0.0 rather than a reversal of it.
   //
-  // NAMED RESIDUAL GAP, not a silent approximation: Statbotics' `get_constants`
-  // reads week-1 `no_foul_mean` (falling back to `score_mean`), while this
-  // frozen mean is over the RAW alliance score, fouls INCLUDED. The SD target
-  // at read point (a) is EXACT; this mean target is a named neighbour.
-  // Registered in `docs/models/epa-statbotics-gap.md`'s R3 entry.
+  // TARGET NOW EXACT (quick task 260911-l2k), closing R3's residual gap 1.
+  // `get_constants` reads week-1 `no_foul_mean`, falling back to `score_mean`
+  // (`init.py:16-21`). Until this task the numerator was the frozen RAW
+  // alliance-score mean — fouls INCLUDED — which was a named NEIGHBOUR of that
+  // quantity rather than the quantity itself. The week-1 no-foul accumulator
+  // R3 said the gap needed now exists, so the preference order below is
+  // upstream's own, term for term:
+  //
+  //   1. the frozen week-1 NO-FOUL mean — `no_foul_mean`, exact;
+  //   2. the frozen week-1 RAW mean — `score_mean`, upstream's own fallback,
+  //      and `9.0.0`'s behaviour;
+  //   3. `cleanSeasonMean`'s live unwind — `8.0.0`'s behaviour, still
+  //      load-bearing during week 1 itself (a team first seen then would
+  //      otherwise forfeit its rescale entirely, and week 1 is roughly a
+  //      sixth of a season's matches).
+  //
+  // NAMED RESIDUAL that REMAINS, and must not disappear with the old comment:
+  // the two frozen means are taken over slightly different POPULATIONS. The
+  // raw-score accumulator folds every non-ruling-zero alliance, while the
+  // no-foul one additionally requires a PARSED breakdown (the fallback path
+  // imputes components from these very means, so folding an imputed value
+  // would be circular). Upstream derives both from a single `week_one_matches`
+  // list. Registered in `docs/models/epa-statbotics-gap.md`'s R3 entry.
+  //
+  // The arithmetic below is untouched: the chosen numerator is passed INTO
+  // `carryRescaleRatio` exactly as before, because that function's behaviour is
+  // proven by its own gate and this task changes only which number it receives.
   const numerator =
-    state.weekOne.frozen !== null
-      ? state.weekOne.frozen.mean
-      : cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS);
+    state.weekOne.frozenFoul !== null
+      ? state.weekOne.frozenFoul.noFoulMean
+      : state.weekOne.frozen !== null
+        ? state.weekOne.frozen.mean
+        : cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS);
   return carryRescaleRatio(numerator, state.carrySeedMean);
 }
 
@@ -631,12 +676,11 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   const redComponents = sumComponentsAcrossTeam(state.teamComponents, redTeams);
   const blueComponents = sumComponentsAcrossTeam(state.teamComponents, blueTeams);
 
-  // D-04: an alliance's own FOULS_COMMITTED_COMPONENT mean represents
-  // points ITS fouls would cost the OPPONENT (breakdown/2024.ts's parse()
-  // derives it from the OPPOSING side's raw foulPoints), so it is excluded
-  // from this alliance's own offensive total and added to the opponent's
-  // predicted score instead — mirrors sigma1/index.ts's
-  // `allianceOffensiveTotal` + `predict` handling of the same component.
+  // Each alliance's NO-FOUL total: every rated component EXCEPT its own
+  // FOULS_COMMITTED_COMPONENT. That exclusion is what makes these the no-foul
+  // quantity Statbotics scales — `no_foul_points = score - foulPoints -
+  // adjustPoints` (reference section 2), and `adjust` is pinned at exactly 0
+  // per team (D-5), so both sides target the same thing.
   const redOffensiveTotal = Object.entries(redComponents).reduce(
     (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
     0
@@ -645,8 +689,6 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
     (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
     0
   );
-  const redScore = redOffensiveTotal + (blueComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
-  const blueScore = blueOffensiveTotal + (redComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
 
   // READ POINT (a), quick task 260911-j2w. Statbotics divides by
   // `year.score_sd`, which `avg.py` computes from week-1 matches' RAW alliance
@@ -663,12 +705,36 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
       ? state.weekOne.frozen.sd
       : standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
   const scale = seasonScoreSd / (-EPA_K * Math.LN10);
-  const margin = redScore - blueScore;
+  // THE MARGIN CARRIES NO FOUL TERM AT ALL (quick task 260911-l2k,
+  // `epa@10.0.0+baseline`). `main.py:125-130` (reference section 14) computes
+  // `norm_diff` and `win_prob` from the foul-free scores, and only afterwards
+  // scales both published scores by `(1 + foul_rate)`.
+  const margin = redOffensiveTotal - blueOffensiveTotal;
   const pRedWin = 1 / (1 + Math.exp(-margin / scale));
   // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
   // is returned — see predictionValidity.ts's doc comment for why this
   // check lives here rather than at scoreSet/calibrationBins entry.
   assertValidPRedWin(pRedWin, `epa.predict (${match.matchKey})`);
+
+  // ---------------------------------------------------------------------
+  // THE FOUL SCALAR, APPLIED ONLY NOW (quick task 260911-l2k)
+  // ---------------------------------------------------------------------
+  //
+  // ONE rate for the whole match, multiplying BOTH published scores. The
+  // ORDER is the point, not a stylistic detail: a positive scalar shared by
+  // both alliances cannot change the sign of their difference, so fouls
+  // cannot move the predicted winner or the win probability. They inflate two
+  // published scores and nothing else (reference section 14, and mechanism 5
+  // of `docs/models/epa-statbotics-gap.md`).
+  //
+  // This REPLACES the cross-attribution that used to add the opponent's
+  // `foulsCommitted` mean into each alliance's score before the margin was
+  // taken. Red's and blue's foul means are different numbers, so that term
+  // moved SigmaScout's margin and therefore its predicted winner — the exact
+  // inverse of what Statbotics does.
+  const foulRate = foulRateFor(state);
+  const redScore = redOffensiveTotal * (1 + foulRate);
+  const blueScore = blueOffensiveTotal * (1 + foulRate);
 
   return {
     // Ties (margin === 0) give pRedWin exactly 0.5 via the logistic form
@@ -678,9 +744,34 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
     pRedWin,
     redScore,
     blueScore,
+    // UNSCALED, deliberately: `AlliancePred(red_score_with_fouls,
+    // breakdowns[0], ...)` carries the SCALED score beside the UNSCALED
+    // breakdown vector. The scalar is a property of the published total, not
+    // of any component.
     redComponents,
     blueComponents,
   };
+}
+
+/**
+ * The one rate this match's published scores are scaled by (quick task
+ * 260911-l2k) — `year.get_foul_rate()`'s analogue.
+ *
+ * Reads the FROZEN week-1 record once the seal has happened, and the
+ * SEASON-WIDE live pair before it, switching at exactly the match the SD
+ * denominator's own switch happens. Both branches go through `foulRateFrom`,
+ * the single divide and the single guard `epaWeekOne.ts` exports — this
+ * function must never re-implement either, because two copies of the ratio
+ * drifting apart would be invisible: two plausible rates, applied on opposite
+ * sides of a seal.
+ *
+ * A refused rate (`null`) falls back to `EPA_FALLBACK_FOUL_RATE`, which
+ * publishes each alliance's plain no-foul total rather than substituting a
+ * denominator the way upstream's `(self.no_foul_mean or 1)` does.
+ */
+function foulRateFor(state: EpaState): number {
+  if (state.weekOne.frozenFoul !== null) return state.weekOne.frozenFoul.rate;
+  return foulRateFrom(state.allianceNoFoulStats.mean, state.allianceFoulStats.mean) ?? EPA_FALLBACK_FOUL_RATE;
 }
 
 /**
@@ -1468,6 +1559,47 @@ export const epa = {
   //      the only case, and correcting the display would be an unmeasured
   //      change to a published number.
   //
+  // Bumped 9.0.0 -> 10.0.0 (quick task 260911-l2k, 2026-09-11): THE FOUL MODEL.
+  // Two things moved, and only these two.
+  //   (a) PLACEMENT. The foul term left the margin. `predictCore` used to add
+  //       the OPPOSING alliance's `foulsCommitted` mean into each alliance's
+  //       score and take the margin from those; it now computes the margin,
+  //       the scale and `pRedWin` from the two NO-FOUL totals with no foul term
+  //       anywhere, and only afterwards multiplies BOTH published scores by one
+  //       shared `(1 + foulRate)` — `main.py:125-130`, reference section 14.
+  //   (b) THE RATE. `foulMean / noFoulMean` over Statbotics' week-1 population,
+  //       frozen by the seal `epaWeekOne.ts` already owns and live-estimated
+  //       from a season-wide pair before it.
+  // As a consequence of building (b)'s accumulator, `carryRescaleRatio`'s
+  // numerator now reads the frozen week-1 NO-FOUL mean — the exact quantity
+  // `get_constants` reads — closing R3's residual gap 1.
+  //
+  // MAJOR, and it is the most straightforwardly major bump in this list: EVERY
+  // PREDICTED WINNER CAN CHANGE. Red's and blue's foul means are different
+  // numbers, so the retired cross-attribution shifted the margin of every match
+  // of every season; a single scalar shared by both sides cannot. No published
+  // predicted score, win probability or winner is guaranteed to be what 9.0.0
+  // produced.
+  //
+  // WALK-FORWARD LEGAL for exactly 9.0.0's reason, unchanged: a week-1
+  // aggregate is knowable the moment week 1 ends, the seal fires on the first
+  // match carrying a numeric week greater than 0 — which in a chronological
+  // stream PROVES every week-1 match has already been played — and no lookahead
+  // is required. Before the seal the rate comes from a season-wide expanding
+  // pair that can only contain matches already replayed.
+  //
+  // FIDELITY, NOT ACCURACY. This is Stage 3 of `epa-statbotics-gap.md`'s
+  // recommended sequence and it was adopted to match Statbotics, not to score
+  // better. A winner-accuracy or Brier regression is an expected and acceptable
+  // outcome; the before/after measurement is in
+  // `.planning/quick/260911-l2k-adopt-statbotics-foul-model-scalar-after/`
+  // and is reported as found. Nothing here was tuned, swept or selected.
+  //
+  // REPUBLISH OWED, and now THREE TIMES OVER: `8.0.0`'s debt and `9.0.0`'s are
+  // both still unpaid, and this bump adds a third. Every published EPA
+  // predicted score and win probability is stale until it is paid.
+  // `STATE_SNAPSHOT_SHAPE_VERSION` is 14 for this; SEED FIRST, DEPLOY SECOND.
+  //
   // Bumped 8.0.0 -> 9.0.0 (quick task 260911-j2w, 2026-09-11): WEEK-1
   // CALIBRATION. Two live-estimated season scalars are now retargeted at the
   // FROZEN WEEK-1 aggregate Statbotics actually uses, from week 2 onward:
@@ -1510,7 +1642,7 @@ export const epa = {
   //   3. ONE-MATCH LAG and LATE WEEK-1 ARRIVALS — see `epaWeekOne.ts`'s
   //      header. Both are consequences of sealing inside a chronological
   //      stream rather than reading an offline list.
-  version: "9.0.0+baseline",
+  version: "10.0.0+baseline",
   initState,
   predict,
   update,

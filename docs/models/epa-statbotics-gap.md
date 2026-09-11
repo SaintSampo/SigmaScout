@@ -104,7 +104,7 @@ Eleven mechanisms, nine corpus seasons, ninety-nine cells, no blanks.
 | 2. Score formula | GAP (see register R1) | GAP (see register R2) | GAP | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES |
 | 3. Prediction post-processing | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | GAP | ALREADY MATCHES |
 | 4. RP `unit_sigmoid` path | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
-| 5. Foul model | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP |
+| 5. Foul model | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
 | 6. Init and carryover | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP |
 | 7. Elimination weighting | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES |
 | 8. Win-probability scale | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
@@ -112,10 +112,19 @@ Eleven mechanisms, nine corpus seasons, ninety-nine cells, no blanks.
 | 10. Attribution post-processing | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES |
 | 11. Cleaning layer | GAP (see register R1) | GAP (see register R2) | GAP | GAP | GAP | GAP | ALREADY MATCHES | GAP | GAP |
 
-**Tally:** 37 `ALREADY MATCHES`, 44 `GAP`, 18 `DELIBERATE DIFFERENCE` (counted from the table
-above, not by hand). The two
-`DELIBERATE DIFFERENCE` rows are mechanisms 4 (L-02) and 8 (L-01); every other locked-decision
-collision is a remainder inside a `GAP` cell and is registered below.
+**Tally:** 37 `ALREADY MATCHES`, 35 `GAP`, 27 `DELIBERATE DIFFERENCE` (counted from the table
+above, not by hand). The three
+`DELIBERATE DIFFERENCE` rows are mechanisms 4 (L-02), 5 (L-01, as of quick task 260911-l2k) and
+8 (L-01); every other locked-decision collision is a remainder inside a `GAP` cell and is
+registered below.
+
+**Mechanism 5 moved from `GAP` to `DELIBERATE DIFFERENCE` on 2026-09-11 (quick task 260911-l2k),
+and the direction of that move is worth stating because it is not a defeat.** The PLACEMENT half —
+the winner-changing half — was closed outright: the foul term is out of the margin and is applied
+after the win probability as one scalar shared by both alliances. What remains is the RATE, which
+is an L-01 season aggregate now ADOPTED from week 2 on and live-estimated during week 1 only. That
+is precisely mechanism 8's situation after quick task 260911-j2w, and it takes mechanism 8's label
+rather than a fourth one being invented for it. The remainder is registered as R3 item 3.
 
 ---
 
@@ -141,6 +150,16 @@ difference of KIND the repo currently claims in three places (see stage 1).
 | 2024 | 18 named | 5: `auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted` | adopt the ten `comp_*` entries; note reference section 10 measured that coarsening 2024 to three phase groups BEAT eleven components by 1.7 points of winner accuracy | GAP |
 | 2025 | 18 named | 6: `autoMobility`, `autoCoral`, `teleopCoral`, `algae`, `endGameBarge`, `foulsCommitted` | adopt the four coral-level counts and the processor/net algae split | GAP |
 | 2026 | 15 named + 3 pad | 10: `autoTower`, `endGameTower`, `hubAuto`, `hubTransition`, `hubShift1`..`hubShift4`, `hubEndgame`, `foulsCommitted` | SigmaScout is FINER here: it rates shifts 1-4 separately where Statbotics pairs them into `first_shift_fuel`/`second_shift_fuel` | GAP |
+
+**Statbotics rates NO per-team foul entry at all, and SigmaScout still does — recorded here rather
+than left as a silent omission (quick task 260911-l2k, D-1).** Every row above ends "plus
+`foulsCommitted`", and that trailing component has no counterpart anywhere in `all_keys[year]`:
+upstream handles fouls exclusively through the season-level `get_foul_rate()` scalar (mechanism 5).
+l2k moved WHERE that component enters a prediction — it no longer enters one at all — but
+deliberately kept it rated, published and carried, because deleting it would reach identical
+predicted numbers while disturbing a user-facing metric, `UNGROUPED_COMPONENTS`, every carried
+rating, and `fallbackObserved`'s netting. So this remains a mechanism-1 entry-set difference in all
+nine seasons, and it is NOT closed by mechanism 5's closure.
 
 **A caution that survives from `epa-divergences.md` section 6 and must not be lost:** the accuracy
 curve TURNS OVER with component count. On 2024, eleven components scored 0.7348, three scored
@@ -215,7 +234,7 @@ of that file for `rp_1`, `rankingPoint` or `rpPmf` returns nothing. Verdict
 The only place this collides with a SCORE rather than an RP is 2016 and 2017 elimination matches;
 that is register entries R1 and R2, not this row.
 
-## Mechanism 5 — the foul model
+## Mechanism 5 — the foul model — PLACEMENT CLOSED, RATE ADOPTED FROM WEEK 2 (L-01 remainder)
 
 **This is the mechanism whose analysis changed most on reading the source, and the change is worth
 stating first.**
@@ -231,33 +250,71 @@ Because `foul_rate` is a single season scalar applied identically to both sides,
 affect Statbotics' predicted winner or its win probability at all.** They inflate the two published
 predicted SCORES and nothing else.
 
-SigmaScout does the opposite. `foulsCommitted` is a per-team rated component derived from the
+**CLOSED 2026-09-11 by quick task 260911-l2k (`epa@10.0.0+baseline`). SigmaScout now does the
+same thing.** `epa.ts:predictCore` computes the margin, the logistic scale and `pRedWin` from the
+two NO-FOUL totals with no foul term anywhere, and only afterwards multiplies BOTH published
+scores by one shared `(1 + foulRate)`. A test pins the defining property bitwise: changing either
+alliance's `foulsCommitted` mean by any amount — including by a factor of a hundred thousand —
+leaves `pRedWin` unchanged.
+
+The rate is `foulMean / noFoulMean` over Statbotics' week-1 population, frozen by the same seal
+`epaWeekOne.ts` already owned for `score_sd`, and live-estimated from a season-wide expanding pair
+before that seal. No second freeze mechanism was invented.
+
+**What SigmaScout USED TO DO, kept here because the matrix row above changed and a reader needs to
+know what it changed FROM.** `foulsCommitted` is a per-team rated component derived from the
 OPPONENT's raw `foulPoints` (D-04; every `breakdown/{year}.ts` sets
-`result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints`), and `epa.ts:predictCore` adds the
-opposing alliance's `foulsCommitted` mean to this alliance's predicted score. Red's and blue's
-foul means are different numbers, so **fouls DO move SigmaScout's margin, and therefore its
-predicted winner.**
+`result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints`), and `predictCore` used to add the
+opposing alliance's `foulsCommitted` mean to this alliance's predicted score BEFORE taking the
+margin. Red's and blue's foul means are different numbers, so fouls moved SigmaScout's margin and
+therefore its predicted winner — the inverse of what Statbotics does. That is what `10.0.0`
+retired.
+
+**`foulsCommitted` itself survives unchanged (D-1 of the l2k plan), and the scope decision is
+recorded rather than left implicit.** It is still rated per team, still published as its own
+`teamMetrics` entry, still `carrySeason`'s fouls-INCLUSIVE carryover input, and still the quantity
+`fallbackObserved` nets out of an imputed observation. Only its place in a PREDICTION moved.
+Deleting the component would have reached the same predicted numbers — `redOffensiveTotal` already
+excluded an alliance's own `foulsCommitted`, so it already WAS the no-foul total — while
+disturbing four things that had no reason to move, including a published user-facing metric and
+every carried rating. The smaller change was taken.
 
 | season | what Statbotics does | what SigmaScout does today | what closing the gap requires | verdict |
 |---|---|---|---|---|
-| 2016 | season scalar `get_foul_rate()`, applied after `win_prob` | per-team `foulsCommitted`, cross-attributed, inside the margin | move the foul term after the win-probability computation; the rate itself is an L-01 aggregate (register R3) | GAP |
-| 2017 | same | same | same | GAP |
-| 2018 | same | same | same | GAP |
-| 2019 | same | same | same | GAP |
-| 2022 | same | same | same | GAP |
-| 2023 | same | same | same | GAP |
-| 2024 | same | same | same | GAP |
-| 2025 | same | same | same | GAP |
-| 2026 | same | same | same | GAP |
+| 2016 | season scalar `get_foul_rate()`, applied after `win_prob` | **PLACEMENT ADOPTED:** scalar applied after `win_prob`, identical to both sides. **RATE ADOPTED from week 2 on:** frozen week-1 `foulMean / noFoulMean`; live season-wide estimate during week 1 | nothing on placement. The week-1 live estimate is L-01 and cannot be closed (register R3 item 3) | DELIBERATE DIFFERENCE |
+| 2017 | same | same | same | DELIBERATE DIFFERENCE |
+| 2018 | same | same | same | DELIBERATE DIFFERENCE |
+| 2019 | same | same | same | DELIBERATE DIFFERENCE |
+| 2022 | same | same | same | DELIBERATE DIFFERENCE |
+| 2023 | same | same | same | DELIBERATE DIFFERENCE |
+| 2024 | same | same | same | DELIBERATE DIFFERENCE |
+| 2025 | same | same | same | DELIBERATE DIFFERENCE |
+| 2026 | same | same | same | DELIBERATE DIFFERENCE |
 
 The mechanism is season-independent, which is why every row is identical; it is tabulated per
 season anyway so the matrix has no special cases.
 
-**Note on what is and is not blocked.** The PLACEMENT (after `win_prob`, same scalar both sides) is
-freely reproducible and is a real `GAP`. The RATE (`foul_mean / no_foul_mean`, a season aggregate)
-is L-01 and must be live-estimated — register R3. Closing the placement without the rate is still
-worth doing, and it is the larger of the two effects, because placement changes the predicted
-WINNER and the rate only scales a published score.
+**Note on what is and is not blocked — UPDATED 2026-09-11 (quick task 260911-l2k).** The
+PLACEMENT (after `win_prob`, same scalar both sides) was freely reproducible and is now CLOSED.
+The RATE (`foul_mean / no_foul_mean`) is a week-1 aggregate, so it is adopted exactly from week 2
+onward and live-estimated during week 1 alone — the same narrowing `avg.py` permitted for
+`score_sd`. Only the week-1 window remains an L-01 difference; see register R3 item 3.
+
+The placement half was, as predicted here, the larger of the two effects: it changes the predicted
+WINNER, where the rate only scales a published score. The measured before/after cost of that
+change is recorded in
+`.planning/quick/260911-l2k-adopt-statbotics-foul-model-scalar-after/260911-l2k-SUMMARY.md` and
+was adopted for FIDELITY, not accuracy.
+
+**NAMED RESIDUAL, recorded rather than hidden (l2k D-2).** The no-foul/foul split this project
+folds is taken from the SCORE — `foul side = own raw foulPoints + own adjustPoints`,
+`no-foul = score - foul side` — which is reference section 2's shared cleaner VERBATIM. But the
+module that writes `Match.red_foul` / `Match.red_no_foul`, the columns `avg.py` actually averages,
+was never fetched. That those columns are written from this same cleaner (and therefore that
+upstream's `red_foul` includes `adjustPoints`) is an INFERENCE from section 2, not a
+transcription. If it is wrong, this project's foul rate counts `adjustPoints` where upstream does
+not — a small effect, since `adjust` is zero in the overwhelming majority of matches, but a real
+one. Closing it needs a fetch of that module.
 
 ## Mechanism 6 — init and carryover
 
@@ -500,8 +557,10 @@ developer decision and this task does not make it.**
 
 ### R3 — the 21 season aggregates (L-01) — THE one documented difference
 
-**NARROWED 2026-09-11 by quick task 260911-j2w (`epa@9.0.0+baseline`): items 1 and 2 are now
-ADOPTED for weeks 2 onward.** They are WEEK-1 aggregates, not season-final ones (reference
+**NARROWED TWICE on 2026-09-11.** First by quick task 260911-j2w (`epa@9.0.0+baseline`): items 1
+and 2 ADOPTED for weeks 2 onward. Then by quick task 260911-l2k (`epa@10.0.0+baseline`): item 3
+ADOPTED on the same terms, and residual gap 1 below CLOSED. **Items 4 and 5 are UNTOUCHED and
+remain fully open** — this register entry is partly closed, not closed. They are WEEK-1 aggregates, not season-final ones (reference
 section 20, `avg.py` verbatim), and a week-1 aggregate is knowable the moment week 1 ends. So
 reading it from week 2 onward is not a walk-forward violation at all. `epaWeekOne.ts` freezes the
 week-1 aggregate on the first match carrying a numeric week greater than 0 — which in a
@@ -514,17 +573,33 @@ except where a row says otherwise.
 **THREE NAMED RESIDUAL GAPS inside the narrowing, recorded so they are known open items rather
 than undocumented divergences:**
 
-1. **The MEAN target is a neighbour, not an exact match.** `get_constants` reads week-1
-   `no_foul_mean` (falling back to `score_mean`); SigmaScout's frozen mean is over the RAW
-   alliance score, fouls INCLUDED. The SD target is EXACT — `avg.py` computes `year.score_sd`
-   from the raw score with fouls included, and `no_foul_mean`'s own SD is discarded (`_`) — but
-   the mean is not. Closing it needs a second, no-foul week-1 accumulator, which j2w deliberately
-   did NOT build.
+1. **CLOSED 2026-09-11 by quick task 260911-l2k. The MEAN target is now EXACT.** This gap said
+   closing it "needs a second, no-foul week-1 accumulator, which j2w deliberately did NOT build";
+   l2k built exactly that accumulator (it is the same one the foul rate's denominator needs), and
+   `carryRescaleRatioFor`'s numerator now reads the frozen week-1 NO-FOUL mean — the quantity
+   `get_constants` reads — falling back to the frozen raw mean (`9.0.0`'s behaviour, and
+   upstream's own `or year.score_mean` fallback) and then to the live unwind (`8.0.0`'s).
+
+   **A SMALLER RESIDUAL REPLACES IT rather than the gap vanishing outright:** the two frozen means
+   are taken over slightly different POPULATIONS. The raw-score accumulator folds every
+   non-ruling-zero alliance; the no-foul one additionally requires a PARSED breakdown, because the
+   fallback path imputes an alliance's components FROM these very means and folding an imputed
+   value back in would be circular. Upstream derives both from one `week_one_matches` list. The
+   difference is confined to breakdown-less matches, which are a small minority, but it is real.
 2. **`avg.py`'s 2025 processor-algae correction is NOT adopted.** Upstream subtracts
    `3 * comp_6_mean` from `no_foul_mean`, `teleop_mean` and `comp_7_mean` at AGGREGATE time, a
    second site for the same adjustment beyond `post_process_breakdown`. SigmaScout applies neither
    the aggregate-time correction nor a 2025 branch of any kind (mechanism 3 / D-13).
-3. **The frozen population can be slightly SMALLER than Statbotics' `week_one_matches`.** Statbotics
+3. **NEW 2026-09-11 (quick task 260911-l2k): `Match.red_foul`'s inclusion of `adjustPoints` is an
+   INFERENCE, not a transcription.** `avg.py` averages the `Match.red_foul` / `Match.red_no_foul`
+   columns, and reference section 2's shared cleaner defines
+   `foul_points = foulPoints + adjustPoints`. That those columns are written BY that cleaner was
+   never verified — the module that writes them has not been fetched. l2k's split follows section
+   2 verbatim, so if the inference is wrong this project counts `adjustPoints` on the foul side
+   where upstream does not. Small in practice (`adjust` is zero in the overwhelming majority of
+   matches) but recorded so it is a known open item rather than an undocumented divergence.
+
+4. **The frozen population can be slightly SMALLER than Statbotics' `week_one_matches`.** Statbotics
    filters an offline list; SigmaScout seals a streaming accumulator. Week-0 and week-1 event
    windows never overlap by start date in any corpus season, but a multi-day week-0 event can still
    run a match on the day a week-1 event opens, and any such late arrival is excluded by the seal.
@@ -536,7 +611,8 @@ than undocumented divergences:**
 said "season-final", which was the overstatement the 2026-09-11 correction block at the top of
 this file retracts).
 
-**Collides with:** L-01, for items 3-5. Items 1 and 2 no longer do.
+**Collides with:** L-01, for items 4 and 5, and for item 3's week-1 window alone. Items 1, 2 and
+3 no longer collide from week 2 onward.
 
 **Exposure: every match in every season — all nine corpus seasons, 100%.** This is the widest entry
 in the register by far, and it is deliberately ONE entry rather than 21, per L-01.
@@ -548,7 +624,7 @@ the time of an early-season prediction, or SigmaScout computes no equivalent at 
 |---|---|---|---|
 | 1 | `score_sd` in `norm_diff` | `main.py:125` | **ADOPTED from week 2 on (j2w):** the FROZEN week-1 alliance-score SD, an EXACT target. During week 1: expanding-window Welford SD over alliance scores replayed so far (`epa.ts:predictCore`), `EPA_FALLBACK_SCORE_SD = 25` before 2 observations |
 | 2 | `score_sd`, `no_foul_mean`, `score_mean` in `get_constants` | `init.py:16-21` | **ADOPTED from week 2 on (j2w):** the FROZEN week-1 alliance-score MEAN as `carryRescaleRatio`'s numerator — a NAMED NEIGHBOUR of `no_foul_mean`, see residual gap 1 above. During week 1: `epaCarryScale.ts:cleanSeasonMean` plus the expanding stats, seeded across the boundary by `reseedFromPrior` with `EPA_SCORE_SD_SEED_COUNT` |
-| 3 | `foul_mean` and `no_foul_mean` in `get_foul_rate()` | `main.py:128`, via `year.py:176-177` | nothing equivalent — SigmaScout has no foul-rate scalar at all. Its per-team `foulsCommitted` EWMA is the live estimate of the same phenomenon (mechanism 5) |
+| 3 | `foul_mean` and `no_foul_mean` in `get_foul_rate()` | `main.py:128`, via `year.py:176-177` | **ADOPTED from week 2 on (l2k):** the FROZEN week-1 `foulMean / noFoulMean`, an EXACT target, applied as one `(1 + rate)` scalar to both published scores after the win probability. During week 1: a season-wide expanding no-foul/foul pair, reset (not reseeded) at each season boundary. `EPA_FALLBACK_FOUL_RATE = 0` when no usable population exists — this project REFUSES a degenerate divide where upstream substitutes `(self.no_foul_mean or 1)` |
 | 4 | the 18 columns behind `get_mean_components()` | `init.py:47`, via `year.py:179-203` | not estimated per component at all — `epa.ts:carrySeason` splits one carried total evenly, and `componentColdStartValue` seeds a flat constant. **This is the largest single divergence inside R3** and is also mechanism 6's `GAP` |
 | 5 | `comp_6_mean`, `comp_7_mean`, `comp_8_mean` (2018 only) | `models/epa/breakdown.py:167,171,172` | nothing — see R4 |
 
@@ -651,7 +727,16 @@ documented difference.
 computable from matches already replayed and nothing else.
 **Republish debt: YES.** Every rating moves.
 
-### Stage 3 — Move the foul term after the win-probability computation
+### Stage 3 — Move the foul term after the win-probability computation — DONE 2026-09-11
+
+**DONE** by quick task 260911-l2k (`epa@10.0.0+baseline`). The foul term is out of the margin and
+applied afterwards as one scalar shared by both alliances; `pRedWin` is pinned bitwise invariant to
+any `foulsCommitted` value. The rate went further than this stage required — it is Statbotics' own
+week-1 `foulMean / noFoulMean`, frozen at the existing seal and live-estimated only during week 1 —
+which also closed R3's residual gap 1, because the no-foul accumulator that gap named is the same
+one the rate's denominator needs. `STATE_SNAPSHOT_SHAPE_VERSION` is 14. A REPUBLISH IS OWED and is
+unpaid, on top of `8.0.0`'s and `9.0.0`'s. The before/after measurement is in
+`.planning/quick/260911-l2k-adopt-statbotics-foul-model-scalar-after/` and was reported as found.
 
 **Why third:** it is small, it is season-independent, and it changes the predicted WINNER — which
 means it moves the headline accuracy metric. Doing it before the per-season entry-set work isolates
