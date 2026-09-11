@@ -124,9 +124,10 @@ export function describeRpLayerConfig(config: RpLayerConfig): string {
  * Throws for every `RpLayerConfig` value not yet implemented anywhere in the
  * tree — a config that claims a model it did not run is worse than one that
  * refuses (T-09-04-04). The default value never throws. `winSource:
- * "p-red-win"` (09-05 Task 1, D-13) no longer throws as of this plan;
- * `tieModel`/`marginal` still refuse their non-default members until 09-05
- * Tasks 2/3 land the corresponding branch.
+ * "p-red-win"` (09-05 Task 1, D-13) and `tieModel: "discrete-margin"`
+ * (09-05 Task 2, D-14) no longer throw as of this plan; `marginal` still
+ * refuses its non-default member until 09-05 Task 3 lands the
+ * negative-binomial branch.
  */
 export function assertSupportedRpLayerConfig(config: RpLayerConfig): void {
   if (config.winSource !== "score-draw" && config.winSource !== "p-red-win") {
@@ -134,9 +135,9 @@ export function assertSupportedRpLayerConfig(config: RpLayerConfig): void {
       `analyticRpPmf: RpLayerConfig.winSource "${config.winSource}" is not implemented — no plan has shipped this branch`
     );
   }
-  if (config.tieModel !== "continuous-equality") {
+  if (config.tieModel !== "continuous-equality" && config.tieModel !== "discrete-margin") {
     throw new Error(
-      `analyticRpPmf: RpLayerConfig.tieModel "${config.tieModel}" is not yet implemented (09-05 Task 2, D-14)`
+      `analyticRpPmf: RpLayerConfig.tieModel "${config.tieModel}" is not implemented — no plan has shipped this branch`
     );
   }
   if (config.marginal !== "gaussian") {
@@ -574,6 +575,50 @@ export interface RpOutcomeDistribution {
 }
 
 /**
+ * Half the width of the integer-margin bin centred on zero (09-05 Task 2,
+ * D-14). Real FRC scores are integers, so the observed margin is the
+ * ROUNDING of a continuous latent margin, and a tie is exactly the event
+ * that the latent margin rounds to zero — the interval `(-0.5, 0.5)`.
+ * STRUCTURAL, not tunable: it follows from "integers round to the nearest
+ * integer", not from a fit to data.
+ */
+export const TIE_MARGIN_HALF_WIDTH = 0.5;
+
+/**
+ * The probability a continuous latent score margin — Gaussian with mean
+ * `marginMean` and variance `marginVariance` — rounds to zero (09-05 Task 2,
+ * D-14, closing F7):
+ *
+ *   `pTie = Phi((0.5 - marginMean) / marginSd) - Phi((-0.5 - marginMean) / marginSd)`
+ *
+ * replacing a branch that CANNOT fire: today's `tied = !redWon && !blueWon`
+ * needs exact floating-point equality of two continuous draws, while 1,206
+ * of 110,362 qualification matches (1.093%) actually tied (F7). At
+ * `marginMean = 0` and `marginSd = 36.5` (an ordinary FRC margin sd) this
+ * returns `0.0109297`, against F7's measured base rate of
+ * `1206 / 110362 = 0.0109277` — the scale was arrived at by INVERTING the
+ * model, not by tuning it, and the aggregate over real predicted margins is
+ * 09-06's to measure through the published scorer.
+ *
+ * The degenerate guard is ordered BEFORE the division, deliberately: if
+ * `marginVariance` is not finite or is at or below zero, `pTie` is `1` when
+ * the (deterministic) margin is within the tie window and `0` otherwise —
+ * the same limit `matchOutcomeDistribution`'s own `varianceD <= 0` branch
+ * already uses for the win/loss split, restated here so `tieProbability`
+ * never divides by zero or propagates a `NaN` variance into the CDF.
+ */
+export function tieProbability(marginMean: number, marginVariance: number): number {
+  if (!Number.isFinite(marginVariance) || marginVariance <= 0) {
+    return Math.abs(marginMean) < TIE_MARGIN_HALF_WIDTH ? 1 : 0;
+  }
+  const marginSd = Math.sqrt(marginVariance);
+  return (
+    standardNormalCdf((TIE_MARGIN_HALF_WIDTH - marginMean) / marginSd) -
+    standardNormalCdf((-TIE_MARGIN_HALF_WIDTH - marginMean) / marginSd)
+  );
+}
+
+/**
  * Input to `matchOutcomeDistribution` — each alliance's OWN predicted score
  * mean/variance (never the combined win-probability variance), plus the
  * season's `winRp`/`tieRp` and the resolved config.
@@ -688,10 +733,11 @@ export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistri
   if (varianceD > 0) {
     const pRedWinEffective =
       input.config.winSource === "p-red-win" ? input.pRedWin : 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
-    // Tie-model dispatch lands in 09-05 Task 2 (D-14) — legacy is exactly 0
-    // here, still hardcoded rather than routed through a not-yet-existing
-    // tieProbability, matching this plan's own required commit ordering.
-    const rawPTie = 0;
+    // D-14 (09-05 Task 2): legacy tieModel is exactly 0 (F7's dead branch,
+    // reproduced faithfully); "discrete-margin" reads tieProbability off
+    // the SAME meanD/varianceD the winSource branch above already computed
+    // — never a second pair.
+    const rawPTie = input.config.tieModel === "discrete-margin" ? tieProbability(meanD, varianceD) : 0;
     const split = splitOutcomeProbabilities(pRedWinEffective, rawPTie);
     pRedWin = split.pRedStrict;
     pTie = split.pTie;

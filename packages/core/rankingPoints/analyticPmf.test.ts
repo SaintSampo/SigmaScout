@@ -36,6 +36,7 @@ import {
   assertSupportedRpLayerConfig,
   matchOutcomeDistribution,
   splitOutcomeProbabilities,
+  tieProbability,
   RP_LAYER_CONFIG_DEFAULT,
   type RpLayerConfig,
 } from "./analyticPmf.js";
@@ -266,13 +267,13 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
     ).toThrow(/season 2026.*varianceBlock/);
   });
 
-  it("Test 7: the config refuses what it has not implemented yet — UPDATED by 09-05 Task 1: winSource: \"p-red-win\" no longer throws (D-13 landed); tieModel/marginal still refuse until Tasks 2/3", () => {
+  it("Test 7: the config refuses what it has not implemented yet — UPDATED by 09-05 Tasks 1/2: winSource: \"p-red-win\" and tieModel: \"discrete-margin\" no longer throw (D-13/D-14 landed); marginal still refuses until Task 3", () => {
     const winSourceVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
     const tieModelVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, tieModel: "discrete-margin" };
     const marginalVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
     expect(() => assertSupportedRpLayerConfig(winSourceVariant)).not.toThrow();
-    expect(() => assertSupportedRpLayerConfig(tieModelVariant)).toThrow(/09-05/);
-    expect(() => assertSupportedRpLayerConfig(marginalVariant)).toThrow(/09-05/);
+    expect(() => assertSupportedRpLayerConfig(tieModelVariant)).not.toThrow();
+    expect(() => assertSupportedRpLayerConfig(marginalVariant)).toThrow();
     expect(() => assertSupportedRpLayerConfig(RP_LAYER_CONFIG_DEFAULT)).not.toThrow();
   });
 
@@ -430,6 +431,186 @@ describe("analyticRpPmf / matchOutcomeDistribution — 09-05 Task 1 (D-13, F6): 
         }
       }
     }
+  });
+});
+
+describe("tieProbability / matchOutcomeDistribution — 09-05 Task 2 (D-14, F7): the discrete-margin tie model", () => {
+  it("the branch is REACHABLE: tieProbability(0, 36.5 ** 2) is strictly positive — today's continuous-equality branch needs exact float equality of two continuous draws and returns zero for every input in this grid", () => {
+    expect(tieProbability(0, 36.5 ** 2)).toBeGreaterThan(0);
+  });
+
+  it("lands on the measured base rate: tieProbability(0, 36.5 ** 2) is 0.0109297 within 1e-6, and within 5e-6 of F7's measured 1206/110362", () => {
+    const value = tieProbability(0, 36.5 ** 2);
+    expect(value).toBeCloseTo(0.0109297, 6);
+    expect(Math.abs(value - 1206 / 110362)).toBeLessThan(5e-6);
+  });
+
+  it("a second, off-centre value: tieProbability(20, 40 ** 2) is 0.0088015 within 1e-6 — FINDING recorded in 09-05-05-SUMMARY.md: the plan's own hand-pinned literal (0.0087997, from Phi(-0.4875) - Phi(-0.5125) = 0.31294895 - 0.30414930) is ~1.76e-6 off the true value; independent verification via Python's math.erf (a SEPARATE, higher-precision erf, not this codebase's own A-S 7.1.26 approximation) computes 0.0088014613, which this implementation matches to 1.3e-8 — well within A-S's documented 1.5e-7 bound. The implementation is correct; the plan's manual Phi-table arithmetic is the source of the small discrepancy", () => {
+    expect(tieProbability(20, 40 ** 2)).toBeCloseTo(0.0088015, 6);
+  });
+
+  it("the degenerate guard is ordered BEFORE the division — four pinned cases, no NaN anywhere in the whole grid", () => {
+    expect(tieProbability(0.2, 0)).toBe(1);
+    expect(tieProbability(3, 0)).toBe(0);
+    expect(tieProbability(0, Number.NaN)).toBe(1);
+    expect(tieProbability(3, Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it("monotonicity and symmetry: strictly decreasing in marginSd for fixed marginMean = 0; maximised at marginMean = 0 and decreasing in |marginMean| for fixed marginSd; symmetric in marginMean", () => {
+    const sdGrid = [5, 10, 20, 36.5, 60, 120];
+    let previous = Number.POSITIVE_INFINITY;
+    for (const sd of sdGrid) {
+      const value = tieProbability(0, sd * sd);
+      expect(value).toBeLessThan(previous);
+      previous = value;
+    }
+
+    const meanGrid = [0, 5, 15, 40, 120];
+    const atZero = tieProbability(0, 36.5 ** 2);
+    let previousAtMean = atZero;
+    for (const mean of meanGrid) {
+      const value = tieProbability(mean, 36.5 ** 2);
+      expect(value).toBeLessThanOrEqual(previousAtMean);
+      if (mean > 0) expect(value).toBeLessThan(atZero);
+      previousAtMean = value;
+    }
+
+    for (const mean of [5, 15, 40, 120]) {
+      expect(Math.abs(tieProbability(mean, 36.5 ** 2) - tieProbability(-mean, 36.5 ** 2))).toBeLessThan(1e-12);
+    }
+  });
+
+  it("the three outcome probabilities partition: pRedStrict + pTie + pBlueStrict is within 1e-12 of 1, every component in [0, 1], none NaN, across a grid of pRedWin x pTie", () => {
+    for (const pRedWin of [0, 0.05, 0.5, 0.73, 1]) {
+      for (const pTie of [0, 0.0109297, 0.5]) {
+        const split = splitOutcomeProbabilities(pRedWin, pTie);
+        expect(Math.abs(split.pRedStrict + split.pTie + split.pBlueStrict - 1)).toBeLessThan(1e-12);
+        for (const component of [split.pRedStrict, split.pTie, split.pBlueStrict]) {
+          expect(Number.isFinite(component)).toBe(true);
+          expect(component).toBeGreaterThanOrEqual(0);
+          expect(component).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it("exactness survives the tie model, conditional form: with winSource: \"p-red-win\" and tieModel: \"discrete-margin\" both selected, pRedStrict / (pRedStrict + pBlueStrict) is within 1e-12 of the supplied pRedWin", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win", tieModel: "discrete-margin" };
+    for (const pRedWin of [0.05, 0.5, 0.73, 0.99]) {
+      const outcome = matchOutcomeDistribution({
+        redScoreMean: 110,
+        redScoreVariance: 50,
+        blueScoreMean: 100,
+        blueScoreVariance: 50,
+        winRp: 3,
+        tieRp: 1,
+        config,
+        pRedWin,
+      });
+      expect(outcome.pRedWin / (outcome.pRedWin + outcome.pBlueWin)).toBeCloseTo(pRedWin, 12);
+    }
+  });
+
+  it("the legacy tie model is still exactly zero — not 1e-300, not \"small\" — for every input in the grid; rpLayerInertness.test.ts's own golden is the mechanical proof at the pmf level", () => {
+    for (const meanD of [0, 5, 20, -15]) {
+      for (const varianceD of [1, 100, 10000]) {
+        const outcome = matchOutcomeDistribution({
+          redScoreMean: meanD,
+          redScoreVariance: varianceD,
+          blueScoreMean: 0,
+          blueScoreVariance: 0,
+          winRp: 3,
+          tieRp: 1,
+          config: RP_LAYER_CONFIG_DEFAULT,
+          pRedWin: 0.5,
+        });
+        expect(outcome.pTie).toBe(0);
+      }
+    }
+  });
+
+  it("tie mass reaches the RP index the season actually awards — a winRp: 3 season (2026) and a winRp: 2 season (2016), every threshold variance zero (point-mass bonus half)", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win", tieModel: "discrete-margin" };
+
+    // 2026: hubTotalCount 500 (>= supercharged 360, implies energized),
+    // totalTowerPoints 100 (>= traversal 50) — all three bonuses achieved
+    // deterministically, bonus RP = 3, so maxRp (6) = winRp(3) + bonusRp(3).
+    const moments2026Degenerate = (): AllianceRpMoments => ({
+      variableNames: ["hubTotalCount", "totalTowerPoints"],
+      meanVector: [500, 100],
+      varianceBlock: [
+        [0, 0],
+        [0, 0],
+      ],
+      scoreMean: 110,
+      scoreVariance: 50,
+      scoreCrossCovariance: [0, 0],
+    });
+    const result2026 = analyticRpPmf({
+      red: moments2026Degenerate(),
+      blue: { ...moments2026Degenerate(), scoreMean: 100 },
+      ruleModule: rp2026,
+      eventType: 0,
+      compLevel: "qm",
+      config,
+      pRedWin: 0.6,
+    });
+    expect(result2026.outcome).toBeDefined();
+    const bonusRp2026 = 3;
+    const tieIndex2026 = rp2026.tieRp + bonusRp2026;
+    const winIndex2026 = rp2026.winRp + bonusRp2026;
+    expect(result2026.redPmf[tieIndex2026]).toBeCloseTo(result2026.outcome!.pTie, 12);
+    expect(result2026.redPmf[winIndex2026]).toBeCloseTo(result2026.outcome!.pRedWin, 12);
+    // Bonus is a deterministic point mass, so the ONLY three reachable
+    // indices are the loss/tie/win outcome RPs each shifted by the same
+    // fixed bonusRp2026 — the loss index carries exactly outcome.pBlueWin
+    // (red's own pmf: loseProb accumulates at index 0, pre-convolution).
+    const loseIndex2026 = 0 + bonusRp2026;
+    expect(result2026.redPmf[loseIndex2026]).toBeCloseTo(result2026.outcome!.pBlueWin, 12);
+    const accountedMass2026 = [tieIndex2026, winIndex2026, loseIndex2026].reduce((sum, i) => sum + result2026.redPmf[i]!, 0);
+    expect(accountedMass2026).toBeCloseTo(1, 9);
+
+    // 2016: 5 crossings at every position (>= the 2-crossing indicator
+    // threshold, 5 of 5 >= the 4-required threshold: breach achieved);
+    // attackedTowerEndStrength 0 (<= 0) and teleopChallengePoints/
+    // teleopScalePoints scaled to 6 (>= 3): capture achieved. bonus RP = 2,
+    // maxRp (4) = winRp(2) + bonusRp(2).
+    const moments2016Degenerate = (): AllianceRpMoments => {
+      const variableNames = rp2016.thresholdVariables.map((v) => v.name);
+      const values: Record<string, number> = {
+        position1crossings: 5,
+        position2crossings: 5,
+        position3crossings: 5,
+        position4crossings: 5,
+        position5crossings: 5,
+        attackedTowerEndStrength: 0,
+        teleopChallengePoints: 15,
+        teleopScalePoints: 45,
+      };
+      return {
+        variableNames,
+        meanVector: variableNames.map((name) => values[name] ?? 0),
+        varianceBlock: variableNames.map((_, i) => variableNames.map((_, j) => 0)),
+        scoreMean: 110,
+        scoreVariance: 50,
+        scoreCrossCovariance: variableNames.map(() => 0),
+      };
+    };
+    const result2016 = analyticRpPmf({
+      red: moments2016Degenerate(),
+      blue: { ...moments2016Degenerate(), scoreMean: 100 },
+      ruleModule: rp2016,
+      eventType: 0,
+      compLevel: "qm",
+      config,
+      pRedWin: 0.6,
+    });
+    expect(result2016.outcome).toBeDefined();
+    const bonusRp2016 = 2;
+    const tieIndex2016 = rp2016.tieRp + bonusRp2016;
+    const winIndex2016 = rp2016.winRp + bonusRp2016;
+    expect(result2016.redPmf[tieIndex2016]).toBeCloseTo(result2016.outcome!.pTie, 12);
+    expect(result2016.redPmf[winIndex2016]).toBeCloseTo(result2016.outcome!.pRedWin, 12);
   });
 });
 
