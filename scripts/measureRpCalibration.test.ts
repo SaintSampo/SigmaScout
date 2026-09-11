@@ -30,7 +30,16 @@ import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
-import { buildRpCalibrationRecord, RP_RELIABILITY_BUCKET_EDGES, type Observation } from "./measureRpCalibration.js";
+import { RP_LAYER_CONFIG_DEFAULT } from "../packages/core/rankingPoints/analyticPmf.js";
+import {
+  buildRpCalibrationRecord,
+  decideRpShipConfig,
+  evaluateD09Bar,
+  RP_RELIABILITY_BUCKET_EDGES,
+  type Observation,
+  type RpArmVerdict,
+  type RpBonusCell,
+} from "./measureRpCalibration.js";
 
 const SOURCE = readFileSync(new URL("./measureRpCalibration.ts", import.meta.url), "utf8");
 
@@ -196,5 +205,273 @@ describe("same-scorer structural assertions (D-11)", () => {
       .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
       .join("\n");
     expect((codeOnly.match(/rpPmfForMatch|RpMomentsAccumulator/g) ?? []).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-09's bar, frozen (09-06 Task 1 Step 1)
+// ---------------------------------------------------------------------------
+//
+// Every expectation below is HAND-COMPUTED from the `<baseline>` pinned
+// ground-truth table in `09-06-PLAN.md`. None was produced by running the
+// implementation and pasting its output — this is the code that decides what
+// ships, and a test written from the output it is meant to constrain proves
+// only that the code does what it does.
+//
+// The bar these cases pin is committed BEFORE any 2023-2026 figure exists.
+// D-04's reporting slice is one-way: once it informs a choice it stops being
+// a clean reporting slice and there is no replacement. Adjusting the bar
+// after seeing those numbers is the single failure this plan's structure
+// exists to prevent, and it would leave the suite green.
+
+/** Cells with the given Brier scores, one per (2023 + i, bonusI) key. */
+function makeCells(briers: readonly number[], counts?: readonly number[]): RpBonusCell[] {
+  return briers.map((b, i) => ({
+    algorithmId: "bpr",
+    season: 2023 + i,
+    bonusName: `bonus${i}`,
+    count: counts?.[i] ?? 100,
+    meanPredicted: 0.5,
+    observedFrequency: 0.5,
+    brierScore: b,
+  }));
+}
+
+describe("evaluateD09Bar — D-09's per-bonus bar, frozen before any reporting-slice figure existed", () => {
+  it("3 of 4 improve, 0 regress, 1 tie — meets the bar (improved 3 > scored/2 = 2)", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.1, 0.1, 0.1, 0.2]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    expect(v.scored).toBe(4);
+    expect(v.improved).toBe(3);
+    expect(v.regressed).toBe(0);
+    expect(v.tied).toBe(1);
+    expect(v.meetsBar).toBe(true);
+  });
+
+  it("2 of 4 improve, 0 regress, 2 tie — a bare half does NOT meet the bar", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.1, 0.1, 0.2, 0.2]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    expect(v.improved).toBe(2);
+    expect(v.tied).toBe(2);
+    // Ties stay in `scored` and count toward neither side, so a tie makes the
+    // majority HARDER to reach. That is the conservative direction and it was
+    // chosen deliberately.
+    expect(v.meetsBar).toBe(false);
+  });
+
+  it("3 improve but 1 regresses — a single regression fails the arm outright, at any magnitude", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.1, 0.1, 0.1, 0.2000001]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    expect(v.improved).toBe(3);
+    expect(v.regressed).toBe(1);
+    expect(v.meetsBar).toBe(false);
+  });
+
+  it("an improvement of 1e-8 in every cell counts — D-11 sets no minimum effect size", () => {
+    const control = makeCells([0.1, 0.1, 0.1, 0.1]);
+    const arm = makeCells([0.09999999, 0.09999999, 0.09999999, 0.09999999]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    expect(v.improved).toBe(4);
+    expect(v.regressed).toBe(0);
+    expect(v.meetsBar).toBe(true);
+  });
+
+  it("all four cells exactly equal — 0 improved, 0 regressed, 4 tied, bar NOT met", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    expect(v.improved).toBe(0);
+    expect(v.regressed).toBe(0);
+    expect(v.tied).toBe(4);
+    // A change with no effect is not an improvement.
+    expect(v.meetsBar).toBe(false);
+  });
+
+  it("a cell with zero observations in either arm is excluded from `scored` entirely", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2], [100, 100, 100, 0]);
+    const arm = makeCells([0.1, 0.1, 0.2, 0.1], [100, 100, 100, 0]);
+    const v = evaluateD09Bar(control, arm, "arm");
+    // The fourth cell would have improved; it is not comparable, so it is not
+    // counted at all — a cell needs an observation in BOTH arms. That is the
+    // whole of what the pinned ground-truth row asserts.
+    expect(v.scored).toBe(3);
+    expect(v.improved).toBe(2);
+    expect(v.tied).toBe(1);
+    // Consequence of the exclusion, stated so the denominator's effect is
+    // visible: the bar is read against the SHRUNKEN table, 2 > 3/2, not
+    // against the four cells that were measured. Dropping a cell therefore
+    // makes the majority EASIER, which is exactly why a cell missing from one
+    // arm entirely throws instead of being dropped (see the test below).
+    expect(v.meetsBar).toBe(true);
+  });
+
+  it("cells are matched by the (algorithmId, season, bonusName) triple, never by array index", () => {
+    const control = makeCells([0.2, 0.3, 0.4, 0.5]);
+    const arm = makeCells([0.1, 0.2, 0.3, 0.5]);
+    const ordered = evaluateD09Bar(control, arm, "arm");
+    const shuffled = evaluateD09Bar(control, [arm[2]!, arm[0]!, arm[3]!, arm[1]!], "arm");
+    expect(shuffled).toEqual(ordered);
+    expect(ordered.improved).toBe(3);
+  });
+
+  it("a cell present in one arm and absent from the other throws a named error rather than shrinking the table", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.1, 0.1, 0.1]);
+    expect(() => evaluateD09Bar(control, arm, "arm")).toThrow(/evaluateD09Bar/);
+    expect(() => evaluateD09Bar(control, arm, "arm")).toThrow(/bpr\|2026\|bonus3/);
+  });
+
+  it("is pure and total — the same two arrays give the same verdict and neither input is mutated", () => {
+    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
+    const arm = makeCells([0.1, 0.1, 0.1, 0.2]);
+    const controlBefore = structuredClone(control);
+    const armBefore = structuredClone(arm);
+    const a = evaluateD09Bar(control, arm, "candidate");
+    const b = evaluateD09Bar(control, arm, "candidate");
+    expect(a).toEqual(b);
+    expect(a.arm).toBe("candidate");
+    expect(control).toEqual(controlBefore);
+    expect(arm).toEqual(armBefore);
+  });
+});
+
+describe("decideRpShipConfig — the pre-committed three-step rule, applied mechanically", () => {
+  function verdict(arm: string, improved: number, regressed: number, scored = 10): RpArmVerdict {
+    return {
+      arm,
+      scored,
+      improved,
+      regressed,
+      tied: scored - improved - regressed,
+      meetsBar: improved > scored / 2 && regressed === 0,
+    };
+  }
+
+  function verdicts(entries: readonly RpArmVerdict[]): Map<string, RpArmVerdict> {
+    return new Map(entries.map((v) => [v.arm, v]));
+  }
+
+  it("all three single-change arms pass and the combination passes — every field is accepted", () => {
+    const d = decideRpShipConfig(
+      verdicts([
+        verdict("win", 8, 0),
+        verdict("tie", 7, 0),
+        verdict("marginal", 9, 0),
+        verdict("win+tie+marginal", 9, 0),
+      ])
+    );
+    expect([...d.acceptedFields].sort()).toEqual(["marginal", "tie", "win"]);
+    expect(d.revertedFields).toEqual([]);
+    expect(d.shipConfig).toEqual({
+      winSource: "p-red-win",
+      tieModel: "discrete-margin",
+      marginal: "negative-binomial",
+    });
+    expect(d.path.join(" | ")).toMatch(/combination gate passed/);
+  });
+
+  it("combination fails; dropping the field with the fewest improved cells makes it pass — the single permitted drop", () => {
+    const d = decideRpShipConfig(
+      verdicts([
+        verdict("win", 9, 0),
+        verdict("tie", 8, 0),
+        verdict("marginal", 7, 0),
+        verdict("win+tie+marginal", 6, 1),
+        verdict("win+tie", 8, 0),
+      ])
+    );
+    expect(d.revertedFields).toEqual(["marginal"]);
+    expect([...d.acceptedFields].sort()).toEqual(["tie", "win"]);
+    expect(d.shipConfig).toEqual({
+      winSource: "p-red-win",
+      tieModel: "discrete-margin",
+      marginal: "gaussian",
+    });
+    expect(d.path.join(" | ")).toMatch(/marginal/);
+  });
+
+  it("the drop tie-break is deterministic — equal improved counts drop in the fixed order marginal, tie, win", () => {
+    const d = decideRpShipConfig(
+      verdicts([
+        verdict("win", 7, 0),
+        verdict("tie", 7, 0),
+        verdict("marginal", 9, 0),
+        verdict("win+tie+marginal", 6, 1),
+        verdict("win+marginal", 8, 0),
+      ])
+    );
+    // `win` and `tie` are tied at 7 improved; `tie` comes first in the fixed
+    // drop order, so `tie` is the one dropped.
+    expect(d.revertedFields).toEqual(["tie"]);
+    expect([...d.acceptedFields].sort()).toEqual(["marginal", "win"]);
+  });
+
+  it("at most ONE drop — a map needing two drops returns the legacy default rather than dropping twice", () => {
+    const d = decideRpShipConfig(
+      verdicts([
+        verdict("win", 9, 0),
+        verdict("tie", 8, 0),
+        verdict("marginal", 7, 0),
+        verdict("win+tie+marginal", 6, 1),
+        verdict("win+tie", 6, 1),
+      ])
+    );
+    expect(d.acceptedFields).toEqual([]);
+    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
+    expect(d.shipConfig).toEqual(RP_LAYER_CONFIG_DEFAULT);
+    expect(d.path.join(" | ")).toMatch(/no second drop/);
+  });
+
+  it("exactly one single-change arm passes — the combination gate IS that arm's own verdict, already computed", () => {
+    const d = decideRpShipConfig(
+      verdicts([verdict("win", 8, 0), verdict("tie", 4, 0), verdict("marginal", 5, 2)])
+    );
+    expect(d.acceptedFields).toEqual(["win"]);
+    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie"]);
+    expect(d.shipConfig).toEqual({
+      winSource: "p-red-win",
+      tieModel: "continuous-equality",
+      marginal: "gaussian",
+    });
+    expect(d.path.join(" | ")).toMatch(/single-change arm/);
+  });
+
+  it("no single-change arm passes — nothing to combine, and no combination is evaluated", () => {
+    const d = decideRpShipConfig(
+      verdicts([verdict("win", 3, 0), verdict("tie", 4, 1), verdict("marginal", 5, 0)])
+    );
+    expect(d.acceptedFields).toEqual([]);
+    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
+    expect(d.shipConfig).toEqual(RP_LAYER_CONFIG_DEFAULT);
+    expect(d.path.join(" | ")).toMatch(/no single-change arm met the bar/);
+  });
+
+  it("every decision carries a non-empty `path` naming the gate that produced it", () => {
+    const cases = [
+      verdicts([
+        verdict("win", 8, 0),
+        verdict("tie", 7, 0),
+        verdict("marginal", 9, 0),
+        verdict("win+tie+marginal", 9, 0),
+      ]),
+      verdicts([verdict("win", 3, 0), verdict("tie", 4, 1), verdict("marginal", 5, 0)]),
+      verdicts([verdict("win", 8, 0), verdict("tie", 4, 0), verdict("marginal", 5, 2)]),
+    ];
+    for (const c of cases) {
+      const d = decideRpShipConfig(c);
+      expect(d.path.length).toBeGreaterThan(0);
+      for (const line of d.path) expect(line.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("a verdict the rule needs but the map does not carry throws a named error rather than defaulting", () => {
+    expect(() =>
+      decideRpShipConfig(
+        verdicts([verdict("win", 8, 0), verdict("tie", 7, 0), verdict("marginal", 9, 0)])
+      )
+    ).toThrow(/decideRpShipConfig/);
   });
 });

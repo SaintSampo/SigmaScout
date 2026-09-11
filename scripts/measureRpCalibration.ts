@@ -74,6 +74,7 @@ import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
 import { RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
+import { RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../packages/core/rankingPoints/analyticPmf.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -190,6 +191,319 @@ export function buildRpCalibrationRecord(
   // ever read it. `RP_RELIABILITY_BUCKET_EDGES` remains exported and used
   // by `reliabilityTable` below for the console report, which is unaffected.
   return { scoredCount: pooled.length, bonuses };
+}
+
+// ---------------------------------------------------------------------------
+// D-09's BAR, FROZEN (phase 09 plan 09-06 Task 1 Step 1)
+// ---------------------------------------------------------------------------
+//
+// Everything in this section is committed BEFORE any 2023-2026 figure exists.
+// It is the rule that decides whether each of phase 09's three RP model
+// changes ships, and it may not be adjusted, relaxed, re-scoped or re-derived
+// after a reporting-slice number has been seen.
+//
+// D-09, verbatim: an arm ships when a MAJORITY of the individual bonus cells
+// on the reporting slice improve on Brier AND NO SINGLE CELL gets worse.
+//
+// TIES SIT IN THE DENOMINATOR AND HELP NEITHER SIDE. A tied cell stays in
+// `scored` and counts toward neither `improved` nor `regressed`, so every tie
+// makes the majority harder to reach. That is the conservative direction and
+// it was chosen deliberately: a change that moves nothing should not be able
+// to buy itself a majority out of cells it did not affect.
+//
+// WHY D-11's ABSENCE OF AN EFFECT-SIZE FLOOR IS HONEST HERE. D-11 declined the
+// paired-bootstrap interval and said any improvement in the right direction
+// counts. That would normally be sloppy. It is defensible in THIS measurement
+// because 09-04 deleted the 4,000-draw Monte Carlo: both arms are now exact
+// deterministic computations over the identical observation set, differing
+// only in the config field under test. The +/-0.008 of sampling scatter that
+// would have demanded an effect-size floor is precisely what the phase
+// removed, so a difference of any magnitude is a real difference rather than
+// a draw of the dice. If the Monte Carlo ever returns, this reasoning — and
+// therefore this bar — stops holding.
+//
+// D-04 MAKES THE MEASUREMENT ONE-WAY. The 2023-2026 slice is the only clean
+// out-of-sample evidence this phase has, and the 2026 holdout was already
+// spent once on this project. The whole reason this section exists in its own
+// commit, ahead of every line of measurement code, is so the reporting slice
+// can only ever produce the verdict this rule already defined — never a
+// verdict chosen to fit the numbers. That failure would leave the suite green.
+
+/**
+ * The three RP model changes under test, named by the config field each one
+ * flips. These names are also the single-change arm names in
+ * `RP_ATTRIBUTION_ARMS`, so a verdict map is keyed by them directly.
+ */
+export const RP_ARM_FIELDS = ["win", "tie", "marginal"] as const;
+export type RpArmField = (typeof RP_ARM_FIELDS)[number];
+
+/**
+ * What each field's SHIP branch sets. Typed as `Partial<RpLayerConfig>` on
+ * purpose: a member renamed or removed upstream becomes a compile error here
+ * rather than a silently wrong arm.
+ */
+export const RP_ARM_FIELD_SHIP_VALUES: { readonly [K in RpArmField]: Partial<RpLayerConfig> } = {
+  win: { winSource: "p-red-win" },
+  tie: { tieModel: "discrete-margin" },
+  marginal: { marginal: "negative-binomial" },
+};
+
+/**
+ * The FIXED tie-break order for step 2's single permitted drop. When two
+ * fields have the same number of improved cells, the one earliest in this list
+ * is dropped. Pinned here rather than derived so the rule is deterministic and
+ * cannot be re-ordered later to change an outcome.
+ */
+export const RP_ARM_DROP_ORDER: readonly RpArmField[] = ["marginal", "tie", "win"];
+
+/** One scored bonus cell: one `(algorithmId, season, bonusName)` triple's figures under one arm. */
+export interface RpBonusCell {
+  readonly algorithmId: string;
+  readonly season: number;
+  readonly bonusName: string;
+  readonly count: number;
+  readonly meanPredicted: number;
+  readonly observedFrequency: number;
+  readonly brierScore: number;
+}
+
+/** One arm's standing against `control` under D-09's bar. */
+export interface RpArmVerdict {
+  readonly arm: string;
+  readonly scored: number;
+  readonly improved: number;
+  readonly regressed: number;
+  readonly tied: number;
+  readonly meetsBar: boolean;
+}
+
+/** The pre-committed three-step rule's output. `path` is the human-readable trace of how it got there. */
+export interface RpShipDecision {
+  readonly shipConfig: RpLayerConfig;
+  readonly acceptedFields: readonly string[];
+  readonly revertedFields: readonly string[];
+  readonly path: readonly string[];
+}
+
+/** The stable key a cell is matched by across arms — never the array index. */
+function cellKey(cell: RpBonusCell): string {
+  return `${cell.algorithmId}|${cell.season}|${cell.bonusName}`;
+}
+
+/**
+ * D-09's bar as code.
+ *
+ * UNIT OF ACCOUNT: one scored cell is one `(algorithmId, season, bonusName)`
+ * triple with at least one observation in BOTH arms. A cell with `count` 0 in
+ * either arm is excluded from `scored` entirely — a cell needs an observation
+ * on both sides to be comparable at all, and emitting a Brier over zero
+ * observations would put a NaN into a committed measurement.
+ *
+ * PER-CELL OUTCOME: improves when `brier_arm < brier_control` strictly,
+ * regresses when `brier_arm > brier_control` strictly, ties when the two
+ * compare equal under `===`.
+ *
+ * THE BAR: `improved > scored / 2` AND `regressed === 0`.
+ *
+ * Cells are matched by key, never by position, so two arrays in different
+ * orders give the same verdict. A key present in one arm and absent from the
+ * other THROWS rather than being dropped: silently dropping it would let a
+ * mis-wired arm report a smaller, easier table and still claim a majority.
+ *
+ * Pure and total — it reads no clock, no filesystem, no corpus and no
+ * `process.argv`, and it mutates neither input.
+ *
+ * `armName` only labels the returned verdict; it never affects the arithmetic.
+ */
+export function evaluateD09Bar(
+  control: readonly RpBonusCell[],
+  arm: readonly RpBonusCell[],
+  armName = "arm"
+): RpArmVerdict {
+  const controlByKey = new Map(control.map((c) => [cellKey(c), c]));
+  const armByKey = new Map(arm.map((c) => [cellKey(c), c]));
+
+  for (const key of controlByKey.keys()) {
+    if (!armByKey.has(key)) {
+      throw new Error(`evaluateD09Bar: cell "${key}" is present in control but absent from arm "${armName}" — a missing cell is a wiring fault, not a smaller table`);
+    }
+  }
+  for (const key of armByKey.keys()) {
+    if (!controlByKey.has(key)) {
+      throw new Error(`evaluateD09Bar: cell "${key}" is present in arm "${armName}" but absent from control — a missing cell is a wiring fault, not a smaller table`);
+    }
+  }
+
+  let scored = 0;
+  let improved = 0;
+  let regressed = 0;
+  let tied = 0;
+
+  // Sorted so the traversal order — and therefore the function — is
+  // independent of either input array's order.
+  for (const key of [...controlByKey.keys()].sort()) {
+    const c = controlByKey.get(key)!;
+    const a = armByKey.get(key)!;
+    if (c.count === 0 || a.count === 0) continue;
+    scored++;
+    if (a.brierScore < c.brierScore) improved++;
+    else if (a.brierScore > c.brierScore) regressed++;
+    else tied++;
+  }
+
+  return {
+    arm: armName,
+    scored,
+    improved,
+    regressed,
+    tied,
+    meetsBar: improved > scored / 2 && regressed === 0,
+  };
+}
+
+/**
+ * The arm name for a set of shipped fields, in `RP_ARM_FIELDS` order joined by
+ * `+`, or `"control"` for the empty set. This is the single source of the arm
+ * vocabulary: the registry builds its names from it and the rule looks its
+ * verdicts up by it, so the two cannot drift.
+ */
+export function rpArmNameForFields(fields: readonly RpArmField[]): string {
+  const present = RP_ARM_FIELDS.filter((f) => fields.includes(f));
+  return present.length === 0 ? "control" : present.join("+");
+}
+
+/** Builds a config by spreading the IMPORTED production default and overriding only the named fields. */
+export function rpConfigForFields(fields: readonly RpArmField[]): RpLayerConfig {
+  let config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT };
+  for (const field of RP_ARM_FIELDS) {
+    if (fields.includes(field)) config = { ...config, ...RP_ARM_FIELD_SHIP_VALUES[field] };
+  }
+  return config;
+}
+
+function requireVerdict(verdicts: ReadonlyMap<string, RpArmVerdict>, arm: string): RpArmVerdict {
+  const v = verdicts.get(arm);
+  if (v === undefined) {
+    throw new Error(`decideRpShipConfig: the rule needs arm "${arm}"'s verdict and the map does not carry it — refusing to default rather than deciding on an arm that was never measured`);
+  }
+  return v;
+}
+
+/**
+ * D-09's bar applied per field (D-10), in exactly three pre-committed steps
+ * and nothing else.
+ *
+ * 1. PER-FIELD GATE. Each single-change arm (`win`, `tie`, `marginal`) is
+ *    evaluated against `control`. Every field whose arm meets the bar enters
+ *    the provisional accept set.
+ * 2. COMBINATION GATE. The arm formed from the provisional set is itself
+ *    evaluated against `control` and must also meet the bar — three changes
+ *    that each help alone can interact badly, and the combination is what
+ *    would actually ship. If it fails, drop the single field with the SMALLEST
+ *    number of improved cells (ties broken by `RP_ARM_DROP_ORDER`) and
+ *    evaluate the reduced combination ONCE. AT MOST ONE DROP. If the reduced
+ *    combination still fails, the decision is `control` for all three fields.
+ * 3. LEAVE-ONE-OUT is recorded for the reader and read by no step of this rule.
+ *
+ * That is at most three evaluations of the reporting slice, all defined before
+ * any of them ran, which is what bounds D-04's one-way spend to a single event
+ * even though the attribution table has eight arms in it. A second drop is
+ * exactly the "one more look" that would spend the slice twice, so it is not
+ * reachable even by accident.
+ *
+ * A verdict the rule needs and the map does not carry THROWS. Defaulting would
+ * let a decision be taken on an arm that was never measured.
+ */
+export function decideRpShipConfig(verdicts: ReadonlyMap<string, RpArmVerdict>): RpShipDecision {
+  const path: string[] = [];
+
+  // ---- Step 1: the per-field gate ----
+  const provisional: RpArmField[] = [];
+  for (const field of RP_ARM_FIELDS) {
+    const v = requireVerdict(verdicts, field);
+    path.push(
+      `per-field gate: "${field}" scored=${v.scored} improved=${v.improved} regressed=${v.regressed} tied=${v.tied} -> ${v.meetsBar ? "PASS" : "FAIL"}`
+    );
+    if (v.meetsBar) provisional.push(field);
+  }
+
+  const revert = (reason: string): RpShipDecision => {
+    path.push(reason);
+    return {
+      shipConfig: { ...RP_LAYER_CONFIG_DEFAULT },
+      acceptedFields: [],
+      revertedFields: [...RP_ARM_FIELDS],
+      path,
+    };
+  };
+
+  if (provisional.length === 0) {
+    return revert("no single-change arm met the bar — nothing to combine, and no combination was evaluated");
+  }
+
+  const accept = (fields: readonly RpArmField[]): RpShipDecision => ({
+    shipConfig: rpConfigForFields(fields),
+    acceptedFields: RP_ARM_FIELDS.filter((f) => fields.includes(f)),
+    revertedFields: RP_ARM_FIELDS.filter((f) => !fields.includes(f)),
+    path,
+  });
+
+  // ---- Step 2: the combination gate ----
+  if (provisional.length === 1) {
+    // The provisional set of size one IS the single-change arm, whose verdict
+    // step 1 already computed and which already passed. There is no second
+    // evaluation to make.
+    path.push(
+      `combination gate: the provisional set is the single-change arm "${provisional[0]}" — its own verdict, already computed, is the combination gate`
+    );
+    return accept(provisional);
+  }
+
+  const fullName = rpArmNameForFields(provisional);
+  const full = requireVerdict(verdicts, fullName);
+  path.push(
+    `combination gate: "${fullName}" scored=${full.scored} improved=${full.improved} regressed=${full.regressed} tied=${full.tied} -> ${full.meetsBar ? "PASS" : "FAIL"}`
+  );
+  if (full.meetsBar) {
+    path.push("combination gate passed — every provisionally accepted field ships");
+    return accept(provisional);
+  }
+
+  // The single permitted drop: the field with the fewest improved cells in its
+  // OWN single-change arm, ties broken by the fixed `RP_ARM_DROP_ORDER`.
+  let dropped: RpArmField | undefined;
+  let droppedImproved = Number.POSITIVE_INFINITY;
+  for (const field of RP_ARM_DROP_ORDER) {
+    if (!provisional.includes(field)) continue;
+    const improved = requireVerdict(verdicts, field).improved;
+    if (improved < droppedImproved) {
+      dropped = field;
+      droppedImproved = improved;
+    }
+  }
+  const dropField = dropped!;
+  path.push(
+    `combination gate failed — dropping "${dropField}" (fewest improved cells, ${droppedImproved}; ties broken by the fixed order ${RP_ARM_DROP_ORDER.join(", ")})`
+  );
+
+  const reduced = provisional.filter((f) => f !== dropField);
+  if (reduced.length === 1) {
+    path.push(
+      `reduced combination: the set is the single-change arm "${reduced[0]}" — its own verdict, already computed, is the gate`
+    );
+    return accept(reduced);
+  }
+
+  const reducedName = rpArmNameForFields(reduced);
+  const reducedVerdict = requireVerdict(verdicts, reducedName);
+  path.push(
+    `reduced combination gate: "${reducedName}" scored=${reducedVerdict.scored} improved=${reducedVerdict.improved} regressed=${reducedVerdict.regressed} tied=${reducedVerdict.tied} -> ${reducedVerdict.meetsBar ? "PASS" : "FAIL"}`
+  );
+  if (reducedVerdict.meetsBar) return accept(reduced);
+
+  return revert(
+    "reduced combination gate failed — at most one drop is permitted, so there is no second drop; the decision is the legacy default for all three fields"
+  );
 }
 
 async function main(): Promise<void> {
