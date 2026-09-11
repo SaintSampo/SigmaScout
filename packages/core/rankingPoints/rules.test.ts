@@ -83,15 +83,9 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     expect(module.bonusNames).toEqual(module.bonusPredicates.map((p) => p.name));
   });
 
-  it("every threshold variable's marginalFamily is a member of the MarginalFamily union", () => {
+  it("every threshold variable's marginalFamily is a member of the MarginalFamily union (per-season smoke check; the cross-season PINNED list lives in its own describe block below, 09-05 Task 3)", () => {
     for (const v of module.thresholdVariables) {
       expect(["gaussian", "negative-binomial"]).toContain(v.marginalFamily);
-    }
-  });
-
-  it("every threshold variable's marginalFamily is the Gaussian value today (explicitly temporary — 09-05 flips this, gated on 09-03's warm-roster F3 re-measurement; when it does, THIS assertion is the one to update)", () => {
-    for (const v of module.thresholdVariables) {
-      expect(v.marginalFamily).toBe("gaussian");
     }
   });
 
@@ -157,6 +151,76 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     const zeroed: Record<string, number> = {};
     for (const v of module.thresholdVariables) zeroed[v.name] = 0;
     expect(() => module.predictThresholds(zeroed, 99)).toThrow(/unmapped TBA event_type 99/);
+  });
+});
+
+/**
+ * 09-05 Task 3 (D-01): the exact sorted `season:variableName` list per
+ * declared family, pinned as a literal array — a new season, a renamed
+ * variable or a silently flipped family fails this test with a readable
+ * diff, which is the point: family choice is data entry and a new one must
+ * be deliberate. As of this plan all 34 declarations name
+ * `"negative-binomial"`; the `NEGATIVE_BINOMIAL_DECLARATIONS` list below is
+ * the single source of truth this test checks against, kept in the SAME
+ * order `RP_REGISTERED_SEASONS` iterates (ascending season, declaration
+ * order within each season's own `THRESHOLD_VARIABLES` array).
+ */
+describe("marginalFamily declarations — the exact pinned per-family list (09-05 Task 3, D-01)", () => {
+  const NEGATIVE_BINOMIAL_DECLARATIONS = [
+    "2016:position1crossings",
+    "2016:position2crossings",
+    "2016:position3crossings",
+    "2016:position4crossings",
+    "2016:position5crossings",
+    "2016:attackedTowerEndStrength",
+    "2016:teleopChallengePoints",
+    "2016:teleopScalePoints",
+    "2017:autoFuelPoints",
+    "2017:teleopFuelPoints",
+    "2017:autoRotorPoints",
+    "2017:teleopRotorPoints",
+    "2018:autoRunPoints",
+    "2018:autoSwitchOwnershipSec",
+    "2018:endgamePoints",
+    "2019:habClimbPoints",
+    "2020:endgamePoints",
+    "2022:matchCargoTotal",
+    "2022:autoCargoTotal",
+    "2022:endgamePoints",
+    "2023:totalChargeStationPoints",
+    "2023:linkPoints",
+    "2024:noteCount",
+    "2024:endGameTotalStagePoints",
+    "2024:onStageRobotCount",
+    "2025:trough",
+    "2025:botRow",
+    "2025:midRow",
+    "2025:topRow",
+    "2025:endGameBargePoints",
+    "2025:autoLineCount",
+    "2025:autoCoralCount",
+    "2026:hubTotalCount",
+    "2026:totalTowerPoints",
+  ] as const;
+
+  it("pins the exact set: 34 total declarations, every one \"negative-binomial\", none \"gaussian\", none undefined", () => {
+    const byFamily: Record<string, string[]> = { "negative-binomial": [], gaussian: [] };
+    let total = 0;
+    for (const season of RP_REGISTERED_SEASONS) {
+      const module = RP_RULE_MODULES[season]!;
+      for (const variable of module.thresholdVariables) {
+        expect(
+          variable.marginalFamily,
+          `season ${season} variable "${variable.name}" has an unexpected marginalFamily "${String(variable.marginalFamily)}"`
+        ).toBeDefined();
+        const key = `${season}:${variable.name}`;
+        (byFamily[variable.marginalFamily] ??= []).push(key);
+        total += 1;
+      }
+    }
+    expect(total).toBe(34);
+    expect(byFamily["gaussian"]).toEqual([]);
+    expect([...byFamily["negative-binomial"]!].sort()).toEqual([...NEGATIVE_BINOMIAL_DECLARATIONS].sort());
   });
 });
 

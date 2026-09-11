@@ -105,11 +105,17 @@ const FACE_THE_BOSS_THRESHOLD: RpTieredThreshold = { base: 90, districtChampions
  */
 const AUTO_SWITCH_SECONDS_FALLBACK_FLOOR: RpTieredThreshold = { base: 1, districtChampionship: 1, championship: 1 };
 
+// 09-05 Task 3 (D-01): all three variables below flip to "negative-binomial"
+// — MEASURED evidence class (09-RESEARCH.md's broader corpus probe: 15
+// threshold variables across seven-to-eight seasons, this one among them,
+// 100% integer-valued, variance/mean ratios 1.27-102.3 in aggregate). See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRunPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   // The enum carries no time unit; `count` is correct here because the
   // discipline this field exists for is "never read a points roll-up where
@@ -118,12 +124,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoSwitchOwnershipSec",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

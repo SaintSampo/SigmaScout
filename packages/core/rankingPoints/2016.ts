@@ -226,32 +226,41 @@ function towerRobotCount(teleopChallengePoints: number, teleopScalePoints: numbe
   return teleopChallengePoints / CHALLENGE_POINTS_PER_ROBOT + teleopScalePoints / SCALE_POINTS_PER_ROBOT;
 }
 
+// 09-05 Task 3 (D-01): all seven variables below flip to "negative-binomial".
+// position1-5crossings and attackedTowerEndStrength are STRUCTURAL-ONLY
+// evidence — integer-valued accumulations with support from zero upward and
+// a right tail, not individually measured in 09-RESEARCH.md's corpus probe.
+// teleopChallengePoints/teleopScalePoints are DERIVED-INTEGER evidence: they
+// feed `towerRobotCount` (divisors above), one of the three D-03 linear
+// combinations 09-RESEARCH.md verified 100% integer-valued with ZERO
+// exceptions across 22,158 alliance-sides. See constants.ts's `MarginalFamily`
+// doc comment for the full evidence-class framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   // Crossing counts per defense position — raw counts, not point values.
   {
     name: "position1crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "position2crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "position3crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "position4crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "position5crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   // The OPPONENT side's `towerEndStrength`, exposed as an own-alliance
   // variable because it measures THIS alliance's offensive output against
@@ -259,7 +268,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "attackedTowerEndStrength",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   // Point values, not counts — the rule converts them to a robot count with
   // the per-robot divisors above rather than reading a count field, because
@@ -267,12 +276,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "teleopChallengePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "teleopScalePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

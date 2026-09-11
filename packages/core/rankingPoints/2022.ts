@@ -63,21 +63,25 @@ const CARGO_BONUS_THRESHOLD_QUINTET: RpTieredThreshold = { base: 18, districtCha
 /** Hangar Bonus threshold: `endgamePoints >= 16`. Not tiered — 0/1000 mismatches (RESEARCH.md). */
 const HANGAR_BONUS_THRESHOLD: RpTieredThreshold = { base: 16, districtChampionship: 16, championship: 16 };
 
+// 09-05 Task 3 (D-01): all three variables below flip to "negative-binomial"
+// — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "matchCargoTotal",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "autoCargoTotal",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

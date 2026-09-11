@@ -131,16 +131,24 @@ function rotorCount(autoRotorPoints: number, teleopRotorPoints: number): number 
   return autoRotorPoints / AUTO_ROTOR_POINTS_PER_ROTOR + teleopRotorPoints / TELEOP_ROTOR_POINTS_PER_ROTOR;
 }
 
+// 09-05 Task 3 (D-01): all four variables below flip to "negative-binomial".
+// autoFuelPoints/teleopFuelPoints are STRUCTURAL-ONLY evidence (not
+// individually measured). autoRotorPoints/teleopRotorPoints are
+// DERIVED-INTEGER evidence: they feed `rotorCount` (divisors above), one of
+// the three D-03 linear combinations 09-RESEARCH.md verified 100%
+// integer-valued with ZERO exceptions across 25,386 alliance-sides. See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoFuelPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "teleopFuelPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   // Point values, not counts — the rule converts them to a rotor count with
   // the per-rotor divisors above rather than reading a count field, because
@@ -148,12 +156,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRotorPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "teleopRotorPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

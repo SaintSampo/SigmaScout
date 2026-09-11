@@ -24,15 +24,42 @@ import type { CompLevel } from "../algorithms/types.js";
 
 /**
  * The marginal probability family a threshold variable's belief is modelled
- * with (D-01, D-02). `"gaussian"` is what every declaration in the tree
- * names today. D-01 chose the count-native `"negative-binomial"` family for
- * count-valued variables (right-skewed, exact discrete CDF at integer
- * thresholds, support `[0, infinity)`); D-02 put that CHOICE in the season
- * module beside `unit` rather than deriving it implicitly from `unit`. The
- * flip is 09-05's, gated on 09-03's warm-roster re-measurement of F3's mean
- * deficit — this plan (09-02) only plants the declared place for it to
- * land; nothing in this plan reads this field for anything other than a
- * structural domain/all-Gaussian assertion.
+ * with (D-01, D-02). D-01 chose the count-native `"negative-binomial"`
+ * family (right-skewed, exact discrete CDF at integer thresholds, support
+ * `[0, infinity)`); D-02 put that CHOICE in the season module beside `unit`
+ * rather than deriving it implicitly from `unit`.
+ *
+ * AS OF 09-05 TASK 3: all 34 threshold-variable declarations across the ten
+ * registered seasons name `"negative-binomial"`, gated on 09-03's
+ * warm-roster re-measurement of F3's mean deficit
+ * (`docs/models/rp-mean-deficit-warm-rosters.md`: the deficit survives
+ * restriction to fully-warm 3/3 rosters — 33 of 34 season-variables, mean
+ * deficit shrinking from 10.4% to 8.0% on the SELECTION slice). This
+ * session's corpus probe (09-RESEARCH.md) measured three D-03 derived
+ * linear-combination quantities (2017 `rotorCount`, 2016 `towerRobotCount`,
+ * 2023 `links`) as 100% integer-valued with zero exceptions across
+ * 25,386/22,158/27,116 alliance-sides respectively, and a broader probe
+ * found 15 further threshold variables across seven-to-eight seasons ALSO
+ * 100% integer-valued and overdispersed (variance/mean ratios 1.27-102.3)
+ * — that broader finding is an AGGREGATE claim over the probed set, not a
+ * per-variable figure recorded for every one of the 34; see each season
+ * module's own note above `THRESHOLD_VARIABLES` for which evidence class
+ * (measured / derived-integer / structural-only) applies to its variables.
+ *
+ * Two alternatives were considered and rejected (09-RESEARCH.md
+ * "Alternatives Considered"): Poisson forces `variance = mean`, and every
+ * measured variable badly violates that (ratios 1.27-102.3, never
+ * approaching 1); a continuity-corrected normal fixes the discreteness
+ * error at integer thresholds but not the right-skew a symmetric Gaussian
+ * under-predicts `P(X >= t)` with, exactly where bonus thresholds sit.
+ *
+ * `RpLayerConfig.marginal` (09-04/09-05, `analyticPmf.ts`) decides whether
+ * a variable's OWN declared family here is honored (`"negative-binomial"`)
+ * or every variable is forced to `"gaussian"` regardless of what it
+ * declares (the inert production default) — see
+ * `resolveDeclaredFamily`'s own doc comment, the sole place that
+ * config-to-declaration translation happens. 09-06 owns the per-bonus
+ * accept/revert call (D-09/D-10) that decides whether the flip ships.
  */
 export type MarginalFamily = "gaussian" | "negative-binomial";
 

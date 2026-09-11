@@ -110,31 +110,35 @@ const AUTO_LINE_ROBOTS_REQUIRED = 3;
 /** Minimum CORAL scored in auto for the Auto Bonus. */
 const AUTO_CORAL_REQUIRED = 1;
 
+// 09-05 Task 3 (D-01): all seven variables below flip to "negative-binomial"
+// — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "trough",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "botRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "midRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "topRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "endGameBargePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   // Added 2026-09-09 so `autoBonus` can be PREDICTED at all. Before this it
   // was hardcoded `false` in `predictThresholds` below, honestly documented as
@@ -146,12 +150,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoLineCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "autoCoralCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

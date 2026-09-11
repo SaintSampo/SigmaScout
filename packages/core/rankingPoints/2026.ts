@@ -66,16 +66,21 @@ const SUPERCHARGED_THRESHOLD: RpTieredThreshold = { base: 360, districtChampions
 /** Traversal threshold on `totalTowerPoints` (`autoTowerPoints + endGameTowerPoints`). Not tiered — 0/30382 mismatches, every event type (RESEARCH.md). */
 const TRAVERSAL_THRESHOLD: RpTieredThreshold = { base: 50, districtChampionship: 50, championship: 50 };
 
+// 09-05 Task 3 (D-01): both variables below flip to "negative-binomial" —
+// MEASURED evidence class (09-RESEARCH.md's broader corpus probe, which
+// explicitly names "every points-unit variable" as covered, per A2). See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "hubTotalCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "totalTowerPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

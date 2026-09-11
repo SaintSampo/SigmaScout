@@ -66,16 +66,23 @@ const SUSTAINABILITY_THRESHOLD_COOP: RpTieredThreshold = { base: 4, districtCham
  */
 const LINK_POINTS_PER_LINK = 5;
 
+// 09-05 Task 3 (D-01): both variables below flip to "negative-binomial".
+// totalChargeStationPoints is MEASURED evidence (09-RESEARCH.md's broader
+// corpus probe). linkPoints is DERIVED-INTEGER evidence: it feeds `links`
+// (divisor above), one of the three D-03 linear combinations verified 100%
+// integer-valued with ZERO exceptions across 27,116 alliance-sides. See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "totalChargeStationPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "linkPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

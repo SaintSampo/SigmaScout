@@ -93,11 +93,14 @@ const Rp2019Schema = z.object({
 /** HAB Docking Bonus threshold: `habClimbPoints >= 15`. Not tiered — flatness MEASURED (0 mismatches at every tier over 29,858 sides), not assumed. */
 const HAB_DOCKING_THRESHOLD: RpTieredThreshold = { base: 15, districtChampionship: 15, championship: 15 };
 
+// 09-05 Task 3 (D-01): flips to "negative-binomial" — MEASURED evidence
+// class (09-RESEARCH.md's broader corpus probe). See constants.ts's
+// `MarginalFamily` doc comment for the evidence-class framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "habClimbPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

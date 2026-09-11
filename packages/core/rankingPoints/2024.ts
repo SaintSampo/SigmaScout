@@ -92,21 +92,25 @@ const ENSEMBLE_BONUS_STAGE_POINTS_THRESHOLD: RpTieredThreshold = { base: 10, dis
 /** Ensemble Bonus minimum on-stage robot count (`ensembleBonusOnStageRobotsThreshold`, constant across every sampled event type). */
 const ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD: RpTieredThreshold = { base: 2, districtChampionship: 2, championship: 2 };
 
+// 09-05 Task 3 (D-01): all three variables below flip to "negative-binomial"
+// — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "noteCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "endGameTotalStagePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
   {
     name: "onStageRobotCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 

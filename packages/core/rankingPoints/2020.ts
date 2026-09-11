@@ -76,11 +76,14 @@ const Rp2020Schema = z.object({
  */
 const SHIELD_OPERATIONAL_THRESHOLD: RpTieredThreshold = { base: 65, districtChampionship: 65, championship: 65 };
 
+// 09-05 Task 3 (D-01): flips to "negative-binomial" — MEASURED evidence
+// class (09-RESEARCH.md's broader corpus probe). See constants.ts's
+// `MarginalFamily` doc comment for the evidence-class framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "negative-binomial",
   },
 ];
 
