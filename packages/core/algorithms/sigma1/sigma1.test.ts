@@ -1595,6 +1595,7 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
         eventType,
         compLevel: "qm",
         config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin: prediction.pRedWin,
       });
       expect(rpResult.redPmf.length).toBeGreaterThan(0);
       expect(rpResult.bluePmf.length).toBeGreaterThan(0);

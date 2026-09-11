@@ -171,7 +171,7 @@ describe("analyticRpPmf — structural sweep over RP_RULE_MODULES (Task 2, plan 
         const values: Record<string, { mean: number; variance: number }> = {};
         ruleModule.thresholdVariables.forEach((v) => (values[v.name] = { mean: 30, variance: 25 }));
         const moments = buildRuleModuleMoments(ruleModule, values);
-        const result = analyticRpPmf({ red: moments, blue: moments, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT });
+        const result = analyticRpPmf({ red: moments, blue: moments, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT, pRedWin: 0.5 });
         expect(result.redPmf, `season ${season} eventType ${eventType}: pmf length === maxRp + 1`).toHaveLength(ruleModule.maxRp + 1);
         assertionCount += 1;
       }
@@ -191,7 +191,7 @@ describe("analyticRpPmf — structural sweep over RP_RULE_MODULES (Task 2, plan 
         });
         const red = buildRuleModuleMoments(ruleModule, redValues, 105, 40);
         const blue = buildRuleModuleMoments(ruleModule, blueValues, 95, 45);
-        const result = analyticRpPmf({ red, blue, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT });
+        const result = analyticRpPmf({ red, blue, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT, pRedWin: 0.5 });
         for (const pmf of [result.redPmf, result.bluePmf]) {
           let sum = 0;
           for (const p of pmf) {
@@ -235,7 +235,7 @@ describe("analyticRpPmf — structural sweep over RP_RULE_MODULES (Task 2, plan 
           const red = buildRuleModuleMoments(ruleModule, redValues, 110, 0);
           const blue = buildRuleModuleMoments(ruleModule, blueValues, 100, 0);
 
-          const result = analyticRpPmf({ red, blue, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT });
+          const result = analyticRpPmf({ red, blue, ruleModule, eventType, compLevel: "qm", config: RP_LAYER_CONFIG_DEFAULT, pRedWin: 0.5 });
 
           const redRecord: Record<string, number> = {};
           const blueRecord: Record<string, number> = {};

@@ -44,6 +44,9 @@ const BASE = {
   eventType: 0,
   compLevel: "qm" as const,
   config: RP_LAYER_CONFIG_DEFAULT,
+  // D-13 (09-05 Task 1): required as of this plan. Under the default
+  // (legacy) config this is accepted and never read by analyticRpPmf.
+  pRedWin: 0.5,
 };
 
 describe("analyticRpPmf — universal, with no algorithm anywhere in the test", () => {

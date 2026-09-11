@@ -125,6 +125,11 @@ function runBundleSmoke(): BundleSmokeResult {
     eventType: REGIONAL_EVENT_TYPE,
     compLevel: "qm",
     config: RP_LAYER_CONFIG_DEFAULT,
+    // D-13 (09-05 Task 1): required as of this plan. Under the default
+    // (legacy) config this is accepted and never read; wired here for
+    // completeness against the same predictionAfterUpdate this function
+    // already computed above.
+    pRedWin: predictionAfterUpdate.pRedWin,
   });
 
   return {

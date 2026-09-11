@@ -50,12 +50,15 @@
  * `RpLayerConfig` structurally resembles `sigma1/linkFunctions.ts`'s
  * `WinProbMode` (a resolved-once config set threaded through a prediction
  * path) but is NOT the same kind of thing: `WinProbMode` is permanently
- * multi-valued by design, while `RpLayerConfig` exists ONLY until 09-05 adds
- * its three real branches (`winSource: "p-red-win"`, `tieModel:
- * "discrete-margin"`, `marginal: "negative-binomial"`) and 09-06 measures
- * them against 09-01's frozen baseline. Once that measurement publishes,
- * 09-06 collapses this to ONE hardcoded path, deletes the losing branches,
- * and removes this config surface entirely. Adding a fourth field, or a
+ * multi-valued by design, while `RpLayerConfig` exists ONLY until 09-06
+ * measures its three real branches against 09-01's frozen baseline. As of
+ * 09-05, all three are LANDED and independently selectable — `winSource:
+ * "p-red-win"` (Task 1, D-13), `tieModel: "discrete-margin"` (Task 2,
+ * D-14), `marginal: "negative-binomial"` (Task 3, D-01) — but the
+ * PRODUCTION DEFAULT still resolves every field to its legacy member (see
+ * `RP_LAYER_CONFIG_DEFAULT` below). Once 09-06's measurement publishes, it
+ * collapses this to ONE hardcoded path, deletes the losing branches, and
+ * removes this config surface entirely. Adding a fourth field, or a
  * consumer outside the RP layer, is what this notice exists to stop — see
  * the removal notice beside the type declaration below too.
  */
@@ -92,10 +95,12 @@ export type RpTieModel = "continuous-equality" | "discrete-margin";
 
 /**
  * REMOVAL NOTICE (D-06, see also this file's header): this type is
- * deliberately TEMPORARY. It exists only until 09-05 adds its three real
- * branches and 09-06 measures them, at which point 09-06 collapses this
- * whole config surface to one hardcoded path and deletes it. Do not add a
- * fourth field, and do not let a consumer outside the RP layer depend on it.
+ * deliberately TEMPORARY. As of 09-05 all three real branches are landed
+ * (`winSource: "p-red-win"`, `tieModel: "discrete-margin"`, `marginal:
+ * "negative-binomial"`) and 09-06 measures them; at that point 09-06
+ * collapses this whole config surface to one hardcoded path and deletes the
+ * losing branches. Do not add a fourth field, and do not let a consumer
+ * outside the RP layer depend on it.
  */
 export interface RpLayerConfig {
   readonly winSource: RpWinSource;
@@ -116,24 +121,27 @@ export function describeRpLayerConfig(config: RpLayerConfig): string {
 }
 
 /**
- * Throws for every `RpLayerConfig` value this plan does not implement, naming
- * plan 09-05 — a config that claims a model it did not run is worse than one
- * that refuses (T-09-04-04). The default value never throws.
+ * Throws for every `RpLayerConfig` value not yet implemented anywhere in the
+ * tree — a config that claims a model it did not run is worse than one that
+ * refuses (T-09-04-04). The default value never throws. `winSource:
+ * "p-red-win"` (09-05 Task 1, D-13) no longer throws as of this plan;
+ * `tieModel`/`marginal` still refuse their non-default members until 09-05
+ * Tasks 2/3 land the corresponding branch.
  */
 export function assertSupportedRpLayerConfig(config: RpLayerConfig): void {
-  if (config.winSource !== "score-draw") {
+  if (config.winSource !== "score-draw" && config.winSource !== "p-red-win") {
     throw new Error(
-      `analyticRpPmf: RpLayerConfig.winSource "${config.winSource}" is not implemented by this plan (09-04) — it is 09-05's branch (D-13)`
+      `analyticRpPmf: RpLayerConfig.winSource "${config.winSource}" is not implemented — no plan has shipped this branch`
     );
   }
   if (config.tieModel !== "continuous-equality") {
     throw new Error(
-      `analyticRpPmf: RpLayerConfig.tieModel "${config.tieModel}" is not implemented by this plan (09-04) — it is 09-05's branch (D-14)`
+      `analyticRpPmf: RpLayerConfig.tieModel "${config.tieModel}" is not yet implemented (09-05 Task 2, D-14)`
     );
   }
   if (config.marginal !== "gaussian") {
     throw new Error(
-      `analyticRpPmf: RpLayerConfig.marginal "${config.marginal}" is not implemented by this plan (09-04) — it is 09-05's branch (D-01)`
+      `analyticRpPmf: RpLayerConfig.marginal "${config.marginal}" is not yet implemented (09-05 Task 3, D-01)`
     );
   }
 }
@@ -565,7 +573,16 @@ export interface RpOutcomeDistribution {
   readonly tieRp: number;
 }
 
-/** Input to `matchOutcomeDistribution` — each alliance's OWN predicted score mean/variance (never the combined win-probability variance), plus the season's `winRp`/`tieRp` and the resolved config. */
+/**
+ * Input to `matchOutcomeDistribution` — each alliance's OWN predicted score
+ * mean/variance (never the combined win-probability variance), plus the
+ * season's `winRp`/`tieRp` and the resolved config.
+ *
+ * `pRedWin` (D-13, 09-05 Task 1): `Prediction.pRedWin`, the SAME float the
+ * artifact publishes — required, not optional, so no call site can omit it
+ * and get a silent zero. Under `winSource: "score-draw"` (the legacy
+ * member) it is accepted and never read.
+ */
 export interface RpOutcomeInput {
   readonly redScoreMean: number;
   readonly redScoreVariance: number;
@@ -574,18 +591,91 @@ export interface RpOutcomeInput {
   readonly winRp: number;
   readonly tieRp: number;
   readonly config: RpLayerConfig;
+  readonly pRedWin: number;
 }
 
 /**
- * `winSource: "score-draw"` (the only implemented value): reproduces the
- * deleted draw loop's `redScore > blueScore` comparison exactly. The two
- * alliance scores are independent Gaussians (cross-alliance block was
- * zero), so `D = redScore - blueScore` is Gaussian with `meanD =
- * red.scoreMean - blue.scoreMean`, `varianceD = red.scoreVariance +
- * blue.scoreVariance`. `tieModel: "continuous-equality"` (the only
- * implemented value): a tie needs exact equality of two continuous draws,
- * so `pTie` is exactly 0 whenever `varianceD > 0` — F7's dead branch,
- * reproduced faithfully, not repaired.
+ * The three-way split of a decisive-or-tied outcome into red/tie/blue mass
+ * (09-05 Task 1, D-13/D-14's pinned formulation). `pRedStrict`/`pBlueStrict`
+ * are each alliance's STRICT win probability (excludes tie mass);
+ * `clampedPRedWin` records whether the supplied `pRedWin` had to be brought
+ * into range (T-09-05-03) — COUNTED rather than silently applied, the same
+ * discipline 09-03 used for `FittedMarginal.fallbackReason`.
+ */
+export interface OutcomeSplit {
+  readonly pRedStrict: number;
+  readonly pTie: number;
+  readonly pBlueStrict: number;
+  readonly clampedPRedWin: boolean;
+}
+
+/**
+ * Splits a win probability and a tie probability into the three strict
+ * outcome masses. PROPORTIONAL split — `pRedStrict = pRedWin * (1 - pTie)`,
+ * `pBlueStrict = (1 - pRedWin) * (1 - pTie)` — chosen over subtracting half
+ * the tie mass (`pRedWin - pTie/2`) because that alternative needs a clamp
+ * whenever `pTie/2 > pRedWin`, and a clamp is a silent third model that
+ * would confound 09-06's attribution. Proportional splitting never goes
+ * negative and buys an exact algebraic identity: CONDITIONAL ON A DECISIVE
+ * RESULT, `pRedStrict / (pRedStrict + pBlueStrict) === pRedWin` (the
+ * `(1 - pTie)` factor cancels). The two formulations agree to roughly
+ * `pTie * (pRedWin - 0.5)` — at the measured 1.09% tie base rate and a 0.3
+ * probability offset, about 0.003, a third-order term (D-14's formulation
+ * choice, recorded here per 09-05-PLAN.md's requirement that the file say
+ * which one was picked and why).
+ *
+ * `pRedWin` is clamped into `[0, 1]` ONLY when it is finite but out of
+ * range — the threat T-09-05-03 names is a finite-but-out-of-range value
+ * silently propagating negative or greater-than-one mass into a published
+ * pmf, and clamping is the correct fix for exactly that case (never a
+ * clamp needed for an in-range value, which is why the six-point exactness
+ * grid including both endpoints is bitwise exact). A NON-FINITE `pRedWin`
+ * is intentionally left UNCLAMPED and propagates as `NaN` — inventing a
+ * neutral `0.5` for it would silently launder a corrupted upstream
+ * computation (e.g. a non-finite score mean feeding the legacy `winSource`
+ * branch) into a plausible-looking pmf instead of letting
+ * `assertNormalizedPmf`'s existing `Number.isFinite` guard catch it, which
+ * is the structural check this project already relies on for exactly this
+ * failure class. `clampedPRedWin` is `true` for EITHER case (finite-out-of-
+ * range OR non-finite) — it names "something had to be flagged", not "the
+ * output is now safe to use".
+ */
+export function splitOutcomeProbabilities(pRedWin: number, pTie: number): OutcomeSplit {
+  const outOfRange = Number.isFinite(pRedWin) && (pRedWin < 0 || pRedWin > 1);
+  const clampedPRedWin = !Number.isFinite(pRedWin) || outOfRange;
+  const effectivePRedWin = outOfRange ? Math.min(1, Math.max(0, pRedWin)) : pRedWin;
+  const effectivePTie = Number.isFinite(pTie) ? Math.min(1, Math.max(0, pTie)) : pTie;
+  const pRedStrict = effectivePRedWin * (1 - effectivePTie);
+  const pBlueStrict = (1 - effectivePRedWin) * (1 - effectivePTie);
+  return { pRedStrict, pTie: effectivePTie, pBlueStrict, clampedPRedWin };
+}
+
+/**
+ * `winSource: "score-draw"` (the legacy member, UNCHANGED and
+ * un-refactored from 09-04's own expression): reproduces the deleted draw
+ * loop's `redScore > blueScore` comparison exactly. The two alliance
+ * scores are independent Gaussians (cross-alliance block was zero), so
+ * `D = redScore - blueScore` is Gaussian with `meanD = red.scoreMean -
+ * blue.scoreMean`, `varianceD = red.scoreVariance + blue.scoreVariance`.
+ * `winSource: "p-red-win"` (D-13, 09-05 Task 1): uses `input.pRedWin`
+ * directly — the SAME float the artifact publishes — closing F6's measured
+ * coherence gap (mean signed difference 0.0000, median absolute difference
+ * 0.0428, p90 0.1203, max 0.3415 over 110,362 qualification matches,
+ * favourite never flipped) BY CONSTRUCTION rather than by narrowing it.
+ *
+ * `tieModel: "continuous-equality"` (the legacy member): a tie needs exact
+ * equality of two continuous draws, so `pTie` is exactly 0 whenever
+ * `varianceD > 0` — F7's dead branch, reproduced faithfully, not repaired.
+ * `tieModel: "discrete-margin"` is 09-05 Task 2's (D-14).
+ *
+ * The `varianceD <= 0` DEGENERATE branch (both alliances' predicted score
+ * variance is exactly zero — a deterministic score pair) is preserved
+ * EXACTLY as 09-04 shipped it, for EVERY config: comparing the two
+ * deterministic means directly is the correct limit regardless of
+ * `winSource`/`tieModel`, and this branch is NOT F7's dead branch — that
+ * claim is about `varianceD > 0` only, where a tie genuinely needs exact
+ * float equality of two CONTINUOUS draws. A degenerate, already-equal pair
+ * of deterministic means is not that.
  */
 export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistribution {
   assertSupportedRpLayerConfig(input.config);
@@ -596,9 +686,16 @@ export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistri
   let pTie: number;
   let pBlueWin: number;
   if (varianceD > 0) {
-    pRedWin = 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
-    pTie = 0;
-    pBlueWin = 1 - pRedWin;
+    const pRedWinEffective =
+      input.config.winSource === "p-red-win" ? input.pRedWin : 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
+    // Tie-model dispatch lands in 09-05 Task 2 (D-14) — legacy is exactly 0
+    // here, still hardcoded rather than routed through a not-yet-existing
+    // tieProbability, matching this plan's own required commit ordering.
+    const rawPTie = 0;
+    const split = splitOutcomeProbabilities(pRedWinEffective, rawPTie);
+    pRedWin = split.pRedStrict;
+    pTie = split.pTie;
+    pBlueWin = split.pBlueStrict;
   } else {
     pRedWin = meanD > 0 ? 1 : 0;
     pTie = meanD === 0 ? 1 : 0;
@@ -630,7 +727,16 @@ function allianceOutcomePmf(winProb: number, tieProb: number, loseProb: number, 
 // Step 7 — the final pmf.
 // ---------------------------------------------------------------------------
 
-/** Input to `analyticRpPmf` — no match key, no seed, no draw count (the closed form consumes no randomness at all). */
+/**
+ * Input to `analyticRpPmf` — no match key, no seed, no draw count (the
+ * closed form consumes no randomness at all).
+ *
+ * `pRedWin` (D-13, 09-05 Task 1): `Prediction.pRedWin`, the SAME float the
+ * artifact publishes. REQUIRED, not optional, so no call site can omit it
+ * and get a silent zero — under `winSource: "score-draw"` (the legacy
+ * member) it is accepted and never read; see `RpOutcomeInput`'s own doc
+ * comment.
+ */
 export interface AnalyticRpPmfInput {
   readonly red: AllianceRpMoments;
   readonly blue: AllianceRpMoments;
@@ -638,6 +744,7 @@ export interface AnalyticRpPmfInput {
   readonly eventType: number;
   readonly compLevel: CompLevel;
   readonly config: RpLayerConfig;
+  readonly pRedWin: number;
 }
 
 export interface AnalyticRpPmfResult {
@@ -695,7 +802,7 @@ export function pmfStandardDeviation(pmf: readonly number[]): number {
  */
 export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
   assertSupportedRpLayerConfig(input.config);
-  const { red, blue, ruleModule, eventType, compLevel, config } = input;
+  const { red, blue, ruleModule, eventType, compLevel, config, pRedWin } = input;
 
   if (!isBonusRpCompLevel(compLevel)) {
     return { redPmf: [1], bluePmf: [1] };
@@ -712,6 +819,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
     winRp: ruleModule.winRp,
     tieRp: ruleModule.tieRp,
     config,
+    pRedWin,
   });
 
   const redOutcomePmf = allianceOutcomePmf(outcome.pRedWin, outcome.pTie, outcome.pBlueWin, ruleModule.winRp, ruleModule.tieRp);

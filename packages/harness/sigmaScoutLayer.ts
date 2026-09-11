@@ -260,6 +260,10 @@ export class SigmaScoutLayer {
       eventType: match.eventType,
       compLevel: match.compLevel,
       config: this.#rpLayerConfig,
+      // D-13 (09-05 Task 1): the SAME float the artifact publishes as
+      // pRedWin. Read and never re-derived here — under the legacy
+      // winSource it is accepted and never read by analyticRpPmf.
+      pRedWin: prediction.pRedWin,
     });
 
     return {

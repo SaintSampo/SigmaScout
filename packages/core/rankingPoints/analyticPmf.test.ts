@@ -35,6 +35,7 @@ import {
   analyticRpPmf,
   assertSupportedRpLayerConfig,
   matchOutcomeDistribution,
+  splitOutcomeProbabilities,
   RP_LAYER_CONFIG_DEFAULT,
   type RpLayerConfig,
 } from "./analyticPmf.js";
@@ -83,6 +84,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     expect(result.redBonusProbabilities).toBeDefined();
     const bonusProbabilities = result.redBonusProbabilities!;
@@ -120,6 +122,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     const expected = [0.039663813, 0.210336187, 0.210336187, 0.079327627, 0.210336187, 0.210336187, 0.039663813];
     expect(result.redPmf).toHaveLength(7);
@@ -138,6 +141,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     // Blue is weaker (scoreMean 90 vs red's 100), so red's pmf should carry
     // more mass at the high-RP (win-heavy) indices than blue's does, and less
@@ -159,6 +163,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       winRp: 3,
       tieRp: 1,
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     expect(ordinary.pRedWin).toBeCloseTo(0.841344746, 6);
     expect(ordinary.pTie).toBe(0);
@@ -173,6 +178,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       winRp: 3,
       tieRp: 1,
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     expect(zeroVarianceTie.pTie).toBe(1);
     expect(zeroVarianceTie.pRedWin).toBe(0);
@@ -187,6 +193,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       winRp: 3,
       tieRp: 1,
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     expect(zeroVarianceRedAhead.pRedWin).toBe(1);
     expect(zeroVarianceRedAhead.pTie).toBe(0);
@@ -203,6 +210,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
         eventType: 0,
         compLevel,
         config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin: 0.5,
       });
       expect(result.redPmf).toEqual([1]);
       expect(result.bluePmf).toEqual([1]);
@@ -219,6 +227,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     expect(qm.redPmf).not.toEqual([1]);
   });
@@ -233,6 +242,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
         eventType: 0,
         compLevel: "qm",
         config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin: 0.5,
       })
     ).toThrow(/season 2026.*scoreCrossCovariance/);
 
@@ -251,15 +261,16 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
         eventType: 0,
         compLevel: "qm",
         config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin: 0.5,
       })
     ).toThrow(/season 2026.*varianceBlock/);
   });
 
-  it("Test 7: the config refuses what it has not implemented, naming plan 09-05", () => {
+  it("Test 7: the config refuses what it has not implemented yet — UPDATED by 09-05 Task 1: winSource: \"p-red-win\" no longer throws (D-13 landed); tieModel/marginal still refuse until Tasks 2/3", () => {
     const winSourceVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
     const tieModelVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, tieModel: "discrete-margin" };
     const marginalVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
-    expect(() => assertSupportedRpLayerConfig(winSourceVariant)).toThrow(/09-05/);
+    expect(() => assertSupportedRpLayerConfig(winSourceVariant)).not.toThrow();
     expect(() => assertSupportedRpLayerConfig(tieModelVariant)).toThrow(/09-05/);
     expect(() => assertSupportedRpLayerConfig(marginalVariant)).toThrow(/09-05/);
     expect(() => assertSupportedRpLayerConfig(RP_LAYER_CONFIG_DEFAULT)).not.toThrow();
@@ -273,6 +284,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
       config: RP_LAYER_CONFIG_DEFAULT,
+      pRedWin: 0.5,
     });
     for (const p of [...result.redPmf, ...result.bluePmf]) {
       expect(Number.isFinite(p)).toBe(true);
@@ -298,8 +310,126 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
         eventType: 0,
         compLevel: "qm",
         config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin: 0.5,
       })
     ).toThrow();
+  });
+});
+
+describe("analyticRpPmf / matchOutcomeDistribution — 09-05 Task 1 (D-13, F6): win RP from the published pRedWin", () => {
+  const P_RED_WIN_GRID = [0, 0.05, 0.5, 0.73, 0.99, 1] as const;
+  const P_RED_WIN_SOURCE_CONFIG: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
+
+  it("the default-path inertness assertion: three different pRedWin values (0.01, 0.5, 0.99) produce IDENTICAL pmfs under the legacy (default) config — the required-but-unread proof", () => {
+    const results = [0.01, 0.5, 0.99].map((pRedWin) =>
+      analyticRpPmf({
+        red: SYMMETRIC_2026,
+        blue: SYMMETRIC_2026,
+        ruleModule: rp2026,
+        eventType: 0,
+        compLevel: "qm",
+        config: RP_LAYER_CONFIG_DEFAULT,
+        pRedWin,
+      })
+    );
+    expect(results[0]!.redPmf).toEqual(results[1]!.redPmf);
+    expect(results[1]!.redPmf).toEqual(results[2]!.redPmf);
+    expect(results[0]!.bluePmf).toEqual(results[1]!.bluePmf);
+    expect(results[1]!.bluePmf).toEqual(results[2]!.bluePmf);
+  });
+
+  it.each(P_RED_WIN_GRID)(
+    'under winSource: "p-red-win" with the legacy tie model, the outcome half\'s red winRp mass is === the supplied pRedWin of %f (strict equality, not toBeCloseTo)',
+    (pRedWin) => {
+      const outcome = matchOutcomeDistribution({
+        redScoreMean: 110,
+        redScoreVariance: 50,
+        blueScoreMean: 100,
+        blueScoreVariance: 50,
+        winRp: 3,
+        tieRp: 1,
+        config: P_RED_WIN_SOURCE_CONFIG,
+        pRedWin,
+      });
+      expect(outcome.pRedWin).toBe(pRedWin);
+      expect(outcome.pTie).toBe(0);
+      expect(outcome.pBlueWin).toBe(1 - pRedWin);
+    }
+  );
+
+  it("the F6 statistic is zero BY CONSTRUCTION: an input where the Gaussian-implied win probability differs from the supplied pRedWin by more than F6's measured maximum (0.3415) still follows pRedWin, not the Gaussian quantity", () => {
+    // redScoreMean 110, blueScoreMean 100, varianceD = 50 + 50 = 100, sd = 10:
+    // z = (100 - 110) / 10 = -1 -> Gaussian-implied pRedWin = 1 - Phi(-1) = 0.841344746
+    const gaussianImplied = 0.841344746;
+    const suppliedPRedWin = 0.5;
+    expect(Math.abs(gaussianImplied - suppliedPRedWin)).toBeGreaterThan(0.3);
+
+    const outcome = matchOutcomeDistribution({
+      redScoreMean: 110,
+      redScoreVariance: 50,
+      blueScoreMean: 100,
+      blueScoreVariance: 50,
+      winRp: 3,
+      tieRp: 1,
+      config: P_RED_WIN_SOURCE_CONFIG,
+      pRedWin: suppliedPRedWin,
+    });
+    expect(outcome.pRedWin).toBe(suppliedPRedWin);
+    expect(outcome.pRedWin).not.toBeCloseTo(gaussianImplied, 1);
+  });
+
+  it("splitOutcomeProbabilities — the pinned <baseline> table: exactness under the legacy tie model, conditional-on-decisive exactness once a tie model is also on", () => {
+    const exact = splitOutcomeProbabilities(0.73, 0);
+    expect(exact.pRedStrict).toBe(0.73); // x * 1 === x for every finite IEEE754 x
+    expect(exact.pTie).toBe(0);
+    expect(exact.clampedPRedWin).toBe(false);
+
+    const withTie = splitOutcomeProbabilities(0.73, 0.0109297);
+    expect(withTie.pRedStrict / (withTie.pRedStrict + withTie.pBlueStrict)).toBeCloseTo(0.73, 12);
+  });
+
+  it("splitOutcomeProbabilities — clampedPRedWin is COUNTED, never silent, for a non-finite and an out-of-range input; a non-finite pRedWin is flagged but deliberately NOT laundered into a fake-safe value (it propagates as NaN, so assertNormalizedPmf's existing finite guard still catches a corrupted upstream computation)", () => {
+    const nonFinite = splitOutcomeProbabilities(Number.NaN, 0);
+    expect(nonFinite.clampedPRedWin).toBe(true);
+    expect(Number.isFinite(nonFinite.pRedStrict)).toBe(false);
+    expect(Number.isFinite(nonFinite.pBlueStrict)).toBe(false);
+
+    const aboveRange = splitOutcomeProbabilities(1.5, 0);
+    expect(aboveRange.clampedPRedWin).toBe(true);
+    expect(aboveRange.pRedStrict).toBe(1);
+    expect(aboveRange.pBlueStrict).toBe(0);
+
+    const belowRange = splitOutcomeProbabilities(-0.2, 0);
+    expect(belowRange.clampedPRedWin).toBe(true);
+    expect(belowRange.pRedStrict).toBe(0);
+    expect(belowRange.pBlueStrict).toBe(1);
+
+    const inRange = splitOutcomeProbabilities(0.5, 0);
+    expect(inRange.clampedPRedWin).toBe(false);
+  });
+
+  it('every pmf produced under winSource: "p-red-win" sums to 1 within 1e-9, every entry finite and in [0,1], length ruleModule.maxRp + 1', () => {
+    for (const pRedWin of P_RED_WIN_GRID) {
+      const result = analyticRpPmf({
+        red: SYMMETRIC_2026,
+        blue: SYMMETRIC_2026,
+        ruleModule: rp2026,
+        eventType: 0,
+        compLevel: "qm",
+        config: P_RED_WIN_SOURCE_CONFIG,
+        pRedWin,
+      });
+      expect(result.redPmf).toHaveLength(rp2026.maxRp + 1);
+      for (const pmf of [result.redPmf, result.bluePmf]) {
+        const sum = pmf.reduce((a, b) => a + b, 0);
+        expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+        for (const p of pmf) {
+          expect(Number.isFinite(p)).toBe(true);
+          expect(p).toBeGreaterThanOrEqual(0);
+          expect(p).toBeLessThanOrEqual(1);
+        }
+      }
+    }
   });
 });
 

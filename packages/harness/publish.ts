@@ -712,6 +712,12 @@ function makeRankingPointFiller(
       eventType: match.eventType,
       compLevel: match.compLevel,
       config,
+      // D-13 (09-05 Task 1): required as of this plan — see analyticPmf.ts's
+      // own AnalyticRpPmfInput doc comment. Not in this plan's declared
+      // files_modified list; threaded here as a Rule 3 blocking fix, since
+      // this is 09-04's OTHER analyticRpPmf call site and pRedWin becoming
+      // required would otherwise fail to compile here.
+      pRedWin: prediction.pRedWin,
     });
     return {
       ...prediction,

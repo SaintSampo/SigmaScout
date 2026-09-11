@@ -63,6 +63,7 @@ function pmfInput(overrides: Partial<AnalyticRpPmfInput> = {}): AnalyticRpPmfInp
     eventType: 0,
     compLevel: "qm",
     config: RP_LAYER_CONFIG_DEFAULT,
+    pRedWin: 0.5,
     ...overrides,
   };
 }
