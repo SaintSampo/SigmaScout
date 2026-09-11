@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RpMomentsAccumulator } from "./empiricalMoments.js";
 import { rpRuleModuleForSeason } from "./rules.js";
-import { rpPmfForMatch } from "./distribution.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "./analyticPmf.js";
 
 const RULES_2026 = rpRuleModuleForSeason(2026)!;
 const RED = ["frc1", "frc2", "frc3"];
-const MC = { rpMonteCarloSeed: 4242, rpMonteCarloDraws: 4000 };
 
 /** 2026 tracks exactly two threshold variables. */
 const HUB = "hubTotalCount";
@@ -106,7 +105,7 @@ describe("RpMomentsAccumulator — per-team beliefs with no algorithm involved",
   });
 });
 
-describe("RpMomentsAccumulator feeding rpPmfForMatch — the end-to-end path RP needs", () => {
+describe("RpMomentsAccumulator feeding analyticRpPmf — the end-to-end path RP needs", () => {
   function accWith(hub: number, tower: number): RpMomentsAccumulator {
     const acc = new RpMomentsAccumulator(RULES_2026);
     // Two differing observations so a real variance exists.
@@ -118,14 +117,13 @@ describe("RpMomentsAccumulator feeding rpPmfForMatch — the end-to-end path RP 
   it("produces a valid pmf for an alliance built only from observed history", () => {
     const acc = accWith(60, 40);
     const moments = acc.momentsFor(RED, 300, 900);
-    const result = rpPmfForMatch({
+    const result = analyticRpPmf({
       red: moments,
       blue: moments,
       ruleModule: RULES_2026,
       eventType: 0,
-      matchKey: "2026casj_qm1",
       compLevel: "qm",
-      params: MC,
+      config: RP_LAYER_CONFIG_DEFAULT,
     });
     expect(result.redPmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
     expect(result.redBonusProbabilities).toHaveLength(RULES_2026.bonusNames.length);
@@ -135,14 +133,13 @@ describe("RpMomentsAccumulator feeding rpPmfForMatch — the end-to-end path RP 
     const strong = accWith(1000, 1000).momentsFor(RED, 500, 900);
     const weak = accWith(1, 1).momentsFor(RED, 100, 900);
     const expected = (pmf: readonly number[]) => pmf.reduce((acc, p, rp) => acc + p * rp, 0);
-    const run = rpPmfForMatch({
+    const run = analyticRpPmf({
       red: strong,
       blue: weak,
       ruleModule: RULES_2026,
       eventType: 0,
-      matchKey: "2026casj_qm2",
       compLevel: "qm",
-      params: MC,
+      config: RP_LAYER_CONFIG_DEFAULT,
     });
     expect(expected(run.redPmf)).toBeGreaterThan(expected(run.bluePmf));
   });
@@ -155,14 +152,13 @@ describe("RpMomentsAccumulator feeding rpPmfForMatch — the end-to-end path RP 
       const varied = Object.fromEntries(rules.thresholdVariables.map((v) => [v.name, 45]));
       acc.fold(RED, observation);
       acc.fold(RED, varied);
-      const result = rpPmfForMatch({
+      const result = analyticRpPmf({
         red: acc.momentsFor(RED, 300, 900),
         blue: acc.momentsFor(RED, 300, 900),
         ruleModule: rules,
         eventType: 0,
-        matchKey: `${season}casj_qm1`,
         compLevel: "qm",
-        params: MC,
+        config: RP_LAYER_CONFIG_DEFAULT,
       });
       expect(result.redPmf.reduce((a, b) => a + b, 0), `season ${season}`).toBeCloseTo(1, 6);
     }

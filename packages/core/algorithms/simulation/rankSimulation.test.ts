@@ -1,17 +1,22 @@
 /**
  * Pure unit tests for the phase 8 rank-distribution simulation core
  * (`simulateRanks`, `drawCategorical`, `mulberry32`). Fixtures build real
- * pipeline-produced pmfs via `rpPmfForMatch` (`rankingPoints/distribution.js`),
- * matching `rp/distribution.test.ts`'s pure-unit shape — no corpus access,
- * no network, in-process only.
+ * pipeline-produced pmfs via `analyticRpPmf` (`rankingPoints/analyticPmf.js`,
+ * plan 09-04 Task 3 — this file's fixtures used to route through the
+ * deleted `rpPmfForMatch`/`rankingPoints/distribution.js`) — no corpus
+ * access, no network, in-process only.
+ *
+ * The randomness these tests actually exercise (Test 5/Test 6's fixed-seed-
+ * reproduces / different-seed-differs pair) is `simulateRanks`'s OWN `rng`
+ * parameter — a SEPARATE draw from the pmf itself. The closed form has no
+ * seed of its own (D-10), so the fixture builders below no longer take a
+ * `matchKey`: two calls with equal score means now return byte-identical
+ * pmfs, which changes nothing these tests assert.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, type Sigma1Params } from "../sigma1/params.js";
-import { resolveSigma1Params } from "../sigma1/scale.js";
-import { emptyExpandingStats } from "../../scoring/expandingStats.js";
-import { rpPmfForMatch, type RpPmfInput } from "../../rankingPoints/distribution.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT, type AnalyticRpPmfInput } from "../../rankingPoints/analyticPmf.js";
 import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
-import type { AllianceRpMoments } from "../sigma1/rp/state.js";
+import type { AllianceRpMoments } from "../../rankingPoints/moments.js";
 import {
   drawCategorical,
   mulberry32,
@@ -21,18 +26,20 @@ import {
 } from "./rankSimulation.js";
 
 /**
- * D-T1 (4.0.0): every Sigma1 internal takes RESOLVED params. Resolving the
- * defaults at an EMPTY expanding statistic is the documented cold-start
- * scale (`fallbackScoreSd ** 2` = 625), and none of the fields exercised in
- * this file is scale-dependent, so these assertions are unchanged in
- * substance -- only the parameter TYPE moved.
+ * Mirrors the deleted `rp/distribution.test.ts`'s `moments()` fixture
+ * builder — same shape, same defaults — but with 2024's ACTUAL three
+ * threshold variables (`noteCount`, `endGameTotalStagePoints`,
+ * `onStageRobotCount`; see `2024.ts`'s `THRESHOLD_VARIABLES`), not 2022's.
+ * The old fixture named 2022's variables while pairing them with
+ * `RULE_2024` — the deleted Monte Carlo's `?? 0` default silently tolerated
+ * a threshold variable this rule module needs (`melodyBonus`'s `noteCount`)
+ * being absent from `AllianceRpMoments.variableNames`; `analyticRpPmf`
+ * refuses that mismatch instead of guessing 0 for a fitted marginal that
+ * was never asked for (Rule 2 — missing validation the old engine lacked).
  */
-const RESOLVED_DEFAULTS = resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats());
-
-/** Mirrors `rp/distribution.test.ts`'s `moments()` fixture builder exactly — same shape, same defaults. */
 function moments(overrides: Partial<AllianceRpMoments> = {}): AllianceRpMoments {
   return {
-    variableNames: ["matchCargoTotal", "autoCargoTotal", "endgamePoints"],
+    variableNames: ["noteCount", "endGameTotalStagePoints", "onStageRobotCount"],
     meanVector: [0, 0, 0],
     varianceBlock: [
       [0.000001, 0, 0],
@@ -48,24 +55,22 @@ function moments(overrides: Partial<AllianceRpMoments> = {}): AllianceRpMoments 
 
 const RULE_2024 = rpRuleModuleForSeason(2024);
 
-function pmfInput(overrides: Partial<RpPmfInput> = {}): RpPmfInput {
+function pmfInput(overrides: Partial<AnalyticRpPmfInput> = {}): AnalyticRpPmfInput {
   return {
     red: moments(),
     blue: moments(),
     ruleModule: RULE_2024,
     eventType: 0,
-    matchKey: "2024test_qm1",
     compLevel: "qm",
-    params: RESOLVED_DEFAULTS,
+    config: RP_LAYER_CONFIG_DEFAULT,
     ...overrides,
   };
 }
 
-/** Builds a real pmf pair from the pipeline's own `rpPmfForMatch`, one call per remaining match — this is what makes the fixture the pipeline's own output rather than a hand-typed probability array. */
-function realPmfPair(matchKey: string, redScoreMean: number, blueScoreMean: number): { redRpPmf: number[]; bluePmf: number[] } {
-  const result = rpPmfForMatch(
+/** Builds a real pmf pair from the pipeline's own `analyticRpPmf` — this is what makes the fixture the pipeline's own output rather than a hand-typed probability array. */
+function realPmfPair(redScoreMean: number, blueScoreMean: number): { redRpPmf: number[]; bluePmf: number[] } {
+  const result = analyticRpPmf(
     pmfInput({
-      matchKey,
       red: moments({ scoreMean: redScoreMean }),
       blue: moments({ scoreMean: blueScoreMean }),
     })
@@ -74,10 +79,9 @@ function realPmfPair(matchKey: string, redScoreMean: number, blueScoreMean: numb
 }
 
 /** Same as `realPmfPair` but with genuine score variance (not the near-zero default), so the winner/RP outcome actually varies draw to draw — needed for tests that assert two different seeds produce different results. */
-function realPmfPairWithSpread(matchKey: string, redScoreMean: number, blueScoreMean: number): { redRpPmf: number[]; bluePmf: number[] } {
-  const result = rpPmfForMatch(
+function realPmfPairWithSpread(redScoreMean: number, blueScoreMean: number): { redRpPmf: number[]; bluePmf: number[] } {
+  const result = analyticRpPmf(
     pmfInput({
-      matchKey,
       red: moments({ scoreMean: redScoreMean, scoreVariance: 200 }),
       blue: moments({ scoreMean: blueScoreMean, scoreVariance: 200 }),
     })
@@ -93,8 +97,8 @@ describe("simulateRanks — Test 1: a real event shape produces a complete distr
       earnedRpSum: i * 2,
       matchesPlayed: 3,
     }));
-    const match1 = realPmfPair("2024test_qm1", 50, 50);
-    const match2 = realPmfPair("2024test_qm2", 50, 50);
+    const match1 = realPmfPair(50, 50);
+    const match2 = realPmfPair(50, 50);
     const remainingMatches: SimMatchInput[] = [
       { redTeamKeys: ["frc1", "frc2", "frc3"], blueTeamKeys: ["frc4", "frc5", "frc6"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
       { redTeamKeys: ["frc1", "frc3", "frc5"], blueTeamKeys: ["frc2", "frc4", "frc6"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
@@ -117,8 +121,8 @@ describe("simulateRanks — Test 1: a real event shape produces a complete distr
 
 describe("simulateRanks — Test 2: the fixture's pmfs are genuinely pmf-shaped", () => {
   it("each generated pmf is non-empty and sums to 1 within 1e-9", () => {
-    const match1 = realPmfPair("2024test_qm1", 50, 50);
-    const match2 = realPmfPair("2024test_qm2", 50, 50);
+    const match1 = realPmfPair(50, 50);
+    const match2 = realPmfPair(50, 50);
     for (const pmf of [match1.redRpPmf, match1.bluePmf, match2.redRpPmf, match2.bluePmf]) {
       expect(pmf.length).toBeGreaterThan(0);
       const sum = pmf.reduce((a, b) => a + b, 0);
@@ -132,7 +136,7 @@ describe("simulateRanks — Test 3: the degenerate single-remaining-match event 
     // Force the outcome: red alliance's score mean is far above blue's, so
     // red teams win their bonus-RP-eligible match with overwhelming
     // probability in every draw.
-    const match = realPmfPair("2024test_qm1", 500, 0);
+    const match = realPmfPair(500, 0);
     const baselines: SimTeamBaseline[] = [
       { teamKey: "frcRed1", earnedRpSum: 0, matchesPlayed: 0 },
       { teamKey: "frcRed2", earnedRpSum: 0, matchesPlayed: 0 },
@@ -191,8 +195,8 @@ describe("simulateRanks — Test 5: a fixed seed reproduces identical output", (
       { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 2 },
       { teamKey: "frc3", earnedRpSum: 2, matchesPlayed: 2 },
     ];
-    const match1 = realPmfPairWithSpread("2024test_qm1", 50, 50);
-    const match2 = realPmfPairWithSpread("2024test_qm2", 50, 50);
+    const match1 = realPmfPairWithSpread(50, 50);
+    const match2 = realPmfPairWithSpread(50, 50);
     const remainingMatches: SimMatchInput[] = [
       { redTeamKeys: ["frc1", "frc2"], blueTeamKeys: ["frc3"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
       { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2", "frc3"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
@@ -216,8 +220,8 @@ describe("simulateRanks — Test 6: a different seed produces a different distri
       { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 2 },
       { teamKey: "frc3", earnedRpSum: 2, matchesPlayed: 2 },
     ];
-    const match1 = realPmfPairWithSpread("2024test_qm1", 50, 50);
-    const match2 = realPmfPairWithSpread("2024test_qm2", 50, 50);
+    const match1 = realPmfPairWithSpread(50, 50);
+    const match2 = realPmfPairWithSpread(50, 50);
     const remainingMatches: SimMatchInput[] = [
       { redTeamKeys: ["frc1", "frc2"], blueTeamKeys: ["frc3"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
       { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2", "frc3"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
@@ -341,7 +345,7 @@ describe("simulateRanks — Test 12: the corpus's measured worst case runs", () 
       earnedRpSum: i,
       matchesPlayed: 5,
     }));
-    const pmf = realPmfPairWithSpread("2024test_worstcase", 50, 50);
+    const pmf = realPmfPairWithSpread(50, 50);
     const remainingMatches: SimMatchInput[] = Array.from({ length: matchCount }, (_, m) => {
       const base = (m * 6) % teamCount;
       const teamAt = (offset: number) => `frc${((base + offset) % teamCount) + 1}`;

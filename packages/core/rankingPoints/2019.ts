@@ -33,9 +33,11 @@
  *   `completedRocketFar`, both booleans present in the raw breakdown and
  *   available at parse time.
  * - `predictThresholds` CANNOT reach them: it receives only numeric
- *   threshold-variable values, because the Monte Carlo joint draw in
- *   `rp/distribution.ts` samples threshold variables, never a full
- *   breakdown. So this bonus takes the CONSERVATIVE BRANCH and is always
+ *   threshold-variable values, because `analyticPmf.ts`'s closed form
+ *   (plan 09-04) fits marginals from threshold variables, never a full
+ *   breakdown (this used to read "the Monte Carlo joint draw in
+ *   `rp/distribution.ts` samples threshold variables", a module this repo
+ *   no longer has). So this bonus takes the CONSERVATIVE BRANCH and is always
  *   `false` there, following 2025's `autoBonus` precedent (see
  *   `2025.ts`), which `RpRuleModule.predictThresholds`'s own doc comment
  *   already names as the established pattern for a bonus with no
@@ -182,8 +184,9 @@ export const rp2019: RpRuleModule = {
    * `completeRocket` depends ENTIRELY on the two per-alliance rocket
    * booleans (`completedRocketNear`/`completedRocketFar`), which this
    * season tracks no threshold-variable-only fallback for at all — there
-   * is no numeric proxy available to the Monte Carlo joint draw. Always
-   * `false` here (declared `constant`, see `BONUS_PREDICATES` above),
+   * is no numeric proxy available to `analyticPmf.ts`'s closed form (plan
+   * 09-04 — this used to read "the Monte Carlo joint draw", a module this
+   * repo no longer has). Always `false` here (declared `constant`, see `BONUS_PREDICATES` above),
    * following 2025's `autoBonus` precedent (see file header and
    * `2025.ts`'s own `predictThresholds` doc comment for the general
    * conservative-branch contract). Delegates to the shared declarative

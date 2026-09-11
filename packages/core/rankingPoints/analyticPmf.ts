@@ -656,6 +656,32 @@ export interface AnalyticRpPmfResult {
 }
 
 /**
+ * Mean, derived from a discrete pmf at read time — D-10: the pmf is the ONE
+ * stored representation, mean/SD are never stored alongside it. MOVED here
+ * from the deleted `distribution.ts` (plan 09-04 Task 3) — a pmf read-time
+ * utility with nothing to do with the Monte Carlo it used to sit beside.
+ * Same name, same doc comment as before, one relocation note.
+ */
+export function pmfMean(pmf: readonly number[]): number {
+  let mean = 0;
+  for (let i = 0; i < pmf.length; i++) mean += i * pmf[i]!;
+  return mean;
+}
+
+/**
+ * Standard deviation, derived from a discrete pmf at read time (see
+ * `pmfMean`). Floored at 0 to absorb floating-point noise that could
+ * otherwise produce a tiny negative variance. MOVED here from the deleted
+ * `distribution.ts` (plan 09-04 Task 3) — see `pmfMean`'s relocation note.
+ */
+export function pmfStandardDeviation(pmf: readonly number[]): number {
+  const mean = pmfMean(pmf);
+  let variance = 0;
+  for (let i = 0; i < pmf.length; i++) variance += pmf[i]! * (i - mean) ** 2;
+  return Math.sqrt(Math.max(0, variance));
+}
+
+/**
  * The `rpPmfForMatch` replacement — one match's full RP pmf for both
  * alliances, from the closed form. See this plan's "## The closed form,
  * specified" section for the step-by-step derivation this function

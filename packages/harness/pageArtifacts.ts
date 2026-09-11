@@ -414,7 +414,9 @@ const EventMatchSchema = z
      * its TOTAL ranking points for this match — index `i` is the predicted
      * probability that this alliance earns exactly `i` ranking points, with
      * win, tie and bonus ranking points already folded into the domain by
-     * the harness's own joint Monte Carlo draw. This is NOT a per-bonus
+     * `analyticRpPmf`'s closed form (plan 09-04 — this used to read "the
+     * harness's own joint Monte Carlo draw", a module this repo no longer
+     * has). This is NOT a per-bonus
      * marginal like `TeamSeasonMatchSchema.redBonusRp`/`redBonusRp` — see
      * `TeamSeasonMatchSchema.redRpPmf` and `redBonusRp` for the fuller
      * statement of that distinction, not restated here. Omitted entirely
@@ -820,10 +822,11 @@ const TeamSeasonMatchSchema = z
      * is only meaningful for a distribution required to sum to 1. This is a
      * DIFFERENT quantity from `redRpPmf` above, which is a distribution over
      * the RP TOTAL, not a per-bonus marginal. Omitted entirely (never
-     * published as an empty array) when the Monte Carlo did not run for
-     * this match — a non-qualification competition level, a
-     * zero-`rpMonteCarloDraws` configuration, an RP-ineligible event type,
-     * or an algorithm that does not model ranking points at all. Rounded
+     * published as an empty array) when `analyticRpPmf` did not run for
+     * this match (plan 09-04 — the zero-draws fast path this doc comment
+     * used to name is GONE; a closed form has no draw count to skip) — a
+     * non-qualification competition level, an RP-ineligible event type, or
+     * an algorithm that does not model ranking points at all. Rounded
      * exactly once, at the publish boundary, at `ROUNDING_RULE.probability`.
      */
     redBonusRp: z.array(z.number().min(0).max(1)).optional(),

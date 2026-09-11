@@ -24,8 +24,10 @@
  * attributable ENTIRELY to the untracked alliance-level gating signal
  * `predictThresholds` cannot see (coopertition flags, per-robot auto-leave
  * state) — every other input was identical, so there is no sampling noise
- * and no prediction uncertainty in this comparison, unlike a Monte Carlo
- * draw through `rp/distribution.ts`.
+ * and no prediction uncertainty in this comparison, unlike a pmf computed
+ * through `analyticPmf.ts`'s closed form (plan 09-04 — this used to read
+ * "a Monte Carlo draw through `rp/distribution.ts`", a module this repo no
+ * longer has).
  *
  * Per (season, bonus): `understatedRate` = fraction of alliance-matches where
  * `parsed=true, predicted=false`; `overstatedRate` = the reverse (the

@@ -28,9 +28,11 @@
  * four variables. **2017 is the first season in this project where both
  * bonuses are simultaneously EXACT and FULLY REACHABLE from
  * `predictThresholds`**: 2018 is exact but needs a numeric fallback for
- * `autoQuest`'s `autoSwitchAtZero` boolean half (the Monte Carlo joint draw
- * in `rp/distribution.ts` samples threshold variables, never a raw
- * breakdown), and 2019 needs the hard-coded-false conservative branch for
+ * `autoQuest`'s `autoSwitchAtZero` boolean half (`analyticPmf.ts`'s closed
+ * form, plan 09-04, fits marginals from threshold variables, never a raw
+ * breakdown — this used to read "the Monte Carlo joint draw in
+ * `rp/distribution.ts` samples threshold variables", a module this repo no
+ * longer has), and 2019 needs the hard-coded-false conservative branch for
  * `completeRocket`. Neither compromise is needed here, and none is
  * introduced for symmetry's sake.
  *

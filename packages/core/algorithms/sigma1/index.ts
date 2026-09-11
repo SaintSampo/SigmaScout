@@ -101,15 +101,8 @@ import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION, Sigma1ParamsSchema, type Si
 import { resolveSigma1Params, type Sigma1ResolvedParams } from "./scale.js";
 import { sigma1Carryover } from "./carryover.js";
 import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
-import { isRpEligibleEventType, type RpParsedResult, type RpRuleModule } from "../../rankingPoints/constants.js";
-import {
-  emptyRpTeamState,
-  foldRpObservation,
-  predictAllianceRpMoments,
-  type RpLeague,
-  type RpTeamState,
-} from "./rp/state.js";
-import { rpPmfForMatch } from "../../rankingPoints/distribution.js";
+import { isRpEligibleEventType, type RpParsedResult } from "../../rankingPoints/constants.js";
+import { emptyRpTeamState, foldRpObservation, type RpLeague, type RpTeamState } from "./rp/state.js";
 
 export type { TeamComponentBelief } from "./kalman.js";
 export type { WinProbMode } from "./linkFunctions.js";
@@ -1121,55 +1114,26 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   // for the algorithm identifier alongside the match key.
   assertValidPRedWin(pRedWin, `sigma1:${linkMode} predict (${match.matchKey})`);
 
-  // Plan 03-03 (D-09/D-10/D-11): the RP pmf is computed from values ALREADY
-  // produced above (redScore/blueScore, and each alliance's OWN posterior +
-  // covariance sum — never the combined `variance` above, which sums BOTH
-  // alliances together for the win-probability denominator) — nothing in
-  // the score/variance/win-probability computation above may change or be
-  // recomputed here, and nothing below can retroactively change it either.
-  // That independence is asserted by `params.test.ts`'s/`distribution.
-  // test.ts`'s dedicated "0 draws === 2000 draws" equality test, not just
-  // claimed.
-  const season = state.season ?? deriveSeasonFromEventKey(match.eventKey);
-  const ruleModule = rpRuleModuleForSeason(season);
+  // Plan 09-04 Task 3: the RP pmf block that used to live here is GONE, not
+  // repointed at the closed form. `analyticRpPmf` (`rankingPoints/
+  // analyticPmf.ts`) asserts an independence precondition on entry — every
+  // `scoreCrossCovariance` entry zero, every off-diagonal `varianceBlock`
+  // entry zero — and `predictAllianceRpMoments` (`rp/state.ts`) deliberately
+  // VIOLATES it: it supplies a LEARNED, non-zero score/threshold
+  // cross-covariance (Sigma1's own D-11), folded from real residual
+  // products via `rp/state.ts`'s `rpCrossCovariance`. Silently discarding
+  // that learned correlation behind a function whose whole correctness
+  // argument depends on its absence would be a real modelling change
+  // disguised as a refactor, not a like-for-like engine swap. VPR is
+  // retired and unpublished (`PUBLISHED_ALGORITHM_IDS` is `opr`/`epa`/`bpr`),
+  // and `SigmaScoutLayer.foldPlayed` (`packages/harness/sigmaScoutLayer.ts`)
+  // already fills RP for any prediction that arrives without one — so this
+  // makes VPR uniform with every other algorithm instead of leaving it the
+  // one exception. `predictAllianceRpMoments` keeps its export and its own
+  // tests in `sigma1/rp/state.test.ts`; it simply has no production caller
+  // left.
   const redScoreVarianceOwn = redPosteriorSum + redCovarianceTotal;
   const blueScoreVarianceOwn = bluePosteriorSum + blueCovarianceTotal;
-  const redRpMoments = predictAllianceRpMoments(state.teams, redTeams, ruleModule, redScore, redScoreVarianceOwn);
-  const blueRpMoments = predictAllianceRpMoments(state.teams, blueTeams, ruleModule, blueScore, blueScoreVarianceOwn);
-  // CR-01 (03-REVIEW.md): `rpPmfForMatch` calls `ruleModule.predictThresholds`,
-  // which calls `eventTierFor(eventType)` as its first statement and throws
-  // by design for an unmapped `eventType` (offseason `99` etc.) — guarded
-  // by the SAME `isRpEligibleEventType` predicate `update()`'s RP fold uses
-  // above, so the two can never disagree about which matches get an RP
-  // prediction. `redRpMoments`/`blueRpMoments` above are untouched:
-  // `predictAllianceRpMoments` takes no `eventType` and cannot throw.
-  //
-  // `{ redPmf: [], bluePmf: [] }` rather than `degenerateZeroPmf()`: the
-  // empty arrays make the `...(rpResult.redPmf.length > 0 ? ... : {})`
-  // spread below omit `redRpPmf`/`blueRpPmf` from the `Prediction` entirely
-  // — `types.ts`'s documented "omitted entirely, never an empty array"
-  // convention, already how the zero-draws fast path behaves. A degenerate
-  // `P(RP=0)=1` would be a POSITIVE claim that the alliance certainly earns
-  // no ranking points — false for an offseason qualification match, which
-  // does award RP under whatever rules that event ran. Absence of a
-  // prediction is the honest representation of "this subsystem has no
-  // rules for this event tier"; certainty of zero is not.
-  const rpResult = isRpEligibleEventType(match.eventType)
-    ? rpPmfForMatch({
-        red: redRpMoments,
-        blue: blueRpMoments,
-        ruleModule,
-        eventType: match.eventType,
-        matchKey: match.matchKey,
-        compLevel: match.compLevel,
-        params: resolved,
-      })
-    : { redPmf: [], bluePmf: [] };
-  // Plan 06.1-02 (F-06-1): the RP-ineligible fallback above carries no
-  // bonus arrays either -- `rpResult.redBonusProbabilities` stays
-  // `undefined`, so the conditional spreads below omit `redBonusRp`/
-  // `blueBonusRp` from the returned Prediction exactly as they omit
-  // `redRpPmf`/`blueRpPmf`.
 
   return {
     // margin === 0 gives pRedWin exactly 0.5 through every link mode's own
@@ -1180,33 +1144,17 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
     redScore,
     blueScore,
     variance,
-    // D-01 (Phase 6): each alliance's OWN predicted-score variance, already
-    // computed above (as `redScoreVarianceOwn`/`blueScoreVarianceOwn`) to
-    // build the RP pmf below — never recomputed here, just attached to the
-    // returned Prediction so the published artifact can carry it (see
-    // `types.ts`'s `Prediction.redScoreVarianceOwn` doc comment for why this
-    // is a different quantity from `variance` above).
+    // D-01 (Phase 6): each alliance's OWN predicted-score variance — never
+    // recomputed here, just attached to the returned Prediction so the
+    // published artifact can carry it (see `types.ts`'s
+    // `Prediction.redScoreVarianceOwn` doc comment for why this is a
+    // different quantity from `variance` above). No `redRpPmf`/`blueRpPmf`/
+    // `redBonusRp`/`blueBonusRp` here (plan 09-04 Task 3) — see the removal
+    // note above the `redScoreVarianceOwn` computation.
     redScoreVarianceOwn,
     blueScoreVarianceOwn,
     redComponents,
     blueComponents,
-    // D-10: omitted entirely (never an empty array) when
-    // `rpPmfForMatch` returns `[]` — `params.rpMonteCarloDraws === 0`
-    // (plan 03-05's search fast path) — matching `types.ts`'s documented
-    // "omitted entirely, never an empty array" optional-field convention.
-    ...(rpResult.redPmf.length > 0 ? { redRpPmf: rpResult.redPmf } : {}),
-    ...(rpResult.bluePmf.length > 0 ? { blueRpPmf: rpResult.bluePmf } : {}),
-    // Plan 06.1-02 (F-06-1): reuses the same presence test the pmf spreads
-    // above already use (defined and non-empty) rather than inventing a
-    // second convention -- `redBonusProbabilities` is `undefined` on both
-    // `rpPmfForMatch` short-circuit branches (Task 1) and on the
-    // RP-ineligible fallback object above.
-    ...(rpResult.redBonusProbabilities && rpResult.redBonusProbabilities.length > 0
-      ? { redBonusRp: rpResult.redBonusProbabilities }
-      : {}),
-    ...(rpResult.blueBonusProbabilities && rpResult.blueBonusProbabilities.length > 0
-      ? { blueBonusRp: rpResult.blueBonusProbabilities }
-      : {}),
   };
 }
 

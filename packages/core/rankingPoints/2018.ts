@@ -16,9 +16,10 @@
  *
  * **The `parse` / `predictThresholds` asymmetry (D-4).** `faceTheBoss` is
  * fully numeric and identical in both. `autoQuest`'s exact rule needs
- * `autoSwitchAtZero`, a BOOLEAN the Monte Carlo joint draw in
- * `rp/distribution.ts` cannot reach — that draw samples threshold
- * variables, never a raw breakdown.
+ * `autoSwitchAtZero`, a BOOLEAN `analyticPmf.ts`'s closed form (plan 09-04)
+ * cannot reach — it fits marginals from threshold variables, never a raw
+ * breakdown (this used to read "the Monte Carlo joint draw in
+ * `rp/distribution.ts` cannot reach", a module this repo no longer has).
  *
  * **The honest direction of the fallback's error, and why it is still
  * right.** Unlike 2019's `completeRocket` — which has no numeric fallback

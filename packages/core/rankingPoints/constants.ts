@@ -439,10 +439,12 @@ export interface RpRuleModule {
   /**
    * Plan 03-03 (D-09/D-11): evaluates every named bonus at `eventType`'s
    * tier from ONLY the threshold-variable values a caller supplies —
-   * `values` keyed by `RpThresholdVariable.name`, the shape the Monte Carlo
-   * joint draw in `rp/distribution.ts` produces (it draws SAMPLES of the
-   * tracked threshold variables, never a full raw `score_breakdown`, so it
-   * cannot call `parse` above).
+   * `values` keyed by `RpThresholdVariable.name`, the shape
+   * `analyticPmf.ts`'s closed form fits marginals from (plan 09-04 — this
+   * used to read "the Monte Carlo joint draw in `rp/distribution.ts`
+   * produces", a module this repo no longer has; it never calls `parse`
+   * above, since it works from fitted per-variable BELIEFS, never a full
+   * raw `score_breakdown`).
    *
    * KNOWN, NAMED MODELING SIMPLIFICATION (documented once here, not
    * per-season, and cited by every module that needs it): a bonus whose
@@ -492,7 +494,9 @@ export interface RpRuleModule {
 /**
  * The RP-side twin of `assertFiniteComponents` (`breakdown/constants.ts`):
  * throws loudly rather than letting a non-finite threshold-variable value
- * reach the Kalman fold or the Cholesky draw in plan 03-03. A value that
+ * reach the Kalman fold or `analyticPmf.ts`'s closed-form pmf (plan 09-04 —
+ * this used to read "the Cholesky draw in plan 03-03", a module this repo
+ * no longer has). A value that
  * survives a season module's Zod parse boundary can still be produced
  * non-finite by an upstream degenerate branch — the same second-gate
  * reasoning `breakdown/constants.ts`'s own doc comment records for

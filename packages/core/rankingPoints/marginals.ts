@@ -303,11 +303,13 @@ export function probAtLeast(marginal: FittedMarginal, threshold: number): number
     case "negative-binomial":
       return negativeBinomialAtLeast(marginal.r!, marginal.p!, marginal.mean, threshold);
     case "gaussian":
-      // No continuity correction, deliberately: today's Monte Carlo draws a
-      // CONTINUOUS normal and compares it directly to the threshold. Adding
-      // a half-integer shift here would make the Gaussian arm a third model
-      // and confound 09-06's attribution between the marginal swap and a
-      // silent re-specification of its own control.
+      // No continuity correction, deliberately: the Gaussian model treats
+      // this as a CONTINUOUS normal and compares it directly to the
+      // threshold — matching the deleted Monte Carlo's own draw semantics
+      // (plan 09-04), which this closed form reproduces exactly rather than
+      // "improving". Adding a half-integer shift here would make the
+      // Gaussian arm a third model and confound 09-06's attribution between
+      // the marginal swap and a silent re-specification of its own control.
       return clamp01(1 - standardNormalCdf((threshold - marginal.mean) / marginal.sd!));
     case "degenerate":
       // A point mass at a REAL number, which may sit between two integers —

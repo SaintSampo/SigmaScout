@@ -148,7 +148,10 @@ export interface Prediction {
    * D-01 (Phase 6): each alliance's OWN predicted-score variance — that
    * alliance's posterior (estimate uncertainty) plus covariance (performance
    * spread) total, the exact D-10 predictive-variance quantity Sigma1
-   * already computes to build its RP pmf. This is NOT the same quantity as
+   * already computes and returns here (plan 09-04 Task 3: Sigma1 no longer
+   * builds an RP pmf of its own from it — `SigmaScoutLayer.foldPlayed`,
+   * the level-2 layer every algorithm shares, does that from this same
+   * field). This is NOT the same quantity as
    * `variance` above (which sums both alliances for the win-probability
    * denominator) — that distinction stays real and unaffected. It IS,
    * since plan 07-06 (D-01/D-02), the SAME quantity as `TeamMetric.spread`
@@ -172,10 +175,15 @@ export interface Prediction {
    * standing in for "this algorithm does not model RP"), following the
    * existing optional-field convention above (`variance`, `redComponents`).
    * Mean and standard deviation are DERIVED from this array at read time
-   * (`packages/core/rankingPoints/distribution.ts`'s `pmfMean`/
-   * `pmfStandardDeviation`) and never stored alongside it — one
-   * representation of one fact (D-10, mirrors D-21's raw-numbers-only
-   * artifact rule).
+   * (`packages/core/rankingPoints/analyticPmf.ts`'s `pmfMean`/
+   * `pmfStandardDeviation` — plan 09-04 Task 3 moved these from the deleted
+   * `packages/core/rankingPoints/distribution.ts`) and never stored
+   * alongside it — one representation of one fact (D-10, mirrors D-21's
+   * raw-numbers-only artifact rule). No algorithm's own `predict()`
+   * populates this field any more (plan 09-04 Task 3 removed VPR's — the
+   * last one that did): it is attached uniformly, for every algorithm, by
+   * the level-2 `SigmaScoutLayer` (`packages/harness/sigmaScoutLayer.ts`)
+   * via `analyticRpPmf`.
    */
   redRpPmf?: readonly number[];
   /** D-10: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
@@ -191,10 +199,12 @@ export interface Prediction {
    * quantity from `redRpPmf` above, which is a distribution over the RP
    * TOTAL — never conflate the two. Optional, following the same
    * omitted-entirely convention as `redRpPmf`: absent (never an empty or
-   * all-zero array) when the Monte Carlo does not run for this prediction
-   * (RP-ineligible event type, non-qualification `compLevel`, or zero
-   * `rpMonteCarloDraws`). Populated by Sigma1 only — OPR and EPA neither
-   * carry this field, since neither models ranking points.
+   * all-zero array) when `analyticRpPmf` did not run for this prediction
+   * (RP-ineligible event type, non-qualification `compLevel` — plan 09-04
+   * Task 3: this used to also name "zero `rpMonteCarloDraws`", a fast path
+   * a closed form has no draw count to trigger). Populated uniformly by
+   * the level-2 `SigmaScoutLayer`, not by any algorithm's own `predict()` —
+   * see `redRpPmf`'s doc comment above.
    */
   redBonusRp?: readonly number[];
   /** The blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */

@@ -30,6 +30,9 @@ import { emptyElimScoreOffset } from "./elim.js";
 import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
 import { epa } from "../epa.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "../../rankingPoints/analyticPmf.js";
+import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
+import type { AllianceRpMoments } from "../../rankingPoints/moments.js";
 
 /**
  * D-T1 (4.0.0): `teamMetrics` resolves the scale-relative params against the
@@ -1533,10 +1536,11 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
     expect("blueRpPmf" in prediction).toBe(false);
   });
 
-  it("positive control (non-negotiable): every EVENT_TYPE_TIERS-mapped eventType still takes the full RP path — update() never increments rpSkippedMatchCount, and predict() always carries redRpPmf/blueRpPmf", () => {
+  it("positive control (non-negotiable, rewritten plan 09-04 Task 3): every EVENT_TYPE_TIERS-mapped eventType still takes the full RP path — update() never increments rpSkippedMatchCount; predict() NEVER carries redRpPmf/blueRpPmf any more (VPR's own RP block was removed, not repointed), and analyticRpPmf — the level-2 engine SigmaScoutLayer calls with exactly this shape of moments — DOES attach one for every mapped eventType, proving the field moved rather than vanished", () => {
     // Without this test, an isRpEligibleEventType that always returned
     // false would silently disable RP prediction for the entire project
     // and still pass the three tests above.
+    const ruleModule2024 = rpRuleModuleForSeason(2024);
     for (const eventType of [0, 1, 2, 3, 4, 5, 100]) {
       const state = vpr.initState([]);
       const priorSkipped = state.rpSkippedMatchCount;
@@ -1568,8 +1572,32 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
         week: null,
       };
       const prediction = vpr.predict(next, upcoming);
-      expect("redRpPmf" in prediction).toBe(true);
-      expect("blueRpPmf" in prediction).toBe(true);
+      // Level 1: gone (plan 09-04 Task 3), not just "absent by circumstance".
+      expect("redRpPmf" in prediction).toBe(false);
+      expect("blueRpPmf" in prediction).toBe(false);
+
+      // Level 2: the SAME field, attached by analyticRpPmf from the SAME
+      // predict() output — proving the RP path moved, rather than simply
+      // disappearing, for every one of these mapped event types.
+      const variableNames = ruleModule2024.thresholdVariables.map((v) => v.name);
+      const levelTwoMoments = (scoreMean: number, scoreVariance: number): AllianceRpMoments => ({
+        variableNames,
+        meanVector: variableNames.map(() => 10),
+        varianceBlock: variableNames.map((_, i) => variableNames.map((_, j) => (i === j ? 4 : 0))),
+        scoreMean,
+        scoreVariance,
+        scoreCrossCovariance: variableNames.map(() => 0),
+      });
+      const rpResult = analyticRpPmf({
+        red: levelTwoMoments(prediction.redScore, prediction.redScoreVarianceOwn ?? 1),
+        blue: levelTwoMoments(prediction.blueScore, prediction.blueScoreVarianceOwn ?? 1),
+        ruleModule: ruleModule2024,
+        eventType,
+        compLevel: "qm",
+        config: RP_LAYER_CONFIG_DEFAULT,
+      });
+      expect(rpResult.redPmf.length).toBeGreaterThan(0);
+      expect(rpResult.bluePmf.length).toBeGreaterThan(0);
     }
   });
 });

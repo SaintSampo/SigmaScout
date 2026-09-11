@@ -9,9 +9,10 @@
  *
  * This table is a COPY of each season's `BONUS_NAMES` in
  * `packages/core/algorithms/sigma1/rp/{season}.ts`, not a derivation. The
- * alternative — importing `RP_RULE_MODULES` — would pull the whole Sigma1 RP
- * implementation (zod schemas, threshold parsing, the Monte Carlo) into the
- * client bundle to read a handful of strings. `bonusRp.test.ts` asserts this
+ * alternative — importing `RP_RULE_MODULES` — would pull the whole
+ * ten-season RP rule implementation (every season's zod schema and
+ * threshold-parsing code) into the client bundle to read a handful of
+ * strings. `bonusRp.test.ts` asserts this
  * table matches the core modules exactly, so the copy cannot drift silently;
  * that is the same "copy, pinned by a test" pattern `index.html`'s inlined
  * shell tokens already use against `theme.css`.
@@ -125,8 +126,8 @@ export const PREDICTED_BONUS_THRESHOLD = 0.5;
  *
  * Always returns exactly `count` entries. A probability at or above
  * `PREDICTED_BONUS_THRESHOLD` maps to `earned`, otherwise `missed`. An
- * undefined `probabilities` array — the Monte Carlo did not run for this
- * match — maps every position to `unknown`. An array shorter than `count`
+ * undefined `probabilities` array — the RP pricing engine did not run for
+ * this match — maps every position to `unknown`. An array shorter than `count`
  * maps its own trailing, absent positions to `unknown` as well: a length
  * mismatch is missing data, never a claim that the alliance will not earn
  * the remaining bonuses.

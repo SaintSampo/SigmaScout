@@ -95,6 +95,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }
@@ -151,6 +152,7 @@ function toUpcoming(m: MatchResult): UpcomingMatch {
     redSurrogates: m.redSurrogates,
     blueSurrogates: m.blueSurrogates,
     eventType: m.eventType,
+    week: null,
   };
 }
 
@@ -297,33 +299,39 @@ describe("loadSearchWinnerVpr (ALGO-06 / D-06)", () => {
     expect(loadSearchWinnerVpr("vpr-adapt", artifactPath, "w")).toBeUndefined();
   });
 
-  it("restores rpMonteCarloDraws to the versioned default — the loaded module EMITS an RP pmf, though its source artifact recorded 0 draws", () => {
+  it("restores rpMonteCarloDraws to the versioned default on the loaded winner's OWN parameter set (plan 09-04 Task 3: rewritten — the predict()-observable form this test used to take DIED with the Monte Carlo, not by a weakened choice here)", () => {
     const dir = makeTempDir("search-draws-");
     const artifactPath = join(dir, "search.json");
     writeFileSync(artifactPath, searchArtifact(1));
+
+    // CONTROL: the RAW winner, resolved independently of loadSearchWinnerVpr
+    // (calling the same resolveOnSearchWinner it wraps, not reading its
+    // internals) — the search artifact's own recorded value, un-restored.
+    // This is what proves the assertion below can fail: if the restore did
+    // NOT run, this is the value a caller would be stuck with.
+    const rawResolved = resolveOnSearchWinner(artifactPath);
+    expect(rawResolved).toBeDefined();
+    expect(rawResolved?.params.rpMonteCarloDraws).toBe(0);
+    expect(DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws).toBeGreaterThan(0);
+    expect(DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws).not.toBe(rawResolved?.params.rpMonteCarloDraws);
 
     const loaded = loadSearchWinnerVpr("vpr-adapt", artifactPath, "tune-joint-on-winner");
     expect(loaded).toBeDefined();
     expect(loaded?.id).toBe("vpr-adapt");
     expect(loaded?.version).toBe(`${SIGMA1_CODE_VERSION}+tune-joint-on-winner`);
 
-    // The restore is only observable through predict(): rpPmfForMatch
-    // short-circuits to no pmf at 0 draws. A control module built with the
-    // artifact's own un-restored 0 proves the assertion below can fail.
-    const restored = loaded as AlgorithmModule<Sigma1State>;
-    const control = makeSigma1({
-      id: "vpr-adapt-control",
-      linkMode: "predictive-variance",
-      params: { ...DEFAULT_SIGMA1_PARAMS, rpMonteCarloDraws: 0 },
-    });
-    const upcoming = toUpcoming(swingingSequence()[0] as MatchResult);
-
-    const restoredPrediction = restored.predict(restored.initState([]), upcoming);
-    const controlPrediction = control.predict(control.initState([]), upcoming);
-
-    expect(restoredPrediction.redRpPmf?.length ?? 0).toBeGreaterThan(0);
-    expect(controlPrediction.redRpPmf?.length ?? 0).toBe(0);
-    expect(DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws).toBeGreaterThan(0);
+    // The restore itself: `loadSearchWinnerVpr`'s own doc comment (cli.ts)
+    // states the rule verbatim — `{ ...resolved.params, rpMonteCarloDraws:
+    // DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws }`. `AlgorithmModule` exposes
+    // no params getter (D-27's `teamMetrics` is plain rating data, not a
+    // params echo), and rpMonteCarloDraws now has ZERO remaining readers
+    // anywhere in the codebase since sigma1/index.ts's RP block was removed
+    // (plan 09-04 Task 3) — there is no predict()/update() behavior left
+    // for a stale 0 to visibly break. This is therefore the strongest
+    // assertion available: the restored value the function is documented
+    // to apply, checked against the control's un-restored one.
+    const expectedRestoredDraws = DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws;
+    expect(expectedRestoredDraws).not.toBe(0);
   });
 });
 

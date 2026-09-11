@@ -27,15 +27,17 @@
  * this is the only place in the codebase that rounding happens (see
  * `rounding.ts`'s file header for the full boundary argument).
  *
- * Monte Carlo note (04-04-PLAN.md's "resolving a discretion item"): D-08's
- * scheduled-match RP pmf is produced by whatever `predict()` already
- * computes for the promoted VPR module (`rpMonteCarloDraws` from its
- * pinned params) — this file does not touch that computation. Changing it
- * would move the committed prediction-stream digest and require a new
- * promoted version (Phase 3 work), which is out of this phase's scope fence.
- * The 10 ms Worker question this raises is answered by the subrequest/CPU
- * budget and D-15's deferral mechanism (plans 04-05/04-07), not by changing
- * the model here.
+ * RP pmf note (plan 09-04 Task 3 update of 04-04-PLAN.md's original "resolving
+ * a discretion item"): a scheduled-match's RP pmf is produced by
+ * `makeRankingPointFiller`'s call to `analyticRpPmf` (`rankingPoints/
+ * analyticPmf.ts`'s closed form), never by any algorithm's own `predict()` —
+ * this used to read "whatever `predict()` already computes for the promoted
+ * VPR module (`rpMonteCarloDraws` from its pinned params)", describing a
+ * computation VPR no longer performs (its `predict()` stopped emitting RP
+ * entirely; `SigmaScoutLayer`/`makeRankingPointFiller` are the uniform,
+ * algorithm-independent source for every algorithm now). The 10 ms Worker
+ * question this raised is answered by the subrequest/CPU budget and D-15's
+ * deferral mechanism (plans 04-05/04-07), not by changing the model here.
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

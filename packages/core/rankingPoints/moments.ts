@@ -3,9 +3,11 @@
  *
  * Everything else in `packages/core/rankingPoints/` is universal: the ten
  * per-season rule modules are game-manual data entry, `rules.ts` is a registry,
- * `constants.ts` is FRC domain (event tiers, RP eligibility), and
- * `distribution.ts` is Monte Carlo machinery. None of them knows what a rating
- * model is.
+ * `constants.ts` is FRC domain (event tiers, RP eligibility), `marginals.ts`
+ * is per-variable probability fitting, and `analyticPmf.ts` is the closed-form
+ * pmf engine (plan 09-04 — this used to name `distribution.ts`'s Monte Carlo
+ * machinery, a module this repo no longer has). None of them knows what a
+ * rating model is.
  *
  * This file is the one place the two halves meet. An algorithm that can fill in
  * the numbers below gets ranking points, per-bonus probabilities and the rank
@@ -46,7 +48,7 @@
  * how they were reached.
  */
 
-/** For one alliance: predicted RP-relevant moments, ready for `distribution.ts`'s joint Monte Carlo draw. */
+/** For one alliance: predicted RP-relevant moments, consumed by `analyticPmf.ts`'s closed-form pmf (plan 09-04 Task 3 — this used to read "ready for `distribution.ts`'s joint Monte Carlo draw," a module this repo no longer has). */
 export interface AllianceRpMoments {
   /** Threshold-variable names, in `ruleModule.thresholdVariables` order — every other array/matrix here is indexed against this order. */
   readonly variableNames: readonly string[];
@@ -60,20 +62,4 @@ export interface AllianceRpMoments {
   readonly scoreVariance: number;
   /** Length-T cross-covariance between the alliance's total score and each threshold variable. See this file's header before supplying zeros. */
   readonly scoreCrossCovariance: readonly number[];
-}
-
-/**
- * The Monte Carlo settings `rpPmfForMatch` needs.
- *
- * Replaces a `Sigma1ResolvedParams` import that reached into a whole tuned
- * parameter set for exactly two fields. Both are REQUIRED and have no default
- * on purpose: the values VPR shipped were chosen for VPR, and a new caller
- * should pick its own rather than silently inherit them. `draws` trades
- * accuracy against CPU; `seed` exists so a match's pmf is reproducible.
- */
-export interface RpMonteCarloConfig {
-  /** Combined with an FNV-1a hash of the match key so each match draws its own deterministic stream. */
-  readonly rpMonteCarloSeed: number;
-  /** Draws per match. `0` short-circuits to the degenerate no-bonus pmf. */
-  readonly rpMonteCarloDraws: number;
 }

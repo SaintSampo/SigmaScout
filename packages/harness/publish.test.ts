@@ -828,7 +828,21 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
    * non-vacuous.
    */
   it("Test 8 (folded todo, PD-08; qm-side event assertions flipped by quick 260905-jj8): a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2024early", year: 2024 }));
     upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
+    // Plan 09-04 Task 3: VPR no longer computes its OWN RP pmf independent
+    // of Swing Factor band history (that bypass — VPR always having RP by
+    // its very first played match — died when VPR's own RP block was
+    // removed, not repointed). `#rpFieldsFor`'s band-variance gate now
+    // applies to VPR exactly as it always has to OPR/EPA, and Swing Factor
+    // needs 2 PLAYED matches per team before a band exists. These two
+    // warm-up matches (an earlier event, same roster, real scores) exist
+    // solely to give every team on "2024casj_qm1" that history BEFORE it
+    // folds — F8/F9's cold-start gate is explicitly out of scope for this
+    // phase (09-CONTEXT.md), so this test widens its fixture rather than
+    // relying on a bypass this phase intentionally removed.
+    upsertMatch(db, seasonMatch({ matchKey: "2024early_qm1", eventKey: "2024early", compLevel: "qm", sortTime: 100, redScore: 90, blueScore: 70 }));
+    upsertMatch(db, seasonMatch({ matchKey: "2024early_qm2", eventKey: "2024early", compLevel: "qm", sortTime: 200, redScore: 85, blueScore: 75 }));
     upsertMatch(
       db,
       seasonMatch({

@@ -94,7 +94,7 @@ describe("Gaussian family — retained as the inert default, no continuity corre
     expect(probAtMost(fit, 10)).toBe(0.5);
   });
 
-  it("no continuity correction: probAtLeast(14) equals 1 − Φ((14−10)/4) exactly, not 1 − Φ((13.5−10)/4) — today's Monte Carlo draws a continuous normal", () => {
+  it("no continuity correction: probAtLeast(14) equals 1 − Φ((14−10)/4) exactly, not 1 − Φ((13.5−10)/4) — the Gaussian model treats this as a continuous normal, matching the deleted Monte Carlo's own draw semantics (plan 09-04)", () => {
     const fit = fitMarginal(10, 16, "gaussian");
     const expected = 1 - standardNormalCdf((14 - 10) / 4);
     expect(probAtLeast(fit, 14)).toBe(expected);

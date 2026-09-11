@@ -1,11 +1,10 @@
 /**
  * Answers 04-RESEARCH.md's Assumption A1 BEFORE anything depends on it: does
  * `ml-matrix` (the linear-algebra dependency `packages/core/algorithms/
- * opr.ts` uses for its SVD solve and `rankingPoints/distribution.ts` uses for its
- * Cholesky decomposition) bundle and EXECUTE inside the actual Workers
- * runtime — not just under Node/Vitest, where `packages/core/isomorphic
- * .test.ts` only proves the import specifiers are clean, never that the
- * dependency's own transitive tree loads (Pitfall 5).
+ * opr.ts` uses for its SVD solve) bundle and EXECUTE inside the actual
+ * Workers runtime — not just under Node/Vitest, where `packages/core/
+ * isomorphic.test.ts` only proves the import specifiers are clean, never
+ * that the dependency's own transitive tree loads (Pitfall 5).
  *
  * NOT the Worker's entrypoint anymore (plan 04-06 pointed `wrangler.toml`'s
  * `main` at `src/scheduled.ts`, the real `scheduled()` orchestration) —
@@ -19,20 +18,26 @@
  * claim) and actually RUN it, once, on a `fetch` request.
  *
  * `opr.initState`/`opr.predict`/`opr.update` exercise `ml-matrix`'s
- * `SingularValueDecomposition` (opr.ts line 25); `rpPmfForMatch` exercises
- * `ml-matrix`'s `CholeskyDecomposition` (rankingPoints/distribution.ts). Both
- * fixtures below are hand-built minimal data, not read from any real corpus
- * — this Worker never imports `better-sqlite3` or the corpus (that boundary
- * is what `packages/core/isomorphic.test.ts` already enforces).
+ * `SingularValueDecomposition` (opr.ts line 25) — this is now the SOLE
+ * remaining proof of Assumption A1 in this file; do not assume a second
+ * independent witness exists.
+ *
+ * PLAN 09-04 TASK 3: `analyticRpPmf` (`rankingPoints/analyticPmf.ts`)
+ * replaces the deleted `rpPmfForMatch` (`rankingPoints/distribution.ts`,
+ * whose Cholesky decomposition WAS this file's second `ml-matrix` witness).
+ * The closed form has NO matrix dependency at all — it exercises no
+ * `ml-matrix` code whatsoever — so this half of the smoke test no longer
+ * proves Assumption A1. What it proves instead, and what makes it worth
+ * keeping rather than deleting: it is the standing proof that the exact RP
+ * pmf path plan 09-08 needs bundles and EXECUTES inside the real Workers
+ * runtime, for a live event's `scheduled()` tick — arguably a MORE useful
+ * proof for this project's next phase than the decomposition it replaces.
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { MatchResult, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
-import { rpPmfForMatch } from "../../../packages/core/rankingPoints/distribution.js";
-import type { AllianceRpMoments } from "../../../packages/core/algorithms/sigma1/rp/state.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "../../../packages/core/rankingPoints/analyticPmf.js";
+import type { AllianceRpMoments } from "../../../packages/core/rankingPoints/moments.js";
 import { rpRuleModuleForSeason } from "../../../packages/core/rankingPoints/rules.js";
-import { DEFAULT_SIGMA1_PARAMS } from "../../../packages/core/algorithms/sigma1/params.js";
-import { resolveSigma1Params } from "../../../packages/core/algorithms/sigma1/scale.js";
-import { emptyExpandingStats } from "../../../packages/core/scoring/expandingStats.js";
 
 const EVENT_KEY = "2026testq";
 const MATCH_KEY = "2026testq_qm1";
@@ -50,6 +55,7 @@ const upcomingMatch: UpcomingMatch = {
   redSurrogates: [],
   blueSurrogates: [],
   eventType: REGIONAL_EVENT_TYPE,
+  week: null,
 };
 
 const playedMatch: MatchResult = {
@@ -70,7 +76,7 @@ const playedMatch: MatchResult = {
   scoreBreakdownRaw: null,
 };
 
-/** A hand-built, positive-definite `AllianceRpMoments` fixture — diagonal variance block, zero cross-covariance, so `rpPmfForMatch`'s Cholesky decomposition succeeds on the first (unridged) attempt. Real moments come from `predictAllianceRpMoments` (`rp/state.ts`); this smoke test only needs SOME valid moments to prove the decomposition runs inside the Workers runtime. */
+/** A hand-built, DIAGONAL `AllianceRpMoments` fixture, zero cross-covariance — `analyticRpPmf`'s independence precondition (D-08) requires exactly this shape, and a real algorithm's own moments (e.g. `predictAllianceRpMoments`, `sigma1/rp/state.ts`) is a DIFFERENT thing this smoke test does not need; SOME valid moments are enough to prove the closed form runs inside the Workers runtime. */
 function fixtureAllianceRpMoments(variableNames: readonly string[], scoreMean: number, scoreVariance: number): AllianceRpMoments {
   const T = variableNames.length;
   return {
@@ -105,25 +111,20 @@ function runBundleSmoke(): BundleSmokeResult {
   state = opr.update(state, playedMatch);
   const predictionAfterUpdate = opr.predict(state, upcomingMatch);
 
-  // --- sigma1 RP distribution: exercises ml-matrix's CholeskyDecomposition -
+  // --- analyticRpPmf: the closed-form RP pmf plan 09-08 needs to run in a
+  // live Worker tick. No ml-matrix here (see file header) — this proves the
+  // exact path bundles and executes, not the matrix dependency.
   const ruleModule = rpRuleModuleForSeason(2026);
   const variableNames = ruleModule.thresholdVariables.map((v) => v.name);
   const red = fixtureAllianceRpMoments(variableNames, 120, 400);
   const blue = fixtureAllianceRpMoments(variableNames, 95, 380);
-  const { redPmf, bluePmf } = rpPmfForMatch({
+  const { redPmf, bluePmf } = analyticRpPmf({
     red,
     blue,
     ruleModule,
     eventType: REGIONAL_EVENT_TYPE,
-    matchKey: MATCH_KEY,
     compLevel: "qm",
-    // `rpPmfForMatch` takes RESOLVED params (scale-relative fractions already
-    // converted to absolute variances against the season's own alliance-score
-    // stats), not the raw declared set. Resolving against empty stats is the
-    // documented cold-start path and is what every sigma1 unit test does — this
-    // smoke proof only needs the dependency to LOAD and EXECUTE in the Workers
-    // runtime, so cold-start scale is sufficient and honest here.
-    params: resolveSigma1Params(DEFAULT_SIGMA1_PARAMS, emptyExpandingStats()),
+    config: RP_LAYER_CONFIG_DEFAULT,
   });
 
   return {

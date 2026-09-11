@@ -753,7 +753,7 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
     expect(Math.sign(above)).toBe(-Math.sign(below));
   });
 
-  it("still emits a non-empty redRpPmf/blueRpPmf for a fixture with a real breakdown", () => {
+  it("no longer emits redRpPmf/blueRpPmf from predict() directly, even for a fixture with a real breakdown (plan 09-04 Task 3: VPR's own RP block was removed, not repointed — see sigma1/index.ts's own removal note beside redScoreVarianceOwn)", () => {
     const { afterSecond } = twoUpdates(40);
     const upcoming: UpcomingMatch = {
       matchKey: "2024syn_qm3",
@@ -769,7 +769,12 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
       week: null,
     };
     const prediction = vpr.predict(afterSecond, upcoming);
-    expect(prediction.redRpPmf?.length ?? 0).toBeGreaterThan(0);
-    expect(prediction.blueRpPmf?.length ?? 0).toBeGreaterThan(0);
+    expect(prediction.redRpPmf).toBeUndefined();
+    expect(prediction.blueRpPmf).toBeUndefined();
+    // The fields this test's title used to care about ARE still there —
+    // predict() keeps computing and returning them, just no longer folds
+    // them into an RP pmf itself.
+    expect(Number.isFinite(prediction.redScoreVarianceOwn)).toBe(true);
+    expect(Number.isFinite(prediction.blueScoreVarianceOwn)).toBe(true);
   });
 });
