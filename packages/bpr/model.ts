@@ -4,9 +4,18 @@
  * Per-team latent scoring contribution tracked by a Gaussian filter, in
  * SCALE-FREE units: a team's rating is its contribution measured in multiples
  * of (average alliance output / 3), so r = 1 is a league-average team. The
- * season's point scale is estimated online and divides out of the win
- * probability entirely, which is what lets one hyperparameter set apply to a
- * season whose scoring level was never observed at design time.
+ * point scale is estimated online and divides out of the win probability
+ * entirely, which is what lets one hyperparameter set apply to a season whose
+ * scoring level was never observed at design time.
+ *
+ * "The season's point scale" is what this said until 2026-09-10, and it is
+ * wrong in a way worth naming: `scaleMinLr` floors the learning rate and
+ * `scaleCount` never resets, so `scale` is a ~100-match trailing EWMA over the
+ * globally interleaved stream, not a season constant. See
+ * `packages/core/algorithms/bpr.ts`'s header for the measurements and for why
+ * the imprecision cancels out of a published value but makes `muL + muS`
+ * non-comparable between teams. DOC-ONLY correction: no parameter, no
+ * behaviour, and nothing about the sealed 2023-2026 holdout is touched here.
  *
  * Two timescales: slow talent L (a robot's underlying quality) plus fast form S
  * (mean-reverting - captures a robot being repaired, upgraded, or breaking).

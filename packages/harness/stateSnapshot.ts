@@ -730,8 +730,13 @@ function serializeBprState(algorithmId: string, algorithmVersion: string, state:
     season: state.season,
     // All three are genuine league-level state, not derived: logTau is the
     // online link temperature, and scale/scaleCount are the online estimate of
-    // the season's point level that BPR's scale-free ratings are denominated
-    // against. Dropping any of them would silently reset a resumed model.
+    // the point level that BPR's scale-free ratings are denominated against —
+    // a ~100-match trailing EWMA over the globally interleaved stream, NOT a
+    // season-level constant (corrected 2026-09-10; see
+    // `packages/core/algorithms/bpr.ts`'s header). `scaleCount` is what pins
+    // that learning rate at its `scaleMinLr` floor, so it is load-bearing
+    // state and not a diagnostic counter. Dropping any of them would silently
+    // reset a resumed model.
     logTau: state.logTau,
     scale: state.scale,
     scaleCount: state.scaleCount,

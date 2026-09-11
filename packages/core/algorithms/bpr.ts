@@ -3,10 +3,33 @@
  *
  * A per-team latent scoring contribution tracked by a Gaussian filter in
  * SCALE-FREE units: a rating of 1.0 is a league-average team, measured in
- * multiples of (average alliance output / 3). The season's point scale is
- * estimated online and cancels out of the win probability, which is what lets
- * one parameter set apply to a season whose scoring level was never observed
+ * multiples of (average alliance output / 3). The point scale is estimated
+ * online and cancels out of the win probability, which is what lets one
+ * parameter set apply to a season whose scoring level was never observed
  * when the parameters were chosen.
+ *
+ * `scale` is NOT a season-level constant, despite what "the season's point
+ * scale" would suggest and what this comment claimed until 2026-09-10.
+ * `scaleMinLr` floors the learning rate at 0.01 and `scaleCount` never resets
+ * (see `carrySeason`), so it is a ~100-match trailing EWMA over the GLOBALLY
+ * INTERLEAVED match stream — during a peak week that is roughly 4% of the
+ * weekend's matches, drawn from whichever unrelated events happen to sit
+ * adjacent in sort order. Measured over 2026 (208 events): the value at an
+ * event's last match misses that event's own mean alliance score by a median
+ * of 28%, 68% at the 90th percentile, and +123% at week-0 events still
+ * carrying the prior season's level. It is a rolling global reference, never
+ * "points per league-average robot at this event".
+ *
+ * That imprecision does not reach a published number, because `r` is fit
+ * against the SAME reference that `teamMetrics` multiplies back in: an
+ * inflated scale depresses `r` by the same factor and the product is
+ * unchanged. Verified 2026-09-10 against event-scoped OPR over 135 events and
+ * 3,638 teams — the median BPR/OPR ratio per event has correlation -0.067
+ * with that event's scoring level, i.e. flat across a 5x range. What the
+ * cancellation does NOT survive is reading `muL + muS` on its own: a team
+ * measured while the global EWMA was low carries a higher `r` for the same
+ * output, so the scale-free rating is not comparable BETWEEN teams and must
+ * never be ranked, tiered, or published raw. Only `r * unit` is comparable.
  *
  * PROVENANCE. Structure and hyperparameters were selected using ONLY seasons
  * 2016-2022, then evaluated once on a sealed 2023-2026 holdout: 78.05% winner
@@ -803,6 +826,14 @@ function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
 }
 
 function teamMetrics(state: BprState, teams?: readonly string[]): TeamMetrics {
+  // Points per league-average robot AS OF THIS CALL — a point sample of the
+  // rolling global EWMA described in this file's header, not an event-local
+  // or season-level constant. Publish calls this per match and keeps each
+  // team's value from their own last official match, so every published
+  // `value` pairs a team's `r` with the `unit` contemporaneous to it. Those
+  // two must stay contemporaneous: pairing one team's `r` with another
+  // instant's `unit` produces a number that is neither absolute points nor
+  // field-relative (measured 2026-09-10: doing that inverted the NC top 10).
   const unit = state.scale / 3;
   const keys = teams ?? [...state.teams.keys()];
   const out: TeamMetrics = {};
