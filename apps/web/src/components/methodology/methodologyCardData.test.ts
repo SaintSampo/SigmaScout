@@ -25,7 +25,7 @@ const EM_DASH = "—";
 const EXPECTED_CARD_ORDER = [
   "/methodology/epa-vs-statbotics",
   "/methodology/compare",
-  "/methodology/swing",
+  "/methodology/sigma",
   "/methodology/acknowledgments",
 ];
 
@@ -34,8 +34,8 @@ describe("METHODOLOGY_CARDS", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the Swing Score card third and Acknowledgments last", () => {
-    expect(METHODOLOGY_CARDS[2]?.to).toBe("/methodology/swing");
+  it("keeps the Sigma Score card third and Acknowledgments last", () => {
+    expect(METHODOLOGY_CARDS[2]?.to).toBe("/methodology/sigma");
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
 
@@ -58,10 +58,10 @@ describe("METHODOLOGY_CARDS", () => {
     }
   });
 
-  it("keeps the Swing Score card's own copy free of all three dash characters", () => {
-    const swingCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/swing");
-    expect(swingCard, "the swing card is gone from the hub").toBeDefined();
-    for (const text of [swingCard?.title ?? "", swingCard?.blurb ?? ""]) {
+  it("keeps the Sigma Score card's own copy free of all three dash characters", () => {
+    const sigmaCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/sigma");
+    expect(sigmaCard, "the sigma card is gone from the hub").toBeDefined();
+    for (const text of [sigmaCard?.title ?? "", sigmaCard?.blurb ?? ""]) {
       expect(text).not.toContain(HYPHEN_MINUS);
       expect(text).not.toContain(EN_DASH);
       expect(text).not.toContain(EM_DASH);

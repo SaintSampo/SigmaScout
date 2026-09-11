@@ -4,7 +4,16 @@ created: 2026-09-10
 source: quick task 260910-u7g shipping Sigma Score for BPR; the page was found during the consumer inventory
 resolves_phase:
 priority: high
+completed: 2026-09-10
 ---
+
+> **RESOLVED 2026-09-10.** Option 1 was taken: the page was rewritten as
+> **"Sigma Score and the match band"** at `/methodology/sigma`, and the Swing
+> page, its content module, its two test files and its route were deleted. Every
+> false claim listed below is gone. The new page carries eight sections and six
+> figures, including one with no predecessor (`evidence`) that draws how much a
+> team's own matches move its reading off the prior. The voice gate and the
+> rendered-DOM dash gate both ported and both pass.
 
 # `/methodology/swing` now explains a number the site no longer shows
 

@@ -22,7 +22,7 @@ export interface MethodologyCardDescriptor {
   readonly to:
     | "/methodology/epa-vs-statbotics"
     | "/methodology/compare"
-    | "/methodology/swing"
+    | "/methodology/sigma"
     | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
@@ -61,10 +61,10 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     testId: "methodology-card-compare",
   },
   {
-    to: "/methodology/swing",
-    title: "Swing Score and the match band",
-    blurb: "What a team's Swing number means, and how to read the coloured bars on a match row.",
-    testId: "methodology-card-swing",
+    to: "/methodology/sigma",
+    title: "Sigma Score and the match band",
+    blurb: "What a team's Sigma number means, and how to read the coloured bars on a match row.",
+    testId: "methodology-card-sigma",
   },
   {
     to: "/methodology/acknowledgments",

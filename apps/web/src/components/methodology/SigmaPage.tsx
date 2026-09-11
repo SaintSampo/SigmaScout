@@ -1,10 +1,10 @@
 import type { ReactElement, ReactNode } from "react";
 import {
-  SWING_FIGURES,
-  SWING_LEAD,
-  SWING_SECTIONS,
-  type SwingFigureId,
-} from "./swingContent.js";
+  SIGMA_FIGURES,
+  SIGMA_LEAD,
+  SIGMA_SECTIONS,
+  type SigmaFigureId,
+} from "./sigmaContent.js";
 import {
   MATCH_GEOMETRY,
   allianceMarkPositions,
@@ -13,15 +13,36 @@ import {
   scaleToPlot,
 } from "../team/matchAxis.js";
 import {
-  SWING_FACTOR_HALF_LIFE_MATCHES,
   allianceSwingBandVariance,
-  swingDecayFor,
-  swingFactorFromDeviations,
 } from "../../../../../packages/harness/swingFactor.js";
+import {
+  DEFAULT_SIGMA_SCORE_OPTIONS,
+  SigmaScoreAccumulator,
+} from "../../../../../packages/harness/sigmaScore.js";
 
 /**
- * The `/methodology/swing` page body (quick task 260909-3fj): every prose
- * string comes from `swingContent.ts`, and the five drawings are hand
+ * One team's Sigma Score over an illustrative miss list, computed by the SAME
+ * accumulator the pipeline publishes with.
+ *
+ * The figures below never hand-compute a drawn value. That is the rule the
+ * previous version of this page established and it is worth keeping: a drawing
+ * that recomputes the estimator in its own way is free to drift from the
+ * shipped one, and a teaching figure that quietly disagrees with the site is
+ * worse than no figure.
+ *
+ * A fixed talent is supplied so the drawing is deterministic and does not
+ * depend on population state it has no way to show.
+ */
+function illustrativeSigma(misses: readonly number[], talent = 40): number {
+  const accumulator = new SigmaScoreAccumulator();
+  accumulator.observeTalent("frcExample", talent);
+  for (const miss of misses) accumulator.fold("frcExample", miss);
+  return accumulator.sigmaFor("frcExample");
+}
+
+/**
+ * The `/methodology/sigma` page body (quick task 260910-u7g): every prose
+ * string comes from `sigmaContent.ts`, and the six drawings are hand
  * authored inline SVG. Static, no artifact, no network — this page takes no
  * props and reads nothing from the server, because everything it explains is
  * a fact about how the site computes a number rather than a number the site
@@ -32,10 +53,10 @@ import {
  * The three quantities the drawings depend on are computed at render time by
  * `packages/harness/swingFactor.ts` itself, never retyped here:
  *
- *   - F2's band width is `swingFactorFromDeviations` over the illustrative
- *     deviation array, and its dot opacities are `swingDecayFor` raised to
+ *   - F2's band width is `SigmaScoreAccumulator` over the illustrative
+ *     miss array, and its dot opacities are the variance half life raised to
  *     each observation's age.
- *   - F3's two `±` labels are `swingFactorFromDeviations` over each row's own
+ *   - F3's two `±` labels are `SigmaScoreAccumulator` over each row's own
  *     dots, so a label can never drift from the marks beside it.
  *   - F4's combined bar is the square root of `allianceSwingBandVariance`, so
  *     the "±17.32, never ±30" claim the prose makes is measured on screen by
@@ -54,7 +75,7 @@ import {
  *
  * DESIGN CONSTRAINTS (`.claude/skills/sketch-findings-sigmascout/`, references
  * `uncertainty-display.md` and `chart-craft.md`), each of which this file is
- * checked against by `src/routes/methodology.swing.test.tsx`:
+ * checked against by `src/routes/methodology.sigma.test.tsx`:
  *
  *   - Every colour is a custom property. A literal hex value in this file
  *     fails the route test's source scan.
@@ -103,8 +124,8 @@ const ANNOTATION_FONT = 11;
  * `<title>` child), a horizontal scroll region so the page itself never
  * scrolls sideways, and the caption from the content module.
  */
-function Figure({ figureId, height, children }: { figureId: SwingFigureId; height: number; children: ReactNode }) {
-  const figure = SWING_FIGURES.find((entry) => entry.id === figureId);
+function Figure({ figureId, height, children }: { figureId: SigmaFigureId; height: number; children: ReactNode }) {
+  const figure = SIGMA_FIGURES.find((entry) => entry.id === figureId);
   if (figure === undefined) return null;
   return (
     <figure className="m-0 flex flex-col gap-[var(--spacing-xs)]">
@@ -278,7 +299,7 @@ function EvenSplitFigure(): ReactElement {
  * Example misses for one team, oldest first, labelled as an example in the
  * figure's caption. Chosen so the team's own average sits well above zero:
  * that gap IS the story, because it is the model's steady bias rather than
- * anything the robot did, and the shaded band beside it is the swing.
+ * anything the robot did, and the shaded band beside it is Sigma.
  */
 const F2_EXAMPLE_MISSES = [15, 20, 17, 23, 18, 22, 16, 21, 19, 20];
 const F2_H = 288;
@@ -290,15 +311,15 @@ const F2_AXIS_BOTTOM_Y = 244;
 const F2_FIRST_DOT_X = 70;
 const F2_LAST_DOT_PAD = 20;
 
-function DeviationsFigure(): ReactElement {
-  const decay = swingDecayFor(SWING_FACTOR_HALF_LIFE_MATCHES);
+function LevelAndSwingFigure(): ReactElement {
+  const decay = 0.5 ** (1 / DEFAULT_SIGMA_SCORE_OPTIONS.varHalfLife);
   const lastIndex = F2_EXAMPLE_MISSES.length - 1;
   const weights = F2_EXAMPLE_MISSES.map((_, index) => decay ** (lastIndex - index));
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
   const weightedMean =
     F2_EXAMPLE_MISSES.reduce((sum, miss, index) => sum + miss * (weights[index] as number), 0) / totalWeight;
   // The drawn band width is the SHIPPING function's answer, not a guess at it.
-  const swing = swingFactorFromDeviations(F2_EXAMPLE_MISSES) ?? 0;
+  const swing = illustrativeSigma(F2_EXAMPLE_MISSES);
 
   const yFor = (miss: number) => F2_ZERO_Y - (miss / F2_MISS_MAX) * F2_MISS_PX;
   const step = (FIGURE_PLOT_W - F2_FIRST_DOT_X - F2_LAST_DOT_PAD) / lastIndex;
@@ -308,7 +329,7 @@ function DeviationsFigure(): ReactElement {
   const bandBottomY = yFor(weightedMean - swing);
 
   return (
-    <Figure figureId="deviations" height={F2_H}>
+    <Figure figureId="level-and-swing" height={F2_H}>
       <rect
         x={PLOT_LEFT}
         y={bandTopY}
@@ -356,7 +377,7 @@ function DeviationsFigure(): ReactElement {
         scored less than predicted
       </text>
       <text x={PLOT_RIGHT - 4} y={bandTopY - 12} textAnchor="end" fontSize={ANNOTATION_FONT} fill="var(--color-text-primary)">
-        the shaded band is the swing
+        the shaded band is Sigma
       </text>
 
       <line x1={PLOT_LEFT + 26} y1={meanY} x2={PLOT_LEFT + 26} y2={F2_ZERO_Y} stroke="var(--color-text-primary)" strokeWidth={1} />
@@ -372,6 +393,98 @@ function DeviationsFigure(): ReactElement {
       <text x={xFor(lastIndex)} y={F2_ZERO_Y + 44} textAnchor="middle" fontSize={TICK_FONT} fill="var(--color-text-muted)">
         newest match
       </text>
+    </Figure>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* F2b — evidence moves the reading off the prior                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The figure that carries SIGMA'S DISTINCTIVE IDEA, and the one with no
+ * equivalent on the page this replaced.
+ *
+ * Three example teams, identical in every way except how many matches they have
+ * played. Each row is a track running from the PRIOR (what robots of this
+ * strength usually do) on the left to that team's OWN measured spread on the
+ * right. The published Sigma sits on that track, and more matches slide it
+ * further toward its own evidence.
+ *
+ * Every drawn position is a real `SigmaScoreAccumulator` reading, not a sketch
+ * of one: each row folds its own miss list and asks the shipped accumulator
+ * where it landed. A hand-drawn approximation here would be the exact drift the
+ * rest of this page's figures were built to avoid.
+ *
+ * The three rows deliberately share ONE miss pattern, repeated, so the only
+ * thing differing between them is the COUNT. If the rows also differed in how
+ * erratic they were, the figure would be showing two effects at once and
+ * demonstrating neither.
+ */
+const F2B_PATTERN = [14, -12, 15, -13, 12, -14, 13, -15, 14, -12, 15, -13, 12, -14, 13, -15, 14, -12, 15, -13];
+const F2B_MATCH_COUNTS = [2, 6, 20];
+const F2B_TALENT = 40;
+const F2B_H = 216;
+const F2B_ROW_Y = [58, 112, 166];
+const F2B_TRACK_PAD = 46;
+
+function EvidenceFigure(): ReactElement {
+  // The left anchor: the prior alone, before this team has played anything.
+  const priorOnly = new SigmaScoreAccumulator();
+  priorOnly.observeTalent("frcFresh", F2B_TALENT);
+  const priorValue = priorOnly.sigmaFor("frcFresh");
+
+  const rows = F2B_MATCH_COUNTS.map((count) => ({
+    count,
+    sigma: illustrativeSigma(F2B_PATTERN.slice(0, count), F2B_TALENT),
+  }));
+
+  // The right anchor: the widest reading any row reached, so the track spans
+  // the whole journey the figure is about.
+  const ownEvidence = Math.max(...rows.map((row) => row.sigma));
+  const lo = Math.min(priorValue, ...rows.map((row) => row.sigma));
+  const hi = Math.max(priorValue, ownEvidence);
+  const span = hi - lo || 1;
+
+  const trackLeft = PLOT_LEFT + F2B_TRACK_PAD;
+  const trackRight = PLOT_RIGHT - F2B_TRACK_PAD;
+  const xFor = (value: number) => trackLeft + ((value - lo) / span) * (trackRight - trackLeft);
+
+  return (
+    <Figure figureId="evidence" height={F2B_H}>
+      <text x={trackLeft} y={26} textAnchor="middle" fontSize={LABEL_FONT} fill="var(--color-text-muted)">
+        what similar robots do
+      </text>
+      <text x={trackRight} y={26} textAnchor="middle" fontSize={LABEL_FONT} fill="var(--color-text-muted)">
+        what this robot showed
+      </text>
+      {rows.map((row, index) => {
+        const y = F2B_ROW_Y[index] as number;
+        return (
+          <g key={row.count}>
+            <GutterLabel y={y - 4}>{`${row.count} matches played`}</GutterLabel>
+            <line
+              x1={trackLeft}
+              y1={y}
+              x2={trackRight}
+              y2={y}
+              stroke="var(--color-border-subtle)"
+              strokeWidth={2}
+              strokeLinecap="round"
+            />
+            <circle cx={xFor(row.sigma)} cy={y} r={7} fill="var(--color-text-primary)" />
+            <text
+              x={xFor(row.sigma)}
+              y={y - 14}
+              textAnchor="middle"
+              fontSize={ANNOTATION_FONT}
+              fill="var(--color-text-primary)"
+            >
+              {row.sigma.toFixed(2)}
+            </text>
+          </g>
+        );
+      })}
     </Figure>
   );
 }
@@ -403,13 +516,13 @@ function SameRatingRow({
   xFor: (miss: number) => number;
 }) {
   // The label and the marks come from ONE call, so they cannot disagree.
-  const swing = swingFactorFromDeviations(misses) ?? 0;
+  const swing = illustrativeSigma(misses);
   return (
     <g>
       <GutterLabel y={rowY - 10}>{teamLabel}</GutterLabel>
       <GutterLabel y={rowY + 4}>{`Total ${F3_EXAMPLE_TOTAL}`}</GutterLabel>
       <text x={GUTTER_TEXT_X} y={rowY + 20} textAnchor="end" fontSize={ANNOTATION_FONT} fill="var(--color-text-primary)">
-        {`Swing ${swing.toFixed(2)}`}
+        {`Sigma ${swing.toFixed(2)}`}
       </text>
       {misses.map((miss, index) => (
         <circle
@@ -638,22 +751,23 @@ function MatchBandFigure(): ReactElement {
 
 /**
  * Keyed by figure id so `tsc` fails loudly if a sixth figure is added to
- * `SWING_FIGURE_IDS` without a renderer, rather than the page silently
+ * `SIGMA_FIGURE_IDS` without a renderer, rather than the page silently
  * dropping it.
  */
-const FIGURE_RENDERERS: Record<SwingFigureId, () => ReactElement> = {
+const FIGURE_RENDERERS: Record<SigmaFigureId, () => ReactElement> = {
   "even-split": EvenSplitFigure,
-  deviations: DeviationsFigure,
+  "level-and-swing": LevelAndSwingFigure,
+  evidence: EvidenceFigure,
   "same-rating": SameRatingFigure,
   "squares-add": SquaresAddFigure,
   "match-band": MatchBandFigure,
 };
 
-export function SwingPage() {
+export function SigmaPage() {
   return (
     <div className="flex flex-col gap-[var(--spacing-lg)]">
-      <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{SWING_LEAD}</p>
-      {SWING_SECTIONS.map((section) => {
+      <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{SIGMA_LEAD}</p>
+      {SIGMA_SECTIONS.map((section) => {
         const DrawFigure = section.figureId === undefined ? undefined : FIGURE_RENDERERS[section.figureId];
         return (
           <section key={section.id} id={section.id} className="flex flex-col gap-[var(--spacing-xs)]">
