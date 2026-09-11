@@ -404,7 +404,7 @@ the D-05 claim. Confirmed:
 Both halves match, in both value and coupling. Statbotics treats them as one decision and so does
 SigmaScout. `ALREADY MATCHES` in all nine seasons; the mechanism is season-independent.
 
-## Mechanism 8 — the win-probability scale — DELIBERATE DIFFERENCE (L-01)
+## Mechanism 8 — the win-probability scale — SD ADOPTED FROM WEEK 2, DELIBERATE DIFFERENCE (L-01 remainder)
 
 **The functional form is algebraically IDENTICAL**, and this task checked the sign and the base
 explicitly rather than assuming. Statbotics (reference section 14):
@@ -419,15 +419,69 @@ SigmaScout's denominator is `1 + exp(-(5/8) ln(10) norm_diff)` and Statbotics' i
 `1 + 10^(-(5/8) norm_diff) = 1 + exp(-(5/8) ln(10) norm_diff)`. **The same expression.** Sign, base
 and coefficient all agree.
 
-**What differs is the denominator's source, and it is exactly L-01.** Statbotics divides by
-`self.year_obj.score_sd` — a season-final constant, read point 3 of reference section 19.
-SigmaScout divides by an EXPANDING-WINDOW Welford SD over alliance scores already replayed
-(`epa.ts:predictCore`, `standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD)`), with
-a documented `EPA_FALLBACK_SCORE_SD = 25` before two observations exist. Adopting Statbotics'
-constant would leak season-end variance into a Week 1 prediction, which is precisely the violation
-L-01 forbids and which this project's own failure log names as a past failure.
+**BODY CORRECTED 2026-09-11 (quick task 260911-pon).** Everything from here down replaces prose
+that went stale when `epa@9.0.0+baseline` shipped. Register R3 item 1 was updated at the time;
+this mechanism's own body was not, so it kept asserting three things that are no longer true —
+that `score_sd` is a season-final constant, that SigmaScout's denominator is an expanding-window
+Welford SD in the general case, and that adopting upstream's constant would leak season-end
+variance into a Week 1 prediction. Each of those is retracted below and replaced, not softened.
 
-`DELIBERATE DIFFERENCE` in all nine seasons. See register R3.
+**What Statbotics' denominator actually is.** `self.year_obj.score_sd` — read point 3 of reference
+section 19, `models/epa/main.py:125` — is **a WEEK-1 aggregate**. `backend/src/data/avg.py`'s
+`process_year` filters to `week_one_matches` and derives every `Year` column from that list alone
+(reference section 20; see also the correction block at the top of this file). It is the SD of
+week-1 ALLIANCE SCORES with fouls INCLUDED — the raw score, not the no-foul total — which is
+exactly the quantity `epa.ts:update` already folds, so it is an EXACT target rather than a named
+neighbour.
+
+**What SigmaScout's denominator actually is, in two branches.** Since `epa@9.0.0+baseline` (quick
+task 260911-j2w) `predictCore` reads `state.weekOne.frozen.sd`, the FROZEN week-1 alliance-score
+SD, for every match from week 2 onward. It falls back to the live expanding-window Welford SD —
+`standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD)`, with
+`EPA_FALLBACK_SCORE_SD = 25` before two observations exist — only while week 1 is still running, or
+after a seal that found too little usable data to freeze anything. The freeze fires on the first
+match carrying a numeric week greater than corpus week 0, which in a chronological stream proves
+every week-1 match has already been played (`epaWeekOne.ts:sealWeekOneIfPast`). **So the expanding
+estimate is the WEEK-1 branch, not the general case.**
+
+**The correct walk-forward argument, which is one week wide rather than one season wide.** A week-1
+aggregate is knowable the moment week 1 ends, so reading it from week 2 onward is not a
+walk-forward violation at all — which is precisely why it was adopted rather than refused. The
+violation is confined to **week 1 itself**, where scoring a week-1 match against a week-1 aggregate
+would read matches not yet played. The old claim that adopting upstream's constant "would leak
+season-end variance into a Week 1 prediction" is wrong twice over: there is no season-end variance
+in the constant, and the leak it names is confined to one week.
+
+**VERDICT RE-DERIVED, NOT ASSUMED — and it does NOT change.** The rule applied is the one quick
+task 260911-l2k applied to mechanism 5, and mechanism 5 is named here as the precedent because two
+mechanisms in identical states must not carry different labels. That rule: a quantity ADOPTED
+exactly from week 2 onward and LIVE-ESTIMATED during week 1 alone remains
+`DELIBERATE DIFFERENCE`, because the week-1 window is an L-01 remainder that no implementation work
+can close. Mechanism 5's body already states the correspondence from the other direction — *"That
+is precisely mechanism 8's situation after quick task 260911-j2w, and it takes mechanism 8's label
+rather than a fourth one being invented for it"* — so re-deriving mechanism 8 under mechanism 5's
+rule returns mechanism 8's existing label.
+
+**The two residuals that keep the label.** Neither is closable by writing code, and the second was
+checked against `epaWeekOne.ts` and `epa.ts:update` rather than asserted:
+
+1. **The week-1 window** — register R3 item 1. During week 1 SigmaScout live-estimates where
+   Statbotics reads a completed week-1 constant. There is also a stated ONE-MATCH LAG at the
+   boundary: the seal happens inside `update`, so the first week-2 match of a season is PREDICTED
+   off the live estimate before its own fold seals the constant (`epaWeekOne.ts` header).
+2. **The POPULATION the frozen SD covers** — register R3 residual gap 4. Statbotics filters an
+   offline `week_one_matches` list. SigmaScout seals a streaming accumulator that folds
+   `result.redScore` and `result.blueScore` — raw alliance scores, fouls included — for every
+   corpus-week-0 match, and it applies three exclusions upstream's list does not: an alliance ruled
+   zero is skipped (`epa.ts:update`, `if (!redIsRulingZero)` / `if (!blueIsRulingZero)`), a
+   `null`-week match is never folded and never seals (`epaWeekOne.ts`'s null-week policy), and once
+   sealed the accumulator ignores a late week-0 arrival rather than reopening. So the frozen SD can
+   cover slightly fewer alliance scores than upstream's. All three are deliberate costs of being
+   walk-forward rather than offline.
+
+`DELIBERATE DIFFERENCE` in all nine seasons — **unchanged by this re-derivation**, so mechanism 8's
+row in the verdict matrix and the tally beneath it are both untouched by quick task 260911-pon. See
+register R3.
 
 ## Mechanism 9 — the update rule — ALREADY MATCHES
 
