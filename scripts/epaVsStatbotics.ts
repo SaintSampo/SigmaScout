@@ -99,6 +99,16 @@ interface CliOptions {
   readonly seasons: readonly number[];
   readonly minMatches: number;
   readonly includeOffseason: boolean;
+  /**
+   * Quick task 260911-r7e: seasons replayed ONLY to warm the carried EPA state,
+   * never reported on. The replay carries state across every season boundary,
+   * so the FIRST reported season otherwise cold-starts every team — which is
+   * exactly wrong for a Statbotics comparison, since Statbotics always has that
+   * season's real carry-in. Kept separate from `seasons` rather than widening
+   * it because the per-team arm fetches `/v3/team_years` for every REPORTED
+   * season, and a warmup season has no reason to spend that request.
+   */
+  readonly warmupSeasons: readonly number[];
   readonly outDir: string;
   readonly check: boolean;
 }
@@ -162,6 +172,7 @@ function parseCliOptions(): CliOptions {
       seasons: { type: "string" },
       "min-matches": { type: "string" },
       "no-offseason": { type: "boolean" },
+      warmup: { type: "string" },
       out: { type: "string" },
       check: { type: "boolean" },
     },
@@ -171,6 +182,7 @@ function parseCliOptions(): CliOptions {
     seasons: parseSeasonRange(values.seasons ?? DEFAULT_SEASONS_RANGE),
     minMatches: values["min-matches"] ? Number.parseInt(values["min-matches"], 10) : DEFAULT_MIN_MATCHES,
     includeOffseason: !(values["no-offseason"] ?? false),
+    warmupSeasons: values.warmup ? parseSeasonRange(values.warmup) : [],
     outDir: values.out ?? DEFAULT_OUT_DIR,
     check: values.check ?? false,
   };
@@ -450,6 +462,17 @@ export interface EpaVsStatboticsReport {
   readonly epaVersion: string;
   readonly seasons: readonly number[];
   readonly includeOffseason: boolean;
+  /**
+   * Quick task 260911-r7e: seasons replayed only to warm the carried EPA state,
+   * never reported on. Recorded so a reader can tell a warm figure from a cold
+   * one.
+   *
+   * OPTIONAL, and omitted entirely when no warmup was requested, so the report
+   * this script writes on its default invocation stays byte-identical to the one
+   * `publishEpaComparison` has always published. A new REQUIRED key here would
+   * land in a published artifact.
+   */
+  readonly warmupSeasons?: readonly number[];
   readonly minMatches: number;
   readonly seasonEntries: readonly SeasonReportEntry[];
 }
@@ -518,7 +541,13 @@ function runCheck(seasonEntries: readonly SeasonReportEntry[]): boolean {
 async function main(): Promise<void> {
   const options = parseCliOptions();
 
-  const replayResultsBySeason = replayEpaSeasonFinals(options.seasons, options.includeOffseason);
+  // The replay must see warmup seasons BEFORE the reported ones, in ascending
+  // order, because `replayEpaSeasonFinals` carries EPA state forward season by
+  // season. Reporting still reads `options.seasons` alone, so a warmup season
+  // contributes its carry and nothing else — no slice, no Statbotics fetch, no
+  // report entry.
+  const replaySeasons = [...new Set([...options.warmupSeasons, ...options.seasons])].sort((a, b) => a - b);
+  const replayResultsBySeason = replayEpaSeasonFinals(replaySeasons, options.includeOffseason);
 
   // One `aggregateScores` call over EVERY requested season's records at
   // once — `corpusSeasons` is the run's own full requested season list (per
@@ -582,6 +611,8 @@ async function main(): Promise<void> {
     epaVersion: currentEpaVersion(),
     seasons: options.seasons,
     includeOffseason: options.includeOffseason,
+    // Spread-or-nothing: a cold-start run writes no `warmupSeasons` key at all.
+    ...(options.warmupSeasons.length > 0 ? { warmupSeasons: options.warmupSeasons } : {}),
     minMatches: options.minMatches,
     seasonEntries,
   };
