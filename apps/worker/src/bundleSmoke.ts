@@ -35,7 +35,7 @@
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { MatchResult, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
-import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "../../../packages/core/rankingPoints/analyticPmf.js";
+import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import type { AllianceRpMoments } from "../../../packages/core/rankingPoints/moments.js";
 import { rpRuleModuleForSeason } from "../../../packages/core/rankingPoints/rules.js";
 
@@ -124,12 +124,13 @@ function runBundleSmoke(): BundleSmokeResult {
     ruleModule,
     eventType: REGIONAL_EVENT_TYPE,
     compLevel: "qm",
-    config: RP_LAYER_CONFIG_DEFAULT,
-    // D-13 (09-05 Task 1): required as of this plan. Under the default
-    // (legacy) config this is accepted and never read; wired here for
-    // completeness against the same predictionAfterUpdate this function
-    // already computed above.
-    pRedWin: predictionAfterUpdate.pRedWin,
+    // 09-05's `config`/`pRedWin` arguments are GONE, not omitted: plan 09-06
+    // measured every RP layer config against the pre-committed bar, accepted
+    // none of them, and deleted the whole selectable surface along with the
+    // branches it selected between. This call site was left passing both and
+    // importing a deleted export, so this file — 09-04's standing proof that
+    // the RP path bundles for the Workers runtime — did not typecheck at all.
+    // Repaired by plan 09-08 (deviation Rule 3), which depends on that proof.
   });
 
   return {
