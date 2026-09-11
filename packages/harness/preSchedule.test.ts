@@ -43,6 +43,7 @@ function baseParams(overrides: Partial<PreScheduleBuildParams> = {}): PreSchedul
     eventKey: "2026casj",
     season: 2026,
     eventType: 0,
+    week: null,
     algorithmId: "vpr",
     algorithmVersion: "9.0.0+rolling-2026-09c",
     roster: SIX_TEAM_ROSTER,
@@ -70,6 +71,7 @@ describe("toSimMatchInput (PD-03 — the one implementation the builder hands si
       redSurrogates: ["frc2"],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const input = toSimMatchInput(upcoming, STUB_PMF, STUB_PMF);
     expect(input.redTeamKeys).toEqual(["frc1", "frc3"]);

@@ -286,6 +286,7 @@ function syntheticMatchResult(m: SyntheticMatch, index: number, rpOverrides: Rec
     hasScoreBreakdown: true,
     scoreBreakdownRaw: rawBreakdown(m.redComponents, m.blueComponents, rpOverrides),
     eventType: 0,
+    week: null,
   };
 }
 
@@ -765,6 +766,7 @@ describe("D-Q2 — the RP subsystem is untouched", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = vpr.predict(afterSecond, upcoming);
     expect(prediction.redRpPmf?.length ?? 0).toBeGreaterThan(0);

@@ -35,6 +35,7 @@ function minimalMatch(eventKey: string, teamKey: string): MatchResult {
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
     winner: "red",
     redScore: 1,
     blueScore: 0,

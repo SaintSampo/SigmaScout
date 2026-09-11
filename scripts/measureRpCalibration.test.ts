@@ -56,6 +56,7 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }

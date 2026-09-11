@@ -507,6 +507,8 @@ interface MatchRow {
   has_score_breakdown: number;
   score_breakdown_raw: string | null;
   event_type: number;
+  /** `events.week`, 0-indexed as TBA and this corpus store it; NULL for championship/preseason/offseason events. See `packages/core/algorithms/epaWeekOne.ts`. */
+  week: number | null;
 }
 
 export interface ChronologicalQueryOptions {
@@ -555,7 +557,7 @@ export function selectMatchesChronological(
               m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
               m.red_dqs, m.blue_dqs,
               m.winner, m.red_score, m.blue_score, m.red_rp_earned, m.blue_rp_earned,
-              m.has_score_breakdown, m.score_breakdown_raw, e.event_type
+              m.has_score_breakdown, m.score_breakdown_raw, e.event_type, e.week
        FROM matches m
        JOIN events e ON e.event_key = m.event_key
        WHERE ${clauses.join(" AND ")}
@@ -591,6 +593,7 @@ export function selectMatchesChronological(
     hasScoreBreakdown: row.has_score_breakdown === 1,
     scoreBreakdownRaw: row.score_breakdown_raw,
     eventType: row.event_type,
+    week: row.week ?? null,
   }));
 }
 
@@ -605,6 +608,8 @@ interface ScheduledMatchRow {
   red_surrogates: string;
   blue_surrogates: string;
   event_type: number;
+  /** See `MatchRow.week` — same column, same 0-indexed convention, same NULL meaning. */
+  week: number | null;
 }
 
 /** Same option shape as `ChronologicalQueryOptions` (`selectMatchesChronological`'s mirror-image reader) so a caller does not have to learn two vocabularies. */
@@ -654,7 +659,7 @@ export function selectScheduledMatches(
     .prepare(
       `SELECT m.match_key, m.event_key, m.comp_level, m.match_number, m.set_number,
               m.red_teams, m.blue_teams, m.red_surrogates, m.blue_surrogates,
-              e.event_type
+              e.event_type, e.week
        FROM matches m
        JOIN events e ON e.event_key = m.event_key
        WHERE ${clauses.join(" AND ")}
@@ -681,6 +686,7 @@ export function selectScheduledMatches(
     redSurrogates: JSON.parse(row.red_surrogates) as string[],
     blueSurrogates: JSON.parse(row.blue_surrogates) as string[],
     eventType: row.event_type,
+    week: row.week ?? null,
   }));
 }
 

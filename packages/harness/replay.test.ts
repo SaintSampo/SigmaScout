@@ -30,6 +30,7 @@ function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     hasScoreBreakdown: true,
     scoreBreakdownRaw: '{"red":{}}',
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }
@@ -53,7 +54,15 @@ const ALL_OUTCOME_KEYS = [
   "scoreBreakdownRaw",
 ] as const;
 
-/** The exact set of non-outcome keys `UpcomingMatch` carries. */
+/**
+ * The exact set of non-outcome keys `UpcomingMatch` carries.
+ *
+ * `week` joined this list in quick task 260911-j2w, alongside `eventType` and
+ * for the identical reason: an event's competition week is fixed when the
+ * event is SCHEDULED, so it carries no information about how any match turned
+ * out and belongs on the leak-proof side of the boundary rather than in
+ * `OUTCOME_KEYS` above.
+ */
 const ALL_NON_OUTCOME_KEYS = [
   "matchKey",
   "eventKey",
@@ -65,6 +74,7 @@ const ALL_NON_OUTCOME_KEYS = [
   "redSurrogates",
   "blueSurrogates",
   "eventType",
+  "week",
 ] as const;
 
 describe("toLeakProofUpcoming", () => {
@@ -140,7 +150,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
   const wrapped = toLeakProofUpcoming(match) as unknown as Record<string, unknown>;
   const raw = match as unknown as Record<string, unknown>;
 
-  it("Object.getOwnPropertyDescriptors does not throw and its key set is exactly the 10 non-outcome keys", () => {
+  it("Object.getOwnPropertyDescriptors does not throw and its key set is exactly the 11 non-outcome keys", () => {
     let descriptors: PropertyDescriptorMap | undefined;
     expect(() => {
       descriptors = Object.getOwnPropertyDescriptors(wrapped);
@@ -151,7 +161,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
     }
   });
 
-  it("Object.values, Object.entries, spread, and JSON.stringify each complete WITHOUT throwing (D-D) and carry only the 10 non-outcome fields with their real values", () => {
+  it("Object.values, Object.entries, spread, and JSON.stringify each complete WITHOUT throwing (D-D) and carry only the 11 non-outcome fields with their real values", () => {
     let spread: Record<string, unknown> | undefined;
     expect(() => {
       spread = { ...wrapped };
@@ -186,7 +196,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
     expect(Object.keys(parsed).sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
   });
 
-  it("for...in visits exactly the 10 non-outcome keys", () => {
+  it("for...in visits exactly the 11 non-outcome keys", () => {
     const seen: string[] = [];
     for (const key in wrapped) {
       seen.push(key);

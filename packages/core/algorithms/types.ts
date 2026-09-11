@@ -40,6 +40,30 @@ export interface UpcomingMatch {
    * contrast to `scoreBreakdownRaw`'s note below.
    */
   eventType: number;
+  /**
+   * TBA's competition week for this match's event, **0-INDEXED as this corpus
+   * stores it** (`events.week`), or `null` when TBA gives the event no week at
+   * all. Corpus week 0 is competition "Week 1" and is the population
+   * Statbotics' `avg.py` filters with `m.week == 1` — the mapping, its
+   * evidence and the null-week policy all live in
+   * `packages/core/algorithms/epaWeekOne.ts`, and that module is the only
+   * place a read site should get the constant from.
+   *
+   * REQUIRED, not optional, for the same reason `eventType` above is: `null`
+   * is a real and common state (143 of 2024's events carry no week, covering
+   * 6,255 played matches), and an optional field would collapse "TBA has no
+   * week for this event" with "this construction site forgot to supply one".
+   * That is precisely the silent-default failure mode this contract's required
+   * fields exist to prevent. Supply the honest value at every site; where the
+   * week genuinely cannot be known, `null` is correct and `0` is NOT, because
+   * `0` is a real week.
+   *
+   * NOT outcome-bearing — an event's week is fixed when the event is
+   * scheduled, long before any match is played — so it is deliberately NOT
+   * added to `packages/harness/replay.ts`'s `OUTCOME_KEYS`, exactly as
+   * `eventType` is not.
+   */
+  week: number | null;
 }
 
 /** A completed match — the only place outcome fields exist. */

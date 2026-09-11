@@ -91,6 +91,7 @@ describe("opr.predict end-to-end — regression proof for 01-REVIEW WR-05", () =
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
 
     expect(() => opr.predict(state, match)).toThrow(/2024test_qm1/);

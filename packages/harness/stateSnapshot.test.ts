@@ -415,6 +415,7 @@ describe("deserializeState — partial load (D-13)", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
 
     const fullPrediction = vpr.predict(fullState, syntheticMatch);

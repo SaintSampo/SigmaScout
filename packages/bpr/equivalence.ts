@@ -81,6 +81,7 @@ function main(): void {
       redSurrogates: m.redSurrogates,
       blueSurrogates: m.blueSurrogates,
       eventType: m.eventType,
+      week: m.week,
       winner: m.winner,
       redScore: m.redOut + m.redFoul + m.redAdjust,
       blueScore: m.blueOut + m.blueFoul + m.blueAdjust,

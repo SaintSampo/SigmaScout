@@ -416,6 +416,7 @@ function toMatchResult(m: SynthMatch): MatchResult {
     hasScoreBreakdown: !m.breakdownNull,
     scoreBreakdownRaw: m.breakdownNull ? null : rawBreakdown(m),
     eventType: 0,
+    week: null,
   };
 }
 
@@ -431,6 +432,7 @@ function toUpcoming(m: SynthMatch): UpcomingMatch {
     redSurrogates: [...m.redSurrogates],
     blueSurrogates: [...m.blueSurrogates],
     eventType: 0,
+    week: null,
   };
 }
 

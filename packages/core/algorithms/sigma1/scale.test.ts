@@ -62,6 +62,7 @@ function stream(scale: number): MatchResult[] {
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
     eventType: 0,
+    week: null,
   }));
 }
 
@@ -77,6 +78,7 @@ function toUpcoming(m: MatchResult): UpcomingMatch {
     redSurrogates: m.redSurrogates,
     blueSurrogates: m.blueSurrogates,
     eventType: m.eventType,
+    week: null,
   };
 }
 

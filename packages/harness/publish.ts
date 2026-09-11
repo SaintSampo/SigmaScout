@@ -1760,6 +1760,8 @@ interface PreScheduleSidecarArgs {
   readonly season: number;
   /** The REAL event's TBA `event_type` — load-bearing (PD-06): `eventTierFor` throws for an unmapped type (99/Offseason is deliberately unmapped), so RP-ineligible events must be gated out BEFORE any synthetic match exists. */
   readonly eventType: number;
+  /** The REAL event's TBA competition week (`events.week`, 0-indexed), or `null` when TBA gives it none. Passed straight through to every synthetic `UpcomingMatch`. */
+  readonly week: number | null;
   readonly algorithm: AlgorithmModule<any>;
   /** The event's published roster — match-derived when matches exist, registered (`event_teams`) otherwise (PD-05). */
   readonly roster: readonly string[];
@@ -1879,6 +1881,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
       eventKey: args.eventKey,
       season: args.season,
       eventType: args.eventType,
+      week: args.week,
       algorithmId: args.algorithm.id,
       algorithmVersion: args.algorithm.version,
       roster: args.roster,
@@ -3059,6 +3062,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               eventKey: e.event_key,
               season,
               eventType: e.event_type,
+              week: e.week,
               algorithm,
               roster: eventTeamKeys,
               qualMatchCount: qualMatchCountByEvent.get(e.event_key) ?? 0,
@@ -3631,6 +3635,7 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
             eventKey,
             season,
             eventType: eventMetaRow.event_type,
+            week: eventMetaRow.week,
             algorithm,
             roster: eventTeamKeys,
             qualMatchCount:

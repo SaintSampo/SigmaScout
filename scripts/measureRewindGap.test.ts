@@ -52,6 +52,7 @@ function matchFixture(overrides: Partial<MatchResult> & { redTeams: string[]; bl
     redSurrogates: overrides.redSurrogates ?? [],
     blueSurrogates: overrides.blueSurrogates ?? [],
     eventType: overrides.eventType ?? 0,
+    week: null,
     winner: overrides.winner ?? "red",
     redScore: overrides.redScore ?? 100,
     blueScore: overrides.blueScore ?? 90,

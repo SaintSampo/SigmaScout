@@ -400,6 +400,7 @@ function toMatchResult(f: MatchFixture): MatchResult {
     redDqs: f.redDqs ?? [],
     blueDqs: f.blueDqs ?? [],
     eventType: 0,
+    week: null,
     winner: winnerOf(f),
     redScore: f.redScore,
     blueScore: f.blueScore,

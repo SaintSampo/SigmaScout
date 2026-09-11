@@ -92,6 +92,7 @@ function fixtureMatch(overrides: Partial<MatchResult> = {}): MatchResult {
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
     winner: "red",
     redScore: 120,
     blueScore: 95,
@@ -127,6 +128,7 @@ function fixtureUpcoming(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch 
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }

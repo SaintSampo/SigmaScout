@@ -393,7 +393,7 @@ async function loadOrInitState(db: D1Database, algorithmId: string, selections: 
 // TBA match -> core algorithm types
 // ---------------------------------------------------------------------------
 
-function toMatchResult(match: CorpusMatch, eventType: number): MatchResult {
+function toMatchResult(match: CorpusMatch, eventType: number, week: number | null): MatchResult {
   return {
     matchKey: match.matchKey,
     eventKey: match.eventKey,
@@ -418,6 +418,14 @@ function toMatchResult(match: CorpusMatch, eventType: number): MatchResult {
     redDqs: match.redDqs,
     blueDqs: match.blueDqs,
     eventType,
+    // Threaded, never defaulted, for the same reason the DQ keys above are.
+    // `null` is the honest "TBA gives this event no week" value and is what
+    // the unknown case supplies; `0` is NOT an acceptable stand-in, because
+    // corpus week 0 is a REAL week (it is Statbotics' week 1, see
+    // `packages/core/algorithms/epaWeekOne.ts`) and a fabricated `0` here
+    // would enrol a championship match in the week-1 calibration population
+    // on the live path while the offline publisher excluded it.
+    week,
     winner: match.winner as "red" | "blue" | "tie",
     redScore: match.redScore!,
     blueScore: match.blueScore!,
@@ -428,7 +436,7 @@ function toMatchResult(match: CorpusMatch, eventType: number): MatchResult {
   };
 }
 
-function toUpcomingMatch(match: CorpusMatch, eventType: number): UpcomingMatch {
+function toUpcomingMatch(match: CorpusMatch, eventType: number, week: number | null): UpcomingMatch {
   return {
     matchKey: match.matchKey,
     eventKey: match.eventKey,
@@ -440,6 +448,8 @@ function toUpcomingMatch(match: CorpusMatch, eventType: number): UpcomingMatch {
     redSurrogates: match.redSurrogates,
     blueSurrogates: match.blueSurrogates,
     eventType,
+    /** See `toMatchResult`'s `week` comment — same contract, same null policy. */
+    week,
   };
 }
 
@@ -966,15 +976,27 @@ async function processEvent(
       // failure here.
       budget.consume(1);
       let eventType = -1;
+      // `null`, not `-1`, is this field's unknown value — `week` is genuinely
+      // nullable in TBA's own contract (`tbaEventSchema.week` is
+      // `z.number().nullish()`), so there is no sentinel to borrow and none is
+      // invented. A failed detail fetch therefore leaves the week UNPLACED,
+      // which `epaWeekOne.ts`'s null policy already handles: an unplaced match
+      // is neither week 1 nor after it, so it neither joins the week-1
+      // population nor triggers the freeze.
+      let week: number | null = null;
       try {
         const detail = await fetchEventDetail(tbaCtx, eventKey);
-        if (detail.status === 200) eventType = tbaEventSchema.parse(detail.body).event_type;
+        if (detail.status === 200) {
+          const parsed = tbaEventSchema.parse(detail.body);
+          eventType = parsed.event_type;
+          week = parsed.week ?? null;
+        }
       } catch {
         // degrade gracefully — see comment above
       }
 
-      const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType));
-      const stillUpcomingViews = stillUpcoming.map((m) => toUpcomingMatch(m, eventType));
+      const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType, week));
+      const stillUpcomingViews = stillUpcoming.map((m) => toUpcomingMatch(m, eventType, week));
 
       // PHASE A — every algorithm reads, folds, and writes state. ALL must
       // succeed before ANY artifact write (see this module's header).

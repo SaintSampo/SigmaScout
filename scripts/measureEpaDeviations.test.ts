@@ -481,6 +481,7 @@ describe("componentMapArm — inert when handed the season's own map", () => {
         redSurrogates: [],
         blueSurrogates: [],
         eventType: 0,
+        week: null,
         winner: (red * 4 >= blue * 4 ? "red" : "blue") as "red" | "blue",
         redScore: red * 4,
         blueScore: blue * 4,

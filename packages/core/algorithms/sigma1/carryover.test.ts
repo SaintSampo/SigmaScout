@@ -320,6 +320,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }
@@ -402,6 +403,7 @@ function toUpcoming(m: MatchResult): UpcomingMatch {
     redSurrogates: m.redSurrogates,
     blueSurrogates: m.blueSurrogates,
     eventType: m.eventType,
+    week: null,
   };
 }
 

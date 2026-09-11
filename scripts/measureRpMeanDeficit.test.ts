@@ -48,6 +48,7 @@ function baseMatch(overrides: Partial<MatchResult>): MatchResult {
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
     winner: "red",
     redScore: 100,
     blueScore: 90,

@@ -43,6 +43,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }
@@ -103,6 +104,7 @@ describe("opr.predict — expanding-window logistic scale (D-Q4)", () => {
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
   };
 
   it("with fewer than 2 folded scores, falls back to OPR_FALLBACK_SCORE_SD / OPR_SCALE_DIVISOR_K — never 0, never NaN, and never the retired 10", () => {
@@ -384,6 +386,7 @@ describe("opr — literal-zero cold start (D-02)", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = opr.predict(state, upcoming);
     expect(prediction.redScore).toBe(0);
@@ -637,6 +640,7 @@ describe("opr — predict determinism and non-mutation", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const beforePerEvent = state.perEvent;
     const beforeLastEventByTeam = state.lastEventByTeam;
@@ -666,6 +670,7 @@ describe("opr — predict determinism and non-mutation", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = opr.predict(state, upcoming);
     expect(prediction.pRedWin).toBeGreaterThan(0);
@@ -685,6 +690,7 @@ describe("opr — predict determinism and non-mutation", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     // No ratings yet — both alliances predict to 0, margin is exactly 0.
     const prediction = opr.predict(state, upcoming);

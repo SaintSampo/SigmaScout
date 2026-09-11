@@ -49,6 +49,16 @@ export interface PreScheduleBuildParams {
   readonly season: number;
   /** TBA `event_type`, carried through to every synthetic `UpcomingMatch` — load-bearing, not decorative: the RP fold gates pmf production on `isRpEligibleEventType(match.eventType)`. */
   readonly eventType: number;
+  /**
+   * The REAL event's TBA competition week, 0-indexed as the corpus stores it
+   * (`packages/core/algorithms/epaWeekOne.ts`), or `null` when TBA gives the
+   * event no week. Carried through to every synthetic `UpcomingMatch` so a
+   * priced synthetic match is placed in the season exactly where its real
+   * event is. Required and honest rather than defaulted: `0` is a real week
+   * (it is Statbotics' week 1), so a fabricated `0` here would silently
+   * enrol synthetic matches in the week-1 calibration population.
+   */
+  readonly week: number | null;
   readonly algorithmId: string;
   readonly algorithmVersion: string;
   readonly roster: readonly string[];
@@ -147,6 +157,7 @@ function buildScheduleMatches(
       redSurrogates: redTeams.filter((_, position) => templateMatch.redSurrogate[position] === true),
       blueSurrogates: blueTeams.filter((_, position) => templateMatch.blueSurrogate[position] === true),
       eventType: params.eventType,
+      week: params.week,
     };
     return { upcoming, r, b };
   });

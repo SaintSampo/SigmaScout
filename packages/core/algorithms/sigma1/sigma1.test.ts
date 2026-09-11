@@ -61,6 +61,7 @@ function match(overrides: Partial<MatchResult> & Pick<MatchResult, "matchKey">):
     hasScoreBreakdown: false,
     scoreBreakdownRaw: null,
     eventType: 0,
+    week: null,
     ...overrides,
   };
 }
@@ -220,6 +221,7 @@ describe("vpr.predict — shape", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = vpr.predict(state, upcoming);
 
@@ -255,6 +257,7 @@ describe("vpr.predict — shape", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = vpr.predict(state, upcoming);
     expect(prediction.redScore).toBe(0);
@@ -290,6 +293,7 @@ describe("vpr.predict — D-01 own-variance publish (Phase 6)", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const prediction = vpr.predict(state, upcoming);
 
@@ -330,6 +334,7 @@ describe("vpr.predict — D-01 own-variance publish (Phase 6)", () => {
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
 
     const oprPrediction = opr.predict(opr.initState([]), upcoming);
@@ -540,6 +545,7 @@ describe("teamMetrics — D-Y1/D-Y3 the published +/- is the recency-weighted sw
     redSurrogates: [],
     blueSurrogates: [],
     eventType: 0,
+    week: null,
   };
 
   it("THE USER'S EXAMPLE — a robot that lands at 50, 50 publishes a SMALLER +/- than one that lands at 30, 70", () => {
@@ -837,6 +843,7 @@ describe("all-surrogate alliance — no throw, no NaN, genuine no-op", () => {
       redSurrogates: ["S1", "S2", "S3"],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
 
     expect(() => vpr.predict(state, upcoming)).not.toThrow();
@@ -882,6 +889,7 @@ describe("vpr — whole-alliance DQ zero-score exclusion (.planning/todos/pendin
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
 
     expect(() => vpr.predict(state, upcoming)).not.toThrow();
@@ -1159,6 +1167,7 @@ describe("makeSigma1 — distinct ids, shared update path, mode-specific predict
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const p1 = vpr.predict(s1, upcoming);
     const p2 = vprSeasonSd.predict(s2, upcoming);
@@ -1244,6 +1253,7 @@ describe("determinism — replaying the same fixture twice", () => {
           redSurrogates: m.redSurrogates,
           blueSurrogates: m.blueSurrogates,
           eventType: m.eventType,
+          week: null,
         };
         predictions.push(vpr.predict(state, upcoming));
         state = vpr.update(state, m);
@@ -1513,6 +1523,7 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 99,
+      week: null,
     };
     let prediction!: ReturnType<typeof vpr.predict>;
     expect(() => {
@@ -1554,6 +1565,7 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
         redSurrogates: [],
         blueSurrogates: [],
         eventType,
+        week: null,
       };
       const prediction = vpr.predict(next, upcoming);
       expect("redRpPmf" in prediction).toBe(true);
@@ -1736,6 +1748,7 @@ describe("vpr — off-season demo team exclusion (frc9970-frc9999, demoTeams.ts)
       redSurrogates: [],
       blueSurrogates: [],
       eventType: 0,
+      week: null,
     };
     const upcomingWithReal: UpcomingMatch = { ...upcomingWithDemo, redTeams: ["frc1", "frc2", "frc3"] };
     const predictedWithDemo = vpr.predict(stateWithDemo, upcomingWithDemo);
