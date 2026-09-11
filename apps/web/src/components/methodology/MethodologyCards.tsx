@@ -15,8 +15,9 @@ function preserveSearch(prev: Record<string, unknown>): never {
 
 /**
  * The `/methodology` hub's card grid (quick task 260905-phf Task 1; widened
- * to a third card by quick task 260905-tor, and to a fourth — the Swing
- * Factor page — by quick task 260909-3fj).
+ * to a third card by quick task 260905-tor, to a fourth — the Swing Factor
+ * page — by quick task 260909-3fj, and to a fifth — the SPR explainer, in
+ * first position — by quick task 260910-vof).
  *
  * Explicit `<Link>` elements — one per card — rather than a `.map()` over
  * `METHODOLOGY_CARDS` — same reasoning `Ribbon.tsx`'s `NavLinks` already
@@ -34,15 +35,17 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * Whole-card links wearing `.event-card` (this app's shared card treatment,
  * `CalibrationSection.tsx`'s `.event-card ... shadow-sm` pattern) with a
  * border/shadow-only hover — no green fill, per the sketch-findings skill's
- * green-is-ink-not-paint rule. Grid is a ladder now that there are four
- * cards: one column on mobile, two from `sm`, four in one row from `lg`.
- * Deliberately NOT `md:grid-cols-4` — four cards across a ~768px tablet
- * leaves each blurb about 24 characters wide, so the two-up step carries the
- * middle of the range.
+ * green-is-ink-not-paint rule. Grid is a ladder now that there are FIVE
+ * cards: one column on mobile, two from `sm`, three from `lg` (the last row
+ * carries two). Deliberately NOT `lg:grid-cols-5` — five cards across a
+ * 1200px container leaves each blurb about the same ~25 character width the
+ * `md` step already rejected below four cards, so the ladder goes one / two /
+ * three rather than jumping straight to five-across.
  */
 export function MethodologyCards() {
-  const [epaVsStatboticsCard, compareCard, swingCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  const [sprCard, epaVsStatboticsCard, compareCard, swingCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
   if (
+    sprCard === undefined ||
     epaVsStatboticsCard === undefined ||
     compareCard === undefined ||
     swingCard === undefined ||
@@ -52,7 +55,16 @@ export function MethodologyCards() {
   }
 
   return (
-    <div className="grid gap-[var(--spacing-md)] sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-[var(--spacing-md)] sm:grid-cols-2 lg:grid-cols-3">
+      <Link
+        to={sprCard.to}
+        search={preserveSearch}
+        data-testid={sprCard.testId}
+        className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
+      >
+        <span className="text-role-heading text-[var(--color-text-primary)]">{sprCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{sprCard.blurb}</span>
+      </Link>
       <Link
         to={epaVsStatboticsCard.to}
         search={preserveSearch}

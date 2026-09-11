@@ -23,6 +23,7 @@ const EN_DASH = "–";
 const EM_DASH = "—";
 
 const EXPECTED_CARD_ORDER = [
+  "/methodology/spr",
   "/methodology/epa-vs-statbotics",
   "/methodology/compare",
   "/methodology/sigma",
@@ -30,12 +31,13 @@ const EXPECTED_CARD_ORDER = [
 ];
 
 describe("METHODOLOGY_CARDS", () => {
-  it("lists the four hub cards in their exact display order, by equality", () => {
+  it("lists the five hub cards in their exact display order, by equality", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the Sigma Score card third and Acknowledgments last", () => {
-    expect(METHODOLOGY_CARDS[2]?.to).toBe("/methodology/sigma");
+  it("keeps the SPR card first, the Sigma Score card fourth, and Acknowledgments last", () => {
+    expect(METHODOLOGY_CARDS[0]?.to).toBe("/methodology/spr");
+    expect(METHODOLOGY_CARDS[3]?.to).toBe("/methodology/sigma");
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
 

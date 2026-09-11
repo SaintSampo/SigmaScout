@@ -20,6 +20,7 @@
  */
 export interface MethodologyCardDescriptor {
   readonly to:
+    | "/methodology/spr"
     | "/methodology/epa-vs-statbotics"
     | "/methodology/compare"
     | "/methodology/sigma"
@@ -31,11 +32,14 @@ export interface MethodologyCardDescriptor {
 
 /**
  * The first card's slot (quick task 260908-n5o) previously held the former
- * Intro to VPR page, retired and purged as part of this same task. This
- * card takes its place, in the same first position.
+ * Intro to VPR page, retired and purged as part of this same task. Quick task
+ * 260910-vof moved that page's content to `/methodology/epa-vs-statbotics`
+ * (unchanged below) and took the first slot for itself instead: the SPR
+ * explainer, the site's premier rating and the most fundamental of the five,
+ * reads first.
  *
- * The hub shows FOUR cards as of quick task 260909-3fj, which added the Swing
- * Factor page in third position and left Acknowledgments last.
+ * The hub shows FIVE cards as of quick task 260910-vof, which added the SPR
+ * explainer in first position ahead of the four cards already here.
  *
  * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
  * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
@@ -48,6 +52,12 @@ export interface MethodologyCardDescriptor {
  * `methodology.index.test.tsx` builds a `RegExp` straight from it.
  */
 export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
+  {
+    to: "/methodology/spr",
+    title: "What SPR measures",
+    blurb: "SPR is the rating SigmaScout uses to rank teams. See what the number is and what it isn't.",
+    testId: "methodology-card-spr",
+  },
   {
     to: "/methodology/epa-vs-statbotics",
     title: "Our EPA vs Statbotics' EPA",
