@@ -51,21 +51,24 @@ has nothing left to add and only costs variance.
 ## Caveat on the fairest arm
 
 `PcmParams` has no `softCredit` knob, so in the tuned-derived arm the baseline
-ran with `softCredit` **on** and PCM structurally could not. That is precisely
-the credit-assignment correction, and PCM's three independent rank orderings make
-the problem it addresses worse rather than better. The −0.093pp is therefore
-against a slightly favoured opponent. It is not expected to flip the conclusion,
-but it is not a clean fight either, and anyone reviving this should close that
-gap before re-measuring.
+ran with `softCredit` **on** and PCM structurally could not.
+
+**Measured 2026-09-11 and smaller than feared.** Turning `softCredit` off in the
+frozen set costs 0.06pp accuracy and 0.00005 Brier, so the asymmetry accounts for
+roughly a tenth of the −0.093pp gap rather than explaining it away. The
+conclusion stands.
 
 ## Two things this does NOT say
 
 1. **It says nothing about `w2`/`w3`.** Both arms of the committed run used
-   `w2 = w3 = 1`. The 2.35pp tuning gain is the whole set moving together —
-   `obsSd`, `qSlow`, `priorVar`, `rookieMean`, `seasonVar`, `tauLr`, `w2`/`w3`
-   and `softCredit`. `packages/bpr/ablate.ts`'s `"purely additive alliances
-   (w2=w3=1)"` variant isolates the rank weighting against the frozen file and
-   has not been run here.
+   `w2 = w3 = 1`, so the split was tested holding rank weighting fixed at plain
+   additivity on both sides.
+
+   Isolated separately on 2026-09-11, against the frozen set on the design
+   years: dropping to `w2 = w3 = 1` costs **−0.53pp accuracy / +0.00255 Brier**,
+   about a quarter of the 2.35pp total tuning gain. Dropping `softCredit` costs
+   **−0.06pp / +0.00005**. Both already switched on; no action, recorded so the
+   measurement is not re-run.
 2. **It does not change the displayed component numbers.** `phaseAuto`,
    `phaseTeleop` and `phaseEndgame` are byte-identical across all four arms —
    in BOTH designs the phase filters are driven only by observed phase outputs,
@@ -80,6 +83,30 @@ gap before re-measuring.
 That is on the **retired** scorer, which gave half credit for a `pRed === 0.5`
 no-call. The same parameters score **72.91%** on the current scorer. The
 difference is a scoring-convention change, not a regression.
+
+## Unrelated finding, recorded so it is not re-measured
+
+While closing the above, "Pitfall Sigma1-2 / Assumption A1" — the per-robot
+positional-correspondence assumption that every season module cites as its
+reason for never reading `endgameRobot1/2/3` and friends — was tested on 2022
+and **holds**:
+
+- mapped per-robot points equal `endgamePoints` on **29,354 / 29,354**
+  alliance-sides (validates the point mapping, not the ordering — a permutation
+  sums identically)
+- split-half consistency of per-team climb points: **0.927** under
+  `robotN → team[N]`, against **0.308 / 0.298** under deliberate rotation
+- station-1-only vs station-2/3-only measurement of the same team: **0.926**,
+  with exactly balanced station occupancy, ruling out a station confound
+
+So TBA publishes genuine per-robot observation, `robotN` is the `N`th team, and
+climb ability is a highly stable team property. Unlike the phase decomposition
+this is information **not** contained in the alliance total.
+
+Measured on **2022 only**. Field names differ per season (`habLineRobot1/2/3` in
+2019, `mobilityRobot1/2/3` in 2023, `autoTowerRobot1/2/3` in 2026) and 2024
+appears to have none, so each season needs its own check before anything relies
+on this. No code reads these fields today and none was changed.
 
 ## State of the package
 
