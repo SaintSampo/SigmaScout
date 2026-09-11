@@ -391,3 +391,10 @@ None. Nothing in this plan is a placeholder: the predictor, the schema, the buil
 Task 4's blocking one-way `checkpoint:decision` was reached and **routes to NO-SHIP**, which `09-CONTEXT.md`'s `<approvals>` block names as one of the two branches its standing authorization explicitly does **not** cover. The authorization is for deleting schedule generation — the SHIP branch — and is conditional on rung 1 **meeting** the criterion. It did not.
 
 Nothing one-way was performed. The decision is returned to the developer.
+
+## Self-Check: PASSED
+
+- Every file claimed created exists on disk (6/6).
+- Every commit hash claimed exists in `git log` (5/5).
+- `git diff --name-only` across this plan's commits is a **strict subset** of the plan's `files_modified` frontmatter: 13 paths, all listed there, and **no `apps/web/` path and no `publish.test.ts`** — which is what proves the one-way work was genuinely not performed rather than performed and partially reverted.
+- Task 5's commit (`821a8bc8`) touched **only** `09-09-SUMMARY.md` — a set-equality check on the no-ship branch's own acceptance criterion.
