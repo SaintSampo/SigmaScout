@@ -16,16 +16,59 @@ was changed by the task that wrote it.**
 
 ---
 
+## CORRECTION 2026-09-11 — they are WEEK 1 aggregates, not season-final
+
+**This document says "season-final" in several places below. That is wrong, and it overstates the
+problem by a wide margin.** The correction arrived after this doc was written, from
+`backend/src/data/avg.py`, which was not among the eight files this task transcribed. Its
+`process_year` opens:
+
+```python
+    week_one_matches = [
+        m for m in matches if m.week == 1 and m.status == MatchStatus.COMPLETED
+    ]
+```
+
+and then computes **every** `Year` aggregate from that list alone — `score_mean`, `score_sd`,
+`no_foul_mean`, `foul_mean`, `auto_mean`, `teleop_mean`, `endgame_mean`, `rp_*_mean`,
+`tiebreaker_mean`, and `comp_0_mean`..`comp_9_mean`. Nothing in the fetched source recomputes them
+from the full season afterward.
+
+**Why this matters enormously for L-01.** A week-1 aggregate is knowable as soon as week 1 is
+over. For every match from week 2 onward, reading it is **not a walk-forward violation at all** —
+the data already exists. The violation is confined to **week 1 itself**, where a week-1 match
+would be scored using statistics that include week-1 matches not yet played.
+
+So the reproduction problem is roughly one week wide, not one season wide. SigmaScout can adopt
+Statbotics' constants *exactly* for weeks 2+, and needs a live estimate only during week 1. The
+developer described this from the start as a "week 1 scaler" and was correct; the
+"season-final" framing in this document was the assistant's error, introduced before
+`data/avg.py` was read.
+
+Two consequences for the verdicts below, neither yet re-derived into the per-mechanism sections:
+- Mechanism 8's L-01 entry, and every other cell justified by "a season-final number is not
+  knowable," is **overstated**. Re-scope each to "not knowable during week 1."
+- `epa@8.0.0+baseline`'s carryover live-estimate is aimed at the right kind of quantity but the
+  wrong window: `get_constants(year)` reads the INCOMING season's **week-1** mean/sd. That is a
+  refinement of 8.0.0, not a reversal of it.
+
+The 2025 branch of `process_year` also applies a processor-algae correction to `no_foul_mean`,
+`teleop_mean` and `comp_7_mean` at aggregate time, which is a second place the 2025 adjustment
+lives beyond `post_process_breakdown`.
+
+---
+
 ## The two locked decisions
 
 These frame every verdict below. Neither is relitigated here.
 
 **L-01 — SigmaScout's reproduction carries NO walk-forward violations of its own.** Statbotics
-reads season-aggregate quantities that are not computable walk-forward: a Week 1 prediction cannot
-know a season-end number. SigmaScout live-estimates every one of them from the data available so
-far, exactly as `epa@8.0.0+baseline` already does for the carryover scale anchor. **That whole
-category is ONE documented difference**, not one per quantity. Reference section 19 enumerates it
-exhaustively: **7 read points, 21 distinct `Year` columns.**
+reads aggregate quantities computed from week 1 (see the correction above; this paragraph
+originally said "season-aggregate... a Week 1 prediction cannot know a season-end number").
+SigmaScout live-estimates them where they are not yet knowable, exactly as `epa@8.0.0+baseline`
+already does for the carryover scale anchor. **That whole category is ONE documented difference**,
+not one per quantity. Reference section 19 enumerates it exhaustively: **7 read points, 21
+distinct `Year` columns.**
 
 **L-02 — EPA MUST NEVER PREDICT RANKING POINTS.** Developer, verbatim: *"I do not want EPA
 predicting RP at all ever."* `rp_1`/`rp_2`/`rp_3`, `unit_sigmoid`, `inv_unit_sigmoid` and every RP

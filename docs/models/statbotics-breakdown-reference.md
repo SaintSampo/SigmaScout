@@ -2328,3 +2328,70 @@ file listed `backend/src/tba/breakdown.py` as the headline residual gap and said
 additive identity "does not appear in ANY fetched file, so it stays secondhand and unverified".
 Both are now false. That file is section 17, and the identity is section 2, verbatim, at
 `tba_breakdown.py:878`.
+
+---
+
+## 20. `backend/src/data/avg.py` — where every `Year` aggregate is WRITTEN (added 2026-09-11)
+
+**Provenance: VERBATIM.** `curl`'d 2026-09-11 from
+`raw.githubusercontent.com/avgupta456/statbotics/master/backend/src/data/avg.py` (2,969 bytes).
+This file was NOT among the eight transcribed by quick task 260911-i9f; it was fetched during that
+task's verification, and it overturns that task's framing of section 19.
+
+**Section 19 calls its 21 `Year` columns "season-final". They are not. They are WEEK 1 ONLY.**
+
+```python
+def process_year(year: Year, matches: List[Match]) -> Year:
+    week_one_matches = [
+        m for m in matches if m.week == 1 and m.status == MatchStatus.COMPLETED
+    ]
+```
+
+Every aggregate is derived from that list and nothing else:
+
+```python
+    year.score_mean, year.score_sd = get_mean_sd(
+        lambda m: m.red_score, lambda m: m.blue_score
+    )
+    if year.year >= 2016:
+        year.no_foul_mean, _ = get_mean_sd(
+            lambda m: m.red_no_foul, lambda m: m.blue_no_foul
+        )
+        year.foul_mean = get_mean(lambda m: m.red_foul, lambda m: m.blue_foul)
+```
+
+Note `no_foul_mean` keeps only the mean — its SD is discarded (`_`). The single SD in the model,
+`year.score_sd`, comes from the RAW score, fouls included.
+
+The per-component means are written in a loop, which is what makes the whole 18-slot vector
+week-1-calibrated:
+
+```python
+        for i in range(0, 10):
+            mean = get_mean(
+                lambda m: getattr(m, f"red_comp_{i}"),
+                lambda m: getattr(m, f"blue_comp_{i}"),
+            )
+            setattr(year, f"comp_{i}_mean", mean)
+```
+
+And 2025's processor-algae correction is applied at AGGREGATE time as well as in
+`post_process_breakdown` — a second site for the same adjustment:
+
+```python
+    if year.year == 2025:
+        # have to manually set processor algae to 3 points instead of 6
+        # this affects no_foul_mean, teleop_mean, and comp_7 (processor_algae_points)
+
+        update = 3 * year.comp_6_mean  # processor_algae, from 6 to 3 points
+        year.no_foul_mean -= update
+        year.teleop_mean -= update
+        year.comp_7_mean -= update  # processor_algae_points
+```
+
+**Consequence for the reproduction goal.** A week-1 aggregate is knowable the moment week 1 ends,
+so reading it for any week-2-or-later match is NOT a walk-forward violation. The violation is
+confined to week 1 itself. SigmaScout can adopt these constants exactly from week 2 onward and
+needs a live estimate only during week 1 — which narrows L-01 from a season-wide problem to a
+one-week one, and makes `get_constants(year)`'s use of the INCOMING season's week-1 mean/sd the
+precise target `epa@8.0.0+baseline`'s carryover estimate should be aimed at.
