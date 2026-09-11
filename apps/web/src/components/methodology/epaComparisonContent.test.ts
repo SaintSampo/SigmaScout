@@ -29,6 +29,32 @@ describe("EPA_DIFFERENCE_ENTRIES", () => {
     expect(EPA_DIFFERENCE_ENTRIES.map((entry) => entry.id)).toEqual([...EPA_DIFFERENCE_IDS]);
   });
 
+  /**
+   * RETRACTED-CLAIM GATE (quick task 260911-j2w). The `component-maps` entry
+   * used to tell readers that Statbotics rates a single quantity for an
+   * alliance and predicts directly from it, while SigmaScout rates several
+   * pieces and adds them up. `docs/models/statbotics-breakdown-reference.md`
+   * §3 disproves it: `predict_match` sums an 18-entry PER-TEAM vector
+   * component-wise across the alliance, the same shape SigmaScout uses. Only
+   * how many of that vector's entries the predicted score READS varies by
+   * season (§18). The phrases below are pinned verbatim rather than
+   * paraphrased, so an editor pasting the retired wording back fails here
+   * instead of shipping it to the page.
+   */
+  it("the component-maps entry does not reassert the retracted one-number-per-alliance claim", () => {
+    const entry = EPA_DIFFERENCE_ENTRIES.find((candidate) => candidate.id === "component-maps");
+    expect(entry).toBeDefined();
+    const prose = [entry?.heading ?? "", ...(entry?.paragraphs ?? [])].join(" ").toLowerCase();
+    for (const retracted of [
+      "rates one quantity per alliance",
+      "rates one quantity per season",
+      "predicts from a single number instead",
+      "the other rates one total",
+    ]) {
+      expect(prose).not.toContain(retracted);
+    }
+  });
+
   it("every entry carries a non-empty heading and at least one paragraph", () => {
     for (const entry of EPA_DIFFERENCE_ENTRIES) {
       expect(entry.heading.length).toBeGreaterThan(0);

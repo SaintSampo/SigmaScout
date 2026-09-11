@@ -683,20 +683,27 @@ export function deviationRegister(): DeviationEntry[] {
       docSection: "§6",
       summary:
         "breakdown/{2016..2026}.ts are independently derived per-season component maps with their own granularity " +
-        "choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym. What this entry " +
-        "used to call a difference in GROUPING turns out to be a difference in KIND: SigmaScout rates several " +
-        "components and sums them, Statbotics rates one quantity per season and predicts from it directly.",
+        "choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym. BOTH SIDES RATE A " +
+        "PER-TEAM VECTOR and sum it across the alliance (reference section 3: predict_match sums an 18-entry vector " +
+        "component-wise). What differs is which entries the predicted score READS: one (no_foul_points) in most " +
+        "seasons, seven in 2018 and 2023, plus three of the OPPONENT's in 2018, and 2018 and 2023 read them " +
+        "non-linearly through min() caps and zero_sigmoid terms. That is a difference of DEGREE inside a shared " +
+        "structure. Corrected by quick task 260911-j2w; this field previously asserted a difference of kind.",
       reason:
         "THE MISSING SEAM NOW EXISTS — commit b62c3655 (quick task 260911-gfe) added an optional component-map " +
         "parameter to epa.update() and epa.carrySeason(), inert at its default and proven so by a replay test, and " +
-        "componentMapArm() in this file builds an arm on it. The blocker MOVED rather than closed: there is nothing " +
-        "to point the arm at. Statbotics' all_keys[year] is a rated-quantity LIST, not a partition — it carries " +
-        "no_foul_points beside the auto/teleop/endgame keys it is the sum of, its comp_0..comp_9 are sub-elements " +
-        "WITHIN those phases, and in 2022 and 2026 endgame_points appears twice. Per-season verdicts are in " +
-        "docs/models/statbotics-breakdown-reference.md section 8: no season is partition-constructible, so ARM_IDS " +
-        "is deliberately unchanged. Selecting a non-overlapping subset of those keys and calling it Statbotics' " +
-        "partition would measure this project's own construction, which is exactly the mislabelling corrected in " +
-        "priorMeasurement below.",
+        "componentMapArm() in this file builds an arm on it. The blocker MOVED rather than closed. Statbotics' " +
+        "all_keys[year] is a rated-quantity LIST, not an additive partition — it carries no_foul_points beside the " +
+        "auto/teleop/endgame keys it is the sum of, its comp_0..comp_9 are sub-elements WITHIN those phases, and in " +
+        "2022 and 2026 endgame_points appears twice. So no season is partition-constructible and an arm cannot be " +
+        "built by picking a non-overlapping subset of those keys: that would measure this project's own " +
+        "construction while labelling it Statbotics', exactly the mislabelling corrected in priorMeasurement below. " +
+        "UPDATED 2026-09-11 (quick task 260911-j2w): what HAS changed is that a concrete per-season target now " +
+        "exists. docs/models/statbotics-breakdown-reference.md sections 15, 17 and 18 give, per season, the entry " +
+        "set, the cleaning layer and the exact entries get_score_from_breakdown reads. An arm reproducing that is " +
+        "now buildable, and 2018 and 2023 would need a non-linear score read rather than a component sum. Choosing " +
+        "to register one is a separate decision, staged in docs/models/epa-statbotics-gap.md, so ARM_IDS and status " +
+        "are deliberately unchanged here.",
       approximation: null,
       armIds: [],
       priorMeasurement: {

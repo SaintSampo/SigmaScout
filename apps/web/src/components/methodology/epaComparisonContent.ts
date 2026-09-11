@@ -21,23 +21,36 @@
  * student audience rather than pasted, since that document is written for a
  * maintainer.
  *
- * REVISED 2026-09-11 (quick task 260911-gfe): the `component-maps` entry. What
- * it used to say was that Statbotics groups FIRST's raw scoring fields into
- * pieces using its own table, and that the two sites group those pieces
- * differently in some seasons. Nobody had verified that. The recovered
- * reference (`docs/models/statbotics-breakdown-reference.md`, and the 2026-09-10
- * verification it builds on) shows Statbotics' per-season key list is a
- * RATED-QUANTITY MENU, not a partition: it carries the no-foul total beside the
- * three phase pieces that total is the sum of, and its finer keys sit inside
- * those phases. For 2024 its predicted score comes from one directly rated
- * quantity. So the difference is one of KIND, not of grouping, and the entry now
- * says that. What survives unchanged: the thin-evidence argument, and the
+ * REVISED 2026-09-11 (quick task 260911-j2w): the `component-maps` entry, a
+ * second time, correcting the revision recorded immediately below. That earlier
+ * revision rewrote the entry's second and third paragraphs around a conclusion
+ * about what Statbotics RATES for an alliance, and that conclusion is false.
+ * `docs/models/statbotics-breakdown-reference.md` §3 carries `predict_match`
+ * verbatim: it sums an 18-entry PER-TEAM vector component-wise across the
+ * alliance, the same shape SigmaScout's per-team component map has. §18 carries
+ * what actually varies, per season: how many of that vector's entries the
+ * predicted score READS back out. For 2024 it reads one, the no-foul total. For
+ * 2018 and 2023 it reads seven, and 2018 also reads three entries belonging to
+ * the opposing alliance. The two rewritten paragraphs now say that. What
+ * SURVIVES from the revision below, unchanged: the thin-evidence argument, the
  * 73.5 / 75.2 / 74.0 percent figures from quick task 260910-4x0's partition
- * sweep. The single-piece figure is now named as the shape Statbotics uses,
- * because that is what makes it the interesting one. The `heading` is
- * deliberately UNCHANGED: the developer named this exception by that phrase, and
- * "how a match score is split into pieces" still describes a difference in which
- * one site splits and the other does not. The id set stays at three; see below.
+ * sweep, and the fact that Statbotics' list overlaps itself by carrying a total
+ * beside the smaller pieces that total is the sum of. The `heading` is still
+ * deliberately UNCHANGED, and the id set still stays at three.
+ *
+ * REVISED 2026-09-11 (quick task 260911-gfe), and SUPERSEDED by the note above.
+ * What the entry used to say before this revision was that Statbotics groups
+ * FIRST's raw scoring fields into pieces using its own table, and that the two
+ * sites group those pieces differently in some seasons. Nobody had verified
+ * that. The recovered reference showed Statbotics' per-season key list is a
+ * rated-quantity MENU rather than an additive partition: it carries the no-foul
+ * total beside the three phase pieces that total is the sum of, and its finer
+ * keys sit inside those phases. That part stands. Where this revision went
+ * wrong was the step it took next, from "the list is not a partition" to a
+ * claim about the number of quantities Statbotics rates per alliance. Reference
+ * §3 disproves that step. The `heading` was left UNCHANGED here and stays so:
+ * the developer named this exception by that phrase, and "how a match score is
+ * split into pieces" still describes what the entry is about.
  *
  * NOT REVISED for `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11), and
  * that is deliberate. 8.0.0 corrected the SEASON-BOUNDARY SCALE ANCHOR: a
@@ -102,10 +115,10 @@ export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
     heading: "How a match score is split into pieces",
     paragraphs: [
       "A match score can be broken into pieces: points scored in the autonomous period, points scored by the drivers, points scored at the end of the match. SigmaScout rates each piece separately for every team, then adds the pieces back together to predict a score.",
-      "Statbotics predicts from a single number instead. For 2024 it rates one quantity per alliance, the match score with penalty points taken out, and predicts directly from that. It does publish piece by piece figures beside it, and those are worth reading, but they are extra views rather than the thing its predicted score is built from. Several of them overlap, counting the same points at two levels of detail at once.",
-      "So the two sites are not slicing the same score two different ways. One rates several pieces and adds them up. The other rates one total. For 2024 the three pieces SigmaScout rates are the three phases of a match, which is also the split Statbotics uses when it checks its own numbers add up.",
+      "Statbotics rates a list of pieces for every team too, and adds those lists together across an alliance the same way. What differs is how many pieces from that list its predicted score reads back. For 2024 it reads one of them, the match score with penalty points taken out. For 2018 and 2023 it reads seven, and in 2018 it also reads three pieces belonging to the other alliance.",
+      "The pieces Statbotics rates overlap each other on purpose. Its list carries a full total beside the smaller pieces that total is made from, so adding the whole list up would count the same points twice. SigmaScout's pieces are built not to overlap, because adding them is how the predicted score is made. For 2024 the three pieces SigmaScout rates are the three phases of a match, which is also the split Statbotics uses when it checks its own numbers add up.",
       "How finely to slice matters more than it sounds. Each piece is rated separately from roughly a dozen qualification matches per team, so more pieces means each one is estimated from the same thin evidence and carries more noise. Adding those noisy pieces back together makes a noisier predicted score.",
-      "Slicing 2024 more coarsely was a measured change, not a preference. Rating eleven scoring pieces predicted 73.5 percent of 2024 winners correctly. Rating three predicted 75.2 percent. Rating a single total, which is the shape Statbotics uses, predicted 74.0 percent. There is a best middle and it is neither the finest nor the coarsest slicing.",
+      "Slicing 2024 more coarsely was a measured change, not a preference. Rating eleven scoring pieces predicted 73.5 percent of 2024 winners correctly. Rating three predicted 75.2 percent. Rating a single total, which is what Statbotics' own 2024 prediction reads, predicted 74.0 percent. There is a best middle and it is neither the finest nor the coarsest slicing.",
       "Neither approach is more correct. They are different choices about how much detail to rate, and a different choice can shift a rating without changing anything that happened on the field.",
     ],
   },

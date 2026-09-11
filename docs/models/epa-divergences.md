@@ -92,22 +92,38 @@ agreement with Statbotics got tighter or looser as a result.
 
 ## 6. Component extraction — this project's own per-season maps, and Statbotics has no partition to compare them to
 
-**Statbotics:** rates a per-season list of named quantities built in `backend/src/breakdown.py` (`all_keys[year]`), and predicts a match score from `get_score_from_breakdown`. For 2024 that branch is `score = breakdown["no_foul_points"]` — ONE directly-rated quantity. The rest of the list is published beside it, not summed into it.
+**Statbotics:** rates a PER-TEAM vector of named quantities, indexed by the per-season list built in `backend/src/breakdown.py` (`all_keys[year]`), sums that vector component-wise across the alliance, and then predicts a match score from `get_score_from_breakdown`. For 2024 that branch is `score = breakdown["no_foul_points"]` — one entry of the summed vector. The rest of the vector is still rated, still updated every match, and published beside the score rather than summed into it.
 
 **This project:** `packages/core/algorithms/breakdown/{2016..2026}.ts` are this project's own independently-built per-season component maps (D-02), verified directly against this project's own ingested corpus (`data/corpus.sqlite`) rather than ported from Statbotics' table. Granularity was chosen per season during plan 02-01/02-02, using Statbotics' own grouping as a starting reference (D-01) but re-derived independently against this project's own field inventory, per the clean-slate mandate (REBUILD_SPEC.md). EPA predicts a score by summing every rated component.
 
-### CORRECTED 2026-09-11 (quick task 260911-gfe): this is a difference in KIND, not in grouping
+### CORRECTED 2026-09-11 (quick task 260911-j2w): both sides rate a per-team vector, and the difference is one of DEGREE
 
-This section used to open by saying Statbotics "groups TBA's raw `score_breakdown` fields into named attributes ... with its own grouping granularity choices", and the methodology page said the same thing in student language. **Nobody had verified it, and it is not what the source shows.**
+**This sub-section previously carried a heading and a closing paragraph asserting that the two implementations differ in kind rather than in grouping, on the grounds that Statbotics rates a single quantity for an alliance while SigmaScout rates and sums several. That assertion is RETRACTED.** It was written by quick task 260911-gfe from the shape of `all_keys[year]` alone, before `predict_match` had been transcribed. Reference section 3 carries that function verbatim:
 
-`all_keys[year]` is a RATED-QUANTITY LIST, not a partition, and it double-counts by construction:
+```python
+pred_mean = np.array([self.epas[t].mean for t in teams]).sum(axis=0)
+```
+
+`self.epas[t].mean` is an 18-entry vector, and `.sum(axis=0)` is a component-wise sum across the three teams. **Statbotics rates a per-team vector and sums it across the alliance, structurally the same thing SigmaScout does.** Every entry keeps being rated, updated by `attribute_match` every match, and published by `post_record_team`, whether or not a predicted score ever reads it.
+
+What actually differs is **which entries the predicted score reads back out** (reference section 18, per season):
+
+| season | own entries read | opponent entries read |
+|---|---|---|
+| 2016, 2017, 2019, 2022, 2024, 2025, 2026 | `no_foul_points` only | none |
+| 2018 | 7 | 3 |
+| 2023 | 7 | none |
+
+2016 and 2017 additionally read two RP entries in ELIMINATION matches only. 2018 and 2023 read their seven entries **non-linearly**, through `min()` caps and `zero_sigmoid` terms, so neither is a component sum in SigmaScout's sense. The difference is therefore one of **degree inside a shared structure**: how many entries feed the score, and through what function.
+
+What the retracted paragraph got RIGHT, and which stands unchanged: `all_keys[year]` is a rated-quantity LIST rather than an additive partition, and it double-counts by construction:
 
 - It carries `no_foul_points` beside `auto_points`, `teleop_points` and `endgame_points`, which that first key is the SUM of. Statbotics validates exactly that identity: `error = no_foul_points - (auto_points + teleop_points + endgame_points)`.
 - `comp_0..comp_9` are sub-elements WITHIN those phases, not independent score sources.
 - `rp_1`/`rp_2`/`rp_3`/`tiebreaker_points` are not score contributions at all.
 - In 2022 and 2026, `endgame_points` appears twice in the same list.
 
-So there is no "Statbotics component partition" to compare a SigmaScout map against. The two objects are different in kind: an additive partition summed into a prediction on one side, a rating menu on the other. The full transcription, its provenance limits, and a per-season verdict table (`yes` / `no-overlapping-keys` / `no-rates-a-single-quantity` / `not-established`, one row per season 2016-2026, each citing its evidence) live in **`docs/models/statbotics-breakdown-reference.md`**. Summary of that table: **no season is `partition-constructible: yes`**, 2024 is `no-rates-a-single-quantity` on direct verification, and every other season is `no-overlapping-keys` on the structural argument above with its `get_score_from_breakdown` branch NOT ESTABLISHED.
+So there is still no "Statbotics component partition" that a SigmaScout map can be diffed against entry-for-entry, and an arm built by hand-picking a non-overlapping subset of those keys would measure this project's own construction under Statbotics' name. The full transcription, its provenance limits, and a per-season verdict table (`yes` / `no-overlapping-keys` / `no-rates-a-single-quantity` / `not-established`, one row per season 2016-2026, each citing its evidence) live in **`docs/models/statbotics-breakdown-reference.md`**. Summary of that table: **no season is `partition-constructible: yes`**. Note that the `no-rates-a-single-quantity` label in that table describes what the 2024 predicted score READS, not what the model rates; read it with this correction in hand.
 
 ### The injection seam now exists, and the blocker moved rather than closed
 
