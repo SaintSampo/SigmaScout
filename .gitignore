@@ -45,3 +45,8 @@ apps/web/playwright-report/
 
 # UI audit screenshots (gsd-ui-review) — large PNGs, regenerable from the deployed site
 .planning/ui-reviews/
+
+# Scratch measurement scripts from quick tasks (experiments/<task-id>/) — throwaway
+# replay rigs and their logs. Kept locally as the evidence behind a SUMMARY's numbers,
+# never committed: they import deep into packages/ and would rot silently.
+experiments/
