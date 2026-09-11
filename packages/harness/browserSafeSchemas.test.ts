@@ -70,6 +70,17 @@
  * own intended design (exactly the same reason `RP_CONSTANTS_ENTRY_POINT`
  * above is checked the same restricted way).
  *
+ * Plan 09-04 Task 1 extends this with a NINTH entry point:
+ * `packages/core/rankingPoints/analyticPmf.ts` — D-08: the closed-form RP
+ * pmf engine that replaces `distribution.ts`'s Monte Carlo. Like
+ * `marginals.ts` immediately above, it legitimately LIVES under
+ * `packages/core/rankingPoints/` (`marginals.ts`'s own sibling, not
+ * `packages/core/algorithms/`) and is checked ONLY for Node built-in
+ * imports; its imports are type-only or value imports of sibling leaves
+ * (`./constants.ts`, `./moments.ts`, `./marginals.ts`,
+ * `../algorithms/types.ts`), never a matrix library, a hashing routine or a
+ * seeded generator — the closed form consumes no randomness at all.
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -85,6 +96,7 @@ const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "c
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
 const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
 const MARGINALS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "marginals.ts");
+const ANALYTIC_PMF_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "analyticPmf.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -225,6 +237,19 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/marginals.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/rankingPoints/analyticPmf.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-04 Task 1, D-08)", () => {
+    const { nodeBuiltinViolations, visited } = scan([ANALYTIC_PMF_ENTRY_POINT]);
+    expect(visited.has(ANALYTIC_PMF_ENTRY_POINT)).toBe(true);
+    // Sanity check the scan is not vacuous: it must actually visit the
+    // sibling leaves this module imports from.
+    expect(visited.has(resolve(HERE, "..", "core", "rankingPoints", "constants.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "rankingPoints", "marginals.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/analyticPmf.ts: ${detail}`);
     }
   });
 });

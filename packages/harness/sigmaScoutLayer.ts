@@ -51,17 +51,9 @@ import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../core/rankingPoints/analyticPmf.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
-
-/**
- * Monte Carlo settings for the level-2 RP draw. Explicit here rather than
- * inherited from any algorithm's tuned parameter set — `moments.ts` requires a
- * caller to choose its own. 4000 draws over ~19k qualification matches per
- * season is cheap offline and well inside pmf rounding.
- */
-export const RP_MONTE_CARLO = { rpMonteCarloSeed: 0x5163_5f52, rpMonteCarloDraws: 4000 } as const;
 
 /**
  * A scheduled match with its level-2 fields attached. Structurally the
@@ -92,6 +84,7 @@ export class SigmaScoutLayer {
   readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
+  readonly #rpLayerConfig: RpLayerConfig;
 
   /**
    * `ruleModule` is the season's RP rules, or `undefined` for a season with no
@@ -103,11 +96,22 @@ export class SigmaScoutLayer {
    * Factor. It is OPTIONAL and defaults to Swing so that every pre-existing
    * caller and test keeps its current behaviour without edit — the Sigma path
    * is opt-in by id, never the silent default.
+   *
+   * `config` (D-05) is OPTIONAL and defaults to `RP_LAYER_CONFIG_DEFAULT` —
+   * every existing construction site compiles and behaves unchanged. See
+   * `analyticPmf.ts`'s own header for D-06's removal notice: this parameter
+   * is temporary scaffolding, collapsed away entirely once 09-06 lands.
    */
-  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, config: RpLayerConfig = RP_LAYER_CONFIG_DEFAULT) {
     this.#ruleModule = ruleModule;
     this.#rp = ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
     this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
+    this.#rpLayerConfig = config;
+  }
+
+  /** The `RpLayerConfig` this layer was constructed with — so a caller can record what it ran (D-05). */
+  get rpLayerConfig(): RpLayerConfig {
+    return this.#rpLayerConfig;
   }
 
   /** True when this layer publishes Sigma Score in place of a Swing Factor. */
@@ -249,14 +253,13 @@ export class SigmaScoutLayer {
     if (!isRpEligibleEventType(match.eventType)) return {};
     if (redBandVariance === undefined || blueBandVariance === undefined) return {};
 
-    const pmf = rpPmfForMatch({
+    const pmf = analyticRpPmf({
       red: this.#rp.momentsFor(match.redTeams, prediction.redScore, redBandVariance),
       blue: this.#rp.momentsFor(match.blueTeams, prediction.blueScore, blueBandVariance),
       ruleModule: this.#ruleModule,
       eventType: match.eventType,
-      matchKey: match.matchKey,
       compLevel: match.compLevel,
-      params: RP_MONTE_CARLO,
+      config: this.#rpLayerConfig,
     });
 
     return {

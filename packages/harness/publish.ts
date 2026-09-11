@@ -103,13 +103,13 @@ import { allianceSwingBandVariance, SWING_METRIC_KEY, type SwingBelief } from ".
 import { swingMetricByTeam } from "./swingMetric.js";
 import { SIGMA_METRIC_KEY, usesSigmaScore } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { rpPmfForMatch } from "../core/rankingPoints/distribution.js";
+import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 SigmaScout layer — the band and ranking points, computed
 // identically for every algorithm. BOTH orchestrations in this file drive it
 // (`publishSeasons` and `--event`), which is the point: see that module's
 // header for the regression that extracting it prevents.
-import { RP_MONTE_CARLO, SigmaScoutLayer } from "./sigmaScoutLayer.js";
+import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
@@ -675,7 +675,8 @@ function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
   ruleModule: RpRuleModule | undefined,
   swingByTeam: ReadonlyMap<string, number>,
-  roster: readonly string[]
+  roster: readonly string[],
+  config: RpLayerConfig
 ): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
   if (accumulator === undefined || ruleModule === undefined) return undefined;
 
@@ -702,14 +703,13 @@ function makeRankingPointFiller(
     const red = allianceSwingBandVariance(match.redTeams, swingByTeam);
     const blue = allianceSwingBandVariance(match.blueTeams, swingByTeam);
     if (red === undefined || blue === undefined) return prediction;
-    const pmf = rpPmfForMatch({
+    const pmf = analyticRpPmf({
       red: accumulator.momentsFor(match.redTeams, prediction.redScore, red),
       blue: accumulator.momentsFor(match.blueTeams, prediction.blueScore, blue),
       ruleModule,
       eventType: match.eventType,
-      matchKey: match.matchKey,
       compLevel: match.compLevel,
-      params: RP_MONTE_CARLO,
+      config,
     });
     return {
       ...prediction,
@@ -2584,8 +2584,16 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // ordering `foldPlayed` requires. The per-match math itself lives in
     // `sigmaScoutLayer.ts` because `--event` below runs the identical thing.
     const rpRuleModule = RP_RULE_MODULES[season];
+    // D-05: resolved ONCE per run, as a named local, and threaded to both
+    // the `SigmaScoutLayer` construction below AND `makeRankingPointFiller`
+    // further down — a level-2 field reaching only one of the two has
+    // stripped bands/RP from a `--event` republish before
+    // (`sigmaScoutLayer.ts`'s own header). `RP_LAYER_CONFIG_DEFAULT`
+    // reproduces today's model exactly; every non-default value throws
+    // (09-05's branches).
+    const rpLayerConfig: RpLayerConfig = RP_LAYER_CONFIG_DEFAULT;
     const layers = new Map<string, SigmaScoutLayer>();
-    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id));
+    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id, rpLayerConfig));
 
     for (const r of records) {
       // One object, both maps below — the event page and the team page cannot
@@ -3061,7 +3069,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               seasonFinalState: state,
               generation,
               computedAt,
-              fillRankingPoints: makeRankingPointFiller(layerForAlgo.rpAccumulator, rpRuleModule, swingByTeamForAlgo, eventTeamKeys),
+              fillRankingPoints: makeRankingPointFiller(layerForAlgo.rpAccumulator, rpRuleModule, swingByTeamForAlgo, eventTeamKeys, rpLayerConfig),
             })
           : undefined;
         if (sidecar !== undefined) {
@@ -3523,7 +3531,12 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     // one. That is why every record is folded and only then filtered — folding
     // the event's own matches alone would give a team no history from its
     // earlier events and produce a different band than the full publish does.
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season], algorithm.id);
+    // D-05: the SAME named-local pattern `publishSeasons` uses above — resolved
+    // once per run and threaded to both this construction and
+    // `makeRankingPointFiller` below, so this orchestration cannot silently
+    // diverge from the seasons path about which config it ran.
+    const rpLayerConfig: RpLayerConfig = RP_LAYER_CONFIG_DEFAULT;
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season], algorithm.id, rpLayerConfig);
     const predictions: PredictionRecord[] = [];
     for (const r of records) {
       // D-01 (quick task 260909-t5q): see the seasons-path loop's identical
@@ -3633,7 +3646,7 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
             // wrote a sidecar with no ranking points at all, which is what the
             // rank simulation reads — so a `--event` republish disabled the
             // Simulation tab for that event until the next full publish.
-            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.consistencyByTeam(), eventTeamKeys),
+            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.consistencyByTeam(), eventTeamKeys, rpLayerConfig),
           })
         : undefined;
 
