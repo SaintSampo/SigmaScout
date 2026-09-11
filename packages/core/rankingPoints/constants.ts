@@ -53,15 +53,26 @@ import type { CompLevel } from "../algorithms/types.js";
  * error at integer thresholds but not the right-skew a symmetric Gaussian
  * under-predicts `P(X >= t)` with, exactly where bonus thresholds sit.
  *
- * `RpLayerConfig.marginal` (09-04/09-05, `analyticPmf.ts`) decides whether
- * a variable's OWN declared family here is honored (`"negative-binomial"`)
- * or every variable is forced to `"gaussian"` regardless of what it
- * declares (the inert production default) — see
- * `resolveDeclaredFamily`'s own doc comment, the sole place that
- * config-to-declaration translation happens. 09-06 owns the per-bonus
- * accept/revert call (D-09/D-10) that decides whether the flip ships.
+ * THE FLIP WAS TRIED AND REFUSED (2026-09-11, plan 09-06). Every variable
+ * declared `"negative-binomial"`, the whole model was measured against the
+ * unchanged Gaussian one through the publisher's own scorer, and the
+ * pre-committed per-bonus bar refused it: three bonus cells improved and
+ * three got worse, and the bar admits no regression at any magnitude. The
+ * declarations were returned to `"gaussian"` and the negative-binomial fit
+ * and its discrete CDF were deleted.
+ *
+ * The measurement also found that the swap's REACH was far narrower than its
+ * label: `clauseProbability` refits a clause's combined moments as a hardcoded
+ * Gaussian, so only `nestedSameVariable` bonuses ever honored a declared
+ * family at all. `docs/models/rp-attribution.md` carries the figures and that
+ * finding; the evidence above for right-skew and overdispersion is unaffected
+ * by the refusal and is left standing for whoever revisits this.
+ *
+ * THE UNION HAS ONE MEMBER AND THE DECLARATION SITE SURVIVES ANYWAY. D-02
+ * locked the per-variable declaration, so a future family extends this union
+ * and the variables that want it, rather than reintroducing a global switch.
  */
-export type MarginalFamily = "gaussian" | "negative-binomial";
+export type MarginalFamily = "gaussian";
 
 /**
  * One named scalar a season's RP rules threshold on, tracked in its own
@@ -493,7 +504,7 @@ export interface RpRuleModule {
    * `## Conservative-Branch Understatement`): mean RP understatement per
    * affected bonus, per alliance-match — 2023 `sustainabilityBonus`
    * 0.105362; 2024 `melodyBonus` 0.123188; 2025 `coralBonus` 0.095405;
-   * 2025 `autoBonus` 0.625464 (by far the largest — it has no
+   * 2025 `autoBonus` 0.625464 (by far the largest — it had no
    * threshold-variable-only fallback at all). No bonus in any season
    * showed a non-zero `overstatedRate` — the "never overstates" half of
    * this claim was tested, not assumed. This measured shortfall was
@@ -506,6 +517,18 @@ export interface RpRuleModule {
    * identifiability argument). See
    * `docs/models/sigma1-rp-verification.md`'s `## Conservative-Branch
    * Understatement` for the full disposition.
+   *
+   * STALE FIGURE WARNING (recorded 2026-09-11, plan 09-06; routed here by
+   * 09-02). The 2025 `autoBonus` figure of 0.625464 above PREDATES the
+   * 2026-09-09 auto-variable tracking fix and describes a superseded state of
+   * this module: that bonus is no longer without a threshold-variable
+   * fallback, so the measurement that produced 0.625464 was taken against code
+   * that no longer exists. The figure is LEFT IN PLACE, not silently updated,
+   * because it is a dated measurement with a named generating command and
+   * overwriting it with a guess would be worse than labelling it — but it must
+   * not be quoted as this module's current understatement. Re-running
+   * `pnpm rp:conservative-branch` is what would produce a current one; that
+   * run is not part of plan 09-06's scope.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction;
   /**

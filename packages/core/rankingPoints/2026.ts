@@ -75,12 +75,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "hubTotalCount",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "totalTowerPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

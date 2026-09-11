@@ -80,16 +80,16 @@ export function standardNormalCdf(z: number): number {
   return 0.5 * (1 + erf(z / Math.SQRT2));
 }
 
-/** Hard cap on the negative-binomial upper-tail summation loop (T-09-03-02) — see `probAtLeast` below. */
-export const NB_MAX_TAIL_TERMS = 100_000;
-
 /**
  * What a fit RESOLVED to. A superset of the declared `MarginalFamily` union —
  * `"degenerate"` is a RESOLUTION (the fallback ladder's own answer when a
  * point mass is the only honest thing to fit), never a DECLARATION — which is
- * why this type and `MarginalFamily` are named and typed separately.
+ * why this type and `MarginalFamily` are named and typed separately, and why
+ * that separation still earns its place even though `MarginalFamily` now has
+ * one member: a fit can still resolve to something its variable did not
+ * declare.
  */
-export type ResolvedMarginalFamily = "negative-binomial" | "gaussian" | "degenerate";
+export type ResolvedMarginalFamily = "gaussian" | "degenerate";
 
 /**
  * Why a fit resolved to something OTHER than its declared family. Absent
@@ -98,23 +98,21 @@ export type ResolvedMarginalFamily = "negative-binomial" | "gaussian" | "degener
  * fallback, and mislabelling it as one would corrupt 09-06's fallback
  * counts (T-09-03-04).
  */
-export type MarginalFallbackReason = "non-finite" | "zero-variance" | "non-positive-mean" | "variance-le-mean";
+export type MarginalFallbackReason = "non-finite" | "zero-variance";
 
 /**
  * The outcome of fitting one threshold variable's marginal. Carries THREE
  * separate facts — `declared`, `resolved`, `fallbackReason` — deliberately
- * never collapsed into one, so 09-06 can count how often an arm labelled
- * `"negative-binomial"` actually resolved to one (T-09-03-04).
+ * never collapsed into one. That separation was introduced so a measurement
+ * could count how often a fit resolved to something other than what it
+ * declared, and it is kept for the same reason: the fallback ladder is live,
+ * and a fit that degenerates is not a fit that was declared degenerate.
  */
 export interface FittedMarginal {
   readonly declared: MarginalFamily;
   readonly resolved: ResolvedMarginalFamily;
   readonly mean: number;
   readonly variance: number;
-  /** Negative-binomial shape parameter. Present only when `resolved === "negative-binomial"`. */
-  readonly r?: number;
-  /** Negative-binomial probability parameter, in `(0, 1)`. Present only when `resolved === "negative-binomial"`. */
-  readonly p?: number;
   /** Standard deviation. Present only when `resolved === "gaussian"`. */
   readonly sd?: number;
   readonly fallbackReason?: MarginalFallbackReason;
@@ -135,22 +133,17 @@ export interface FittedMarginal {
  *      NEVER rounded; a cold roster's mean is a sum of EWMA beliefs), reason
  *      "zero-variance". Reproduces `predictThresholds`'s boolean limit
  *      exactly. 09-04's all-variance-zero degeneracy case lands here.
- *   3. Declared "gaussian" -> resolved "gaussian", sd = sqrt(variance), NO
- *      fallbackReason — the inert default is not a fallback.
- *   4. Declared "negative-binomial":
- *        - `mean <= 0` -> Gaussian, reason "non-positive-mean".
- *        - `variance <= mean` -> Gaussian, reason "variance-le-mean" (this
- *          is where the method-of-moments fit is mathematically undefined —
- *          `r` would divide by zero or go negative).
- *        - otherwise: `r = mean²/(variance−mean)`, `p = mean/(mean+r)`.
+ *   3. Otherwise -> resolved "gaussian", sd = sqrt(variance), NO
+ *      fallbackReason — a declared family resolving to itself is not a
+ *      fallback, and mislabelling it as one would corrupt any count taken
+ *      over this ladder.
  *
- * The Gaussian choice for both NB fallback branches is deliberate against
- * two alternatives Pitfall 3 names: clamping to a minimum dispersion invents
- * overdispersion the data does not show at that moment, and adding a Poisson
- * branch is a third CDF to maintain for a case that only arises on thin
- * data. Falling back to the family that shipped before cannot be a
- * regression against today's behavior and is D-10's own stated revert
- * target.
+ * The ladder had a fourth rung for a declared negative binomial, with two
+ * further Gaussian fallbacks for the cases where its method-of-moments fit is
+ * undefined (`mean <= 0`, `variance <= mean`). That family was measured and
+ * refused on 2026-09-11; the rung and its two reasons went with it. The
+ * remaining two reasons both describe data that cannot support ANY
+ * distribution, which is why they survive a single-family union.
  */
 export function fitMarginal(mean: number, variance: number, declared: MarginalFamily): FittedMarginal {
   if (!Number.isFinite(mean) || !Number.isFinite(variance)) {
@@ -161,21 +154,7 @@ export function fitMarginal(mean: number, variance: number, declared: MarginalFa
     return { declared, resolved: "degenerate", mean, variance, fallbackReason: "zero-variance" };
   }
 
-  if (declared === "gaussian") {
-    return { declared, resolved: "gaussian", mean, variance, sd: Math.sqrt(variance) };
-  }
-
-  // declared === "negative-binomial" from here.
-  if (mean <= 0) {
-    return { declared, resolved: "gaussian", mean, variance, sd: Math.sqrt(variance), fallbackReason: "non-positive-mean" };
-  }
-  if (variance <= mean) {
-    return { declared, resolved: "gaussian", mean, variance, sd: Math.sqrt(variance), fallbackReason: "variance-le-mean" };
-  }
-
-  const r = (mean * mean) / (variance - mean);
-  const p = mean / (mean + r);
-  return { declared, resolved: "negative-binomial", mean, variance, r, p };
+  return { declared, resolved: "gaussian", mean, variance, sd: Math.sqrt(variance) };
 }
 
 /**
@@ -203,84 +182,18 @@ export function fitAllianceMarginals(moments: AllianceRpMoments, variables: read
 }
 
 // ---------------------------------------------------------------------------
-// Negative-binomial exact discrete CDF — log-space, never a float ratio of
-// factorials, never a normal approximation.
+// The negative-binomial exact discrete CDF that used to live here — a
+// log-space tail recurrence with a bounded upper loop — was deleted on
+// 2026-09-11 (plan 09-06). Every threshold variable declared the family, the
+// whole model was measured against the unchanged Gaussian one through the
+// publisher's own scorer, and the pre-committed per-bonus bar refused it:
+// three cells improved, three regressed, and the bar admits no regression at
+// any magnitude. `docs/models/rp-attribution.md` carries the figures and the
+// separate finding that the swap reached only one predicate shape in the first
+// place. The knowledge survives as a measured negative result with the commit
+// that carried the code; an unreachable family advertised as selectable does
+// not.
 // ---------------------------------------------------------------------------
-
-/**
- * Sum of NB pmf terms `k = from..to` (inclusive), computed by the log-space
- * recurrence documented in this file's header. Both starting logs are exact
- * and free of cancellation: `logP = log(mean) − log(mean+r)`,
- * `logQ = log(r) − log(mean+r)`. Each subsequent term is derived from the
- * previous one via `logTerm(k) = logTerm(k−1) + logP + log(k+r−1) − log(k)`
- * — the ratio `term(k)/term(k-1) = p·(k+r-1)/k`, which follows directly from
- * the binomial-coefficient ratio `C(k+r-1,k)/C(k+r-2,k-1) = (k+r-1)/k`.
- */
-function nbTailSum(r: number, p: number, from: number, to: number): number {
-  if (from > to) return 0;
-  const logP = Math.log(p);
-  const logQ = Math.log(1 - p);
-  let logTerm = r * logQ; // k = 0
-  let sum = 0;
-  for (let k = 0; ; k++) {
-    if (k >= from && k <= to) sum += Math.exp(logTerm);
-    if (k >= to) break;
-    logTerm = logTerm + logP + Math.log(k + r) - Math.log(k + 1);
-  }
-  return sum;
-}
-
-/** The NB mode — `floor((r−1)·mean/r)` for `r > 1`, `0` otherwise — never exceeds the mean, which makes the tail-termination guard below a proven fact rather than an assumption. */
-function nbMode(r: number, mean: number): number {
-  return r > 1 ? Math.floor(((r - 1) * mean) / r) : 0;
-}
-
-/**
- * `P(X >= t)` for a discrete family. `n = ceil(t) − 1`; `t <= 0` returns
- * exactly `1` (every discrete family here has support starting at 0).
- * Accumulates the LOWER sum `P(X <= n)` first; if that sum is at most 0.5,
- * returns `1 − sum` (the lower side carries less mass — subtracting from 1
- * is safe). Otherwise continues the SAME recurrence upward from `k = n+1`
- * and returns the directly-accumulated UPPER tail — this is what keeps a
- * genuine 1e-9 bonus probability from being the catastrophic-cancellation
- * residue of `1 − 0.999999999`.
- *
- * The upward loop terminates when a term falls below `1e-18` AND `k` is past
- * the mean (the NB mode never exceeds the mean, so this makes the
- * monotone-decreasing-past-the-mode assumption a proven fact) or when
- * `NB_MAX_TAIL_TERMS` is reached (T-09-03-02: bounds the loop against a
- * slow-decaying tail hanging the offline publish or, once 09-08 lands this
- * in the Worker, a 10ms sustained CPU budget).
- */
-function negativeBinomialAtLeast(r: number, p: number, mean: number, t: number): number {
-  const n = Math.ceil(t) - 1;
-  if (n < 0) return 1;
-
-  const lowerSum = nbTailSum(r, p, 0, n);
-  if (lowerSum <= 0.5) {
-    return clamp01(1 - lowerSum);
-  }
-
-  // Upper tail, accumulated directly from k = n+1 upward.
-  const logP = Math.log(p);
-  const logQ = Math.log(1 - p);
-  // Recompute logTerm(n) by walking the recurrence — reuses the same
-  // formula as nbTailSum, never a second implementation.
-  let logTerm = r * logQ;
-  for (let k = 0; k < n; k++) logTerm = logTerm + logP + Math.log(k + r) - Math.log(k + 1);
-
-  let sum = 0;
-  let k = n;
-  const mode = nbMode(r, mean);
-  for (let terms = 0; terms < NB_MAX_TAIL_TERMS; terms++) {
-    k++;
-    logTerm = logTerm + logP + Math.log(k - 1 + r) - Math.log(k);
-    const term = Math.exp(logTerm);
-    sum += term;
-    if (term < 1e-18 && k > mode && k > mean) break;
-  }
-  return clamp01(sum);
-}
 
 function clamp01(x: number): number {
   if (x < 0) return 0;
@@ -300,16 +213,15 @@ function clamp01(x: number): number {
  */
 export function probAtLeast(marginal: FittedMarginal, threshold: number): number {
   switch (marginal.resolved) {
-    case "negative-binomial":
-      return negativeBinomialAtLeast(marginal.r!, marginal.p!, marginal.mean, threshold);
     case "gaussian":
       // No continuity correction, deliberately: the Gaussian model treats
       // this as a CONTINUOUS normal and compares it directly to the
       // threshold — matching the deleted Monte Carlo's own draw semantics
       // (plan 09-04), which this closed form reproduces exactly rather than
       // "improving". Adding a half-integer shift here would make the
-      // Gaussian arm a third model and confound 09-06's attribution between
-      // the marginal swap and a silent re-specification of its own control.
+      // Gaussian model a second one, and a re-specification of the model is
+      // not a refactor — which is precisely the line plan 09-06's collapse was
+      // required to stay on the safe side of.
       return clamp01(1 - standardNormalCdf((threshold - marginal.mean) / marginal.sd!));
     case "degenerate":
       // A point mass at a REAL number, which may sit between two integers —
@@ -320,16 +232,10 @@ export function probAtLeast(marginal: FittedMarginal, threshold: number): number
 }
 
 /**
- * `P(X <= threshold)`. For a discrete family, defined IN TERMS OF
- * `probAtLeast` — `1 − probAtLeast(threshold + 1)` after flooring — so there
- * is exactly ONE summation routine and the two functions are consistent by
- * construction rather than by two implementations that happen to agree. For
- * the Gaussian and degenerate families, evaluated directly.
+ * `P(X <= threshold)`, evaluated directly for each surviving family.
  */
 export function probAtMost(marginal: FittedMarginal, threshold: number): number {
   switch (marginal.resolved) {
-    case "negative-binomial":
-      return clamp01(1 - probAtLeast(marginal, Math.floor(threshold) + 1));
     case "gaussian":
       return clamp01(standardNormalCdf((threshold - marginal.mean) / marginal.sd!));
     case "degenerate":

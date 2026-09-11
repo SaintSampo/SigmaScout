@@ -27,7 +27,6 @@
     "pcm:holdout": "tsx packages/pcm/holdout.ts",
     "rp:conservative-branch": "tsx packages/harness/rpConservativeBranch.ts",
     "rp:golden": "tsx scripts/rpPredictThresholdsGolden.ts",
-    "rp:inertness-golden": "tsx scripts/rpLayerInertnessGolden.ts",
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
     "measure:rewind-gap": "tsx scripts/measureRewindGap.ts",

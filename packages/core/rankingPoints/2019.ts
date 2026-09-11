@@ -100,7 +100,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "habClimbPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

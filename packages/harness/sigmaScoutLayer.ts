@@ -54,9 +54,7 @@ import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js"
 import {
   analyticRpPmf,
   emptyMarginalResolutionTally,
-  RP_LAYER_CONFIG_DEFAULT,
   type MarginalResolutionTally,
-  type RpLayerConfig,
 } from "../core/rankingPoints/analyticPmf.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
@@ -90,14 +88,14 @@ export class SigmaScoutLayer {
   readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
-  readonly #rpLayerConfig: RpLayerConfig;
   /**
    * Running resolved-family mix (09-05 Task 3, D-01) across every pmf this
    * layer instance has built. IN-MEMORY ONLY — never put on `Prediction`,
    * never written to any artifact. 09-06 reads it after a run to report
    * what share of the `"negative-binomial"` arm actually resolved to
    * negative binomial rather than silently falling back to Gaussian. D-06
-   * deletes it with the rest of the temporary `RpLayerConfig` surface.
+   * A permanent diagnostic of the fallback ladder: it says how often a fit
+   * resolved to something other than what its variable declared.
    */
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
 
@@ -112,21 +110,15 @@ export class SigmaScoutLayer {
    * caller and test keeps its current behaviour without edit — the Sigma path
    * is opt-in by id, never the silent default.
    *
-   * `config` (D-05) is OPTIONAL and defaults to `RP_LAYER_CONFIG_DEFAULT` —
-   * every existing construction site compiles and behaves unchanged. See
-   * `analyticPmf.ts`'s own header for D-06's removal notice: this parameter
-   * is temporary scaffolding, collapsed away entirely once 09-06 lands.
+   * There is no third parameter. The RP layer had a temporary selectable
+   * config during phase 9; plan 09-06 measured every combination, the
+   * pre-committed bar accepted none of them, and the whole surface was
+   * deleted with the branches it selected between.
    */
-  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, config: RpLayerConfig = RP_LAYER_CONFIG_DEFAULT) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
     this.#ruleModule = ruleModule;
     this.#rp = ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
     this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
-    this.#rpLayerConfig = config;
-  }
-
-  /** The `RpLayerConfig` this layer was constructed with — so a caller can record what it ran (D-05). */
-  get rpLayerConfig(): RpLayerConfig {
-    return this.#rpLayerConfig;
   }
 
   /**
@@ -285,11 +277,6 @@ export class SigmaScoutLayer {
       ruleModule: this.#ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
-      config: this.#rpLayerConfig,
-      // D-13 (09-05 Task 1): the SAME float the artifact publishes as
-      // pRedWin. Read and never re-derived here — under the legacy
-      // winSource it is accepted and never read by analyticRpPmf.
-      pRedWin: prediction.pRedWin,
       // D-01 (09-05 Task 3): the layer's own running accumulator, folded
       // into by every call. In-memory only — see rpMarginalResolutionTally's
       // own doc comment.

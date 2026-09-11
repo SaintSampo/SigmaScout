@@ -19,7 +19,7 @@
  * per D-07's discipline, not round-tripped against the implementation.
  */
 import { describe, expect, it } from "vitest";
-import { analyticRpPmf, pmfMean, pmfStandardDeviation, RP_LAYER_CONFIG_DEFAULT } from "./analyticPmf.js";
+import { analyticRpPmf, pmfMean, pmfStandardDeviation } from "./analyticPmf.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, rpRuleModuleForSeason } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
 
@@ -43,7 +43,6 @@ const BASE = {
   ruleModule: rpRuleModuleForSeason(2026)!,
   eventType: 0,
   compLevel: "qm" as const,
-  config: RP_LAYER_CONFIG_DEFAULT,
   // D-13 (09-05 Task 1): required as of this plan. Under the default
   // (legacy) config this is accepted and never read by analyticRpPmf.
   pRedWin: 0.5,

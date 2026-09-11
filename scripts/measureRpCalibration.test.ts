@@ -16,7 +16,9 @@
  *   - the same-scorer fix (D-11) must be structurally true: exactly one
  *     `SigmaScoutLayer` construction in the file, with the algorithm id as
  *     its second argument, and no direct call to `rpPmfForMatch`/
- *     `RpMomentsAccumulator` outside a comment.
+ *     `RpMomentsAccumulator` outside a comment;
+ *   - the COMMITTED attribution record and its document must stay in step
+ *     even though the code that produced them is gone (09-06 Task 4).
  *
  * Task 2 Step 5 (2026-09-11): `buildRpCalibrationRecord`'s wire record no
  * longer carries `reliabilityBins` — dropped after real measured bytes
@@ -30,28 +32,14 @@ import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
-import { RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../packages/core/rankingPoints/analyticPmf.js";
-import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import {
-  assertIdenticalPopulations,
   buildRpAttributionDigest,
-  buildRpAttributionRecord,
   buildRpCalibrationRecord,
-  decideRpShipConfig,
-  evaluateD09Bar,
-  negativeBinomialShare,
-  resolveRpArms,
-  RP_ATTRIBUTION_ARMS,
   RP_DOT_THRESHOLD_DEFAULT,
   RP_RELIABILITY_BUCKET_EDGES,
-  RP_REPORTING_SLICE_SEASONS,
-  RP_SELECTION_SLICE_SEASONS,
   RpAttributionRecordSchema,
-  rpCellKey,
   type Observation,
-  type RpArmVerdict,
-  type RpBonusCell,
 } from "./measureRpCalibration.js";
 
 const SOURCE = readFileSync(new URL("./measureRpCalibration.ts", import.meta.url), "utf8");
@@ -207,17 +195,14 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
 });
 
 describe("same-scorer structural assertions (D-11)", () => {
-  it("constructs SigmaScoutLayer exactly once, with a rule module, a resolved algorithm id and an arm config", () => {
+  it("constructs SigmaScoutLayer exactly once, with a rule module and a resolved algorithm id", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
     expect(matches).toHaveLength(1);
-    // 09-06 Task 1 Step 3 widened this site from two arguments to three. The
-    // second argument is still the resolved algorithm id — 09-01's same-scorer
-    // fix, and the premise of every figure this script produces — and the
-    // third is the ARM's config, which is the only thing that differs between
-    // arms. ONE construction site for eight arms is what makes "every arm
-    // through the same imported SigmaScoutLayer" a structural fact rather than
-    // a claim in a header.
-    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id, \w+\.config\)/);
+    // The second argument is the resolved algorithm id — 09-01's same-scorer
+    // fix, and the premise of every figure this script produces. The third
+    // argument this site briefly carried (an arm's model config) is gone with
+    // the rest of the temporary selectable surface: there is one model again.
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
   });
 
   it("reaches RP only through SigmaScoutLayer.foldPlayed — no direct rpPmfForMatch/RpMomentsAccumulator call outside a comment", () => {
@@ -229,480 +214,52 @@ describe("same-scorer structural assertions (D-11)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// D-09's bar, frozen (09-06 Task 1 Step 1)
+// The committed record and its document, after the code that produced them
+// was deleted (09-06 Task 4, D-06)
 // ---------------------------------------------------------------------------
 //
-// Every expectation below is HAND-COMPUTED from the `<baseline>` pinned
-// ground-truth table in `09-06-PLAN.md`. None was produced by running the
-// implementation and pasting its output — this is the code that decides what
-// ships, and a test written from the output it is meant to constrain proves
-// only that the code does what it does.
-//
-// The bar these cases pin is committed BEFORE any 2023-2026 figure exists.
-// D-04's reporting slice is one-way: once it informs a choice it stops being
-// a clean reporting slice and there is no replacement. Adjusting the bar
-// after seeing those numbers is the single failure this plan's structure
-// exists to prevent, and it would leave the suite green.
-
-/** Cells with the given Brier scores, one per (2023 + i, bonusI) key. */
-function makeCells(briers: readonly number[], counts?: readonly number[]): RpBonusCell[] {
-  return briers.map((b, i) => ({
-    algorithmId: "bpr",
-    season: 2023 + i,
-    bonusName: `bonus${i}`,
-    count: counts?.[i] ?? 100,
-    meanPredicted: 0.5,
-    observedFrequency: 0.5,
-    brierScore: b,
-  }));
-}
-
-describe("evaluateD09Bar — D-09's per-bonus bar, frozen before any reporting-slice figure existed", () => {
-  it("3 of 4 improve, 0 regress, 1 tie — meets the bar (improved 3 > scored/2 = 2)", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.1, 0.1, 0.1, 0.2]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    expect(v.scored).toBe(4);
-    expect(v.improved).toBe(3);
-    expect(v.regressed).toBe(0);
-    expect(v.tied).toBe(1);
-    expect(v.meetsBar).toBe(true);
-  });
-
-  it("2 of 4 improve, 0 regress, 2 tie — a bare half does NOT meet the bar", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.1, 0.1, 0.2, 0.2]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    expect(v.improved).toBe(2);
-    expect(v.tied).toBe(2);
-    // Ties stay in `scored` and count toward neither side, so a tie makes the
-    // majority HARDER to reach. That is the conservative direction and it was
-    // chosen deliberately.
-    expect(v.meetsBar).toBe(false);
-  });
-
-  it("3 improve but 1 regresses — a single regression fails the arm outright, at any magnitude", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.1, 0.1, 0.1, 0.2000001]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    expect(v.improved).toBe(3);
-    expect(v.regressed).toBe(1);
-    expect(v.meetsBar).toBe(false);
-  });
-
-  it("an improvement of 1e-8 in every cell counts — D-11 sets no minimum effect size", () => {
-    const control = makeCells([0.1, 0.1, 0.1, 0.1]);
-    const arm = makeCells([0.09999999, 0.09999999, 0.09999999, 0.09999999]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    expect(v.improved).toBe(4);
-    expect(v.regressed).toBe(0);
-    expect(v.meetsBar).toBe(true);
-  });
-
-  it("all four cells exactly equal — 0 improved, 0 regressed, 4 tied, bar NOT met", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    expect(v.improved).toBe(0);
-    expect(v.regressed).toBe(0);
-    expect(v.tied).toBe(4);
-    // A change with no effect is not an improvement.
-    expect(v.meetsBar).toBe(false);
-  });
-
-  it("a cell with zero observations in either arm is excluded from `scored` entirely", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2], [100, 100, 100, 0]);
-    const arm = makeCells([0.1, 0.1, 0.2, 0.1], [100, 100, 100, 0]);
-    const v = evaluateD09Bar(control, arm, "arm");
-    // The fourth cell would have improved; it is not comparable, so it is not
-    // counted at all — a cell needs an observation in BOTH arms. That is the
-    // whole of what the pinned ground-truth row asserts.
-    expect(v.scored).toBe(3);
-    expect(v.improved).toBe(2);
-    expect(v.tied).toBe(1);
-    // Consequence of the exclusion, stated so the denominator's effect is
-    // visible: the bar is read against the SHRUNKEN table, 2 > 3/2, not
-    // against the four cells that were measured. Dropping a cell therefore
-    // makes the majority EASIER, which is exactly why a cell missing from one
-    // arm entirely throws instead of being dropped (see the test below).
-    expect(v.meetsBar).toBe(true);
-  });
-
-  it("cells are matched by the (algorithmId, season, bonusName) triple, never by array index", () => {
-    const control = makeCells([0.2, 0.3, 0.4, 0.5]);
-    const arm = makeCells([0.1, 0.2, 0.3, 0.5]);
-    const ordered = evaluateD09Bar(control, arm, "arm");
-    const shuffled = evaluateD09Bar(control, [arm[2]!, arm[0]!, arm[3]!, arm[1]!], "arm");
-    expect(shuffled).toEqual(ordered);
-    expect(ordered.improved).toBe(3);
-  });
-
-  it("a cell present in one arm and absent from the other throws a named error rather than shrinking the table", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.1, 0.1, 0.1]);
-    expect(() => evaluateD09Bar(control, arm, "arm")).toThrow(/evaluateD09Bar/);
-    expect(() => evaluateD09Bar(control, arm, "arm")).toThrow(/bpr\|2026\|bonus3/);
-  });
-
-  it("is pure and total — the same two arrays give the same verdict and neither input is mutated", () => {
-    const control = makeCells([0.2, 0.2, 0.2, 0.2]);
-    const arm = makeCells([0.1, 0.1, 0.1, 0.2]);
-    const controlBefore = structuredClone(control);
-    const armBefore = structuredClone(arm);
-    const a = evaluateD09Bar(control, arm, "candidate");
-    const b = evaluateD09Bar(control, arm, "candidate");
-    expect(a).toEqual(b);
-    expect(a.arm).toBe("candidate");
-    expect(control).toEqual(controlBefore);
-    expect(arm).toEqual(armBefore);
-  });
-});
-
-describe("decideRpShipConfig — the pre-committed three-step rule, applied mechanically", () => {
-  function verdict(arm: string, improved: number, regressed: number, scored = 10): RpArmVerdict {
-    return {
-      arm,
-      scored,
-      improved,
-      regressed,
-      tied: scored - improved - regressed,
-      meetsBar: improved > scored / 2 && regressed === 0,
-    };
-  }
-
-  function verdicts(entries: readonly RpArmVerdict[]): Map<string, RpArmVerdict> {
-    return new Map(entries.map((v) => [v.arm, v]));
-  }
-
-  it("all three single-change arms pass and the combination passes — every field is accepted", () => {
-    const d = decideRpShipConfig(
-      verdicts([
-        verdict("win", 8, 0),
-        verdict("tie", 7, 0),
-        verdict("marginal", 9, 0),
-        verdict("win+tie+marginal", 9, 0),
-      ])
-    );
-    expect([...d.acceptedFields].sort()).toEqual(["marginal", "tie", "win"]);
-    expect(d.revertedFields).toEqual([]);
-    expect(d.shipConfig).toEqual({
-      winSource: "p-red-win",
-      tieModel: "discrete-margin",
-      marginal: "negative-binomial",
-    });
-    expect(d.path.join(" | ")).toMatch(/combination gate passed/);
-  });
-
-  it("combination fails; dropping the field with the fewest improved cells makes it pass — the single permitted drop", () => {
-    const d = decideRpShipConfig(
-      verdicts([
-        verdict("win", 9, 0),
-        verdict("tie", 8, 0),
-        verdict("marginal", 7, 0),
-        verdict("win+tie+marginal", 6, 1),
-        verdict("win+tie", 8, 0),
-      ])
-    );
-    expect(d.revertedFields).toEqual(["marginal"]);
-    expect([...d.acceptedFields].sort()).toEqual(["tie", "win"]);
-    expect(d.shipConfig).toEqual({
-      winSource: "p-red-win",
-      tieModel: "discrete-margin",
-      marginal: "gaussian",
-    });
-    expect(d.path.join(" | ")).toMatch(/marginal/);
-  });
-
-  it("the drop tie-break is deterministic — equal improved counts drop in the fixed order marginal, tie, win", () => {
-    const d = decideRpShipConfig(
-      verdicts([
-        verdict("win", 7, 0),
-        verdict("tie", 7, 0),
-        verdict("marginal", 9, 0),
-        verdict("win+tie+marginal", 6, 1),
-        verdict("win+marginal", 8, 0),
-      ])
-    );
-    // `win` and `tie` are tied at 7 improved; `tie` comes first in the fixed
-    // drop order, so `tie` is the one dropped.
-    expect(d.revertedFields).toEqual(["tie"]);
-    expect([...d.acceptedFields].sort()).toEqual(["marginal", "win"]);
-  });
-
-  it("at most ONE drop — a map needing two drops returns the legacy default rather than dropping twice", () => {
-    const d = decideRpShipConfig(
-      verdicts([
-        verdict("win", 9, 0),
-        verdict("tie", 8, 0),
-        verdict("marginal", 7, 0),
-        verdict("win+tie+marginal", 6, 1),
-        verdict("win+tie", 6, 1),
-      ])
-    );
-    expect(d.acceptedFields).toEqual([]);
-    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
-    expect(d.shipConfig).toEqual(RP_LAYER_CONFIG_DEFAULT);
-    expect(d.path.join(" | ")).toMatch(/no second drop/);
-  });
-
-  it("exactly one single-change arm passes — the combination gate IS that arm's own verdict, already computed", () => {
-    const d = decideRpShipConfig(
-      verdicts([verdict("win", 8, 0), verdict("tie", 4, 0), verdict("marginal", 5, 2)])
-    );
-    expect(d.acceptedFields).toEqual(["win"]);
-    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie"]);
-    expect(d.shipConfig).toEqual({
-      winSource: "p-red-win",
-      tieModel: "continuous-equality",
-      marginal: "gaussian",
-    });
-    expect(d.path.join(" | ")).toMatch(/single-change arm/);
-  });
-
-  it("no single-change arm passes — nothing to combine, and no combination is evaluated", () => {
-    const d = decideRpShipConfig(
-      verdicts([verdict("win", 3, 0), verdict("tie", 4, 1), verdict("marginal", 5, 0)])
-    );
-    expect(d.acceptedFields).toEqual([]);
-    expect([...d.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
-    expect(d.shipConfig).toEqual(RP_LAYER_CONFIG_DEFAULT);
-    expect(d.path.join(" | ")).toMatch(/no single-change arm met the bar/);
-  });
-
-  it("every decision carries a non-empty `path` naming the gate that produced it", () => {
-    const cases = [
-      verdicts([
-        verdict("win", 8, 0),
-        verdict("tie", 7, 0),
-        verdict("marginal", 9, 0),
-        verdict("win+tie+marginal", 9, 0),
-      ]),
-      verdicts([verdict("win", 3, 0), verdict("tie", 4, 1), verdict("marginal", 5, 0)]),
-      verdicts([verdict("win", 8, 0), verdict("tie", 4, 0), verdict("marginal", 5, 2)]),
-    ];
-    for (const c of cases) {
-      const d = decideRpShipConfig(c);
-      expect(d.path.length).toBeGreaterThan(0);
-      for (const line of d.path) expect(line.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("a verdict the rule needs but the map does not carry throws a named error rather than defaulting", () => {
-    expect(() =>
-      decideRpShipConfig(
-        verdicts([verdict("win", 8, 0), verdict("tie", 7, 0), verdict("marginal", 9, 0)])
-      )
-    ).toThrow(/decideRpShipConfig/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The arm registry, D-04's slices, and the multi-arm fold (09-06 Task 1)
-// ---------------------------------------------------------------------------
-
-describe("RP_ATTRIBUTION_ARMS — the eight arms", () => {
-  it("has exactly eight entries with `control` first, deep-equal to the imported production default", () => {
-    expect(RP_ATTRIBUTION_ARMS).toHaveLength(8);
-    expect(RP_ATTRIBUTION_ARMS[0]!.name).toBe("control");
-    expect(RP_ATTRIBUTION_ARMS[0]!.config).toEqual(RP_LAYER_CONFIG_DEFAULT);
-  });
-
-  it("covers the FULL cross product of the three fields' declared unions — one set equality, not a loop over a hand-typed list", () => {
-    // The member lists are written out here because a TypeScript union is not
-    // enumerable at run time. They are typed against the config's own fields,
-    // so a member renamed or removed upstream is a COMPILE error in this test
-    // rather than a silently shrunken cross product.
-    const winSources: readonly RpLayerConfig["winSource"][] = ["score-draw", "p-red-win"];
-    const tieModels: readonly RpLayerConfig["tieModel"][] = ["continuous-equality", "discrete-margin"];
-    const marginals: readonly RpLayerConfig["marginal"][] = ["gaussian", "negative-binomial"];
-
-    const expected = new Set<string>();
-    for (const w of winSources) {
-      for (const t of tieModels) {
-        for (const m of marginals) expected.add(`${w}|${t}|${m}`);
-      }
-    }
-    const actual = new Set(
-      RP_ATTRIBUTION_ARMS.map((a) => `${a.config.winSource}|${a.config.tieModel}|${a.config.marginal}`)
-    );
-    expect(actual).toEqual(expected);
-    expect(actual.size).toBe(8);
-  });
-
-  it("names every arm after the fields it changes, and every name is distinct", () => {
-    expect(RP_ATTRIBUTION_ARMS.map((a) => a.name)).toEqual([
-      "control",
-      "win",
-      "tie",
-      "marginal",
-      "win+tie",
-      "win+marginal",
-      "tie+marginal",
-      "win+tie+marginal",
-    ]);
-    expect(new Set(RP_ATTRIBUTION_ARMS.map((a) => a.name)).size).toBe(8);
-  });
-});
-
-describe("resolveRpArms", () => {
-  it('"all" returns all eight in registry order', () => {
-    expect(resolveRpArms("all").map((a) => a.name)).toEqual(RP_ATTRIBUTION_ARMS.map((a) => a.name));
-  });
-
-  it("a comma list returns exactly those named, in REGISTRY order regardless of the order given", () => {
-    expect(resolveRpArms("marginal,control,win").map((a) => a.name)).toEqual(["control", "win", "marginal"]);
-  });
-
-  it("no spec returns `control` alone, so every pre-existing invocation keeps its current meaning", () => {
-    const resolved = resolveRpArms();
-    expect(resolved.map((a) => a.name)).toEqual(["control"]);
-    expect(resolved[0]!.config).toEqual(RP_LAYER_CONFIG_DEFAULT);
-  });
-
-  it("an unknown name throws, naming the unknown arm AND listing the valid ones", () => {
-    expect(() => resolveRpArms("win,negbinom")).toThrow(/negbinom/);
-    expect(() => resolveRpArms("win,negbinom")).toThrow(/win\+tie\+marginal/);
-  });
-});
-
-describe("D-04's two slices", () => {
-  it("are disjoint, and their union is exactly the registered season list", () => {
-    const selection = new Set(RP_SELECTION_SLICE_SEASONS);
-    const reporting = new Set(RP_REPORTING_SLICE_SEASONS);
-    const registered = new Set(Object.keys(RP_RULE_MODULES).map(Number));
-    for (const s of selection) expect(reporting.has(s)).toBe(false);
-    expect(new Set([...selection, ...reporting])).toEqual(registered);
-  });
-
-  it("the reporting slice carries the cells D-09's bar is read over, derived and never hardcoded", () => {
-    // Derived from RP_RULE_MODULES and PUBLISHED_ALGORITHM_IDS at run time: a
-    // test that iterates a hardcoded season list silently skips a
-    // newly-registered season, while only an equality pin fails loudly.
-    const bonusTotal = RP_REPORTING_SLICE_SEASONS.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
-    expect(bonusTotal).toBe(10);
-    expect(bonusTotal * PUBLISHED_ALGORITHM_IDS.length).toBe(30);
-  });
-});
-
-describe("assertIdenticalPopulations — the in-flight guard", () => {
-  const arms = resolveRpArms("control,win");
-
-  it("passes when every arm scored the identical observation set", () => {
-    const counts = new Map([
-      [rpCellKey("control", "bpr", 2026, "energized"), 400],
-      [rpCellKey("win", "bpr", 2026, "energized"), 400],
-    ]);
-    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).not.toThrow();
-  });
-
-  it("throws naming the differing cell AND both counts when an arm's population differs", () => {
-    const counts = new Map([
-      [rpCellKey("control", "bpr", 2026, "energized"), 400],
-      [rpCellKey("win", "bpr", 2026, "energized"), 399],
-    ]);
-    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).toThrow(/energized/);
-    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).toThrow(/control=400, win=399/);
-  });
-});
-
-describe("negativeBinomialShare — reads RESOLVED, never DECLARED", () => {
-  it("counts fallbacks separately from a declared Gaussian default", () => {
-    // 90 negative binomial, 10 gaussian, 0 degenerate, 7 of which were
-    // fallbacks: the share is over the RESOLVED families, and `fallbacks` is a
-    // separate axis rather than a fourth family.
-    expect(negativeBinomialShare({ negativeBinomial: 90, gaussian: 10, degenerate: 0, fallbacks: 7 })).toBeCloseTo(0.9, 10);
-  });
-
-  it("an all-Gaussian tally under a negative-binomial label reports 0, which is the whole point of reading it", () => {
-    expect(negativeBinomialShare({ negativeBinomial: 0, gaussian: 100, degenerate: 0, fallbacks: 100 })).toBe(0);
-  });
-});
-
-describe("the multi-arm fold — eight layers off ONE replay", () => {
-  it("gives every arm's layer every record in chronological order, with disjoint layer objects", () => {
-    const ruleModule = RP_RULE_MODULES[2026]!;
-    const arms = resolveRpArms("all");
-    const layers = arms.map((arm) => new SigmaScoutLayer(ruleModule, "bpr", arm.config));
-    expect(new Set(layers).size).toBe(8);
-    for (let i = 0; i < layers.length; i++) {
-      for (let j = i + 1; j < layers.length; j++) expect(layers[i]).not.toBe(layers[j]);
-    }
-  });
-
-  it("folding one record list through eight layers leaves the input records deep-equal to their pre-fold selves", () => {
-    const ruleModule = RP_RULE_MODULES[2026]!;
-    const arms = resolveRpArms("all");
-    const layers = arms.map((arm) => new SigmaScoutLayer(ruleModule, "bpr", arm.config));
-
-    const records = [1, 2, 3].map((n) => ({
-      match: makeMatch({ matchKey: `2026test_qm${n}`, matchNumber: n, eventKey: "2026test", eventType: 0 }),
-      prediction: { winner: "red" as const, redScore: 100, blueScore: 90, pRedWin: 0.62 },
-    }));
-    const before = structuredClone(records);
-
-    for (const r of records) {
-      for (const layer of layers) layer.foldPlayed(r.match, r.prediction);
-    }
-
-    // `foldPlayed` returns a NEW enriched prediction rather than mutating the
-    // input — which is what makes folding ONE record list through eight layers
-    // safe, and therefore what makes "one replay per season" honest.
-    expect(records).toEqual(before);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The committed attribution record and its document (09-06 Task 2)
-// ---------------------------------------------------------------------------
-//
-// STRUCTURAL AND EQUALITY EXPECTATIONS ONLY. The measured figures themselves
-// are the output of the run and are recorded, never asserted against a number
-// picked in advance — asserting a measured Brier here would be pinning the
-// answer to a question this plan exists to ask.
+// The arms, the bar and the ship-decision rule are gone. The record they
+// produced is not, and neither is the document that reads it. Everything below
+// is pure over the committed JSON and references no deleted symbol — which is
+// exactly why the record was schema'd against plain strings rather than
+// against the config type in the first place.
 
 const ATTRIBUTION_RAW = JSON.parse(
   readFileSync(new URL("../data/baselines/rp-attribution-2026-09.json", import.meta.url), "utf8")
 ) as unknown;
 
-describe("data/baselines/rp-attribution-2026-09.json — the committed record", () => {
-  it("parses through its own schema — the validate-then-write boundary, re-checked at rest", () => {
+describe("data/baselines/rp-attribution-2026-09.json — the committed record outlives its generating code", () => {
+  it("still parses through its own schema", () => {
     expect(() => RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)).not.toThrow();
   });
 
   const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
   const allCells = [...record.selectionSlice.cells, ...record.reportingSlice.cells];
 
-  it("covers the FULL cross product of arms x published algorithms x registered seasons — one set equality", () => {
-    // NOT a loop over a hand-typed list: a test that iterates a hardcoded
-    // season list silently skips a newly-registered season, while only an
-    // equality pin fails loudly.
+  it("covers the full cross product of its own arms x published algorithms x registered seasons — one set equality", () => {
     const expected = new Set<string>();
-    for (const arm of RP_ATTRIBUTION_ARMS) {
+    for (const arm of Object.keys(record.armConfigs)) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
         for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
-          expected.add(`${arm.name}|${algorithmId}|${season}`);
+          expected.add(`${arm}|${algorithmId}|${season}`);
         }
       }
     }
-    const actual = new Set(allCells.map((c) => `${c.arm}|${c.algorithmId}|${c.season}`));
-    expect(actual).toEqual(expected);
+    expect(new Set(allCells.map((c) => `${c.arm}|${c.algorithmId}|${c.season}`))).toEqual(expected);
   });
 
   it("keeps every season's bonuses in the season module's own positional order", () => {
-    // The positional bonus contract 09-02 pinned: the record's cells for one
-    // (arm, algorithm, season) must appear in `bonusNames` order, because the
-    // rest of the site reads bonus arrays positionally.
-    for (const arm of RP_ATTRIBUTION_ARMS) {
+    for (const arm of Object.keys(record.armConfigs)) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
         for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
-          const mine = allCells.filter((c) => c.arm === arm.name && c.algorithmId === algorithmId && c.season === season);
+          const mine = allCells.filter((c) => c.arm === arm && c.algorithmId === algorithmId && c.season === season);
           expect(mine.map((c) => c.bonusName)).toEqual([...RP_RULE_MODULES[season]!.bonusNames]);
         }
       }
     }
   });
 
-  it("every arm scored the IDENTICAL observation set — the population guard, re-asserted at rest", () => {
+  it("every arm scored the identical observation set — the population guard, still checkable at rest", () => {
     const byCell = new Map<string, Map<string, number>>();
     for (const c of allCells) {
       const key = `${c.algorithmId}|${c.season}|${c.bonusName}`;
@@ -710,12 +267,11 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record", 
       byCell.get(key)!.set(c.arm, c.count);
     }
     for (const [key, byArm] of byCell) {
-      const counts = [...byArm.values()];
-      expect(new Set(counts).size, `differing counts for ${key}: ${[...byArm].map(([a, n]) => `${a}=${n}`).join(", ")}`).toBe(1);
+      expect(new Set(byArm.values()).size, `differing counts for ${key}`).toBe(1);
     }
   });
 
-  it("the two slices partition the registered seasons, and every cell lands in exactly one of them", () => {
+  it("its two slices partition the registered seasons, and every cell lands in exactly one of them", () => {
     const selection = new Set(record.selectionSlice.seasons);
     const reporting = new Set(record.reportingSlice.seasons);
     for (const s of selection) expect(reporting.has(s)).toBe(false);
@@ -724,109 +280,29 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record", 
     for (const c of record.reportingSlice.cells) expect(reporting.has(c.season)).toBe(true);
   });
 
-  it("the reporting slice carries the derived cell census — 30 scored cells across three algorithms", () => {
-    const scoredCells = record.reportingSlice.cells.filter((c) => c.arm === "control" && c.count > 0);
-    const bonusTotal = RP_REPORTING_SLICE_SEASONS.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
-    expect(scoredCells.length).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
+  it("carries the derived reporting-slice cell census — the bar's own unit of account, never hardcoded", () => {
+    const scored = record.reportingSlice.cells.filter((c) => c.arm === "control" && c.count > 0);
+    const bonusTotal = record.reportingSlice.seasons.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
+    expect(scored.length).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
   });
 
-  it("the stored decision is REPRODUCED by re-running the rule over the record's own armVerdicts, not merely trusted", () => {
-    // A stored verdict that disagrees with the rule applied to the stored
-    // table is the one corruption that would be invisible to a reader.
-    const rerun = decideRpShipConfig(new Map(record.armVerdicts.map((v) => [v.arm, v])));
-    expect(rerun.acceptedFields).toEqual(record.decision.acceptedFields);
-    expect(rerun.revertedFields).toEqual(record.decision.revertedFields);
-    expect(rerun.path).toEqual(record.decision.path);
-    expect({ ...rerun.shipConfig }).toEqual(record.decision.shipConfig);
-  });
-
-  it("every arm verdict is REPRODUCED by re-running the bar over the record's own reporting-slice cells", () => {
-    const byArm = new Map<string, RpBonusCell[]>();
-    for (const c of record.reportingSlice.cells) {
-      if (!byArm.has(c.arm)) byArm.set(c.arm, []);
-      byArm.get(c.arm)!.push({
-        algorithmId: c.algorithmId,
-        season: c.season,
-        bonusName: c.bonusName,
-        count: c.count,
-        meanPredicted: c.meanPredicted ?? Number.NaN,
-        observedFrequency: c.observedFrequency ?? Number.NaN,
-        brierScore: c.brierScore ?? Number.NaN,
-      });
-    }
-    for (const stored of record.armVerdicts) {
-      expect(evaluateD09Bar(byArm.get("control")!, byArm.get(stored.arm)!, stored.arm)).toEqual(stored);
-    }
-  });
-
-  it("records the corpus it was measured against, and the arms as PLAIN STRING MAPS that outlive the deleted config type", () => {
-    expect(record.corpusIdentity.path).toBe("data/corpus.sqlite");
-    expect(record.corpusIdentity.sizeBytes).toBeGreaterThan(0);
-    expect(Object.keys(record.armConfigs).sort()).toEqual(RP_ATTRIBUTION_ARMS.map((a) => a.name).sort());
+  it("records its arms as plain string maps, which is what let it survive the deletion of the type they described", () => {
     for (const config of Object.values(record.armConfigs)) {
       for (const value of Object.values(config)) expect(typeof value).toBe("string");
     }
+    expect(record.corpusIdentity.path).toBe("data/corpus.sqlite");
+    expect(record.corpusIdentity.sizeBytes).toBeGreaterThan(0);
   });
 
-  it("pins F10's dot threshold into the record without importing it from the web app", () => {
+  it("pins F10's dot threshold without importing it from the web app", () => {
     expect(record.dotThreshold).toBe(RP_DOT_THRESHOLD_DEFAULT);
   });
-});
 
-describe("the cross-generation panel is emitted and NEVER reaches the bar", () => {
-  it("changing the cross-generation block cannot move a single arm verdict", () => {
-    // 09-01's frozen file predates 09-04's engine swap. Feeding it to the bar
-    // would credit or blame the modelling changes for the Monte Carlo's
-    // removal, and would compare a HEAD-computed number against one produced
-    // by code that no longer exists. Asserted behaviorally: the bar's inputs
-    // come ONLY from arms measured in this process.
-    const cells = RP_ATTRIBUTION_ARMS.flatMap((arm) =>
-      RP_REPORTING_SLICE_SEASONS.flatMap((season) =>
-        RP_RULE_MODULES[season]!.bonusNames.map((bonusName) => ({
-          arm: arm.name,
-          algorithmId: "bpr",
-          season,
-          bonusName,
-          count: 100,
-          meanPredicted: 0.5,
-          observedFrequency: 0.5,
-          brierScore: arm.name === "control" ? 0.25 : 0.24,
-          dotEligibleShare: 0.5,
-        }))
-      )
-    );
-    const base = {
-      measuredAt: "2026-09-11T00:00:00.000Z",
-      command: "test",
-      corpusIdentity: { path: "data/corpus.sqlite", sizeBytes: 1, mtime: "2026-09-11T00:00:00.000Z" },
-      offseasonIncluded: true,
-      algorithmVersions: { bpr: "3.0.0" },
-      arms: RP_ATTRIBUTION_ARMS,
-      dotThreshold: RP_DOT_THRESHOLD_DEFAULT,
-      cells,
-      marginalResolution: Object.fromEntries(
-        RP_ATTRIBUTION_ARMS.map((a) => [a.name, { negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 }])
-      ),
-      outcomeCoherence: [],
-    };
-    const withoutPanel = buildRpAttributionRecord({ ...base, crossGeneration: [] });
-    const withWildPanel = buildRpAttributionRecord({
-      ...base,
-      crossGeneration: RP_REPORTING_SLICE_SEASONS.flatMap((season) =>
-        RP_RULE_MODULES[season]!.bonusNames.map((bonusName) => ({
-          algorithmId: "bpr",
-          season,
-          bonusName,
-          frozenMeanPredicted: 0.99,
-          controlMeanPredicted: 0.01,
-          frozenBrier: 0.99,
-          controlBrier: 0.01,
-          observedFrequency: 0.5,
-        }))
-      ),
-    });
-    expect(withWildPanel.armVerdicts).toEqual(withoutPanel.armVerdicts);
-    expect(withWildPanel.decision).toEqual(withoutPanel.decision);
+  it("records that the pre-committed rule accepted nothing — the reason there is one model again", () => {
+    // Not a re-derivation: the rule that produced this is deleted. This asserts
+    // the committed OUTCOME, which is what the collapse was carried out against.
+    expect(record.decision.acceptedFields).toEqual([]);
+    expect([...record.decision.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
   });
 });
 
@@ -835,12 +311,12 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
     const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
     const match = doc.match(/```json\n([\s\S]*?)\n```/);
     expect(match, "docs/models/rp-attribution.md must carry one ```json fenced block").not.toBeNull();
-    const block = JSON.parse(match![1]!) as unknown;
-    expect(block).toEqual(buildRpAttributionDigest(RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)));
+    expect(JSON.parse(match![1]!) as unknown).toEqual(buildRpAttributionDigest(RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)));
   });
 
   it("keeps D-04's two slices under separate headings, with no season under the wrong one", () => {
     const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
+    const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
     const section = (heading: string): string => {
       const start = doc.indexOf(heading);
       expect(start, `missing heading: ${heading}`).toBeGreaterThan(-1);
@@ -850,12 +326,11 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
     };
     const selection = section("## SELECTION SLICE");
     const reporting = section("## REPORTING SLICE");
-    // Asserted structurally over the two headed sections, not by eye. Matched
-    // as WHOLE TOKENS rather than substrings: a Brier score of 0.202011
-    // contains "2020" and a raw `toContain` would read that as a selection
-    // season leaking into the reporting section.
+    // Matched as WHOLE TOKENS rather than substrings: a Brier score of
+    // 0.202011 contains "2020" and a raw substring check would read that as a
+    // selection season leaking into the reporting section.
     const mentionsYear = (text: string, year: number): boolean => new RegExp(`\b${year}\b`).test(text);
-    for (const s of RP_REPORTING_SLICE_SEASONS) expect(mentionsYear(selection, s), `selection section mentions reporting season ${s}`).toBe(false);
-    for (const s of RP_SELECTION_SLICE_SEASONS) expect(mentionsYear(reporting, s), `reporting section mentions selection season ${s}`).toBe(false);
+    for (const s of record.reportingSlice.seasons) expect(mentionsYear(selection, s), `selection section mentions reporting season ${s}`).toBe(false);
+    for (const s of record.selectionSlice.seasons) expect(mentionsYear(reporting, s), `reporting section mentions selection season ${s}`).toBe(false);
   });
 });

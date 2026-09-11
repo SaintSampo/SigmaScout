@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RpMomentsAccumulator } from "./empiricalMoments.js";
 import { rpRuleModuleForSeason } from "./rules.js";
-import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "./analyticPmf.js";
+import { analyticRpPmf } from "./analyticPmf.js";
 
 const RULES_2026 = rpRuleModuleForSeason(2026)!;
 const RED = ["frc1", "frc2", "frc3"];
@@ -123,8 +123,6 @@ describe("RpMomentsAccumulator feeding analyticRpPmf — the end-to-end path RP 
       ruleModule: RULES_2026,
       eventType: 0,
       compLevel: "qm",
-      config: RP_LAYER_CONFIG_DEFAULT,
-      pRedWin: 0.5,
     });
     expect(result.redPmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
     expect(result.redBonusProbabilities).toHaveLength(RULES_2026.bonusNames.length);
@@ -140,8 +138,6 @@ describe("RpMomentsAccumulator feeding analyticRpPmf — the end-to-end path RP 
       ruleModule: RULES_2026,
       eventType: 0,
       compLevel: "qm",
-      config: RP_LAYER_CONFIG_DEFAULT,
-      pRedWin: 0.5,
     });
     expect(expected(run.redPmf)).toBeGreaterThan(expected(run.bluePmf));
   });
@@ -160,8 +156,6 @@ describe("RpMomentsAccumulator feeding analyticRpPmf — the end-to-end path RP 
         ruleModule: rules,
         eventType: 0,
         compLevel: "qm",
-        config: RP_LAYER_CONFIG_DEFAULT,
-        pRedWin: 0.5,
       });
       expect(result.redPmf.reduce((a, b) => a + b, 0), `season ${season}`).toBeCloseTo(1, 6);
     }

@@ -71,17 +71,17 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "matchCargoTotal",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "autoCargoTotal",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

@@ -160,13 +160,20 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
  * variable or a silently flipped family fails this test with a readable
  * diff, which is the point: family choice is data entry and a new one must
  * be deliberate. As of this plan all 34 declarations name
- * `"negative-binomial"`; the `NEGATIVE_BINOMIAL_DECLARATIONS` list below is
- * the single source of truth this test checks against, kept in the SAME
- * order `RP_REGISTERED_SEASONS` iterates (ascending season, declaration
- * order within each season's own `THRESHOLD_VARIABLES` array).
+ * `"gaussian"`. They briefly all named `"negative-binomial"`; that family was
+ * measured against the unchanged Gaussian model on 2026-09-11 and REFUSED by
+ * the pre-committed per-bonus bar (three cells improved, three regressed, and
+ * the bar admits no regression), so every declaration was returned and the
+ * family's fit was deleted. See `docs/models/rp-attribution.md`.
+ *
+ * The list below is the single source of truth this test checks against, kept
+ * in the SAME order `RP_REGISTERED_SEASONS` iterates (ascending season,
+ * declaration order within each season's own `THRESHOLD_VARIABLES` array). It
+ * stays an exact sorted list rather than a count: a count would pass while a
+ * variable was renamed or silently moved between seasons.
  */
-describe("marginalFamily declarations — the exact pinned per-family list (09-05 Task 3, D-01)", () => {
-  const NEGATIVE_BINOMIAL_DECLARATIONS = [
+describe("marginalFamily declarations — the exact pinned per-family list", () => {
+  const GAUSSIAN_DECLARATIONS = [
     "2016:position1crossings",
     "2016:position2crossings",
     "2016:position3crossings",
@@ -203,8 +210,8 @@ describe("marginalFamily declarations — the exact pinned per-family list (09-0
     "2026:totalTowerPoints",
   ] as const;
 
-  it("pins the exact set: 34 total declarations, every one \"negative-binomial\", none \"gaussian\", none undefined", () => {
-    const byFamily: Record<string, string[]> = { "negative-binomial": [], gaussian: [] };
+  it("pins the exact set: 34 total declarations, every one \"gaussian\", none undefined", () => {
+    const byFamily: Record<string, string[]> = { gaussian: [] };
     let total = 0;
     for (const season of RP_REGISTERED_SEASONS) {
       const module = RP_RULE_MODULES[season]!;
@@ -219,8 +226,7 @@ describe("marginalFamily declarations — the exact pinned per-family list (09-0
       }
     }
     expect(total).toBe(34);
-    expect(byFamily["gaussian"]).toEqual([]);
-    expect([...byFamily["negative-binomial"]!].sort()).toEqual([...NEGATIVE_BINOMIAL_DECLARATIONS].sort());
+    expect([...byFamily["gaussian"]!].sort()).toEqual([...GAUSSIAN_DECLARATIONS].sort());
   });
 });
 
@@ -330,15 +336,33 @@ describe("predictThresholds (plan 03-03) — evaluates bonuses from tracked thre
     expect(result.bonusFlags.ensembleBonus).toBe(true);
   });
 
-  it("2025: autoBonus is always false (no threshold-variable-only fallback exists), bargeBonus is fully computable", () => {
+  // CORRECTED 2026-09-11 (plan 09-06; routed here by 09-02). This case was
+  // titled "2025: autoBonus is always false (no threshold-variable-only
+  // fallback exists)" and passed only because it supplied NEITHER auto
+  // variable, so both defaulted to 0 and the conjunction came out false for a
+  // reason that had nothing to do with the claim in its own title. The
+  // 2026-09-09 tracking fix added `autoLineCount` and `autoCoralCount`
+  // precisely so `autoBonus` COULD be predicted, so the old title asserted the
+  // opposite of what the module now does. Both directions are now supplied and
+  // asserted.
+  it("2025: autoBonus IS computable from its two tracked auto variables — true when both thresholds are met", () => {
     const module = rpRuleModuleForSeason(2025);
     const result = module.predictThresholds(
-      { trough: 10, botRow: 10, midRow: 10, topRow: 10, endGameBargePoints: 20 },
+      { trough: 10, botRow: 10, midRow: 10, topRow: 10, endGameBargePoints: 20, autoLineCount: 3, autoCoralCount: 1 },
       0
     );
-    expect(result.bonusFlags.autoBonus).toBe(false);
+    expect(result.bonusFlags.autoBonus).toBe(true);
     expect(result.bonusFlags.bargeBonus).toBe(true);
     expect(result.bonusFlags.coralBonus).toBe(true);
+  });
+
+  it("2025: autoBonus is false when EITHER auto threshold is missed — a conjunction over two distinct tracked counts, not a constant", () => {
+    const module = rpRuleModuleForSeason(2025);
+    const base = { trough: 10, botRow: 10, midRow: 10, topRow: 10, endGameBargePoints: 20 };
+    // Two of three robots crossed the auto line; the coral requirement is met.
+    expect(module.predictThresholds({ ...base, autoLineCount: 2, autoCoralCount: 1 }, 0).bonusFlags.autoBonus).toBe(false);
+    // All three crossed, but no auto coral was scored.
+    expect(module.predictThresholds({ ...base, autoLineCount: 3, autoCoralCount: 0 }, 0).bonusFlags.autoBonus).toBe(false);
   });
 
   it("2026: every bonus fully computable from tracked variables", () => {

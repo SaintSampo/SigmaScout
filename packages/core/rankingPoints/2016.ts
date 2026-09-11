@@ -240,27 +240,27 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "position1crossings",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "position2crossings",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "position3crossings",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "position4crossings",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "position5crossings",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   // The OPPONENT side's `towerEndStrength`, exposed as an own-alliance
   // variable because it measures THIS alliance's offensive output against
@@ -268,7 +268,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "attackedTowerEndStrength",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   // Point values, not counts — the rule converts them to a robot count with
   // the per-robot divisors above rather than reading a count field, because
@@ -276,12 +276,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "teleopChallengePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "teleopScalePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

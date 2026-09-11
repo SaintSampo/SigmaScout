@@ -14,7 +14,7 @@
  * pmfs, which changes nothing these tests assert.
  */
 import { describe, expect, it } from "vitest";
-import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT, type AnalyticRpPmfInput } from "../../rankingPoints/analyticPmf.js";
+import { analyticRpPmf, type AnalyticRpPmfInput } from "../../rankingPoints/analyticPmf.js";
 import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
 import type { AllianceRpMoments } from "../../rankingPoints/moments.js";
 import {
@@ -63,8 +63,6 @@ function pmfInput(overrides: Partial<AnalyticRpPmfInput> = {}): AnalyticRpPmfInp
     ruleModule: RULE_2024,
     eventType: 0,
     compLevel: "qm",
-    config: RP_LAYER_CONFIG_DEFAULT,
-    pRedWin: 0.5,
     ...overrides,
   };
 }

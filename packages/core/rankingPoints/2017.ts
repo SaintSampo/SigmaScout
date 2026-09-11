@@ -143,12 +143,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoFuelPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "teleopFuelPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   // Point values, not counts — the rule converts them to a rotor count with
   // the per-rotor divisors above rather than reading a count field, because
@@ -156,12 +156,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRotorPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "teleopRotorPoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

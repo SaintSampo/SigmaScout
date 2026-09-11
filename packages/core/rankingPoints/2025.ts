@@ -118,27 +118,27 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "trough",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "botRow",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "midRow",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "topRow",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "endGameBargePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   // Added 2026-09-09 so `autoBonus` can be PREDICTED at all. Before this it
   // was hardcoded `false` in `predictThresholds` below, honestly documented as
@@ -150,12 +150,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoLineCount",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "autoCoralCount",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

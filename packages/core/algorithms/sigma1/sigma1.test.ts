@@ -30,7 +30,7 @@ import { emptyElimScoreOffset } from "./elim.js";
 import { subsetVariance } from "./covariance.js";
 import { opr } from "../opr.js";
 import { epa } from "../epa.js";
-import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT } from "../../rankingPoints/analyticPmf.js";
+import { analyticRpPmf } from "../../rankingPoints/analyticPmf.js";
 import { rpRuleModuleForSeason } from "../../rankingPoints/rules.js";
 import type { AllianceRpMoments } from "../../rankingPoints/moments.js";
 
@@ -1594,8 +1594,6 @@ describe("vpr — CR-01: unmapped eventType (offseason 99) is a defined skip, ne
         ruleModule: ruleModule2024,
         eventType,
         compLevel: "qm",
-        config: RP_LAYER_CONFIG_DEFAULT,
-        pRedWin: prediction.pRedWin,
       });
       expect(rpResult.redPmf.length).toBeGreaterThan(0);
       expect(rpResult.bluePmf.length).toBeGreaterThan(0);

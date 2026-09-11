@@ -100,17 +100,17 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "noteCount",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "endGameTotalStagePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
   {
     name: "onStageRobotCount",
     unit: "count",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 

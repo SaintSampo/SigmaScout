@@ -83,7 +83,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "negative-binomial",
+    marginalFamily: "gaussian",
   },
 ];
 
