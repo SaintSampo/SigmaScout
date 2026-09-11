@@ -182,14 +182,14 @@ function HomePage() {
           search={preserveSearch}
           className="rounded-[var(--radius)] bg-[var(--color-accent)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-white"
         >
-          This week&apos;s events
+          Events
         </Link>
         <Link
           to="/compare"
           search={preserveSearch}
           className="rounded-[var(--radius)] bg-[var(--color-accent)] px-[var(--spacing-lg)] py-[var(--spacing-sm)] text-role-body font-semibold text-white"
         >
-          See the methodology
+          Methodology
         </Link>
       </div>
     </main>
