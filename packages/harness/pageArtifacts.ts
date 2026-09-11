@@ -435,6 +435,43 @@ const EventMatchSchema = z
     /** D-03, plan 08-02 Task 1: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
     blueRpPmf: z.array(z.number()).optional(),
     /**
+     * D-15, plan 09-07 — THE SINGLE DEFINITION SITE of the index order every
+     * consumer of the RP decomposition cites rather than re-deriving:
+     * `matchOutcomePmf[0]` is the probability the red alliance wins,
+     * `[1]` a tie, `[2]` a blue win. This is the win/tie half of the RP
+     * decomposition `redRpPmf`/`blueRpPmf` were convolved from — published
+     * so the rank simulation can draw a match's outcome ONCE instead of
+     * drawing each alliance's total independently (today's independent
+     * draws let both alliances "win" the same draw). Carries three entries
+     * at EVERY configuration; the tie entry is ~0 until D-14's discrete
+     * score-margin tie model is selected, so the shape never changes when
+     * the model does.
+     *
+     * OPTIONAL for the same live-artifact reason as `redRpPmf`, following
+     * `CompareExclusionCountsSchema.coldStart`'s precedent: this is a LIVE,
+     * R2-served shape whose already-published objects predate this field. A
+     * required key would fail to parse every one of them and blank the
+     * Simulation tab in production before 09-10's republish. Absence
+     * genuinely means "this artifact predates the decomposition" and MUST
+     * render as absent, never coerced to a default — a reader that
+     * substitutes one would silently invent a favourite.
+     */
+    matchOutcomePmf: z.array(z.number()).optional(),
+    /**
+     * D-15, plan 09-07: the red alliance's distribution over its BONUS
+     * ranking points ONLY — `analyticRpPmf`'s `redBonusPmf`, sums to 1
+     * (unlike `redBonusRp` below, a per-bonus MARGINAL that does not).
+     * Distinct by name from BOTH neighbours: `redRpPmf` above is the RP
+     * TOTAL distribution (win/tie RP and bonus RP already folded in);
+     * `redBonusRp` below is a per-bonus marginal whose entries do not sum to
+     * 1; this is a distribution over the bonus-RP count alone, independent
+     * of the match outcome. Optional for the same live-artifact reason as
+     * `matchOutcomePmf`.
+     */
+    redBonusRpPmf: z.array(z.number()).optional(),
+    /** The blue alliance's counterpart to `redBonusRpPmf` — see its doc comment for the full contract. */
+    blueBonusRpPmf: z.array(z.number()).optional(),
+    /**
      * Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the red
      * alliance's predicted per-bonus MARGINALS — the exact quantity, under
      * the exact name and positional-alignment contract,
@@ -525,6 +562,18 @@ const EventMatchSchema = z
   .refine((row) => isValidPmf(row.blueRpPmf), {
     message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
     path: ["blueRpPmf"],
+  })
+  .refine((row) => isValidPmf(row.matchOutcomePmf), {
+    message: "matchOutcomePmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["matchOutcomePmf"],
+  })
+  .refine((row) => isValidPmf(row.redBonusRpPmf), {
+    message: "redBonusRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["redBonusRpPmf"],
+  })
+  .refine((row) => isValidPmf(row.blueBonusRpPmf), {
+    message: "blueBonusRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["blueBonusRpPmf"],
   })
   .refine(
     (row) => {
@@ -618,6 +667,12 @@ const EventUpcomingMatchSchema = z
     blueSwingBandVariance: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
+    /** D-15, plan 09-07 — see `EventMatchSchema.matchOutcomePmf` for the full contract; this is the sibling on a not-yet-played row, following the same optional-when-live-artifact convention as `redRpPmf` above. */
+    matchOutcomePmf: z.array(z.number()).optional(),
+    /** D-15, plan 09-07 — see `EventMatchSchema.redBonusRpPmf` for the full contract. */
+    redBonusRpPmf: z.array(z.number()).optional(),
+    /** The blue alliance's counterpart to `redBonusRpPmf` — see `EventMatchSchema.redBonusRpPmf` for the full contract. */
+    blueBonusRpPmf: z.array(z.number()).optional(),
     /** Quick 260905-jj8: predicted per-bonus marginals for a not-yet-played qualification match — see `TeamSeasonMatchSchema.redBonusRp` for the full contract (positional alignment, never a pmf, omitted for non-`qm`/non-RP algorithms). */
     redBonusRp: z.array(z.number().min(0).max(1)).optional(),
     /** Quick 260905-jj8: the blue counterpart to `redBonusRp` above. */
@@ -630,6 +685,18 @@ const EventUpcomingMatchSchema = z
   .refine((row) => isValidPmf(row.blueRpPmf), {
     message: "blueRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
     path: ["blueRpPmf"],
+  })
+  .refine((row) => isValidPmf(row.matchOutcomePmf), {
+    message: "matchOutcomePmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["matchOutcomePmf"],
+  })
+  .refine((row) => isValidPmf(row.redBonusRpPmf), {
+    message: "redBonusRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["redBonusRpPmf"],
+  })
+  .refine((row) => isValidPmf(row.blueBonusRpPmf), {
+    message: "blueBonusRpPmf, when present, must be non-empty and sum to 1 within 1e-9",
+    path: ["blueBonusRpPmf"],
   })
   .refine(
     (row) => {
@@ -1494,6 +1561,19 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   upcoming: z.array(EventUpcomingMatchSchema),
   teams: z.array(EventTeamSchema),
   alliances: z.array(EventAllianceSchema).optional(),
+  /**
+   * D-15, plan 09-07: this season's own win/tie ranking-point constants
+   * (`RpRuleModule.winRp`/`.tieRp` — 2/1 in 2016-2024, 3/1 in 2025-2026),
+   * published ONCE PER ARTIFACT rather than once per row — one fact about a
+   * season, one representation of it. A consumer composes the index-aligned
+   * outcome-RP vectors from these against the order pinned on
+   * `EventMatchSchema.matchOutcomePmf`: `[win, tie, 0]` for red, `[0, tie,
+   * win]` for blue. Placing it here rather than importing the rule module
+   * into the browser is deliberate — it is the whole reason this field
+   * exists rather than a client-side season lookup table. Optional for the
+   * same live-artifact reason as `matchOutcomePmf`.
+   */
+  rpOutcomeRp: z.object({ win: z.number(), tie: z.number() }).optional(),
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;

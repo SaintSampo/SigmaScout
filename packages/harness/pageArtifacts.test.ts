@@ -988,6 +988,60 @@ describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", ()
   });
 });
 
+describe("EventMatchSchema/EventUpcomingMatchSchema/EventArtifactSchema — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp (D-15, plan 09-07)", () => {
+  it("Test 1 — a complete decomposition on a played row, an upcoming row, and the top-level pair round-trips exactly", () => {
+    const matchOutcomePmf = [0.6, 0.02, 0.38];
+    const redBonusRpPmf = [0.7, 0.3];
+    const blueBonusRpPmf = [0.8, 0.2];
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({
+        top: { rpOutcomeRp: { win: 3, tie: 1 } },
+        match: { matchOutcomePmf, redBonusRpPmf, blueBonusRpPmf },
+        upcoming: { matchOutcomePmf, redBonusRpPmf, blueBonusRpPmf },
+      })
+    );
+    expect(parsed.matches[0]!.matchOutcomePmf).toEqual(matchOutcomePmf);
+    expect(parsed.matches[0]!.redBonusRpPmf).toEqual(redBonusRpPmf);
+    expect(parsed.matches[0]!.blueBonusRpPmf).toEqual(blueBonusRpPmf);
+    expect(parsed.upcoming[0]!.matchOutcomePmf).toEqual(matchOutcomePmf);
+    expect(parsed.upcoming[0]!.redBonusRpPmf).toEqual(redBonusRpPmf);
+    expect(parsed.upcoming[0]!.blueBonusRpPmf).toEqual(blueBonusRpPmf);
+    expect(parsed.rpOutcomeRp).toEqual({ win: 3, tie: 1 });
+  });
+
+  it("Test 2 — an artifact carrying none of the four keys still parses — every already-published artifact predates this decomposition", () => {
+    expect(() => EventArtifactSchema.parse(validEventFixture())).not.toThrow();
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.matches[0]!.matchOutcomePmf).toBeUndefined();
+    expect(parsed.matches[0]!.redBonusRpPmf).toBeUndefined();
+    expect(parsed.matches[0]!.blueBonusRpPmf).toBeUndefined();
+    expect(parsed.rpOutcomeRp).toBeUndefined();
+  });
+
+  it("Test 3a — a matchOutcomePmf summing to 0.5 is rejected, naming matchOutcomePmf", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { matchOutcomePmf: [0.2, 0.3] } }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "matches.0.matchOutcomePmf")).toBe(true);
+    }
+  });
+
+  it("Test 3b — an empty redBonusRpPmf is rejected, naming redBonusRpPmf", () => {
+    const result = EventArtifactSchema.safeParse(eventFixtureWith({ match: { redBonusRpPmf: [] } }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "matches.0.redBonusRpPmf")).toBe(true);
+    }
+  });
+
+  it("Test 4 — a row carrying matchOutcomePmf but no redBonusRpPmf still parses — the schema does not enforce all-or-nothing; that gate lives in the consumer", () => {
+    const matchOutcomePmf = [0.5, 0, 0.5];
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { matchOutcomePmf } }));
+    expect(parsed.matches[0]!.matchOutcomePmf).toEqual(matchOutcomePmf);
+    expect(parsed.matches[0]!.redBonusRpPmf).toBeUndefined();
+  });
+});
+
 describe("EventMatchSchema — actualRedRp/actualBlueRp (D-12, plan 08-02 Task 2)", () => {
   it("Test 1 — round trip: a real integer and a real zero both read back exactly", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { actualRedRp: 5, actualBlueRp: 0 } }));

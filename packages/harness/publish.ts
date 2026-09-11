@@ -806,6 +806,14 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     // have.
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // D-15, plan 09-07: the RP decomposition — read straight off
+    // `prediction` and never gated on competition level, for the identical
+    // reason the `redRpPmf`/`blueRpPmf` pair just above is not gated (PD-02:
+    // a gate here would make this the only surface in the pipeline that
+    // drops what the model returned).
+    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
+    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
+    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     // Quick 260905-jj8: the four per-bonus RP fields, through the shared
     // helper above — the same gates and the same three-state actual
     // contract the team row builder applies to the same source data.
@@ -868,6 +876,11 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     ...upcomingSwingBandFields("blue", match.blueTeams, params.swingByTeam),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // D-15, plan 09-07: see the `matches` row builder's identical three
+    // lines above for the full contract.
+    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
+    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
+    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     // Quick 260905-jj8: predicted per-bonus marginals only — an upcoming row
     // has no actual outcome, so `flags` is passed as undefined by design.
     ...eventMatchBonusRpFields(match.compLevel, prediction, undefined),
@@ -947,6 +960,17 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     ...(sel.record !== null && sel.record !== undefined ? { record: sel.record } : {}),
   }));
 
+  // D-15, plan 09-07: this season's own win/tie RP constants, published
+  // ONCE PER ARTIFACT rather than once per row. Taken from the FIRST
+  // record (played, then upcoming) whose prediction carries the outcome-RP
+  // vectors — every record in one event artifact is the same season, so
+  // "the first" is a deterministic choice, not a sampling decision. Read
+  // straight off the prediction rather than importing `rpRuleModuleForSeason`
+  // here, so this publisher gains no season knowledge of its own: `
+  // #rpFieldsFor` (`sigmaScoutLayer.ts`) is the one place that turns rule-
+  // module constants into published numbers.
+  const rpOutcomeRp = findRpOutcomeRp(params.predictions, params.upcoming ?? []);
+
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
@@ -960,9 +984,38 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     upcoming,
     teams,
     ...(alliances !== undefined ? { alliances } : {}),
+    ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
   };
 
   return EventArtifactSchema.parse(candidate);
+}
+
+/**
+ * D-15, plan 09-07: finds `{ win, tie }` from the first record (played, then
+ * upcoming, in each array's own order) whose prediction carries both
+ * outcome-RP vectors — `redOutcomeRp[0]`/`[1]` are `winRp`/`tieRp` by
+ * construction (`sigmaScoutLayer.ts`'s `#rpFieldsFor` composes
+ * `redOutcomeRp` as `[winRp, tieRp, 0]`). Returns `undefined` when no record
+ * carries the decomposition, which omits the key entirely per
+ * `EventArtifactSchema.rpOutcomeRp`'s own optional convention.
+ */
+function findRpOutcomeRp(
+  predictions: readonly PredictionRecord[],
+  upcoming: readonly UpcomingPredictionRecord[]
+): { win: number; tie: number } | undefined {
+  for (const record of predictions) {
+    const { redOutcomeRp } = record.prediction;
+    if (redOutcomeRp !== undefined && record.prediction.blueOutcomeRp !== undefined) {
+      return { win: redOutcomeRp[0]!, tie: redOutcomeRp[1]! };
+    }
+  }
+  for (const record of upcoming) {
+    const { redOutcomeRp } = record.prediction;
+    if (redOutcomeRp !== undefined && record.prediction.blueOutcomeRp !== undefined) {
+      return { win: redOutcomeRp[0]!, tie: redOutcomeRp[1]! };
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

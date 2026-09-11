@@ -577,6 +577,59 @@ describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, pla
   });
 });
 
+describe("buildEventArtifact — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp (D-15, plan 09-07)", () => {
+  const DECOMPOSITION: Partial<Prediction> = {
+    matchOutcomePmf: [0.612345, 0.023456, 0.364199],
+    redOutcomeRp: [2, 1, 0],
+    blueOutcomeRp: [0, 1, 2],
+    redBonusRpPmf: [0.7123456, 0.2876544],
+    blueBonusRpPmf: [0.812345, 0.187655],
+  };
+
+  it("a prediction carrying all five decomposition fields publishes the three row fields (rounded via roundPmf) and the top-level pair, on both matches and upcoming", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ prediction: DECOMPOSITION, upcomingPrediction: DECOMPOSITION }));
+    expect(artifact.matches[0]?.matchOutcomePmf).toEqual(roundPmf(DECOMPOSITION.matchOutcomePmf!));
+    expect(artifact.matches[0]?.redBonusRpPmf).toEqual(roundPmf(DECOMPOSITION.redBonusRpPmf!));
+    expect(artifact.matches[0]?.blueBonusRpPmf).toEqual(roundPmf(DECOMPOSITION.blueBonusRpPmf!));
+    expect(artifact.upcoming[0]?.matchOutcomePmf).toEqual(roundPmf(DECOMPOSITION.matchOutcomePmf!));
+    expect(artifact.upcoming[0]?.redBonusRpPmf).toEqual(roundPmf(DECOMPOSITION.redBonusRpPmf!));
+    expect(artifact.upcoming[0]?.blueBonusRpPmf).toEqual(roundPmf(DECOMPOSITION.blueBonusRpPmf!));
+    // redOutcomeRp: [2, 1, 0] -> win=2, tie=1, read against the pinned order.
+    expect(artifact.rpOutcomeRp).toEqual({ win: 2, tie: 1 });
+  });
+
+  it("predictions carrying none of the five decomposition fields leave all four published keys absent — including after a JSON round trip", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    expect(artifact.matches[0]?.matchOutcomePmf).toBeUndefined();
+    expect(artifact.matches[0]?.redBonusRpPmf).toBeUndefined();
+    expect(artifact.matches[0]?.blueBonusRpPmf).toBeUndefined();
+    expect(artifact.rpOutcomeRp).toBeUndefined();
+    const roundTripped = JSON.parse(JSON.stringify(artifact)) as typeof artifact;
+    expect(roundTripped.matches[0]).not.toHaveProperty("matchOutcomePmf");
+    expect(roundTripped.matches[0]).not.toHaveProperty("redBonusRpPmf");
+    expect(roundTripped.matches[0]).not.toHaveProperty("blueBonusRpPmf");
+    expect(roundTripped).not.toHaveProperty("rpOutcomeRp");
+  });
+
+  it("the pre-existing redRpPmf/blueRpPmf values on both row builders are byte-identical whether or not the decomposition is also present", () => {
+    const redRpPmf = [0.123456, 0.234567, 0.345678, 0.111111, 0.098765, 0.055555, 0.030868];
+    const blueRpPmf = [0.2, 0.2, 0.2, 0.15, 0.1, 0.1, 0.05];
+    const withDecomposition = buildEventArtifact(
+      eventArtifactParams({
+        prediction: { redRpPmf, blueRpPmf, ...DECOMPOSITION },
+        upcomingPrediction: { redRpPmf, blueRpPmf, ...DECOMPOSITION },
+      })
+    );
+    const withoutDecomposition = buildEventArtifact(
+      eventArtifactParams({ prediction: { redRpPmf, blueRpPmf }, upcomingPrediction: { redRpPmf, blueRpPmf } })
+    );
+    expect(withDecomposition.matches[0]?.redRpPmf).toEqual(withoutDecomposition.matches[0]?.redRpPmf);
+    expect(withDecomposition.matches[0]?.blueRpPmf).toEqual(withoutDecomposition.matches[0]?.blueRpPmf);
+    expect(withDecomposition.upcoming[0]?.redRpPmf).toEqual(withoutDecomposition.upcoming[0]?.redRpPmf);
+    expect(withDecomposition.upcoming[0]?.blueRpPmf).toEqual(withoutDecomposition.upcoming[0]?.blueRpPmf);
+  });
+});
+
 /**
  * Plan 08-02 Task 2 (D-12): `buildEventArtifact`'s `matches` row builder
  * gains `actualRedRp`/`actualBlueRp`, mirroring `buildTeamSeasonArtifact`'s

@@ -1,5 +1,9 @@
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
-import type { SimMatchInput, SimTeamBaseline } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
+import type {
+  SimMatchInput,
+  SimMatchOutcomeInput,
+  SimTeamBaseline,
+} from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import { mergeEventMatches, isQualCompLevel, type EventMatchRow } from "../components/event/eventMatchAxis.js";
 
 /**
@@ -223,11 +227,42 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     const redPmf = raw?.redRpPmf;
     const bluePmf = raw?.blueRpPmf;
     if (redPmf !== undefined && redPmf.length > 0 && bluePmf !== undefined && bluePmf.length > 0) {
+      // D-15, plan 09-07: the inclusion rule above is UNCHANGED — a row
+      // still enters `remainingMatches` on the strength of its total-pmf
+      // pair alone. `outcome` is attached ADDITIONALLY, when — and only
+      // when — the complete decomposition is present (all three row fields
+      // plus the artifact's top-level `rpOutcomeRp`); it is never a
+      // precondition for inclusion. Requiring it here would empty
+      // `remainingMatches` for every event published before 09-10's
+      // republish and take the Simulation tab dark across the whole site.
+      const outcomePmf = raw?.matchOutcomePmf;
+      const redBonusRpPmf = raw?.redBonusRpPmf;
+      const blueBonusRpPmf = raw?.blueBonusRpPmf;
+      const outcome: SimMatchOutcomeInput | undefined =
+        outcomePmf !== undefined &&
+        outcomePmf.length > 0 &&
+        redBonusRpPmf !== undefined &&
+        redBonusRpPmf.length > 0 &&
+        blueBonusRpPmf !== undefined &&
+        blueBonusRpPmf.length > 0 &&
+        artifact.rpOutcomeRp !== undefined
+          ? {
+              outcomePmf,
+              // EventMatchSchema.matchOutcomePmf's doc comment
+              // (packages/harness/pageArtifacts.ts) is the single
+              // definition site of this order: [red win, tie, blue win].
+              redOutcomeRp: [artifact.rpOutcomeRp.win, artifact.rpOutcomeRp.tie, 0],
+              blueOutcomeRp: [0, artifact.rpOutcomeRp.tie, artifact.rpOutcomeRp.win],
+              redBonusRpPmf,
+              blueBonusRpPmf,
+            }
+          : undefined;
       remainingMatches.push({
         redTeamKeys: row.redTeams,
         blueTeamKeys: row.blueTeams,
         redRpPmf: redPmf,
         blueRpPmf: bluePmf,
+        ...(outcome !== undefined ? { outcome } : {}),
       });
     } else {
       excludedMatchKeys.push(row.matchKey);

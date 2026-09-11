@@ -353,6 +353,57 @@ describe("PD-05 — pmf absence excludes, never substitutes", () => {
   });
 });
 
+describe("D-15 (plan 09-07) — outcome is attached when and only when the complete decomposition is present", () => {
+  const DECOMPOSED = {
+    matchOutcomePmf: [0.6, 0.02, 0.38],
+    redBonusRpPmf: [0.7, 0.3],
+    blueBonusRpPmf: [0.8, 0.2],
+  };
+  const RP_OUTCOME_RP = { win: 2, tie: 1 };
+
+  it("a complete artifact (row fields + top-level rpOutcomeRp) attaches outcome, with redOutcomeRp = [win, tie, 0] and blueOutcomeRp = [0, tie, win]", () => {
+    const upcoming = [upcomingRow("2024test_qm1", 1, DECOMPOSED)];
+    const a = artifact({ upcoming, rpOutcomeRp: RP_OUTCOME_RP });
+    const result = buildSimulationInputs(a, "2024test_qm1")!;
+    expect(result.remainingMatches.length).toBe(1);
+    expect(result.remainingMatches[0]!.outcome).toEqual({
+      outcomePmf: DECOMPOSED.matchOutcomePmf,
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: DECOMPOSED.redBonusRpPmf,
+      blueBonusRpPmf: DECOMPOSED.blueBonusRpPmf,
+    });
+  });
+
+  it("the exclusion rule does not tighten: a row with usable total pmfs but no decomposition is included, with outcome undefined and its matchKey absent from excludedMatchKeys", () => {
+    const upcoming = [upcomingRow("2024test_qm1", 1)]; // redRpPmf/blueRpPmf present, no decomposition fields
+    const a = artifact({ upcoming, rpOutcomeRp: RP_OUTCOME_RP });
+    const result = buildSimulationInputs(a, "2024test_qm1")!;
+    expect(result.remainingMatches.length).toBe(1);
+    expect(result.remainingMatches[0]!.outcome).toBeUndefined();
+    expect(result.excludedMatchKeys).not.toContain("2024test_qm1");
+  });
+
+  it("row fields present but no top-level rpOutcomeRp yields outcome absent on every row — the vectors cannot be composed without it", () => {
+    const upcoming = [upcomingRow("2024test_qm1", 1, DECOMPOSED)];
+    const a = artifact({ upcoming });
+    const result = buildSimulationInputs(a, "2024test_qm1")!;
+    expect(result.remainingMatches.length).toBe(1);
+    expect(result.remainingMatches[0]!.outcome).toBeUndefined();
+  });
+
+  it("a mixed artifact (one decomposed row, one not) yields a mixed remainingMatches — Test 21 already proved simulateRanks accepts this shape", () => {
+    const upcoming = [upcomingRow("2024test_qm1", 1, DECOMPOSED), upcomingRow("2024test_qm2", 2)];
+    const a = artifact({ upcoming, rpOutcomeRp: RP_OUTCOME_RP });
+    const result = buildSimulationInputs(a, "2024test_qm1")!;
+    expect(result.remainingMatches.length).toBe(2);
+    const decomposedMatch = result.remainingMatches.find((m) => m.outcome !== undefined);
+    const legacyMatch = result.remainingMatches.find((m) => m.outcome === undefined);
+    expect(decomposedMatch).toBeDefined();
+    expect(legacyMatch).toBeDefined();
+  });
+});
+
 describe("elimination rows are never remaining", () => {
   it("an sf row ordered after the start never appears in remainingMatches and never in excludedMatchKeys — it was never a candidate", () => {
     const upcoming = [upcomingRow("2024test_qm1", 1)];
